@@ -21,7 +21,7 @@
   ## phase-B Views redesign (rf2-8ve8z)
 
   The Views panel is THREE STACKED TABLES mirroring the reactive
-  cascade flowing toward the UI:
+  event-bundle flowing toward the UI:
 
     1. Level 1 subs (observe app-db)  — `:inputs []` per `sub-topology`
     2. Level 2+ subs                  — non-empty `:inputs`
@@ -46,7 +46,7 @@
     - `:rf.view/unmounted` is a teardown op → action unmount.
 
   The REASON is computed by intersecting a render's `:deref-subs`
-  query-ids with the set of subs that `:value-changed?` this cascade:
+  query-ids with the set of subs that `:value-changed?` this event-bundle:
   non-empty → reactive (list those changed sub names); empty → the
   view rendered with no own sub change → structural (`← parent
   re-render`, deliberately UNNAMED). Unmount rows have no reason.
@@ -61,8 +61,8 @@
 
         {:focus           {<focus map>}
          :frame           <frame-kw>
-         :dispatch-id     <id-of-focused-cascade>
-         :has-cascade?    <bool>
+         :dispatch-id     <id-of-focused-event-bundle>
+         :has-event-bundle?    <bool>
          :triggered-by    <event-vec>
          :seed-paths      [<path> ...]
          :subs-ran        [{:sub-id _ :value-changed? _ ...} ...]
@@ -84,7 +84,7 @@
   value is now just a classified output PATH.)
 
   `:sub-readers` (rf2-y23uw) is the shared-subscription edge map — for
-  each sub-id, the views that deref'd it this cascade ('which views read
+  each sub-id, the views that deref'd it this event-bundle ('which views read
   sub X'), derived from the per-view `:rf.view/deref-subs` read-sets. The
   same list rides each sub row's `:readers` slot so the Views panel can
   show, per sub, the views that share it.
@@ -92,7 +92,7 @@
   The `:reason` slot on a `:view-row` is `{:kind :reactive :subs [...]}`
   | `{:kind :structural}` | `{:kind :none}` (unmount). The view layer
   truncates the `:subs` list honestly with a `+N more` overflow per the
-  Spec 009 cascade-cap posture.
+  Spec 009 event-bundle-cap posture.
 
   Per spec/021 §3.4 the panel's 'Show unchanged subs' disclosure is
   view-local (panel UI state); the always-expand override lives in
@@ -119,9 +119,9 @@
       head-fallback — the natural LIVE / cold-start debugging UX).
     - `epoch-id` MATCHES a record → that record.
     - `epoch-id` pinned but EVICTED from the ring → nil. The composite
-      then reports `:has-cascade? false` and the panel renders its
+      then reports `:has-event-bundle? false` and the panel renders its
       empty/§10.7-evicted placeholder rather than silently falling back
-      to HEAD and showing the LATEST cascade, which lied about which
+      to HEAD and showing the LATEST event-bundle, which lied about which
       epoch the operator was inspecting.
     - empty history → nil."
   [epoch-history epoch-id]
@@ -136,7 +136,7 @@
 ;; ---- view action + reason (rf2-8ve8z, phase-A rf2-9hoos contract) ---------
 
 (defn- changed-sub-id-set
-  "Set of sub-ids whose value CHANGED this cascade — `:value-changed?`
+  "Set of sub-ids whose value CHANGED this event-bundle — `:value-changed?`
   true on the `:sub-runs` projection. The basis for the per-view
   reactive-vs-structural reason classification.
 
@@ -160,12 +160,12 @@
 
 (defn compute-view-reason
   "Classify WHY a view rendered, given its `:deref-subs` query-vectors
-  and the set of subs that `:value-changed?` this cascade.
+  and the set of subs that `:value-changed?` this event-bundle.
 
   Returns a tagged map:
 
     {:kind :reactive  :subs [<changed-sub-id> ...]}  — the view derefs
-        at least one sub that changed this cascade. `:subs` is the
+        at least one sub that changed this event-bundle. `:subs` is the
         INTERSECTION (the view's own changed reasons), order preserved
         from the view's deref order so the most-relevant reads lead.
     {:kind :structural}  — the view rendered but none of the subs it
@@ -187,7 +187,7 @@
       {:kind :structural})))
 
 (defn view-rows
-  "Project the focused cascade's view-render + view-unmount trace events
+  "Project the focused event-bundle's view-render + view-unmount trace events
   into ordered `:view-row` maps for the Views table (rf2-8ve8z).
 
   Reads `:rf.view/rendered` and `:rf.view/unmounted` ops off the raw
@@ -211,9 +211,9 @@
   timing) ride the `:rf.view/rendered` op from rf2-8wrzz.1; the flow
   graph (spec/021 §3.2) uses them to label each sub→view edge's cause +
   the view node's timing. Both are absent on a structural re-render /
-  outside a cascade — the slot is simply omitted.
+  outside an event-bundle — the slot is simply omitted.
 
-  `changed-set` is the set of changed sub-ids this cascade (from
+  `changed-set` is the set of changed sub-ids this event-bundle (from
   `changed-sub-id-set`). nil-safe: missing tags / absent fields degrade
   to a structural reason rather than crashing. Events without a
   `:view-id` are skipped (they can't anchor a row)."
@@ -252,11 +252,11 @@
 (defn unmounted-views
   "Project the epoch's UNMOUNTED VIEWS section rows (spec/021 §3.2 ·
   Figma `ViewsPanel`). One row per `:rf.view/unmounted` op this
-  cascade — views whose component instance tore down this epoch.
+  event-bundle — views whose component instance tore down this epoch.
 
   Reads the same `:rf.view/unmounted` teardown op `view-rows` reads for
   its `:unmount` action; surfaced here as a dedicated section per the
-  Figma design (the graph shows the live cascade; teardown lists below
+  Figma design (the graph shows the live event-bundle; teardown lists below
   it). Each row `{:view-id <kw/id>}`. First-seen order, de-duplicated by
   view-id so two instances of one view tearing down list once. nil-safe;
   ops without a `:view-id` are skipped."
@@ -294,15 +294,15 @@
 ;; ---- shared-subscription edges (rf2-y23uw) --------------------------------
 
 (defn sub-readers
-  "Build the sub→readers map for this cascade — `{sub-id [view-id ...]}` —
+  "Build the sub→readers map for this event-bundle — `{sub-id [view-id ...]}` —
   the 'which views read sub X' shared-subscription edge set.
 
-  Walks the cascade's `:rf.view/rendered` ops and, for each, unions its
+  Walks the event-bundle's `:rf.view/rendered` ops and, for each, unions its
   view-id into the reader list of every sub-id it derefs (its
   `:rf.view/deref-subs` read-set). The result lets the Views panel show,
   per sub row, the set of views that read it — the shared-sub detection
   the per-render `:rf.view/cause-subs`/`:rf.sub/reader-render-key` pair
-  can't supply (cause-subs is cascade-wide and over-reports; the
+  can't supply (cause-subs is event-bundle-wide and over-reports; the
   reader-render-key names only the TRIGGERING reader of a recompute, not
   every reader, and not unchanged subs a view also reads).
 
@@ -386,7 +386,7 @@
   enumerable — the EP §Tooling two-level contract). The static surface
   has NO edges to draw for them, so this returns `[]` rather than
   fabricating un-materialized edges. The REALIZED parametric edges live
-  in the live/cache view (`sub-cache` / the `:rf.sub/inputs` cascade
+  in the live/cache view (`sub-cache` / the `:rf.sub/inputs` event-bundle
   tag), not the static topology partition.
 
   `:db` / missing entry → `[]`."
@@ -398,7 +398,7 @@
       [])))
 
 (defn partition-subs-by-level
-  "Partition the cascade's subs into the Level 1 / Level 2+ table rows
+  "Partition the event-bundle's subs into the Level 1 / Level 2+ table rows
   using the static `sub-topology` snapshot (rf2-8ve8z).
 
   `subs-ran` is the `:sub-runs` projection slice (each entry carries
@@ -424,7 +424,7 @@
   The row also carries `:input-kind` so the panel can badge a parametric
   sub. Realized parametric edges surface in the live/cache view.
 
-  `:readers` is the views that deref this sub THIS cascade — the
+  `:readers` is the views that deref this sub THIS event-bundle — the
   shared-subscription edge (rf2-y23uw); absent when no rendered view read
   it (e.g. a handler-side or upstream-input sub no view directly derefs).
 
@@ -528,8 +528,8 @@
   (:event record))
 
 (defn- seed-paths
-  "Derive seed paths from the cascade `:db-before` → `:db-after` diff.
-  The handler set state and that mutation kicks the subs cascade. v1
+  "Derive seed paths from the event-bundle `:db-before` → `:db-after` diff.
+  The handler set state and that mutation kicks the subs event-bundle. v1
   surfaces the changed top-level paths the diff provides; deeper-path
   resolution can ride a follow-on."
   [record]
@@ -552,7 +552,7 @@
     :<- [:rf.xray/epoch-history]
     (fn [[focus history] _query]
       (let [record   (focused-epoch-record history (:epoch-id focus))
-            ;; Static topology snapshot — read once per cascade. Free
+            ;; Static topology snapshot — read once per event-bundle. Free
             ;; (registry-only); used to partition L1 / L2+ subs and
             ;; supply the inputs + code columns. Defensive try so a
             ;; topology read never crashes the panel.
@@ -564,6 +564,6 @@
                 :dispatch-id  (:dispatch-id focus)
                 :triggered-by (when record (triggered-by record))
                 :seed-paths   (when record (seed-paths record))
-                :has-cascade? (some? record)}))))
+                :has-event-bundle? (some? record)}))))
 
   nil)

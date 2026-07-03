@@ -20,7 +20,7 @@
       outs).
     - `event-status-colour` is a pure passthrough through
       `theme/tokens` (no inline hexes, one source of truth).
-    - `cascade->state` projects the cascade + focus pair onto the
+    - `event-bundle->state` projects the cascade + focus pair onto the
       input map consumed by the classifier."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
@@ -202,60 +202,60 @@
 (defn- mock-outcome [outcome]
   (fn [_cascade] {:outcome outcome}))
 
-(deftest cascade->state-projects-focused-error
+(deftest event-bundle->state-projects-focused-error
   (testing "a cascade that's focused + LIVE + errored → the state
             map carries :outcome :error + :focused? true. The
             classifier then resolves to :settled-error."
     (let [cascade {:dispatch-id 42}
           focus   {:dispatch-id 42 :mode :live :paused? false}
-          state   (event-status/cascade->state cascade focus (mock-outcome :error))]
+          state   (event-status/event-bundle->state cascade focus (mock-outcome :error))]
       (is (= :error (:outcome state)))
       (is (true? (:focused? state)))
       (is (false? (:stale? state)))
       (is (= :live (:mode state)))
       (is (= :settled-error (event-status/classify-status state))))))
 
-(deftest cascade->state-projects-retro-stale
+(deftest event-bundle->state-projects-retro-stale
   (testing "a focused cascade in RETRO mode → :stale? true (derived
             from :mode :retro)."
     (let [cascade {:dispatch-id 7}
           focus   {:dispatch-id 7 :mode :retro :paused? false}
-          state   (event-status/cascade->state cascade focus (mock-outcome :ok))]
+          state   (event-status/event-bundle->state cascade focus (mock-outcome :ok))]
       (is (true? (:stale? state)))
       (is (= :retro (:mode state)))
       (is (= :stale (event-status/classify-status state))))))
 
-(deftest cascade->state-projects-non-focused-cascade
+(deftest event-bundle->state-projects-non-focused-event-bundle
   (testing "a cascade that's NOT the spine focus → :focused? false +
             :mode nil. The classifier resolves to :settled-success
             for an :ok outcome — non-focused rows are rendered with
             their settled state, not the spine's RETRO scope."
     (let [cascade {:dispatch-id 1}
           focus   {:dispatch-id 99 :mode :retro :paused? true}
-          state   (event-status/cascade->state cascade focus (mock-outcome :ok))]
+          state   (event-status/event-bundle->state cascade focus (mock-outcome :ok))]
       (is (false? (:focused? state)))
       (is (nil? (:mode state)))
       (is (false? (:stale? state)))
       (is (false? (:paused? state)))
       (is (= :settled-success (event-status/classify-status state))))))
 
-(deftest cascade->state-with-nil-focus
+(deftest event-bundle->state-with-nil-focus
   (testing "no focus map (e.g. test rig pre-mount) → :focused? false.
             The fn still resolves cleanly so JVM-side fixture
             builders can call it without a live spine."
-    (let [state (event-status/cascade->state {:dispatch-id 1} nil (mock-outcome :ok))]
+    (let [state (event-status/event-bundle->state {:dispatch-id 1} nil (mock-outcome :ok))]
       (is (false? (:focused? state)))
       (is (= :settled-success (event-status/classify-status state))))))
 
-(deftest cascade->state-frame-strict-focused-rf2-bz7flo
+(deftest event-bundle->state-frame-strict-focused-rf2-bz7flo
   (testing "rf2-bz7flo — when a multi-frame caller renders two cascades
             sharing a dispatch-id in different frames, only the cascade
             in the FOCUSED frame is :focused?. A dispatch-id-only check
             would mark BOTH focused/paused/stale."
     (let [focus    {:dispatch-id 7 :frame :frame/b :mode :retro :paused? true}
-          in-frame (event-status/cascade->state
+          in-frame (event-status/event-bundle->state
                      {:dispatch-id 7 :frame :frame/b} focus (mock-outcome :ok))
-          foreign  (event-status/cascade->state
+          foreign  (event-status/event-bundle->state
                      {:dispatch-id 7 :frame :frame/a} focus (mock-outcome :ok))]
       (is (true? (:focused? in-frame))
           "the focused-frame cascade is focused")
@@ -270,10 +270,10 @@
             the cascade or the focus is frameless (single-frame focus /
             JVM rigs building the cascade by hand)"
     (let [focus {:dispatch-id 7 :mode :live}]
-      (is (true? (:focused? (event-status/cascade->state
+      (is (true? (:focused? (event-status/event-bundle->state
                               {:dispatch-id 7 :frame :frame/a} focus (mock-outcome :ok))))
           "frameless focus + framed cascade → id-only match, focused")
-      (is (true? (:focused? (event-status/cascade->state
+      (is (true? (:focused? (event-status/event-bundle->state
                               {:dispatch-id 7} {:dispatch-id 7 :frame :frame/a :mode :live}
                               (mock-outcome :ok))))
           "framed focus + frameless cascade → id-only match, focused"))))

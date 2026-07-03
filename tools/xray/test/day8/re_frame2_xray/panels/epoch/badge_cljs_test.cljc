@@ -192,7 +192,7 @@
             `TRANSITION` pill (distinct from a `TRANSITION ACTION`)"
     (is (= "TRANSITION" (badge/cascade-kind-label :transition)))))
 
-(deftest cascade-outcome-resolver-test
+(deftest event-bundle-outcome-resolver-test
   (testing "rf2-u69j7 — outcome → token-key + glyph mappings"
     (is (= :success       (badge/cascade-outcome-token-key :pass)))
     (is (= :success       (badge/cascade-outcome-token-key :ok)))
@@ -210,7 +210,7 @@
 ;; `step-status-colour`) along with its per-stage badge glyph — a clean
 ;; run painted a tick on every stage (no information) and a failure is
 ;; already shown by the inline exception card under the stage. The
-;; per-EFFECT ledger glyphs (below) + the cascade-outcome banner glyph
+;; per-EFFECT ledger glyphs (below) + the event-bundle-outcome banner glyph
 ;; (above) carry the surviving, distinct signals.
 
 ;; ---- flat SIDE EFFECTS ledger row glyphs (rf2-j630b) --------------------

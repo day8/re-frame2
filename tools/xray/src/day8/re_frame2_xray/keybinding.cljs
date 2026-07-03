@@ -234,7 +234,7 @@
   dialog root. Used to suppress the bare-letter spine bindings
   (`s`, `,`, etc.) while a modal owns the keyboard, so those keys
   can carry their modal-only inner meaning instead of re-toggling
-  the parent modal or firing the spine cascade. Per rf2-ttnst."
+  the parent modal or firing the spine event-bundle. Per rf2-ttnst."
   [^js event]
   (when-let [target (.-target event)]
     (when (and target (.-closest target))

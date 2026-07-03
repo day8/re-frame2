@@ -155,7 +155,7 @@
       (is (not (contains? s :frame)) "no :frame cause in the model")
       ;; the list is scoped to frame-y (2 events), decoupled from filters
       (is (= :rf/frame-y (frame-sub [:rf.xray/view-scope-frame])))
-      (is (= 2 (count (frame-sub [:rf.xray/filtered-cascades])))))))
+      (is (= 2 (count (frame-sub [:rf.xray/filtered-event-bundles])))))))
 
 (deftest hidden-by-filters-counts-mute-suppression
   (xray-setup!)

@@ -526,7 +526,7 @@
   no descendant slots to recurse into, so the recursive branches below
   would emit NOTHING and the slot would fall through `op-at` to `:same`
   — the only path inside a wholly-`:+`/`:-` subtree that would lie to
-  the operator (a green-`:added` cascade with two muted `:same` empty
+  the operator (a green-`:added` event-bundle with two muted `:same` empty
   slots). The renderer treats empty containers as leaf rows (see
   `render-node`'s `empty?` branch); the engine must classify them as
   leaves too. Emit the empty container as a single leaf op so the

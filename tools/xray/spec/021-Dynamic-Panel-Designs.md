@@ -2889,7 +2889,7 @@ presentation boundary reads as one named ns the view imports.
 | `:rf.xray.epoch/toggle-row-expand step-kw row-id` | flip the row's pair in `:epoch-panel-expanded-rows` |
 | `:rf.xray.epoch/clear-row-expand` | drop the expansion set |
 | `:rf.xray.epoch/set-subs-filter-mode mode` | set the SUBSCRIPTIONS filter mode (rf2-tzmmf — closed set `:all / :changed / :unchanged`; supersedes rf2-kfh1v's `toggle-subs-show-unchanged`. The button-bar replaces both the prior boolean toggle AND the badge-adjacent `N recomputed (M changed, K unchanged)` summary text — Mike pair-debug 2026-05-26: no coexistence, pre-alpha posture) |
-| `:rf.xray/focus-epoch epoch-id` | pivot the spine's `:rf.xray/focus` to the supplied epoch-id (rf2-5qp4g). Resolves the matching record's settling `:dispatch-id` via `spine/dispatch-id-for-epoch` and defers to `focus-cascade-reducer`. Drives the DISPATCH step's parent-epoch navigation chip on `:fx-dispatch` / `:fx-dispatch-later` dispatches (§9.1.6.3). When the epoch-id has no matching dispatch-id in the buffer (trace elided, record-only fixture), the event still pins `:focus :epoch-id` so panels pivoting on it (App-DB diff, Views, Machine Inspector) follow the navigation; the cascade's `:dispatch-id` resolves on the next live tick. |
+| `:rf.xray/focus-epoch epoch-id` | pivot the spine's `:rf.xray/focus` to the supplied epoch-id (rf2-5qp4g). Resolves the matching record's settling `:dispatch-id` via `spine/dispatch-id-for-epoch` and defers to `focus-event-bundle-reducer`. Drives the DISPATCH step's parent-epoch navigation chip on `:fx-dispatch` / `:fx-dispatch-later` dispatches (§9.1.6.3). When the epoch-id has no matching dispatch-id in the buffer (trace elided, record-only fixture), the event still pins `:focus :epoch-id` so panels pivoting on it (App-DB diff, Views, Machine Inspector) follow the navigation; the cascade's `:dispatch-id` resolves on the next live tick. |
 
 ### §9.1.10.1 Substrate tag dependencies (the trace-stamp contract)
 
@@ -3432,7 +3432,7 @@ restated the inline signal — the ✗ glyph + the error card already name
 and locate the failure — and pushed the actual cascade content down.
 
 **This is the TOOL-SIDE outcome** — the same trace-derived
-`:error`/`:ok` signal `event-status-colour/cascade-outcome` already
+`:error`/`:ok` signal `event-status-colour/event-bundle-outcome` already
 computes for the L2 list / Event header / Trace bar (a cascade
 carrying an `:rf.error/*` trace reads `:error`). It is
 **DELIBERATELY NOT** the framework `:rf/epoch-record` `:outcome`

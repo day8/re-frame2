@@ -20,7 +20,7 @@
        (`settings/effects.cljs/install-auto-open-watcher!`) — the
        cross-epoch \"something is wrong\" signal Mike kept under (c).
     2. The L2 event-row pink-wash predicate
-       (`panels/l2-timeline/cascade-has-issue?` reuses `issue-event?`
+       (`panels/l2-timeline/event-bundle-has-issue?` reuses `issue-event?`
        so the wash stays in lockstep with the ribbon by construction).
 
   ## Why a separate `.cljc` ns
@@ -119,7 +119,7 @@
   resolver returns `:focused` for this case; `find-epoch-record`
   returns the head record. The `:no-focus` empty-state is reserved
   for the truly degenerate case where focus is nil AND history is
-  empty (no cascades have settled yet)."
+  empty (no event-bundles have settled yet)."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
@@ -333,7 +333,7 @@
 
   `focus-status` is one of:
     :no-focus       — no focused epoch AND no history (cold start
-                      before any cascade has settled)
+                      before any event-bundle has settled)
     :epoch-evicted  — focus has an :epoch-id but the matching record
                       is gone from history (capped per :epoch-history)
     :focused        — focus resolved to a real epoch record (either
@@ -350,7 +350,7 @@
   `:empty-kind` discriminates the empty-state branches:
 
       :no-focus       — spine carries no focused epoch AND history
-                        is empty (cold start, no cascades have
+                        is empty (cold start, no event-bundles have
                         settled). Render a terse 'No epoch focused.'
                         line so the panel skeleton doesn't look
                         broken. Per rf2-h0120 a nil-focus with

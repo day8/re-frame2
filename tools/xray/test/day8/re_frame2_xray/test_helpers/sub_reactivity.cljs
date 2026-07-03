@@ -23,7 +23,7 @@
   - `:rf.xray/sync-trace-buffer` — wholesale overwrite of the
     `:trace-buffer` slot (registry.cljs). The `seed-cascades!` helper
     builds the minimal trace-event shape `group-by-event` needs so
-    the `:rf.xray/cascades` sub re-projects to the requested cascade
+    the `:rf.xray/event-bundles` sub re-projects to the requested cascade
     vector.
 
   - `:rf.xray/sync-epoch-history` — wholesale overwrite of the
@@ -38,7 +38,7 @@
     `sync-epoch-history` runs.
 
   - `:rf.xray/focus-event` — the canonical focus-mutation event. The
-    spine's `focus-cascade-reducer` writes through to both
+    spine's `focus-event-bundle-reducer` writes through to both
     `[:focus :dispatch-id]` and `[:focus :epoch-id]`, so any panel
     pivoting on either axis re-fires.
 
@@ -159,7 +159,7 @@
 (defn seed-cascades!
   "Seed the `:rf/xray` frame's `:trace-buffer` slot with a minimal
   trace-event vector that re-projects to `cascades-vec` via the
-  `:rf.xray/cascades` sub.
+  `:rf.xray/event-bundles` sub.
 
   Each entry in `cascades-vec` is a cascade record (typically built via
   `cascade`). The function constructs ONE `:rf.event/dispatched` event per
@@ -270,7 +270,7 @@
 (defn focus-cascade!
   "Drive the canonical focus-mutation event. Wraps `rf/dispatch-sync`
   in the `:rf/xray` frame so the spine sub picks up the change. The
-  spine's `focus-cascade-reducer` writes both `[:focus :dispatch-id]`
+  spine's `focus-event-bundle-reducer` writes both `[:focus :dispatch-id]`
   and `[:focus :epoch-id]` via the per-frame `:epoch-history` slot,
   so panels pivoting on either axis re-fire.
 

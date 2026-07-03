@@ -12,7 +12,7 @@
   - `panels.machine-inspector` reads `:rf.xray/epoch-history`,
     `:rf.xray/target-frame`, `:rf.xray/target-frame-db`.
   - `panels.reactive-panel-subs` reads `:rf.xray/epoch-history` to
-    project the focused cascade's `:trace-events` into the Reactive
+    project the focused event-bundle's `:trace-events` into the Reactive
     panel's sub-cascade + view-re-render rendering (rf2-wyvf2).
   - `core/target-frame` + `core/set-target-frame!` read / dispatch the
     target-frame slot and `:rf.xray/set-target-frame` event. (Pre
@@ -95,11 +95,11 @@
   ;; already aligns both axes per rf2-ug1r6 + rf2-thodq. Pre-fix, mount-
   ;; time and `core/set-target-frame!` callers wrote only `:target-frame`,
   ;; leaving `[:focus :frame]` nil — which made:
-  ;;   - `filter-cascades-by-frame` a no-op (reads `:focus-slot :frame`),
-  ;;     so the L2 list showed every frame's cascades even though the
+  ;;   - `filter-event-bundles-by-frame` a no-op (reads `:focus-slot :frame`),
+  ;;     so the L2 list showed every frame's event-bundles even though the
   ;;     picker view collapsed the dropdown label to a specific frame;
   ;;   - `compose-focus`'s `slot-frame` filter inactive, so the head
-  ;;     walk picked the global most-recent cascade — Issues / Views /
+  ;;     walk picked the global most-recent event-bundle — Issues / Views /
   ;;     App-DB Diff scoped to whichever frame's event was most recent,
   ;;     not the observed frame.
   ;; A nil `frame-id` (the reset case) symmetrically clears the focus
@@ -137,7 +137,7 @@
   ;;
   ;; rf2-mdpfz — the sync ALSO focuses the LATEST seeded epoch. The
   ;; sync seeds `:epoch-history` DIRECTLY, bypassing the normal trace-
-  ;; driven path (`:rf.xray/epoch-recorded` → a fresh cascade →
+  ;; driven path (`:rf.xray/epoch-recorded` → a fresh event-bundle →
   ;; `compose-focus` auto-following head), so nothing would otherwise
   ;; select an epoch: every focus-keyed Dynamic panel renders its
   ;; "nothing focused" state (App-db → "no user-domain keys yet";
@@ -148,7 +148,7 @@
   ;; not enough — focus MUST carry the epoch-id.
   ;;
   ;; We stamp the spine `[:focus :epoch-id]` (what `compose-focus`
-  ;; surfaces as `:rf.xray/focus` `:epoch-id` when no cascade head is
+  ;; surfaces as `:rf.xray/focus` `:epoch-id` when no event-bundle head is
   ;; present — i.e. history-only seeds), the single source of truth the
   ;; focus-keyed panels follow (rf2-uy7nz retired the `:selected-epoch-
   ;; id` mirror). The LATEST epoch is the HEAD of the oldest-first ring
@@ -159,7 +159,7 @@
   ;;
   ;; When a live trace buffer IS also seeded (the chrome story seeds
   ;; both via `:rf.xray/sync-trace-buffer`), `compose-focus`'s LIVE
-  ;; auto-follow re-derives `:epoch-id` from the head cascade — that
+  ;; auto-follow re-derives `:epoch-id` from the head event-bundle — that
   ;; path is unchanged; this stamp is the authoritative selection only
   ;; for history-only seeds (the standalone panel-gallery stories).
   (rf/reg-event :rf.xray/sync-epoch-history

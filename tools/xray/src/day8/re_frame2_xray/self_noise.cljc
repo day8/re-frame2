@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.self-noise
   "Pure-data predicates that classify Xray's own machinery so it can be
-  filtered out of the user-facing cascade list and trace surface.
+  filtered out of the user-facing event-bundle list and trace surface.
 
   Xray's panels render INSIDE the host app. Every host dispatch dirties
   the host app-db, every layer-1 `:rf.xray/*` sub re-fires, every
@@ -26,8 +26,8 @@
      gate (e.g. an emit-site that hasn't been touched by the
      `:rf.trace/frame-no-emit?` migration).
 
-  2. **`xray-internal-cascade?` / `xray-internal-event-id?`** —
-     cascades whose `:event` vector's head is a keyword in the
+  2. **`xray-internal-event-bundle?` / `xray-internal-event-id?`** —
+     event bundles whose `:event` vector's head is a keyword in the
      `rf.xray` namespace OR any `rf.xray.*` sub-namespace
      (`:rf.xray/focus-event`, `:rf.xray/select-tab`,
      `:rf.xray.static/select-tab`, `:rf.xray.epoch/toggle-row`, etc.).
@@ -39,7 +39,7 @@
      chain-resolves them onto `:rf/default` and the trace envelope
      carries `:frame :rf/default` — so the frame gate +
      `xray-internal-event?` both miss them. The data-layer filter at
-     the `:rf.xray/cascades` sub closes that hole structurally without
+     the `:rf.xray/event-bundles` sub closes that hole structurally without
      forcing every call site to thread `:frame`.
 
   ## Pre-alpha posture
@@ -54,7 +54,7 @@
   Extracted from `trace_bus.cljc` per rf2-43koh + the rf2-3g9nw ruling
   (D4=a). The predicates are pure data with one job; sitting in a
   small, focused ns makes them discoverable + cheap to require from
-  anywhere (the trace collector, the `:rf.xray/cascades` sub, the
+  anywhere (the trace collector, the `:rf.xray/event-bundles` sub, the
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
   runnable so the JVM test corpus can drive every axis."
   (:require [clojure.string :as str]
@@ -87,7 +87,7 @@
   devtool prefix). Xray registers + dispatches many internal events
   under sub-namespaces (e.g. the palette's frameless
   `:rf.xray.static/select-tab`), and those must be filtered out of the
-  host cascade list exactly like the bare-`rf.xray` ones.
+  host event-bundle list exactly like the bare-`rf.xray` ones.
 
   The match is a NAMESPACE SEGMENT prefix, not a naive substring: the
   ns must be exactly `rf.xray` or start with `rf.xray.` (the dot
@@ -114,32 +114,32 @@
         (or (= "rf.xray" ns)
             (str/starts-with? ns "rf.xray."))))))
 
-(defn xray-internal-cascade?
-  "True when `cascade`'s `:event` vector's head is a Xray-internal
-  event-id (see `xray-internal-event-id?`). False for cascades whose
+(defn xray-internal-event-bundle?
+  "True when `event-bundle`'s `:event` vector's head is a Xray-internal
+  event-id (see `xray-internal-event-id?`). False for event bundles whose
   event vector is absent (e.g. the `:ungrouped` bucket — those are
-  filtered separately by `cascade-has-event?` at the L2 boundary).
+  filtered separately by `event-bundle-has-event?` at the L2 boundary).
 
-  Pure-data + JVM-runnable. Used by the `:rf.xray/cascades` sub to
+  Pure-data + JVM-runnable. Used by the `:rf.xray/event-bundles` sub to
   hard-filter Xray's own events out of every downstream consumer."
-  [cascade]
-  (let [ev (:event cascade)]
+  [event-bundle]
+  (let [ev (:event event-bundle)]
     (and (vector? ev)
          (xray-internal-event-id? (first ev)))))
 
-;; ---- the canonical filtered cascade projection (rf2-y2h6y) ---------------
+;; ---- the canonical filtered event-bundle projection (rf2-y2h6y) ----------
 
-(defn filtered-cascades
-  "Group `buffer` (a flat trace-event vector) into cascades via
-  `projection/group-by-event`, then strip every Xray-internal cascade
-  (`xray-internal-cascade?`). The ONE home for the 'group + drop
-  self-noise' pairing.
+(defn filtered-event-bundles
+  "Group `buffer` (a flat trace-event vector) into event bundles via
+  `projection/group-by-event`, then strip every Xray-internal event
+  bundle (`xray-internal-event-bundle?`). The ONE home for the 'group +
+  drop self-noise' pairing.
 
   rf2-qlvq8 closed a divergence bug by making the event-side spine walk
-  (`spine/db->cascades`) match the reactive `:rf.xray/cascades` sub
-  (registry.cljs) and the first-mount seed (mount.cljs) — all three must
-  produce the SAME user-facing cascade set. Previously the
-  `(into [] (remove xray-internal-cascade?) (group-by-event buffer))`
+  (`spine/db->event-bundles`) match the reactive `:rf.xray/event-bundles`
+  sub (registry.cljs) and the first-mount seed (mount.cljs) — all three
+  must produce the SAME user-facing event-bundle set. Previously the
+  `(into [] (remove xray-internal-event-bundle?) (group-by-event buffer))`
   expression was copied verbatim at all three sites, so a future change
   to the projection/filter pairing had to be applied in lockstep or the
   divergence re-opened (exactly the bug class rf2-qlvq8 fixed). This
@@ -149,4 +149,4 @@
   Pure-data + JVM-runnable; matches the other self-noise predicates'
   shape so the JVM test corpus can drive it directly."
   [buffer]
-  (into [] (remove xray-internal-cascade?) (projection/group-by-event buffer)))
+  (into [] (remove xray-internal-event-bundle?) (projection/group-by-event buffer)))

@@ -8,7 +8,7 @@
   is owned by `control-axes-e2e/event-id-mute-e2e-cljs-test`. Here we
   cover the pattern-based pill filter: `:rf.xray/add-filter :out
   <pill>` adds an `:out`-bucket pill to `:rf.xray/active-filters`;
-  `:rf.xray/filtered-cascades` recomposes and the L2 event list
+  `:rf.xray/filtered-event-bundles` recomposes and the L2 event list
   re-renders without the filtered event. This is the unit-level
   mirror of rf2-rwhat Phase 3's right-click flow."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -44,23 +44,23 @@
         (is (not= filters-0 filters-1)
             "active-filters sub re-fired on add-filter")))))
 
-(deftest filtered-cascades-sub-tracks-out-pill
-  (testing "rf2-dhoc9 — `:rf.xray/filtered-cascades` recomposes when
+(deftest filtered-event-bundles-sub-tracks-out-pill
+  (testing "rf2-dhoc9 — `:rf.xray/filtered-event-bundles` recomposes when
             an `:out` pill is added. The filtered event-id's cascade
             falls out of the projected list."
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
-    (let [cascades-before (h/read-sub :rf.xray/filtered-cascades)]
+    (let [cascades-before (h/read-sub :rf.xray/filtered-event-bundles)]
       (is (= 2 (count cascades-before))
           "both cascades present before filter")
       (h/dispatch-xray!
         [:rf.xray/add-filter :out
          {:pattern :evt/inc}])
-      (let [cascades-after (h/read-sub :rf.xray/filtered-cascades)]
+      (let [cascades-after (h/read-sub :rf.xray/filtered-event-bundles)]
         (is (= 1 (count cascades-after))
             "filtered cascade dropped from list")
         (is (not= cascades-before cascades-after)
-            "filtered-cascades sub re-fired on filter")))))
+            "filtered-event-bundles sub re-fired on filter")))))
 
 (deftest remove-filter-restores-cascade
   (testing "rf2-dhoc9 — `:rf.xray/remove-filter` deletes a pill; the
@@ -72,8 +72,8 @@
     (h/dispatch-xray!
       [:rf.xray/add-filter :out
        {:pattern :evt/inc}])
-    (is (= 1 (count (h/read-sub :rf.xray/filtered-cascades)))
+    (is (= 1 (count (h/read-sub :rf.xray/filtered-event-bundles)))
         "filter is active")
     (h/dispatch-xray! [:rf.xray/remove-filter :out 0])
-    (is (= 2 (count (h/read-sub :rf.xray/filtered-cascades)))
+    (is (= 2 (count (h/read-sub :rf.xray/filtered-event-bundles)))
         "unfilter → cascade returns to the filtered list")))

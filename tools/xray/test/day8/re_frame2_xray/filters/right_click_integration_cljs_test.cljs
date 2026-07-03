@@ -7,7 +7,7 @@
    - fire `on-context-menu` on the row
    - assert it dispatches :rf.xray/hide-event-type with the event-id
 
-  Plus the OUT-pill → filtered-cascades round-trip: once a pill is
+  Plus the OUT-pill → filtered-event-bundles round-trip: once a pill is
   installed via the canonical add-filter event, the L2 event list
   re-renders without the matching row."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -142,7 +142,7 @@
           "popup closes after save"))))
 
 ;; -------------------------------------------------------------------------
-;; (2) Once OUT pill is set, filtered-cascades drops the matching row
+;; (2) Once OUT pill is set, filtered-event-bundles drops the matching row
 ;; -------------------------------------------------------------------------
 
 (deftest out-pill-removes-matching-row-from-event-list

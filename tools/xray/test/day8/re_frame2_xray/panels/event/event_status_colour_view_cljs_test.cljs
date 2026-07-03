@@ -19,7 +19,7 @@
        expected anchor colour.
 
     2. **Trace timeline bar** — `panels/trace/Panel` renders a 3px
-       cascade-status bar above the ribbon (cascade-scoped per
+       event-bundle-status bar above the ribbon (cascade-scoped per
        rf2-ycoct so the bar represents every visible row's parent).
 
   The Event L4 header dot was a third site until rf2-ad7zx.17 removed
@@ -87,7 +87,7 @@
 (defn- handler-exception-ev
   "An :rf.error/handler-exception trace pinned to `dispatch-id`. The
   cascade projection routes the trace into the cascade's `:errors`
-  slot — `cascade-outcome` resolves to :error / red."
+  slot — `event-bundle-outcome` resolves to :error / red."
   [id dispatch-id]
   {:id        id
    :op-type   :error
@@ -134,8 +134,8 @@
 
 ;; ---- (3) Trace timeline bar pickups ------------------------------------
 
-(deftest trace-cascade-status-bar-renders-with-canonical-colour
-  (testing "rf2-b76v4 — the Trace tab's cascade-status bar fills the
+(deftest trace-event-bundle-status-bar-renders-with-canonical-colour
+  (testing "rf2-b76v4 — the Trace tab's event-bundle-status bar fills the
             ribbon with the focused cascade's lifecycle colour. Wins
             its testid from the resolved status keyword so a future
             classifier shift surfaces here without a colour assertion."
@@ -145,9 +145,9 @@
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [tree (trace/Panel)
             bar  (find-by-testid-prefix tree
-                                        "rf-xray-trace-cascade-status-bar-")]
+                                        "rf-xray-trace-event-bundle-status-bar-")]
         (is (some? bar)
-            "cascade-status bar renders when a cascade is in focus")
+            "event-bundle-status bar renders when a cascade is in focus")
         (let [attrs (second bar)
               tid   (:data-testid attrs)]
           (is (re-find #"settled-success$" tid)
@@ -156,7 +156,7 @@
                  (get-in attrs [:style :background]))
               "bar's background is the canonical green hex"))))))
 
-(deftest trace-cascade-status-bar-error
+(deftest trace-event-bundle-status-bar-error
   (testing "rf2-b76v4 — an errored focused cascade flips the bar to
             red. Same helper drives the colour the L2 row picks up."
     (xray-setup!)
@@ -166,7 +166,7 @@
       (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
       (let [tree (trace/Panel)
             bar  (find-by-testid tree
-                                 "rf-xray-trace-cascade-status-bar-settled-error")]
+                                 "rf-xray-trace-event-bundle-status-bar-settled-error")]
         (is (some? bar))
         (is (= (:red tokens/tokens)
                (get-in (second bar) [:style :background])))))))
@@ -186,7 +186,7 @@
       (let [trace-tree   (trace/Panel)
             trace-bar    (find-by-testid-prefix
                            trace-tree
-                           "rf-xray-trace-cascade-status-bar-")
+                           "rf-xray-trace-event-bundle-status-bar-")
             trace-status (:data-rf-xray-status (second trace-bar))]
         (is (= "settled-error" trace-status)
             (str "the trace bar rides the canonical vocabulary — "

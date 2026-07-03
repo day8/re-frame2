@@ -54,7 +54,7 @@
 ;; overlay/body-padding dock modes, the recommended host rule reads
 ;; one CSS custom property — Xray documents the property name and
 ;; default; the host's CSS uses it via `var(--rf-xray-inline-width,
-;; 560px)`. Overriding the property anywhere up the cascade (`:root`,
+;; 560px)`. Overriding the property anywhere up the event-bundle (`:root`,
 ;; an ancestor, the host itself, or a user stylesheet) resizes the
 ;; panel. App content to the right (`#app { flex: 1; min-width: 0 }`)
 ;; remains in normal flow — no hit-test occlusion, no overlay.
@@ -92,7 +92,7 @@
   double-click reset can compose against one source of truth. The
   resize handle writes the live value back through
   `--rf-xray-inline-width` so the inline-host contract above (the
-  documented `var(--rf-xray-inline-width, 560px)` cascade) keeps
+  documented `var(--rf-xray-inline-width, 560px)` event-bundle) keeps
   working unchanged — drag is simply a UX surface that drives that
   same CSS custom property reactively."
   560)
@@ -191,7 +191,7 @@
       published hex at 35% alpha).
 
   Xray publishes the property on `:root` in the recommended host
-  snippet so the lookup resolves anywhere in the cascade. The host
+  snippet so the lookup resolves anywhere in the event-bundle. The host
   can override it (e.g. for a tinted brand variant) by setting
   the property on `:root` or any ancestor of the consumer rule.
 
@@ -640,14 +640,14 @@
 ;; (`:rf.egress/local-raw`) back to the redacting default MUST clear the
 ;; trace buffer — the reveal is NOT a one-way trapdoor. The collector only
 ;; gates at ingest time (`suppress-sensitive?`), so without this scrub a
-;; sensitive cascade buffered while the raw profile was active would remain
+;; sensitive event-bundle buffered while the raw profile was active would remain
 ;; visible in every panel after the user narrowed the profile back
 ;; expecting privacy to be restored.
 ;;
 ;; The cost: non-sensitive history that was buffered alongside the
-;; sensitive cascade is also lost. This is the documented trade-off —
+;; sensitive event-bundle is also lost. This is the documented trade-off —
 ;; selective scrubbing is unsafe because a single sensitive event can
-;; have caused later non-sensitive cascades (subs, renders, fx) whose
+;; have caused later non-sensitive event-bundles (subs, renders, fx) whose
 ;; payloads structurally reveal the redacted value (per the Spec 009
 ;; rationale block). Clearing the whole buffer is the simplest correct
 ;; semantic.
@@ -724,9 +724,9 @@
   (`:rf.egress/local-raw`) back to a redacting one, the trace buffer is
   cleared by invoking every registered `toggle-off-callbacks` entry. The
   trade-off — non-sensitive history buffered alongside the sensitive
-  cascade is also lost — is intentional: clearing the whole buffer is the
+  event-bundle is also lost — is intentional: clearing the whole buffer is the
   simplest correct semantic because a sensitive event buffered while the
-  raw profile was active can have caused later cascades whose payloads
+  raw profile was active can have caused later event-bundles whose payloads
   structurally reveal the redacted value. The reveal is NOT a one-way
   trapdoor; narrowing MUST restore privacy fully. A widening (redact →
   reveal) and any same-class transition do NOT invoke the callbacks.
@@ -805,7 +805,7 @@
 ;; The shell's bottom rail renders a `[● REDACTED N]` hint when sensitive
 ;; events were suppressed. The hint tells the user "you're seeing fewer
 ;; events than the runtime emitted because the privacy gate is on" —
-;; useful when a sensitive cascade would otherwise vanish silently.
+;; useful when a sensitive event-bundle would otherwise vanish silently.
 ;;
 ;; The counter is per-target-frame (keyed by the event's `:tags :frame`),
 ;; with a `:global` bucket for events that have no frame scope
@@ -987,10 +987,10 @@
     spec/021 §3.4). OFF by default: unchanged subs are
     coverage signal, not signal-of-the-moment, so the panel hides
     them behind a footer disclosure that operator can flip per-
-    cascade. Flip ON to always expand the disclosure inline.
+    event-bundle. Flip ON to always expand the disclosure inline.
 
   - `:show-ungrouped?` (boolean, default `false`) — opt-in surface
-    for the `:ungrouped` pseudo-cascade bucket. OFF by default: the L2
+    for the `:ungrouped` pseudo-event-bundle bucket. OFF by default: the L2
     event list filters `:ungrouped` (registry-time emits, frame
     lifecycle outside a drain, `:rf.ssr/hydration-mismatch`, REPL
     evals) — silent-by-default. Flip ON to reveal those events
@@ -1018,7 +1018,7 @@
     in each frame's trace ring. Mirrors
     `re-frame.trace.tooling/default-events-retained`. Writes through
     to the runtime ring via `(rf/configure! {:trace-buffer
-    {:events-retained N}})` — `apply-cascades-retained!` resizes the
+    {:events-retained N}})` — `apply-events-retained!` resizes the
     live ring and `apply-all!` replays the persisted value on boot.
     The unit is events (50) — one retained slot per event / pipeline
     run — retained in the framework's per-frame event-keyed rings.
@@ -1044,7 +1044,7 @@
                :density                :cosy           ; #{:cosy :compact}
                :show-tool-frames?      false
                :show-unchanged-subs?   false           ; Reactive-panel disclosure pin
-               :show-ungrouped?        false           ; opt-in pseudo-cascade surface
+               :show-ungrouped?        false           ; opt-in pseudo-event-bundle surface
                :epoch-history          50              ; per-frame epoch ring depth
                :long-keyword-threshold 24
                ;; User-side override of the OS-level

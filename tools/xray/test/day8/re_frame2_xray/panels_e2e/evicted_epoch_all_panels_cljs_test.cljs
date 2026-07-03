@@ -139,16 +139,16 @@
 
 (deftest evicted-pin-views-panel-renders-placeholder
   (testing "rf2-uo0rc.1 — Views (reactive-data) resolves an evicted pin to
-            :has-cascade? false (→ empty/evicted placeholder), NOT the
+            :has-event-bundle? false (→ empty/evicted placeholder), NOT the
             latest cascade. Pre-fix it head-fell-back to epoch 9's cascade."
     (install-xray!)
     (seed-evicted-pin!)
     (let [reactive (sub-xray [:rf.xray/reactive-data])]
-      (is (false? (:has-cascade? reactive))
+      (is (false? (:has-event-bundle? reactive))
           (str "Views showed a cascade for an EVICTED pinned epoch — "
                "spec/021 §10.7 violation (head-fallback bug). "
                "reactive: " (pr-str (select-keys reactive
-                                                 [:has-cascade? :epoch-id]))))
+                                                 [:has-event-bundle? :epoch-id]))))
       (is (empty? (:subs-ran reactive))
           "Views projected sub-runs from the head record on an evicted pin")
       (is (empty? (:view-rows reactive))
@@ -182,8 +182,8 @@
       ;; The two panels the fix corrects.
       (is (= [] machine)
           "Machine Inspector must resolve no transitions for an evicted pin")
-      (is (false? (:has-cascade? reactive))
-          "Views must report :has-cascade? false for an evicted pin")
+      (is (false? (:has-event-bundle? reactive))
+          "Views must report :has-event-bundle? false for an evicted pin")
       ;; The headline invariant: NOT ONE panel surfaced the HEAD epoch (9).
       (is (not= 9 (:epoch-id trace)) "Trace leaked the HEAD epoch")
       (is (not= 9 (:epoch-id epoch)) "Epoch panel leaked the HEAD epoch")

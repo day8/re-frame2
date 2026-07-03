@@ -160,7 +160,7 @@
        (trace-collector/collect-trace!
          {:operation :rf.sub/run :op-type :rf.sub
           :id 4 :time 1003
-          :tags {:rf.sub/id :rf.xray/cascades :frame :rf/xray}})
+          :tags {:rf.sub/id :rf.xray/event-bundles :frame :rf/xray}})
        (is (empty? (trace-collector/frameless-events))))))
 
 ;; ---- xray-internal event-id guard (rf2-g1pt8) --------------------------
@@ -171,7 +171,7 @@
 ;; event-id is in the `rf.xray` namespace — covering :rf.xray/* events
 ;; dispatched WITHOUT `:frame :rf/xray` (those land on the host frame
 ;; and slip past the ingest filter; the data-layer guard at the
-;; `:rf.xray/cascades` sub closes the hole structurally).
+;; `:rf.xray/event-bundles` sub closes the hole structurally).
 ;;
 ;; Predicate tests run under both CLJ + CLJS (pure data, no
 ;; collect-trace! plumbing).
@@ -190,7 +190,7 @@
       ;; (palette/events.cljs:304) — that chain-resolves onto
       ;; :rf/default, so the frame gate misses it and this data-layer
       ;; predicate is the only thing standing between it and the host's
-      ;; user-facing :rf.xray/cascades L2 list. Exact `= "rf.xray"`
+      ;; user-facing :rf.xray/event-bundles L2 list. Exact `= "rf.xray"`
       ;; equality missed it; the segment-prefix match catches it.
       (is (true?  (self-noise/xray-internal-event-id? :rf.xray.static/select-tab)))
       (is (true?  (self-noise/xray-internal-event-id? :rf.xray.epoch/toggle-row-expand)))
@@ -228,15 +228,15 @@
       (is (false? (self-noise/xray-internal-event-id? :rf.xrayon/z)))
       (is (false? (self-noise/xray-internal-event-id? :my.rf.xray-ish/foo))))))
 
-(deftest xray-internal-cascade?-event-vector-head
+(deftest xray-internal-event-bundle?-event-vector-head
   (testing "true iff the cascade's :event vector's head is xray-internal"
-    (is (true?  (self-noise/xray-internal-cascade?
+    (is (true?  (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 1
                    :event       [:rf.xray/focus-event 99]})))
-    (is (true?  (self-noise/xray-internal-cascade?
+    (is (true?  (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 2
                    :event       [:rf.xray/select-tab :event]})))
-    (is (true?  (self-noise/xray-internal-cascade?
+    (is (true?  (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 3
                    :event       [:rf.xray/open-settings]}))
         "single-element event vector (no payload) still classifies")
@@ -245,39 +245,39 @@
       ;; `:palette/select-static-tab` into a FRAMELESS
       ;; `[:dispatch [:rf.xray.static/select-tab :machines]]`. With the
       ;; old exact-equality predicate this cascade landed on :rf/default
-      ;; and surfaced as a spurious row in the host's :rf.xray/cascades
+      ;; and surfaced as a spurious row in the host's :rf.xray/event-bundles
       ;; L2 list. The segment-prefix match closes the hole.
-      (is (true?  (self-noise/xray-internal-cascade?
+      (is (true?  (self-noise/xray-internal-event-bundle?
                     {:dispatch-id 9
                      :event       [:rf.xray.static/select-tab :machines]})))
-      (is (true?  (self-noise/xray-internal-cascade?
+      (is (true?  (self-noise/xray-internal-event-bundle?
                     {:dispatch-id 10
                      :event       [:rf.xray.epoch/toggle-row-expand 3]})))))
   (testing "user-app cascades stay false"
-    (is (false? (self-noise/xray-internal-cascade?
+    (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 4
                    :event       [:cart/add-item {:item-id "apple"}]})))
-    (is (false? (self-noise/xray-internal-cascade?
+    (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 5
                    :event       [:user/click]}))))
   (testing ":ungrouped + event-less cascades stay false"
-    ;; `cascade-has-event?` (rf2-639lc) handles the :ungrouped bucket
+    ;; `event-bundle-has-event?` (rf2-639lc) handles the :ungrouped bucket
     ;; at the L2 boundary; the xray-internal filter sits orthogonal.
-    (is (false? (self-noise/xray-internal-cascade?
+    (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id :ungrouped :event nil})))
-    (is (false? (self-noise/xray-internal-cascade?
+    (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 6 :event []}))))
   (testing "malformed shapes don't throw"
-    (is (false? (self-noise/xray-internal-cascade? {})))
-    (is (false? (self-noise/xray-internal-cascade?
+    (is (false? (self-noise/xray-internal-event-bundle? {})))
+    (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 7 :event "not-a-vector"})))))
 
-;; ---- filtered-cascades — the shared group+strip projection (rf2-y2h6y) ---
+;; ---- filtered-event-bundles — the shared group+strip projection (rf2-y2h6y) ---
 ;;
-;; `filtered-cascades` is the ONE home for the `(into [] (remove
-;; xray-internal-cascade?) (group-by-event buffer))` pairing that was
-;; previously triplicated verbatim across spine/db->cascades, the
-;; reactive :rf.xray/cascades sub (registry), and the first-mount seed
+;; `filtered-event-bundles` is the ONE home for the `(into [] (remove
+;; xray-internal-event-bundle?) (group-by-event buffer))` pairing that was
+;; previously triplicated verbatim across spine/db->event-bundles, the
+;; reactive :rf.xray/event-bundles sub (registry), and the first-mount seed
 ;; (mount). rf2-qlvq8 made those three agree; this helper makes the
 ;; agreement structural. These tests pin (a) the strip behaviour and
 ;; (b) that the helper is exactly the manual expression — so all three
@@ -291,28 +291,28 @@
   {:id id :op-type :rf.event :operation :rf.event/dispatched
    :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v event-v :frame frame}})
 
-(deftest filtered-cascades-strips-xray-internal-keeps-host
+(deftest filtered-event-bundles-strips-xray-internal-keeps-host
   (testing "a buffer carrying one host cascade + one Xray-internal
             cascade projects to ONLY the host cascade"
     (let [buffer [(dispatched-event 1 100 [:counter/inc]          :below)
                   (dispatched-event 2 101 [:rf.xray/select-tab :a] :rf/default)]
-          out    (self-noise/filtered-cascades buffer)]
+          out    (self-noise/filtered-event-bundles buffer)]
       (is (= [[:counter/inc]] (mapv :event out))
           "only the host :counter/inc cascade survives; the frameless
            :rf.xray/* cascade is stripped"))))
 
-(deftest filtered-cascades-equals-manual-group-then-remove
+(deftest filtered-event-bundles-equals-manual-group-then-remove
   (testing "the helper is EXACTLY `(into [] (remove
-            xray-internal-cascade?) (group-by-event buffer))` — the
+            xray-internal-event-bundle?) (group-by-event buffer))` — the
             invariant the three call sites depend on for lockstep"
     (let [buffer [(dispatched-event 1 100 [:counter/inc]              :below)
                   (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)
                   (dispatched-event 3 102 [:user/click]               :below)]]
-      (is (= (into [] (remove self-noise/xray-internal-cascade?)
+      (is (= (into [] (remove self-noise/xray-internal-event-bundle?)
                    (projection/group-by-event buffer))
-             (self-noise/filtered-cascades buffer))))))
+             (self-noise/filtered-event-bundles buffer))))))
 
-(deftest filtered-cascades-empty-buffer
+(deftest filtered-event-bundles-empty-buffer
   (testing "empty buffer → empty vector (always returns a vector)"
-    (is (= [] (self-noise/filtered-cascades [])))
-    (is (vector? (self-noise/filtered-cascades [])))))
+    (is (= [] (self-noise/filtered-event-bundles [])))
+    (is (vector? (self-noise/filtered-event-bundles [])))))

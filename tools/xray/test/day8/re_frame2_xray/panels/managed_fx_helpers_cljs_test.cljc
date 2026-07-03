@@ -7,7 +7,7 @@
     1. `classify-fx-id` — surface taxonomy.
     2. Per-surface adapter (http / websocket / machine-invoke /
        ssr-fx / flow) on success and failure cases.
-    3. `cascade->managed-fx-records` — cascade walker; record-per-fx;
+    3. `event-bundle->managed-fx-records` — cascade walker; record-per-fx;
        paths-touched cross-fold.
     4. Status / phase / cancel-cause / failure derivation."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
@@ -237,7 +237,7 @@
                              (fx-handled :db {:foo 1})
                              (fx-handled :user/persist {:bar 2})]
                    :other []}
-          records (h/cascade->managed-fx-records cascade)]
+          records (h/event-bundle->managed-fx-records cascade)]
       (is (= 1 (count records)))
       (is (= :http (-> records first :surface)))
       (is (= :rf.http/managed (-> records first :fx-id))))))
@@ -253,7 +253,7 @@
                              (fx-handled :rf.fx/reg-flow
                                          {:flow-id :flow/x})]
                    :other []}
-          records (h/cascade->managed-fx-records cascade)]
+          records (h/event-bundle->managed-fx-records cascade)]
       (is (= 3 (count records)))
       (is (= #{:http :ssr-fx :flow}
              (set (map :surface records)))))))
@@ -266,7 +266,7 @@
                                          {:request {:method :get :url "/x"}}
                                          {:dispatch-id 9})]
                    :other []}
-          rec     (first (h/cascade->managed-fx-records
+          rec     (first (h/event-bundle->managed-fx-records
                            cascade {9 [[:users 42] [:loading? :user-profile]]}))]
       (is (= [[:users 42] [:loading? :user-profile]]
              (:paths-touched rec))))))
@@ -278,7 +278,7 @@
                    :effects [(fx-handled :db {:foo 1})
                              (fx-handled :dispatch [:x])]
                    :other []}]
-      (is (= [] (h/cascade->managed-fx-records cascade))))))
+      (is (= [] (h/event-bundle->managed-fx-records cascade))))))
 
 ;; ---- (4) formatting helpers --------------------------------------------
 

@@ -9,7 +9,7 @@
 
   rf2-83d4x / rf2-dodq2 — cross-frame dispatch landed on the wrong
   frame because the dispatch form didn't carry `:frame` opts (or
-  Xray's `:rf.xray/cascades` projection dropped the frame tag). The
+  Xray's `:rf.xray/event-bundles` projection dropped the frame tag). The
   multi-frame fan-out cascade is the canonical surface for that
   invariant — three trace events under one logical user gesture, each
   tagged with a different frame id.

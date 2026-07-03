@@ -11,7 +11,7 @@
                                           `[:rf.runtime/routing
                                            :current]` runtime-db slice; test
                                           override slot exists.
-    - `:rf.xray/cascades`              — drives FROM/TO detection.
+    - `:rf.xray/event-bundles`              — drives FROM/TO detection.
     - `:rf.xray/focus`                 — the spine's focused
                                           dispatch-id.
     - `:rf.xray.routing/query`         — substring filter input.
@@ -42,13 +42,13 @@
     {:axis :feature
      :doc  "Xray Routes tab — flat catalogue of registered routes with
             substring search + Simulate-URL plus HERE/FROM/TO markers
-            driven by the focused cascade per spec/016 §Routes tab +
+            driven by the focused event-bundle per spec/016 §Routes tab +
             spec/018 §5.6. Decorative URL-path tree dropped per
             rf2-lq0ef (audit verdict B)."})
 
   (story/reg-story :story.xray.routing
     {:doc        "Visual gallery of the Xray Routes tab under varying
-                 registrar shapes + nav cascades + UI inputs. Each
+                 registrar shapes + nav event-bundles + UI inputs. Each
                  variant seeds the registered-routes + current-slice
                  override slots via test-only events; search +
                  Simulate-URL variants set the UI-state events
@@ -71,7 +71,7 @@
   ;; ----- 2. current route only (◆ HERE) ------------------------------
   (story/reg-variant :story.xray.routing/current-route-only
     {:doc        "Routes registered + a current slice; focused
-                 cascade did NOT navigate. The current row carries
+                 event-bundle did NOT navigate. The current row carries
                  the ◆ HERE marker — orientation only. Metadata
                  badges (M / L / T / P) decorate routes carrying
                  :on-match / :can-leave / :tags / :parent."
@@ -87,14 +87,14 @@
 
   ;; ----- 3. FROM → TO transition (◆ FROM / ◆ TO) ---------------------
   (story/reg-variant :story.xray.routing/from-to-transition
-    {:doc        "Focused cascade carried a nav-token allocation —
+    {:doc        "Focused event-bundle carried a nav-token allocation —
                  the panel renders ◆ FROM on the prior route and
                  ◆ TO on the destination. Params/query for the
                  destination surface below the catalogue."
      :events     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
                   ;; Live slice is the post-nav value (confirm). FROM is
-                  ;; read off the cascade's :rf.route/deactivated emit
+                  ;; read off the event-bundle's :rf.route/deactivated emit
                   ;; (prior route = cart), NOT the live slice (rf2-m9rx6).
                   [:rf.xray/set-current-route-slice-override-for-test
                    fixtures/confirm-slice]

@@ -39,7 +39,7 @@
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             ;; rf2-ugdas / rf2-e7yhv — the canonical issue-projection
             ;; predicate (`issue-event?`) + the L2 pink-wash predicate
-            ;; (`cascade-has-issue?`) the no-op MUST NOT trip and the
+            ;; (`event-bundle-has-issue?`) the no-op MUST NOT trip and the
             ;; `:*`-action throw MUST trip (the contrast).
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]
             [day8.re-frame2-xray.panels.l2-timeline :as l2]
@@ -1296,7 +1296,7 @@
     (let [ev (machine-started-ev :door/main :locked {} :explicit)]
       (is (= :rf.machine (:op-type ev)))
       (is (false? (issues/issue-event? ev)))
-      (is (false? (l2/cascade-has-issue? {:other [ev]}))))))
+      (is (false? (l2/event-bundle-has-issue? {:other [ev]}))))))
 
 ;; ---- rf2-it4vt — the rf2-e6q97 band-aid is RETIRED -----------------------
 
@@ -1379,14 +1379,14 @@
       (is (= :rf.machine (:op-type no-op)))
       (is (false? (issues/issue-event? no-op))
           "issue-event? FALSE for the benign no-op")
-      (is (false? (l2/cascade-has-issue? {:other [no-op]}))
-          "cascade-has-issue? FALSE — no pink wash for a no-op-only cascade"))))
+      (is (false? (l2/event-bundle-has-issue? {:other [no-op]}))
+          "event-bundle-has-issue? FALSE — no pink wash for a no-op-only cascade"))))
 
 ;; ---- rf2-e7yhv — the :* wildcard-action throw (the inverse) --------------
 
 (deftest machine-action-exception-is-an-issue-test
   (testing "rf2-e7yhv — a :rf.error/machine-action-exception IS an issue
-            (op-type :error) — issue-event? + cascade-has-issue? TRUE
+            (op-type :error) — issue-event? + event-bundle-has-issue? TRUE
             (pink); the inverse of the benign no-op above"
     (let [exc (machine-action-exception-ev
                 {:machine-id :fuse/box :action-id :blow-fuse
@@ -1395,8 +1395,8 @@
       (is (= :error (:op-type exc)))
       (is (true? (issues/issue-event? exc))
           "issue-event? TRUE for the real exception")
-      (is (true? (l2/cascade-has-issue? {:other [exc]}))
-          "cascade-has-issue? TRUE — the event row goes pink"))))
+      (is (true? (l2/event-bundle-has-issue? {:other [exc]}))
+          "event-bundle-has-issue? TRUE — the event row goes pink"))))
 
 (deftest machine-action-exception-row-attributes-wildcard-test
   (testing "rf2-e7yhv — exception-row lifts the machine attribution +
@@ -2110,7 +2110,7 @@
 
 ;; ---- FLOW ---------------------------------------------------------------
 
-(deftest flow-steps-cascade-shape-test
+(deftest flow-steps-event-bundle-shape-test
   (testing "rf2-xnb1x — no flow events → no FLOW step in the cascade"
     (let [record {:trace-events [{:op-type   :rf.event
                                   :operation :rf.event/dispatched
@@ -4148,7 +4148,7 @@
         (is (= {:file "standard_epochs/core.cljs" :line 322} (:coord err)))
         ;; rf2-s6oqd — the live button-16 handler threw before returning,
         ;; so NO :db committed AND nothing rolled back. The exception row's
-        ;; cascade-level `:db-rolled-back?` is false → the view omits the
+        ;; event-bundle-level `:db-rolled-back?` is false → the view omits the
         ;; spurious 'Rolled back' chip.
         (is (false? (:db-rolled-back? err))
             "no rollback (pre-commit handler throw) → :db-rolled-back? false (no spurious chip)"))

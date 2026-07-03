@@ -3,8 +3,8 @@
   (rf2-ad7zx.6 · spec/021 §3.2 · Figma `design-reference/xray_devtools_reference.cljs`,
   the `views-panel` component).
 
-  The Views panel renders the reactive cascade as a node-and-edge graph,
-  not the prior three stacked tables. The cascade is a DAG flowing
+  The Views panel renders the reactive event-bundle as a node-and-edge graph,
+  not the prior three stacked tables. The event-bundle is a DAG flowing
   left → right across four columns:
 
       col 0  app-db        — a single source node at the far left
@@ -151,7 +151,7 @@
 ;; ---- public layout -----------------------------------------------------
 
 (defn shared-sub-set
-  "Set of sub-ids read by TWO OR MORE views this cascade — the shared-
+  "Set of sub-ids read by TWO OR MORE views this event-bundle — the shared-
   subscription set. Reads each sub row's `:readers` (the views that
   deref it, from `:sub-readers` rf2-y23uw). Pure."
   [sub-rows]
@@ -186,7 +186,7 @@
   (let [l1-rows   (vec (or level-1-subs []))
         l2-rows   (vec (or level-2-subs []))
         ;; unmounts list in their own section — the graph shows the
-        ;; live render cascade only.
+        ;; live render event-bundle only.
         v-rows    (filterv #(not= :unmount (:action %)) (or view-rows []))
         shared    (shared-sub-set (concat l1-rows l2-rows))
         ;; Tallest column drives the canvas height so every column

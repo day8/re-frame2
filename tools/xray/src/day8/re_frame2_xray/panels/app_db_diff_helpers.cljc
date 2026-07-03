@@ -382,7 +382,7 @@
   "Sentinel `:before` value meaning 'no pre-image available, render
   current-state (no `← changed` annotation)'. Distinct from a real
   `nil` before-image (a slot that was genuinely absent / nil before the
-  cascade) so the renderer can tell 'don't diff' apart from 'diff
+  event-bundle) so the renderer can tell 'don't diff' apart from 'diff
   against nil'. Pure data."
   ::no-diff)
 
@@ -416,7 +416,7 @@
   `(pr-str id)` for stable render order. Returns `[]` when the value is
   absent / not a map / empty.
 
-  `before-area` is the SAME reserved-area value from the cascade's
+  `before-area` is the SAME reserved-area value from the event-bundle's
   `db-before` (or `no-diff` when no pre-image is threaded). Each
   instance's `:before` is the prior value at that instance id, so the
   renderer can carry the inline `← changed` annotation (spec/021 §4.3).
@@ -499,7 +499,7 @@
   ## Inline diff (spec/021 §4.3, rf2-ad7zx.11)
 
   Every section ALSO carries a `:before` slot — the SAME slice from the
-  cascade's `db-before` (the TOP user-domain section, each instance, each
+  event-bundle's `db-before` (the TOP user-domain section, each instance, each
   singleton). The renderer threads `:before` + `:value` into the shared
   §10 diff renderer so changed nodes carry the inline `← was X`
   annotation in place (ancestor chain force-expanded). When no pre-image

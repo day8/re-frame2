@@ -1082,7 +1082,7 @@
 
 (deftest machine-focus-prev-routes-through-spine-and-stamps-retro-rf2-nugvv
   (testing "rf2-nugvv — the per-machine prev/next jump mutates focus
-            through the spine's `focus-cascade-reducer`, NOT a bare
+            through the spine's `focus-event-bundle-reducer`, NOT a bare
             `[:focus :epoch-id]` write. A bare epoch-id write is
             silently overridden by `compose-focus`'s LIVE+unpaused
             head-tracking (`eff-epoch-id` snaps back to head), which is

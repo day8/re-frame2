@@ -575,7 +575,7 @@ shapes based on the focused event's machine activity:
   epoch whose cascade ALSO touched the **focused machine** (the head
   section's `machine-id`), skipping epochs that touched only other
   machines. The jump mutates focus through the spine's
-  `focus-cascade-reducer` (stamping `:mode :retro`) so it sticks in
+  `focus-event-bundle-reducer` (stamping `:mode :retro`) so it sticks in
   LIVE mode (rf2-nugvv).
 
 > **rf2-nugvv (2026-06-04)** — the **Share** button + the whole Xray

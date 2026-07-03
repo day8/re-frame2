@@ -6,7 +6,7 @@
   Pre-rf2-ikuwt the only way to hide noisy events (clock-ticks,
   infrastructure heartbeats, mouse-move floods) was the heavyweight
   OUT-pill flow — right-click → popup → confirm → persisted as an OUT
-  pill that affects every downstream cascade reader. Mike's directive
+  pill that affects every downstream event-bundle reader. Mike's directive
   watching the parallel-frames testbed live (2026-05-19): the OUT
   pill flow is too ceremonious for the common 'this event-id is noise
   right now, hide it from L2' gesture.
@@ -26,12 +26,12 @@
 
   ## What is filtered
 
-  The mute filter runs at the cascade-list layer alongside the
-  IN/OUT pill filter — the `:rf.xray/filtered-cascades` sub composes
-  `cascade → frame-filter → typed-pill-filter → mute-filter` so every
+  The mute filter runs at the event-bundle-list layer alongside the
+  IN/OUT pill filter — the `:rf.xray/filtered-event-bundles` sub composes
+  `event-bundle → frame-filter → typed-pill-filter → mute-filter` so every
   downstream consumer (L2 list, scrubber, palette, Issues counter,
   spine nav) sees the muted-events-stripped vector. The raw
-  `:rf.xray/cascades` sub still carries every event so the Trace
+  `:rf.xray/event-bundles` sub still carries every event so the Trace
   tab's own filter UI (separate concern) sees the full stream.
 
   ## Scope (v1, per bead rf2-ikuwt)
@@ -72,18 +72,18 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 
-(defn cascade-event-id
-  "Pluck the event-id from a cascade's `:event` slot. Mirrors
-  `shell/event-id-of-cascade` but kept local so this ns is
+(defn event-bundle-event-id
+  "Pluck the event-id from an event-bundle's `:event` slot. Mirrors
+  `shell/event-id-of-event-bundle` but kept local so this ns is
   free-standing (no shell ↔ filters cycle)."
-  [cascade]
-  (let [ev (:event cascade)]
+  [event-bundle]
+  (let [ev (:event event-bundle)]
     (when (vector? ev)
       (first ev))))
 
 (defn mute-event-id
   "Pure reducer — add `event-id` to the muted set. nil event-ids are
-  ignored so a defensive call from a cascade with no event vector is
+  ignored so a defensive call from an event-bundle with no event vector is
   a no-op rather than corrupting the slot with a nil entry."
   [muted event-id]
   (if (some? event-id)
@@ -100,21 +100,21 @@
   [_muted]
   #{})
 
-(defn filter-cascades
-  "Pure helper. Strip cascades whose event-id sits in `muted-set` from
-  `cascades`. Empty / nil `muted-set` returns the input vector
+(defn filter-event-bundles
+  "Pure helper. Strip event-bundles whose event-id sits in `muted-set` from
+  `event-bundles`. Empty / nil `muted-set` returns the input vector
   unchanged so the no-mutes-active case is allocation-free.
 
-  Cascades with no event vector (the `:ungrouped` bucket) survive the
+  Event bundles with no event vector (the `:ungrouped` bucket) survive the
   filter — they're handled by the spine's separate `show-ungrouped?`
   opt-in. Pure data; JVM-runnable."
-  [cascades muted-set]
+  [event-bundles muted-set]
   (if (empty? muted-set)
-    cascades
-    (filterv (fn [cascade]
-               (let [id (cascade-event-id cascade)]
+    event-bundles
+    (filterv (fn [event-bundle]
+               (let [id (event-bundle-event-id event-bundle)]
                  (or (nil? id) (not (contains? muted-set id)))))
-             cascades)))
+             event-bundles)))
 
 ;; ---- localStorage round-trip --------------------------------------------
 

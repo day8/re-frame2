@@ -376,7 +376,7 @@
       (is (= :asking (:state (snapshot :quiz/scorer))))
       (is (= 1 (get-in (snapshot :quiz/scorer) [:data :score]))))))
 
-(deftest quiz-answer-to-pass-fires-always-microstep-cascade
+(deftest quiz-answer-to-pass-fires-always-microstep-event-bundle
   (testing "rung #13 (gap 1) — answers reach the pass mark and the guarded
             :always chain SETTLES :asking ──► :passed over N>0 microsteps.
             (a) the transition row's :microsteps > 0 AND the structured

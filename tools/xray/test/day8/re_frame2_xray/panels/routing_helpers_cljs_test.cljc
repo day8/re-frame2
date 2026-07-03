@@ -20,10 +20,10 @@
     3. **simulate-url** — runs every route's compiled pattern against
        the URL, returns ranked candidates + winner; mirrors `match-url`
        resolution order.
-    4. **focused-cascade** — lookup by dispatch-id.
-    5. **nav-token-allocated-in-cascade** — scans `:other` bucket for
+    4. **focused-event-bundle** — lookup by dispatch-id.
+    5. **nav-token-allocated-in-event-bundle** — scans `:other` bucket for
        the `:rf.route.nav-token/allocated` emit; nil when absent.
-    6. **from-to-from-cascade** — derives `{:from-id :to-id
+    6. **from-to-from-event-bundle** — derives `{:from-id :to-id
        :navigated?}` per the lens contract.
     7. **assign-markers** — TO wins over FROM wins over HERE; HERE
        only surfaces when no navigation happened.
@@ -281,22 +281,22 @@
       (is (= "/cart" (:path r)) "plain relative path unchanged")
       (is (= :route/cart (:winner r))))))
 
-;; ---- focused-cascade ----------------------------------------------------
+;; ---- focused-event-bundle ----------------------------------------------------
 
-(deftest focused-cascade-test
+(deftest focused-event-bundle-test
   (testing "nil dispatch-id (no focus) → nil"
-    (is (nil? (h/focused-cascade [(cascade 1 [:a])] nil)))
-    (is (nil? (h/focused-cascade [(cascade 1 [:a])] {}))))
+    (is (nil? (h/focused-event-bundle [(cascade 1 [:a])] nil)))
+    (is (nil? (h/focused-event-bundle [(cascade 1 [:a])] {}))))
 
   (testing "no match → nil"
-    (is (nil? (h/focused-cascade [(cascade 1 [:a])] {:dispatch-id 99}))))
+    (is (nil? (h/focused-event-bundle [(cascade 1 [:a])] {:dispatch-id 99}))))
 
   (testing "match returns the cascade record (frameless focus)"
     (let [c (cascade 7 [:foo])]
-      (is (= c (h/focused-cascade [(cascade 1 [:a]) c (cascade 9 [:b])]
+      (is (= c (h/focused-event-bundle [(cascade 1 [:a]) c (cascade 9 [:b])]
                                   {:dispatch-id 7}))))))
 
-(deftest focused-cascade-frame-strict-rf2-bz7flo
+(deftest focused-event-bundle-frame-strict-rf2-bz7flo
   (testing "rf2-bz7flo — dispatch ids collide across frames; the lookup must
             select the FOCUSED frame's cascade, not the first same-id match.
             Two cascades share dispatch-id 7 in :frame/a and :frame/b with
@@ -304,29 +304,29 @@
     (let [c-a (assoc (cascade 7 [:a-event]) :frame :frame/a)
           c-b (assoc (cascade 7 [:b-event]) :frame :frame/b)
           cascades [c-a c-b]]
-      (is (= c-b (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/b}))
+      (is (= c-b (h/focused-event-bundle cascades {:dispatch-id 7 :frame :frame/b}))
           "focus on :frame/b selects the :frame/b cascade, not :frame/a's
            same-id cascade that sits earlier in the vector")
-      (is (= c-a (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/a}))
+      (is (= c-a (h/focused-event-bundle cascades {:dispatch-id 7 :frame :frame/a}))
           "focus on :frame/a selects the :frame/a cascade")
-      (is (nil? (h/focused-cascade cascades {:dispatch-id 7 :frame :frame/c}))
+      (is (nil? (h/focused-event-bundle cascades {:dispatch-id 7 :frame :frame/c}))
           "no cascade for the focused frame → nil (no foreign-frame
            fallback); the routing tab renders no overlay rather than a
            wrong-frame one"))))
 
-;; ---- nav-token-allocated-in-cascade -------------------------------------
+;; ---- nav-token-allocated-in-event-bundle -------------------------------------
 
-(deftest nav-token-allocated-in-cascade-test
+(deftest nav-token-allocated-in-event-bundle-test
   (testing "nil cascade → nil"
-    (is (nil? (h/nav-token-allocated-in-cascade nil))))
+    (is (nil? (h/nav-token-allocated-in-event-bundle nil))))
 
   (testing "cascade with no nav emit → nil"
-    (is (nil? (h/nav-token-allocated-in-cascade (cascade 1 [:foo])))))
+    (is (nil? (h/nav-token-allocated-in-event-bundle (cascade 1 [:foo])))))
 
   (testing "nav emit in :other bucket is found"
     (let [c (cascade 1 [:rf.route/navigate :route/cart]
               :other [(nav-allocated-trace :route/cart "nav-1")])
-          ev (h/nav-token-allocated-in-cascade c)]
+          ev (h/nav-token-allocated-in-event-bundle c)]
       (is (some? ev))
       (is (= :route/cart (-> ev :tags :route-id)))
       (is (= "nav-1" (-> ev :tags :nav-token)))))
@@ -334,26 +334,26 @@
   (testing "nav emit in :effects bucket is also found"
     (let [c (cascade 1 [:foo]
               :effects [(nav-allocated-trace :route/x "nav-2")])]
-      (is (some? (h/nav-token-allocated-in-cascade c))))))
+      (is (some? (h/nav-token-allocated-in-event-bundle c))))))
 
-;; ---- route-deactivated-in-cascade ---------------------------------------
+;; ---- route-deactivated-in-event-bundle ---------------------------------------
 
-(deftest route-deactivated-in-cascade-test
+(deftest route-deactivated-in-event-bundle-test
   (testing "nil cascade → nil"
-    (is (nil? (h/route-deactivated-in-cascade nil))))
+    (is (nil? (h/route-deactivated-in-event-bundle nil))))
 
   (testing "cascade with no deactivated emit → nil"
-    (is (nil? (h/route-deactivated-in-cascade (cascade 1 [:foo])))))
+    (is (nil? (h/route-deactivated-in-event-bundle (cascade 1 [:foo])))))
 
   (testing "deactivated emit in :other bucket is found; :tags :route-id is the FROM"
     (let [c (cascade 1 [:rf.route/navigate :route/confirm]
               :other [(nav-allocated-trace :route/confirm "nav-1")
                       (deactivated-trace :route/cart)])
-          ev (h/route-deactivated-in-cascade c)]
+          ev (h/route-deactivated-in-event-bundle c)]
       (is (some? ev))
       (is (= :route/cart (-> ev :tags :route-id))))))
 
-;; ---- from-to-from-cascade -----------------------------------------------
+;; ---- from-to-from-event-bundle -----------------------------------------------
 ;;
 ;; FROM is derived from the focused cascade's :rf.route/deactivated emit
 ;; (rf2-m9rx6) — NEVER the live current slice. The live slice is the
@@ -361,11 +361,11 @@
 ;; navigating); reading FROM from the cascade makes the lens honest about
 ;; the transition the SELECTED epoch performed.
 
-(deftest from-to-from-cascade-test
+(deftest from-to-from-event-bundle-test
   (testing "no nav emit → not navigated"
     (let [c (cascade 1 [:foo])
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c)]
+          (h/from-to-from-event-bundle c)]
       (is (false? navigated?))
       (is (nil? from-id))
       (is (nil? to-id))))
@@ -374,7 +374,7 @@
     (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-7")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c)]
+          (h/from-to-from-event-bundle c)]
       (is (true? navigated?))
       (is (= :route/cart from-id))
       (is (= :route/confirm to-id))))
@@ -385,7 +385,7 @@
     (let [c (nav-cascade 1 [:rf.route/navigate :route/cart]
                          :route/cart nil "nav-1")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c)]
+          (h/from-to-from-event-bundle c)]
       (is (true? navigated?))
       (is (nil? from-id))
       (is (= :route/cart to-id))))
@@ -396,7 +396,7 @@
     (let [c (nav-cascade 1 [:rf.route/navigate :route/cart {:filter :all}]
                          :route/cart nil "nav-3")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c)]
+          (h/from-to-from-event-bundle c)]
       (is (true? navigated?))
       (is (nil? from-id) "no deactivated emit ⇒ no FROM")
       (is (= :route/cart to-id))))
@@ -408,7 +408,7 @@
     ;; allocated-B unconditionally, so the live route is irrelevant.
     (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-9")
-          {:keys [from-id to-id]} (h/from-to-from-cascade c)]
+          {:keys [from-id to-id]} (h/from-to-from-event-bundle c)]
       ;; No current-slice arg at all — FROM/TO read off the cascade.
       (is (= :route/cart from-id) "FROM is the deactivated (prior) route")
       (is (= :route/confirm to-id) "TO is the allocated (new) route"))))
@@ -476,7 +476,7 @@
       (is (true? (:navigated? data)))
       (is (= :route/confirm (:to-id data)))
       (is (nil? (:from-id data))
-          "no deactivated emit ⇒ FROM nil per from-to-from-cascade")
+          "no deactivated emit ⇒ FROM nil per from-to-from-event-bundle")
       (is (= :to (get by-id :route/confirm)))))
 
   (testing "cross-route cascade — FROM derived from deactivated emit, not the live slice"

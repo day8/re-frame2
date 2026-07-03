@@ -6,7 +6,7 @@
   The panel view in `routing.cljs` paints the routes lens. The
   *logic* — project the registered-routes registrar into a flat
   catalogue, derive the current-vs-from-vs-to highlight from the
-  focused cascade, filter by a substring query, and simulate a URL
+  focused event-bundle, filter by a substring query, and simulate a URL
   against the registered patterns — is pure data → data. Splitting
   the algebra into `.cljc` so it runs under the JVM unit-test target
   (`clojure -M:test`) is required by the standing rule
@@ -31,11 +31,11 @@
 
   - `◆ HERE` on the current matched route (always — orientation;
     read off the LIVE slice).
-  - `◆ FROM` / `◆ TO` arrow when the focused cascade caused
-    navigation. Both ids come from the FOCUSED cascade's own trace
+  - `◆ FROM` / `◆ TO` arrow when the focused event-bundle caused
+    navigation. Both ids come from the FOCUSED event-bundle's own trace
     events — the `:rf.route.nav-token/allocated` emit gives TO (the
     newly matched route) and the `:rf.route/deactivated` emit gives
-    FROM (the prior route). Reading FROM from the cascade — not the
+    FROM (the prior route). Reading FROM from the event-bundle — not the
     live slice — keeps the marker honest about the SELECTED epoch's
     transition regardless of where the app has navigated since
     (rf2-m9rx6).
@@ -52,10 +52,10 @@
        :routes     [<row> ...]        ;; flat, sorted by :path
        :current    <route-slice>      ;; the active :rf/route slice
        :from-id    <route-id-or-nil>  ;; nav origin when the focused
-                                      ;; cascade caused navigation
+                                      ;; event-bundle caused navigation
        :to-id      <route-id-or-nil>  ;; nav destination when the
-                                      ;; focused cascade caused navigation
-       :navigated? <bool>             ;; true iff the focused cascade
+                                      ;; focused event-bundle caused navigation
+       :navigated? <bool>             ;; true iff the focused event-bundle
                                       ;; carries a :rf.route.nav-token/
                                       ;; allocated trace event
        :query      <string-or-nil>    ;; substring filter applied to rows
@@ -139,7 +139,7 @@
 ;; the first pattern that matches the path is the winner. For the
 ;; simulator we want to surface ALL matching candidates with their
 ;; rank tuples, not just the winner — that's the load-bearing
-;; interactive surface that exposes the 6-rule cascade.
+;; interactive surface that exposes the 6-rule event-bundle.
 
 (defn- strip-origin
   "Reduce an ABSOLUTE URL (`https://app.example/cart?x#y`) or a
@@ -257,7 +257,7 @@
 
   This is purely structural — query coercion and `:params` / `:query`
   schema validation are out of scope for the simulator. The lens is
-  about the rank cascade, not full match semantics."
+  about the rank event-bundle, not full match semantics."
   [routes-map url]
   (let [trimmed (some-> url str/trim)]
     (cond
@@ -324,7 +324,7 @@
   write into the target frame's runtime-db at
   `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
   is framework-owned runtime-db state, NOT app data) so the user can
-  reason about the cascade without triggering it.
+  reason about the event-bundle without triggering it.
 
   When `route-id` is not in `routes-map` returns `{:unknown? true
   :route-id route-id}` — the view surfaces this as an unregistered
@@ -365,11 +365,11 @@
      {:route-id route-id
       :unknown? true})))
 
-;; ---- focused-cascade routing detection ----------------------------------
+;; ---- focused-event-bundle routing detection ----------------------------------
 
 (def ^:private nav-allocated-op
   "Trace operation emitted by `:rf.route/navigate` and
-  `:rf.route/handle-url-change` when a navigation cascade allocates a
+  `:rf.route/handle-url-change` when a navigation event-bundle allocates a
   nav-token (per `implementation/routing/src/re_frame/routing.cljc`
   §`trace/emit! :event :rf.route.nav-token/allocated`)."
   :rf.route.nav-token/allocated)
@@ -384,26 +384,26 @@
   the absence of this event is exactly the same-route-collapse signal."
   :rf.route/deactivated)
 
-(defn focused-cascade
-  "Find the cascade in `cascades` matching the spine `focus` map.
+(defn focused-event-bundle
+  "Find the event-bundle in `event-bundles` matching the spine `focus` map.
 
   Returns nil when the focus has no dispatch-id (spine has no focus
   yet), when the id has aged out of the buffer, or — when `focus`
-  carries a `:frame` — when no cascade in that frame carries the
+  carries a `:frame` — when no event-bundle in that frame carries the
   focused dispatch-id.
 
   rf2-bz7flo — keyed FRAME-STRICTLY. Dispatch ids are unique only
   within a frame (Spec 002 §Frame isolation + rf2-g6ih4); the trace
-  projection groups cascades by `[frame dispatch-id]` and emits two
+  projection groups event-bundles by `[frame dispatch-id]` and emits two
   records for a cross-frame id collision. Matching by dispatch-id
   alone could surface route overlays from a foreign frame's same-id
-  cascade while focus is on another. When `focus` has no `:frame`
+  event-bundle while focus is on another. When `focus` has no `:frame`
   (single-frame / pre-frame-set focus) the lookup degrades to a plain
   dispatch-id match.
 
   This helper stays a pure CLJC data fn (no `spine` dep) so it runs
-  under the JVM test target; it mirrors `spine/cascade-by-focus`."
-  [cascades focus]
+  under the JVM test target; it mirrors `spine/event-bundle-by-focus`."
+  [event-bundles focus]
   (let [focused-id (:dispatch-id focus)
         frame      (:frame focus)]
     (when focused-id
@@ -411,72 +411,72 @@
         (some #(when (and (= focused-id (:dispatch-id %))
                           (= frame (:frame %)))
                  %)
-              cascades)
-        (some #(when (= focused-id (:dispatch-id %)) %) cascades)))))
+              event-bundles)
+        (some #(when (= focused-id (:dispatch-id %)) %) event-bundles)))))
 
-(defn- cascade-trace-events
-  "Flatten every trace-event bucket on a cascade into one seq. Per
-  `re-frame.trace.projection/group-by-event` a cascade record carries
+(defn- event-bundle-trace-events
+  "Flatten every trace-event bucket on an event-bundle into one seq. Per
+  `re-frame.trace.projection/group-by-event` an event-bundle record carries
   raw trace maps under `:handler`, `:fx`, `:effects`, `:subs`,
   `:renders`, and `:other`; the `:event` slot is the bare event
   vector (not a trace map) so it's excluded. The
   `:rf.route.nav-token/allocated` emit lands in `:other` per the
   projection's catch-all bucket."
-  [cascade]
+  [event-bundle]
   (concat
-    (when-let [handler (:handler cascade)] [handler])
-    (when-let [fx (:fx cascade)] [fx])
-    (:effects cascade)
-    (:subs cascade)
-    (:renders cascade)
-    (:other cascade)))
+    (when-let [handler (:handler event-bundle)] [handler])
+    (when-let [fx (:fx event-bundle)] [fx])
+    (:effects event-bundle)
+    (:subs event-bundle)
+    (:renders event-bundle)
+    (:other event-bundle)))
 
-(defn- cascade-event-by-op
-  "Find the first trace-event map in `cascade`'s buckets whose
+(defn- event-bundle-event-by-op
+  "Find the first trace-event map in `event-bundle`'s buckets whose
   `:operation` equals `op`. Returns the event map or nil. Shared scan
   for the routing-lifecycle emits (`nav-token/allocated`,
   `:rf.route/deactivated`)."
-  [cascade op]
-  (when cascade
+  [event-bundle op]
+  (when event-bundle
     (some (fn [ev]
             (when (and (map? ev)
                        (= op (:operation ev)))
               ev))
-          (cascade-trace-events cascade))))
+          (event-bundle-trace-events event-bundle))))
 
-(defn nav-token-allocated-in-cascade
-  "Scan a cascade's trace-event buckets for a
+(defn nav-token-allocated-in-event-bundle
+  "Scan an event-bundle's trace-event buckets for a
   `:rf.route.nav-token/allocated` event. Returns the trace event map
   (with its `:tags` carrying `:route-id` + `:nav-token`) when present;
   nil otherwise. The emit fires inside both `:rf.route/navigate` (a
   programmatic dispatch) and `:rf.route/transitioned` (browser-driven URL
   change), so this catches both navigation paths uniformly."
-  [cascade]
-  (cascade-event-by-op cascade nav-allocated-op))
+  [event-bundle]
+  (event-bundle-event-by-op event-bundle nav-allocated-op))
 
-(defn route-deactivated-in-cascade
-  "Scan a cascade's trace-event buckets for a `:rf.route/deactivated`
+(defn route-deactivated-in-event-bundle
+  "Scan an event-bundle's trace-event buckets for a `:rf.route/deactivated`
   event. Returns the trace event map (with its `:tags :route-id`
   carrying the PRIOR route id — the FROM) when present; nil otherwise.
   The runtime emits this only on a cross-route navigation (prev-id ≠
-  next-id), in the same cascade as the nav-token allocation (per
+  next-id), in the same event-bundle as the nav-token allocation (per
   `emit-activation-traces!`)."
-  [cascade]
-  (cascade-event-by-op cascade route-deactivated-op))
+  [event-bundle]
+  (event-bundle-event-by-op event-bundle route-deactivated-op))
 
-(defn from-to-from-cascade
-  "Derive a `{:from-id :to-id :navigated?}` map from a focused cascade.
+(defn from-to-from-event-bundle
+  "Derive a `{:from-id :to-id :navigated?}` map from a focused event-bundle.
 
-  Both ids are read off the FOCUSED cascade's own trace events — never
+  Both ids are read off the FOCUSED event-bundle's own trace events — never
   the live route slice — so the lens reports the transition that the
   selected epoch actually performed, regardless of where the app has
   navigated since:
 
   - `:to-id` comes from the `:rf.route.nav-token/allocated` trace event
-    (the new route the cascade navigated to).
+    (the new route the event-bundle navigated to).
   - `:from-id` comes from the `:rf.route/deactivated` trace event (the
-    PRIOR route the cascade left). The runtime emits `deactivated`
-    before `activated`, in the same cascade as the nav-token allocation
+    PRIOR route the event-bundle left). The runtime emits `deactivated`
+    before `activated`, in the same event-bundle as the nav-token allocation
     (`emit-activation-traces!`, Spec 012 §Trace events). Two cases
     leave no `deactivated` emit — and both correctly collapse FROM to
     nil:
@@ -486,22 +486,22 @@
         because the route stays active; surfacing a FROM equal to TO is
         noise anyway).
 
-  Reading FROM from the cascade — not the live slice — fixes the
+  Reading FROM from the event-bundle — not the live slice — fixes the
   time-dependence bug (rf2-m9rx6): the live slice is the *current*
   route, so a normal navigation to B collapsed FROM (current was
-  already B), and focusing an older A→B cascade after the app moved to
-  C falsely reported C as FROM. The cascade carries `deactivated A` /
+  already B), and focusing an older A→B event-bundle after the app moved to
+  C falsely reported C as FROM. The event-bundle carries `deactivated A` /
   `activated B` for that epoch unconditionally, so FROM A / TO B render
   correctly no matter the live route.
 
-  Pre-navigation contract: when the cascade carries no nav-token emit,
+  Pre-navigation contract: when the event-bundle carries no nav-token emit,
   returns `{:navigated? false :from-id nil :to-id nil}`. (The
   `current-slice` is no longer read here; callers derive the HERE /
   current-orientation marker from the live slice separately.)"
-  [cascade]
-  (let [nav-ev    (nav-token-allocated-in-cascade cascade)
+  [event-bundle]
+  (let [nav-ev    (nav-token-allocated-in-event-bundle event-bundle)
         to-id     (some-> nav-ev :tags :route-id)
-        deact-ev  (route-deactivated-in-cascade cascade)
+        deact-ev  (route-deactivated-in-event-bundle event-bundle)
         from-id   (some-> deact-ev :tags :route-id)]
     (cond
       (nil? nav-ev)
@@ -545,7 +545,7 @@
 ;; ---- Static-surface composite projection -------------------------------
 ;;
 ;; The Static Routes panel is event-INDEPENDENT — no FROM/TO/HERE
-;; markers, no focused-cascade gating, no slice detail. Just a flat
+;; markers, no focused-event-bundle gating, no slice detail. Just a flat
 ;; sorted catalogue + substring filter + Simulate-URL surface. Pure
 ;; data → data so the JVM unit-test target can cover the projection.
 
@@ -722,15 +722,15 @@
 ;;     Match     {:route :cart}
 ;;     Events    [:rf.route/transitioned] [:cart/route-entered]
 ;;
-;; The phase derives from the trace-event mix in the focused cascade:
-;;   - cascade carries :rf.route.nav-token/allocated → :on-match
+;; The phase derives from the trace-event mix in the focused event-bundle:
+;;   - event-bundle carries :rf.route.nav-token/allocated → :on-match
 ;;     (a navigation actually landed this epoch)
-;;   - cascade carries :rf.route/navigation-blocked → :navigation-blocked
+;;   - event-bundle carries :rf.route/navigation-blocked → :navigation-blocked
 ;;     (a :can-leave gate rejected)
-;;   - cascade carries :rf.route/entry-blocked → :entry-blocked
+;;   - event-bundle carries :rf.route/entry-blocked → :entry-blocked
 ;;     (a :can-enter gate rejected — rf2-p69yaz; the enter mirror of the
 ;;     leave block, carrying :tags :phase :can-enter per 021 §7)
-;;   - cascade carries :rf.route/fragment-changed → :fragment-changed
+;;   - event-bundle carries :rf.route/fragment-changed → :fragment-changed
 ;;   - otherwise → nil (no routing activity this epoch)
 ;;
 ;; The phase + from/to + matched-params + the event-vector list go into
@@ -748,16 +748,16 @@
    [:rf.route/entry-blocked       :entry-blocked]
    [:rf.route/fragment-changed    :fragment-changed]])
 
-(defn- cascade-event-vectors
-  "Collect raw event vectors from a cascade. The cascade's top-level
+(defn- event-bundle-event-vectors
+  "Collect raw event vectors from an event-bundle. The event-bundle's top-level
   `:event` slot is the root event; the `:effects` and `:other` buckets
   may carry `:rf.event/dispatched` trace records whose `:tags :rf.event/v`
   carries downstream event vectors. Returns a vector of event vectors
   in insertion order, de-duplicated by identity."
-  [cascade]
-  (when cascade
-    (let [root       (:event cascade)
-          downstream (->> (cascade-trace-events cascade)
+  [event-bundle]
+  (when event-bundle
+    (let [root       (:event event-bundle)
+          downstream (->> (event-bundle-trace-events event-bundle)
                           (keep (fn [ev]
                                   (when (and (map? ev)
                                              (= :rf.event/dispatched
@@ -772,23 +772,23 @@
 
 (defn epoch-routing-activity
   "Derive a `{:phase :events :match}` map describing what the focused
-  cascade did to the route system this epoch. Returns nil when the
-  cascade is nil OR carries no routing-related trace events (the
+  event-bundle did to the route system this epoch. Returns nil when the
+  event-bundle is nil OR carries no routing-related trace events (the
   view's 'No route activity' branch).
 
   `:phase` is one of
   `#{:on-match :navigation-blocked :entry-blocked :fragment-changed}`
   per the trace-event mix.
-  `:events` is the cascade's event-vector list (root + downstream
+  `:events` is the event-bundle's event-vector list (root + downstream
   dispatches), useful for the spec §7.2 'Events' row.
   `:match` is the matched params map when phase is `:on-match` —
   read off the framework's slice after the navigate handler wrote it.
 
   The view layer renders this alongside the topology overlay; both
-  read off the same focused-cascade so they stay in sync."
-  [cascade current-slice]
-  (when cascade
-    (let [trace-evs (cascade-trace-events cascade)
+  read off the same focused-event-bundle so they stay in sync."
+  [event-bundle current-slice]
+  (when event-bundle
+    (let [trace-evs (event-bundle-trace-events event-bundle)
           phase    (some (fn [[op phase-kw]]
                            (when (some #(and (map? %)
                                              (= op (:operation %)))
@@ -797,7 +797,7 @@
                          routing-phase-ops)]
       (when phase
         {:phase  phase
-         :events (cascade-event-vectors cascade)
+         :events (event-bundle-event-vectors event-bundle)
          :match  (when (= :on-match phase)
                    (:params current-slice))}))))
 
@@ -805,7 +805,7 @@
 
 (defn project-data
   "The view-facing composite. Folds the registered-routes map +
-  current route slice + focused cascade + UI controls (search query +
+  current route slice + focused event-bundle + UI controls (search query +
   Simulate-URL) into the shape the panel consumes (see ns doc §Data
   shape contract).
 
@@ -815,12 +815,12 @@
   Silent-by-default per rf2-g3ghh: when no routes are registered the
   fn returns `{:silent? true :routes [] ...}` and the view renders
   the empty section (no `(none)` placeholder)."
-  ([routes-map current-slice focused-cascade]
-   (project-data routes-map current-slice focused-cascade nil nil))
-  ([routes-map current-slice focused-cascade query sim-url]
+  ([routes-map current-slice focused-event-bundle]
+   (project-data routes-map current-slice focused-event-bundle nil nil))
+  ([routes-map current-slice focused-event-bundle query sim-url]
    (let [rows         (project-routes routes-map)
          silent?      (empty? rows)
-         nav          (from-to-from-cascade focused-cascade)
+         nav          (from-to-from-event-bundle focused-event-bundle)
          decorated    (assign-markers rows
                                       (assoc nav
                                         :current-id (:route-id current-slice)))
@@ -853,7 +853,7 @@
        :current    <route-slice>          ;; the active :rf/route slice
        :from-id    <route-id-or-nil>      ;; nav origin this epoch
        :to-id      <route-id-or-nil>      ;; nav destination this epoch
-       :navigated? <bool>                 ;; true iff focused cascade navigated
+       :navigated? <bool>                 ;; true iff focused event-bundle navigated
        :activity   <map-or-nil>}          ;; per-epoch routing activity
                                           ;; (phase + events + match);
                                           ;; nil ⇒ \"no route activity in this
@@ -865,10 +865,10 @@
   this epoch). The view paints the topology unconditionally so the
   operator's mental map of the registered routes stays stable across
   epoch focus changes."
-  [routes-map current-slice focused-cascade]
+  [routes-map current-slice focused-event-bundle]
   (let [topology       (project-topology routes-map)
         silent?        (empty? topology)
-        nav            (from-to-from-cascade focused-cascade)
+        nav            (from-to-from-event-bundle focused-event-bundle)
         marker-input   (assoc nav :current-id (:route-id current-slice))
         decorated      (mapv (fn [{:keys [row] :as entry}]
                                (let [marked-row (first
@@ -879,7 +879,7 @@
                                         :row    marked-row
                                         :marker (:marker marked-row))))
                              topology)
-        activity       (epoch-routing-activity focused-cascade current-slice)]
+        activity       (epoch-routing-activity focused-event-bundle current-slice)]
     {:silent?    silent?
      :topology   decorated
      :current    current-slice

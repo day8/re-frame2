@@ -30,10 +30,10 @@
     code path (ribbon picker, palette, headless test driver).
 
   - **Sub `:rf.xray/available-frames`** — returns a first-seen-order
-    vec of distinct frames present in the live cascade list, filtered
+    vec of distinct frames present in the live event-bundle list, filtered
     by the `show-tool-frames?` setting (spec/018 §8 I1). The single
     source of truth for 'which frames is it meaningful to pick right
-    now'. Composes off `:rf.xray/cascades` so the list re-fires as
+    now'. Composes off `:rf.xray/event-bundles` so the list re-fires as
     new frames appear in the trace stream.
 
   - **Event-fx `:rf.xray/select-frame <frame-id>`** — canonical write
@@ -112,18 +112,18 @@
 ;; ---- pure helpers --------------------------------------------------------
 
 (defn distinct-frames
-  "Pure helper — returns the distinct frames present in `cascades` in
+  "Pure helper — returns the distinct frames present in `event-bundles` in
   first-seen order. Drives the `:rf.xray/available-frames` sub.
 
   Filters `:rf/xray` (and other tool frames per `internal-frames`)
   out by default per spec/018 §8 I1 — passing `show-tool-frames?` true
-  reincludes them. nil-frame cascades are dropped (an `:ungrouped`
-  cascade carries nil `:frame`)."
-  [cascades show-tool-frames?]
+  reincludes them. nil-frame event-bundles are dropped (an `:ungrouped`
+  event-bundle carries nil `:frame`)."
+  [event-bundles show-tool-frames?]
   (let [seen (volatile! #{})]
     (reduce
-      (fn [acc cascade]
-        (let [f (:frame cascade)]
+      (fn [acc event-bundle]
+        (let [f (:frame event-bundle)]
           (cond
             (nil? f)                              acc
             (contains? @seen f)                   acc
@@ -132,13 +132,13 @@
             :else (do (vswap! seen conj f)
                       (conj acc f)))))
       []
-      cascades)))
+      event-bundles)))
 
 (defn head-frame
   "Pure helper — the DEFAULT view-scope frame on load (rf2-4vp5j
-  Decision 1): the frame of the head (most recent) pickable cascade.
+  Decision 1): the frame of the head (most recent) pickable event-bundle.
 
-  Walks `cascades` newest-first and returns the first frame that is
+  Walks `event-bundles` newest-first and returns the first frame that is
   pickable (non-nil, not an `internal-frames` tool frame). nil only
   when the stream carries no pickable frame at all (empty / tool-only).
 
@@ -147,13 +147,13 @@
   most recent event, rather than merging every frame. The user can
   override via the picker; the override lives on the dedicated
   `:view-scope-frame` slot (NOT persisted — rf2-swclw)."
-  [cascades]
-  (some (fn [cascade]
-          (let [f (:frame cascade)]
+  [event-bundles]
+  (some (fn [event-bundle]
+          (let [f (:frame event-bundle)]
             (when (and (some? f)
                        (not (contains? internal-frames f)))
               f)))
-        (reverse cascades)))
+        (reverse event-bundles)))
 
 ;; ---- persistence ---------------------------------------------------------
 
@@ -457,9 +457,9 @@
   ;; spine's raw stored frame slot). This indirection means the sub re-
   ;; fires when ANY code path mutates the slot — the ribbon picker, the
   ;; palette, headless test drivers, the spine's auto-snap on first
-  ;; cascade. Reading the composed `:rf.xray/focus` sub here would
+  ;; event-bundle. Reading the composed `:rf.xray/focus` sub here would
   ;; introduce a circular dependency since the spine's `:focus` sub
-  ;; already pulls in `:rf.xray/cascades`; the raw slot is the right
+  ;; already pulls in `:rf.xray/event-bundles`; the raw slot is the right
   ;; primitive.
 
   ;; `:rf.xray/view-scope-frame` (rf2-4vp5j Workstream C) — the
@@ -478,17 +478,17 @@
   ;;   3. the head epoch's frame (`head-frame`) — the rf2-4vp5j Decision-1
   ;;      default so a fresh load with no host seed scopes to whichever
   ;;      frame produced the most recent event.
-  ;; Composes off `:rf.xray/cascades` so the head default re-resolves
+  ;; Composes off `:rf.xray/event-bundles` so the head default re-resolves
   ;; as the stream grows; once the user explicitly picks, slot #1 wins.
   (rf/reg-sub :rf.xray/view-scope-frame
     :<- [:rf.xray/view-scope-frame-slot]
     :<- [:rf.xray/target-frame-slot]
-    :<- [:rf.xray/cascades]
-    (fn [[slot target-slot cascades] _query]
-      (or slot target-slot (head-frame cascades))))
+    :<- [:rf.xray/event-bundles]
+    (fn [[slot target-slot event-bundles] _query]
+      (or slot target-slot (head-frame event-bundles))))
 
   ;; Raw stored slots — separated so the composed sub above can default
-  ;; off the cascade list without a cycle.
+  ;; off the event-bundle list without a cycle.
   (rf/reg-sub :rf.xray/view-scope-frame-slot
     (fn [db _query]
       (:view-scope-frame db)))
@@ -512,17 +512,17 @@
 
   ;; `:rf.xray/available-frames` is the canonical 'which frames is it
   ;; meaningful to pick right now' list. Composes off `:rf.xray/
-  ;; cascades` so it re-fires as new frames appear in the trace
+  ;; event-bundles` so it re-fires as new frames appear in the trace
   ;; stream. The `show-tool-frames?` toggle isn't a sub yet — when the
   ;; Settings UI for it lands (follow-on), this sub will :<- onto the
   ;; toggle's slot. Today the parameter is hardcoded to `false` to
   ;; match the pre-bead picker behaviour.
 
   (rf/reg-sub :rf.xray/available-frames
-    :<- [:rf.xray/cascades]
-    (fn [cascades _query]
+    :<- [:rf.xray/event-bundles]
+    (fn [event-bundles _query]
       ;; show-tool-frames? hardcoded false — see ns docstring.
-      (distinct-frames cascades false)))
+      (distinct-frames event-bundles false)))
 
   ;; ---- events --------------------------------------------------------
   ;;

@@ -35,7 +35,7 @@
 
 ;; ---- L2 visible-row predicate -------------------------------------------
 ;;
-;; Mirrors `shell/l2-cascade-visible?` — kept local so the
+;; Mirrors `shell/l2-event-bundle-visible?` — kept local so the
 ;; `:rf.xray/hidden-by-filters` sub below can count over the SAME
 ;; visible-row set the L2 list renders without a shell ↔ filters require
 ;; cycle (the shell already requires this ns transitively). The
@@ -45,8 +45,8 @@
 ;; with the rows the user sees.
 
 (defn- l2-visible?
-  [cascade show-ungrouped?]
-  (if (= :ungrouped (:dispatch-id cascade))
+  [event-bundle show-ungrouped?]
+  (if (= :ungrouped (:dispatch-id event-bundle))
     (boolean show-ungrouped?)
     true))
 
@@ -135,7 +135,7 @@
   Wires:
 
     - Subs:   `:rf.xray/active-filters` (already in registry; we read
-              + extend it here too), `:rf.xray/filtered-cascades`,
+              + extend it here too), `:rf.xray/filtered-event-bundles`,
               `:rf.xray/edit-popup-open?`, `:rf.xray/edit-popup-
               trigger`, `:rf.xray/edit-popup-draft`.
 
@@ -166,24 +166,24 @@
   ;; ---- subs -------------------------------------------------------------
   ;;
   ;; Spec/018 §6 sub-graph: the matter-of-fact path is `:rf.xray/
-  ;; cascades → :rf.xray/filtered-cascades`. Every consumer of the
-  ;; cascade list (event-list, scrubber, palette, Issues counter)
-  ;; reads `:rf.xray/filtered-cascades`; raw `:rf.xray/cascades`
+  ;; event-bundles → :rf.xray/filtered-event-bundles`. Every consumer of the
+  ;; event-bundle list (event-list, scrubber, palette, Issues counter)
+  ;; reads `:rf.xray/filtered-event-bundles`; raw `:rf.xray/event-bundles`
   ;; stays available for unfiltered totals.
   ;;
   ;; Per spec/018 §3 Frame dropdown: the frame picker is
   ;; ALSO a data-layer filter. The picker's selection lives on the
   ;; spine's `:focus :frame` slot (written by `:rf.xray/set-frame`);
   ;; we read the raw slot here (not the composed `:rf.xray/focus` sub)
-  ;; to avoid the cycle composed-focus → cascades → filtered-cascades
+  ;; to avoid the cycle composed-focus → event-bundles → filtered-event-bundles
   ;; → composed-focus. nil slot = no frame filter active (multi-frame
   ;; app, picker has not been touched, OR a single-frame app whose
   ;; picker collapses to a flat label).
   ;; Pill matching routes through the typed-predicate dispatcher
-  ;; so each pill's `:kind` selects the per-kind cascade
+  ;; so each pill's `:kind` selects the per-kind event-bundle
   ;; matcher (`:event-id-pattern` delegates to the event-id
   ;; matcher; `:machine` / `:http-correlation` / `:fx` walk the
-  ;; cascade's trace-events for the matching tag). Pills
+  ;; event-bundle's trace-events for the matching tag). Pills
   ;; persisted under `{:pattern <kw-or-str>}` hydrate as
   ;; `:event-id-pattern` via `canonicalise-pill`.
   ;; The muted-event-ids set rides at the END of the
@@ -201,28 +201,28 @@
   ;; as a view scope FIRST, then the pill chain + mutes (the actual
   ;; filters) compose on top.
   ;;
-  ;; The frameless `:ungrouped` pseudo-cascade is frame-agnostic: it is
+  ;; The frameless `:ungrouped` pseudo-event-bundle is frame-agnostic: it is
   ;; preserved through the view scope ONLY when the `show-ungrouped?`
   ;; opt-in is on (so it can be REVEALED under a scope); with the opt-in
   ;; off the strict frame filter drops it, matching the default
   ;; silent-by-default L2 list (no frameless bucket leaks into the data
   ;; layer when nobody asked for it).
-  (rf/reg-sub :rf.xray/filtered-cascades
-    :<- [:rf.xray/cascades]
+  (rf/reg-sub :rf.xray/filtered-event-bundles
+    :<- [:rf.xray/event-bundles]
     :<- [:rf.xray/active-filters]
     :<- [:rf.xray/view-scope-frame]
     :<- [:rf.xray/muted-event-ids]
     :<- [:rf.xray/show-ungrouped?]
-    (fn [[cascades filters view-scope-frame muted show-ungrouped?] _query]
-      (-> cascades
+    (fn [[event-bundles filters view-scope-frame muted show-ungrouped?] _query]
+      (-> event-bundles
           (cond->
-            show-ungrouped?       (matcher/filter-cascades-by-view-scope view-scope-frame)
-            (not show-ungrouped?) (matcher/filter-cascades-by-frame view-scope-frame))
-          (typed/filter-cascades filters)
-          (spine-filters/filter-cascades muted))))
+            show-ungrouped?       (matcher/filter-event-bundles-by-view-scope view-scope-frame)
+            (not show-ungrouped?) (matcher/filter-event-bundles-by-frame view-scope-frame))
+          (typed/filter-event-bundles filters)
+          (spine-filters/filter-event-bundles muted))))
 
   ;; The 'N events hidden by filters' message model. Composes the raw +
-  ;; filtered cascade lists and the active filter state into the pure
+  ;; filtered event-bundle lists and the active filter state into the pure
   ;; `hidden/summary` record the events ribbon renders against. Counts
   ;; over the L2 visible-row set (`l2-visible?`) so N matches the rows
   ;; the user sees.
@@ -236,8 +236,8 @@
   ;; carries no `:frame` cause; only pill/mute suppression is the cause
   ;; and the count.
   (rf/reg-sub :rf.xray/hidden-by-filters
-    :<- [:rf.xray/cascades]
-    :<- [:rf.xray/filtered-cascades]
+    :<- [:rf.xray/event-bundles]
+    :<- [:rf.xray/filtered-event-bundles]
     :<- [:rf.xray/active-filters]
     :<- [:rf.xray/view-scope-frame]
     :<- [:rf.xray/muted-event-ids]
@@ -245,7 +245,7 @@
     (fn [[raw filtered filters view-scope-frame muted show-ungrouped?] _query]
       (let [;; Scope the raw baseline to the VIEW-SCOPE frame so frame
             ;; selection is a view scope, not counted as suppression.
-            frame-scoped (matcher/filter-cascades-by-view-scope raw view-scope-frame)
+            frame-scoped (matcher/filter-event-bundles-by-view-scope raw view-scope-frame)
             raw-n        (count (filterv #(l2-visible? % show-ungrouped?) frame-scoped))
             filtered-n   (count (filterv #(l2-visible? % show-ungrouped?) filtered))]
         (hidden/summary raw-n filtered-n

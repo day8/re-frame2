@@ -12,7 +12,7 @@
        load (proves the spine pipeline emitted routable cascades).
        Originally the Event/Handler panel; rf2-5gl5r migrated the
        surface to the Epoch panel.
-    3. The focused-cascade overlay state synchronises across launch
+    3. The focused-event-bundle overlay state synchronises across launch
        modes (overlay vs popout).
 
   At the data layer — which is what the bug class actually probes —
@@ -20,7 +20,7 @@
   the same chain runs in <10 ms per assertion:
 
     host counter/inc x20  →  trace-bus mirror  →  Xray
-      :rf.xray/cascades count grows
+      :rf.xray/event-bundles count grows
       :rf.xray/focus auto-follows head
       :rf.xray/epoch-history grows by ~20
 
@@ -31,7 +31,7 @@
   smokes (story_play_scripts.cjs + the launch-mode chrome scenario)
   which exercise the actual window.open + overlay tree. This file
   covers the data invariants that broke in rf2-70tkv (panel frozen
-  after head-cascade flip) and rf2-hwuki (`:frame` tag dropped)."
+  after head-event-bundle flip) and rf2-hwuki (`:frame` tag dropped)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -57,7 +57,7 @@
                 "trace-buffer did not grow by at least 20 events after 20 dispatches — trace cb dropped events")))))))
 
 (deftest xray-cascades-grow-under-20-dispatch-load
-  (testing ":rf.xray/cascades produces 20 host-frame cascades after 20 dispatches"
+  (testing ":rf.xray/event-bundles produces 20 host-frame cascades after 20 dispatches"
     (e2e/with-host-and-xray-frames
       {:install-host counter/install-and-init!}
       (fn []
@@ -65,10 +65,10 @@
           (dispatch-counter-20)
           (let [after (count (e2e/host-cascades-only))]
             ;; Each dispatch lands one host-frame cascade (counter/inc
-            ;; or counter/dec). The :rf.xray/cascades sub filters
+            ;; or counter/dec). The :rf.xray/event-bundles sub filters
             ;; Xray-internal cascades out.
             (is (= (+ before 20) after)
-                ":rf.xray/cascades did not surface every host dispatch — spine ingestion lost events")))))))
+                ":rf.xray/event-bundles did not surface every host dispatch — spine ingestion lost events")))))))
 
 (deftest xray-focus-tracks-final-head-after-load
   (testing "spine focus is on the final dispatch after 20 events (rf2-70tkv panel-frozen regression class)"

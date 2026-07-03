@@ -3,7 +3,7 @@
   beads: rf2-e33ad / rf2-8ve8z / rf2-wyvf2 / rf2-isun6 · chrome cleanup
   rf2-fhh34).
 
-  Renders the reactive cascade as a left → right REACTIVE FLOW graph —
+  Renders the reactive event-bundle as a left → right REACTIVE FLOW graph —
   an inline-SVG node-and-edge canvas (NOT the prior three stacked
   tables). Reconciled to `tools/xray/spec/021-Dynamic-Panel-Designs.md`
   §3.2 + `tools/xray/design-reference/xray_devtools_reference.cljs`
@@ -195,7 +195,7 @@
     [:polygon {:points "0 0, 9 3.5, 0 7" :fill (:accent tokens)}]]])
 
 (defn- edge
-  "Render one cascade edge. Changed → solid accent line + arrowhead
+  "Render one event-bundle edge. Changed → solid accent line + arrowhead
   (propagates). Unchanged → dashed dim line, NO arrowhead (cut)."
   [{:keys [from-id to-id x1 y1 x2 y2 changed? kind]} i]
   ^{:key (str "edge-" kind "-" i)}
@@ -255,7 +255,7 @@
         (str "×" shared-count)])]))
 
 (defn- view-node
-  "Render a view node — the cascade leaf + focus. Success-tinted box
+  "Render a view node — the event-bundle leaf + focus. Success-tinted box
   labelled `(rerendered)` (or `(mounted)`); carries the per-view
   render CAUSE + `:elapsed-ms` timing as a sub-label (rf2-8wrzz.1).
 
@@ -347,7 +347,7 @@
 ;; ---- hoisted row-level styles (rf2-gjiog · audit F9) -------------------
 ;;
 ;; Extends the existing `list-card-style` hoist (sibling
-;; `panels/event_detail.cljs` / `panels/cancellation_cascade.cljs`
+;; `panels/event_detail.cljs` / `panels/cancellation_event-bundle.cljs`
 ;; precedents) to the list-row + sub-value-row + legend-swatch row
 ;; primitives below. Each Reactive panel render produces ~10-20 list
 ;; rows and ~5-15 sub-value rows; collapsing the inline `:style {...}`
@@ -506,7 +506,7 @@
                  :font-size "13px"}}
    (if (nil? (:current (:focus data)))
      [:p "No event focused."]
-     [:p "Focused cascade has no reactive activity captured yet."])])
+     [:p "Focused event-bundle has no reactive activity captured yet."])])
 
 ;; ---- panel root --------------------------------------------------------
 
@@ -529,7 +529,7 @@
                        :font-family sans-stack
                        :font-size "14px"}}
      [:div {:style {:flex 1 :overflow "auto"}}
-      (if (not (:has-cascade? data))
+      (if (not (:has-event-bundle? data))
         [:div {:data-testid "rf-xray-reactive-pipeline-empty"
                :style {:padding "16px"}}
          (empty-state data)]

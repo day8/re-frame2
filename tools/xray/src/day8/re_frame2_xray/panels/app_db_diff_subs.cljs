@@ -76,12 +76,12 @@
   []
   ;; rf2-fvplw — panel-observed frame follows the spine `:rf.xray/focus`.
   ;; The frame-picker writes `[:focus :frame]` via `:rf.xray/set-frame`,
-  ;; and `compose-focus` also derives `:frame` from the focused cascade.
+  ;; and `compose-focus` also derives `:frame` from the focused event-bundle.
   ;; Without this seam the App-db panel previously read only the legacy
   ;; `:target-frame` slot (which `:rf.xray/set-frame` does NOT touch),
   ;; so it stayed hardcoded to `:rf/default` no matter what the user
   ;; picked. The legacy slot survives as the fallback when no focus has
-  ;; resolved a frame yet (cold start, no focusable cascades) — keeps
+  ;; resolved a frame yet (cold start, no focusable event-bundles) — keeps
   ;; the boot-time empty-state useful.
   (rf/reg-sub :rf.xray/observed-frame
     :<- [:rf.xray/focus]
@@ -112,8 +112,8 @@
   ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
   ;; `:rf.xray/focus` rather than the legacy `:rf.xray/selected-
   ;; epoch-id` slot. The spine sub auto-tracks head in LIVE mode
-  ;; (deriving `:epoch-id` from the head cascade via
-  ;; `epoch-id-for-cascade` against `:epoch-history`); the legacy
+  ;; (deriving `:epoch-id` from the head event-bundle via
+  ;; `epoch-id-for-event-bundle` against `:epoch-history`); the legacy
   ;; slot is only written by user clicks (L2 row select, epoch
   ;; chip, prev/next step) and so stays pinned to the last user
   ;; action.
@@ -213,7 +213,7 @@
   ;;   `(:db-after <record of :epoch-id>)` AND `:before` =
   ;;   `(:db-before <record of :epoch-id>)` — both are, by construction,
   ;;   the slots of the epoch named by `:epoch-id`. When no epoch is
-  ;;   focused (cold boot, no cascades) `:value` falls back to the LIVE
+  ;;   focused (cold boot, no event-bundles) `:value` falls back to the LIVE
   ;;   db and `:before` is nil — the panel renders plain current-state
   ;;   with no diff overlay (unchanged from rf2-yng0y).
   (rf/reg-sub :rf.xray/app-db-current+diff

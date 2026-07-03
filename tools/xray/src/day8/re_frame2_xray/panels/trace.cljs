@@ -31,7 +31,7 @@
   that step's colour. Both the label and the colour resolve through the
   Epoch panel's own `panels.epoch.badge` taxonomy (NOT a parallel
   palette) so the Trace stage column + edge match the Epoch numbered
-  cascade exactly — one step model, DRY. The flat list recovers, at a
+  event-bundle exactly — one step model, DRY. The flat list recovers, at a
   glance, the phase information the removed hierarchy conveyed.
 
   The area badge is a NEUTRAL text badge (EVENT · COEFFECT · DB · FX ·
@@ -341,9 +341,9 @@
 (def ^:private empty-state-copy-style
   {:margin 0 :color (:text-tertiary tokens)})
 
-;; ---- cascade-status-bar -------------------------------------------------
+;; ---- event-bundle-status-bar -------------------------------------------------
 
-(def ^:private cascade-status-bar-base-style
+(def ^:private event-bundle-status-bar-base-style
   {:height      "3px"
    :flex-shrink 0})
 
@@ -426,7 +426,7 @@
 ;; duplication to dedupe.
 
 (def ^:private diff-op->glyph
-  "Cascade diff glyph per op (spec/021 §10.3)."
+  "Event bundle diff glyph per op (spec/021 §10.3)."
   {:added    "+"
    :modified "~"
    :removed  "-"})
@@ -654,7 +654,7 @@
          "↗"])
       (when destroy?
         [:button {:data-testid (str row-test-id "-cancellation-cascade")
-                  :title       "Show cancellation cascade"
+                  :title       "Show cancellation event-bundle"
                   :on-click    (fn [e]
                                  (.stopPropagation e)
                                  (rf/dispatch
@@ -744,28 +744,28 @@
     :epoch-evicted
     "This epoch has been evicted from the history buffer."))
 
-;; ---- cascade status timeline bar ----------------------------------------
+;; ---- event-bundle status timeline bar ----------------------------------------
 
-(defn- cascade-status-bar
-  "A 3px bar above the arc filling with the focused cascade's lifecycle-
+(defn- event-bundle-status-bar
+  "A 3px bar above the arc filling with the focused event-bundle's lifecycle-
   status colour — driven by `event-status/event-status-colour`, the same
   fn the L2 list rows + the Event L4 header dot consume, so the whole
   devtool speaks ONE lifecycle vocabulary."
-  [{:keys [cascade focus]}]
-  (let [status-state (event-status/cascade->state cascade focus)
+  [{:keys [event-bundle focus]}]
+  (let [status-state (event-status/event-bundle->state event-bundle focus)
         status-kw    (event-status/classify-status status-state)
         status-hex   (event-status/event-status-colour status-state)]
-    [:div {:data-testid (str "rf-xray-trace-cascade-status-bar-"
+    [:div {:data-testid (str "rf-xray-trace-event-bundle-status-bar-"
                              (name status-kw))
            :data-rf-xray-status (name status-kw)
            :title (case status-kw
-                    :in-flight       "Focused cascade — in-flight"
-                    :settled-success "Focused cascade — settled (success)"
-                    :settled-error   "Focused cascade — settled (error)"
-                    :paused-by-tool  "Focused cascade — paused by tool"
-                    :stale           "Focused cascade — stale (replayed / RETRO)"
-                    (str "Focused cascade — " (name status-kw)))
-           :style (assoc cascade-status-bar-base-style :background status-hex)}]))
+                    :in-flight       "Focused event-bundle — in-flight"
+                    :settled-success "Focused event-bundle — settled (success)"
+                    :settled-error   "Focused event-bundle — settled (error)"
+                    :paused-by-tool  "Focused event-bundle — paused by tool"
+                    :stale           "Focused event-bundle — stale (replayed / RETRO)"
+                    (str "Focused event-bundle — " (name status-kw)))
+           :style (assoc event-bundle-status-bar-base-style :background status-hex)}]))
 
 ;; ---- public view --------------------------------------------------------
 
@@ -781,18 +781,18 @@
   []
   (let [{:keys [rows empty-kind] :as _data}
         @(rf/subscribe [:rf.xray/trace-feed])
-        ;; rf2-wcfsy — focused-cascade is a layer-3 composite over
-        ;; `:rf.xray/cascades` + `:rf.xray/focus`, NOT an inline scan in
+        ;; rf2-wcfsy — focused-event-bundle is a layer-3 composite over
+        ;; `:rf.xray/event-bundles` + `:rf.xray/focus`, NOT an inline scan in
         ;; the render body. The composite memoises on its two input
-        ;; signals so the scan only re-runs when cascades / focus
+        ;; signals so the scan only re-runs when event-bundles / focus
         ;; actually change (rather than every Panel render).
         focus           @(rf/subscribe [:rf.xray/focus])
-        focused-cascade @(rf/subscribe [:rf.xray.trace/focused-cascade])
+        focused-event-bundle @(rf/subscribe [:rf.xray.trace/focused-event-bundle])
         expanded-ids    @(rf/subscribe [:rf.xray/trace-expanded-row-ids])]
     [:section {:data-testid "rf-xray-trace"
                :style       panel-root-style}
-     (when focused-cascade
-       (cascade-status-bar {:cascade focused-cascade :focus focus}))
+     (when focused-event-bundle
+       (event-bundle-status-bar {:event-bundle focused-event-bundle :focus focus}))
      [:div {:style panel-scroll-container-style}
       (case empty-kind
         :no-events     (empty-state-no-events)
@@ -869,36 +869,36 @@
                                                     epoch-history)]
         (h/project-feed-from-epoch record focus-status))))
 
-  ;; ---- focused cascade (rf2-wcfsy) -----------------------------------
+  ;; ---- focused event-bundle (rf2-wcfsy) -----------------------------------
   ;;
-  ;; Layer-3 composite over `:rf.xray/cascades` + `:rf.xray/focus`. The
-  ;; Trace panel reads this directly instead of scanning the cascades
+  ;; Layer-3 composite over `:rf.xray/event-bundles` + `:rf.xray/focus`. The
+  ;; Trace panel reads this directly instead of scanning the event-bundles
   ;; vector in its render body (the previous shape: a linear
-  ;; `(some #(when (= focused-id (:dispatch-id %)) %) cascades)` that
-  ;; ran on every Panel render — O(N) over the cascades vector, defeats
+  ;; `(some #(when (= focused-id (:dispatch-id %)) %) event-bundles)` that
+  ;; ran on every Panel render — O(N) over the event-bundles vector, defeats
   ;; memoisation because the result was reconstructed per render).
   ;;
   ;; As a layer-3 composite the scan only re-runs when its input
-  ;; signals (cascades or focus) actually change. The result is the
-  ;; same record `(some #(= focused-id (:dispatch-id %)) cascades)`
-  ;; would return — so the downstream `cascade-status-bar` call site
+  ;; signals (event-bundles or focus) actually change. The result is the
+  ;; same record `(some #(= focused-id (:dispatch-id %)) event-bundles)`
+  ;; would return — so the downstream `event-bundle-status-bar` call site
   ;; continues to work verbatim.
   ;;
   ;; Why both input subs are still subscribed in the Panel: the Panel
-  ;; passes `focus` itself (not just the focused-cascade) into
-  ;; `cascade-status-bar`, so it still needs the focus signal. The
-  ;; cascades sub feeds many other panels (L2 list, Issues ribbon, …);
+  ;; passes `focus` itself (not just the focused-event-bundle) into
+  ;; `event-bundle-status-bar`, so it still needs the focus signal. The
+  ;; event-bundles sub feeds many other panels (L2 list, Issues ribbon, …);
   ;; reg-sub de-dupes the underlying signal so subscribing here costs
   ;; nothing extra.
-  (rf/reg-sub :rf.xray.trace/focused-cascade
-    :<- [:rf.xray/cascades]
+  (rf/reg-sub :rf.xray.trace/focused-event-bundle
+    :<- [:rf.xray/event-bundles]
     :<- [:rf.xray/focus]
-    (fn [[cascades focus] _query]
+    (fn [[event-bundles focus] _query]
       ;; rf2-bz7flo — resolve frame-strictly. Dispatch ids are unique only
-      ;; within a frame, so a same-id cascade from a foreign frame could be
-      ;; returned here when focus is on another frame. `cascade-by-focus`
+      ;; within a frame, so a same-id event-bundle from a foreign frame could be
+      ;; returned here when focus is on another frame. `event-bundle-by-focus`
       ;; keys by both `:frame` + `:dispatch-id` when focus carries a frame.
-      (spine/cascade-by-focus cascades focus)))
+      (spine/event-bundle-by-focus event-bundles focus)))
 
   ;; ---- per-row inline payload expansion (spec/023 §3) ----------------
   ;;

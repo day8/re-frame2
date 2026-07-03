@@ -18,7 +18,7 @@
 
   Root cause: at install time `mount.cljs/ensure-xray-frame!` seeds
   `:target-frame` (via `:rf.xray/set-target-frame`) but never seeds
-  `:focus :frame`. The L2 list filters via `:rf.xray/filtered-cascades`
+  `:focus :frame`. The L2 list filters via `:rf.xray/filtered-event-bundles`
   which reads `:rf.xray/focus-slot` → `:frame`. When that slot is
   nil the frame filter is a no-op and every frame's cascades pass.
   The picker view shows `(or selected-frame (first frames))` so the
@@ -44,7 +44,7 @@
   Root cause: in the LIVE-mode auto-track branch of `compose-focus`
   the published `:rf.xray/focus` `:dispatch-id` is always `head-id`,
   not the stored slot id. Clicking a non-head row flips the spine
-  to RETRO (`focus-cascade-reducer` writes `:mode :retro`) — which
+  to RETRO (`focus-event-bundle-reducer` writes `:mode :retro`) — which
   then makes `:dispatch-id` track the stored slot via the RETRO
   branch.
 
@@ -56,7 +56,7 @@
 
   Test approach: two host frames `:above` + `:below`, register
   both, dispatch into each, install Xray with `:above` as initial
-  target. Assert L2 list (via `:rf.xray/filtered-cascades`)
+  target. Assert L2 list (via `:rf.xray/filtered-event-bundles`)
   carries ONLY `:above` cascades on initial mount — no first
   click."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -164,17 +164,17 @@
     ;; analogue of the live picker showing `:above` selected on first
     ;; paint.
     (mount-xray-with-target! frame-above)
-    (let [cascades          (sub-xray [:rf.xray/cascades])
-          filtered-cascades (sub-xray [:rf.xray/filtered-cascades])
+    (let [cascades          (sub-xray [:rf.xray/event-bundles])
+          filtered-event-bundles (sub-xray [:rf.xray/filtered-event-bundles])
           above-cascades    (filterv #(= frame-above (:frame %)) cascades)
           below-cascades    (filterv #(= frame-below (:frame %)) cascades)
-          filtered-frames   (into #{} (map :frame filtered-cascades))]
+          filtered-frames   (into #{} (map :frame filtered-event-bundles))]
       (is (= 1 (count above-cascades))
           "test setup: should have exactly one :above cascade in the raw list")
       (is (= 1 (count below-cascades))
           "test setup: should have exactly one :below cascade in the raw list")
       (is (= #{frame-above} filtered-frames)
-          (str "L2 filtered-cascades shows frames other than :above on initial "
+          (str "L2 filtered-event-bundles shows frames other than :above on initial "
                "mount — rf2-ulpp8 regression. Saw: " (pr-str filtered-frames))))))
 
 (deftest rf2-ulpp8-focus-slot-frame-aligned-after-seed
@@ -209,7 +209,7 @@
     (fn [_ _ev]
       (throw (ex-info "throw-b" {:where :b})))))
 
-(deftest rf2-1p1j4-issues-panel-scopes-to-focused-cascade
+(deftest rf2-1p1j4-issues-panel-scopes-to-focused-event-bundle
   (testing "after two host throws on separate cascades, Issues sub
   surfaces ONLY the issues from the focused epoch's :trace-events
   (rf2-jio48 — focused-epoch scope per spec/021 §1.2 + §8). Flipping
@@ -225,7 +225,7 @@
     (dispatch-host-frame [:throws/a] :rf/default)
     ;; Dispatch B — second cascade, second issue, second epoch.
     (dispatch-host-frame [:throws/b] :rf/default)
-    (let [cascades (sub-xray [:rf.xray/cascades])
+    (let [cascades (sub-xray [:rf.xray/event-bundles])
           ;; Filter to host frame cascades only; Xray-internal are
           ;; already filtered by the sub.
           host-cascades (filterv #(= :rf/default (:frame %)) cascades)
@@ -288,7 +288,7 @@
     (rf/dispatch-sync [:throws/a] {:frame frame-above})
     (rf/dispatch-sync [:throws/b] {:frame frame-below})
     (mount-xray-with-target! frame-above)
-    (let [cascades        (sub-xray [:rf.xray/cascades])
+    (let [cascades        (sub-xray [:rf.xray/event-bundles])
           above-cascades  (filterv #(= frame-above (:frame %)) cascades)
           above-id        (-> above-cascades first :dispatch-id)
           focus-slot      (sub-xray [:rf.xray/focus-slot])

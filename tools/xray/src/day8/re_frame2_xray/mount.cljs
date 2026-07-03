@@ -420,7 +420,7 @@
 
   - `:trace-buffer` — seeded from the framework's per-frame trace
     rings + Xray's frameless secondary ring (per rf2-43koh). The
-    framework's rings retain pre-mount cascades cascade-keyed; the
+    framework's rings retain pre-mount event bundles event-keyed; the
     secondary ring captures frameless emits the per-frame rings skip
     (per the B3 ruling, rf2-g1b2m). The seed lifts both surfaces into
     the reactive slot at first Ctrl+Shift+C via
@@ -434,21 +434,21 @@
     keyed on the frame the user will be observing on first paint.
     Pre-rf2-boyc2 the seed was hardcoded to `:rf/default` — but
     `compose-focus` derives the panel-observed frame from the head
-    focusable cascade in the trace buffer, so an app whose pre-mount
+    focusable event-bundle in the trace buffer, so an app whose pre-mount
     events ran on `:cart-frame` rendered the App-DB panel against
     `:cart-frame` (the observed frame) while `:epoch-history` carried
     the empty `:rf/default` ring. The composite's `:history-empty?`
     resolved true → the panel rendered the boot empty-state
     'app-db for :cart-frame is at the boot value. No diffs yet.'
-    EVEN WITH cascades from `:cart-frame` already in the buffer
+    EVEN WITH event-bundles from `:cart-frame` already in the buffer
     (the Mike report). Frame-switch round-trip resolved it because
     `set-frame-reducer` aligns the two axes; the first-mount path
     had to do the same. The seed-frame is the head focusable
-    cascade's `:frame` (via `spine/focusable-head-frame-id` over the
-    same cascade projection panels read off) — the operator-present
-    discovery tier that UNIQUELY resolves the head app cascade's frame
+    event-bundle's `:frame` (via `spine/focusable-head-frame-id` over the
+    same event-bundle projection panels read off) — the operator-present
+    discovery tier that UNIQUELY resolves the head app event-bundle's frame
     (EP-0002 rf2-bd4div: unique resolution, NOT `:rf/default` synthesis).
-    When no focusable cascade exists (cold start; only the `:ungrouped`
+    When no focusable event-bundle exists (cold start; only the `:ungrouped`
     bucket present) the seed is `defaults/default-target-frame` =
     **nil = UNSELECTED**: the target stays unselected (the frame picker
     prompts a choice) rather than defaulting to `:rf/default`. The
@@ -506,9 +506,9 @@
   ;; The snapshot comes from `trace-collector/refresh-trace-rings!` —
   ;; the same path the production microtask coalescer uses. After the
   ;; snapshot lands in `:trace-buffer`, project the buffer through the
-  ;; same pipeline the `:rf.xray/cascades` sub uses (projection +
+  ;; same pipeline the `:rf.xray/event-bundles` sub uses (projection +
   ;; Xray-internal hard-filter) to derive the seed-frame. Without the
-  ;; internal filter a tool-frame cascade could be chosen as the head,
+  ;; internal filter a tool-frame event-bundle could be chosen as the head,
   ;; which the user never sees in the L2 list.
   (fn [frame-id]
     ;; `refresh-trace-rings!` is async via dispatch in production but
@@ -518,15 +518,15 @@
     ;; same snapshot so the first-mount render reads against pre-mount
     ;; events deterministically.
     (let [buffer     (trace-collector/snapshot-from-rings)
-          cascades   (self-noise/filtered-cascades buffer)
-          seed-frame (or (spine/focusable-head-frame-id cascades)
+          event-bundles   (self-noise/filtered-event-bundles buffer)
+          seed-frame (or (spine/focusable-head-frame-id event-bundles)
                          defaults/default-target-frame)]
       (rf/with-frame frame-id
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer])
         ;; rf2-boyc2 — seed via `:rf.xray/set-target-frame` so
         ;; `:target-frame` + `:epoch-history` move in lockstep keyed
         ;; on the frame the user will be observing on first paint
-        ;; (the head focusable cascade's frame). Mirrors the picker-
+        ;; (the head focusable event-bundle's frame). Mirrors the picker-
         ;; driven `set-frame-reducer` path and `core/set-target-
         ;; frame!`.
         (rf/dispatch-sync [:rf.xray/set-target-frame seed-frame])))))

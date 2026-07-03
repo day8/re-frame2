@@ -4,7 +4,7 @@
   v1 surfaces a single event — the 'Show unchanged subs' disclosure
   toggle (§3.4). The settings-side override (`:rf.xray/show-
   unchanged-subs?` in `:general`) is the always-expand pin; the
-  panel-local slot below is the per-cascade quick toggle."
+  panel-local slot below is the per-event-bundle quick toggle."
   (:require [re-frame.core :as rf]))
 
 (defn install!

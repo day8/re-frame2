@@ -4,7 +4,7 @@
   The headline cross-cutting Xray feature from
   [`tools/xray/spec/019-Cross-Cutting-Insight.md`](../../../../tools/xray/spec/019-Cross-Cutting-Insight.md)
   §2.4 / F-C2. Renders one panel per managed-fx invocation inside the
-  focused cascade's six-domino window, surfacing the eight-property
+  focused event-bundle's six-domino window, surfacing the eight-property
   contract from [`spec/Managed-Effects.md`](../../../../spec/Managed-Effects.md)
   as a uniform UI:
 
@@ -37,9 +37,9 @@
   ## Cross-link
 
   The HANDLER DISPATCHED row uses `:rf.xray/focus-event` to pivot the
-  spine to the child cascade — clicking '→ jump to handler' moves
+  spine to the child event-bundle — clicking '→ jump to handler' moves
   focus to wherever the response landed, so the user can follow the
-  cascade chain hop-by-hop. Cross-link wiring lives in
+  event-bundle chain hop-by-hop. Cross-link wiring lives in
   `panels/managed_fx_subs/install!` so the panel view stays thin."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]
@@ -89,7 +89,7 @@
   "Render the correlation-id pill. Right-click fires
   `:rf.xray/filter-by-http-correlation` to drop a typed
   `:http-correlation` IN pill in the ribbon (rf2-piye4) — narrows
-  the L2 event list to cascades that touched this exchange (issuing
+  the L2 event list to event-bundles that touched this exchange (issuing
   effect, retries, response, downstream handler)."
   [dispatch correlation-id]
   (when correlation-id
@@ -260,7 +260,7 @@
 
 (defn- handler-section
   "Renders the dispatched handler event vector + a click-to-focus
-  affordance that pivots the spine to that child cascade. Anchors the
+  affordance that pivots the spine to that child event-bundle. Anchors the
   F.3 'failed response handler' diagnostic."
   [dispatch {:keys [handler frame dispatch-id]}]
   (if (and (vector? handler) (seq handler))
@@ -306,7 +306,7 @@
 
     (empty? paths-touched)
     [:span {:style {:color (:text-tertiary tokens)}}
-     "(no app-db changes in this cascade)"]
+     "(no app-db changes in this event-bundle)"]
 
     :else
     [:ul {:style {:list-style "none"
@@ -383,7 +383,7 @@
 (defn records-list
   "Render a vector of managed-fx records as a stack of panels. Pure fn
   over the records vector; used by `event_detail.cljs` to mount the
-  list under the six-domino cascade view, and by the tests to render
+  list under the six-domino event-bundle view, and by the tests to render
   a deterministic stack against canned records.
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded to each
@@ -400,7 +400,7 @@
                     :color (:text-tertiary tokens)}}
       [:span (str (count records) " managed-fx record"
                   (if (= 1 (count records)) "" "s")
-                  " in this cascade")]]
+                  " in this event-bundle")]]
      (for [rec records]
        ^{:key (str (:surface rec) "-" (:origin-event-id rec) "-" (:fx-id rec))}
        (record-panel dispatch rec))])))

@@ -84,7 +84,7 @@
     (is (= :tool          (l2/source-bucket-of (cascade-with-source :tool))))
     (is (= :machine-spawn (l2/source-bucket-of (cascade-with-source :machine-spawn))))
     (is (= :websocket     (l2/source-bucket-of (cascade-with-source :websocket))))
-    ;; collapsed fx-cascade kinds all bucket as :fx-emit
+    ;; collapsed fx-event-bundle kinds all bucket as :fx-emit
     (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :fx-dispatch))))
     (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :fx-dispatch-later))))
     (is (= :fx-emit       (l2/source-bucket-of (cascade-with-source :machine-action))))
@@ -202,18 +202,18 @@
                  :tags      {:duration-ms duration-ms
                              :rf.trace/dispatch-id 7}}})
 
-(deftest cascade-duration-ms-test
+(deftest event-bundle-duration-ms-test
   (testing "reads :duration-ms from [:handler :tags :duration-ms]"
-    (is (= 1.234 (l2/cascade-duration-ms (cascade-with-duration 1.234))))
-    (is (= 0     (l2/cascade-duration-ms (cascade-with-duration 0)))))
+    (is (= 1.234 (l2/event-bundle-duration-ms (cascade-with-duration 1.234))))
+    (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0)))))
 
   (testing "nil-safe on missing / non-numeric slots"
-    (is (nil? (l2/cascade-duration-ms nil)))
-    (is (nil? (l2/cascade-duration-ms {})))
-    (is (nil? (l2/cascade-duration-ms {:handler nil})))
-    (is (nil? (l2/cascade-duration-ms {:handler {:tags {}}})))
-    (is (nil? (l2/cascade-duration-ms (cascade-with-duration "1.2"))))
-    (is (nil? (l2/cascade-duration-ms "not a cascade")))))
+    (is (nil? (l2/event-bundle-duration-ms nil)))
+    (is (nil? (l2/event-bundle-duration-ms {})))
+    (is (nil? (l2/event-bundle-duration-ms {:handler nil})))
+    (is (nil? (l2/event-bundle-duration-ms {:handler {:tags {}}})))
+    (is (nil? (l2/event-bundle-duration-ms (cascade-with-duration "1.2"))))
+    (is (nil? (l2/event-bundle-duration-ms "not a cascade")))))
 
 (deftest format-duration-ms-test
   (testing "formats to one decimal place + ` ms` (Figma EventList style)"
@@ -228,70 +228,70 @@
     (is (nil? (l2/format-duration-ms nil)))
     (is (nil? (l2/format-duration-ms "1.2")))))
 
-(deftest cascade-duration-label-test
+(deftest event-bundle-duration-label-test
   (testing "read + format in one step"
-    (is (= "1.2 ms" (l2/cascade-duration-label (cascade-with-duration 1.234))))
-    (is (= "0.4 ms" (l2/cascade-duration-label (cascade-with-duration 0.4)))))
+    (is (= "1.2 ms" (l2/event-bundle-duration-label (cascade-with-duration 1.234))))
+    (is (= "0.4 ms" (l2/event-bundle-duration-label (cascade-with-duration 0.4)))))
 
   (testing "nil when no measured handler duration"
-    (is (nil? (l2/cascade-duration-label {})))
-    (is (nil? (l2/cascade-duration-label nil)))))
+    (is (nil? (l2/event-bundle-duration-label {})))
+    (is (nil? (l2/event-bundle-duration-label nil)))))
 
 ;; ---- 4. cascade activity flags ------------------------------------------
 
-(deftest cascade-activity-flags-defaults-test
+(deftest event-bundle-activity-flags-defaults-test
   (testing "an empty cascade yields all-false flags"
-    (let [flags (l2/cascade-activity-flags {})]
+    (let [flags (l2/event-bundle-activity-flags {})]
       (is (= {:error? false :machine? false :http? false
               :timer? false :fx-emit? false}
              flags))))
 
   (testing "nil cascade is safe — returns all-false flags"
-    (let [flags (l2/cascade-activity-flags nil)]
+    (let [flags (l2/event-bundle-activity-flags nil)]
       (is (= {:error? false :machine? false :http? false
               :timer? false :fx-emit? false}
              flags)))))
 
-(deftest cascade-activity-flags-error-test
+(deftest event-bundle-activity-flags-error-test
   (testing ":errors slot populated → error? true (legacy axis)"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:errors [{:operation :rf.error/handler-throw}]})]
       (is (true? (:error? flags)))))
 
   (testing ":op-type :error on :other → error? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.error/handler-throw :op-type :error)]})]
       (is (true? (:error? flags)))))
 
   (testing ":rf.error/* operation on :other (no :op-type) → error? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.error/bad-fx)]})]
       (is (true? (:error? flags))))))
 
-(deftest cascade-activity-flags-machine-test
+(deftest event-bundle-activity-flags-machine-test
   (testing ":rf.machine/* operation → machine? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.machine/transition)]})]
       (is (true? (:machine? flags))))
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.machine/spawn)
                           (ev :rf.machine/despawn)]})]
       (is (true? (:machine? flags))))))
 
-(deftest cascade-activity-flags-http-test
+(deftest event-bundle-activity-flags-http-test
   (testing ":rf.http/* operation → http? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.http/managed-request-settle)]})]
       (is (true? (:http? flags)))))
 
   (testing ":http/* legacy operation → http? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :http/request-success)]})]
       (is (true? (:http? flags))))))
 
-(deftest cascade-activity-flags-timer-test
+(deftest event-bundle-activity-flags-timer-test
   (testing ":rf.timer/* operation → timer? true"
-    (let [flags (l2/cascade-activity-flags
+    (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.timer/fired)]})]
       (is (true? (:timer? flags)))))
 
@@ -300,83 +300,83 @@
     ;; the bucket projection (`source->bucket`) maps both `:after-timer` and
     ;; `:always` onto the `:timer` chrome bucket so the flag lights up
     ;; without an additional `:rf.timer/*` trace.
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :after-timer))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :after-timer))]
       (is (true? (:timer? flags))))
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :always))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :always))]
       (is (true? (:timer? flags))))))
 
-(deftest cascade-activity-flags-fx-emit-test
+(deftest event-bundle-activity-flags-fx-emit-test
   (testing "cascade source :fx-dispatch / :fx-dispatch-later / :machine-action → fx-emit? true"
-    ;; Per rf2-1ve9h: all three fx-cascade kinds project onto the
+    ;; Per rf2-1ve9h: all three fx-event-bundle kinds project onto the
     ;; `:fx-emit` chrome bucket.
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :fx-dispatch))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :fx-dispatch))]
       (is (true? (:fx-emit? flags))))
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :fx-dispatch-later))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :fx-dispatch-later))]
       (is (true? (:fx-emit? flags))))
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :machine-action))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :machine-action))]
       (is (true? (:fx-emit? flags)))))
 
   (testing "cascade source :ui → fx-emit? false"
-    (let [flags (l2/cascade-activity-flags (cascade-with-source :ui))]
+    (let [flags (l2/event-bundle-activity-flags (cascade-with-source :ui))]
       (is (false? (:fx-emit? flags))))))
 
-(deftest cascade-activity-flags-mixed-test
+(deftest event-bundle-activity-flags-mixed-test
   (testing "multiple activity classes light up independently"
     (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.machine/transition)
                                (ev :rf.http/managed-request-settle)
                                (ev :rf.error/handler-throw :op-type :error)]))
-          flags (l2/cascade-activity-flags c)]
+          flags (l2/event-bundle-activity-flags c)]
       (is (= {:error? true :machine? true :http? true
               :timer? false :fx-emit? true}
              flags)))))
 
 ;; ---- 4b. epoch-has-an-issue signal (rf2-b8guz) --------------------------
 ;;
-;; `cascade-has-issue?` drives the L2 row's light-pink `:bg-issue-row`
+;; `event-bundle-has-issue?` drives the L2 row's light-pink `:bg-issue-row`
 ;; wash. It must light up for EXACTLY the set the Issues ribbon/feed
 ;; aggregates — it reuses `issues-ribbon-helpers/issue-event?`, which is
 ;; severity-driven off `:op-type` (`:error` / `:warning` / `:info`), so a
 ;; lifecycle / success-path trace (no severity `:op-type`) is NOT an issue.
 
-(deftest cascade-has-issue?-clean-test
+(deftest event-bundle-has-issue?-clean-test
   (testing "a clean cascade (no issue traces) → false; nil-safe"
-    (is (false? (l2/cascade-has-issue? {})))
-    (is (false? (l2/cascade-has-issue? nil)))
-    (is (false? (l2/cascade-has-issue? "not a cascade")))
-    (is (false? (l2/cascade-has-issue? (cascade-with-source :ui))))
+    (is (false? (l2/event-bundle-has-issue? {})))
+    (is (false? (l2/event-bundle-has-issue? nil)))
+    (is (false? (l2/event-bundle-has-issue? "not a cascade")))
+    (is (false? (l2/event-bundle-has-issue? (cascade-with-source :ui))))
     ;; lifecycle / success-path traces in :other are NOT issues — the
     ;; row must stay unstyled (no wash) for a clean cascade that merely
     ;; carried machine / frame / registry chatter.
-    (is (false? (l2/cascade-has-issue?
+    (is (false? (l2/event-bundle-has-issue?
                  {:other [(ev :rf.machine/transition :op-type :rf.machine)
                           (ev :rf.frame/created      :op-type :rf.frame)]})))))
 
-(deftest cascade-has-issue?-issue-test
+(deftest event-bundle-has-issue?-issue-test
   (testing "an error trace (`:op-type :error`) in :other → true"
-    (is (true? (l2/cascade-has-issue?
+    (is (true? (l2/event-bundle-has-issue?
                 {:other [(ev :rf.error/handler-exception :op-type :error)]}))))
 
   (testing "a warning trace (`:op-type :warning`) in :other → true"
-    (is (true? (l2/cascade-has-issue?
+    (is (true? (l2/event-bundle-has-issue?
                 {:other [(ev :rf.warning/schema-violation :op-type :warning)]}))))
 
   (testing "an advisory trace (`:op-type :info`) in :other → true — the
             wash covers the FULL Issues set (error + warning + advisory),
             matching the Issues ribbon/feed"
-    (is (true? (l2/cascade-has-issue?
+    (is (true? (l2/event-bundle-has-issue?
                 {:other [(ev :rf.ssr/hydration-mismatch :op-type :info)]}))))
 
   (testing "the cascade's legacy :errors slot alone → true (defence in
             depth for synthetic / older traces that populate it directly)"
-    (is (true? (l2/cascade-has-issue?
+    (is (true? (l2/event-bundle-has-issue?
                 {:errors [{:operation :rf.error/no-such-fx}]}))))
 
   (testing "an issue mixed with lifecycle chatter still lights up"
     (let [c (-> (cascade-with-source :fx-dispatch)
                 (assoc :other [(ev :rf.machine/transition :op-type :rf.machine)
                                (ev :rf.error/handler-exception :op-type :error)]))]
-      (is (true? (l2/cascade-has-issue? c))))))
+      (is (true? (l2/event-bundle-has-issue? c))))))
 
 ;; ---- 5. activity-badges projection --------------------------------------
 

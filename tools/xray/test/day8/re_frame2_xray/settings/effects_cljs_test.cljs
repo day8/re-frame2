@@ -288,19 +288,19 @@
 ;; the Settings BRIDGE is what these tests guard.
 
 (deftest apply-cascades-retained-writes-through-to-configure
-  (testing "rf2-5u03ig — apply-cascades-retained! routes through
+  (testing "rf2-5u03ig — apply-events-retained! routes through
             `(rf/configure! {:trace-buffer {:events-retained N}})`.
             Non-positive / non-numeric input is a no-op at the effect
             boundary (the UI :min 1 keeps the framework's 0-disables
             behaviour out of reach)."
     (let [calls (atom [])]
       (with-redefs [rf/configure! (fn [config-map] (swap! calls conj config-map) nil)]
-        (effects/apply-cascades-retained! 33)
+        (effects/apply-events-retained! 33)
         (is (= [{:trace-buffer {:events-retained 33}}] @calls)
             "positive value reaches configure! with the canonical config-map shape")
-        (effects/apply-cascades-retained! nil)
-        (effects/apply-cascades-retained! 0)
-        (effects/apply-cascades-retained! -5)
+        (effects/apply-events-retained! nil)
+        (effects/apply-events-retained! 0)
+        (effects/apply-events-retained! -5)
         (is (= 1 (count @calls))
             "nil / zero / negative are dropped at the effect boundary")))))
 

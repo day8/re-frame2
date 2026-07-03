@@ -361,7 +361,7 @@ Each row carries a trailing right-aligned chip showing how long ago the cascade 
 | `< 24h`            | `Nh`    |
 | `≥ 24h`            | `Nd`    |
 
-**Anchor (rf2-0s2at):** the "now" each chip computes against is the **dispatched-time of the most recent cascade in `:rf.xray/cascades`** — flips on event arrival, not on a per-second tick. Between events the L2 list stays frozen (no re-render); when a new event lands the anchor advances and every older row's chip recomputes (a row that read `3s` may now read `8s`). This replaces the earlier (rf2-vbbq0 original) 1s `setInterval` design: relative time is meaningful between events, not between seconds, and the per-second tick caused constant L2 flicker watching live testbeds. No timer; the anchor sub composes off the existing `:rf.xray/cascades` reactive path. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
+**Anchor (rf2-0s2at):** the "now" each chip computes against is the **dispatched-time of the most recent cascade in `:rf.xray/event-bundles`** — flips on event arrival, not on a per-second tick. Between events the L2 list stays frozen (no re-render); when a new event lands the anchor advances and every older row's chip recomputes (a row that read `3s` may now read `8s`). This replaces the earlier (rf2-vbbq0 original) 1s `setInterval` design: relative time is meaningful between events, not between seconds, and the per-second tick caused constant L2 flicker watching live testbeds. No timer; the anchor sub composes off the existing `:rf.xray/event-bundles` reactive path. The chip's `:title` attribute carries the absolute walltime (`HH:MM:SS · ISO · epoch-ms`) as the power-user reveal — hover the chip for the precise time without leaving L2. Replaces the v1 absolute datetime column dropped in Round-3 R3-C.
 
 #### Gutter glyphs / row badges / redaction marker — RETIRED (rf2-pjjwh)
 
@@ -393,7 +393,7 @@ glyph-free post-rf2-pjjwh).
   perf-budget overruns + app console errors. The renderer reuses the
   canonical issue predicate (`issues-ribbon-helpers/issue-event?`, applied
   over the cascade's `:other` bucket via
-  `l2-timeline/cascade-has-issue?`) rather than re-enumerating what counts
+  `l2-timeline/event-bundle-has-issue?`) rather than re-enumerating what counts
   as an issue, so the wash stays in lockstep with the ribbon/feed by
   construction. It is the SAME trace-derived signal the Epoch panel's
   per-step `:status` + `epoch-outcome` and `event-status-colour/
@@ -1061,7 +1061,7 @@ When `◆ TO` is set, `◆ HERE` collapses into it — TO is the new HERE. When 
 
 **Silent state.** When the host app registers no routes the panel renders only the header + a terse `No routes registered.` one-liner. No `(none)` placeholder, no marketing copy (silent-by-default per rf2-g3ghh).
 
-**L4 case-switch entry.** The detail panel's case-switch (`shell.cljs` §L4 detail panel) routes `:routing → [routing/Panel]`. The panel reads `:rf.xray/routing-tab-data`, a composite over `:rf.xray/registered-routes` + `:rf.xray/current-route-slice` + `:rf.xray/cascades` + `:rf.xray/focus`.
+**L4 case-switch entry.** The detail panel's case-switch (`shell.cljs` §L4 detail panel) routes `:routing → [routing/Panel]`. The panel reads `:rf.xray/routing-tab-data`, a composite over `:rf.xray/registered-routes` + `:rf.xray/current-route-slice` + `:rf.xray/event-bundles` + `:rf.xray/focus`.
 
 ---
 
@@ -1086,8 +1086,8 @@ The single-axis selection that every layer reads from.
 | Event | When dispatched | Effect on spine |
 |---|---|---|
 | `:rf.xray/focus-event <id>` | User click row · double-click row · palette jump | Sets `:dispatch-id <id>`, computes `:epoch-id` from cascades, flips `:mode → :retro` |
-| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` |
-| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.xray/filtered-cascades`; flips `:mode → :retro` if not already at head |
+| `:rf.xray/focus-event-prev` | `◀` button · `j` / `←` key | Steps `:dispatch-id` back one in `:rf.xray/filtered-event-bundles`; flips `:mode → :retro` |
+| `:rf.xray/focus-event-next` | `▶` button · `k` / `→` key | Steps `:dispatch-id` forward one in `:rf.xray/filtered-event-bundles`; flips `:mode → :retro` if not already at head |
 | `:rf.xray/follow-head` | `⏭` button · `L` key | Sets `:mode :live`, clears pinned id, snaps `:dispatch-id` to head |
 | `:rf.xray/toggle-live-pause` | `Space` key | Pauses/resumes LIVE buffer-to-list flow; buffer continues collecting; mode stays LIVE (paused) |
 | `:rf.xray/select-frame <frame-id>` → `:rf.xray/set-frame <frame-id>` | Frame picker selection | **`:rf.xray/select-frame`** is the canonical write surface (event-fx; dispatched by the frame-switcher view + the palette + `core/set-target-frame!`). It writes the dedicated `:view-scope-frame` slot (the VIEW SCOPE the L2 list scopes by — rf2-4vp5j) AND dispatches the spine primitive **`:rf.xray/set-frame`**, which writes `:focus :frame` + clears `:dispatch-id` to head of the new frame. Per the multi-frame panel-focus fix wave (rf2-fvplw / rf2-y8bik / rf2-ug1r6 / rf2-thodq) the `set-frame` write ALSO re-seeds `:rf.xray/target-frame` (the per-frame projection axis the App-db diff + Views composites read) AND `:rf.xray/epoch-history` (the cached snapshot of `(rf/epoch-history target)`) so every per-frame panel follows the picker as one atomic move — see [§Multi-frame panel-focus invariant (P) — v1 ships](#multi-frame-panel-focus-invariant-p--v1-ships) below. |
@@ -1099,7 +1099,7 @@ The single-axis selection that every layer reads from.
 |---|---|---|---|
 | L1.5 events ribbon | Nav cluster (`◀` `▶` `⏭`) | `:dispatch-id`, `:mode` | Disabled state when at boundaries |
 | L1 chrome ribbon | Frame picker (VIEW SCOPE) | `:rf.xray/view-scope-frame` | Writes `:view-scope-frame` (+ spine `:focus :frame`) via `:rf.xray/select-frame` |
-| L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-cascades`, which the L2 list reads; `N hidden` + `Clear Filters` surface when a filter suppresses rows |
+| L1.5 events ribbon | Filter pills + hidden indicator | `:rf.xray/active-filters` · `:rf.xray/hidden-by-filters` | Filters re-derive `:rf.xray/filtered-event-bundles`, which the L2 list reads; `N hidden` + `Clear Filters` surface when a filter suppresses rows |
 | L2 event list | Head-row mode cue | `:mode`, `:head?` | Pulse on head row in LIVE; pinned-row glyph in RETRO (LIVE/RETRO is a spine state; the Dynamic/Static mode dropdown is a separate chrome-ribbon control) |
 | L2 event list | Row gutter glyph | `:dispatch-id` | `◉` on focused row; `●` elsewhere |
 | L2 event list | Auto-scroll behaviour | `:mode`, `:head?` | LIVE: auto-scroll bottom; RETRO: sticky position |
@@ -1111,7 +1111,7 @@ The single-axis selection that every layer reads from.
 ### Sub-graph
 
 ```
-:rf.xray/cascades                 ← raw cascade list from Tool-Pair projection
+:rf.xray/event-bundles                 ← raw cascade list from Tool-Pair projection
         │
         ▼
 :rf.xray/view-scope-frame         ← single defaulted VIEW SCOPE (rf2-4vp5j; head-frame default)
@@ -1119,7 +1119,7 @@ The single-axis selection that every layer reads from.
 :rf.xray/muted-event-ids          ← muted-event-id set (Xray app-db slot)
         │
         ▼
-:rf.xray/filtered-cascades        ← single switch point: list + scrubber + counters
+:rf.xray/filtered-event-bundles        ← single switch point: list + scrubber + counters
         │                            (view-scope frame FIRST, then IN/OUT pills + mutes)
         ▼
 :rf.xray/focus                    ← spine: {:dispatch-id :epoch-id :frame :mode :head? :previewing?}
@@ -1131,10 +1131,10 @@ The single-axis selection that every layer reads from.
         └──── L4 detail panel (per-tab content)
 ```
 
-The scoping + filtering happens at the data layer (`:rf.xray/filtered-cascades`), not at render. Reasons:
+The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bundles`), not at render. Reasons:
 1. Virtualisation cares about row count — render-time filtering means the virtualiser budgets unfiltered rows.
-2. Scrubbing must respect the scope + filters — `[◀ ▶ ⏭]` walks `:rf.xray/filtered-cascades`, not all cascades.
-3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.xray/filtered-cascades` scopes to `:view-scope-frame` via `matcher/filter-cascades-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list, scrubber, and nav `[◀ ▶ ⏭]` all walk the frame-scoped, pill-filtered list as one. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
+2. Scrubbing must respect the scope + filters — `[◀ ▶ ⏭]` walks `:rf.xray/filtered-event-bundles`, not all cascades.
+3. **Frame scope applied FIRST, then filters.** Per rf2-4vp5j the picker is a VIEW SCOPE (not a filter): `:rf.xray/filtered-event-bundles` scopes to `:view-scope-frame` via `matcher/filter-event-bundles-by-view-scope` BEFORE applying the IN/OUT pills + mutes, so the L2 list, scrubber, and nav `[◀ ▶ ⏭]` all walk the frame-scoped, pill-filtered list as one. The frame scope is excluded from the hidden-by-filters count (frame ≠ filter); the pills + mutes are what that count measures. Spine's LIVE auto-tracking ALSO respects the view scope so `:head?` and the head walk are scoped per-frame.
 
 ### LIVE / RETRO transitions
 
@@ -1154,7 +1154,7 @@ The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky
 **Single-tier filtering.** The ONLY filtering surface is the
 events-ribbon IN/OUT pills (+ the L2-row mute affordance) — they scope
 the L2 event list, the scrubber nav, the issues ribbon signal, and palette
-verbs at the data layer (`:rf.xray/filtered-cascades`). The earlier
+verbs at the data layer (`:rf.xray/filtered-event-bundles`). The earlier
 "Trace tab filter toolbar" was **removed** (rf2-gkczt): the Trace L4
 panel is scoped to the focused epoch's `:trace-events` and carries no
 filtering UI at all — the focused epoch IS its scope (see
@@ -1345,14 +1345,14 @@ mute set (not the frame).
 
 Post rf2-4vp5j the frame picker is **a single, defaulted VIEW SCOPE — not
 a data-layer filter** (this supersedes the earlier rf2-oziyr "picker
-frame composed into `filtered-cascades`" framing in §6):
+frame composed into `filtered-event-bundles`" framing in §6):
 
 - **Default = head-epoch frame.** On a fresh load the L2 list scopes to
   whichever frame produced the most-recent pickable event
   (`frame-switcher/head-frame`), rather than merging every frame.
 - **Single dedicated slot.** The picker writes `:view-scope-frame` (via
   the canonical event-fx `:rf.xray/select-frame`); the L2 list scopes by
-  it through `matcher/filter-cascades-by-view-scope`, which is a NO-OP
+  it through `matcher/filter-event-bundles-by-view-scope`, which is a NO-OP
   when the scope is nil (a defaulted scope never drops the
   not-yet-frame-tagged `:ungrouped` bucket). `:rf.xray/select-frame`
   ALSO dispatches the spine's `:rf.xray/set-frame` (re-seeding
@@ -1371,7 +1371,7 @@ When a filtered event raises an exception, surface it anyway (`:rf.xray/filters-
 
 ### Data-layer filtering
 
-Filter applied at DATA layer (`:rf.xray/filtered-cascades` sub), not render. See §6 sub-graph.
+Filter applied at DATA layer (`:rf.xray/filtered-event-bundles` sub), not render. See §6 sub-graph.
 
 ```clojure
 :rf.xray/active-filters
@@ -1382,7 +1382,7 @@ Filter applied at DATA layer (`:rf.xray/filtered-cascades` sub), not render. See
        …]}
 ```
 
-Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads `:rf.xray/filtered-cascades`. Raw `:rf.xray/cascades` stays as primitive for unfiltered totals.
+Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads `:rf.xray/filtered-event-bundles`. Raw `:rf.xray/event-bundles` stays as primitive for unfiltered totals.
 
 ---
 
@@ -1447,12 +1447,12 @@ derived by `compose-focus` from the focused cascade) and falls back
 to `:rf.xray/target-frame` so click-on-row picker-less navigation
 also rebinds. Both writes happen in the same `:rf.xray/set-frame`
 reducer so the App-db diff renders the diff body for the picked frame
-on the next render-frame, and the Views panel's `:has-cascade?`
+on the next render-frame, and the Views panel's `:has-event-bundle?`
 guard does not flip to `false` between picks.
 
 **Cross-frame L2-row click re-seed (rf2-q8hvw).** With the picker
 **untouched** the view scope is nil, so the L2 list spans EVERY frame's
-cascades (`matcher/filter-cascades-by-view-scope` is a no-op on a nil
+cascades (`matcher/filter-event-bundles-by-view-scope` is a no-op on a nil
 scope). Clicking a row for a cascade that settled in a NON-head frame
 must therefore resolve its settling epoch against THAT frame's ring —
 but `:rf.xray/epoch-history` is keyed on `:rf.xray/target-frame`, which
@@ -1507,19 +1507,19 @@ framework's trace projection groups cascades by `[frame dispatch-id]`
 and intentionally emits two cascade records when the same id occurs in
 two frames (`re-frame.trace.projection/grouped-cascades`). Panel reads
 that resolve a focused cascade therefore key by BOTH `:frame` and
-`:dispatch-id` whenever the focus carries a frame — `spine/cascade-by-focus`
+`:dispatch-id` whenever the focus carries a frame — `spine/event-bundle-by-focus`
 is the canonical helper (and `routing_helpers/focused-cascade` mirrors
 it as a pure CLJC data fn for its JVM-testable algebra). When no cascade
 in the focused frame carries the id, these reads return nil rather than a
 same-id cascade from a FOREIGN frame, so a panel renders no overlay
 rather than a wrong-frame one. The composing surfaces are: the Trace
-tab's `:rf.xray.trace/focused-cascade`, the Routes tab's
+tab's `:rf.xray.trace/focused-event-bundle`, the Routes tab's
 `:rf.xray/routing-tab-data`, the Managed-FX composite
 `:rf.xray/managed-fx-for-focused-event`, and the per-row status the
 event-status-colour `cascade->state` projects (its `focused?` flag now
 requires frame agreement when both the cascade and focus carry a
 frame). The spine's own step path resolves the stepped row as a whole
-cascade record (`spine/step-cascade`) so its `:frame` comes from the
+cascade record (`spine/step-event-bundle`) so its `:frame` comes from the
 exact row stepped to rather than an id-only re-resolution that could
 land on a foreign frame's same-id cascade.
 
@@ -1531,11 +1531,11 @@ occurs in an earlier frame:
 1. **`compose-focus` head-frame resolution.** When focus auto-tracks
    the head (LIVE, or a snap-to-head fallback) with no picker frame
    stored, the effective `:frame` is taken from the actual head cascade
-   RECORD (`spine/head-cascade` — the last focusable row), not from an
-   id-only `cascade-by-id` that returns the FIRST same-id row's frame.
+   RECORD (`spine/head-event-bundle` — the last focusable row), not from an
+   id-only `event-bundle-by-id` that returns the FIRST same-id row's frame.
    So `:rf.xray/focus` reports `[head-id, head-frame]` in lockstep even
    when `head-id` collides with an earlier frame's id.
-2. **`spine/step-cascade` current index.** The 4-arity
+2. **`spine/step-event-bundle` current index.** The 4-arity
    `[cascades current-frame current-id delta]` matches the current
    position by `[current-frame current-id]` when a frame is known
    (falling back to id-only for genuinely frameless focus, or when no
@@ -1552,7 +1552,7 @@ Test gates: `routing_helpers_cljs_test.cljc` pins two same-id
 cross-frame cascades selecting the focused frame; the trace / managed-fx
 / spine suites carry the same cross-frame fixture shape;
 `spine_cljs_test.cljs` adds the rf2-xj3kbn current-position cases
-(`step-cascade` 4-arity frame-strict lookup +
+(`step-event-bundle` 4-arity frame-strict lookup +
 `focus-step-reducer` prev from a colliding-id LIVE head landing on the
 immediate previous row in the head's frame, with the stepped row's
 epoch resolved).

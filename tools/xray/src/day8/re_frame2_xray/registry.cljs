@@ -23,7 +23,7 @@
   ## Orchestrator
 
   This ns owns only the cross-panel primitives (the trace-buffer sub,
-  the panel-selection slot, the shared cascades projection, and the
+  the panel-selection slot, the shared event-bundles projection, and the
   three suppression-counter handlers) plus the orchestration call
   into each per-panel `install!`. Per-panel registrations live in the
   panel's own ns under `(defn install! [] ...)` so each
@@ -126,14 +126,14 @@
     ;;
     ;; The sub re-fires on the standard app-db-write reactive path so
     ;; panels re-render on the next microtask after each refresh. The
-    ;; coalescer caps the mirror cascade at depth 1 regardless of host
+    ;; coalescer caps the mirror event-bundle at depth 1 regardless of host
     ;; trace-event volume; the router's drain-depth headroom cannot
     ;; gate the mirror under saturation.
     ;;
     ;; Returns the empty vector pre-mount (the slot is absent until
     ;; the first refresh microtask drains). Panel-side composites that
     ;; want richer projection (`group-by-event`, the L2 event list)
-    ;; chain off `:rf.xray/cascades` rather than reading this slot
+    ;; chain off `:rf.xray/event-bundles` rather than reading this slot
     ;; directly.
     (rf/reg-sub :rf.xray/trace-buffer
       (fn [db _query]
@@ -191,7 +191,7 @@
     ;; ---- Modal positioning ----
     ;;
     ;; Every Xray modal (Settings popup, auto-filter edit popup,
-    ;; Share modal, Cancellation cascade popover) defaults to
+    ;; Share modal, Cancellation event-bundle popover) defaults to
     ;; `position: fixed; inset: 0; z-index: 2_147_483_64x`
     ;; — the right shape for production where the shell covers the
     ;; host app. In a Story testbed where multiple shell instances
@@ -259,7 +259,7 @@
 
     ;; Reset to default — bound to the resize handle's double-click.
     ;; Routes through the same write surface so persistence + DOM
-    ;; cascade stay consistent. Separate event id so the palette /
+    ;; event-bundle stay consistent. Separate event id so the palette /
     ;; key-binding affordance can wire to it without re-implementing
     ;; the clamp + persist logic.
     (rf/reg-event :rf.xray/reset-panel-width
@@ -371,9 +371,9 @@
     ;; shape `{:in [{:pattern <str>}] :out [{:pattern <str>}]}` (pills
     ;; are keyed off event-id only; typed-predicate kinds add a
     ;; `{:kind … :params …}` shape via right-click affordances). The
-    ;; `:rf.xray/filtered-cascades` sub (installed via
+    ;; `:rf.xray/filtered-event-bundles` sub (installed via
     ;; `filters/install!` further down) composes against this slot to
-    ;; produce the filtered cascade list every consumer reads.
+    ;; produce the filtered event-bundle list every consumer reads.
     ;;
     ;; The sub returns a well-shaped map even when one bucket is
     ;; absent — a save into just `:out` leaves `:in` as `nil` in
@@ -385,7 +385,7 @@
           {:in  (vec (get stored :in []))
            :out (vec (get stored :out []))})))
 
-    ;; Shared cascade projection. The event-detail and performance
+    ;; Shared event-bundle projection. The event-detail and performance
     ;; composites all consume `projection/group-by-event` over the same
     ;; trace-buffer; routing them through one intermediate sub collapses
     ;; multiple O(buffer) passes per push to one. Each downstream
@@ -393,10 +393,10 @@
     ;; stays correct (and idle composites still don't pay for the
     ;; projection).
     ;;
-    ;; The projection ALSO hard-filters Xray-internal cascades (any
-    ;; cascade whose event-id is in the `rf.xray` namespace) at this
+    ;; The projection ALSO hard-filters Xray-internal event-bundles (any
+    ;; event-bundle whose event-id is in the `rf.xray` namespace) at this
     ;; single point so every downstream consumer
-    ;; — `:rf.xray/filtered-cascades`, the L2 event list, the spine,
+    ;; — `:rf.xray/filtered-event-bundles`, the L2 event list, the spine,
     ;; the Trace / Views tabs — inherits the filter
     ;; automatically. The ingest-side `self-noise/xray-internal-event?`
     ;; guard catches self-emitted sub-reads + view-renders
@@ -406,20 +406,20 @@
     ;; ingest filter. This filter closes that hole structurally without
     ;; forcing every call site to thread `:frame`. Pre-alpha posture:
     ;; no opt-out toggle — Xray's internals are not user-facing.
-    (rf/reg-sub :rf.xray/cascades
+    (rf/reg-sub :rf.xray/event-bundles
       :<- [:rf.xray/trace-buffer]
       (fn [buffer _query]
-        (self-noise/filtered-cascades buffer)))
+        (self-noise/filtered-event-bundles buffer)))
 
-    ;; ---- Focused-cascade composite -------------------------------
+    ;; ---- Focused-event-bundle composite -------------------------------
     ;;
-    ;; `:rf.xray/focused-cascade-detail` produces the focused-cascade
-    ;; record alongside the cascade vector + the effective dispatch-id/
-    ;; frame so multiple consumers can read "the cascade the spine is
+    ;; `:rf.xray/focused-event-bundle-detail` produces the focused-event-bundle
+    ;; record alongside the event-bundle vector + the effective dispatch-id/
+    ;; frame so multiple consumers can read "the event-bundle the spine is
     ;; pointing at" in one shot. It is a cross-panel primitive (the
-    ;; per-cascade managed-fx surface + the test corpus read it), so it
-    ;; lives here next to `:rf.xray/cascades` it composes against. The
-    ;; name describes its behaviour: "the focused cascade's detail
+    ;; per-event-bundle managed-fx surface + the test corpus read it), so it
+    ;; lives here next to `:rf.xray/event-bundles` it composes against. The
+    ;; name describes its behaviour: "the focused event-bundle's detail
     ;; record".
     ;;
     ;; Reads the EFFECTIVE focused dispatch-id off the spine sub
@@ -427,18 +427,18 @@
     ;; so the consumers never pin to a stale id. If the spine lands on
     ;; `:ungrouped` (the projection's catch-all bucket for registry-time
     ;; emits / frame lifecycle outside a drain), fall back to the most
-    ;; recent ROUTED cascade so the default-focus never lands on the
+    ;; recent ROUTED event-bundle so the default-focus never lands on the
     ;; projection's internal bucket.
-    (rf/reg-sub :rf.xray/focused-cascade-detail
-      :<- [:rf.xray/cascades]
+    (rf/reg-sub :rf.xray/focused-event-bundle-detail
+      :<- [:rf.xray/event-bundles]
       :<- [:rf.xray/focus]
-      (fn [[cascades focus] _query]
+      (fn [[event-bundles focus] _query]
         (let [focus-id       (:dispatch-id focus)
               focus-frame    (:frame focus)
               ungrouped?     (= :ungrouped focus-id)
               routed?        (fn [c] (vector? (:event c)))
               head           (when (or (nil? focus-id) ungrouped?)
-                               (last (filterv routed? cascades)))
+                               (last (filterv routed? event-bundles)))
               selected-id    (cond
                                ungrouped?      (:dispatch-id head)
                                (nil? focus-id) (:dispatch-id head)
@@ -453,11 +453,11 @@
                                                   (or (nil? selected-frame)
                                                       (= selected-frame (:frame c))))
                                          c))
-                                     cascades))]
-          {:cascades                cascades
+                                     event-bundles))]
+          {:event-bundles                event-bundles
            :selected-dispatch-id    selected-id
            :selected-dispatch-frame selected-frame
-           :selected-cascade        by-id})))
+           :selected-event-bundle        by-id})))
 
     ;; ---- Spine shim — focus by dispatch-id ------------------------
     ;;
@@ -468,7 +468,7 @@
     ;; `:rf.xray/focus-event` event uses. A multi-panel consumer, so
     ;; it lives here.
     ;;
-    ;; Re-keys `:epoch-history` onto the selected cascade's
+    ;; Re-keys `:epoch-history` onto the selected event-bundle's
     ;; frame BEFORE resolving its settling epoch, exactly as the sibling
     ;; `:rf.xray/focus-event` handler does. With the picker
     ;; untouched the `:epoch-history` slot is keyed on the boot head
@@ -482,11 +482,11 @@
         {:db (let [db       (spine/reseed-epoch-history-for-frame
                          db frame-id (rf/epoch-history frame-id))
               history  (get db :epoch-history [])
-              epoch-id (spine/epoch-id-for-cascade history dispatch-id)
-              head-id  (spine/focusable-head-id (spine/db->cascades db))]
-          (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))}))
+              epoch-id (spine/epoch-id-for-event-bundle history dispatch-id)
+              head-id  (spine/focusable-head-id (spine/db->event-bundles db))]
+          (spine/focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
-    ;; Programmatic clear of the focused cascade. Resets the spine
+    ;; Programmatic clear of the focused event-bundle. Resets the spine
     ;; focus back to LIVE (head-tracking) per the Phase A semantics.
     ;; A multi-panel consumer alongside the select event above.
     (rf/reg-event :rf.xray/clear-selected-dispatch-id
@@ -500,28 +500,28 @@
     ;; ---- L2 relative-time anchor ----------------------------------
     ;;
     ;; Every L2 row carries a small right-aligned chip showing how long
-    ;; ago the cascade was dispatched ("5s" / "2m" / "1h" / "3d"). The
+    ;; ago the event-bundle was dispatched ("5s" / "2m" / "1h" / "3d"). The
     ;; anchor — the "now" each row's relative-time computes against —
     ;; flips on EVENT ARRIVAL, not on a wall-clock tick.
     ;;
     ;; Relative time is meaningful BETWEEN events, not between seconds —
-    ;; so the anchor is the dispatched-time of the most recent cascade,
+    ;; so the anchor is the dispatched-time of the most recent event-bundle,
     ;; which avoids the per-second flicker a wall-clock `setInterval`
     ;; would produce for negligible semantic gain. When a new event
     ;; arrives the anchor flips, older rows recompute (a row that was
     ;; "3s" now reads "8s"); in between events the list is frozen.
     ;;
-    ;; The sub composes off `:rf.xray/cascades` so it inherits the
-    ;; Xray-internal filter (cascade-internal ticks never become the
-    ;; anchor). It returns nil when the buffer is empty or no cascade
+    ;; The sub composes off `:rf.xray/event-bundles` so it inherits the
+    ;; Xray-internal filter (event-bundle-internal ticks never become the
+    ;; anchor). It returns nil when the buffer is empty or no event-bundle
     ;; carries a `:dispatched :time` — the view's render-time fallback
     ;; (`(interop/now-ms)`) covers that edge.
     (rf/reg-sub :rf.xray/relative-time-now-ms
-      :<- [:rf.xray/cascades]
-      (fn [cascades _query]
+      :<- [:rf.xray/event-bundles]
+      (fn [event-bundles _query]
         (let [times (into []
                           (keep #(get-in % [:dispatched :time]))
-                          cascades)]
+                          event-bundles)]
           (when (seq times)
             (apply max times)))))
 
@@ -562,7 +562,7 @@
     ;; install-auto-open-watcher!) — the cross-epoch "something is
     ;; wrong" signal. The pure-data projection lives in
     ;; `issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
-    ;; predicate via `panels/l2-timeline/cascade-has-issue?`), so the
+    ;; predicate via `panels/l2-timeline/event-bundle-has-issue?`), so the
     ;; algebra runs under the JVM test target.
     ;;
     ;; Per spec/021 §1.2 the projection is focused-epoch-scoped — it
@@ -762,7 +762,7 @@
     ;; `trace-collector/collect-trace!` would itself emit
     ;; `:rf.event/dispatched` etc. back through the trace-cb fan-out,
     ;; the collector would see
-    ;; its own self-emit, and the cascade would loop until
+    ;; its own self-emit, and the event-bundle would loop until
     ;; `drain-depth-default` terminated it. The framework
     ;; short-circuits emission at the `emit!` / `emit-error!` /
     ;; `emit-dispatched-trace!` gates so no Xray-side `self-emitted?`
@@ -842,7 +842,7 @@
     (resizable-table/hydrate!)
     ;; Filters install AFTER `:rf.xray/active-filters` + the
     ;; add-filter / remove-filter events above are registered (the
-    ;; filters facade adds `:rf.xray/filtered-cascades` + the edit-
+    ;; filters facade adds `:rf.xray/filtered-event-bundles` + the edit-
     ;; popup events + the persistence fx + hydrates the slot from
     ;; localStorage). Hydration runs through the orchestrator so the
     ;; idempotency sentinel above prevents the hydrate-dispatch from
@@ -852,11 +852,11 @@
     ;; `:rf.xray/muted-event-ids` slot + the mute / unmute / clear
     ;; events + the localStorage persistence fx + the unmute manager
     ;; modal open / close state. Installs AFTER `filters/install!` so
-    ;; the `:rf.xray/filtered-cascades` sub it composes against is
-    ;; already registered; the mute filter wraps the filtered-cascades
-    ;; via the standalone `:rf.xray/spine-filtered-cascades` sub
+    ;; the `:rf.xray/filtered-event-bundles` sub it composes against is
+    ;; already registered; the mute filter wraps the filtered-event-bundles
+    ;; via the standalone `:rf.xray/spine-filtered-event-bundles` sub
     ;; below (the L2 event list + spine consumers swap their dependency
-    ;; from `filtered-cascades` → `spine-filtered-cascades` so the
+    ;; from `filtered-event-bundles` → `spine-filtered-event-bundles` so the
     ;; mute strip rides atop the existing IN/OUT pill filter).
     (spine-filters/install!)
     ;; Spine MUST install before the cross-panel selection shims —
@@ -886,16 +886,16 @@
     ;; Cancellation-cascade visualiser — installs the
     ;; subs + events for the Machines tab side-panel + the trace-row
     ;; popover. The view-side `reg-view`s are picked up at ns-load.
-    ;; Order: registers AFTER spine + cascades (composes against
+    ;; Order: registers AFTER spine + event-bundles (composes against
     ;; `:rf.xray/focus` + `:rf.xray/trace-buffer`); registry order is
     ;; cosmetic since re-frame resolves `:<-` chains lazily.
     (cancellation-cascade/install!)
     ;; Epoch panel — the canonical "what happened in this
-    ;; epoch" surface; numbered cascade of every pipeline step. Reads
+    ;; epoch" surface; numbered event-bundle of every pipeline step. Reads
     ;; the spine's `:rf.xray/focus` + `:rf.xray/epoch-history`,
     ;; projects the focused record's `:trace-events` into ordered
     ;; step rows. Registers at order -1 (leftmost). The cross-panel
-    ;; primitives it consumes — `:rf.xray/focused-cascade-detail`,
+    ;; primitives it consumes — `:rf.xray/focused-event-bundle-detail`,
     ;; `:rf.xray/select-dispatch-id`, `:rf.xray/clear-selected-
     ;; dispatch-id` — live in the cross-panel block above.
     (epoch-panel/install!)

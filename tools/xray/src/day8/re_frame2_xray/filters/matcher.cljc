@@ -2,10 +2,10 @@
   "Pattern matching for Xray's IN/OUT filter pills.
 
   Per `tools/xray/spec/018-Event-Spine.md` §7 the filter system runs
-  at the DATA layer (`:rf.xray/filtered-cascades` sub) — every consumer
+  at the DATA layer (`:rf.xray/filtered-event-bundles` sub) — every consumer
   (event list, scrubber, Issues counter, palette verbs) reads the
   filtered list. The matcher in this ns is the pure data primitive
-  the sub composes against the raw cascade list.
+  the sub composes against the raw event-bundle list.
 
   ## Pattern syntax
 
@@ -37,7 +37,7 @@
 
   The matcher is pure data; JVM tests in
   `tools/xray/test/.../filters/matcher_test.cljc` exercise the shape
-  without a CLJS runtime. The CLJS pill view + filtered-cascades sub
+  without a CLJS runtime. The CLJS pill view + filtered-event-bundles sub
   compose against this ns at render-time."
   (:require [clojure.string :as str]))
 
@@ -102,7 +102,7 @@
   - `:substring`  — `(str event-id)` contains the substring
   - `:never`      — always false (blank / malformed pill)
 
-  `event-id` may be nil (an unrouted cascade carrying no event); nil
+  `event-id` may be nil (an unrouted event-bundle carrying no event); nil
   never matches."
   [event-id {:keys [kind pattern]}]
   (cond
@@ -128,100 +128,100 @@
   (and (some? pattern)
        (match-event-id? event-id (normalise-pattern pattern))))
 
-;; ---- cascade-level filtering --------------------------------------------
+;; ---- event-bundle-level filtering --------------------------------------------
 
-(defn- cascade-event-id
-  "Pluck the event-id from a cascade — same shape `shell/event-id-of-
-  cascade` plucks (`(first (:event cascade))`). Lifted here so the
+(defn- event-bundle-event-id
+  "Pluck the event-id from an event-bundle — same shape `shell/event-id-of-
+  event-bundle` plucks (`(first (:event event-bundle))`). Lifted here so the
   matcher stays a self-contained pure unit; the shell delegates."
-  [cascade]
-  (let [ev (:event cascade)]
+  [event-bundle]
+  (let [ev (:event event-bundle)]
     (when (vector? ev)
       (first ev))))
 
-(defn cascade-matches?
-  "True iff `cascade`'s event-id matches *any* pill in `pills`.
+(defn event-bundle-matches?
+  "True iff `event-bundle`'s event-id matches *any* pill in `pills`.
 
   - Empty / nil `pills` → false (no patterns to match against).
   - Otherwise → true on first pill match."
-  [cascade pills]
+  [event-bundle pills]
   (boolean
     (when (seq pills)
-      (let [event-id (cascade-event-id cascade)]
+      (let [event-id (event-bundle-event-id event-bundle)]
         (some #(match-pill? % event-id) pills)))))
 
-(defn keep-cascade?
-  "True iff `cascade` survives the active filter per spec/018 §7:
+(defn keep-event-bundle?
+  "True iff `event-bundle` survives the active filter per spec/018 §7:
 
       keep = (no-IN-pills OR matches-IN) AND NOT (matches-OUT)
 
-  Cascades that fail the keep test drop out of `:rf.xray/filtered-
-  cascades`. The L2 event list, scrubber, Issues counter, palette
+  Event bundles that fail the keep test drop out of `:rf.xray/filtered-
+  event-bundles`. The L2 event list, scrubber, Issues counter, palette
   verbs all read the filtered list — one filter, every consumer."
-  [cascade {:keys [in out]}]
+  [event-bundle {:keys [in out]}]
   (let [in-ok?  (or (empty? in)
-                    (cascade-matches? cascade in))
-        out-hit (cascade-matches? cascade out)]
+                    (event-bundle-matches? event-bundle in))
+        out-hit (event-bundle-matches? event-bundle out)]
     (and in-ok? (not out-hit))))
 
-(defn filter-cascades
-  "Apply `filters` to `cascades`, returning the surviving subseq in
+(defn filter-event-bundles
+  "Apply `filters` to `event-bundles`, returning the surviving subseq in
   order. Pure — no I/O, no atoms read."
-  [cascades filters]
-  (filterv #(keep-cascade? % filters) cascades))
+  [event-bundles filters]
+  (filterv #(keep-event-bundle? % filters) event-bundles))
 
 ;; ---- frame-picker filter ------------------------------------------------
 
-(defn keep-cascade-for-frame?
-  "True iff `cascade`'s `:frame` matches the picker-selected
+(defn keep-event-bundle-for-frame?
+  "True iff `event-bundle`'s `:frame` matches the picker-selected
   `picker-frame`. nil / absent `picker-frame` means 'no frame filter
-  active' — every cascade survives. Cascades whose `:frame` slot is
+  active' — every event-bundle survives. Event bundles whose `:frame` slot is
   nil (the `:ungrouped` bucket from registry-time emits / lifecycle
   outside a drain) drop out when a frame filter is active.
 
   Per spec/018 §3 Frame dropdown: the picker is single-select and the
-  L2 list MUST show only the picked frame's cascades. Filtering at
+  L2 list MUST show only the picked frame's event-bundles. Filtering at
   the data layer keeps the virtualisation budget honest and the
   ribbon nav (`◀ ▶ ⏭`) walking the same surface every consumer reads.
 
   Pure data; JVM-runnable."
-  [cascade picker-frame]
+  [event-bundle picker-frame]
   (or (nil? picker-frame)
-      (= picker-frame (:frame cascade))))
+      (= picker-frame (:frame event-bundle))))
 
-(defn filter-cascades-by-frame
-  "Restrict `cascades` to those whose `:frame` matches `picker-frame`.
-  nil `picker-frame` returns `cascades` unchanged. Pure — no I/O, no
+(defn filter-event-bundles-by-frame
+  "Restrict `event-bundles` to those whose `:frame` matches `picker-frame`.
+  nil `picker-frame` returns `event-bundles` unchanged. Pure — no I/O, no
   atoms read. Per spec/018 §3 Frame dropdown."
-  [cascades picker-frame]
+  [event-bundles picker-frame]
   (if (nil? picker-frame)
-    cascades
-    (filterv #(keep-cascade-for-frame? % picker-frame) cascades)))
+    event-bundles
+    (filterv #(keep-event-bundle-for-frame? % picker-frame) event-bundles)))
 
-(defn keep-cascade-for-view-scope?
-  "True iff `cascade` is in the picker-selected VIEW SCOPE `scope-frame`.
-  Like `keep-cascade-for-frame?` but the FRAMELESS
-  `:ungrouped` pseudo-cascade (nil `:frame` — registry-time emits /
+(defn keep-event-bundle-for-view-scope?
+  "True iff `event-bundle` is in the picker-selected VIEW SCOPE `scope-frame`.
+  Like `keep-event-bundle-for-frame?` but the FRAMELESS
+  `:ungrouped` pseudo-event-bundle (nil `:frame` — registry-time emits /
   lifecycle outside a drain) is frame-AGNOSTIC and always survives the
   scope: it has no frame to match, and whether it RENDERS is gated
-  separately by the `show-ungrouped?` opt-in (`l2-cascade-visible?`).
+  separately by the `show-ungrouped?` opt-in (`l2-event-bundle-visible?`).
 
-  This is the view-scope analogue of `keep-cascade-for-frame?`: a view
+  This is the view-scope analogue of `keep-event-bundle-for-frame?`: a view
   scope narrows to one host frame's events without swallowing the
   frame-agnostic bucket. Pure data; JVM-runnable."
-  [cascade scope-frame]
+  [event-bundle scope-frame]
   (or (nil? scope-frame)
-      (nil? (:frame cascade))
-      (= scope-frame (:frame cascade))))
+      (nil? (:frame event-bundle))
+      (= scope-frame (:frame event-bundle))))
 
-(defn filter-cascades-by-view-scope
-  "Restrict `cascades` to the picker-selected VIEW SCOPE `scope-frame`,
-  preserving frameless `:ungrouped` pseudo-cascades. nil
-  `scope-frame` returns `cascades` unchanged. Pure — no I/O, no atoms
+(defn filter-event-bundles-by-view-scope
+  "Restrict `event-bundles` to the picker-selected VIEW SCOPE `scope-frame`,
+  preserving frameless `:ungrouped` pseudo-event-bundles. nil
+  `scope-frame` returns `event-bundles` unchanged. Pure — no I/O, no atoms
   read. The L2 list + hidden-count baseline read THIS (not the strict
-  `filter-cascades-by-frame`) so a defaulted view scope never drops the
+  `filter-event-bundles-by-frame`) so a defaulted view scope never drops the
   frame-agnostic bucket."
-  [cascades scope-frame]
+  [event-bundles scope-frame]
   (if (nil? scope-frame)
-    cascades
-    (filterv #(keep-cascade-for-view-scope? % scope-frame) cascades)))
+    event-bundles
+    (filterv #(keep-event-bundle-for-view-scope? % scope-frame) event-bundles)))

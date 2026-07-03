@@ -130,7 +130,7 @@ All tab content shares the cross-panel substrate:
 > surface is now the Epoch panel — a numbered vertical cascade of
 > every pipeline step (DISPATCH · COEFFECTS · HANDLER · FLOW · FX ·
 > SUBSCRIPTIONS · VIEWS, conditional per the trace stream). The
-> surviving cross-panel sub `:rf.xray/focused-cascade-detail` (renamed
+> surviving cross-panel sub `:rf.xray/focused-event-bundle-detail` (renamed
 > off the retired-panel name `:rf.xray/event-detail` per rf2-7ed9ms) +
 > spine-shim events `:rf.xray/select-dispatch-id` / `:rf.xray/clear-selected-
 > dispatch-id` were relocated to `registry.cljs` as cross-panel
@@ -263,7 +263,7 @@ warnings + advisories) per
 [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
 §Error event catalogue. The pure-data algebra lives in
 `panels/issues_ribbon_helpers.cljc` (also feeding the L2 pink-wash
-predicate `l2-timeline/cascade-has-issue?`). What was a panel lens is
+predicate `l2-timeline/event-bundle-has-issue?`). What was a panel lens is
 now purely a signal source.
 
 (Historical: pre-rf2-gbz39 the Issues panel was a focused-epoch lens
@@ -427,7 +427,7 @@ signal.
   `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice
   is framework-owned runtime-db state). Switching the L1 frame picker
   re-binds the lens.
-- `:rf.xray/cascades` — the shared cascade projection. The composite
+- `:rf.xray/event-bundles` — the shared cascade projection. The composite
   scans the focused cascade's trace events for the routing-emit.
 - `:rf.xray/focus` — the spine's focused dispatch-id + epoch.
 - `:rf.xray.routing/query`, `:rf.xray.routing/sim-url`,

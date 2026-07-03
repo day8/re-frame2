@@ -68,7 +68,7 @@
 
 (defn- seed-reactive-data!
   "Re-register the composite `:rf.xray/reactive-data` to return a
-  literal so the panel view renders its focused-cascade body."
+  literal so the panel view renders its focused-event-bundle body."
   [data]
   (rf/reg-sub :rf.xray/reactive-data (fn [_db _q] data)))
 
@@ -81,7 +81,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true
                        :readers [:cart/Summary]}]
@@ -106,7 +106,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)]
       (is (= "Reactive Flow" (text-of tree "rf-xray-reactive-section-flow-label"))
@@ -120,7 +120,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [] :destroyed-subs []})
     (let [tree (view/reactive-panel)
@@ -143,7 +143,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true}]
        :level-2-subs [] :view-rows []})
@@ -162,7 +162,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/state :changed? true}]})
     (let [tree (view/reactive-panel)
@@ -179,7 +179,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/title :changed? false}]})
     (let [tree (view/reactive-panel)
@@ -193,7 +193,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :reactive :subs [:cart/total]}
@@ -213,7 +213,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Badge :action :rerender
                     :reason {:kind :structural} :elapsed-ms 0.5}]})
@@ -231,7 +231,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Fresh :action :mount
                     :reason {:kind :structural}}]})
@@ -247,7 +247,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-2-subs []
        :level-1-subs [{:sub-id :app/session :changed? true
                        :readers [:app/Header :app/Sidebar]}]
@@ -265,7 +265,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :structural}}]})
@@ -283,7 +283,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)]
       (is (has-testid? tree "rf-xray-reactive-graph-empty")
@@ -299,7 +299,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [{:view-id :app/Modal} {:view-id :app/Tooltip}]})
     (let [tree (view/reactive-panel)]
@@ -317,7 +317,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views []})
     (let [tree (view/reactive-panel)]
@@ -330,7 +330,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :destroyed-subs [{:sub-id :app/modal-state}]})
     (let [tree (view/reactive-panel)]
@@ -352,7 +352,7 @@
     (facade/install!)
     (frame/reg-frame :rf/xray {})
     (seed-reactive-data!
-      {:has-cascade? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (view/reactive-panel)
           legend-text (text-of tree "rf-xray-reactive-legend")]

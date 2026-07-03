@@ -564,7 +564,7 @@ Buffer tab:
   `re-frame.trace.tooling/default-events-retained` (`50`). Writes
   through to the runtime ring via `(rf/configure! {:trace-buffer
   {:events-retained N}})` — `settings/effects.cljs
-  §apply-cascades-retained!` resizes the live ring and `apply-all!`
+  §apply-events-retained!` resizes the live ring and `apply-all!`
   replays the persisted value on boot (rf2-5u03ig). Renamed from
   `:trace-buffer/keep` at rf2-43koh when Xray's separate ring was
   retired in favour of the framework's per-frame event-keyed rings

@@ -96,74 +96,74 @@
   (is (not (matcher/match-pill? {} :auth/login)))
   (is (not (matcher/match-pill? nil :auth/login))))
 
-;; ---- cascade-matches? ---------------------------------------------------
+;; ---- event-bundle-matches? ---------------------------------------------------
 
-(deftest cascade-matches-any-pill
+(deftest event-bundle-matches-any-pill
   (let [cascade {:event [:auth/login]}
         pills   [{:pattern :order/*}
                  {:pattern :auth/*}
                  {:pattern :user/*}]]
-    (is (matcher/cascade-matches? cascade pills))))
+    (is (matcher/event-bundle-matches? cascade pills))))
 
-(deftest cascade-matches-empty-pills-is-false
-  (is (not (matcher/cascade-matches? {:event [:auth/login]} [])))
-  (is (not (matcher/cascade-matches? {:event [:auth/login]} nil))))
+(deftest event-bundle-matches-empty-pills-is-false
+  (is (not (matcher/event-bundle-matches? {:event [:auth/login]} [])))
+  (is (not (matcher/event-bundle-matches? {:event [:auth/login]} nil))))
 
-(deftest cascade-matches-unrouted-cascade-never-matches
+(deftest event-bundle-matches-unrouted-cascade-never-matches
   (testing "a cascade with no event vector has no event-id; no pill matches"
-    (is (not (matcher/cascade-matches?
+    (is (not (matcher/event-bundle-matches?
                {:event nil}
                [{:pattern :auth/*}])))))
 
-;; ---- keep-cascade? + filter-cascades ------------------------------------
+;; ---- keep-event-bundle? + filter-event-bundles ------------------------------------
 
-(deftest keep-cascade-no-filters-keeps-all
+(deftest keep-event-bundle-no-filters-keeps-all
   (let [filters {:in [] :out []}]
-    (is (matcher/keep-cascade? {:event [:auth/login]} filters))
-    (is (matcher/keep-cascade? {:event [:mouse-move]} filters))))
+    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
+    (is (matcher/keep-event-bundle? {:event [:mouse-move]} filters))))
 
-(deftest keep-cascade-out-only-blacklists
+(deftest keep-event-bundle-out-only-blacklists
   (let [filters {:in [] :out [{:pattern :mouse-move}]}]
-    (is (matcher/keep-cascade? {:event [:auth/login]} filters))
-    (is (not (matcher/keep-cascade? {:event [:mouse-move]} filters)))))
+    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
+    (is (not (matcher/keep-event-bundle? {:event [:mouse-move]} filters)))))
 
-(deftest keep-cascade-in-only-whitelists
+(deftest keep-event-bundle-in-only-whitelists
   (let [filters {:in [{:pattern :auth/*}] :out []}]
-    (is (matcher/keep-cascade? {:event [:auth/login]} filters))
-    (is (matcher/keep-cascade? {:event [:auth/logout]} filters))
-    (is (not (matcher/keep-cascade? {:event [:order/submit]} filters)))))
+    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
+    (is (matcher/keep-event-bundle? {:event [:auth/logout]} filters))
+    (is (not (matcher/keep-event-bundle? {:event [:order/submit]} filters)))))
 
-(deftest keep-cascade-in-and-out-intersect-correctly
+(deftest keep-event-bundle-in-and-out-intersect-correctly
   (testing "spec/018 §7 — ACTIVE = (match-any-IN) AND NOT (match-any-OUT)"
     (let [filters {:in  [{:pattern :auth/*}]
                    :out [{:pattern :auth/login}]}]
-      (is (not (matcher/keep-cascade?
+      (is (not (matcher/keep-event-bundle?
                  {:event [:auth/login]} filters))
           "matched IN but also OUT → drop")
-      (is (matcher/keep-cascade?
+      (is (matcher/keep-event-bundle?
             {:event [:auth/logout]} filters)
           "matched IN, not OUT → keep")
-      (is (not (matcher/keep-cascade?
+      (is (not (matcher/keep-event-bundle?
                  {:event [:order/submit]} filters))
           "didn't match IN → drop"))))
 
-(deftest filter-cascades-preserves-order
+(deftest filter-event-bundles-preserves-order
   (let [cascades [{:dispatch-id 1 :event [:auth/login]}
                   {:dispatch-id 2 :event [:mouse-move]}
                   {:dispatch-id 3 :event [:auth/logout]}
                   {:dispatch-id 4 :event [:order/submit]}]
         filters  {:in [] :out [{:pattern :mouse-move}]}]
     (is (= [1 3 4] (mapv :dispatch-id
-                         (matcher/filter-cascades cascades filters)))
+                         (matcher/filter-event-bundles cascades filters)))
         "OUT drops :mouse-move; survivors keep their order")))
 
-(deftest filter-cascades-empty-input-is-empty
-  (is (= [] (matcher/filter-cascades [] {:in [] :out []})))
-  (is (= [] (matcher/filter-cascades [] {:in [{:pattern :auth/*}] :out []}))))
+(deftest filter-event-bundles-empty-input-is-empty
+  (is (= [] (matcher/filter-event-bundles [] {:in [] :out []})))
+  (is (= [] (matcher/filter-event-bundles [] {:in [{:pattern :auth/*}] :out []}))))
 
 ;; ---- spec/018 §7 first-session honesty regression -----------------------
 
-(deftest filter-cascades-default-empty-keeps-everything
+(deftest filter-event-bundles-default-empty-keeps-everything
   (testing "rf2-ak4ms: shipping defaults must be empty — first-session
             honesty beats first-session quietness. An empty filter set
             keeps every cascade regardless of event-id."
@@ -171,32 +171,32 @@
                     {:event [:mouse-move]}
                     {:event [:anim-frame]}]]
       (is (= cascades
-             (matcher/filter-cascades cascades {:in [] :out []}))))))
+             (matcher/filter-event-bundles cascades {:in [] :out []}))))))
 
 ;; ---- frame-picker filter (rf2-oziyr) ------------------------------------
 
-(deftest keep-cascade-for-frame-nil-picker-keeps-everything
+(deftest keep-event-bundle-for-frame-nil-picker-keeps-everything
   (testing "nil picker-frame means 'no frame filter' — every cascade survives"
-    (is (matcher/keep-cascade-for-frame? {:frame :cart-frame} nil))
-    (is (matcher/keep-cascade-for-frame? {:frame :checkout-frame} nil))
-    (is (matcher/keep-cascade-for-frame? {:frame nil} nil))))
+    (is (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} nil))
+    (is (matcher/keep-event-bundle-for-frame? {:frame :checkout-frame} nil))
+    (is (matcher/keep-event-bundle-for-frame? {:frame nil} nil))))
 
-(deftest keep-cascade-for-frame-matching-frame-keeps
-  (is (matcher/keep-cascade-for-frame? {:frame :cart-frame} :cart-frame))
-  (is (matcher/keep-cascade-for-frame? {:frame :rf/default} :rf/default)))
+(deftest keep-event-bundle-for-frame-matching-frame-keeps
+  (is (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} :cart-frame))
+  (is (matcher/keep-event-bundle-for-frame? {:frame :rf/default} :rf/default)))
 
-(deftest keep-cascade-for-frame-non-matching-frame-drops
-  (is (not (matcher/keep-cascade-for-frame? {:frame :cart-frame} :checkout-frame)))
-  (is (not (matcher/keep-cascade-for-frame? {:frame nil} :cart-frame))
+(deftest keep-event-bundle-for-frame-non-matching-frame-drops
+  (is (not (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} :checkout-frame)))
+  (is (not (matcher/keep-event-bundle-for-frame? {:frame nil} :cart-frame))
       "ungrouped/frame-less cascade drops when a frame filter is active"))
 
-(deftest filter-cascades-by-frame-nil-is-identity
+(deftest filter-event-bundles-by-frame-nil-is-identity
   (let [cascades [{:dispatch-id 1 :frame :cart-frame}
                   {:dispatch-id 2 :frame :checkout-frame}
                   {:dispatch-id 3 :frame nil}]]
-    (is (= cascades (matcher/filter-cascades-by-frame cascades nil)))))
+    (is (= cascades (matcher/filter-event-bundles-by-frame cascades nil)))))
 
-(deftest filter-cascades-by-frame-restricts-and-preserves-order
+(deftest filter-event-bundles-by-frame-restricts-and-preserves-order
   (testing "rf2-oziyr — picker filter at data layer keeps only matching
             cascades; order preserved so [◀ ▶ ⏭] walks the same surface"
     (let [cascades [{:dispatch-id 1 :frame :cart-frame}
@@ -204,37 +204,37 @@
                     {:dispatch-id 3 :frame :cart-frame}
                     {:dispatch-id 4 :frame :checkout-frame}]]
       (is (= [1 3] (mapv :dispatch-id
-                         (matcher/filter-cascades-by-frame cascades :cart-frame))))
+                         (matcher/filter-event-bundles-by-frame cascades :cart-frame))))
       (is (= [2 4] (mapv :dispatch-id
-                         (matcher/filter-cascades-by-frame cascades :checkout-frame)))))))
+                         (matcher/filter-event-bundles-by-frame cascades :checkout-frame)))))))
 
-(deftest filter-cascades-by-frame-drops-frameless
+(deftest filter-event-bundles-by-frame-drops-frameless
   (testing "ungrouped / frame-less cascades drop when a frame filter is
             active — keeps the L2 list aligned with the picker label"
     (let [cascades [{:dispatch-id 1 :frame :cart-frame}
                     {:dispatch-id :ungrouped :frame nil}
                     {:dispatch-id 2 :frame :cart-frame}]]
       (is (= [1 2] (mapv :dispatch-id
-                         (matcher/filter-cascades-by-frame cascades :cart-frame)))))))
+                         (matcher/filter-event-bundles-by-frame cascades :cart-frame)))))))
 
 ;; ---- view-scope filter (rf2-4vp5j) --------------------------------------
 
-(deftest keep-cascade-for-view-scope-nil-keeps-everything
+(deftest keep-event-bundle-for-view-scope-nil-keeps-everything
   (testing "nil scope-frame means 'no view scope' — every cascade survives"
-    (is (matcher/keep-cascade-for-view-scope? {:frame :cart-frame} nil))
-    (is (matcher/keep-cascade-for-view-scope? {:frame nil} nil))))
+    (is (matcher/keep-event-bundle-for-view-scope? {:frame :cart-frame} nil))
+    (is (matcher/keep-event-bundle-for-view-scope? {:frame nil} nil))))
 
-(deftest keep-cascade-for-view-scope-keeps-matching-and-frameless
+(deftest keep-event-bundle-for-view-scope-keeps-matching-and-frameless
   (testing "rf2-4vp5j — a view scope keeps the matching frame AND the
             frame-agnostic `:ungrouped` bucket (nil frame); only OTHER
             real frames drop"
-    (is (matcher/keep-cascade-for-view-scope? {:frame :cart-frame} :cart-frame))
-    (is (matcher/keep-cascade-for-view-scope? {:frame nil} :cart-frame)
+    (is (matcher/keep-event-bundle-for-view-scope? {:frame :cart-frame} :cart-frame))
+    (is (matcher/keep-event-bundle-for-view-scope? {:frame nil} :cart-frame)
         "frameless :ungrouped bucket survives the view scope")
-    (is (not (matcher/keep-cascade-for-view-scope? {:frame :other-frame} :cart-frame))
+    (is (not (matcher/keep-event-bundle-for-view-scope? {:frame :other-frame} :cart-frame))
         "a different real frame drops out of scope")))
 
-(deftest filter-cascades-by-view-scope-preserves-frameless-bucket
+(deftest filter-event-bundles-by-view-scope-preserves-frameless-bucket
   (testing "rf2-4vp5j — unlike the strict frame filter, the view-scope
             filter keeps the frameless `:ungrouped` bucket so a defaulted
             scope never swallows it (its render is gated by show-ungrouped?)"
@@ -244,8 +244,8 @@
                     {:dispatch-id 3 :frame :cart-frame}]]
       (is (= [1 :ungrouped 3]
              (mapv :dispatch-id
-                   (matcher/filter-cascades-by-view-scope cascades :cart-frame)))))))
+                   (matcher/filter-event-bundles-by-view-scope cascades :cart-frame)))))))
 
-(deftest filter-cascades-by-view-scope-nil-is-identity
+(deftest filter-event-bundles-by-view-scope-nil-is-identity
   (let [cascades [{:dispatch-id 1 :frame :a} {:dispatch-id 2 :frame :b}]]
-    (is (= cascades (matcher/filter-cascades-by-view-scope cascades nil)))))
+    (is (= cascades (matcher/filter-event-bundles-by-view-scope cascades nil)))))

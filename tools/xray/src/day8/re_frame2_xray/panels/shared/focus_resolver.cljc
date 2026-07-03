@@ -34,7 +34,7 @@
   resolver returns `:focused` for this case; `find-epoch-record`
   returns the head record. The `:no-focus` empty-state is reserved
   for the truly degenerate case where focus is nil AND history is
-  empty (no cascades have settled yet).
+  empty (no event-bundles have settled yet).
 
   ## Pure-data + JVM-testable
 
@@ -50,7 +50,7 @@
   statuses panels consume. Pure data → keyword; JVM-testable.
 
       :no-focus       — focus carries no :epoch-id AND epoch-history
-                        is empty (cold start, no cascades yet)
+                        is empty (cold start, no event-bundles yet)
       :epoch-evicted  — focus has :epoch-id but no matching record
                         survives in epoch-history
       :focused        — focus has :epoch-id and matches a record, OR

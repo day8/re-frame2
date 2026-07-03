@@ -5,12 +5,12 @@
   Per Mike's 2026-05-21 design direction the tab is renamed from
   `Reactive` to `View` — the panel's primary subject is the rendered
   view (the operator hovers a view-row, the rendered DOM highlights)
-  while the sub cascade is the supporting context.
+  while the sub event-bundle is the supporting context.
 
   The internal panel-registry key stays `:views` (it was always the
   internal id, never a user contract). Per rf2-8ve8z (phase-B of the
-  Views-tab redesign) the panel renders the reactive cascade as THREE
-  STACKED TABLES, top→bottom mirroring the cascade flowing toward the
+  Views-tab redesign) the panel renders the reactive event-bundle as THREE
+  STACKED TABLES, top→bottom mirroring the event-bundle flowing toward the
   UI:
 
       Level 1 subs (observe app-db)   name | changed | code — the subs

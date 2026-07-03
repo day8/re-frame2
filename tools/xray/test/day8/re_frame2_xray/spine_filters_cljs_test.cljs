@@ -1,14 +1,14 @@
 (ns day8.re-frame2-xray.spine-filters-cljs-test
   "Per-event-id mute filter tests (rf2-ikuwt). Covers:
 
-    1. Pure helpers (filter-cascades, mute / unmute / clear reducers).
+    1. Pure helpers (filter-event-bundles, mute / unmute / clear reducers).
     2. EDN round-trip (<-edn / ->edn).
     3. save! / load! localStorage round-trip.
     4. Event handler wiring (mute-event-id / unmute-event-id /
        clear-muted-event-ids + persist fx).
     5. Hydration on install (localStorage value lifts into the slot).
     6. Filtered-cascades composition — muting an event-id strips
-       matching cascades from `:rf.xray/filtered-cascades`.
+       matching cascades from `:rf.xray/filtered-event-bundles`.
     7. Row context menu state (open / close).
     8. Mute manager modal state (open / close).
     9. End-to-end: right-click → context menu → 'Mute' item dispatches
@@ -90,11 +90,11 @@
 ;; (1) Pure helpers
 ;; -------------------------------------------------------------------------
 
-(deftest cascade-event-id-pluck
-  (is (= :foo/bar (spine-filters/cascade-event-id {:event [:foo/bar 1 2]})))
-  (is (nil? (spine-filters/cascade-event-id {:event nil})))
-  (is (nil? (spine-filters/cascade-event-id {})))
-  (is (nil? (spine-filters/cascade-event-id {:event "not-a-vector"}))))
+(deftest event-bundle-event-id-pluck
+  (is (= :foo/bar (spine-filters/event-bundle-event-id {:event [:foo/bar 1 2]})))
+  (is (nil? (spine-filters/event-bundle-event-id {:event nil})))
+  (is (nil? (spine-filters/event-bundle-event-id {})))
+  (is (nil? (spine-filters/event-bundle-event-id {:event "not-a-vector"}))))
 
 (deftest mute-event-id-reducer
   (is (= #{:a} (spine-filters/mute-event-id nil :a))
@@ -116,24 +116,24 @@
   (is (= #{} (spine-filters/clear-muted #{:a :b :c})))
   (is (= #{} (spine-filters/clear-muted nil))))
 
-(deftest filter-cascades-strips-muted-ids
+(deftest filter-event-bundles-strips-muted-ids
   (let [cs [{:event [:a]} {:event [:b]} {:event [:c]}]]
-    (is (= cs (spine-filters/filter-cascades cs #{}))
+    (is (= cs (spine-filters/filter-event-bundles cs #{}))
         "empty muted set returns the input vector")
-    (is (= cs (spine-filters/filter-cascades cs nil))
+    (is (= cs (spine-filters/filter-event-bundles cs nil))
         "nil muted set returns the input vector")
     (is (= [{:event [:b]} {:event [:c]}]
-           (spine-filters/filter-cascades cs #{:a})))
+           (spine-filters/filter-event-bundles cs #{:a})))
     (is (= []
-           (spine-filters/filter-cascades cs #{:a :b :c})))))
+           (spine-filters/filter-event-bundles cs #{:a :b :c})))))
 
-(deftest filter-cascades-preserves-event-less-cascades
+(deftest filter-event-bundles-preserves-event-less-cascades
   (testing "cascades with no event vector (e.g. :ungrouped bucket) survive
             the mute filter — they're handled by the separate
             :show-ungrouped? opt-in"
     (let [cs [{:event [:a]} {:event nil :dispatch-id :ungrouped} {:event [:b]}]]
       (is (= [{:event nil :dispatch-id :ungrouped} {:event [:b]}]
-             (spine-filters/filter-cascades cs #{:a}))))))
+             (spine-filters/filter-event-bundles cs #{:a}))))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) EDN round-trip
@@ -232,21 +232,21 @@
 ;; (6) Filtered-cascades composition
 ;; -------------------------------------------------------------------------
 
-(deftest muting-strips-rows-from-filtered-cascades
+(deftest muting-strips-rows-from-filtered-event-bundles
   (xray-setup!)
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   ;; Sanity — all three rows present pre-mute.
-  (let [before (frame-sub [:rf.xray/filtered-cascades])]
+  (let [before (frame-sub [:rf.xray/filtered-event-bundles])]
     (is (= 3 (count before))))
   ;; Mute :user/mouse-move.
   (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
-  (let [after (frame-sub [:rf.xray/filtered-cascades])
+  (let [after (frame-sub [:rf.xray/filtered-event-bundles])
         ids   (mapv (fn [c] (first (:event c))) after)]
     (is (= 2 (count after)))
     (is (= [:auth/login :order/submit] ids)
-        ":user/mouse-move stripped from filtered-cascades")))
+        ":user/mouse-move stripped from filtered-event-bundles")))
 
 (deftest muting-strips-rows-from-l2-event-list
   (xray-setup!)
