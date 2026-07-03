@@ -53,6 +53,13 @@ on:
       - 'scripts/check_runtime_subsystem_grading.py'
       - 'scripts/check_inject_cofx_residue.py'
       - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
+      # rf2-2oqj59 — the failure-corpus co-edit invariant gate scans
+      # errors.md + the testbeds tree for a live retired failure spelling
+      # (`:where :cofx`). A drift in either the gate, its fixtures, or the
+      # testbeds it scans must trigger the docs workflow.
+      - 'scripts/check_failure_corpus_residue.py'
+      - 'scripts/_test_fixtures/check_failure_corpus_residue/**'
+      - 'testbeds/**'
       - 'scripts/check_retired_composition_vocab.py'
       - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
       - 'scripts/check_retired_image_keys.py'
@@ -111,7 +118,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -300,6 +307,23 @@ jobs:
 
       - name: Validate no live inject-cofx / :rf.world/inputs residue
         run: python scripts/check_inject_cofx_residue.py --verbose
+
+      # rf2-2oqj59 — the failure corpus (docs/core/concepts/errors.md + the
+      # failure testbeds) is a TEACHING corpus for the Spec 009 error
+      # catalogue. Spec 009 binds the catalogue ROWS to the feature specs by
+      # a co-edit invariant; this gate widens that invariant to the corpus by
+      # firing when a KNOWN-RETIRED failure spelling (`:where :cofx`, retired
+      # in EP-0017 for the halting `:rf.error/cofx-value-invalid`) reappears
+      # as LIVE teaching (a fenced markdown value, or live testbed source —
+      # removed-context prose, inline spans, `;` comments, and docstrings are
+      # masked). Self-test first (proves the gate fires on each live shape +
+      # stays green on every removed-context counterpart), then the live scan.
+      # See scripts/check_failure_corpus_residue.py.
+      - name: Self-test the failure-corpus residue gate
+        run: python scripts/check_failure_corpus_residue.py --self-test --verbose
+
+      - name: Validate no live retired failure spelling in the corpus
+        run: python scripts/check_failure_corpus_residue.py --verbose
 
       # EP-0023 (image-loaded frames) retired the EP-0013 app/realm/module
       # construction + install + inspection vocabulary from the public facade
