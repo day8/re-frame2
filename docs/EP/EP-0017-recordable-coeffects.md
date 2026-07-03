@@ -155,14 +155,15 @@ B.7 as before.
   dev gate with the rationale that no shipped generator minted a non-EDN value;
   the production-hardening closes the gate so the contract holds in production
   too, not only where the dev walk runs.)
-- **Mint policies — DEFERRED (slice-B.8).** `:live` (router
+- **Mint policies — LANDED (slice-B.8).** `:live` (router
   default), `:strict` (hard-wired for replay; the `:test` preset default), and
-  `:explicit-live` (declared-nondeterminism escape), wired to their normative
-  homes. Gated on slice-B.7.
-- **Machine consumer-attachment — DEFERRED (slice-B.9).**
+  `:explicit-live` (declared-nondeterminism escape) are wired to their normative
+  homes and implemented in `re-frame.cofx` (`default-mint-policy` /
+  `resolve-mint-policy` / `mint-policy-generates?`).
+- **Machine consumer-attachment — LANDED (slice-B.9).**
   Consumer-attachment entry-map `requires`, the derived per-(state × event-type)
   ensure-sets (incl. the `:always` closure), the inline-fn restriction, and the
-  lint. Gated on slice-B.7.
+  lint ship in `re-frame.machines.cofx-attach`.
 - **Action-fact precision refinement — DEFERRED WITH TRIGGER (disposition
   10).** Ensuring *action* facts post-selection (guards stay pre-selection) to
   avoid recording action facts for transitions that don't fire — replay-sound
@@ -178,25 +179,25 @@ not reopened decisions: residual old-shape vocabulary in shipped docs/skills,
 JVM-only contract-suite ports, facade docstring drift, a bare/unqualified
 routing cofx id, and similar tails.
 
-One determinism question is **held for operator ruling** rather than actioned:
+One determinism question was **held for operator ruling** and has since been
+ruled and actioned:
 
 - **Boot/rehydrate localStorage reads registered AMBIENT but folded into
-  durable app-db — HELD.** Three example-layer instances
-  (todomvc, realworld, realworld-resources) register a localStorage read as an
-  *ambient* coeffect and then fold its value straight into durable app-db on
-  `:*/initialise`. The A.4 migration audit ruled this an **acceptable boot
-  edge** (the host read happens once at boot, before any recorded epoch the
-  user would replay). The correctness and best-practice lenses argue it is a
-  **replay hole**: epoch-restore / replay refolds through the same ambient
-  supplier, re-running the live host read rather than re-presenting the value
-  actually folded — so a durable app-db produced purely by an ambient read at
-  the write site can diverge on replay, the exact failure EP-0017 §1 and
-  `spec/002-Frames.md` §The recordable-coeffect rule forbid. The
-  recommended fix is slice-A-legal (register the boot read as a *provided*
-  recordable fact and supply the host-read value on the boot dispatch token).
-  Both readings are defensible; the call is the operator's. The framework
-  delivery machinery (`cofx.cljc` / `router.cljc`) is sound — this is scoped to
-  the example-layer grade choice.
+  durable app-db — RULED, now RECORDABLE.** Three example-layer instances
+  (todomvc, realworld, realworld-resources) had registered a localStorage read
+  as an *ambient* coeffect and then folded its value straight into durable
+  app-db on `:*/initialise`. The A.4 migration audit had called this an
+  acceptable boot edge (the host read happens once at boot, before any recorded
+  epoch the user would replay); the correctness and best-practice lenses argued
+  it was a **replay hole**, because epoch-restore / replay refolds through the
+  same ambient supplier and re-runs the live host read rather than
+  re-presenting the value actually folded — the exact failure EP-0017 §1 and
+  `spec/002-Frames.md` §The recordable-coeffect rule forbid. The operator ruled
+  for the recommended slice-A-legal fix, and it shipped: the boot read is now a
+  **recordable** coeffect (`reg-cofx :todo.storage/todos` in
+  `examples/core/todomvc/db.cljs`, consumed via `:rf.cofx/requires`), so the
+  host-read value is captured on the boot dispatch token and re-presented on
+  replay rather than re-read live.
 
 ## Abstract
 

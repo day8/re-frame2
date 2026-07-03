@@ -21,9 +21,13 @@ Type: standards-track
 > wave-end review passes (correctness and a clean repeat),
 > and all four propagation beads (`/skills`, `/examples`,
 > `/tools`, `/docs/core`) are closed and
-> merged. The items this EP lists as deferred — optimistic rollback,
-> tag-addressed patching, and the GraphQL transport — remain intentional
-> future-EP non-goals, not outstanding action-epic work (see [§Non-Goals](#non-goals)).
+> merged. The items this EP lists as deferred were intentional future-EP
+> non-goals, not outstanding action-epic work (see [§Non-Goals](#non-goals)).
+> Two of the three have since **landed** in their own EP: optimistic rollback
+> and tag-addressed patching shipped via
+> [EP-0019](EP-0019-optimistic-mutation-rollback.md) (`final`, graduated into
+> [`spec/016-Resources.md` §Optimistic mutations](../../spec/016-Resources.md)).
+> Only the GraphQL transport remains deferred (by EP-0003).
 
 > This EP defines a narrow post-EP-0003 amendment to Spec 016:
 > mutation completion continuations, per-target scoped invalidation, named

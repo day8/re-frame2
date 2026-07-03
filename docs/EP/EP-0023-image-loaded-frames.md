@@ -1735,15 +1735,15 @@ resolution is frame-derived; the implementation realizes it as
 `frame -> resolved image generation`, with the single default realm as the
 backing installation container.
 
-**What remains, honestly:** the multi-realm *substrate* is retired, but a
-residual realm-*addressing* dimension still threads the frame model under the
-single default realm — `frame-key` carries a realm-id component, `frame-address`
-and `*current-realm*` build on it, `call-with-realm` threads it through
-`destroy-frame!` / `reset-frame!`, and `frame-realm` feeds `frame-address` (read
-by its SSR side-channel consumers). Since there is now only ever the one default
-realm, this addressing vestige is dead weight scheduled for collapse — tracked
-as a follow-up (collapse `frame-key` to a bare
-frame id and drop `*current-realm*` / `frame-realm` / `call-with-realm`).
+**Update — the addressing vestige has now collapsed.** The multi-realm
+*substrate* was retired first; a residual realm-*addressing* dimension then
+still threaded the frame model under the single default realm — `frame-key`
+carried a realm-id component, `frame-address` and `*current-realm*` built on it,
+`call-with-realm` threaded it through `destroy-frame!` / `reset-frame!`, and
+`frame-realm` fed `frame-address`. Since there was only ever the one default
+realm, that addressing vestige was dead weight. The scheduled follow-up
+**completed**: `*current-realm*`, `frame-realm`, and `call-with-realm` are gone,
+and `frame-address` now returns the bare frame id.
 
 This is a consequence of EP-0023, not a new conceptual surface; no separate EP
 is created.

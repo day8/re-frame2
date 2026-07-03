@@ -134,14 +134,16 @@ All five build steps of the EP-0010 action wave shipped. Verified
 
 ### Deferred — recordable UUID / random coeffects
 
-- **`:rf.world/uuid` / `:rf.world/random` recordable coeffects — DEFERRED.**
-  Disposition 2's rider scheduled these *behind* the optimistic-mutations
-  follow-on EP (temp ids for optimistic inserts — the managed-HTTP RealWorld
-  example's optimistic comment flow is the visible in-repo case). The envelope
-  already carries the `:uuid` / `:random` slots (a caller or fixture may supply
-  them today, and the replay-determinism fixture above exercises both), but no
-  framework `reg-cofx` for them ships yet — by design, not as a gap. This item
-  graduates with that EP.
+- **`:rf.world/uuid` / `:rf.world/random` recordable coeffects — DEFERRED
+  (now DELIVERED via EP-0017).** Disposition 2's rider scheduled these *behind*
+  the optimistic-mutations follow-on EP (temp ids for optimistic inserts — the
+  managed-HTTP RealWorld example's optimistic comment flow is the visible
+  in-repo case). The envelope already carried the `:uuid` / `:random` slots (a
+  caller or fixture could supply them, and the replay-determinism fixture above
+  exercises both), and no framework `reg-cofx` for them shipped in this EP — by
+  design, not as a gap. This slice graduated with
+  [EP-0017 (Recordable Coeffects)](EP-0017-recordable-coeffects.md) (`final`),
+  which re-expresses it as app-registered value-returning recordable suppliers.
 - **Successor — [EP-0017 Recordable Coeffects](EP-0017-recordable-coeffects.md)
   (final).** EP-0017 is that follow-on EP: it completes and
   continues this EP's authoring surface, renaming the envelope field
