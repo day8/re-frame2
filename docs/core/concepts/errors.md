@@ -1,6 +1,6 @@
 # Errors: dossiers, not log lines
 
-You know [events and the cascade](events-and-the-cascade.md) and [effects and coeffects](effects-and-coeffects.md). Now: what happens when one of them breaks?
+You know [events and the pipeline](events-and-the-pipeline.md) and [effects and coeffects](effects-and-coeffects.md). Now: what happens when one of them breaks?
 
 You've caught a hundred errors with `console.error("something broke", e)`. It kept the message and the stack — and threw away the important half: *which [event](../glossary.md#event) was in flight, which [frame](../glossary.md#frame) owned it, which [handler](../glossary.md#event-handler) was on the hook, what the [cascade](../glossary.md#event-cascade) had already done*. All of that existed in the runtime microseconds before the catch, and then you spent the next hour rebuilding it by hand.
 

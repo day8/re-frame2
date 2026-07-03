@@ -317,7 +317,7 @@ Take this auth-flow machine (a compound `:authenticated` over a `:dashboard` /
 Actions are **pure returns**, not imperative writes: an `:entry` /
 `:exit` / transition `:action` is `(fn [{:keys [data event state]}] effects)`
 returning `{:data … :fx …}`. The `:fx` flow through the ordinary
-[effects cascade](../core/concepts/events-and-the-cascade.md) like any handler's.
+[effects cascade](../core/concepts/events-and-the-pipeline.md) like any handler's.
 
 ---
 

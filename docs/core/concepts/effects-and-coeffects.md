@@ -1,6 +1,6 @@
 # Effects and coeffects: the world at the boundary
 
-Say your [event handler](events-and-the-cascade.md) — the function that runs when an [event](../glossary.md#event) is [dispatched](../glossary.md#dispatch) — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same output, every time. Purity is what makes testing, replay, and time-travel work, so giving it up isn't on the table.
+Say your [event handler](events-and-the-pipeline.md) — the function that runs when an [event](../glossary.md#event) is [dispatched](../glossary.md#dispatch) — needs the current time, a fresh id, and an HTTP request. It also has to stay a pure function: same inputs, same output, every time. Purity is what makes testing, replay, and time-travel work, so giving it up isn't on the table.
 
 The trick is to push impurity out to the edges. Side-effects leave as data on the way *out* (an [**effect**](../glossary.md#effect)) and arrive as a declared fact on the way *in* (a [**coeffect**](../glossary.md#coeffect)), leaving the handler pure in the middle. Hold onto that symmetry — it's the whole page. We'll take the two halves in turn, the way out then the way in, each one led by the simplest example that works.
 
@@ -233,7 +233,7 @@ Recorded coeffects are the last rung, not the default. The `:checkout/place-orde
 
 ## Why this is non-negotiable: the replay pair
 
-[Events and the cascade](events-and-the-cascade.md) made a promise: `app-db` is the running total of an event ledger, and two fresh apps fed the same log finish in identical states. That quietly requires that *the only things a handler consults are its recorded inputs* — the db, the event, and the recordable facts on the event. A handler that calls `(js/Date.)` mid-body has consulted something the ledger never wrote down, so replaying the ledger lies:
+[Events and the pipeline](events-and-the-pipeline.md) made a promise: `app-db` is the running total of an event ledger, and two fresh apps fed the same log finish in identical states. That quietly requires that *the only things a handler consults are its recorded inputs* — the db, the event, and the recordable facts on the event. A handler that calls `(js/Date.)` mid-body has consulted something the ledger never wrote down, so replaying the ledger lies:
 
 ```clojure
 ;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.

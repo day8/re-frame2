@@ -1,8 +1,8 @@
-# Events and the cascade
+# Events and the pipeline
 
-A click happened. Now what? Between the user's finger leaving the button and the screen showing a new number, six things happen. They run in order, every time, and none of them is magic. This page slows one click down so you can watch each step go by. It also answers a question every architecture has to answer somewhere: how does a handler — the function that decides what an event *means* — do something impure, like fetch from a server, without giving up the purity that made it testable in the first place?
+A click happened. Now what? Between the user's finger leaving the button and the screen showing a new number, an event runs a fixed sequence of stages. They run in order, every time, and none of them is magic. This page slows one click down so you can watch each stage go by. It also answers a question every architecture has to answer somewhere: how does a handler — the function that decides what an event *means* — do something impure, like fetch from a server, without giving up the purity that made it testable in the first place?
 
-We'll build up gently: first what an [event](../glossary.md#event) *is*, then one click in slow motion, then the moment a handler needs to reach outside the app — and the single move re-frame2 makes to keep that reach honest.
+We'll build up gently: first what an [event](../glossary.md#event) *is*, then one click in slow motion through the [**pipeline**](../glossary.md#event-pipeline), then the moment a handler needs to reach outside the app — and the single move re-frame2 makes to keep that reach honest.
 
 ??? info "Coming from Redux?"
 
@@ -41,18 +41,22 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 
 ## One click, in slow motion
 
-[The model](index.md) names the six dominoes that every event knocks over. Here we watch one click fall through all of them. The setup is the counter from the [quick start](../quickstart.md): app-db is `{:counter/value 5}`, the screen shows `[-] 5 [+]`, and the user clicks `+`.
+[The model](index.md) names the stages that every event runs through — its [**pipeline**](../glossary.md#event-pipeline). Here we watch one click travel all of them. The setup is the counter from the [quick start](../quickstart.md): app-db is `{:counter/value 5}`, the screen shows `[-] 5 [+]`, and the user clicks `+`.
 
-**1 — Dispatch.** The button's `on-click` runs `(rf/dispatch [:counter/inc])`. The vector goes onto the [frame](../glossary.md#frame)'s queue. `dispatch` returns. The browser's event loop is free again.
+The pipeline has two sides, split at a single seam. The **write side** runs per event — `assemble → transform → commit → perform` — and computes and commits the next state. The **read side** runs once the queue settles — `derive → render` — and brings the screen up to date. The seam between them is the [**commit**](../glossary.md#commit): nothing crosses from write side to read side except the one value it commits.
 
-**2 — The handler runs.** The runtime dequeues `[:counter/inc]` and looks up its registered handler:
+**1 — Dispatch.** The button's `on-click` runs `(rf/dispatch [:counter/inc])`. The vector goes onto the [frame](../glossary.md#frame)'s queue. `dispatch` returns. The browser's event loop is free again. The pipeline hasn't started yet — dispatch only enqueues.
+
+**2 — Assemble.** The runtime dequeues `[:counter/inc]`, looks up its registered handler, and **assembles the [world](../glossary.md#world)** the handler will see — the map of declared facts it's allowed to read. app-db (`:db`) is always one of them; a handler that declared other facts (the clock, a fresh id) gets those gathered in too. This assembled world is the handler's first argument, its [coeffects](../glossary.md#coeffect).
+
+**3 — Transform.** The runtime runs the handler:
 
 ```clojure
 (rf/reg-event :counter/inc
   (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 ```
 
-It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts it's handed — `:db` among them) and the event in, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../testing/event-handlers.md) is exactly this).
+It runs as a pure function: the assembled world in (the facts it's handed — `:db` among them) and the event, an [effect map](../glossary.md#effect-map) out. No I/O, no DOM, no clock. It **transforms** the world into a *description* of what should change. You can test it in one line, because given a world with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../testing/event-handlers.md) is exactly this).
 
 !!! note "New to Clojure?"
 
@@ -60,19 +64,23 @@ It runs as a pure function: the [coeffects](../glossary.md#coeffect) (the facts 
 
 !!! warning "Gotcha — dispatching an event with no handler fails loud"
 
-    If the runtime dequeues an event whose id was never registered — a typo (`:counter/inc` vs `:counter/incr`), or a dispatch that ran before its `reg-event` loaded — the cascade for that event simply doesn't run, and the runtime emits an [error record](../glossary.md#error-record) keyed `:rf.error/no-such-handler` carrying the offending event. It does *not* fall through to a silent no-op ([fail loud, not silent](../glossary.md#fail-loud-not-silent)). This is one of the few error categories that survives production — it fans out to your always-on error listeners — because a dispatch to a missing handler is a real bug whether you're in dev or live.
+    If the runtime dequeues an event whose id was never registered — a typo (`:counter/inc` vs `:counter/incr`), or a dispatch that ran before its `reg-event` loaded — the pipeline for that event simply doesn't run, and the runtime emits an [error record](../glossary.md#error-record) keyed `:rf.error/no-such-handler` carrying the offending event. It does *not* fall through to a silent no-op ([fail loud, not silent](../glossary.md#fail-loud-not-silent)). This is one of the few error categories that survives production — it fans out to your always-on error listeners — because a dispatch to a missing handler is a real bug whether you're in dev or live.
 
-**3 — Effects come out, as data.** The handler returned an [effect map](../glossary.md#effect-map) — a description of what should happen, expressed as data:
+That transform returned an [effect map](../glossary.md#effect-map) — a description of what should happen, expressed as data:
 
 ```clojure
 {:db {:counter/value 6}}
 ```
 
-Pause here, because it reframes what a handler is. Even our trivially pure handler caused a side effect: somebody has to swap app-db. The trick is that the handler *described* the change and the runtime *performed* it. Read the map as *"the next state, and anything else to do."* The "anything else" rides in an `:fx` vector of `[effect-id args]` rows — an HTTP request, a navigation, a follow-up dispatch. The counter's map has only `:db`, so there's nothing else to do; but it's the same map a handler that fires three effects returns, just with the other keys empty. One shape, no second spelling: a db update is the effect `{:db …}`, stated as plainly as every other effect.
+Pause here, because it reframes what a handler is. Even our trivially pure handler caused a side effect: somebody has to swap app-db. The trick is that the handler *described* the change and the runtime *performed* it — the transform ends at a description, and the two stages after the seam carry it out. Read the map as *"the next state, and anything else to do."* The "anything else" rides in an `:fx` vector of `[effect-id args]` rows — an HTTP request, a navigation, a follow-up dispatch. The counter's map has only `:db`, so there's nothing else to do; but it's the same map a handler that fires three effects returns, just with the other keys empty. One shape, no second spelling: a db update is the effect `{:db …}`, stated as plainly as every other effect.
 
-**4 — The runtime executes the effects.** It sees `:db` and [commits](../glossary.md#commit) app-db to `{:counter/value 6}` in one atomic step — which means no observer ever sees a half-written state. If there were `:fx` rows, it would run them next, in source order, after the `:db` commit. For this click there are none.
+**4 — Commit.** The runtime sees `:db` and [commits](../glossary.md#commit) app-db to `{:counter/value 6}` in one atomic step — which means no observer ever sees a half-written state. This is the **seam**: everything before it (assemble, transform) is transactional — a throwing handler installs nothing — and it's the one point the new value crosses from the write side to the read side. Nothing else crosses.
 
-**5 — Subscriptions recompute.** app-db changed, so the [subscriptions](../glossary.md#subscription) — the derived values that watch app-db and recompute when it changes — re-run:
+**5 — Perform.** With the commit landed, the runtime **performs** the `:fx` rows, in source order, after the `:db` commit. This is where the impure work happens — the HTTP call, the navigation, the follow-up dispatch. Past the seam the pipeline is best-effort, not transactional: an effect that throws doesn't un-commit the state. For this click there are no `:fx` rows, so perform has nothing to do.
+
+That's the whole **write side** — `assemble → transform → commit → perform`. It runs once per event. Now the **read side** brings the screen up to date.
+
+**6 — Derive.** app-db changed, so the read side **derives**: the [subscriptions](../glossary.md#subscription) — the derived values that watch app-db and recompute when it changes — re-run:
 
 ```clojure
 (rf/reg-sub :counter/value
@@ -81,11 +89,11 @@ Pause here, because it reframes what a handler is. Even our trivially pure handl
 
 It computes `6`, which differs from its previous `5`, so everything watching it is marked for re-render. Had the value come out unchanged, nothing downstream would run at all. That economy is [the subscription graph's](subscriptions.md) whole subject.
 
-**6 — The view re-renders.** The [view](../glossary.md#view) reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) It produces fresh [hiccup](../glossary.md#hiccup) — now with a `6` where the `5` was — and the [substrate](../glossary.md#substrate) diffs it against the old and patches just that one DOM node. The screen shows `6`.
+**7 — Render.** The [view](../glossary.md#view) reads its subscription with `@(rf/subscribe [:counter/value])` and re-runs. (`@` is Clojure's *deref*: a subscription is a live reference to a derived value, and `@` reads its current value. When that value changes, the view re-runs.) It produces fresh [hiccup](../glossary.md#hiccup) — now with a `6` where the `5` was — and the [substrate](../glossary.md#substrate) diffs it against the old and patches just that one DOM node. The screen shows `6`.
 
-One event, six steps. The same path runs under every event your app will ever process: a login, a websocket message, a route change. The machine doesn't grow new paths as the app grows. You just register more handlers.
+One event, one **pipeline run**. The same stages run under every event your app will ever process: a login, a websocket message, a route change. The machine doesn't grow new paths as the app grows. You just register more handlers.
 
-**Now watch it for real.** Run your app with [Xray](../glossary.md#xray) attached ([Debug with Xray](../how-to/debug-with-xray.md)) and click `+` a few times. Each click appears as one event row: the event vector, the handler that ran, app-db before and after, what recomputed. That's not a log statement someone remembered to add. It's the runtime's own record of the cascade, and every claim on this page is checkable against it.
+**Now watch it for real.** Run your app with [Xray](../glossary.md#xray) attached ([Debug with Xray](../how-to/debug-with-xray.md)) and click `+` a few times. Each click appears as one event row: the event vector, the handler that ran, app-db before and after, what recomputed. That's not a log statement someone remembered to add. It's the runtime's own record of the run, and every claim on this page is checkable against it.
 
 !!! note "The record is a dev-build surface"
 
@@ -151,7 +159,7 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
 
 (One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set," each step feeding the next. Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
 
-The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
+The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the pipeline and its own row in Xray.
 
 That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:failure` — and every managed async surface answers the same way. [Managed HTTP](../../async/http.md) is its home.
 
@@ -165,7 +173,7 @@ Read what that bought you. The entire fetch flow is three pure handlers you read
 
     A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the cascade point.
+The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the pipeline point.
 
 Two notes before moving on:
 
@@ -178,7 +186,7 @@ Two notes before moving on:
 
 ## The shape of an effect map
 
-An app handler returns a small, **closed** [effect map](../glossary.md#effect-map) of exactly `:db` (the next app-db value) and `:fx` (a vector of `[effect-id args]` rows); any other top-level key fails loud, and you register your own effect-ids with `reg-fx`. The grammar is [Effects and coeffects](effects-and-coeffects.md)' subject. One of its rows matters to the cascade specifically: a `[:dispatch [:event-id ...]]` row queues a follow-up event that **drains as part of this same cascade** (more below), so a handler chains the next step by returning it rather than calling `dispatch`.
+An app handler returns a small, **closed** [effect map](../glossary.md#effect-map) of exactly `:db` (the next app-db value) and `:fx` (a vector of `[effect-id args]` rows); any other top-level key fails loud, and you register your own effect-ids with `reg-fx`. The grammar is [Effects and coeffects](effects-and-coeffects.md)' subject. One of its rows matters to the pipeline specifically: a `[:dispatch [:event-id ...]]` row queues a follow-up event that **drains as part of this same [drain](../glossary.md#drain--run-to-completion)** (more below), so a handler chains the next step by returning it rather than calling `dispatch`.
 
 ### Ordering and atomicity — what you can rely on
 
@@ -195,7 +203,7 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, 
 
 ## The ledger
 
-Here's a reframing that reorganises how you think about the whole app, once it clicks. The reflex picture of state is a whiteboard: there's a current drawing, each event erases a bit and draws something new, and the old drawing is gone. The right picture is a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the running total — the result of starting from the initial state and applying every event since, in order. Step 2 of the cascade isn't "erase and redraw." It's "add the next line and re-total."
+Here's a reframing that reorganises how you think about the whole app, once it clicks. The reflex picture of state is a whiteboard: there's a current drawing, each event erases a bit and draws something new, and the old drawing is gone. The right picture is a **ledger**: each event is a line appended to the lines before it, and the app-db you see at any moment is the running total — the result of starting from the initial state and applying every event since, in order. The transform stage isn't "erase and redraw." It's "add the next line and re-total."
 
 That picture comes with a promise precise enough to test:
 
@@ -217,70 +225,70 @@ Hold the promise and a cluster of features stops looking like separate tricks:
 
 ## Run to completion
 
-One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full cascade. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the render boundary arrive. This is the dispatch semantics, not a mode; there is no opt-out.
+One scheduling rule deserves a hard stop, because most frameworks choose the other way. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the read side run — once — and the render boundary arrives. So the write side runs *per event*; the read side runs *once per drain*, at settle. This is the dispatch semantics, not a mode; there is no opt-out.
 
 What it buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint. The flicker-of-intermediate-state bug, familiar from systems where any update can interleave with any render, is structurally absent.
 
-Watch it happen. One click below dispatches a single `:submit` whose handler fans out three follow-up events — four cascades in one drain. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **submit**:
+Watch it happen. One click below dispatches a single `:submit` whose handler fans out three follow-up events — four pipeline runs in one drain. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **submit**:
 
 ```cljs-rf2
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-(rf/reg-event :cascade.demo/initialise
-  (fn [_cofx _event] {:db {:cascade.demo/steps []}}))
+(rf/reg-event :drain.demo/initialise
+  (fn [_cofx _event] {:db {:drain.demo/steps []}}))
 
 ;; One click → one event whose handler fans out three follow-ups.
-(rf/reg-event :cascade.demo/submit
+(rf/reg-event :drain.demo/submit
   (fn [{:keys [db]} _event]
-    {:db (update db :cascade.demo/steps conj :submitted)
-     :fx [[:dispatch [:cascade.demo/validate]]
-          [:dispatch [:cascade.demo/save]]
-          [:dispatch [:cascade.demo/notify]]]}))
+    {:db (update db :drain.demo/steps conj :submitted)
+     :fx [[:dispatch [:drain.demo/validate]]
+          [:dispatch [:drain.demo/save]]
+          [:dispatch [:drain.demo/notify]]]}))
 
-(rf/reg-event :cascade.demo/validate
-  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :validated)}))
-(rf/reg-event :cascade.demo/save
-  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :saved)}))
-(rf/reg-event :cascade.demo/notify
-  (fn [{:keys [db]} _event] {:db (update db :cascade.demo/steps conj :notified)}))
+(rf/reg-event :drain.demo/validate
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :validated)}))
+(rf/reg-event :drain.demo/save
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :saved)}))
+(rf/reg-event :drain.demo/notify
+  (fn [{:keys [db]} _event] {:db (update db :drain.demo/steps conj :notified)}))
 
-(rf/reg-sub :cascade.demo/steps
-  (fn [db _query] (:cascade.demo/steps db)))
+(rf/reg-sub :drain.demo/steps
+  (fn [db _query] (:drain.demo/steps db)))
 
-(defn cascade-demo []
+(defn drain-demo []
   [:div
-   [:button {:on-click #(rf/dispatch [:cascade.demo/submit])} "submit"]
-   [:p "steps: " (pr-str @(rf/subscribe [:cascade.demo/steps]))]])
+   [:button {:on-click #(rf/dispatch [:drain.demo/submit])} "submit"]
+   [:p "steps: " (pr-str @(rf/subscribe [:drain.demo/steps]))]])
 
-(rf/dispatch-sync [:cascade.demo/initialise])
-[cascade-demo]
+(rf/dispatch-sync [:drain.demo/initialise])
+[drain-demo]
 ```
 
 All four steps appear **together**. The view never shows `[:submitted]` alone — by the time the render boundary arrives, the whole drain has settled.
 
 !!! tip "Try it"
 
-    Make `:cascade.demo/validate` fan out its *own* follow-up — add `:fx [[:dispatch [:cascade.demo/notify]]]` to its handler — and re-evaluate. Five steps now settle in one drain, still one paint. However deep the chain goes, the screen only ever sees the end of it.
+    Make `:drain.demo/validate` fan out its *own* follow-up — add `:fx [[:dispatch [:drain.demo/notify]]]` to its handler — and re-evaluate. Five steps now settle in one drain, still one paint. However deep the chain goes, the screen only ever sees the end of it.
 
 Two precise details, both visible in Xray:
 
 - **Each dequeued event is its own [epoch](../glossary.md#epoch).** A parent event and the child it `:fx`-dispatched are *two* entries in the record — two event rows, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
-- **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous cascade, not the outside world.
+- **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous run, not the outside world.
 
-Strictly, the drain is per [**frame**](../glossary.md#frame) — an isolated world with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
+Strictly, the drain is per [**frame**](../glossary.md#frame) — a running [world](../glossary.md#world), with its own app-db and its own queue, and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
 ??? info "For JavaScript developers"
 
-    React batches state updates within an event handler and paints once at the end — run-to-completion is that idea taken all the way: the batch boundary is the *entire* settled cascade, not one handler. You never need `flushSync`, and you never catch the UI mid-update, because no render can interleave with the queue draining.
+    React batches state updates within an event handler and paints once at the end — run-to-completion is that idea taken all the way: the batch boundary is the *entire* settled drain, not one handler. You never need `flushSync`, and you never catch the UI mid-update, because no render can interleave with the queue draining.
 
 ??? info "From re-frame v1"
 
-    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-cascade to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}`, which lets one paint land before the next event runs.
+    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops mid-run to let a paint through; post-render needs hang off the render boundary instead ([From re-frame v1](../25-from-re-frame-v1.md) has the rewrite). The v1 use case — "show this, *then* run the heavy block" — is served by a `dispatch-later` with `{:ms 0}`, which lets one paint land before the next event runs.
 
-### When the cascade won't stop
+### When the drain won't stop
 
-Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite cascade would spin the drain forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
+Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite drain would spin forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
 
 ```clojure
 {:operation :rf.error/drain-depth-exceeded
@@ -290,27 +298,27 @@ Run-to-completion is unconditional, which raises an obvious question: what if a 
              :last-event [:the-last-event-that-ran]}}
 ```
 
-The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway cascade is diagnosable, not silent.
+The important part is what survives. Atomicity in re-frame2 is per [**event**](../glossary.md#commit), not per drain — so every event the drain already settled *keeps* its app-db write and its history row, exactly as if the drain had ended cleanly after each one. There is no whole-drain rollback to undo (and nothing to undo, since each settled event was atomic on its own). The runtime discards the remaining queued events, traces `:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In Xray you'll see the durable rows followed by a single `:halted-depth` marker — "the drain stopped here" — so a runaway drain is diagnosable, not silent.
 
 !!! note "The bound is per-frame and tunable"
 
     Story frames set a tighter `:drain-depth` (`16` — a live demo should fail fast), while the `:test` preset pins the framework default (`100`) explicitly onto the frame's metadata; you can raise it for a frame that legitimately fans out wide. But reaching for a higher limit is usually the wrong move — a drain that needs hundreds of synchronous events is generally a cycle in disguise.
 
-### Dispatching from outside the cascade
+### Dispatching from outside the drain
 
 One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler — at app startup, in a test, at the REPL — there's nothing to return effects to. That's what [**`dispatch-sync`**](../glossary.md#dispatch-sync) is for:
 
 ```clojure
-;; App bootstrap, or a test fixture: run the cascade to completion, synchronously.
+;; App bootstrap, or a test fixture: run the drain to completion, synchronously.
 (rf/dispatch-sync [:app/initialise])
-;; By the time this line returns, the whole cascade has settled.
+;; By the time this line returns, the whole drain has settled.
 ```
 
 `dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling the drain asynchronously (a later tick) and returning immediately. That's exactly what you want when the next line of a test needs to assert on the settled state, or when boot code must finish initialising before rendering begins.
 
 !!! warning "Gotcha — `dispatch-sync` is an *outside* call only"
 
-    Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the cascade is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
+    Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the drain is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`. Use `dispatch-sync` to *enter* the machine from the outside; use `:fx` `:dispatch` to chain *within* it.
 
 !!! warning "Gotcha — a dispatch needs a frame in scope"
 
