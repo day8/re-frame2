@@ -36,6 +36,7 @@
   `re-frame.machines.lifecycle-fx.teardown` — one helper, three
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
+            [re-frame.machines.error-emit :as machine-error-emit]
             [re-frame.machines.classification :as classification]
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
@@ -483,15 +484,25 @@
                 new-parent-data (try
                                   (on-done-fn {:data parent-data :result (:value reply)})
                                   (catch #?(:clj Throwable :cljs :default) e
-                                    (trace/emit-error! :rf.error/machine-action-exception
-                                                       {:machine-id machine-id
-                                                        :action-id  :rf.spawn/on-done
-                                                        :parent-id  parent-id
-                                                        :invoke-id  invoke-id
-                                                        :frame      frame-id
-                                                        :exception  e
-                                                        :reason     ":on-done callback threw."
-                                                        :recovery   :no-recovery})
+                                    ;; The `:on-done` callback IS a machine
+                                    ;; action, so its throw rides the same
+                                    ;; always-on-plus-dev-trace fan-out
+                                    ;; (rf2-cprm0q): `:failing-id` is the
+                                    ;; reserved `:rf.spawn/on-done` slot id.
+                                    (machine-error-emit/emit-machine-action-exception!
+                                      {:actor-id   machine-id
+                                       :machine-id machine-id
+                                       :action-id  :rf.spawn/on-done
+                                       :failing-id :rf.spawn/on-done
+                                       :parent-id  parent-id
+                                       :invoke-id  invoke-id
+                                       :frame      frame-id
+                                       :exception  e
+                                       :exception-message
+                                       #?(:clj  (.getMessage ^Throwable e)
+                                          :cljs (.-message e))
+                                       :reason     ":on-done callback threw."
+                                       :recovery   :no-recovery})
                                     parent-data))]
             (if (and parent-snap (some? new-parent-data))
               (assoc-in runtime-db (conj parent-path :data) new-parent-data)

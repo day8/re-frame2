@@ -27,6 +27,7 @@
             [re-frame.frame :as frame]
             [re-frame.machines.classification :as classification]
             [re-frame.machines.cofx-attach :as cofx-attach]
+            [re-frame.machines.error-emit :as machine-error-emit]
             [re-frame.machines.internal-events :as internal-events]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
@@ -151,29 +152,46 @@
         ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
                       :cljs (when ex (.-message ex)))
         ex-data    (when ex (ex-data ex))
-        action-ref (:action-ref info)]
-    (trace/emit-error! :rf.error/machine-action-exception
-                       ;; The throwing action ran in a LIVE
-                       ;; actor's transition; `machine-id` here is the
-                       ;; event-handler key (the running INSTANCE address —
-                       ;; a singleton's registration id, or a spawned
-                       ;; actor's `<type>#<n>` / fixed id), so it rides
-                       ;; under `:actor-id`. Reserved `:machine-id` names
-                       ;; the registered TYPE only. `:failing-id` /
-                       ;; `:handler-id` are already distinctly named.
-                       {:actor-id          machine-id
-                        :action-id         action-ref
-                        :state-path        (:state-path info)
-                        :transition        (:transition info)
-                        :event             event
-                        :failing-id        machine-id
-                        :handler-id        machine-id
-                        :frame             frame-id
-                        :exception         ex
-                        :exception-message ex-msg
-                        :exception-data    ex-data
-                        :reason            reason
-                        :recovery          :no-recovery})
+        action-ref (:action-ref info)
+        state-path (:state-path info)
+        ;; `:failing-id` names the failing CODE identifier — uniform with the
+        ;; interceptor / cofx always-on categories (Spec 009 §What IS available
+        ;; §Attribution rule): the throwing action / guard's KEYWORD when it is
+        ;; a named `:actions` / `:guards` entry, else the live actor instance
+        ;; address (an anonymous inline fn has no keyword identity — the
+        ;; `:state` slot still attributes WHICH state's transition threw). It is
+        ;; ALWAYS a keyword. (Previously stamped `machine-id` unconditionally —
+        ;; the misattribution rf2-cprm0q defect 2 fixes: a machine throw
+        ;; arrived as \"machine :auth/flow threw\" with no action attribution.)
+        failing-id (if (keyword? action-ref) action-ref machine-id)]
+    ;; Fan out BOTH error channels (rf2-cprm0q defect 1): the always-on
+    ;; production-survivable record (surface #4, carrying `:failing-id` +
+    ;; `:state`) AND the dev-only trace. Guard throws converge here too
+    ;; (`transition/guard-threw->fail-info` projects the guard-ref onto
+    ;; `:action-ref`), so this single site fixes BOTH action and guard throws.
+    (machine-error-emit/emit-machine-action-exception!
+      ;; The throwing action ran in a LIVE actor's transition; `machine-id`
+      ;; here is the event-handler key (the running INSTANCE address — a
+      ;; singleton's registration id, or a spawned actor's `<type>#<n>` / fixed
+      ;; id), so it rides under `:actor-id`. Reserved `:machine-id` names the
+      ;; registered TYPE only. `:failing-id` / `:handler-id` are distinctly
+      ;; named. `:state` is the active state path (the always-on-record
+      ;; attribution, the slot `:rf.machine/guard-evaluated` also uses);
+      ;; `:state-path` is retained for the existing dev-trace shape.
+      {:actor-id          machine-id
+       :action-id         action-ref
+       :state-path        state-path
+       :state             state-path
+       :transition        (:transition info)
+       :event             event
+       :failing-id        failing-id
+       :handler-id        machine-id
+       :frame             frame-id
+       :exception         ex
+       :exception-message ex-msg
+       :exception-data    ex-data
+       :reason            reason
+       :recovery          :no-recovery})
     ;; Additive control-flow routing. Read the spawning
     ;; parent / invoke-id off the child's stamped `:data`; if the parent
     ;; declares `:spawn :on-error`, dispatch the failure into it. The error
