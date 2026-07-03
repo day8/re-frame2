@@ -53,8 +53,11 @@
 ;; the `:explicit` (cancellation) sites; a `:rf.machine/finished` destroy
 ;; carries none of them (the actor already closed through
 ;; `finalize-machine`'s `:rf.machine/done` reply).
+;; rf2-o6c2jr — the bare :work/id duplicate was dropped from the reply-envelope
+;; rows; the work identity rides as :rf.reply/work-id. :work/kind stays (it has
+;; no reply-envelope twin — a lone work-family tag).
 (def ^:private reply-envelope-keys
-  #{:work/id :work/kind :rf.reply/status :rf.reply/work-id
+  #{:work/kind :rf.reply/status :rf.reply/work-id
     :rf.reply/work-status :rf.reply/cancelled? :rf.reply/cancel-reason
     :rf.reply/correlation})
 
@@ -121,8 +124,12 @@
               (str label ": ... and the :rf.reply/cancelled? marker"))
           (is (= :explicit (:rf.reply/cancel-reason tags))
               (str label ": ... and :rf.reply/cancel-reason"))
-          (is (some? (:work/id tags))
-              (str label ": ... and the canonical :work/id")))
+          ;; rf2-o6c2jr — the canonical work identity rides ONLY as
+          ;; :rf.reply/work-id (the bare :work/id duplicate was dropped).
+          (is (some? (:rf.reply/work-id tags))
+              (str label ": ... and the canonical :rf.reply/work-id"))
+          (is (not (contains? tags :work/id))
+              (str label ": ... and NO bare :work/id duplicate")))
         (is (not (contains? tags :rf.reply/status))
             (str label ": a :rf.machine/finished destroy carries no cancelled reply facts"))))))
 

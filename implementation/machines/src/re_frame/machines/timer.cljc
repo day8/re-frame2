@@ -225,7 +225,6 @@
                           :reason     reason
                           :frame      frame-id
                           ;; reply-envelope vocabulary (Managed-Effects §9)
-                          :work/id              (:work/id summary)
                           :work/kind            (:work/kind summary)
                           :rf.reply/status      (:status summary)
                           :rf.reply/work-id     (:work/id summary)

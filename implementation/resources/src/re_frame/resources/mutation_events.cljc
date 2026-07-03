@@ -1528,14 +1528,16 @@
 (defn- emit-mutation-stale-suppressed!
   "Emit the `:rf.mutation/stale-suppressed` trace for a suppressed late
   mutation reply via the SHARED `reply-handlers/emit-stale-suppressed!`,
-  carrying the mutation bespoke facts (`:instance` / `:work/id` /
-  `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
-  ADDITIVELY (Managed-Effects §Tracing / EP-0011 / rf2-waawic)."
-  [frame-id instance-id work-id generation outcome stale]
+  carrying the mutation bespoke facts (`:instance` / `:generation` /
+  `:outcome`) PLUS the canonical reply-envelope vocabulary ADDITIVELY
+  (Managed-Effects §Tracing / EP-0011 / rf2-waawic). The work identity rides
+  ONLY as `:rf.reply/work-id` (one name per fact — rf2-o6c2jr dropped the bare
+  `:work/id` duplicate the additive vocabulary already carries)."
+  [frame-id instance-id _work-id generation outcome stale]
   (reply-handlers/emit-stale-suppressed!
     :rf.mutation/stale-suppressed
     {:rf.frame/id frame-id :instance instance-id
-     :work/id work-id :generation generation :outcome outcome}
+     :generation generation :outcome outcome}
     stale))
 
 ;; The managed-HTTP transport APPENDS its PUBLIC reply payload as the LAST

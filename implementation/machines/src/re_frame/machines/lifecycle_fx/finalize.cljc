@@ -425,14 +425,11 @@
                                 :error?     error-leaf?
                                 :frame      frame-id
                                 ;; reply-envelope vocabulary (Managed-Effects §9)
-                                ;; The CANONICAL `:work/id` joins
+                                ;; The CANONICAL `:rf.reply/work-id` joins
                                 ;; this spawned-actor completion into Xray's
                                 ;; uniform work/reply rows + stale-race
-                                ;; grouping, which key on bare `:work/id`. The
-                                ;; `:rf.reply/work-id` spelling is carried
-                                ;; alongside for readers that key on it; the
-                                ;; canonical key is what tooling groups by.
-                                :work/id              (:work/id done-summary)
+                                ;; grouping. `:work/kind` rides alongside as the
+                                ;; work-family tag (no reply-envelope twin).
                                 :work/kind            (:work/kind done-summary)
                                 :rf.reply/status      (:status done-summary)
                                 :rf.reply/work-id     (:work/id done-summary)
@@ -444,8 +441,7 @@
                          ;; completion metadata). Additive + present-only so
                          ;; the unscripted (no-world-input) path stays clean.
                          (some? (:completed-at done-summary))
-                         (assoc :rf.reply/completed-at (:completed-at done-summary)
-                                :completed-at          (:completed-at done-summary))
+                         (assoc :rf.reply/completed-at (:completed-at done-summary))
                          ;; stale-suppression vocabulary — carried
                          ;; ADDITIVELY only for a stale late completion, joined
                          ;; to `:work/id` via the shared `:rf.reply/*` facts.

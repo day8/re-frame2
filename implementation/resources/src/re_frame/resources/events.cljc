@@ -1896,14 +1896,16 @@
 (defn- emit-resource-stale-suppressed!
   "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
   resource reply via the SHARED `reply-handlers/emit-stale-suppressed!`,
-  carrying the resource bespoke facts (`:resource/key` / `:work/id` /
-  `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
-  ADDITIVELY (Managed-Effects §Tracing / EP-0011 / rf2-waawic)."
-  [frame-id resource-key work-id generation outcome stale]
+  carrying the resource bespoke facts (`:resource/key` / `:generation` /
+  `:outcome`) PLUS the canonical reply-envelope vocabulary ADDITIVELY
+  (Managed-Effects §Tracing / EP-0011 / rf2-waawic). The work identity rides
+  ONLY as `:rf.reply/work-id` (one name per fact — rf2-o6c2jr dropped the bare
+  `:work/id` duplicate the additive vocabulary already carries)."
+  [frame-id resource-key _work-id generation outcome stale]
   (reply-handlers/emit-stale-suppressed!
     :rf.resource/stale-suppressed
     {:rf.frame/id frame-id :resource/key resource-key
-     :work/id work-id :generation generation :outcome outcome}
+     :generation generation :outcome outcome}
     stale))
 
 (defn- live-entry-for-reply

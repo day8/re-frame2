@@ -304,9 +304,12 @@
             sup  (first (by-op traces :rf.resource/stale-suppressed))]
         (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
         (let [tags (:tags sup)]
-          ;; bespoke facts preserved (additive, not replaced)
+          ;; bespoke facts preserved (additive, not replaced). rf2-o6c2jr —
+          ;; the bare :work/id duplicate was dropped; the work identity rides
+          ;; ONLY as :rf.reply/work-id (asserted below).
           (is (= scoped-key (:resource/key tags)))
-          (is (= wid1       (:work/id tags)))
+          (is (not (contains? tags :work/id))
+              "no bare :work/id duplicate on the stale-suppressed reply row")
           (is (= :success   (:outcome tags)) "the stale reply's natural outcome diagnostic")
           ;; CANONICAL reply-envelope vocabulary via the shared substrate
           (is (= :stale (:rf.reply/status tags))
@@ -314,7 +317,7 @@
           (is (= :suppressed (:rf.reply/work-status tags))
               "the ledger terminal for a stale completion")
           (is (= :rf.resource/superseded (:rf.reply/stale-reason tags)))
-          (is (= wid1 (:rf.reply/work-id tags)) "joined to :work/id")
+          (is (= wid1 (:rf.reply/work-id tags)) "the canonical work identity")
           ;; the carried-vs-current generation pair IS the supersession gate
           (let [corr (:rf.reply/correlation tags)]
             (is (= 1 (-> corr :generation :carried))

@@ -1071,7 +1071,11 @@
                                          (when (vector? rkey) (second rkey)))
                        :resource/key (when rkey (scoped-key-summary rkey eg))
                        :generation   (:generation tags)
-                       :work-id      (:work/id tags)
+                       ;; Most resource-lifecycle ops carry the bare `:work/id`
+                       ;; identity; the `:rf.resource/stale-suppressed` reply row
+                       ;; carries the work identity ONLY as `:rf.reply/work-id`
+                       ;; (rf2-o6c2jr — one name per fact on reply-envelope rows).
+                       :work-id      (or (:work/id tags) (:rf.reply/work-id tags))
                        :owner        (:owner tags)
                        :cause        (when (contains? tags :cause)
                                        (summarize (eg (:cause tags))))

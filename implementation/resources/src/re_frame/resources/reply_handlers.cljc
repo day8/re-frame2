@@ -164,10 +164,10 @@
 (defn emit-stale-suppressed!
   "Emit the family's `…/stale-suppressed` trace (`trace-id`) for a suppressed
   late reply, carrying its bespoke facts (`bespoke-facts` — `:resource/key` /
-  `:work/id` / `:generation` / `:outcome` for a resource; `:instance` /
-  `:work/id` / `:generation` / `:outcome` for a mutation) PLUS the canonical
-  reply-envelope vocabulary ADDITIVELY (joined to `:work/id` via the shared
-  `:rf.reply/*` facts): `:rf.reply/status :stale`, `:rf.reply/work-status
+  `:generation` / `:outcome` for a resource; `:instance` / `:generation` /
+  `:outcome` for a mutation) PLUS the canonical reply-envelope vocabulary
+  ADDITIVELY (the work identity rides as `:rf.reply/work-id` — rf2-o6c2jr, one
+  name per fact): `:rf.reply/status :stale`, `:rf.reply/work-status
   :suppressed`, `:rf.reply/stale-reason`, `:rf.reply/work-id`, and
   `:rf.reply/correlation` (the carried-vs-current generation gate) — the SAME
   additive shape the machine `:rf.machine/done` and HTTP / probe stale paths
@@ -176,8 +176,8 @@
   the shared elider via `rreply/trace-reply`.
 
   `bespoke-facts` is the family's leading per-trace map (its caller-side
-  spelling of `:rf.frame/id` + the durable key + `:work/id` / `:generation` /
-  `:outcome`); the additive `:rf.reply/*` facts are MERGED on top."
+  spelling of `:rf.frame/id` + the durable key + `:generation` / `:outcome`);
+  the additive `:rf.reply/*` facts are MERGED on top."
   [trace-id bespoke-facts stale]
   (let [summary (rreply/trace-reply (:reply stale))]
     (trace/emit! :rf.event trace-id
