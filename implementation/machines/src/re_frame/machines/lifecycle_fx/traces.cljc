@@ -13,7 +13,8 @@
   because `teardown.cljc` is the unified pure app-db projection — it
   deliberately emits NO traces so the projection stays a value→value
   function. These helpers ARE side effects, so they live separately."
-  (:require [re-frame.machines.reply :as m-reply]
+  (:require [re-frame.machines.error-emit :as machine-error-emit]
+            [re-frame.machines.reply :as m-reply]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -105,10 +106,19 @@
   with a destroy-time discriminator. Fail-soft: the destroy proceeds with
   the pre-cascade snapshot."
   [actor-id frame-id result-info]
-  (trace/emit-error! :rf.error/machine-action-exception
-                     {:machine-id actor-id
-                      :frame      frame-id
-                      :phase      :rf.machine/destroy-exit
-                      :reason     "An :exit action threw during destroy-time cascade."
-                      :recovery   :skipped
-                      :info       result-info}))
+  ;; A destroy-time `:exit` action throw is a machine action exception, so it
+  ;; rides the same always-on-plus-dev-trace fan-out (rf2-cprm0q). `:failing-id`
+  ;; is the throwing `:exit` action's keyword when named (else the actor
+  ;; instance); `:state` is the active state path off the failure info.
+  (let [action-ref (:action-ref result-info)]
+    (machine-error-emit/emit-machine-action-exception!
+      {:actor-id   actor-id
+       :machine-id actor-id
+       :failing-id (if (keyword? action-ref) action-ref actor-id)
+       :state      (:state-path result-info)
+       :frame      frame-id
+       :phase      :rf.machine/destroy-exit
+       :exception  (:exception result-info)
+       :reason     "An :exit action threw during destroy-time cascade."
+       :recovery   :skipped
+       :info       result-info})))
