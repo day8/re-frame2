@@ -35,7 +35,7 @@ Lifted from `examples/patterns/nine_states/core.cljs`. Three regions; tags on ev
     :too-many? (fn [{d :data}] (> (count (:items d)) too-many-threshold))}
    :actions
    {:set-items (fn [{d :data [_ {:keys [items]}] :event}] {:data (assoc d :items (vec items) :error nil)})
-    :set-error (fn [{d :data [_ {:keys [failure]}] :event}] {:data (assoc d :error failure)})}
+    :set-error (fn [{d :data [_ {:keys [error]}] :event}] {:data (assoc d :error error)})}
    :regions
    {:data
     {:initial :nothing
