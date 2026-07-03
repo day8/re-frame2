@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 /*
- * Reagent Slim bundle-isolation verifier (bead rf2-5lbx / rf2-2ppcv).
+ * Reagent Slim bundle-isolation verifier (bead rf2-5lbx / rf2-2ppcv;
+ * classic-clean mirror rf2-81ndde).
+ *
+ * Two isolation directions between the coexisting adapter trees:
+ *   - the SLIM (`examples/counter-slim-and-fast`) bundle must be clean of
+ *     stock Reagent's impl + react-dom/server (Contracts 1-4, the S3-008 /
+ *     S3-005 claims below);
+ *   - the CLASSIC (`examples/counter`, stock-Reagent) bundle must be clean of
+ *     the slim `reagent2.*` rewrite (Contracts 5-6, rf2-81ndde — the mirror
+ *     that closes the IMPL-SPEC §12.3:1070 follow-up).
  *
  * The S3-008 contract from
  * implementation/adapters/reagent-slim/IMPL-SPEC.md §1.8 + §12.3:
@@ -172,6 +181,45 @@ const SLIM_SSR_PRESENCE_SENTINELS = [
     sentinel: 'static-markup-bad-tag' },
 ];
 
+// Slim `reagent2.*` impl-namespace sentinels — the MIRROR direction
+// (rf2-81ndde, closing the IMPL-SPEC §12.3:1070 follow-up). Contracts 2+3
+// prove the SLIM bundle is clean of stock Reagent + react-dom/server; this
+// set proves the COMPLEMENT: the CLASSIC (stock-Reagent) `examples/counter`
+// bundle is clean of the slim `reagent2.*` rewrite. The two adapter trees
+// coexist on the same in-tree shadow-cljs classpath, so the binding claim
+// is that Closure :advanced DCE drops every slim namespace from a build that
+// only `:require`s the classic adapter — the classic thin-bridge adapter and
+// the shared `re-frame.substrate.spine` confine their `reagent2.*` names to
+// runtime late-bind lookups / doc comments, never a static CLJS `:require`.
+//
+// Each sentinel is a `:rf.error/<id>` string literal emitted from a
+// `reagent2.*` function body. They are chosen for:
+//   - uniqueness to the slim tree — a repo-wide grep for each hits ONLY
+//     implementation/adapters/reagent-slim/ (src + test + docs), so a
+//     classic-bundle hit unambiguously means a slim ns body was compiled in,
+//   - survival under :advanced (string literals are not renamed),
+//   - reachability on the slim render path (NOT SSR-only): both live in
+//     `reagent2.impl.template`'s `vec-to-elem`/`as-element` hiccup dispatch,
+//     the interpreter every slim mount drives — so they are PRESENT in the
+//     slim counter bundle (Contract 5's methodology present-check), reachable
+//     independently of the SSR exercise the SLIM_SSR_PRESENCE_SENTINELS anchor.
+//
+// If a future refactor renames these ex-info ids, BOTH the slim present-check
+// (Contract 5) and the classic absent-check (Contract 6) go silent together;
+// Contract 5 fails fast on the lost signal — re-derive from another
+// `reagent2.*` body literal (e.g. `create-class-key-unsupported` in
+// reagent2.core / reagent2.impl.component, or `as-element-fn-unregistered`).
+const SLIM_REAGENT2_SENTINELS = [
+  // reagent2.impl.template/vec-to-elem — empty-hiccup-vector throw. On the
+  // core `as-element` dispatch path, reached by every slim render.
+  { source: 'reagent2.impl.template vec-to-elem (rf.error/template-empty-vector)',
+    sentinel: 'rf.error/template-empty-vector' },
+  // reagent2.impl.template/vec-to-elem — bad-head throw. Second sentinel
+  // guards against a future rename of one but not the other.
+  { source: 'reagent2.impl.template vec-to-elem (rf.error/template-bad-tag)',
+    sentinel: 'rf.error/template-bad-tag' },
+];
+
 // ----- helpers ---------------------------------------------------------------
 //
 // Bundle reading is shared with the sibling check-* scripts via
@@ -185,7 +233,7 @@ const SLIM_SSR_PRESENCE_SENTINELS = [
 // sentinel-scan.cjs, rf2-j552l2); checkAbsent / checkPresent below supply
 // this gate's exact diagnostic line format.
 
-// ----- the four contract checks ---------------------------------------------
+// ----- the six contract checks ----------------------------------------------
 
 function checkAbsent(blob, sentinels, blobLabel) {
   // Assert each sentinel's hit-count is 0. Used for the slim build's
@@ -221,7 +269,7 @@ function checkPresent(blob, sentinels, blobLabel) {
 // ----- main ------------------------------------------------------------------
 
 function main() {
-  report.detail('=== Reagent Slim bundle isolation (rf2-5lbx / rf2-2ppcv) ===');
+  report.detail('=== Reagent Slim bundle isolation (rf2-5lbx / rf2-2ppcv; classic-clean rf2-81ndde) ===');
   report.detail('');
 
   const slimDir  = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
@@ -316,12 +364,34 @@ function main() {
   const c4 = checkPresent(slim, SLIM_SSR_PRESENCE_SENTINELS, 'SLIM');
   report.detail('');
 
-  const allOk = c1.ok && c2.ok && c3.ok && c4.ok;
+  // Contract 5 (rf2-81ndde methodology): the slim `reagent2.*` sentinels are
+  // reachable from the slim counter (must be PRESENT). Mirror of Contract 1 —
+  // proves the classic-clean grep in Contract 6 has signal. If these go to 0
+  // in a slim build, the sentinel set has lost signal — re-derive from another
+  // reagent2.* body literal.
+  report.detail('Contract 5 (rf2-81ndde methodology): slim reagent2.* sentinels are');
+  report.detail('                          reachable from the slim counter (must be PRESENT).');
+  const c5 = checkPresent(slim, SLIM_REAGENT2_SENTINELS, 'SLIM');
+  report.detail('');
+
+  // Contract 6 (the binding rf2-81ndde claim, IMPL-SPEC §12.3:1070): NONE of
+  // the slim `reagent2.*` sentinels appears in the CLASSIC (stock-Reagent)
+  // bundle. The complement of Contract 2 (stock ABSENT from slim): slim is
+  // ABSENT from classic. Both adapter trees live on the same in-tree
+  // classpath; this proves :advanced DCE keeps the slim rewrite out of a
+  // build that only `:require`s the classic thin-bridge adapter.
+  report.detail('Contract 6 (rf2-81ndde, slim isolation): the slim reagent2.* rewrite is');
+  report.detail('                          ABSENT from the classic stock-Reagent bundle.');
+  const c6 = checkAbsent(stock, SLIM_REAGENT2_SENTINELS, 'STOCK');
+  report.detail('');
+
+  const allOk = c1.ok && c2.ok && c3.ok && c4.ok && c5.ok && c6.ok;
   if (allOk) {
-    const checked = c1.checked + c2.checked + c3.checked + c4.checked;
+    const checked =
+      c1.checked + c2.checked + c3.checked + c4.checked + c5.checked + c6.checked;
     report.pass(
       'reagent-slim-bundle-isolation',
-      `4 contracts passed; ${checked} sentinel checks; slim=${slimDir} (${slim.length} chars); ` +
+      `6 contracts passed; ${checked} sentinel checks; slim=${slimDir} (${slim.length} chars); ` +
         `stock=${stockDir} (${stock.length} chars)`
     );
     process.exit(0);
@@ -365,6 +435,25 @@ function main() {
       console.error('still present and intentional, a serializer sentinel string may have');
       console.error('changed: re-derive from reagent2.dom.server (the ex-info type literals');
       console.error('or the reagent-react-component placeholder). See IMPL-SPEC §8 + S3-005.');
+      console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
+    }
+    if (!c5.ok) {
+      console.error('Contract 5 failed: the slim reagent2.* sentinels did not appear in the');
+      console.error('slim counter bundle. The classic-clean grep (Contract 6) has lost signal');
+      console.error('— re-derive a fresh sentinel set from a reagent2.* body literal (e.g.');
+      console.error('rf.error/create-class-key-unsupported in reagent2.core / reagent2.impl.');
+      console.error('component, or rf.error/as-element-fn-unregistered). See IMPL-SPEC §12.3.');
+      console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
+    }
+    if (!c6.ok) {
+      console.error('Contract 6 failed: the slim reagent2.* rewrite is leaking into the');
+      console.error('CLASSIC (stock-Reagent) examples/counter bundle. The complementary');
+      console.error('isolation claim (IMPL-SPEC §12.3:1070) is broken: the classic thin-bridge');
+      console.error('adapter must not pull slim. Likely cause: a static CLJS `:require` on a');
+      console.error('`reagent2.*` ns slipped into a classic-reachable path (a core/* ns, the');
+      console.error('shared re-frame.substrate.spine, or the classic re-frame.adapter.reagent)');
+      console.error('— those must confine reagent2.* to runtime late-bind lookups, never a');
+      console.error('static require. See implementation/adapters/reagent-slim/IMPL-SPEC.md §12.3.');
       console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
     }
     process.exit(1);
