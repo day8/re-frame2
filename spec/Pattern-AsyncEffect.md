@@ -30,7 +30,7 @@ Three architectural properties make the shape work:
 
 - **Effects are deferred function calls described as data.** `:fx` returns a vector of `[fx-id args]` pairs; `do-fx` walks them after the handler returns. Nothing in the handler synchronously touches the outside world, so handlers stay pure (per [Principles.md](Principles.md)).
 - **Async results re-enter the runtime as named, dispatched events.** They do not mutate `app-db` directly; they cross the dispatch boundary like any other event. This is the same property that makes Pattern-StaleDetection's epoch idiom possible — the reply event is a place to attach context.
-- **Frame-aware fx handlers carry `:frame` into the closure that fires later** (per [002 §Async fx capture the frame in a closure](002-Frames.md#async-fx-capture-the-frame-in-a-closure)). The reply lands in the originating frame, not `:rf/default`.
+- **Frame-aware fx handlers carry `:frame` into the closure that fires later** (per [002 §Async fx capture the frame in a closure](002-Frames.md#async-fx-capture-the-frame-in-a-closure)). `(:frame m)` is the frame **id** (a keyword, never the live frame record — the fx ctx is portable data; see [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)), fed straight into the `{:frame …}` dispatch opt. The reply lands in the originating frame, not `:rf/default`.
 
 ## Worked example — HTTP
 
