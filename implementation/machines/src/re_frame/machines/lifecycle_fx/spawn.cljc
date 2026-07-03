@@ -322,8 +322,8 @@
   so `restore-epoch!` (app-db-only) reverts an actor's liveness perfectly
   with ZERO registrar drift."
   [{frame-id :frame} args]
-  (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside an
-        ;; event cascade, so the fx context ALWAYS carries the envelope
+  (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside a
+        ;; pipeline run, so the fx context ALWAYS carries the envelope
         ;; frame as `:frame` (the HELD stamp). A nil stamp is an invariant
         ;; failure — surface `:rf.error/no-frame-context`, never repair to
         ;; a synthesised `:rf/default`.

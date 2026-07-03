@@ -62,8 +62,8 @@
 
   Boundaries are right-open at the lower edge (the next tier owns the
   threshold value itself). Negative / nil / non-numeric durations
-  classify as `:fast` — a robust default for cascades whose `:time`
-  deltas collapse to zero (single-event cascades).
+  classify as `:fast` — a robust default for pipeline runs whose `:time`
+  deltas collapse to zero (single-event runs).
 
   Pure data → keyword; JVM-testable."
   [duration-ms]

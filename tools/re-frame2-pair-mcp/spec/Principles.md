@@ -889,7 +889,7 @@ never serves a stale slice:
   partition (`[:rf.runtime/machines :snapshots]`), so a machine
   transition rewrites the slice while `(hash app-db)` stays constant.
 - `:sub-cache` is a reactive cache over external inputs.
-- `:epochs`/`:traces` accrue a record on every event cascade, even a
+- `:epochs`/`:traces` accrue a record on every pipeline run, even a
   no-`:db` handler.
 
 `get-path` is also NOT precheck-eligible (rf2-ww877w): although it

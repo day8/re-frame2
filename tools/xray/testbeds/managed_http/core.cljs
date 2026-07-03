@@ -387,7 +387,7 @@
     :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot (::in-flight) appears. This slot persists through the next three steps (they carry their own request-ids) and is the request the abort step (5) targets. Epoch: the fire cascade with NO reply child yet."}
    {:label "Success response"
     :event [::success]
-    :watch "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from api/ok.json."}
+    :watch "Epoch: a two-event drain — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :status :ok, :value decoded from api/ok.json."}
    {:label "Error response (4xx)"
     :event [::error-4xx]
     :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :error :kind :rf.http/http-4xx, :status 404."}

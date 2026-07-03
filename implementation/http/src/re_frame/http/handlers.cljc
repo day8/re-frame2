@@ -170,8 +170,8 @@
     :as   args-map}
    frame-ctx]
   (let [origin-event (:event frame-ctx)
-        ;; EP-0002 carried invariant — `:rf.http/managed` runs inside an
-        ;; event cascade, so the fx context ALWAYS carries the envelope
+        ;; EP-0002 carried invariant — `:rf.http/managed` runs inside a
+        ;; pipeline run, so the fx context ALWAYS carries the envelope
         ;; frame as `:frame` (the HELD stamp used for reply-to-origin
         ;; addressing). A nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.

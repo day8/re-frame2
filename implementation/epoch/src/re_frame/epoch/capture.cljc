@@ -547,7 +547,7 @@
   persistent vector built via transient accumulators.
 
   Fusing the three projections into one reducer pass keeps the buffer walk
-  to N operation reads for an N-event cascade (three independent `into []`
+  to N operation reads for an N-event drain (three independent `into []`
   transducer walks would cost 3·N). Mirrors `find-trigger-event`'s style
   (rf2-txrq9): one traversal, multiple accumulators, single allocation
   budget.
