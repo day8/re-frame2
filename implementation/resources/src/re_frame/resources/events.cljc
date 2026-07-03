@@ -1924,8 +1924,8 @@
 ;; `:on-success` / `:on-failure` internal reply event vector as the LAST arg,
 ;; so a live reply lands as a 3-element event:
 ;;
-;;   [:rf.resource.internal/succeeded <verification-payload> {:kind :success :value <decoded-data>}]
-;;   [:rf.resource.internal/failed    <verification-payload> {:kind :failure :failure <:rf.http/* envelope>}]
+;;   [:rf.resource.internal/succeeded <verification-payload> {:status :ok    :value <decoded-data> …}]
+;;   [:rf.resource.internal/failed    <verification-payload> {:status :error :error <:rf.http/* envelope> …}]
 ;;
 ;; `<verification-payload>` (arg 2) is the `{:work/id :resource/key :scope
 ;; :generation :rf.frame/id}` map resource lowering supplied (the stale-
@@ -1993,7 +1993,7 @@
   Ledger.
 
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends `{:kind :success :value <decoded-data>}` as the last arg
+  transport appends the canonical `{:status :ok :value <decoded-data> …}` as the last arg
   (Spec 014 §Reply addressing); the decoded data is read from there
   (`rreply/transport-success-value` with the `:data` durable-layer fallback)
   and re-lifted into the canonical `:value`."
@@ -2178,7 +2178,7 @@
   `live-entry-for-reply` boundary (it can never mutate a newer entry).
 
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends `{:kind :failure :failure <:rf.http/* envelope>}` as the
+  transport appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the
   last arg (Spec 014 §Reply addressing); the failure envelope is read from
   there (`rreply/transport-failure-envelope`) and re-lifted into the canonical
   reply map (`rreply/failure-reply` — `:status :error` with the envelope under
@@ -2441,7 +2441,7 @@
   newer feed. Per Spec 016 §Causal event — load-more.
 
   Event shape: `[_ <verification-payload> <http-result>]` — the managed-HTTP
-  transport appends `{:kind :success :value <decoded-page>}` as the last arg;
+  transport appends the canonical `{:status :ok :value <decoded-page> …}` as the last arg;
   the decoded page is read from there (with the `:data` durable-layer fallback
   for direct-dispatch tests) and appended."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
@@ -2568,7 +2568,7 @@
   settles `:cancelled`.
 
   Event shape: `[_ <verification-payload> <http-result>]` — the transport
-  appends `{:kind :failure :failure <:rf.http/* envelope>}` as the last arg."
+  appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the last arg."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, time-ms :rf/time-ms}
    [_event-id {work-id :work/id resource-key :resource/key :keys [generation]
                page-index :rf.resource/page-index :as payload} http-result]]

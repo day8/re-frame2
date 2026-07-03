@@ -1541,8 +1541,8 @@
 ;; The managed-HTTP transport APPENDS its PUBLIC reply payload as the LAST
 ;; arg of the internal reply event (Spec 014 §Reply addressing), exactly as
 ;; for resources — so a live reply lands as a 3-element event:
-;;   [:rf.mutation.internal/succeeded <verification-payload> {:kind :success :value <data>}]
-;;   [:rf.mutation.internal/failed    <verification-payload> {:kind :failure :failure <envelope>}]
+;;   [:rf.mutation.internal/succeeded <verification-payload> {:status :ok    :value <data> …}]
+;;   [:rf.mutation.internal/failed    <verification-payload> {:status :error :error <envelope> …}]
 ;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
 ;; map (`re-frame.resources.reply`, `:work/kind :mutation`) — `{:status
 ;; :value/:error :work/id :work/kind :mutation :work/status :rf.frame/id
