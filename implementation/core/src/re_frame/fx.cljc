@@ -430,7 +430,7 @@
 
   Per rf2-j20a7 / Spec 005 §Level 4: when the parent envelope is tagged
   `:rf.machine/internal? true` (the router stamps it in
-  `run-handler-cascade!` whenever the emitting handler is a machine),
+  `run-handler-pipeline!` whenever the emitting handler is a machine),
   the child is a machine-internal continuation event and inherits the
   flag. `re-frame.router/dispatch!` reads it to insert the child at the
   FRONT of the queue so the machine settles its macrostep to quiescence
@@ -1167,7 +1167,7 @@
   `:rf.event/coeffects` as 'no user-injected coeffects', distinct from
   an empty map which would itself be a 'stamped but empty' signal).
 
-  Called from `re-frame.router/emit-cascade-trailers!` to stamp the
+  Called from `re-frame.router/emit-pipeline-trailers!` to stamp the
   per-event user-cofx subset onto `:rf.event/run-end` (rf2-9dk9y — the
   stamp moved here from `:rf.fx/do-fx` so events that return only `:db`
   — no `:fx` — still get a COEFFECTS row in the Xray Event lens)."

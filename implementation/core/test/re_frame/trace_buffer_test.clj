@@ -266,8 +266,8 @@
 (deftest per-frame-override-before-first-emit-does-not-crash
   (testing "reg-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
     ;; Pre-fix: set-frame-events-retained! wrote a partial
-    ;; {:events-retained N} map (no :cascade-order). push-to-ring!
-    ;; started :cascade-order from nil → conj built a PersistentList →
+    ;; {:events-retained N} map (no :run-order). push-to-ring!
+    ;; started :run-order from nil → conj built a PersistentList →
     ;; subvec threw ClassCastException once the cap was exceeded.
     (rf/reg-frame :tb/early {:rf.trace/events-retained 3
                              :doc "cap registered before first emit"})

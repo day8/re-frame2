@@ -3515,8 +3515,8 @@
         (is (= #{:category :frame :rf.epoch/id :history-size}
                (set (keys (:tags unknown))))
             "restore-unknown-epoch tag key-set == Spec-Schemas RestoreUnknownEpochTags")
-        ;; restore-during-drain fires from INSIDE a live cascade, so the
-        ;; envelope's `stamp-cascade-id` adds `:rf.trace/dispatch-id` for
+        ;; restore-during-drain fires from INSIDE a live run, so the
+        ;; envelope's `stamp-dispatch-id` adds `:rf.trace/dispatch-id` for
         ;; correlation — that's an envelope concern, not part of the
         ;; Spec-Schemas RestoreDuringDrainTags shape. Assert the contract
         ;; keys are present and the alias is absent (the adversarial scan

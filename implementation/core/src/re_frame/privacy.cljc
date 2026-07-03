@@ -186,7 +186,7 @@
 ;;
 ;; The interceptor carries its `:paths` on the interceptor map itself so
 ;; the router can collect them at chain-assembly time and fold them into
-;; the pre-chain `:run-start` / `emit-cascade-trailers` event projection
+;; the pre-chain `:run-start` / `emit-pipeline-trailers` event projection
 ;; (which fires BEFORE any chain `:before` runs). The `:before` here remains
 ;; load-bearing for the in-chain composition with `:rf/schema-redaction`:
 ;; when both interceptors are present, this `:before` extends the already-
@@ -274,7 +274,7 @@
   of every `redact-interceptor` interceptor it contains.
 
   Read by the router at chain-assembly time so the pre-chain trace events
-  (`:run-start`, `emit-cascade-trailers`'s `:run-end`) and the frame-
+  (`:run-start`, `emit-pipeline-trailers`'s `:run-end`) and the frame-
   classification emit-event projection both honour user-declared payload
   paths."
   [interceptors]

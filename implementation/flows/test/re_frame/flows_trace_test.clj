@@ -1296,7 +1296,7 @@
 ;; classification-derived (EP-0015 §8): a handler scoped (`rf/path`) over a
 ;; frame-owned `:sensitive {:app-db …}` slot makes the router bind
 ;; `:rf/sensitive? true` into the handler scope. Flows run inside that scope
-;; (`commit-and-flow!` sits inside `run-handler-cascade!`'s
+;; (`commit-and-flow!` sits inside `run-handler-pipeline!`'s
 ;; `with-handler-scope`), so `trace/build-event`'s `compute-sensitive?`
 ;; hoists the stamp onto the flow trace automatically — the same handler-
 ;; scope inheritance every other in-cascade trace uses.
@@ -1584,7 +1584,7 @@
 ;;     Spec 009 §Canonical per-event trace sequence diagram against the impl.
 ;;
 ;; The load-bearing fact the 009 diagram encodes: `:rf.event/run-end` is a
-;; CASCADE-TAIL trace — the router emits it in `emit-cascade-trailers!`
+;; PIPELINE-RUN-TAIL trace — the router emits it in `emit-pipeline-trailers!`
 ;; AFTER `commit-and-flow!` has installed the deferred (flow-augmented)
 ;; `:db` and walked `:fx`. So a clean cascade orders:
 ;;

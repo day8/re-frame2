@@ -280,7 +280,7 @@
 ;; queue exactly as a live button-click would, then (b) drive the drain to
 ;; fixed point synchronously by seeding a no-op via `dispatch-sync`. The
 ;; sync drain dequeues the already-queued bad event through the identical
-;; `process-event! -> run-handler-cascade!` path the async nextTick drain
+;; `process-event! -> run-handler-pipeline!` path the async nextTick drain
 ;; uses — so this faithfully reproduces "a queued (async-dispatched) event
 ;; drains" while staying deterministic in the node fixture.
 ;;
