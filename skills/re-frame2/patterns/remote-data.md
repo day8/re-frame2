@@ -17,7 +17,7 @@ The pattern composes:
 - **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
 - **`reg-event` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
 - **`reg-event` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it declares and reads the recorded time — not a host-clock read. **`reg-event` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change (a db-only handler that just returns `{:db ...}`).
-- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` are pure routing sugar that dispatch the lifecycle events. The reply each delivers **is the canonical EP-0011 reply envelope** verbatim (rf2-ibksxg — one dialect, no reshape): `{:status :ok :value v …}` / `{:status :error :error m …}` / `{:status :cancelled :error m …}` (see managed-http.md). Read `:value` on `:ok`, the classified `:rf.http/*` map from `:error` on failure.
+- **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` are pure routing sugar that dispatch the lifecycle events. The reply each delivers **is the canonical EP-0011 reply envelope** verbatim (one dialect, no reshape): `{:status :ok :value v …}` / `{:status :error :error m …}` / `{:status :cancelled :error m …}` (see managed-http.md). Read `:value` on `:ok`, the classified `:rf.http/*` map from `:error` on failure.
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
 - **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
 
@@ -60,7 +60,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
   ;; :loaded-at on epoch restore / SSR hydration / time-travel.
   {:rf.cofx/requires [:rf/time-ms]}
   ;; The HTTP `:on-success` reply IS the canonical EP-0011 envelope
-  ;; `{:status :ok :value v …}` (rf2-ibksxg — no reshape); here we only need
+  ;; `{:status :ok :value v …}` (no reshape); here we only need
   ;; the decoded body, so destructure `:value`. (The envelope also carries
   ;; `:work/id` / `:completed-at` — read `(:completed-at reply)` when you want
   ;; the causal completion time off the reply itself; below we use the

@@ -55,7 +55,7 @@ When a managed request resolves, the runtime appends the reply payload as the la
                         }]
 ```
 
-The outer `:status` (`:ok` / `:error` / `:cancelled`) discriminates the branch; the classified `:rf.http/*` failure map rides verbatim under `:error`, and its inner `:kind` names the closed-set failure category (rf2-ibksxg — one canonical envelope, no `{:kind :success/:failure}` reshape; per [§Reply payload shape](../../../spec/014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope)). The closed failure categories and their tags:
+The outer `:status` (`:ok` / `:error` / `:cancelled`) discriminates the branch; the classified `:rf.http/*` failure map rides verbatim under `:error`, and its inner `:kind` names the closed-set failure category (one canonical envelope, no `{:kind :success/:failure}` reshape; per [§Reply payload shape](../../../spec/014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope)). The closed failure categories and their tags:
 
 | `:kind` | When | Tags |
 |---|---|---|
