@@ -118,7 +118,7 @@
   ;; shapes. `mount.cljs/ensure-xray-frame!` does the same.
   (let [buffer     (trace-collector/buffer-for-test)
         cascades   (into [] (remove self-noise/xray-internal-cascade?)
-                         (projection/group-cascades buffer))
+                         (projection/group-by-event buffer))
         seed-frame (or (spine/focusable-head-frame-id cascades)
                        defaults/default-target-frame)]
     (rf/with-frame :rf/xray

@@ -95,7 +95,7 @@
   `show-ungrouped?` defaults to false (the user-facing default)."
   ([events] (visible-l2-rows events false))
   ([events show-ungrouped?]
-   (->> (projection/group-cascades events)
+   (->> (projection/group-by-event events)
         (remove self-noise/xray-internal-cascade?)
         (filterv #(shell/l2-cascade-visible? % show-ungrouped?)))))
 
@@ -163,7 +163,7 @@
     (let [events (into [{:id 49 :op-type :rf.frame :operation :rf.frame/created
                          :tags {:frame frame-below}}] ; NO :dispatch-id (avvwm)
                        (counter-inc-trace-events))
-          all    (projection/group-cascades events)
+          all    (projection/group-by-event events)
           rows   (visible-l2-rows events)]
       (is (= 2 (count all))
           "two groups: the :ungrouped frame-lifecycle bucket + the cascade")

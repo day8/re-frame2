@@ -3,7 +3,7 @@
   impl).
 
   Three deliverables in one suite:
-    1. Per-frame ring: cascade-bundle reads, `:flat` opt, eviction by
+    1. Per-frame ring: event-bundle reads, `:flat` opt, eviction by
        cascade, filter vocab, configure knob, clear, elision.
     2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
     3. `:origin` / `:source` opts ride trace events. Per rf2-1ve9h
@@ -33,9 +33,9 @@
   (trace/clear-listeners!)
   (trace-tooling/clear-trace-rings!)
   (trace/clear-frame-no-emit!)
-  ;; Restore default cascades-retained between tests so a depth-tweaking
+  ;; Restore default events-retained between tests so a depth-tweaking
   ;; test does not bleed configuration into the next.
-  (rf/configure! {:trace-buffer {:cascades-retained 50}})
+  (rf/configure! {:trace-buffer {:events-retained 50}})
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
@@ -94,7 +94,7 @@
 
 (deftest cascade-keyed-eviction
   (testing "ring evicts by CASCADE slot, not by raw event count"
-    (rf/configure! {:trace-buffer {:cascades-retained 3}})
+    (rf/configure! {:trace-buffer {:events-retained 3}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:ping]))
     (let [cascades (rf/trace-buffer :rf/default)]
@@ -103,7 +103,7 @@
 
 (deftest cascade-burst-cannot-evict-prior-cascades
   (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"
-    (rf/configure! {:trace-buffer {:cascades-retained 5}})
+    (rf/configure! {:trace-buffer {:events-retained 5}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     ;; Run 5 cascades; emit a small burst of synthetic events under
     ;; cascade #3 (simulating a sub-skip flood inside one event).
@@ -133,7 +133,7 @@
 
 (deftest frame-isolation-cascade-bursts-dont-cross-rings
   (testing "a burst of cascades in one frame cannot evict cascades in another"
-    (rf/configure! {:trace-buffer {:cascades-retained 3}})
+    (rf/configure! {:trace-buffer {:events-retained 3}})
     (rf/reg-frame :app/main {:doc "ordinary application frame"})
     (rf/reg-event :work (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:work] {:frame :app/main})
@@ -174,12 +174,12 @@
     (is (empty? (rf/trace-buffer :rf/default))
         "registration didn't grow any ring")))
 
-;; ---- 1e. cascades-retained knob ------------------------------------------
+;; ---- 1e. events-retained knob ------------------------------------------
 
-(deftest per-frame-cascades-retained-override
-  (testing ":rf.trace/cascades-retained on reg-frame applies per-frame"
-    (rf/configure! {:trace-buffer {:cascades-retained 5}})
-    (rf/reg-frame :tb/deep {:rf.trace/cascades-retained 200
+(deftest per-frame-events-retained-override
+  (testing ":rf.trace/events-retained on reg-frame applies per-frame"
+    (rf/configure! {:trace-buffer {:events-retained 5}})
+    (rf/reg-frame :tb/deep {:rf.trace/events-retained 200
                             :doc "deep diagnostics"})
     (rf/reg-frame :tb/shallow {:doc "shallow — default applies"})
     (rf/reg-event :tb/spam (fn [{:keys [db]} _] {:db db}))
@@ -190,9 +190,9 @@
     (is (= 5 (count (rf/trace-buffer :tb/shallow)))
         ":tb/shallow capped at 5 (inherited the process-default of 5)")))
 
-(deftest cascades-retained-zero-disables-retention
-  (testing "{:cascades-retained 0} disables the ring; surface stays live"
-    (rf/configure! {:trace-buffer {:cascades-retained 0}})
+(deftest events-retained-zero-disables-retention
+  (testing "{:events-retained 0} disables the ring; surface stays live"
+    (rf/configure! {:trace-buffer {:events-retained 0}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 5] (rf/dispatch-sync [:ping]))
     (is (= [] (rf/trace-buffer :rf/default))
@@ -203,7 +203,7 @@
       (rf/dispatch-sync [:ping])
       (rf/unregister-listener! :trace ::probe)
       (is (seq @recv)
-          "live stream continues firing under cascades-retained 0"))))
+          "live stream continues firing under events-retained 0"))))
 
 ;; ---- 1e-bis. Re-configuring the process default retunes inherited rings ---
 ;; (rf2-va65k finding 1)
@@ -213,13 +213,13 @@
     ;; The frame's ring is allocated (it emitted cascades) and inherits
     ;; the process default — no per-frame override. Lowering the default
     ;; afterwards must retune + trim it. The pre-fix bug: every allocated
-    ;; ring stores :cascades-retained, so the inherited/override guard was
+    ;; ring stores :events-retained, so the inherited/override guard was
     ;; always true and configure! silently skipped this ring.
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:ping]))
     (is (= 10 (count (rf/trace-buffer :rf/default)))
         ":rf/default retained all 10 cascades at the default cap")
-    (rf/configure! {:trace-buffer {:cascades-retained 1}})
+    (rf/configure! {:trace-buffer {:events-retained 1}})
     (is (<= (count (rf/trace-buffer :rf/default)) 1)
         "lowering the default trimmed the already-used inherited ring")
     ;; A subsequent emit also respects the lowered cap.
@@ -229,10 +229,10 @@
 
 (deftest configure-retunes-inherited-but-preserves-override
   (testing "a re-configured default retunes inherited frames; explicit overrides survive"
-    (rf/configure! {:trace-buffer {:cascades-retained 50}})
+    (rf/configure! {:trace-buffer {:events-retained 50}})
     ;; :tb/inherit takes the process default; :tb/pinned pins its own cap.
     (rf/reg-frame :tb/inherit {:doc "inherits the default"})
-    (rf/reg-frame :tb/pinned  {:rf.trace/cascades-retained 8
+    (rf/reg-frame :tb/pinned  {:rf.trace/events-retained 8
                                :doc "explicit per-frame override"})
     (rf/reg-event :spam (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
@@ -241,7 +241,7 @@
     (is (= 8  (count (rf/trace-buffer :tb/pinned)))
         ":tb/pinned capped at its own override (8)")
     ;; Lower the process default: inherited frame is retuned, override is not.
-    (rf/configure! {:trace-buffer {:cascades-retained 2}})
+    (rf/configure! {:trace-buffer {:events-retained 2}})
     (is (<= (count (rf/trace-buffer :tb/inherit)) 2)
         "inherited frame trimmed to the new default")
     (is (= 8 (count (rf/trace-buffer :tb/pinned)))
@@ -250,11 +250,11 @@
 (deftest configure-zero-disables-inherited-ring-only
   (testing "configure! 0 disables inherited rings but leaves overrides alone"
     (rf/reg-frame :tb/inherit {:doc "inherits"})
-    (rf/reg-frame :tb/pinned  {:rf.trace/cascades-retained 4 :doc "override"})
+    (rf/reg-frame :tb/pinned  {:rf.trace/events-retained 4 :doc "override"})
     (rf/reg-event :spam (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
     (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/pinned}))
-    (rf/configure! {:trace-buffer {:cascades-retained 0}})
+    (rf/configure! {:trace-buffer {:events-retained 0}})
     (is (= [] (rf/trace-buffer :tb/inherit))
         "inherited ring disabled by the new 0 default")
     (is (= 4 (count (rf/trace-buffer :tb/pinned)))
@@ -265,11 +265,11 @@
 
 (deftest per-frame-override-before-first-emit-does-not-crash
   (testing "reg-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
-    ;; Pre-fix: set-frame-cascades-retained! wrote a partial
-    ;; {:cascades-retained N} map (no :cascade-order). push-to-ring!
+    ;; Pre-fix: set-frame-events-retained! wrote a partial
+    ;; {:events-retained N} map (no :cascade-order). push-to-ring!
     ;; started :cascade-order from nil → conj built a PersistentList →
     ;; subvec threw ClassCastException once the cap was exceeded.
-    (rf/reg-frame :tb/early {:rf.trace/cascades-retained 3
+    (rf/reg-frame :tb/early {:rf.trace/events-retained 3
                              :doc "cap registered before first emit"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
     ;; Four dispatches: the fourth pushes past the cap of 3.
@@ -287,7 +287,7 @@
 
 (deftest per-frame-override-zero-before-first-emit-disables-cleanly
   (testing "a 0 per-frame override before first emit disables the ring without crashing"
-    (rf/reg-frame :tb/silent {:rf.trace/cascades-retained 0 :doc "disabled"})
+    (rf/reg-frame :tb/silent {:rf.trace/events-retained 0 :doc "disabled"})
     (rf/reg-event :tb/ev (fn [{:keys [db]} _] {:db db}))
     (is (nil? (dotimes [_ 5] (rf/dispatch-sync [:tb/ev] {:frame :tb/silent})))
         "dispatches against a 0-cap override frame do not throw")
@@ -464,7 +464,7 @@
         target-id (:dispatch-id (first cs))
         narrowed  (rf/trace-buffer :rf/default {:dispatch-id target-id})]
     (is (= 1 (count narrowed))
-        ":dispatch-id narrows cascade-bundle reads to one cascade")
+        ":dispatch-id narrows event-bundle reads to one cascade")
     (is (= target-id (:dispatch-id (first narrowed))))))
 
 (deftest trace-buffer-cascade-filter-origin

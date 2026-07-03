@@ -65,7 +65,7 @@
             returns nil silently — apps that boot with a
             configure-trace-buffer call do not crash under :advanced,
             but the requested depth has no effect."
-    (is (nil? (trace-tooling/configure-trace-buffer! {:cascades-retained 256}))
+    (is (nil? (trace-tooling/configure-trace-buffer! {:events-retained 256}))
         "configure-trace-buffer! returns nil consistently under prod")
     ;; Subsequent dispatches still do not push to the buffer.
     (rf/reg-event :prod-bus/touch (fn [{:keys [db]} _] {:db db}))
@@ -99,5 +99,5 @@
             that boot via `(re-frame.core/configure! {:trace-buffer ...})`
             do not crash under :advanced; the requested config is
             silently dropped."
-    (is (nil? (rf/configure! {:trace-buffer {:cascades-retained 64}}))
+    (is (nil? (rf/configure! {:trace-buffer {:events-retained 64}}))
         "configure :trace-buffer returns nil under prod")))

@@ -1061,10 +1061,10 @@
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-g1b2m"
     :description "Frame-destroy ring cleanup. `re-frame.frame/destroy-frame!` invokes this once the destroyed-trace has fired so the destroyed frame leaves no residual ring state in memory."}
-   {:key         :trace.tooling/set-frame-cascades-retained!
+   {:key         :trace.tooling/set-frame-events-retained!
     :producer-ns 're-frame.trace.tooling
     :design-bead "rf2-g1b2m"
-    :description "Apply a per-frame `:rf.trace/cascades-retained` override. `re-frame.frame/reg-frame` invokes this when the config carries the key; raises / lowers the ring's slot cap, trimming evictions in-place when lowering."}
+    :description "Apply a per-frame `:rf.trace/events-retained` override. `re-frame.frame/reg-frame` invokes this when the config carries the key; raises / lowers the ring's slot cap (one slot per event / pipeline run), trimming evictions in-place when lowering."}
    {:key         :frame/current-frame-id
     :producer-ns 're-frame.frame
     :design-bead "rf2-g1b2m"
