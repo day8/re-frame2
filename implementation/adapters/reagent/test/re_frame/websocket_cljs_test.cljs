@@ -132,17 +132,19 @@
   (rf/reg-machine :ws/connection ws.connection/connection-machine)
   (subs/reg-runtime-sub :ws/snapshot (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :ws/connection])))
   (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
-  (rf/reg-sub :ws/connecting?    :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connecting)))
-  (rf/reg-sub :ws/authenticating? :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/authenticating)))
-  (rf/reg-sub :ws/connected?     :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connected)))
-  (rf/reg-sub :ws/reconnecting?  :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))
-  (rf/reg-sub :ws/failed?        :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/failed)))
+  ;; The per-tag subs mirror the example: each chains off the framework
+  ;; `:rf/machine-has-tag?` sub rather than re-reading the snapshot's :tags.
+  (rf/reg-sub :ws/connecting?     :<- [:rf/machine-has-tag? :ws/connection :websocket/connecting]     (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/authenticating? :<- [:rf/machine-has-tag? :ws/connection :websocket/authenticating] (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/connected?      :<- [:rf/machine-has-tag? :ws/connection :websocket/connected]      (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/reconnecting?   :<- [:rf/machine-has-tag? :ws/connection :websocket/reconnecting]   (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/failed?         :<- [:rf/machine-has-tag? :ws/connection :websocket/failed]         (fn [has-tag? _] has-tag?))
   (rf/reg-sub :ws/queue-depth    :<- [:ws/snapshot] (fn [snap _] (count (get-in snap [:data :queue]))))
   (rf/reg-sub :ws/retries        :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :retries])))
   (rf/reg-sub :ws/error          :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :error])))
   (rf/reg-event :ws.connection/initialise
     (fn handler-ws-connection-initialise [_ _]
-      {:fx [[:dispatch [:ws/connection [:ws/noop]]]]}))
+      {:fx [[:dispatch [:ws/connection [:rf.machine/start]]]]}))
 
   ;; --- websocket.messages -------------------------------------------------
   (rf/reg-machine :websocket/socket messages/socket-actor-machine)
@@ -233,6 +235,13 @@
 (defn- snapshot [runtime-db]
   (get-in runtime-db [:rf.runtime/machines :snapshots :ws/connection]))
 
+;; The live socket-actor id now lives in the framework-maintained
+;; `:rf/spawned` slot on the parent's own :data, keyed by the :spawn-bearing
+;; state's path (`[:active]`) — the rf2-yh21ah rewrite dropped the bespoke
+;; `:socket-id` :data field. Mirrors `websocket.connection/socket-id`.
+(defn- socket-id-of [snap]
+  (get-in snap [:data :rf/spawned [:active]]))
+
 (defn- machine-has-tag?
   "Read the machine's :tags union against a frame's runtime-db (machine
   snapshots are runtime-db state — rf2-vzld77)."
@@ -263,7 +272,7 @@
 
 (defn- initial-state-test []
   (with-new-frame [f (new-frame)]
-    (rf/dispatch-sync [:ws/connection [:ws/noop]] {:frame f})
+    (rf/dispatch-sync [:ws/connection [:rf.machine/start]] {:frame f})
     (let [s (snapshot (rf/runtime-db-value f))]
       (is (= :disconnected (:state s))
           (str "expected :disconnected got " (pr-str (:state s))))
@@ -271,7 +280,8 @@
       (is (= {} (get-in s [:data :in-flight])))
       (is (= #{} (get-in s [:data :subscriptions])))
       (is (= 0 (get-in s [:data :retries])))
-      (is (nil? (get-in s [:data :socket-id]))))))
+      ;; No socket spawned yet, so the :rf/spawned slot has no [:active] entry.
+      (is (nil? (socket-id-of s))))))
 
 (defn- connect-happy-path-test []
   (with-sync-mock!
@@ -290,7 +300,7 @@
           (is (false? (machine-has-tag? f :websocket/reconnecting)))
           (is (false? (machine-has-tag? f :websocket/failed)))
           (is (= 0    (get-in s [:data :retries])))
-          (is (some?  (get-in s [:data :socket-id])))
+          (is (some?  (socket-id-of s)))
           ;; URL + token were recorded in :data — they survive across
           ;; reconnects.
           (is (= "ws://mock" (get-in s [:data :url])))
@@ -336,7 +346,7 @@
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (let [pre-snap   (snapshot (rf/runtime-db-value f))
-              pre-socket (get-in pre-snap [:data :socket-id])]
+              pre-socket (socket-id-of pre-snap)]
           (is (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
           ;; (with the source-socket-id) into the actor, which forwards
@@ -348,8 +358,10 @@
                 (str "expected :reconnecting got " (:state s)))
             (is (true?  (machine-has-tag? f :websocket/reconnecting)))
             (is (false? (machine-has-tag? f :websocket/connected)))
-            ;; :exit on :active cleared the stale socket-id.
-            (is (nil?   (get-in s [:data :socket-id])))
+            ;; Leaving :active tore the socket actor down; the runtime
+            ;; cleared its id from the :rf/spawned slot for us — no :exit
+            ;; null-out needed. So the connection clock reads nil.
+            (is (nil?   (socket-id-of s)))
             ;; :bump-retry ran.
             (is (= 1 (get-in s [:data :retries]))))
           ;; Fire the :after timer to re-enter :active. The :after key
@@ -388,8 +400,9 @@
             ;; staleness test.
             (when (= [:active :connected] (:state s))
               (is (true? (machine-has-tag? f :websocket/connected)))
-              ;; A NEW socket-id is in :data (different from pre-socket).
-              (is (not= pre-socket (get-in s [:data :socket-id]))
+              ;; A NEW socket id is in the :rf/spawned slot (a fresh actor,
+              ;; so a different id from pre-socket).
+              (is (not= pre-socket (socket-id-of s))
                   "reconnect spawned a fresh socket"))))))))
 
 (defn- max-retries-failed-test []
@@ -422,7 +435,7 @@
         ;; and immediately into :failed via :always-cascade.
         (let [snap-before (snapshot (rf/runtime-db-value f))]
           (rf/dispatch-sync [:ws/connection
-                             [:ws/closed {:source-socket-id (get-in snap-before [:data :socket-id])
+                             [:ws/closed {:source-socket-id (socket-id-of snap-before)
                                           :code 1006}]]
                             {:frame f}))
         (let [s (snapshot (rf/runtime-db-value f))]
@@ -439,8 +452,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [live-socket-id (get-in (snapshot (rf/runtime-db-value f))
-                                     [:data :socket-id])
+        (let [live-socket-id (socket-id-of (snapshot (rf/runtime-db-value f)))
               stale-id       (str "stale-" (random-uuid))]
           ;; A :ws/received event with a stale source-socket-id is
           ;; dropped by :current-socket?. The :messages slice doesn't
@@ -500,7 +512,7 @@
           (is (false? (machine-has-tag? f :websocket/connected)))
           (is (false? (machine-has-tag? f :websocket/reconnecting)))
           (is (false? (machine-has-tag? f :websocket/failed)))
-          (is (nil? (get-in s [:data :socket-id]))))))))
+          (is (nil? (socket-id-of s))))))))
 
 ;; ============================================================================
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS

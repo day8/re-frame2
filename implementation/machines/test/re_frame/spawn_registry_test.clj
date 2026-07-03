@@ -118,6 +118,107 @@
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "the empty :spawned slot under [:rf.runtime/machines] is pruned to absent")))))
 
+;; ---- (2b) ADVERSARIAL: the parent's own :rf/spawned DATA slot is cleared ---
+;; on teardown too, so the in-snapshot data slot (mechanism 1 — XState-context
+;; parity) mirrors the runtime registry EXACTLY (Spec 005:2938). This is the
+;; stale-id footgun the rf2-yh21ah Option-A cleanup closes: BEFORE the fix, an
+;; action reading `[:data :rf/spawned <invoke-id>]` AFTER the child completed
+;; got a DEAD id (the data slot outlived the actor). AFTER the fix, the read
+;; returns nil — the actor is gone AND its capture is gone, together.
+
+(deftest destroy-clears-parent-data-rf-spawned-slot-no-dead-id
+  (testing "an action reading [:data :rf/spawned <invoke-id>] AFTER exit-cascade teardown sees NO dead id"
+    (let [;; The child sits LIVE in :running until the PARENT leaves :working —
+          ;; the declarative-:spawn exit cascade then tears it down
+          ;; (teardown-live-actor! → teardown-actor with parent-id/invoke-id).
+          child  {:initial :running
+                  :data    {}
+                  :states  {:running {}}}
+          ;; The parent's :inspect action reads its OWN :data under
+          ;; [:rf/spawned <invoke-id>] — the no-atom, in-snapshot idiom — and
+          ;; stashes whatever it finds so the test can assert the
+          ;; post-teardown read returns nil, not a stale id.
+          seen   (atom :unset)
+          parent {:initial :idle
+                  :actions
+                  {:inspect (fn [{data :data}]
+                              (reset! seen (get-in data [:rf/spawned [:working]]))
+                              nil)}
+                  :states
+                  ;; :done leaves :working → the exit cascade destroys the
+                  ;; child; :probe (fired from :idle AFTER) runs :inspect, which
+                  ;; reads the parent's own :data :rf/spawned slot post-teardown.
+                  {:idle    {:on {:start :working
+                                  :probe {:target :idle :action :inspect}}}
+                   :working {:spawn {:machine-id :kid/proc}
+                             :on    {:done :idle}}}}]
+      (rf/reg-machine :kid/proc child)
+      (rf/reg-machine :sup/data-clear parent)
+      (rf/dispatch-sync [:sup/data-clear [:start]])
+      ;; Precondition: the child is LIVE and the parent captured its id in
+      ;; BOTH the runtime registry AND its own :data slot (the two mirror).
+      (let [db (frame-db)]
+        (is (= :kid/proc#1 (get-in db [:rf.runtime/machines :spawned :sup/data-clear [:working]]))
+            "(precondition) registry slot bound")
+        (is (= :kid/proc#1 (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
+            "(precondition) parent :data slot bound — the two mirror on spawn")
+        (is (some? (get-in db [:rf.runtime/machines :snapshots :kid/proc#1]))
+            "(precondition) the child actor is alive"))
+      ;; Leave :working → the exit cascade tears the child down.
+      (rf/dispatch-sync [:sup/data-clear [:done]])
+      (let [db (frame-db)]
+        (is (nil? (get-in db [:rf.runtime/machines :snapshots :kid/proc#1]))
+            "the child actor's snapshot was cleared on exit-cascade teardown")
+        ;; THE ADVERSARIAL ASSERTION: the parent's own :data :rf/spawned slot
+        ;; for this invoke-id was ALSO cleared — no dead id lingers.
+        (is (nil? (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
+            "parent's :data :rf/spawned slot cleared on child teardown — NO dead id (footgun gone)")
+        ;; The now-empty :rf/spawned data map is pruned (lazy-allocation mirror):
+        ;; a parent that spawned exactly one child leaves NO {:rf/spawned {}}
+        ;; residue in its :data after the child dies.
+        (is (not (contains? (:data (snapshot :sup/data-clear)) :rf/spawned))
+            "the emptied :rf/spawned data map is pruned from the parent's :data")
+        ;; The two views still MIRROR each other post-teardown: both absent.
+        (is (= (get-in db [:rf.runtime/machines :spawned :sup/data-clear [:working]])
+               (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
+            "registry slot and :data slot still mirror exactly after teardown — both absent"))
+      ;; An action reading its own :data AFTER teardown sees nil, not a dead id
+      ;; — the reader's-eye-view of the same invariant.
+      (rf/dispatch-sync [:sup/data-clear [:probe]])
+      (is (nil? @seen)
+          "an action reading [:data :rf/spawned <invoke-id>] after teardown sees nil, not a stale id"))))
+
+(deftest finalize-auto-destroy-clears-parent-data-rf-spawned-slot
+  (testing "a child self-completing to :final? auto-destroys AND clears the parent's :data :rf/spawned slot"
+    (let [;; The child drives straight to a :final? state on its :start, so the
+          ;; runtime auto-destroys it via the finalize path (NOT the parent's
+          ;; exit cascade) — the OTHER teardown route through teardown-actor.
+          child  {:initial :running
+                  :data    {}
+                  :states  {:running {:on {:go :done}}
+                            :done    {:final? true}}}
+          parent {:initial :idle
+                  :states  {:idle    {:on {:start :working}}
+                            :working {:spawn {:machine-id :fin/kid
+                                              :start      [:go]}
+                                      :on    {:next :working}}}}]
+      (rf/reg-machine :fin/kid child)
+      (rf/reg-machine :sup/finalize parent)
+      ;; The child self-completes DURING this dispatch (its :start [:go] reaches
+      ;; :done/:final? synchronously), so by the time it returns the child is
+      ;; already auto-destroyed. We assert the parent's :data slot is clean.
+      (rf/dispatch-sync [:sup/finalize [:start]])
+      (let [db (frame-db)]
+        (is (nil? (get-in db [:rf.runtime/machines :snapshots :fin/kid#1]))
+            "(precondition) the child auto-destroyed on reaching its :final? state")
+        ;; ADVERSARIAL: the finalize auto-destroy path ALSO clears the parent's
+        ;; own :data :rf/spawned capture — no dead id survives the finalize.
+        (is (nil? (get-in (snapshot :sup/finalize) [:data :rf/spawned [:working]]))
+            "parent's :data :rf/spawned slot cleared on finalize auto-destroy — NO dead id")
+        (is (= (get-in db [:rf.runtime/machines :spawned :sup/finalize [:working]])
+               (get-in (snapshot :sup/finalize) [:data :rf/spawned [:working]]))
+            "registry slot and :data slot mirror exactly after finalize — both absent")))))
+
 ;; ---- (3) auth-flow scenario WITHOUT user-side :on-spawn bookkeeping -------
 ;;
 ;; A :spawn whose user-supplied :on-spawn doesn't write the id under any
@@ -276,8 +377,8 @@
       (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :worker/proc#1]))
           "the actor was torn down via an id read from the parent's own :data — no external atom involved"))))
 
-(deftest multi-spawn-parent-data-no-clobber
-  (testing "multiple :spawn-bearing states + a :spawn-all each record under their own invoke-id key — no lossy clobber"
+(deftest multi-spawn-parent-data-per-invoke-id-key
+  (testing "multiple :spawn-bearing states + a :spawn-all each record under their own invoke-id key — keyed-map shape, cleared on exit"
     (let [child-a {:initial :running :data {} :states {:running {}}}
           child-b {:initial :running :data {} :states {:running {}}}
           gc-x    {:initial :running :data {} :states {:running {}}}
@@ -310,22 +411,31 @@
       (let [d (:data (snapshot :sup/many))]
         (is (= :child/a#1 (get-in d [:rf/spawned [:a-running]]))
             "A's id recorded under its own invoke-id key"))
-      ;; Tear A, spawn B — distinct invoke-id, A's slot does not collide.
+      ;; Tear A (leaving :a-running exits the :spawn-bearing state), spawn B.
       (rf/dispatch-sync [:sup/many [:back]])
       (rf/dispatch-sync [:sup/many [:fork-b]])
       (let [d (:data (snapshot :sup/many))]
         (is (= :child/b#1 (get-in d [:rf/spawned [:b-running]]))
-            "B's id recorded under its own distinct invoke-id key — no clobber")
-        ;; A's earlier binding is still present in the :data map (the parent
-        ;; never clears its own :data captures — they accumulate per invoke-id,
-        ;; which is exactly why a single 'last-spawned' slot would be lossy).
-        (is (= :child/a#1 (get-in d [:rf/spawned [:a-running]]))
-            "A's earlier :data binding survived the B spawn — keyed-map shape is non-lossy"))
+            "B's id recorded under its own distinct invoke-id key — no collision with A's key")
+        ;; A's earlier binding was CLEARED when A was torn down on :a-running
+        ;; exit — the :data slot mirrors the runtime registry exactly
+        ;; (rf2-yh21ah Option A), so no dead id lingers. The keyed-map shape
+        ;; is what keeps B's live capture and A's absence INDEPENDENT (a single
+        ;; 'last-spawned' slot would have been overwritten, not cleared).
+        (is (nil? (get-in d [:rf/spawned [:a-running]]))
+            "A's :data binding cleared on A's teardown — mirrors the registry, no dead id")
+        (is (= :child/b#1 (get-in (frame-db) [:rf.runtime/machines :spawned :sup/many [:b-running]]))
+            "B's registry slot is bound; A's registry slot is gone — data mirrors registry")
+        (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/many [:a-running]]))
+            "A's registry slot cleared too — both views agree A is gone"))
       ;; :spawn-all records the WHOLE {<child-id> <spawned-id>} map under the
       ;; one shared invoke-id — both children, no clobber under the single key.
+      ;; Leaving :b-running first tears B down (clearing B's :data slot).
       (rf/dispatch-sync [:sup/many [:back]])
       (rf/dispatch-sync [:sup/many [:fork-all]])
       (let [d (:data (snapshot :sup/many))]
+        (is (nil? (get-in d [:rf/spawned [:b-running]]))
+            "B's :data binding cleared on B's teardown — clear-on-exit holds for :spawn-all's siblings too")
         (is (= {:x :gc/x#1 :y :gc/y#1} (get-in d [:rf/spawned [:forking]]))
             ":spawn-all records the full children id-map under the shared invoke-id — both children, no clobber")))))
 
