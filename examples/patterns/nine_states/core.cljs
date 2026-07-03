@@ -428,8 +428,10 @@
 (rf/reg-event :nine-states.demo/load-failed
   {:doc "The fetch fell over. Pass the failure category along to the
          machine, which routes the :data region to :error."}
-  (fn handler-demo-load-failed [_ [_ {:keys [failure]}]]
-    {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure failure}]]]]}))
+  ;; rf2-ibksxg — the classified :rf.http/* failure map rides under :error on
+  ;; the canonical reply; we forward it as the machine's own :failure domain slot.
+  (fn handler-demo-load-failed [_ [_ {:keys [error]}]]
+    {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure error}]]]]}))
 
 ;; ---- form-slice events ----
 

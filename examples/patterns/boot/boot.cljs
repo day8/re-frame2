@@ -173,17 +173,21 @@
      :on    {:asset/replied
              ;; A guarded fork on the reply kind — first branch whose
              ;; `:guard` passes wins, success before failure. The runtime
-             ;; tacks the reply payload onto the end of the event vector,
-             ;; so it arrives as
-             ;; [:asset/replied :success {:kind :success :value ...}]
-             ;; and we read the value out of the 3rd slot.
+             ;; tacks the canonical reply envelope onto the end of the event
+             ;; vector, so it arrives as
+             ;; [:asset/replied :success {:status :ok :value ... …}]
+             ;; and we read the value out of the 3rd slot. (The `:success` /
+             ;; `:failure` tag in slot 1 is the loader's OWN wiring from
+             ;; `:on-success [self-id [:asset/replied :success]]`, not the
+             ;; reply's status.)
              [{:guard (fn [{ev :event}] (= :success (nth ev 1 nil)))
                :target :done
                :action (fn [{data :data [_ _ reply] :event}]
                          {:data (assoc data :payload (:value reply))})}
               {:target :failed
+               ;; rf2-ibksxg — the classified failure map rides under :error.
                :action (fn [{data :data [_ _ reply] :event}]
-                         {:data (assoc data :error (:failure reply))})}]}}
+                         {:data (assoc data :error (:error reply))})}]}}
 
     :done   {:entry :dispatch-done   :meta {:terminal? true}}
     :failed {:entry :dispatch-error  :meta {:terminal? true}}}})

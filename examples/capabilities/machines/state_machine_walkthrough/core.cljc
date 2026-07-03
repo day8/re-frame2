@@ -87,10 +87,11 @@
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
 
     :record-error
-    (fn [{data :data [_ {:keys [failure]}] :event}]
+    ;; rf2-ibksxg — the classified failure map rides under :error.
+    (fn [{data :data [_ {:keys [error]}] :event}]
       {:data (-> data
                  (update :attempts inc)
-                 (assoc :error (or (:message failure) "Login failed.")))})
+                 (assoc :error (or (:message error) "Login failed.")))})
 
     :lock-account
     (fn [_]
