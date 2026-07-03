@@ -893,18 +893,41 @@
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
           "no-such-route shares the 404 :not-found mapping with no-such-handler"))
+    (testing ":rf.error/cofx-value-invalid → 400 :bad-request
+              UNCONDITIONALLY (rf2-57ehvw — a bad client-supplied request
+              coeffect is client input, never a server-fault 500)"
+      (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/cofx-value-invalid
+                :tags      {:reason :non-edn-recordable-value}}))
+          "a non-recordable request coeffect (the category that REPLACED the
+           retired :rf.error/schema-validation-failure :where :cofx shape) is
+           a client-facing 400 — the regression this bead fixes was that it
+           projected 500")
+      (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
+             (ssr/default-error-projector-fn
+               {:operation :rf.error/cofx-value-invalid}))
+          "the 400 arm is UNCONDITIONAL — it does not depend on a :where tag
+           (unlike schema-validation-failure); the dispatch boundary is the
+           client-input surface by construction"))
     (testing ":rf.error/schema-validation-failure with a CLIENT-surface
-              :where (:event / :cofx) → 400 :bad-request (rf2-37o5by)"
+              :where (:event) → 400 :bad-request (rf2-37o5by)"
       (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
              (ssr/default-error-projector-fn
                {:operation :rf.error/schema-validation-failure
                 :tags      {:where :event}}))
-          "an inbound-event payload failure is client-facing → 400")
-      (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
+          "an inbound-event payload failure is client-facing → 400"))
+    (testing ":rf.error/schema-validation-failure with the RETIRED :where
+              :cofx → 500 (rf2-57ehvw — the injection-time cofx-validation
+              path was retired; a bad request coeffect now rides its own
+              :rf.error/cofx-value-invalid category, so this stale shape is no
+              longer a client 400)"
+      (is (= ssr/fallback-public-error
              (ssr/default-error-projector-fn
                {:operation :rf.error/schema-validation-failure
                 :tags      {:where :cofx}}))
-          "a request-cofx failure is client-facing → 400"))
+          "the retired :where :cofx shape falls through to the locked
+           generic-500 — the live client-cofx 400 is :rf.error/cofx-value-invalid"))
     (testing ":rf.error/schema-validation-failure with a SERVER-surface
               :where (:fx-args) → 500 (rf2-37o5by — gated 400 arm)"
       (is (= ssr/fallback-public-error
