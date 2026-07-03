@@ -97,7 +97,7 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
     (is (= :app/home @(rf/subscribe [:rf.route/id])))))
 ```
 
-Dispatch `:rf.route/cancel` instead and the pending slot clears with the slice unmoved — one more test, same shape. A `{:bypass-leave-guard? true}` navigate opt skips the park entirely; if a "save then leave" button relies on it, pin that too.
+Dispatch `:rf.route/cancel` instead and the pending slot clears with the slice unmoved — one more test, same shape. A `{:bypass-guards? #{:leave}}` navigate opt skips the park entirely; if a "save then leave" button relies on it, pin that too. The `:can-enter` mirror tests the same way — a guarded target, a signed-out sub, assert the pending slot fills with `:direction :enter`, then flip the sub and `:rf.route/continue` (which re-runs `:can-enter`).
 
 ## What lives elsewhere
 
