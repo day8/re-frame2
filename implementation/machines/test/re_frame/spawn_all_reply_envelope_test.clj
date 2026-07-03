@@ -128,9 +128,9 @@
               "the decisive child completion classified as :ok")
           (is (= :completed (:rf.reply/work-status (:tags done))))
           (is (= :machine (:work/kind (:tags done))))
-          (is (some? (:work/id (:tags done)))
+          (is (some? (:rf.reply/work-id (:tags done)))
               "the decisive child's canonical :work/id rides the resolution trace")
-          (is (= (first (:work/id (:tags done))) :rf.work/machine)))))))
+          (is (= (first (:rf.reply/work-id (:tags done))) :rf.work/machine)))))))
 
 (deftest any-failed-trace-carries-decisive-child-reply
   (testing "rf2-d63qtp — the :any-failed resolution trace carries the
@@ -165,7 +165,7 @@
           (is (= :error (:rf.reply/status (:tags failed)))
               "the decisive failing child classified as :error")
           (is (= :failed (:rf.reply/work-status (:tags failed))))
-          (is (some? (:work/id (:tags failed)))))))))
+          (is (some? (:rf.reply/work-id (:tags failed)))))))))
 
 ;; ---- integration: late completion carries a stale reply ----------------
 
@@ -212,5 +212,5 @@
           (is (= :suppressed (:rf.reply/work-status (:tags late))))
           (is (= :rf.machine.spawn-all/join-resolved
                  (:rf.reply/stale-reason (:tags late))))
-          (is (some? (:work/id (:tags late)))
+          (is (some? (:rf.reply/work-id (:tags late)))
               "the suppressed late completion carries the canonical :work/id"))))))

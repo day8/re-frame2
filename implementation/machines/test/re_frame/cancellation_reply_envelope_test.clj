@@ -58,9 +58,9 @@
           (is (true? (:rf.reply/cancelled? (:tags cancelled))))
           (is (= :on-exit (:rf.reply/cancel-reason (:tags cancelled))))
           (is (= :timer (:work/kind (:tags cancelled))))
-          (is (some? (:work/id (:tags cancelled)))
+          (is (some? (:rf.reply/work-id (:tags cancelled)))
               "canonical timer :work/id closes the cancelled work attempt")
-          (is (= :rf.work/timer (first (:work/id (:tags cancelled))))))))))
+          (is (= :rf.work/timer (first (:rf.reply/work-id (:tags cancelled))))))))))
 
 ;; ---- actor destroy (explicit cancellation) -----------------------------
 
@@ -93,7 +93,7 @@
           (is (true? (:rf.reply/cancelled? (:tags destroyed))))
           (is (= :explicit (:rf.reply/cancel-reason (:tags destroyed))))
           (is (= :machine (:work/kind (:tags destroyed))))
-          (is (some? (:work/id (:tags destroyed)))
+          (is (some? (:rf.reply/work-id (:tags destroyed)))
               "canonical machine :work/id closes the cancelled actor attempt"))))))
 
 (deftest finished-destroy-carries-no-cancelled-reply
@@ -178,5 +178,5 @@
           (is (= :cancelled (:rf.reply/work-status (:tags cancel))))
           (is (= :on-join-resolution (:rf.reply/cancel-reason (:tags cancel))))
           (is (= :machine (:work/kind (:tags cancel))))
-          (is (some? (:work/id (:tags cancel)))
+          (is (some? (:rf.reply/work-id (:tags cancel)))
               "canonical :work/id closes the survivor's cancelled attempt"))))))

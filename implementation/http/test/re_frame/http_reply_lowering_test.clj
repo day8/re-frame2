@@ -527,7 +527,7 @@
             (is (not= (:work/id (:rf.reply/carried tags))
                       (:work/id (:rf.reply/current tags))))
             ;; The canonical join key reads the carried (superseded) work-id.
-            (is (= [:rf.work/http :search 1 1] (:work/id tags)))))
+            (is (= [:rf.work/http :search 1 1] (:rf.reply/work-id tags)))))
         (finally
           (trace/unregister-listener! lid)
           (stop-server! srv))))))
