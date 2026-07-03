@@ -65,7 +65,7 @@ surfaces; their meaning is locked:
 |---|---|
 | `settled-boundary` | The author-facing settlement contract for `[:dispatch event-vector]`. In `:headless` it is the existing `dispatch-sync` run-to-fixed-point drain, renamed/projected rather than reimplemented; richer runners add adapter-supplied reactive/DOM/React flushes with a declared bound. Runners return `:cannot-run` when they cannot satisfy the required boundary. |
 | `canonicalize` | The single canonical projection operation for determinism, semantic diff, snapshot identity, `:plan-hash`, `:run-hash`, golden-slice comparison, and inline-plan-to-registered-variant equivalence. It lives in a fingerprinting namespace, not `re-frame.story.canonical` (the canonical-vocabulary installer), and folds the existing `re-frame.story.identity` `canonical-form` / `content-hash` / `snapshot-tuple` path into one primitive. |
-| `golden slice` | A deferred curated regression artifact. P1 ships canonicalization and the narrative projection first; once the hash/projection corpus is proven, P1.5 MAY store a canonicalized epoch/run slice as `:golden` and compare `canonicalize(new) == :golden`. |
+| `golden slice` | A curated regression artifact — the P1.5 surface, now **landed**. P1 shipped canonicalization and the narrative projection first; on that proven hash/projection corpus, a curated run may be frozen as a `:rf.test/golden` slice (the `canonicalize`d behavioural surface) and a later run asserted to `canonicalize` `=` to it. See [§Golden slices](#golden-slices). |
 | `three verbs` | The public execution surface is `(story/run target opts)`, `(story/is target opts)`, and `(story/explain target)`, where a keyword target means a registered variant and a map target means an inline plan. `run-variant` / `is-variant` / `run-plan` / `is-plan` are implementation/migration vocabulary, not the P1 public surface. |
 
 ## Public vocabulary
@@ -1863,7 +1863,8 @@ of the `runner-kinds`) → `{:mode :fixed :runner <kind>}`. The default is
 fixed `:headless`. An unrecognised `:runner` not in `runner-kinds` (e.g.
 `:gpu`) falls back to the fixed `:headless` policy — an unknown tier never
 silently escalates. `:frame-binding` and `:platform` carry through
-untouched so the (deferred) three-verb surface and the MCP transport thread
+untouched so the three-verb surface (`run` / `is` / `explain`, shipped as
+the P1 public execution API — §three verbs) and the MCP transport thread
 the SAME normalization.
 
 ## Run result
@@ -2031,8 +2032,10 @@ The flattened sequence **agrees with the tape by construction**: every
 committed epoch appears exactly once, in tape order, regardless of how the
 spans group them — none invented, none dropped. The scrub UI (the slider /
 keyboard navigation that calls `restore-epoch` per `beat-epoch-ids`) lives
-ABOVE this boundary and is deferred; only the navigation projection ships
-in P1.
+ABOVE this boundary; only the navigation projection ships in P1. The UI
+itself is owned by its North-Star spec —
+[`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md)
+§3 (Evidence spine — display) — not by this substrate spec.
 
 **The agreement floor.** `(story/tape-shows-failure? epoch-tape
 consumed-selectors)` is the consistency invariant: a run MUST NOT be

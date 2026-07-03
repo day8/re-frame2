@@ -151,7 +151,11 @@ before they meet the token contracts.
   with its own stdio + JSON-RPC machinery. Story's runtime exposes the
   *data* the MCP server reads; the MCP server is not loaded by app
   code. See [`006-MCP-Surface.md`](006-MCP-Surface.md).
-- **A static-site generator.** Deferred to v2.
+- **A static-site generator.** Shipped as build-time static export —
+  `story:build` (rf2-8wgpm) compiles the playground to a deployable
+  static HTML directory. See
+  [`013-Static-Build.md`](013-Static-Build.md). (Per-story HTML files —
+  the SEO / link-preview `--docs`-equivalent — remain a v2 follow-up.)
 - **A pixel-scrubbing UI.** BackstopJS-style before-after slider is
   out of scope; the epoch scrubber inside Xray's embedded panel is
   the equivalent in re-frame2's data-space.
