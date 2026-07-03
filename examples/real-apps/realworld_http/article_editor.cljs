@@ -269,8 +269,8 @@
        :fx [[:dispatch [:ui/article-editor [:fetch-succeeded]]]]})))
 
 (rf/reg-event :editor/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
      :fx [[:dispatch [:ui/article-editor [:fetch-failed]]]]}))
 
 (rf/reg-event :editor/edit-field
@@ -351,8 +351,8 @@
             [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})))
 
 (rf/reg-event :editor/submit-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
      :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))
 
 (rf/reg-event :editor/delete
@@ -379,8 +379,8 @@
           [:dispatch [:rf.route/navigate :realworld/home]]]}))
 
 (rf/reg-event :editor/delete-error
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
      :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))
 
 ;; ============================================================================

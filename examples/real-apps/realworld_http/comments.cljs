@@ -98,18 +98,18 @@
   (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply hat — the answer's back. Success or failure?
-      (case (:kind reply)
-        :success
+      (case (:status reply)
+        :ok
         {:db (-> db
                  (assoc-in [:article :status] :loaded)
                  (assoc-in [:article :data] (:article (:value reply)))
                  (assoc-in [:article :error] nil)
                  (assoc-in [:article :loaded-at] time-ms))}
 
-        :failure
+        :error
         {:db (-> db
                  (assoc-in [:article :status] :error)
-                 (assoc-in [:article :error] (rh/failure->message (:failure reply))))})
+                 (assoc-in [:article :error] (rh/failure->message (:error reply))))})
 
       ;; Request hat — first time through, fire the managed request. With no
       ;; explicit handlers, default reply addressing brings the answer right
@@ -164,10 +164,10 @@
              (assoc-in [:comments :loaded-at] time-ms))}))
 
 (rf/reg-event :comments/load-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
+  (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (-> db
         (assoc-in [:comments :status] :error)
-        (assoc-in [:comments :error] (rh/failure->message failure)))}))
+        (assoc-in [:comments :error] (rh/failure->message error)))}))
 
 ;; ============================================================================
 ;; COMMENT FORM
@@ -247,14 +247,14 @@
                              (or comments []))))))}))
 
 (rf/reg-event :comment-form/submit-error
-  (fn [{:keys [db]} [_ temp-id {:keys [failure]}]]
+  (fn [{:keys [db]} [_ temp-id {:keys [error]}]]
     {:db (-> db
         (update-in [:comments :data]
                    (fn [comments]
                      (vec (remove #(= temp-id (:id %)) comments))))
         (assoc-in [:comment-form :status] :idle)
         (assoc-in [:comment-form :submit-error]
-                  (rh/failure->message failure)))}))
+                  (rh/failure->message error)))}))
 
 (rf/reg-event :comment/delete
   {:doc "Whisk a comment off the screen first, then send the DELETE. If the
@@ -370,8 +370,8 @@
     {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
 
 (rf/reg-event :article/delete-failed
-  (fn [{:keys [db]} [_ {:keys [failure]}]]
-    {:db (assoc-in db [:article :error] (rh/failure->message failure))}))
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc-in db [:article :error] (rh/failure->message error))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
