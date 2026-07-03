@@ -26,7 +26,7 @@ Story matches or exceeds Storybook on 28 of 33 capability axes audited.
 Five genuine capability gaps remain:
 
 - **[C-1] No global decorator** (preview.ts equivalent) — also F-1, P2.
-- **[C-2] No first-party MDX / rich-prose rendering** — currently `pre-wrap` plain text; P3 (deliberate punt today, but tutorial-class docs need a path).
+- **[C-2] First-party rich-prose rendering** — ~~currently `pre-wrap` plain text~~ **RESOLVED (rf2-wl7yr):** prose renders as markdown (CommonMark subset, no MDX/JSX) via `re-frame.story.ui.markdown/parse`; see [`008-Docs-Mode.md`](008-Docs-Mode.md) §Markdown rendering.
 - **[C-3] No loader-teardown hook** — also F-3, P2.
 - **[C-4] No per-story-rollup docs page** ("Component.docs" equivalent) — variants get docs, parent stories do not; P3.
 - **[C-5] No "Args as a named first-class concept" branding** — the args primitive is more powerful than Storybook's, but it is undermarketed; P3 docs gap.
@@ -114,7 +114,7 @@ by the prior pass; this manifest captures the gap-only summary.
 | 20 | a11y addon (axe-core) | `:rf.story.panel/a11y` + `:rf.story.panel/chrome-a11y` | matches+ | — | — | — | Variant-author panel + chrome dogfood panel; opt-in consent per rf2-20w5i |
 | 21 | Source code panel | `:source` slot + "Open in editor" chip | matches | — | — | — | URI-scheme handler; vscode/cursor/idea/custom |
 | 22 | Docs mode (AutoDocs) | `:docs` mode tab + autodocs pane | matches | — | — | — | Six-section pane: header / prose / args / decorators / parameters / tags |
-| 22b | MDX rich prose rendering | **MISSING** (deferred — `pre-wrap` plain text) | gap-S | capability/insight | S-M | **P3** | **[C-2]** — see brief below |
+| 22b | MDX rich prose rendering | **LANDED (rf2-wl7yr)** — markdown (CommonMark subset, no MDX/JSX) via `re-frame.story.ui.markdown/parse`; see 008 §Markdown rendering | closed | capability/insight | S-M | **P3** | **[C-2]** — see brief below (resolved) |
 | 22c | Component-level docs rollup (`Component.docs`) | **MISSING** (per-variant only at v1) | gap-S | capability | S | **P3** | **[C-4]** — see brief below; spec/008 names this as v2 |
 | 23 | Composition (`refs` / multi-host) | **MISSING** (v2 roadmap) | divergent-by-design | — | — | — | `005-SOTA-Features.md` §v2 ship list — registrar handles local cross-lib for free; remote federation is v2 |
 | 24 | Test runner (`@storybook/test-runner`) | `(run-variant id)` + `cljs.test` adapter | **WIN** | — | — | — | One primitive returns full result map; `serve-and-run-story-play-scripts.cjs` CI runner |
@@ -178,10 +178,14 @@ into Story's EDN-first contract. The Doc-Blocks-equivalent (canvas /
 source / args-table) is straight-forward — those are already separate
 Reagent components in the chrome.
 
-**Status:** **NEW gap, not in prior tutorial-walk findings.** File as
-follow-on bead. Spec/008 already names "v2 may add" — but workspaces
-+ docs panes are increasingly load-bearing as the tutorial ladder
-grows, so this is worth re-evaluating sooner.
+**Status:** **RESOLVED / LANDED (rf2-wl7yr).** The docs pane no longer
+renders `pre-wrap` plain text: prose bodies now render as **markdown**
+via `re-frame.story.ui.markdown/parse` (a CommonMark subset — headings,
+paragraphs, emphasis, inline + fenced code, lists, links — no MDX / JSX
+layer, keeping the EDN-first contract). See
+[`008-Docs-Mode.md`](008-Docs-Mode.md) §Markdown rendering. The
+Doc-Blocks-equivalent canvas / source / args-table components remain the
+separate chrome surfaces they already were.
 
 ### [C-3] No loader-teardown hook (P2, M)
 
@@ -384,7 +388,7 @@ decision is which subset to action.
 
 | Candidate | Source | Scope | Notes |
 |---|---|---|---|
-| **C-2** — MDX / rich-prose rendering | **THIS AUDIT (new)** | S-M | Re-evaluate the `pre-wrap` deferral; ship a `:rf.story.panel/markdown-prose` first-party panel |
+| **C-2** — MDX / rich-prose rendering | **LANDED (rf2-wl7yr)** | S-M | ~~Re-evaluate the `pre-wrap` deferral~~ — shipped: markdown (CommonMark subset, no MDX/JSX) via `re-frame.story.ui.markdown/parse`; see 008 §Markdown rendering |
 | **C-4** — Per-story-rollup docs page | **THIS AUDIT (new)** | S | Promote v2 → v1.1; chrome projection only |
 | **C-5** — "Args" headline branding | **THIS AUDIT (new)** | S (doc) | Doc reorg; pair with F-5 |
 | **D-1** — `init`-style scaffolder one-liner | **THIS AUDIT (new)** | S | Wrap `tools/template/`; one-command boot |
@@ -392,7 +396,7 @@ decision is which subset to action.
 | **I-1 / F-4** — Stateful variants doc subsection | prior finding | S (doc) | `rf2-NEW-4` filed |
 | **I-2 / F-5** — Schema-derived controls headline | prior finding | S (doc) | `rf2-NEW-5` filed |
 | **F-7** — `:fx-override` last-wins asymmetry doc | prior finding | S (doc) | `rf2-NEW-7` filed |
-| **F-8** — Tutorial-Embed.md / share+embed recipe | prior finding | S (doc) | `rf2-NEW-8` filed (file already exists; content TBD) |
+| **F-8** — Tutorial-Embed.md / share+embed recipe | prior finding | S (doc) | ~~content TBD~~ — `Tutorial-Embed.md` is now a substantive recipe (318 lines: share-URL + `?embed=1` embed-mode walkthrough) |
 | **F-10** — `:play` vs `:play-script` canonical decision | prior finding | — | **RESOLVED** via rf2-0wrud / commit 3f5ae2512 (2026-05-20): `:play` removed entirely; `:play-script` is the only canonical slot. Tutorial set should use `:play-script` everywhere |
 
 ### P4 candidates (naming / ergonomic nits)

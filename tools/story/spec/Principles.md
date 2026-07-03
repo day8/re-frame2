@@ -172,7 +172,9 @@ surface gaps follow the same pattern.
 Per the
 [`feedback_no_core_async`](../../../AGENTS.md) directive: Story does
 not pull `core.async` as a dependency or use it as a building block.
-The async return-shape for `run-variant` is either a CLJS Promise or
-a `manifold.deferred` (Stage 3 picks). Loaders use re-frame's
-existing drain machinery — `dispatch-sync` plus the
+The async return-shape for `run-variant` is a native `js/Promise` on
+CLJS and a `java.util.concurrent.CompletableFuture` on the JVM
+(manifold was considered and dropped — both are host-native, so no
+extra dependency), abstracted behind `re-frame.story.async`. Loaders
+use re-frame's existing drain machinery — `dispatch-sync` plus the
 `:loaders-complete-when` predicate — not channels.

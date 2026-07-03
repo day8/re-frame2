@@ -902,7 +902,7 @@ phase-2 SOTA adds that are cheap.
 |---|---|
 | Live performance ribbon (FPS, INP, long tasks, CLS, memory, Reagent profiling) | Stage 6 (deferred) |
 | Design-token panel (conditional on upstream token emission) | Stage 6 (deferred) |
-| MCP write surface (`register-variant`, `unregister-variant`) | Stage 7 (deferred) |
+| MCP write surface (`register-variant`, `unregister-variant`) | shipped — gated in `story-mcp` behind `:rf.story-mcp/allow-writes?` (closed by default); contract in [`../../story-mcp/spec/003-Write-Surface-Gating.md`](../../story-mcp/spec/003-Write-Surface-Gating.md) |
 | "Open in editor" per variant (rf2-evgf5) | shipped — Stage 6 + Stage 8 |
 | Per-variant autodocs panel polish | Stage 6 (deferred) |
 | Sidebar tag-as-badge affordance on variant rows (rf2-nwiwr) | shipped — Stage 4 polish; normative contract in [`014-Chrome-Features.md`](014-Chrome-Features.md) §Sidebar tag-as-badge affordance |
@@ -913,12 +913,17 @@ phase-2 SOTA adds that are cheap.
 |---|---|
 | Subscription topology visualiser (using `sub-topology`) | Phase 1 Tier 3 |
 | Per-substrate variant filtering (deep substrate-divergence audit) | Phase 1 Tier 3 |
-| Static export (render the whole story tool to a static site) | Phase 1 Tier 3 |
 | Custom story panels by third parties (the v1 panels exhaust the v1 set) | Phase 1 Tier 3 |
 | Remote Storybook federation (multi-host composition) | Phase 1 §2.2 |
 | App-db snapshot diff (data-space visual regression) | Phase 2 §5.2 #7 |
 | oEmbed URLs for Notion / static-doc inlining | Phase 2 §5.2 #6 (deferred) |
 | BackstopJS-style pixel scrubber UI | Phase 2 §2.1 (out of scope; data-space scrubber via Xray suffices) |
+
+> **Pulled forward to v1:** static export ("render the whole story tool
+> to a static site", formerly a Phase 1 Tier 3 v2 item) shipped in v1 as
+> `story:build` (rf2-8wgpm) — see [`013-Static-Build.md`](013-Static-Build.md).
+> The v2 remnant is the per-story-HTML `--docs`-equivalent (SEO /
+> link-preview), which 013 keeps out of the v1 SPA scope.
 
 ## What we deliberately don't ship
 

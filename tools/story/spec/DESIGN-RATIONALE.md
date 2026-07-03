@@ -529,10 +529,11 @@ These were named in the original IMPL-SPEC §13.2 as deliberate
 punts. They live closer to the implementation; future implementer
 choices are auditable here.
 
-1. **Async-result shape for `run-variant`.** Promise vs.
-   `manifold.deferred` — Stage 3 picks based on how
-   `:loaders-complete-when` interacts with re-frame's synchronous
-   drain.
+1. **Async-result shape for `run-variant`.** ~~Promise vs.
+   `manifold.deferred`~~ — **PICKED + LOCKED:** native `js/Promise`
+   on CLJS, `java.util.concurrent.CompletableFuture` on the JVM
+   (manifold dropped — no extra dependency), abstracted behind
+   `re-frame.story.async`. See `002-Runtime.md` §Programmatic API.
 
 2. **Mode × Variant × Substrate snapshot-identity matrix.** Three
    options: nested hash (substrate is leaf); composite key

@@ -330,7 +330,7 @@ A path-filter that runs Playwright only when:
 - `testbeds/ssr_*/**` or `implementation/ssr/**` touched (SSR impact)
 - `tools/xray/spine/**` or `tools/story/render-shell/**` touched (chrome impact)
 
-Otherwise skip. This is the rf2-k9ekz sister bead — solve once the migration lands.
+Otherwise skip. This was the rf2-k9ekz sister bead — **now landed** (CLOSED, PR #1688: the Story/Causa browser Playwright trigger was tightened to fire only on `tools/{story,causa}/src/**` + the framework-testbeds split).
 
 **Screenshot-baseline subset?** Not warranted yet. The palette-drift gate (rf2-z7ms8) already deterministically catches token/color regressions. A pixel-baseline subset adds Argos/Chromatic egress + flakiness risk for marginal coverage. Defer until a chrome regression slips through palette-drift in practice.
 
@@ -342,6 +342,23 @@ Otherwise skip. This is the rf2-k9ekz sister bead — solve once the migration l
 
 ## §Open questions
 
-1. **`performance_cljs_test.cljs` coverage parity?** Wave 4 hinges on whether the existing perf-suite already exercises all 4 buckets (`:rf:event:*` / `:rf:sub:*` / `:rf:fx:*` / `:rf:render:*`). If yes, perf_counter/spec.cjs drops entirely. If no, the spec stays as the only User-Timing-API-in-real-browser observable. **Mike to call.**
-2. **`subscribe-once` against an explicit frame-id from a CLJS test under e2e_multi_frame** — the ssr_multi_frame Phase 3 contract (`summary-*-hash`) needs cross-frame `subscribe-once` from one frame's render context. Verify the e2e_multi_frame helpers expose this. If not, ssr_multi_frame migration needs a small helper add first.
-3. **Wave ordering vs. epic-deadline pressure** — proposal is six Wave 1 beads parallel-first. If Mike wants single-bundle dispatch instead, Wave 1 can collapse to one bead (6 spec.cjs deletes + 5-6 CLJS test files), but worker-bundle timeouts (per MEMORY split-bundles-over-4-beads feedback) argue for the parallel split.
+> **RESOLVED BY EXECUTION.** The migration has landed — the residual
+> `spec.cjs` surface is now exactly the three adapter smokes
+> (`implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs`) plus
+> the cross-cutting framework testbed (`testbeds/tenant_switcher/spec.cjs`);
+> the bulk of the (A)-class assertions moved to CLJS unit tests. The
+> questions below are retained for provenance with their resolutions
+> inline.
+
+1. ~~**`performance_cljs_test.cljs` coverage parity?**~~ **RESOLVED —
+   perf_counter dropped.** There is no `perf_counter` testbed or
+   `spec.cjs` in the tree; the perf surface is covered in CLJS. The
+   User-Timing-API-in-real-browser observable did not need a dedicated
+   Playwright spec.
+2. **`subscribe-once` against an explicit frame-id from a CLJS test under
+   e2e_multi_frame** — resolved through the ssr_multi_frame migration
+   landing; the cross-frame `subscribe-once` contract is exercised from
+   CLJS. (Retained here only as the historical premise of that wave.)
+3. ~~**Wave ordering vs. epic-deadline pressure**~~ **RESOLVED — the waves
+   executed.** Migration completed; the residual browser surface is the
+   four `spec.cjs` files above.

@@ -725,11 +725,15 @@ baselines.
    (phase 4).
 5. Tear down or persist per opts.
 
-`run-variant` returns synchronously when no loaders are present and
-all fx in `:events` are synchronous; otherwise returns a promise-like
-object the host can await. The exact async return-shape is Stage 3's
-call; candidates: a Promise (CLJS), or a manifold.deferred (CLJ-side
-bridge if needed). Stage 3 picks one and locks it.
+`run-variant` returns a promise-like object the host can await (it may
+resolve synchronously when no loaders are present and all fx in
+`:events` are synchronous). The async return-shape is **locked**: a
+native `js/Promise` on CLJS, and a `java.util.concurrent.CompletableFuture`
+on the JVM (manifold was considered and dropped — the two host runtimes
+already expose these, so no extra dependency is pulled). The two flavours
+are abstracted behind `re-frame.story.async` (`promise` / `resolved` /
+`rejected` / `then` / `catch*` / `promise?`); JVM callers block for
+tests / REPL via `deref-blocking`, CLJS callers chain with `then` / await.
 
 ```clojure
 (reset-variant variant-id)                       ; tear down + re-run :loaders + :events
@@ -795,9 +799,11 @@ These were named in the original IMPL-SPEC §13.2 as deliberate punts;
 they remain Stage 3 / Stage 5 calls and are documented here for
 auditability.
 
-- **Async-result shape for `run-variant`.** Promise vs.
-  `manifold.deferred`; Stage 3 picks based on how
-  `:loaders-complete-when` interacts with re-frame's synchronous drain.
+- **Async-result shape for `run-variant`.** ~~Promise vs.
+  `manifold.deferred`~~ — **PICKED + LOCKED:** native `js/Promise` on
+  CLJS, `java.util.concurrent.CompletableFuture` on the JVM (manifold
+  dropped — no extra dependency), abstracted behind
+  `re-frame.story.async`. See §Programmatic API above.
 - **Mode × Variant × Substrate snapshot-identity matrix.** Three
   options: nested hash (substrate is leaf); composite key
   (`[variant-id mode-id substrate]`); or substrate as a separate axis
