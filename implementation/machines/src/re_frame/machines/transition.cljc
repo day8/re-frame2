@@ -663,17 +663,14 @@
 
 (defn- node-tags
   "Return the `:tags` set declared on a state-node body, or `nil` if no
-  `:tags` slot is present. Non-set values (e.g. a vector or a single
-  keyword) coerce to a set so the union math doesn't care about the
-  literal form the author wrote — the schema constrains the canonical
-  form (`[:set :keyword]`); coercion here is defensive."
+  `:tags` slot is present. `:tags` is a strict `[:set :keyword]` — registration
+  (`validation/validate-tags!`) rejects any non-set value with
+  `:rf.error/machine-bad-tags`, so by the time the runtime reads a node here the
+  slot IS a set (or absent). No coercion: a vector / single keyword is a
+  registration error, not a silently-normalised alias (per the 2026-07-03
+  self-consistency review + naming rule 2)."
   [node]
-  (when-let [t (:tags node)]
-    (cond
-      (set? t)        t
-      (sequential? t) (set t)
-      (keyword? t)    #{t}
-      :else           nil)))
+  (:tags node))
 
 (defn compute-tags
   "Per Spec 005 §State tags: walk the active configuration for `state`
