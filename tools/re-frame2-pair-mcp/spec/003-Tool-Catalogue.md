@@ -2640,7 +2640,7 @@ filter wins). Don't do this — but the substrate doesn't refuse it.
 On the cascade-bundle topics (`:trace`, `:fx`, `:error`) every
 progress payload's `:cascades` slot is a vector of cascade bundles
 keyed by `:dispatch-id`. Each bundle matches the framework's
-`(rf/trace-buffer frame-id)` shape per [spec/009 §Cascade projection](../../../spec/009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket)
+`(rf/trace-buffer frame-id)` shape per [spec/009 §Cascade projection](../../../spec/009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket)
 and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in):
 
 ```clojure

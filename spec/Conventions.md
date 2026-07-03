@@ -542,7 +542,7 @@ For the user-facing API surface (signatures, status, cross-references) see [API.
 
 ## Event-pipeline vocabulary — the terms one event traverses
 
-> **Ruling (Mike, 2026-07-04).** This is the authoritative home for the **event-pipeline** vocabulary — the fixed stage sequence one event traverses, its write/read split at the commit seam, the world/frame pair, and the pipeline / run / epoch triple. Every Spec, doc, tool, and example spells these the same way; the mechanical contracts live in [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) (drain / dispatch vocabulary) and [009-Instrumentation §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket) (trace vocabulary). The retired **event cascade** / **the loop** / **six dominoes** framings are demoted (see the deprecation table below); they survive only as a first-contact mnemonic, never as formal terms.
+> **Ruling (Mike, 2026-07-04).** This is the authoritative home for the **event-pipeline** vocabulary — the fixed stage sequence one event traverses, its write/read split at the commit seam, the world/frame pair, and the pipeline / run / epoch triple. Every Spec, doc, tool, and example spells these the same way; the mechanical contracts live in [002-Frames §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) (drain / dispatch vocabulary) and [009-Instrumentation §Cascade projection](009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket) (trace vocabulary). The retired **event cascade** / **the loop** / **six dominoes** framings are demoted (see the deprecation table below); they survive only as a first-contact mnemonic, never as formal terms.
 
 ### The core terms
 
@@ -1672,5 +1672,5 @@ The convention applies wherever a port targets a host with the `goog.provide`-st
 - [Principles.md](Principles.md) — the discipline principles that motivate these conventions.
 - [001-Registration.md](001-Registration.md) — registration metadata-map shape; what each `reg-*` accepts.
 - [002-Frames.md §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics) — the drain / dispatch mechanics the [§Event-pipeline vocabulary](#event-pipeline-vocabulary--the-terms-one-event-traverses) names.
-- [009-Instrumentation.md §Cascade projection](009-Instrumentation.md#cascade-projection-group-cascades--domino-bucket) — the trace projection surface the [§`event-*` noun family](#the-event--noun-family-ruled-key-renames) renames.
+- [009-Instrumentation.md §Cascade projection](009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket) — the trace projection surface the [§`event-*` noun family](#the-event--noun-family-ruled-key-renames) renames.
 - [MIGRATION.md](../migration/from-re-frame-v1/README.md) — framework-keyword consolidation under `:rf/*` ([§M-20](../migration/from-re-frame-v1/README.md#m-20-framework-keyword-consolidation--rf-as-the-single-root-prefix)) and the Type-A vs Type-B migration classification.

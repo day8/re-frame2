@@ -837,8 +837,8 @@
   ["re-frame.core" "trace-buffer"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "clear-trace-buffer!"]   {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "clear-listeners!"]      {:tier :tooling :owner "009" :status "v1 (stream-parameterized; test-isolation)"}
-  ["re-frame.core" "group-cascades"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"}
-  ["re-frame.core" "group-cascades-with-events"] {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "group-by-event"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"}
+  ["re-frame.core" "group-by-event-with-events"] {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

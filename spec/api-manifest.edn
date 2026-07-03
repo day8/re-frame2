@@ -114,8 +114,8 @@
   {:namespace "re-frame.core", :var "frame-shadows", :tier :tooling, :kind :fn, :owner "002", :status "EP-0026", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-state-value", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-value->id", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "group-cascades", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "group-cascades-with-events", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "group-by-event", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "group-by-event-with-events", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "handler-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "handler-meta", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "head-model->html", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
