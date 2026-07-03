@@ -193,7 +193,16 @@ Does Xray support mobile / tablet / phone viewports?
 
 ### Pick
 
-**Desktop only.** Below 600px, Xray refuses to mount.
+**Desktop only** — no mobile / tablet / phone re-layout is built.
+
+> **Trimmed (rf2-f7748x, Mike ruled Option B 2026-07-03):** the
+> sub-900px full-width takeover and the sub-600px "refuses to mount"
+> guard described below were **never implemented** — there is no
+> `matchMedia` breakpoint or mount guard in the code. The desktop-only
+> stance is enforced simply by not building mobile support, not by an
+> active viewport guard. See [007-UX-IA.md §Layout](007-UX-IA.md) +
+> §Trimmed pending demand. The guard can return as a small feature bead
+> if a real narrow-viewport failure mode is observed.
 
 ### Why
 
@@ -206,8 +215,9 @@ Does Xray support mobile / tablet / phone viewports?
 - Mobile support adds significant UX surface (touch gestures,
   responsive layout, a separate compact density tier) for narrow
   benefit.
-- The 600px refusal is user-friendly: instead of cramping the panel,
-  Xray says "this is a desktop debugger" and gets out of the way.
+- A 600px refuse-to-mount message would be user-friendly if narrow
+  viewports were a real failure mode — but no such guard was built
+  (rf2-f7748x): the desktop-only decision holds without it.
 
 ### Date locked
 

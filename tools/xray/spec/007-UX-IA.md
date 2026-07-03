@@ -155,14 +155,13 @@ itself indicates LIVE / RETRO via the head-row pulse / pinned-row
 glyph; the dedicated Mode pill widget was dropped). Classification
 totals live in per-row + per-panel renderings.
 
-Below 1200px viewport: pop-out detaches if user opens it; chrome stays
-within the inline host.
-
-Below 900px viewport: Xray takes 100% of viewport width.
-
-Below 600px viewport (phones): **Xray refuses to mount** (per lock
-#5). The DOM root creates but the visible UI is a single message
-explaining desktop-only.
+The panel width is driven by the drag handle and the
+`--rf-xray-inline-width` host variable, clamped to `[320px, 90vw]`
+(§Resize affordance). There is **no responsive-viewport behaviour** —
+no small-viewport 100%-width takeover and no sub-900px mount guard.
+(See §Trimmed pending demand — the spec once described a 1200px pop-out
+detach, a sub-900px full-width takeover, and a sub-600px "refuses to
+mount" desktop-only guard; none shipped, so all three were trimmed.)
 
 ### Inline host CSS variables
 
@@ -264,7 +263,7 @@ width). Bindings:
 | `Enter` / `Space` | Reset to default (matches double-click) |
 
 Unrecognised keys bubble normally so the surrounding chrome's
-`Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
+`Ctrl+Shift+C` / `Esc` shortcuts remain reachable from the
 handle's focus position.
 
 ### Splitter affordance — the L2/L3 seam (rf2-t2dsh)
@@ -328,7 +327,7 @@ height). Bindings:
 | `Enter` / `Space` | Reset to default (matches double-click) |
 
 Unrecognised keys bubble normally — the surrounding chrome's
-`Ctrl+Shift+C` / `?` / `Esc` shortcuts remain reachable from the
+`Ctrl+Shift+C` / `Esc` shortcuts remain reachable from the
 handle's focus position.
 
 #### Rendering
@@ -382,7 +381,7 @@ the filter pills. The nav cluster moved UP to the chrome ribbon; the focus chip 
 | Cluster | Side | Content | Keys |
 |---|---|---|---|
 | **Label** | left | `↳ filters:` (muted) | — |
-| **Filter pills** | left | a `+` add-filter icon + active filter pills (each a removable `<key> ×` chip). Click any pill → edit popup; each pill's `✕` removes it. | `/` focus add-pill |
+| **Filter pills** | left | a `+` add-filter icon + active filter pills (each a removable `<key> ×` chip). Click any pill → edit popup; each pill's `✕` removes it. | — (mouse; the `/` focus-add-pill key was trimmed — see §Trimmed pending demand) |
 | **Hidden** | far right | `N events filtered out` count, only when N > 0. | — |
 
 Full anatomy + filter-pill edit popup in
@@ -529,7 +528,6 @@ functional semantic colours):
 | Issue tint / trailing `⚠` | the row's epoch carries an error/warning issue | a subtle row tint + small trailing marker (not a new column); navigates to Issues for that epoch |
 | `[● REDACTED N]` | event arg-map carries `:rf/redacted` | magenta trailing marker |
 | `[● ELIDED N]` | event arg-map carries `:rf.size/large-elided` | yellow trailing marker |
-| pin marker `↺` | pinned cascade | small trailing modifier on the row |
 
 These are right-anchored, subordinate to the four data columns — they reinforce, never replace,
 the table.
@@ -1184,73 +1182,51 @@ the rule now applies to the spine's head-row cue.
 
 ## Keyboard
 
-Every layer is keyboard-reachable. Chrome tab order: ribbon (L1) →
-event list (L2) → tab bar (L3) → detail panel (L4 — focus enters the
-active panel). `Esc` always returns focus to the event list.
+Every layer is keyboard-reachable via ordinary Tab focus order: ribbon
+(L1) → event list (L2) → tab bar (L3) → detail panel (L4 — focus enters
+the active panel).
 
-### Global shortcuts
+The shipped key set is deliberately **small** and lives in two scopes,
+matching the global keydown listener in
+`tools/xray/src/day8/re_frame2_xray/keybinding.cljs` (the code is the
+contract for this section — trim any spec drift back to it):
 
-| Key | Action |
-|---|---|
-| `Ctrl+Shift+C` | Toggle Xray visibility |
-| `Ctrl+Shift+M` / `Cmd+Shift+M` | Toggle Dynamic ↔ Static mode (`keybinding/mode-toggle-key?`, rf2-o5f5f.1) |
-| `?` | Keyboard cheat-sheet |
-| `,` or `s` | Settings popup |
-| `Esc` | Close modal / collapse popover / focus event list |
-| `Ctrl+K` / `Cmd-K` | Command palette |
-| `Ctrl+F` | Find within active tab |
-| `o` | Popout (`window.open` whole shell) |
+- **Global chords** fire anywhere on the page (capture-phase listener).
+- **Shell spine keys** are bare unmodified keys that fire **only** when
+  the Xray shell is visible AND the keydown target is inside the shell
+  DOM tree AND the target is not an editable element (`<input>` /
+  `<textarea>` / `<select>` / contenteditable) AND not inside a modal
+  (Settings / palette). Those guards keep the bare letters from
+  stealing keystrokes from the host app, from text fields, and from a
+  modal's own inner mnemonics (per spec/018 §3 + §6 and rf2-ttnst).
 
-### Ribbon nav cluster
+### Global chords
 
-| Key | Action |
-|---|---|
-| `j` | Back one event (= `◀`) |
-| `k` | Forward one event (= `▶`) |
-| `G` | Fast-forward to latest (= `⏭`, snap LIVE) |
-| `Space` | Pause/resume LIVE feed |
-| `L` | Snap to LIVE (jump to head) |
+| Key | Action | Predicate |
+|---|---|---|
+| `Ctrl+Shift+C` | Toggle Xray shell visibility (CSS display flip) | `keybinding/xray-toggle-key?` |
+| `Ctrl+Shift+M` / `Cmd+Shift+M` | Toggle Dynamic ↔ Static mode (rf2-o5f5f.1) | `keybinding/mode-toggle-key?` |
+| `Ctrl+K` / `Cmd+K` | Command palette (opens the shell first if hidden) | `keybinding/palette-toggle-key?` |
+| `Esc` | Dismiss the open-in-editor hint toast when it is open (rf2-wpvy6f). Every modal (Settings, command palette, filter edit-popup, …) closes on its own `Esc` handler, not this global listener. | `keybinding/escape-key?` |
 
-### Event list (L2)
+### Shell spine keys
 
-| Key | Action |
-|---|---|
-| `j` / `k` | Next / previous (alias of ribbon nav) |
-| `J` / `K` | Cascade-root skip |
-| `g g` / `G` | Top / bottom |
-| `Enter` | Activate (= click row) |
-| `[` / `]` | Previous / next (10x parity = `j`/`k`) |
-| `*` | Pin a cascade (session-scoped) |
-| `r` | Rewind to before this event (calls `restore-epoch`) |
-| `R` | Re-dispatch this event |
-| `o` | Open source in editor |
-| `/` | Focus filter add-pill |
-| `Ctrl+click` | Copy cascade-id |
+Bare, unmodified keys — only inside the visible shell, never on an
+editable or modal target (see the scope guards above). Per spec/018 §3
++ §6.
 
-### Tab bar (L3)
+| Key | Action | Event dispatched |
+|---|---|---|
+| `Space` | Pause / resume the LIVE feed | `:rf.xray/toggle-live-pause` |
+| `l` | Snap to LIVE (follow the head) | `:rf.xray/follow-head` |
+| `Shift+G` | Fast-forward to head ("go to head") | `:rf.xray/follow-head` |
+| `j` | Step back one event (cascade-prev) | `:rf.xray/focus-cascade-prev` |
+| `k` | Step forward one event (cascade-next) | `:rf.xray/focus-cascade-next` |
+| `,` or `s` | Toggle the Settings popup | `:rf.xray/settings-toggle` |
 
-| Key | Tab |
-|---|---|
-| `1` | Epoch |
-| `2` | App-db |
-| `3` | Views |
-| `4` | Trace |
-| `5` | Machines |
-| `6` | Routes |
-| `e` | Epoch (mnemonic) |
-| `a` | App-db (mnemonic) |
-| `v` | Views (mnemonic — incl. subs nested under each view) |
-| `t` | Trace (mnemonic) |
-| `m` | Machines (mnemonic) |
-| `r` | Routes (mnemonic) |
-| `Ctrl+→` / `Ctrl+←` | Next / previous tab |
-
-### Detail panel (L4)
-
-| Key | Action |
-|---|---|
-| `Tab` / `Shift+Tab` | Cycle focusables |
-| `Esc` | Return focus to event list |
+Everything else — tab switching, rewind, re-dispatch, filter focus — is
+a click or a **command-palette** verb (`Cmd/Ctrl+K` finds any action by
+name). There is deliberately no dedicated key for those actions in v1.
 
 ### Machines canvas (rf2-y3l8z)
 
@@ -1261,6 +1237,38 @@ click-drag, and the xyflow `<Controls>` buttons only. The earlier
 host) was pre-xyflow SVG-renderer fiction and did not survive the
 rf2-gpzb4 migration (rf2-oc0fwy audit). A keyboard zoom/pan surface
 would be a new feature, not a documented-existing one.
+
+### Trimmed pending demand (rf2-f7748x — the POST-FREEZE upgrade path)
+
+Earlier drafts of this section specified a much larger keyboard model
+than the shipped listener implements. Mike RULED Option B (2026-07-03):
+**trim the spec to the shipped set** rather than build out the rest.
+The drift itself was the defect — it surfaced from a docs review, not
+from any missing-key complaint, so the shipped set is evidently
+sufficient. The following keys were specified here (and some in the
+Settings key-catalogue) but were **never implemented** and have been
+removed:
+
+| Trimmed key | Was going to | Why unimplemented / removed |
+|---|---|---|
+| `e` `a` `v` `t` `m` `r` (tab mnemonics) | Jump to Epoch / app-db / Views / Trace / Machines / Routes tab | No handler in `keybinding.cljs`; tab-jump is a palette verb. |
+| `1`–`6` (tab numbers) | Jump to the Nth L3 tab | Never wired. |
+| `Ctrl+→` / `Ctrl+←` | Cycle to next / previous tab | Never wired. |
+| `r` | Rewind to before this event (`restore-epoch`) | Never wired as a key. |
+| `R` | Re-dispatch this event | Never wired; no implementation at all. |
+| `*` | Pin a cascade (session-scoped) | Dead — the pin store was removed per spec/014. |
+| `/` | Focus the filter add-pill | Never wired. |
+| `?` | Keyboard cheat-sheet modal | The cheat-sheet modal itself was never built. |
+| `o` | Popout / open source in editor | Never wired as a key. |
+| `Ctrl+F` | Find within the active tab | Never wired. |
+| `J` `K` / `g g` / `[` `]` | Cascade-root skip / top-bottom / 10× step | Never wired; superseded by the `j`/`k` spine pair. |
+| sub-900px viewport takeover · sub-600px "refuses to mount" guard | Responsive-viewport behaviour (§Layout) | No breakpoint / `matchMedia` mount guard in the code. |
+
+**This is the documented Option-C upgrade path.** Any trimmed key is a
+small **feature bead** away from returning — file one with actual
+demand behind it, implement the handler in `keybinding.cljs`, and add
+the row back here in the same PR. Pre-alpha posture (avoid
+over-engineering, no demand today) is why none is being built now.
 
 ### Retired keys (from pre-rewrite spec)
 
@@ -1564,14 +1572,14 @@ active `:rf.xray/mode`. Items missing `:modes` fall through to
 both modes (the legacy contract — every item used to be visible
 always).
 
-The L4 tab-jump items are mode-aware so the **same mnemonic
-letter** dispatches the active mode's tab. `m` in Dynamic jumps to
-the Machines instance-inspector; `m` in Static jumps to the
-Machines registry browse. The mnemonic chord — `e` (Events) · `m`
-(Machines) · `r` (Routes/Routing) · `c` (Schemas — Static only) ·
-`v` (Views) — works inside the palette and bare on the spine
-because both consult the active mode (see §Static mode for the
-mnemonics inventory).
+The L4 tab-jump items are mode-aware so the **same palette entry**
+dispatches the active mode's tab. Searching `machines` in the palette
+jumps to the Machines instance-inspector in Dynamic and to the Machines
+registry browse in Static, because the aggregator consults the active
+`:rf.xray/mode`. (The tab-jump verbs live only in the command palette —
+the bare-letter tab mnemonics `e`/`a`/`v`/`t`/`m`/`r` that earlier
+drafts also fired directly on the spine were trimmed; they are not
+wired in `keybinding.cljs`. See §Trimmed pending demand.)
 
 ### Command verbs (rf2-ybjkx)
 
@@ -1648,12 +1656,14 @@ to localStorage alongside the other Xray settings.
 
 ## Modal layers
 
-Three modal surfaces float over the chrome:
+Two modal surfaces float over the chrome:
 
 1. **Command palette** — 560px centred.
-2. **Keyboard cheat-sheet** (`?`) — 480px modal listing every
-   shortcut.
-3. **Settings** (`,` or `s` or `⚙`) — 560×640px modal with 6 sections.
+2. **Settings** (`,` or `s` or `⚙`) — 560×640px modal.
+
+(The `?` keyboard cheat-sheet modal was trimmed — it was specified but
+never built; the command palette is the discoverability surface. See
+§Trimmed pending demand.)
 
 ### Shared modal-chrome scaffold (rf2-7oxvd)
 
@@ -1689,13 +1699,14 @@ untouched.
 
 ## Discoverability
 
-Three layers, no onboarding tour:
+Two layers, no onboarding tour:
 
-1. **The `?` cheat-sheet.** Modal showing every shortcut.
-2. **Empty-state hints.** Each empty state shows a contextual keyboard
+1. **Empty-state hints.** Each empty state shows a contextual keyboard
    hint.
-3. **The command palette itself.** Typing `?` in the palette filters
-   to commands and shows their shortcuts.
+2. **The command palette (`Cmd/Ctrl+K`) itself.** Fuzzy-find any action
+   by name — the palette is the primary discoverability surface now
+   that the standalone `?` cheat-sheet modal is trimmed (§Trimmed
+   pending demand).
 
 ## Bundle splitting
 
