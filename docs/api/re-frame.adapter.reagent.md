@@ -26,14 +26,14 @@
   (rf/init! reagent-adapter/adapter)   ;; install the substrate once, at boot
   ```
 
-Reagent ships in two variants. The full adapter lives here; the slim adapter is a sibling artefact that drops React's server-rendering tax for browser-only bundles:
+Reagent ships in two variants. The full adapter lives here; the slim adapter is a sibling artefact that drops React's server-rendering tax for browser-only bundles. Both publish their adapter at the **same** canonical ns — `re-frame.adapter.reagent` — so the require and `init!` line are identical; what differs is the Maven coordinate you depend on:
 
-| Variant | Namespace | Includes | Use when |
-|---|---|---|---|
-| Full | `re-frame.adapter.reagent` | stock Reagent (`reagent.core`, `reagent.dom`, `reagent.dom.server`) | client apps that may also render to a string on the JVM |
-| Slim | `re-frame.adapter.reagent-slim` | Reagent without `reagent.dom.server` | browser-only bundles; drops ~30 KB by excluding `react-dom/server` |
+| Variant | Maven coordinate | Adapter ns (require) | Includes | Use when |
+|---|---|---|---|---|
+| Full | `day8/re-frame2-reagent` | `re-frame.adapter.reagent` | stock Reagent (`reagent.core`, `reagent.dom`, `reagent.dom.server`) | client apps that may also render to a string on the JVM |
+| Slim | `day8/reagent-slim` | `re-frame.adapter.reagent` (renamed from the in-tree `-slim` ns at publication) | Reagent without `reagent.dom.server` | browser-only bundles; drops ~30 KB by excluding `react-dom/server` |
 
-The two artefacts sit side by side; you choose between them by which `adapter` you pass to `init!`. The slim variant is bundle-isolated — a dedicated isolation gate verifies that stock Reagent / `react-dom/server` don't leak into builds that select it. The full migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+The two artefacts sit side by side; a build depends on exactly one of them, so the adapter ns is single-source per app and you select slim vs full through your `deps.edn` coordinate, not through the boot line. (In-repo `:git/sha` consumers require `re-frame.adapter.reagent-slim` directly, because the monorepo carries both adapters on one classpath — the publication step renames it to `re-frame.adapter.reagent` before packaging the jar.) The slim variant is bundle-isolated — a dedicated isolation gate verifies that stock Reagent / `react-dom/server` don't leak into builds that select it. The full migration (a four-line swap) is in [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
 
 ## Test helpers
 

@@ -44,15 +44,19 @@ That's it. To switch substrates, you change that one argument. Each adapter live
 (rf/init! helix-adapter/adapter)
 ```
 
-reagent-slim follows the same explicit shape — it ships its own adapter binding at `re-frame.adapter.reagent-slim`, and you name it at `init!` exactly like the others:
+reagent-slim follows the same explicit shape — but here the published artefact deliberately ships its adapter at the *canonical* `re-frame.adapter.reagent` ns, the very same require and `init!` line as stock Reagent. The `day8/reagent-slim` package renames its adapter namespace to `re-frame.adapter.reagent` at publication, so a consumer's boot line is identical whichever of the two Reagent coordinates they depend on:
 
 ```clojure
-;; reagent-slim
-(require '[re-frame.adapter.reagent-slim :as reagent-slim])
-(rf/init! reagent-slim/adapter)
+;; reagent-slim — the require and init! line are the SAME as stock Reagent
+(require '[re-frame.adapter.reagent :as reagent-adapter])
+(rf/init! reagent-adapter/adapter)
 ```
 
-What makes slim *feel* like stock Reagent isn't the boot line — it's that the view layer is the same Reagent you already write. The two real differences are downstream: you depend on `day8/reagent-slim` in your `deps.edn` instead of `day8/re-frame2-reagent`, and your `reagent.*` view imports become `reagent2.*` (we'll get to both at the end).
+That's the point: swapping stock Reagent for slim touches your `deps.edn` coordinate and your `reagent.*` view imports, but *not* your boot call. What makes slim *feel* like stock Reagent isn't just the view layer being the same Reagent you already write — it's that the adapter binding is literally the same one. The two real differences are downstream: you depend on `day8/reagent-slim` in your `deps.edn` instead of `day8/re-frame2-reagent`, and your `reagent.*` view imports become `reagent2.*` (we'll get to both at the end).
+
+!!! note "Building from the repo, not the published jar?"
+
+    In-tree the slim adapter lives at `re-frame.adapter.reagent-slim` — it has to, because the monorepo puts both it and the bridge adapter on one classpath and two namespaces can't share a name. The publication step (the `Rename adapter ns at publication` job in `.github/workflows/release.yml`) renames it to `re-frame.adapter.reagent` before packaging the jar. So a `:git/sha` consumer requires `re-frame.adapter.reagent-slim`, while a published-artefact consumer requires `re-frame.adapter.reagent`. Everything below assumes the published shape.
 
 There's deliberately no registry and no auto-install here, because the project holds boot to one rule: it must name its substrate in plain sight. Open any app's boot function and you can read its substrate straight off the page — no spelunking required. The framework enforces this strictly:
 
@@ -226,9 +230,9 @@ Slim isn't a fourth view paradigm — that trips people up, so let's be clear up
 - **Payoff:** roughly 7–10 KB gzipped off a typical app (25–33% of the Reagent layer), and up to ~22–27 KB for apps using Reagent's HTML-export path. These are analytical estimates pending build-measured validation. Runtime speed is marginally better at best, so go slim for kilobytes, not frame rate — it's a download-size lever, not a performance one.
 - **Constraints:** React 19 only. No `react-dom/server` — HTML export is handled by a small pure-CLJS serializer in `reagent2.dom.server` instead. The class-component escape hatch is capped to seven `create-class` keys (more than most apps ever touch).
 
-Mechanically it's a small swap: your app depends on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, you boot the matching adapter (`reagent-adapter/adapter` vs `reagent-slim/adapter`), and you change your `reagent.*` requires to `reagent2.*` (for example, `reagent2.dom.client` for `reagent.dom.client`). Slim deliberately ships a *distinct* adapter namespace — `re-frame.adapter.reagent-slim`, the sibling of stock's `re-frame.adapter.reagent` — so the two artefacts can sit side by side and you choose between them by which `adapter` you pass to `init!`. Concretely, the migration is four line-edits:
+Mechanically it's a small swap: your app depends on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, and you change your `reagent.*` requires to `reagent2.*` (for example, `reagent2.dom.client` for `reagent.dom.client`). The one thing that *doesn't* change is the adapter you boot: the published `day8/reagent-slim` artefact ships its adapter at the canonical `re-frame.adapter.reagent` ns, so `(require '[re-frame.adapter.reagent :as reagent-adapter])` and `(rf/init! reagent-adapter/adapter)` are identical on both coordinates. You pick slim vs stock entirely through your `deps.edn` coordinate, not through the boot line. Concretely, the migration is four line-edits:
 
-1. swap the deps coordinate to `day8/reagent-slim`, and point `init!` at `re-frame.adapter.reagent-slim`'s `adapter`;
+1. swap the deps coordinate to `day8/reagent-slim` (the `re-frame.adapter.reagent` require and `init!` line stay exactly as they were);
 2. `react` / `react-dom` to 19.x in `package.json`;
 3. `reagent.dom/render` → `reagent2.dom.client/{create-root, render}`;
 4. `reagent.dom/unmount-component-at-node` → `reagent2.dom.client/unmount`.
