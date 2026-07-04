@@ -67,13 +67,13 @@
 (defn stub-epoch-history [fid] (get-in fixture-frames [fid :epochs]))
 (defn stub-machines [] [:auth :session]) ;; global registrar surface
 (defn stub-trace-buffer
- "The framework's `trace-buffer` is per-frame and cascade-keyed; the
+ "The framework's `trace-buffer` is per-frame and event-keyed; the
  frame-id is the required first arg. The snapshot `:traces` slice ships
- cascade-bundles by default (the framework's storage unit), matching the
+ event bundles by default (the framework's storage unit), matching the
  streaming subscribe wire shape. This stub returns the fixture's `:traces`
  vector directly — the loosely-typed stub is shape-agnostic; the
  production snapshot slice calls `(trace-tooling/trace-buffer
- frame-id)` (zero-arg opts) for the cascade-bundle default."
+ frame-id)` (zero-arg opts) for the event-bundle default."
  ([frame-id] (stub-trace-buffer frame-id {}))
  ([frame-id _opts]
  (filter #(= frame-id (get-in % [:tags :frame]))
@@ -112,7 +112,7 @@
  {})}
  :epochs (vec (stub-epoch-history frame-id))
  ;; The trace ring is per-frame; the snapshot `:traces` slice ships
- ;; cascade-bundles by default (the framework's storage unit, matching
+ ;; event bundles by default (the framework's storage unit, matching
  ;; the streaming subscribe wire shape per Tool-Pair §Reading the
  ;; per-frame trace ring). Production runtime calls
  ;; `(trace-tooling/trace-buffer frame-id)` (zero-arg opts).

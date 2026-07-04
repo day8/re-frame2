@@ -2496,7 +2496,7 @@
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings:
-        ;; release the destroyed frame's cascade-keyed ring so no
+        ;; release the destroyed frame's event-keyed ring so no
         ;; residual trace events leak across the frame lifecycle. Fired
         ;; AFTER `:rf.frame/destroyed` emits so the destroyed trace
         ;; itself (which is frameless and bypasses the ring anyway)

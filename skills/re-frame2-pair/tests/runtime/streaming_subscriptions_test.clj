@@ -178,7 +178,7 @@
 
 (defn frameless-event?
  "Mirror of `runtime/frameless-event?` — true when the event
- carries no `:rf.trace/dispatch-id` tag. The cascade-bundle topics
+ carries no `:rf.trace/dispatch-id` tag. The event-bundle topics
  filter these out at the dispatch gate; the `:frameless` topic accepts
  only these."
  [ev]
@@ -410,7 +410,7 @@
  (dispatch-trace-to-subs! ev2)
  (dispatch-trace-to-subs! ev3))]
  ;; The drain returns `:queue` raw; the MCP-server layer projects
- ;; them into `:cascades` for cascade-bundle topics. The bb-runnable
+ ;; them into `:cascades` for event-bundle topics. The bb-runnable
  ;; mirror exposes the queue directly so
  ;; the contract under test is "what landed in the queue after
  ;; filtering" rather than the post-projection wire shape.
@@ -445,7 +445,7 @@
  ;; An :epoch sub should NOT be fed trace events; a :trace sub should
  ;; NOT be fed epoch records. Verifies the topic gating in the
  ;; dispatchers. The trace event carries a dispatch-id so it routes to
- ;; the cascade-bundle topic; a frameless event would route to
+ ;; the event-bundle topic; a frameless event would route to
  ;; `:frameless` instead.
  (let [subs (-> {}
  (subscribe! "epoch-sub" {:topic :epoch :filter {:event-id :cart/add}})
@@ -710,11 +710,11 @@
  "even a filter that *names* the sensitive event must not pull it through")))
 
 ;; ---------------------------------------------------------------------------
-;; Cascade-bundle topic routing
+;; Event-bundle topic routing
 ;; ---------------------------------------------------------------------------
 
-(deftest cascade-bundle-topics-reject-frameless-events
- ;; The cascade-bundle topics (`:trace`/`:fx`/`:error`) ONLY accept
+(deftest event-bundle-topics-reject-frameless-events
+ ;; The event-bundle topics (`:trace`/`:fx`/`:error`) ONLY accept
  ;; events with a `:rf.trace/dispatch-id` tag — frameless events
  ;; (registration emits, REPL evals) belong on the `:frameless` channel.
  (let [subs (-> {} (subscribe! "trace-sub" {:topic :trace}))
@@ -727,7 +727,7 @@
  subs (-> subs
  (dispatch-trace-to-subs! cascade-ev)
  (dispatch-trace-to-subs! frameless-ev))]
- (testing "the cascade-bundle event lands; the frameless event does not"
+ (testing "the event-bundle event lands; the frameless event does not"
  (is (= 1 (count (get-in subs ["trace-sub" :queue]))))
  (is (= cascade-ev (first (get-in subs ["trace-sub" :queue])))))))
 

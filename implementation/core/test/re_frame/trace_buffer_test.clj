@@ -1,16 +1,16 @@
 (ns re-frame.trace-buffer-test
-  "Per-frame cascade-keyed trace ring tests (rf2-g1b2m spec + rf2-8uwce
+  "Per-frame event-keyed trace ring tests (rf2-g1b2m spec + rf2-8uwce
   impl).
 
   Three deliverables in one suite:
     1. Per-frame ring: event-bundle reads, `:flat` opt, eviction by
-       cascade, filter vocab, configure knob, clear, elision.
+       event bundle, filter vocab, configure knob, clear, elision.
     2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
     3. `:origin` / `:source` opts ride trace events. Per rf2-1ve9h
        the prior parallel `:rf/dispatch-origin` axis was collapsed
        into `:source` — see `dispatch-source-*` deftests below.
 
-  Per Spec 009 §Per-frame trace rings (cascade-keyed, dev-only) and
+  Per Spec 009 §Per-frame trace rings (event-keyed, dev-only) and
   §Dispatch correlation. JVM-only by intent — the trace + router
   machinery is platform-agnostic and CLJS adds no signal."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -90,16 +90,16 @@
       (is (some #(= :rf.event/dispatched (:operation %)) evs)
           "the :rf.event/dispatched trace lands in the flat stream"))))
 
-;; ---- 1b. Cascade-keyed eviction ------------------------------------------
+;; ---- 1b. Event-keyed eviction --------------------------------------------
 
-(deftest cascade-keyed-eviction
-  (testing "ring evicts by CASCADE slot, not by raw event count"
+(deftest event-keyed-eviction
+  (testing "ring evicts by EVENT-BUNDLE slot, not by raw event count"
     (rf/configure! {:trace-buffer {:events-retained 3}})
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 10] (rf/dispatch-sync [:ping]))
-    (let [cascades (rf/trace-buffer :rf/default)]
-      (is (= 3 (count cascades))
-          (str "ring caps at 3 cascade slots; got " (count cascades))))))
+    (let [bundles (rf/trace-buffer :rf/default)]
+      (is (= 3 (count bundles))
+          (str "ring caps at 3 event-bundle slots; got " (count bundles))))))
 
 (deftest cascade-burst-cannot-evict-prior-cascades
   (testing "a single cascade's burst of :rf.sub/skip-like noise can't displace OTHER cascades"

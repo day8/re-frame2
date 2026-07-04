@@ -155,7 +155,7 @@ Use the per-op reads when:
 - **`:path-sliced` (with `path`)** — the slot is `(get-in db path)`. Out-of-range paths surface per-frame in a top-level `:path-not-found` map with `:deepest-valid-prefix` so the agent can re-aim without a binary search.
 - **Root path `path: "[]"`** — explicit request for the full `:app-db`. A **last resort** (large on any real app frame; refused against a reserved `:rf/*` tool frame). Orient first, then slice. The wire cap is the backstop.
 
-The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **cascade bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per cascade — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape and the same wire format the `subscribe` streaming surface emits on cascade-bundle topics).
+The other slices (`:sub-cache`, `:machines`, `:epochs`) pass through unchanged. The `:traces` slice now ships **event bundles by default** (`{:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id}` per run — the framework's `(re-frame.trace.tooling/trace-buffer frame-id)` shape and the same wire format the `subscribe` streaming surface emits on event-bundle topics).
 
 Use `get-path` (next section) when you already know the addressed subtree — it's a single-slice round-trip rather than the multi-slice composition `snapshot` does.
 

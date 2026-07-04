@@ -1520,10 +1520,10 @@
 ;; Topic semantics:
 ;;   :trace     — every event in the raw trace stream matching `:filter`
 ;;                (filter map mirrors `(re-frame.trace.tooling/trace-buffer)` filter vocab —
-;;                see the trace-buffer surface). Cascade-bundle delivery:
+;;                see the trace-buffer surface). Event-bundle delivery:
 ;;                per drain, matched events are grouped by
-;;                `:rf.trace/dispatch-id` and projected into one cascade
-;;                bundle per cascade (`group-cascades` shape with a
+;;                `:rf.trace/dispatch-id` and projected into one event
+;;                bundle per run (`group-by-event` shape with a
 ;;                `:trace-events` slot carrying the raw events). Events
 ;;                without a `:rf.trace/dispatch-id` tag (frameless
 ;;                registry / lifecycle emits) NEVER ride this topic —
@@ -1531,13 +1531,13 @@
 ;;   :epoch     — every assembled `:rf/epoch-record` matching `:filter`
 ;;                (filter map mirrors `epoch-matches?` — see watch-epochs).
 ;;                One event per committed epoch. `:rf/epoch-record` is
-;;                already a cascade-bundle by construction.
+;;                already an event-bundle by construction.
 ;;   :fx        — sugar for `:topic :trace :filter {:op-type :rf.fx}` with
 ;;                optional `:fx-id` and `:event-id` axes from the trace
-;;                filter vocabulary. Cascade-bundle delivery as for :trace.
+;;                filter vocabulary. Event-bundle delivery as for :trace.
 ;;   :error     — sugar for `:topic :trace :filter {:op-type :error}`,
 ;;                with `:event-id`/`:handler-id`/`:source` available.
-;;                Cascade-bundle delivery as for :trace.
+;;                Event-bundle delivery as for :trace.
 ;;   :frameless — every trace event matching `:filter` whose
 ;;                `:rf.trace/dispatch-id` tag is absent. Registration
 ;;                emits, REPL evals, lifecycle outside any cascade flow
@@ -1667,43 +1667,43 @@
 ;; Cascade-bundle projection
 ;; ---------------------------------------------------------------------------
 ;;
-;; Per Spec 009 §Cascade projection and Tool-Pair §Reading the per-frame
-;; trace ring, the wire-delivery unit for the streaming subscribe is
-;; the cascade bundle (one entry per `:rf.trace/dispatch-id`) rather
-;; than the flat per-event slice. We mirror the framework's per-frame
-;; trace-ring shape: `rf/group-cascades` projection PLUS a
+;; Per Spec 009 §Event-bundle projection and Tool-Pair §Reading the
+;; per-frame trace ring, the wire-delivery unit for the streaming
+;; subscribe is the event bundle (one entry per `:rf.trace/dispatch-id`)
+;; rather than the flat per-event slice. We mirror the framework's
+;; per-frame trace-ring shape: `rf/group-by-event` projection PLUS a
 ;; `:trace-events` slot carrying the raw events.
 ;;
 ;; The bundling happens at drain time (not enqueue), so the per-event
 ;; queue's byte+event budget still works as the upstream bound — an
-;; oversized cascade still evicts oldest events per the documented
+;; oversized run still evicts oldest events per the documented
 ;; policy. Each bundle's `:trace-events` slot carries ONLY the events
 ;; that survived eviction.
 ;;
 ;; Frameless events (`:rf.trace/dispatch-id` tag absent) NEVER ride
-;; cascade-bundle topics — `dispatch-trace-to-subs!` filters them out
+;; event-bundle topics — `dispatch-trace-to-subs!` filters them out
 ;; for those topics. The `:frameless` topic exists to deliver them
 ;; explicitly (Tool-Pair §Frameless trace events — live channel only).
 
 (defn- frameless-event?
   "True when `ev` carries no `:rf.trace/dispatch-id` tag — a registration
    emit, REPL eval, or lifecycle event that never rode a dispatch
-   cascade. The cascade-bundle topics filter these out; the `:frameless`
+   run. The event-bundle topics filter these out; the `:frameless`
    topic accepts only these."
   [ev]
   (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
 
-(defn- cascade-bundle-events
-  "Group a vector of raw trace events into cascade-bundle maps matching
+(defn- event-bundle-events
+  "Group a vector of raw trace events into event-bundle maps matching
    the framework's `(rf/trace-buffer frame-id)` shape — the
-   `group-cascades` projection PLUS a `:trace-events` slot carrying the
-   raw events for the cascade. The returned vector is sorted by emission
+   `group-by-event` projection PLUS a `:trace-events` slot carrying the
+   raw events for the run. The returned vector is sorted by emission
    order (lowest `:id` first, the order the projection returns).
 
-   Delegates the grouping entirely to `rf/group-cascades-with-events` —
-   the framework projection that keys cascades by `[frame dispatch-id]`.
+   Delegates the grouping entirely to `rf/group-by-event-with-events` —
+   the framework projection that keys bundles by `[frame dispatch-id]`.
    This is load-bearing: dispatch ids are unique only WITHIN a frame
-   (the portable trace contract), so two cascades sharing a dispatch id
+   (the portable trace contract), so two runs sharing a dispatch id
    across frames are distinct bundles, each carrying only its own frame's
    raw `:trace-events`. Grouping by `:rf.trace/dispatch-id` alone would
    merge foreign-frame events into both bundles the moment per-frame id
@@ -1711,7 +1711,7 @@
    framework key, never re-derive a weaker one.
 
    Events whose `:rf.trace/dispatch-id` tag is missing are NOT included
-   — the caller is expected to have filtered them upstream (cascade-
+   — the caller is expected to have filtered them upstream (event-
    bundle topics) or routed them to the frameless channel."
   [events]
   (->> (rf/group-by-event-with-events events)
@@ -1992,12 +1992,12 @@
   "Pop every queued event for `sub-id` and return them in order.
    Returns one of two envelopes per the sub's topic:
 
-   - Cascade-bundle topics (`:trace`/`:fx`/`:error`):
+   - Event-bundle topics (`:trace`/`:fx`/`:error`):
      `{:ok? true :sub-id ... :cascades [<bundle> ...] :dropped-events <n>
        :dropped-bytes <m> :overflow-reason <kw|nil> :gone? bool}`
      — queued raw events are grouped by `:rf.trace/dispatch-id` and
-     projected into cascade bundles (`group-cascades` shape with a
-     `:trace-events` slot) per Spec 009 §Cascade projection.
+     projected into event bundles (`group-by-event` shape with a
+     `:trace-events` slot) per Spec 009 §Event-bundle projection.
 
    - Flat topics (`:epoch`/`:frameless`):
      `{:ok? true :sub-id ... :events [...] :dropped-events <n>
@@ -2015,10 +2015,10 @@
    tripped (`:max-buffered-events` or `:max-buffered-bytes`); the
    `:dropped-bytes` figure tells them how much state they missed.
 
-   Note on cascade-bundle counters: `:dropped-events` counts the raw
-   trace events evicted from the queue, NOT cascades. An evicted event
-   may have left its sibling cascade-members in place — consumers
-   reconstructing a cascade should be tolerant of partially-truncated
+   Note on event-bundle counters: `:dropped-events` counts the raw
+   trace events evicted from the queue, NOT bundles. An evicted event
+   may have left its sibling run-members in place — consumers
+   reconstructing a run should be tolerant of partially-truncated
    bundles when `:dropped-events` is non-zero."
   [sub-id]
   ;; Atomically reset the drained sub's queue + counters and capture the
@@ -2044,14 +2044,14 @@
                   :overflow-reason overflow-reason
                   :gone?           false}]
         (cond
-          ;; Cascade-bundle delivery — group raw queued
+          ;; Event-bundle delivery — group raw queued
           ;; trace events by `:rf.trace/dispatch-id` into bundles. The
-          ;; cascade-bundle topics never enqueue frameless events
+          ;; event-bundle topics never enqueue frameless events
           ;; (`dispatch-trace-to-subs!` filters them out at the gate),
-          ;; so `cascade-bundle-events`'s `:ungrouped`-drop is purely
+          ;; so `event-bundle-events`'s `:ungrouped`-drop is purely
           ;; defensive.
           (contains? #{:trace :fx :error} topic)
-          (assoc base :cascades (cascade-bundle-events queue))
+          (assoc base :cascades (event-bundle-events queue))
 
           ;; Flat delivery — :epoch and :frameless.
           :else
@@ -2098,19 +2098,19 @@
 
 (defn cascade-of
   "Reconstruct the cascade tree from a root `:dispatch-id` by walking
-   the per-frame trace-ring cascade bundles for matching parent links.
+   the per-frame trace-ring event bundles for matching parent links.
    Returns a tree of `{:dispatch-id <id> :event <ev> :children [...]}`.
 
-   The trace ring is per-frame and cascade-keyed; the read unit is the
-   cascade bundle (`group-cascades` shape).
+   The trace ring is per-frame and event-keyed; the read unit is the
+   event bundle (`group-by-event` shape).
    A single cascade can fan out across frames (per Spec 002
    §Cross-frame dispatch) — every emit on every frame shares the same
    `:rf.trace/dispatch-id`, so cross-frame reconstruction iterates
    every registered frame's bundles and merges by `:dispatch-id`.
    Per-frame depth is configurable via
-   `(rf/configure! {:trace-buffer {:cascades-retained N}})`."
+   `(rf/configure! {:trace-buffer {:events-retained N}})`."
   [root-dispatch-id]
-  (let [;; Per-frame rings, cascade-bundle reads — merge across
+  (let [;; Per-frame rings, event-bundle reads — merge across
         ;; frames so cross-frame cascades reconstruct correctly. Each
         ;; bundle carries `:parent-dispatch-id` (the causal-parent
         ;; link) and `:dispatched :tags :rf.event/origin` directly,
@@ -4441,8 +4441,8 @@
                                 {})]
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))
-    ;; The trace ring is per-frame and cascade-bundle-shaped: this slot
-    ;; delivers bundles (the storage unit), matching the cascade-bundle
+    ;; The trace ring is per-frame and event-bundle-shaped: this slot
+    ;; delivers bundles (the storage unit), matching the event-bundle
     ;; wire format emitted by the streaming subscribe surface (Tool-Pair
     ;; §Reading the per-frame trace ring + Tool-Pair §`watch-epochs` /
     ;; `trace-window` consumer shape).

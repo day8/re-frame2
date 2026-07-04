@@ -2360,27 +2360,27 @@
 
 #?(:clj
    (do
-     (def ^{:doc "Return the named frame's cascade-keyed trace ring,
+     (def ^{:doc "Return the named frame's event-keyed trace ring,
        oldest-first. Two arities:
 
          (rf/trace-buffer frame-id)
-           Returns cascade bundles by default — one entry per retained
-           cascade with the cascade's `:dispatch-id`, raw `:trace-events`,
+           Returns event bundles by default — one entry per retained
+           event bundle with the run's `:dispatch-id`, raw `:trace-events`,
            and the projected six-domino slots (`:event`, `:dispatched`,
            `:handler`, `:fx`, `:effects`, `:subs`, `:renders`, `:other`).
 
          (rf/trace-buffer frame-id opts)
            `opts` is a filter map. `{:flat true}` returns raw trace
-           events instead of cascade bundles. The full filter
+           events instead of event bundles. The full filter
            vocabulary lives in Spec 009 §Filter vocabulary.
 
        Returns `[]` for a destroyed or never-registered frame, and `[]`
        in production (the ring is never allocated under
        `goog.DEBUG=false`). JVM-only alias — CLJS callers use
        `re-frame.trace.tooling/trace-buffer` directly. Per Spec 009
-       §Per-frame trace rings (cascade-keyed, dev-only)."}
+       §Per-frame trace rings (event-keyed, dev-only)."}
        trace-buffer           trace/trace-buffer)
-     (def ^{:doc "Empty the named frame's cascade-keyed trace ring.
+     (def ^{:doc "Empty the named frame's event-keyed trace ring.
        Tooling uses this between sessions. No-op for an unknown frame,
        no-op in production. JVM-only alias — CLJS callers use
        `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec
