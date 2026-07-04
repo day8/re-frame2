@@ -8,11 +8,11 @@ the suppressed-events counter, the frameless secondary ring, the
 microtask-coalesced mirror sync, and the retroactive-scrub-on-toggle-
 off behaviour.
 
-The framework owns the data plane: per-frame cascade-keyed rings with
+The framework owns the data plane: per-frame event-keyed rings with
 B4 dedup, depth knob via `(rf/configure! {:trace-buffer
-{:events-retained N}})`, oldest-first cascade vectors via
+{:events-retained N}})`, oldest-first event bundles via
 `(rf/trace-buffer frame-id opts)`. Per [Spec 009 §Per-frame trace
-rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)
+rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
 and bead `rf2-g1b2m`.
 
 This doc is the Xray-specific consumer contract on top.
@@ -22,7 +22,7 @@ This doc is the Xray-specific consumer contract on top.
 Pre-rf2-43koh Xray ran its own 1000-event process-global ring (`tools/
 xray/src/day8/re_frame2_xray/trace_bus.cljc`) parallel to the
 framework's. The "two rings" architecture predated the per-frame
-cascade-keyed rings (`rf2-g1b2m` / `rf2-8uwce`) and the B4 dedup
+event-keyed rings (`rf2-g1b2m` / `rf2-8uwce`) and the B4 dedup
 contract; both ate the original motivation for a separate Xray ring
 (depth independence + pre-shaping). The retire bundle is:
 
@@ -486,7 +486,7 @@ them up with **no panel change** — one vocabulary, many families.
 ### What consumers MUST NOT rely on
 
 - **Eventually-receiving every emitted event.** Per-frame rings are
-  cascade-keyed + B4-deduped with a configurable retention; the
+  event-keyed + B4-deduped with a configurable retention; the
   secondary frameless ring is bounded at 100 events. Both are lossy-
   on-overflow.
 - **`:sensitive?` events being reversible from the surface.** Once
@@ -613,7 +613,7 @@ Trace → "Show wall-clock axis."
 
 ## Cross-references
 
-- [Spec 009 §Per-frame trace rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only)
+- [Spec 009 §Per-frame trace rings](../../../spec/009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only)
   — the framework's per-frame ring substrate Xray reads from
   (rf2-g1b2m / rf2-8uwce).
 - [Spec 009 §Listener registration](../../../spec/009-Instrumentation.md#user-side-listener-registration)

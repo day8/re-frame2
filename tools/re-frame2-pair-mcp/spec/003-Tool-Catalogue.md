@@ -2641,7 +2641,7 @@ On the event-bundle topics (`:trace`, `:fx`, `:error`) every
 progress payload's `:cascades` slot is a vector of event bundles
 keyed by `:dispatch-id`. Each bundle matches the framework's
 `(rf/trace-buffer frame-id)` shape per [spec/009 §Event-bundle projection](../../../spec/009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket)
-and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--cascade-bundles--flat-opt-in):
+and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--event-bundles--flat-opt-in):
 
 ```clojure
 {:dispatch-id        <id>                  ; dispatch id
@@ -2694,8 +2694,8 @@ dispatch](../../../spec/002-Frames.md). Every emit on every frame
 shares the same `:rf.trace/dispatch-id`, so the runtime emits one
 bundle per `(frame, dispatch-id)` pair per drain. Consumers that
 watch multiple frames merge by `:dispatch-id` to reconstruct the
-cross-frame view (per [Tool-Pair.md §Cross-frame cascade
-reconstruction](../../../spec/Tool-Pair.md#cross-frame-cascade-reconstruction--merge-by-dispatch-id)).
+cross-frame view (per [Tool-Pair.md §Cross-frame run
+reconstruction](../../../spec/Tool-Pair.md#cross-frame-run-reconstruction--merge-by-dispatch-id)).
 In practice, each event bundle lives in exactly one frame (re-frame2 does
 not route a single dispatch across multiple frames per [Spec 002
 §Routing](../../../spec/002-Frames.md#routing-the-dispatch-envelope)),
