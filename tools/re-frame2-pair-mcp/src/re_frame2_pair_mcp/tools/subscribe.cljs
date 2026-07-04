@@ -192,7 +192,7 @@
 
   The `:message`-slot EDN map carries the delivered payload
   under one of two slots per the sub's topic:
-    - `:cascades` (vector of event bundles) on event-bundle topics
+    - `:event-bundles` (vector of event bundles) on event-bundle topics
       (`:trace`/`:fx`/`:error`);
     - `:events` (flat vector) on `:epoch` and `:frameless`.
   The split keeps the wire shape congruent with `(rf/trace-buffer
@@ -214,7 +214,7 @@
   [{:keys [send-note progress-tk sub-id cap]} dedup? tick-state]
   (let [{:keys [tick cascade? dedup-events ev-dropped by-dropped
                 ov-reason dropped tick-elided]} tick-state
-        payload-slot (if cascade? :cascades :events)
+        payload-slot (if cascade? :event-bundles :events)
         message      (cap/cap-message
                        (pr-str (wire/with-indicators
                                  (cond-> {:sub-id         sub-id
@@ -245,7 +245,7 @@
 ;; `drain-subscription!` returns one of two envelopes per the sub's topic:
 ;;
 ;;   - Event-bundle topics (`:trace`/`:fx`/`:error`) →
-;;     `{:ok? :sub-id :cascades [<bundle> ...] :dropped-events ... :gone? ...}`
+;;     `{:ok? :sub-id :event-bundles [<bundle> ...] :dropped-events ... :gone? ...}`
 ;;     where each bundle has `:dispatch-id :frame :event :dispatched
 ;;     :handler :fx :effects :subs :renders :other :trace-events
 ;;     :parent-dispatch-id` (the framework's `(rf/trace-buffer frame-id)`
@@ -256,7 +256,7 @@
 ;; The delivered slots take DIFFERENT off-box-egress primitives, selected
 ;; by topic:
 ;;
-;;   - TRACE-event slots — `:cascades` (event-bundle topics) + the
+;;   - TRACE-event slots — `:event-bundles` (event-bundle topics) + the
 ;;     `:frameless` topic's `:events` — are tree-shaped values rooted at
 ;;     the frame's app-db, so each flows through
 ;;     `re-frame.core/elide-wire-value` (the size-elision walker reading
@@ -288,21 +288,21 @@
 
 (defn drain-form
   "Build the nREPL drain eval form. When `elision?` is true, wraps the
-  drain envelope so the delivered slot (`:cascades` or `:events`,
+  drain envelope so the delivered slot (`:event-bundles` or `:events`,
   whichever the runtime produced) is projected for off-box egress
   server-side. `incl?` threads into the projection's sensitive opt-in —
   gate-OFF callers see redacted sensitive slots regardless of any
   per-call opt-in.
 
   The wrapper handles both delivery shapes (event-bundle topics →
-  `:cascades`; flat topics → `:events`).
+  `:event-bundles`; flat topics → `:events`).
 
   ## Per-slot egress primitive — `topic` selects (EP-0015 §13)
 
   The two delivered slots are NOT the same shape, so they take DIFFERENT
   egress primitives — selected by `topic`, not by slot presence:
 
-  - **Trace-event slots** — `:cascades` (event-bundle topics
+  - **Trace-event slots** — `:event-bundles` (event-bundle topics
     `:trace`/`:fx`/`:error`) and the `:frameless` topic's `:events`
     (raw trace events) — are tree-shaped values rooted at the frame's
     app-db, so the size-elision walker
@@ -381,7 +381,7 @@
         ;; trace-window. An epoch record never crosses the wire as a raw
         ;; fx-arg / runtime-db payload.
         project-epoch? epoch?
-        ;; The trace-event walker (`:cascades` / `:frameless` `:events`)
+        ;; The trace-event walker (`:event-bundles` / `:frameless` `:events`)
         ;; covers tree-shaped slots rooted at the frame's app-db. The
         ;; `:epoch` topic's `:events` are NOT trace events — they take
         ;; `projected-record`, never the walker — so the walker arm is
@@ -433,7 +433,7 @@
                    " (update :events (fn [es] (mapv (fn [e#] (re-frame.core/projected-record e# " opts-edn ")) es))))")))))
 
       ;; Trace-event walk (event-bundle topics `:trace`/`:fx`/`:error`
-      ;; ship `:cascades`; the `:frameless` topic ships `:events`). These
+      ;; ship `:event-bundles`; the `:frameless` topic ships `:events`). These
       ;; are tree-shaped trace events rooted at the frame's app-db, so the
       ;; size-elision walker is the correct primitive.
       ;;
@@ -477,8 +477,8 @@
                  "                         x (assoc base-opts :frame frame))))"
                  "                   xs))]"
                  " (cond-> drain"
-                 " (contains? drain :cascades)"
-                 " (update :cascades walk)"
+                 " (contains? drain :event-bundles)"
+                 " (update :event-bundles walk)"
                  " (contains? drain :events)"
                  " (update :events walk)))")))))))
 
@@ -578,16 +578,16 @@
                       (terminate :sub-gone)
                       (let [;; The drain envelope carries the
                             ;; delivered slot per the sub's topic:
-                            ;; `:cascades` for event-bundle topics
+                            ;; `:event-bundles` for event-bundle topics
                             ;; (`:trace`/`:fx`/`:error`), `:events` for
                             ;; flat topics (`:epoch`/`:frameless`).
                             ;; Exactly one is present; `cascade?` keeps
                             ;; the slot name on the progress payload
                             ;; congruent with the topic's wire shape.
-                            cascade?       (contains? drain-resp :cascades)
+                            cascade?       (contains? drain-resp :event-bundles)
                             raw-items      (if cascade?
-                                             (:cascades drain-resp)
-                                             (:events   drain-resp))
+                                             (:event-bundles drain-resp)
+                                             (:events        drain-resp))
                             ev-dropped     (:dropped-events  drain-resp 0)
                             by-dropped     (:dropped-bytes   drain-resp 0)
                             ov-reason      (:overflow-reason drain-resp)

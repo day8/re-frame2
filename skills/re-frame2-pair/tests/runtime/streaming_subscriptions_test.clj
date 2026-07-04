@@ -410,7 +410,7 @@
  (dispatch-trace-to-subs! ev2)
  (dispatch-trace-to-subs! ev3))]
  ;; The drain returns `:queue` raw; the MCP-server layer projects
- ;; them into `:cascades` for event-bundle topics. The bb-runnable
+ ;; them into `:event-bundles` for event-bundle topics. The bb-runnable
  ;; mirror exposes the queue directly so
  ;; the contract under test is "what landed in the queue after
  ;; filtering" rather than the post-projection wire shape.

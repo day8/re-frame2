@@ -44,7 +44,7 @@ no extra round-trip to the runtime.
 **Where it fires.** `:epochs` slice on `snapshot`, `trace-window`,
 `watch-epochs`; the per-tick subscribe payload slot on `subscribe`.
 That slot is **topic-dependent** (per `streaming-subscriptions.md`):
-`:events` for the flat topics (`:epoch` / `:frameless`), `:cascades`
+`:events` for the flat topics (`:epoch` / `:frameless`), `:event-bundles`
 for the event-bundle topics (`:trace` / `:fx` / `:error`). A host
 decoding subscribe dedup must look under whichever slot the topic
 delivers, not `:events` alone. Opt out via `dedup false` if your host hasn't been taught the marker.

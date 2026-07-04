@@ -365,13 +365,13 @@
     (is (str/includes? @streaming-md "_meta.data")
         (str "streaming-subscriptions.md must place the structured drop counts "
              "under _meta.data, not a top-level `data` slot (rf2-ojo3z)."))
-    (is (and (str/includes? @streaming-md ":cascades")
+    (is (and (str/includes? @streaming-md ":event-bundles")
              (str/includes? @streaming-md ":events"))
-        (str "streaming-subscriptions.md must document BOTH the :cascades "
+        (str "streaming-subscriptions.md must document BOTH the :event-bundles "
              "(trace/fx/error) and :events (epoch/frameless) payload slots."))
     (is (str/includes? @streaming-md "EDN-printed **map**")
         (str "streaming-subscriptions.md must state `message` is an EDN map "
-             "(with :sub-id + :cascades/:events), not a bare vector "
+             "(with :sub-id + :event-bundles/:events), not a bare vector "
              "(rf2-ojo3z)."))))
 
 (deftest subscribe-not-scoped-by-operating-frame-pin
@@ -391,17 +391,17 @@
 ;;
 ;; wire-size-budget.md must describe the SAME topic-dependent
 ;; subscribe payload slot as streaming-subscriptions.md: `:events` for the
-;; flat topics (epoch/frameless) and `:cascades` for the event-bundle
+;; flat topics (epoch/frameless) and `:event-bundles` for the event-bundle
 ;; topics (trace/fx/error). A host decoding subscribe dedup off the
 ;; size-budget leaf that only knew `:events` would leave trace/fx/error
 ;; event-bundle ticks unexpanded. Mirrors the streaming-subscriptions guard above.
 
 (deftest wire-size-budget-names-both-subscribe-slots
-  (testing "wire-size-budget.md subscribe dedup names both :events and :cascades (rf2-a85bb2 finding 2)"
-    (is (and (str/includes? @wire-size-md ":cascades")
+  (testing "wire-size-budget.md subscribe dedup names both :events and :event-bundles (rf2-a85bb2 finding 2)"
+    (is (and (str/includes? @wire-size-md ":event-bundles")
              (str/includes? @wire-size-md ":events"))
         (str "wire-size-budget.md must document the topic-dependent subscribe "
-             "payload slot — :events (epoch/frameless) AND :cascades "
+             "payload slot — :events (epoch/frameless) AND :event-bundles "
              "(trace/fx/error) — not :events alone, or a host will leave "
              "event-bundle dedup ticks unexpanded (rf2-a85bb2)."))))
 

@@ -411,7 +411,7 @@ runWithWatchdog(
     // topic carries EVERY dispatch on the runtime.
     //
     // So we require at least ONE frame whose `:message` (the EDN-printed
-    // batch — on `:trace` a `:cascades` vector, each bundle carrying its
+    // batch — on `:trace` an `:event-bundles` vector, each bundle carrying its
     // `:event` slot = the dispatched event vector) contains our per-run
     // NONCE. Since we dispatched `[:counter/inc "<NONCE>"]`, the cascade's
     // `:event` slot is that exact vector and the nonce string appears in
