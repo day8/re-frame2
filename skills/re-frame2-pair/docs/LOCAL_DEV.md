@@ -64,8 +64,8 @@ powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1
 ```
 
 Idempotent; re-run any time. It refuses to overwrite a non-link copy without
-`--force`/`-Force`, and `--check`/`-Check` verifies the links. See the repo's
-[`CONTRIBUTING.md`](../../../CONTRIBUTING.md#skills--link-dont-copy).
+`--force`/`-Force`, and `--check`/`-Check` verifies the links. See
+[`skills/README.md`](../../README.md#installing-link-never-copy).
 
 The remaining paths below link this one skill by hand — equivalent for a
 single skill, useful when you are not working from a full re-frame2 clone.

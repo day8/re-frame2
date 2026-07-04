@@ -52,7 +52,7 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md` §skills — link, don't copy](../../CONTRIBUTING.md#skills--link-dont-copy) for the full rationale and contributor setup. To make the skill available to a team through a project repo, link from a checkout the team shares rather than committing a `cp -r` snapshot that will go stale.
+The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the full rationale. To make the skill available to a team through a project repo, link from a checkout the team shares rather than committing a `cp -r` snapshot that will go stale.
 
 ## How it activates
 
