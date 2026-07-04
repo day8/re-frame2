@@ -29,9 +29,9 @@ and mcp-conformance — not here.
 ## The design-led examples
 
 Three examples exist to prove *polished visuals + interaction* on each substrate:
-the Reagent [`notebook`](reagent/notebook/), the UIx
-[`dashboard_uix`](uix/dashboard_uix/), and the Helix
-[`process_monitor_helix`](helix/process_monitor_helix/). They share the
+the Reagent [`notebook`](core/notebook/), the UIx
+[`dashboard`](substrates/uix/dashboard/), and the Helix
+[`process_monitor`](substrates/helix/process_monitor/). They share the
 "Editorial Warm" identity from [`_shared/css/style.css`](_shared/css/style.css).
 
 `test:examples-compile` sweeps their builds like any other, and
@@ -39,7 +39,7 @@ the Reagent [`notebook`](reagent/notebook/), the UIx
 itself — a nonblank page, a running tick/update loop, filter/selection interaction,
 no horizontal overflow at a narrow viewport — is a **by-eye check**: open the page
 and look when you touch that example's markup, CSS, or dataflow. The
-[`dashboard_uix` accessibility + responsive notes](uix/dashboard_uix/README.md#accessibility--responsive--what-to-copy)
+[`dashboard` accessibility + responsive notes](substrates/uix/dashboard/README.md#accessibility--responsive--what-to-copy)
 spell out the shape to look for.
 
 ## Convention: example mount-isolation — defer DOM mount to `mount!`
@@ -89,8 +89,8 @@ example's own README links here for the canonical statement.
 
 #### Exception 1 — the stock/slim counter `:counter/*` id share
 
-[`reagent/counter`](reagent/counter/) and
-[`reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/) share
+[`core/counter`](core/counter/) and
+[`substrates/reagent_slim/counter`](substrates/reagent_slim/counter/) share
 the `:counter/*` event + sub ids, proving the two Reagent bridges run identical
 dataflow.
 

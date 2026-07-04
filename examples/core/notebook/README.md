@@ -1,9 +1,9 @@
 # A markdown editor with a live preview
 
 Type markdown in the middle pane and watch it render, live, in the
-preview on the right. Pick a document from the tree on the left to edit
+preview on the right. Pick a document from the list on the left to edit
 it, or start a new one. That's the whole app: three panes — a documents
-tree, a markdown editor, a live preview — built on the
+list, a markdown editor, a live preview — built on the
 [Reagent](https://github.com/reagent-project/reagent)
 [substrate](../../../docs/core/glossary.md#substrate).
 
@@ -41,8 +41,9 @@ Because each pane is a named registration, each is inspectable on its
 own and subscribes only to what it needs. The editor reads the selected
 document's body; the sidebar reads the document list. The framework
 skips anything downstream of an input that didn't change. So editing
-the body re-derives the preview without touching the sidebar — the
-panes stay decoupled, and you wire up no listeners at all.
+the body re-derives the preview and ticks over the sidebar's live
+character count — no pane knows about any other, and you wire up no
+listeners at all.
 
 **One edit, one [pipeline run](../../../docs/core/glossary.md#run).**
 Typing in the editor dispatches `[:notebook/edit-body text]`. Clicking
@@ -94,8 +95,8 @@ scheme, emit a different hiccup vector — is far easier to get right than
 scrubbing an HTML string after the fact. That's the case for
 data-oriented rendering, in one tidy function.
 
-One last detail in the same spirit: the **`:new` event allocates
-document ids deterministically.** Instead of `(rand-int)`,
+One last detail in the same spirit: the **`:notebook/new` event
+allocates document ids deterministically.** Instead of `(rand-int)`,
 `allocate-next-doc-id` scans the `doc-N` ids already in app-db and takes
 max + 1. The new id is written into durable app-db, so it has to be a
 pure function of prior state. A random id would replay differently and
@@ -116,8 +117,8 @@ substantial, genuinely different UI on a different
 | Substrate | Example | Shape |
 |---|---|---|
 | Reagent | `notebook` (this) | Three-pane editor |
-| UIx | [`dashboard_uix`](../../substrates/uix/dashboard/) | Cards + sparklines |
-| Helix | [`process_monitor_helix`](../../substrates/helix/process_monitor/) | Terminal log viewer |
+| UIx | [`dashboard`](../../substrates/uix/dashboard/) | Cards + sparklines |
+| Helix | [`process_monitor`](../../substrates/helix/process_monitor/) | Terminal log viewer |
 
 All three wear the same "Editorial Warm" identity from
 [`examples/_shared/css/style.css`](../../_shared/css/style.css). So what

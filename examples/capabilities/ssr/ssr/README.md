@@ -59,20 +59,19 @@ client picking it up:
   [coeffect](../../../../docs/core/glossary.md#coeffect) rather than a
   global the handler reaches for. Its job here is small: start the
   article fetch.
-- **Server-only [effects](../../../../docs/core/glossary.md#effect) via
+- **Platform-gated [effects](../../../../docs/core/glossary.md#effect) via
   `:platforms`.** The session-store fx is `#{:client}`, so a server
-  drain skips it. The handler that returned it never learns which
+  drain skips it. A handler that returns it never learns which
   runtime it's on. No `typeof window` anywhere.
 - **The article fetch goes through managed HTTP, stubbed for the
-  render.** `:rf/server-init` dispatches `:rf.http/managed`. The JVM
-  smoke redirects it to a canned-success stub through the
+  render.** `:rf/server-init` returns an `:rf.http/managed` effect. The
+  JVM smoke redirects it to a canned-success stub through the
   `:fx-overrides` seam, so the render exercises the full
   [pipeline](../../../../docs/core/glossary.md#event-pipeline) without real
   network traffic.
 - **Pure [hiccup](../../../../docs/core/glossary.md#hiccup) → HTML.**
-  `rf/render-to-string` is a pure function from the registered views to
-  an HTML string — no React server-render dependency, no DOM,
-  JVM-runnable.
+  `rf/render-to-string` is a pure function from hiccup to an HTML
+  string — no React server-render dependency, no DOM, JVM-runnable.
 - **The hydration payload is the server→client contract.** The server
   serialises the settled state into the `:rf/hydration-payload` shape
   and bakes it into a `<script id='__rf_payload'>` tag the client reads
@@ -88,8 +87,8 @@ client picking it up:
   state, so "replace" is the honest semantics — a defaulting merge
   would bury "which side won?" bugs at every key.
 - **`data-rf-render-hash` turns the classic SSR bug into a located
-  one.** `render-to-string` stamps a structural hash of the
-  render-tree on the root element. After first render the client
+  one.** With `:emit-hash?`, `render-to-string` stamps a structural
+  hash of the render-tree on the root element. After first render the client
   recomputes it. On disagreement the runtime emits
   `:rf.ssr/hydration-mismatch` — telling you not just *that* the renders
   diverged but *where*.
@@ -132,8 +131,8 @@ exercising the load-bearing subtleties, not just the happy path:
 
 In runnable form: the hand-written `index.html` ships with pre-rendered
 HTML inside `<div id='app'>` and a pre-baked `<script
-id='__rf_payload'>` — exactly the shape `handle-request` would emit if
-a real Clojure server sat in front. The browser-side `run` calls
+id='__rf_payload'>` — standing in for what `handle-request` would serve
+if a real Clojure server sat in front. The browser-side `run` calls
 `ssr/hydrate!` (read the payload → dispatch `:rf/hydrate` → verify the
 render-hash) and renders against the now-seeded state through the
 carried frame's `frame-provider`.

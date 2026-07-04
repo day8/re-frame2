@@ -84,7 +84,7 @@ proof.
 ## Files
 
 ```
-counter_helix/
+counter/
   core.cljs    — events, sub, defnc view, mount.
   index.html   — minimal host page.
 ```

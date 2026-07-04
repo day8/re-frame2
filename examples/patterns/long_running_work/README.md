@@ -21,24 +21,26 @@ move. You don't wire cancellation by hand; the
 [machine](../../../docs/machines/glossary.md#machine) does.
 
 This is the runnable companion to
-[`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md),
-and it shows the `:spawn-all` shape. When a job splits into independent
-shards, you model it as **one parent coordinator and N child workers**: the
-children run in parallel, and the parent waits for them all. (Why split it up
-at all, instead of one big machine? See **Why this shape**, below.)
+[`spec/Pattern-LongRunningWork.md`](../../../spec/Pattern-LongRunningWork.md).
+That spec describes the single-worker shape: one chunked machine for one long
+computation that *doesn't* split into pieces. When a job *does* split into
+independent shards, you model it as **one parent coordinator and N child
+workers**: the children run in parallel, and the parent waits for them all.
+(Why split it up at all, instead of one big machine? See **Why this shape**,
+below.)
 
-The same spec also describes a single-worker shape — for one long computation
-that *doesn't* split into pieces. When the work *does* split, the
-chunk-by-chunk idiom composes straight over `:spawn-all`: one parent, N
-children, one declarative spawn-and-join.
+That composition is what this example shows. Each `:work/processor` child
+walks the spec's chunk-by-chunk loop, and the loop composes straight over
+`:spawn-all` (from Spec 005): one parent, N children, one declarative
+spawn-and-join.
 
 ## What this example demonstrates
 
 - **Cancellation that fires on every exit path.** This is the main idea. The
   parent's `:working` state holds the `:spawn-all` declaration. Leaving
   `:working` — by user `:cancel`, by the join resolving (`:on-all-complete`),
-  or by the frame being destroyed — fires one `:rf.machine/destroy` effect,
-  and its handler tears down every child still running. You write one
+  or by the frame being destroyed — runs one desugared `:exit`, which fires
+  `:rf.machine/destroy` at every child still running. You write one
   [state](../../../docs/machines/glossary.md#state) exit, not three teardown
   paths to keep in sync, and the machine runs it however you left. Each
   torn-down child takes its in-flight `:after` timers with it. (Per Spec 005
@@ -49,7 +51,7 @@ children, one declarative spawn-and-join.
   The parent `:work/flow` machine spawns three `:work/processor` children,
   one per shard. The runtime tracks the join in runtime-db at
   `[:rf.runtime/machines :spawned :work/flow [:working]]`. The parent's
-  `:data` holds no per-child bookkeeping — just the `:progress` map the view
+  `:data` holds no join bookkeeping — just the `:progress` map the view
   renders. The runtime watches the children report in and fires
   `:on-all-complete` when the last one finishes. You declare three children
   and a join policy (`:join :all`); the framework counts.
@@ -70,9 +72,10 @@ children, one declarative spawn-and-join.
   parent's `:working` state handles `:progress` as an **internal
   self-transition** — note there's no `:target` (see [§Self-transitions](../../../spec/005-StateMachines.md#self-transitions--internal-default-vs-external-reenter)).
   So the action records the new count without re-firing the `:spawn-all`
-  entry. Give it a target and you'd re-enter `:working`, tearing down and
-  re-spawning all three children on every progress tick — a subtle, expensive
-  bug that "internal by default" quietly prevents.
+  entry. Only an external re-entry (`:reenter? true`) would exit and re-enter
+  `:working`, tearing down and re-spawning all three children on every
+  progress tick — a subtle, expensive bug that "internal by default" quietly
+  prevents.
 
 - **The unmount cascade — one dispatch, the machine does the rest.** The
   work-bench view is wrapped in Reagent's `r/with-let`. Its `finally` cleanup
@@ -96,7 +99,7 @@ workers because the split puts two contracts on display at once:
   in; and
 - **the cascade teardown** — "when the coordinator leaves its busy state,
   every child it spawned dies with it" — which falls out of `:spawn-all`'s
-  desugared `:exit` firing one `:rf.machine/destroy`.
+  desugared `:exit` firing `:rf.machine/destroy` per surviving child.
 
 A single machine could fake the join with a counter in `:data`, but it
 couldn't show the teardown — there'd be no children to tear down. Two
@@ -114,7 +117,8 @@ batch of files — where you'd reach for this.
   :working
     :spawn-all  three children (one per shard)
                  :join :all
-                 :on-child-done :work/child-done
+                 :on-child-done  :work/child-done
+                 :on-child-error :work/child-error
                  :on-all-complete [:work/all-done]
                  :on-any-failed  [:work/any-failed]
     :on
@@ -123,8 +127,8 @@ batch of files — where you'd reach for this.
       :work/any-failed  → :error
       :cancel           → :cancelled
   :complete       ──[:reset]──> :idle
-  :cancelled      ──[:reset]──> :idle
-  :error          ──[:reset]──> :idle
+  :cancelled      ──[:reset]──> :idle   (or [:start] ──> :working)
+  :error          ──[:reset]──> :idle   (or [:start] ──> :working)
 ```
 
 ```
@@ -158,9 +162,11 @@ examples/patterns/long_running_work/
 ## How to run
 
 ```bash
-npx shadow-cljs watch examples/long-running-work
-# Then open the URL the watch command prints.
+# From implementation/:
+npm run dev:example -- examples/long-running-work
 ```
+
+Edits recompile live; the command prints a local URL to open.
 
 Click **Hide** mid-job to watch the unmount cascade tear every child down on
 its own.

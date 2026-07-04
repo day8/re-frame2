@@ -25,9 +25,11 @@ and name a `:fallback` to show in the meantime:
 One caveat up front: this demo runs **offline**, with no Clojure server.
 Instead of fetching from three real services, `:rf/server-init` seeds all
 three card values synchronously, and the page boots from a hand-written
-`index.html` with the resolved chunks and final payload pre-baked. So
-you're reading the *wire shape* streaming produces — frozen and
-replayable, no live streaming host needed. It's the worked companion to
+`index.html` with the final resolved state and payload pre-baked. The
+`:clj` side still produces the full *wire shape* — shell, per-card
+chunks, final payload — as plain data returned from `handle-request`,
+frozen and replayable, no live streaming host needed. It's the worked
+companion to
 [Spec 011 §Streaming SSR](../../../../spec/011-SSR.md#streaming-ssr).
 
 ## What this demonstrates

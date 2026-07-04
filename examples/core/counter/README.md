@@ -65,7 +65,8 @@ changes. That seam is the whole point of the
 
 re-frame2 never creates a frame for you. An app must stand its frame up
 itself, and this counter is the smallest place to watch that happen end
-to end. Two steps, all in `run`:
+to end. Two steps — `run` installs the adapter, then calls `mount!`,
+which renders the tree inside the provider:
 
 ```clojure
 (rf/init! reagent-adapter/adapter)              ;; install the adapter (NOT a frame)
@@ -104,13 +105,14 @@ HTTP, no routing. Just the dataflow loop and the frame it runs in.
 
 ```
 counter/
-  core.cljs    — events, sub, view, mount
+  core.cljs    — events, sub, views, mount
   index.html   — minimal host page
 ```
 
 ## How to run
 
 ```bash
+# From implementation/:
 shadow-cljs watch examples/counter
 ```
 

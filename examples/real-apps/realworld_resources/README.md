@@ -47,7 +47,7 @@ Three things are worth noticing. Each is work the framework does for you that yo
 
 ## Writes are mutations
 
-Every write is a `reg-mutation` (`mutations.cljs`). A mutation sends its request through the *same* managed HTTP the resources use. On its registration — as data, never imperatively at the call site — it declares what success means for the cache: which reads it `:invalidates`, and where useful which entry it `:populates` from its own reply.
+Every write is a `reg-mutation` — most in `mutations.cljs`, with the editor's save/delete pair registered beside its form in `article_editor.cljs`. A mutation sends its request through the *same* managed HTTP the resources use. On its registration — as data, never imperatively at the call site — it declares what success means for the cache: which reads it `:invalidates`, and where useful which entry it `:populates` from its own reply.
 
 | Mutation | Write | What it does to the cache |
 |---|---|---|
@@ -98,9 +98,10 @@ Your feed is the other kind. What `/articles/feed` returns depends on *who is as
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
-  {:inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))
 ```
 
 Every site then refers to it as `{:from-db :realworld/session}` — one way to resolve scope for the whole app. The `:inputs` declaration tells the runtime which app-db fact decides the scope. So a `{:from-db …}` subscription **re-keys** when you log in or out: a live feed subscription tracks the new user automatically, with no login listener to wire up.
@@ -145,7 +146,7 @@ The follow-up after save or delete — navigate to the article, or home on delet
 
 ## Auth is a command and a machine, not a cached read
 
-Login, register, session-restore, and logout are a [Spec 005 state machine](../../../spec/005-StateMachines.md) (`auth.cljs`). It issues managed HTTP from its actions and owns the `:idle → :submitting → :authed | :error` lifecycle. Auth is a *command*: it does a thing and transitions. It is not a cached read, so it is deliberately not forced into a resource. (The one auth-adjacent *write* that *is* a mutation is the settings update, because it really does invalidate a cached read.) Four details are worth a closer look, because each fixes a bug you would otherwise hit:
+Login, register, session-restore, and logout are a [Spec 005 state machine](../../../spec/005-StateMachines.md) (`auth.cljs`). It issues managed HTTP from its actions and owns the `:idle → :submitting / :restoring → :authed | :error` lifecycle. Auth is a *command*: it does a thing and transitions. It is not a cached read, so it is deliberately not forced into a resource. (The one auth-adjacent *write* that *is* a mutation is the settings update, because it really does invalidate a cached read.) Four details are worth a closer look, because each fixes a bug you would otherwise hit:
 
 - **One Bearer header for the whole API.** Resources, mutations, and the auth machine all run on `:rf.http/managed`. So a single frame-wide HTTP [interceptor](../../../docs/core/glossary.md#interceptor) (`:realworld/bearer-auth`, in `core.cljs`) adds `Authorization: Token <jwt>` to *every* outbound request — authenticated reads, every write, the restore `GET /user`. No `:request` fn threads the token per call. The auth slice is the single source of truth, and the interceptor is the single read site. It reads the token from the *carried* frame, so the header follows a renamed or multi-frame mount, and it passes the request through untouched when there is no token (login, register, and logged-out public reads are unaffected). The resource surface alone could not show this kind of cross-cutting decoration.
 - **Logout must clear the session cache.** On logout the machine clears the session *and* drops the session-scoped resource cache via `:rf.resource/clear-scope` — the causal operation for exactly that — so the next user cannot read the previous user's feed. It resolves the old scope with the `rf/resolve-resource-scope` helper against the handler's *coeffect* db (the pre-transition value, which still carries the logging-out user) and the same named `:realworld/session` resolver every other site uses. Public global reads are left alone, since they are the same for everyone.
@@ -165,17 +166,17 @@ The token is a real secret, so it is *classified* once rather than redacted by h
 |---|---|
 | `core.cljs` | Entry point, app shell, route switch, mount; installs the demo `:rf.http/managed` backend stub, the focus/reconnect revalidation listeners, the frame-wide `:realworld/bearer-auth` HTTP interceptor, and the JWT egress classification. |
 | `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy); the `page-size` + `page->limit-offset` pagination helpers. |
-| `mutations.cljs` | Every RealWorld write as `reg-mutation` — favourite / unfavourite are optimistic (`:optimistic-tags` + `:on-conflict :invalidate`); `:populates` seeds/commits, `:invalidates` as per-target `{:scope … :tags …}` descriptors (including the session-feed target, so one mutation reaches both scopes). |
+| `mutations.cljs` | The social, comment, and settings writes as `reg-mutation` — favourite / unfavourite are optimistic (`:optimistic-tags` + `:on-conflict :invalidate`); `:populates` seeds/commits, `:invalidates` as per-target `{:scope … :tags …}` descriptors (including the session-feed target, so one mutation reaches both scopes). The save / delete article pair lives in `article_editor.cljs`. |
 | `scope.cljs` | The named `reg-resource-scope :realworld/session` resolver — the single scope-resolution currency every resource site references as `{:from-db :realworld/session}`. |
 | `routing.cljs` | Routes with `:resources` metadata (the `?page=` query → resource params + `:keep-previous?`, the session feed as a `:scope {:from-db :realworld/session}` route resource, the `/tag/:tag` PATH tag route, and the favorites tab route) + the `auth-guard` interceptor. |
 | `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout) + the login/register forms; logout resolves the session scope and clears it; cold-boot restore re-ensures the feed under the new principal. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is the mutation's `:reply-to [:settings/replied]` target — a plain Form-1 view, no off-render reaction. |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` flow, the `:editor/can-leave?` guard, the `:reply-to [:editor/replied]` save/delete continuation, and the one remaining Form-3 reaction (seed-on-load from the article read). |
 | `views.cljs` | Passive pages (home / article / profile-with-two-tabs) + the numbered `pagination` control + the keep-previous list render + the small UI event glue (favourite / follow / comment / page navigation); the article-detail contextual controls (author follow + author Edit/Delete) whose follow/delete continuations are `:reply-to` targets. The article body renders through `realworld-shared.markdown/render` (sanitized CommonMark → hiccup). |
-| `realworld_shared/markdown.cljs` | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. |
+| `../realworld_shared/markdown.cljs` | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). `User`'s `:token` slot carries the per-slot `:sensitive?` property on its `:decode` schema so the JWT is redacted out of off-box reply captures. |
 | `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) — synthesises a multi-page article set, honours `limit`/`offset`, serves a distinct favorited subset — plus the shared `data-fetch-retry` read policy and the `:rf.http/*` failure projection. |
-| `realworld_shared/avatar.cljs` | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance). |
+| `../realworld_shared/avatar.cljs` | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance). |
 | `index.html` | Static host page. |
 | `default-avatar.svg` | The fallback avatar asset, served from the app root. |
 
@@ -193,7 +194,7 @@ To run against a real backend instead: point `realworld-resources.http/api-base`
 
 ## RealWorld contract conformance
 
-This example follows the official RealWorld "Conduit" contract: its route shapes, the `localStorage["jwtToken"]` session key, the form `name` attributes, the selectors, and the favorite/follow toggle conventions. It reads the contract the same way the `realworld/` sibling does. One caveat: the contract assumes **one app per origin**, but the repo's dev orchestrator serves both this app and the sibling from a single origin, so the two share — and clobber — each other's `jwtToken` there. Serve the app standalone (one app per origin) and the problem goes away.
+This example follows the official RealWorld "Conduit" contract: its route shapes, the `localStorage["jwtToken"]` session key, the form `name` attributes, the selectors, and the favorite/follow toggle conventions. It reads the contract the same way the `realworld_http/` sibling does. One caveat: the contract assumes **one app per origin**, but the repo's dev orchestrator serves both this app and the sibling from a single origin, so the two share — and clobber — each other's `jwtToken` there. Serve the app standalone (one app per origin) and the problem goes away.
 
 ## Architecture references
 

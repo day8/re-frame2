@@ -38,8 +38,9 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   forwards inbound server messages back to the parent. Only the id ever appears
   in `:data` — never the socket itself.
 
-- **Stale-message rejection via the connection epoch.** The live `:socket-id` is
-  the epoch; the `:current-socket?` [guard](../../../docs/machines/glossary.md#guard)
+- **Stale-message rejection via the connection epoch.** The live socket-actor id
+  — read from the runtime-maintained `:rf/spawned` slot in `:data` — is the
+  epoch; the `:current-socket?` [guard](../../../docs/machines/glossary.md#guard)
   rejects a `:ws/received` (or a `:ws/request-timeout`) from a socket that has
   since been replaced. [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md),
   composed against a value already in `:data`.
@@ -55,9 +56,10 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   queue-flush the instant the state is entered.
 
 - **[State tags](../../../docs/machines/glossary.md#state-tag), not state-name
-  matching.** Each state declares tags (`:websocket/connected`,
-  `:websocket/reconnecting`, `:websocket/active`, …); the view asks
-  `machine-has-tag?` — *ask, don't tell* — instead of unfolding the
+  matching.** States declare tags (`:websocket/connected`,
+  `:websocket/reconnecting`, `:websocket/active`, …); the view asks through
+  per-tag subs built on the framework's `:rf/machine-has-tag?` sub — *ask,
+  don't tell* — instead of unfolding the
   [snapshot](../../../docs/machines/glossary.md#snapshot)'s hierarchical `:state`
   vector. Add a sixth "connecting-ish" state later and no view changes.
 
@@ -74,9 +76,10 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
-- **Reconnect cascade with token refresh threaded through.** `:exit` on `:active`
-  clears the `:socket-id`; the runtime destroys the actor (the declarative
-  `:spawn` desugars to a `:rf.machine/destroy` on exit). After the `:after`
+- **Reconnect cascade with token refresh threaded through.** Leaving `:active`
+  destroys the actor (the declarative `:spawn` desugars to a
+  `:rf.machine/destroy` on exit), and the runtime clears its id from the
+  `:rf/spawned` slot — there's no `:exit` action to write. After the `:after`
   backoff, re-entering `:active` re-runs the `:spawn`'s `:data` function, which
   re-reads the URL and token from `:data` — so a `:ws/refresh-token` arriving
   *between* reconnects flows into the next socket with no extra wiring.
@@ -91,8 +94,8 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 
 | File | Notes |
 |---|---|
-| `core.cljs` | Entry point — installs the adapter, registers the [frame](../../../docs/core/glossary.md#frame), mounts the React root, runs `:ws.app/initialise`. |
-| `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example; the shapes are identical. |
+| `core.cljs` | Entry point — installs the adapter, mounts the React root under a `frame-provider` that creates the [frame](../../../docs/core/glossary.md#frame) and fires `:ws.app/initialise`. |
+| `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example — same state chart, but here the live socket id comes from the framework's `:rf/spawned` slot instead of the spec's hand-recorded `:socket-id`. |
 | `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) for the connection machine's `:data` slice and the `[:messages]` app-db slice. |

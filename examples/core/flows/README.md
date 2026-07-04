@@ -1,6 +1,6 @@
 # A shopping cart that keeps its totals up to date
 
-This example is a small shopping cart. It has three line items, each with a quantity you can nudge up or down, plus a running subtotal and total. Bump a quantity and the subtotal and total update on their own. Click **Apply 10% discount** and the total drops; click **Remove discount** and it climbs back. It all runs in your browser — there's nothing to set up.
+This example is a small shopping cart. It has three line items, each with a quantity you can nudge up or down, plus a running subtotal and total. Bump a quantity and the subtotal and total update on their own. Click **Apply 10% discount** and the total drops; click **Remove discount** and it climbs back. It all runs in your browser — there's no backend.
 
 Those totals aren't worked out in the [view](../../../docs/core/glossary.md#view). The framework computes them and stores them in [app-db](../../../docs/core/glossary.md#app-db), right next to the line items they come from — and a derived value kept in app-db like that is a [flow](../../../docs/core/glossary.md#flow). That's the idea worth taking away:
 
@@ -32,7 +32,7 @@ Three things Spec 013 calls out, all in this one cart.
 
 **A flow that reads another flow.** `:cart/total`'s `:inputs` are `[:cart :subtotal]` (another flow's output) and `[:cart :discount-rate]`. The runtime sees that `:cart/total` depends on `:cart/subtotal` (their paths overlap) and runs `:cart/subtotal` first. Both update in a *single* pass, right after the event handler and before the `:db` commit. So when you bump a quantity, the line-item change, the new subtotal, and the new total all land in one commit. A view never sees the subtotal updated while the total is still stale.
 
-**A derivation you can switch on at runtime.** The discount is a feature gate. `:cart/discount-rate` is *not* registered at boot; while it is absent, its path reads nil and `:cart/total` treats it as 0% off. "Apply 10% discount" registers the flow mid-event with the `:rf.fx/reg-flow` effect. "Remove discount" tears it down with `:rf.fx/clear-flow` (which also resets the path to nil). A database's materialised view can't do this: because a flow is data in a registry — not logic baked into event chains — you can add or remove one while the app runs. (v1's closest equivalent, the `on-changes` interceptor, wires into fixed events at registration time and can't be toggled.)
+**A derivation you can switch on at runtime.** The discount is a feature gate. `:cart/discount-rate` is *not* registered at boot; while it is absent, its path reads nil and `:cart/total` treats it as 0% off. "Apply 10% discount" registers the flow mid-event with the `:rf.fx/reg-flow` effect. "Remove discount" tears it down with `:rf.fx/clear-flow` (which also removes its output from app-db, so the path reads nil again). Because a flow is data in a registry — not logic baked into event chains — you can add or remove one while the app runs. (v1's closest equivalent, the `on-changes` interceptor, wires into fixed events at registration time and can't be toggled.)
 
 Two smaller payoffs come along too, both about how *ordinary* a flow's output is:
 
@@ -43,20 +43,21 @@ Two smaller payoffs come along too, both about how *ordinary* a flow's output is
 
 A flow registered mid-event does not compute during *that* event. Effects run after the event's flow pass is already done, so a freshly-registered flow produces its first output only on the **next** drain.
 
-The discount handlers solve this with a small trick from the spec's `:wizard/settle` pattern. Right after registering (or clearing) the discount flow, they `[:dispatch [:cart/touch]]`. `:cart/touch` is a no-op — `(fn [{:keys [db]} _] {:db db})`, it writes nothing. Its only job is to cause a drain, so the flows re-run with the just-changed flow now visible, and the discounted total appears. The toggle is the registration; the no-op is the nudge that makes it show up.
+The discount handlers solve this with a small trick from the spec's `:wizard/settle` pattern. Right after registering (or clearing) the discount flow, they `[:dispatch [:cart/touch]]`. `:cart/touch` is a no-op — `(fn [{:keys [db]} _] {:db db})`, it writes nothing. Its only job is to cause a drain, so the flows re-run with the just-changed flow now visible, and the new total appears. The toggle is the registration; the no-op is the nudge that makes it show up.
 
 ## Files
 
 ```
 flows/
   core.cljs    — :cart slice, the three flows, demo events,
-                 view, mount.
+                 subs, view, mount.
   index.html   — minimal host page.
 ```
 
 ## How to run
 
 ```bash
+# From implementation/:
 shadow-cljs watch examples/flows
 ```
 

@@ -49,9 +49,9 @@ per-request, and the wire payload stays minimal.
   concurrent renders are two isolated caches that can't see each other.
   It's the same frame isolation that powers tests and stories — here it
   buys the privacy you most need when rendering many users' pages in one
-  JVM. `handle-request` (`:clj`) mints the frame, dispatches
-  `:rf/server-init`, renders, and tears the frame down in a `finally` on
-  **every** exit path — success or throw, no leak.
+  JVM. `handle-request` (`:clj`) mints the frame — its `:initial-events`
+  fire `:rf/server-init` — renders, and tears the frame down in a
+  `finally` on **every** exit path — success or throw, no leak.
 
 - **Block on the preload, so the render never sees a skeleton.** A
   resource is normally async: ask for it, get a `:loading` view-model,
@@ -85,9 +85,11 @@ per-request, and the wire payload stays minimal.
   so shipping them would just be sending data you're about to rebuild.
   Host handles never serialize. The
   [app-db](../../../../docs/core/glossary.md#app-db) slice rides the same
-  fail-closed allowlist (`apply-policy`) the real Ring host uses — empty
-  here, because on this page *the resource is the state* and app-db
-  carries nothing of its own.
+  fail-closed policy (`apply-policy`) the real Ring host uses. It ships
+  `{}` here — on this page *the resource is the state* and app-db carries
+  nothing of its own — but fail-closed means even "send nothing" must be
+  said out loud, so the code opts in with `:rf.ssr.payload/whole-app-db`
+  rather than passing an empty allowlist (which would throw).
 
 - **No double-fetch on the client — the payoff.** On the browser side the
   framework's `:rf/hydrate` installs the projection into the client
@@ -135,7 +137,8 @@ likewise bakes a plain SSR payload into *its* `index.html`.
 
 - **Mutation with invalidation** — the next phase. No
   [mutation](../../../../docs/resources/glossary.md#mutation) example is
-  built; see [`../resources/README.md`](../../resources/resources/README.md).
+  built; see
+  [`examples/capabilities/resources/resources/`](../../resources/resources/README.md).
 - **GraphQL** — a deferred later phase.
   [`:rf.http/managed`](../../../../docs/resources/glossary.md#managed-http)
   is the single built-in transport. No GraphQL example is built.

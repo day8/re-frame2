@@ -38,7 +38,7 @@ The whole point fits in four facts, all in one small app.
 - **The write shows immediately — and the view never touches the data.** Each
   [mutation](../../../../docs/resources/glossary.md#mutation) declares an
   **`:optimistic`** forward patch: `(fn [params] -> {target patch-fn})`. It's the
-  exact-target twin of a resource's `:patches`. That patch runs *before* the
+  exact-target twin of a mutation's success-time `:patches`. That patch runs *before* the
   request is sent, so the new card appears, or the title changes, or the card
   jumps columns the instant the user acts. The
   [view](../../../../docs/core/glossary.md#view) does **not** change state to make
@@ -69,7 +69,8 @@ The whole point fits in four facts, all in one small app.
   Tick it, then create or retitle or move a card. The optimistic change paints
   instantly, the request fails, and the runtime snaps the board back to exactly
   its pre-click state. The new card **vanishes**, the retitled card **reverts**,
-  the moved card **jumps back** — and the card wears a "failed — reverted" badge.
+  the moved card **jumps back** — and the retitled or moved card wears a
+  "failed — reverted" badge.
   No manual undo, no app-db bookkeeping, no flag you forgot to reset.
 
 The board is read passively through the resource sub `[:rf.resource/data …]`.
@@ -120,9 +121,9 @@ one transport every read and write lowers onto — with a small canned stub. The
 stub holds the canonical board in a closure (it *is* the demo server) and builds
 the authoritative reply for each read and write, delegating to the
 framework-shipped `:rf.http/managed-canned-success` / `-failure`
-([Spec 014 §Testing](../../../../spec/014-HTTPRequests.md)). It delays each reply by a
+([Spec 014 §Testing](../../../../spec/014-HTTPRequests.md#testing)). It delays each reply by a
 small `:after-ms`, so the optimistic value is *visibly* painted before the reply
-lands. That delay rides the framework's `:dispatch-later` (tape-visible and
+lands. That delay rides the framework's `:dispatch-later` (trace-visible and
 time-travel-safe, **not** a raw `js/setTimeout`), so even the demo's fake latency
 plays by the rules. The **fail-next-write** flag is read from app-db at request
 time: when armed, the next *write* answers a `503` (driving the rollback) and then
@@ -143,6 +144,7 @@ linearlite/
 ## How to run
 
 ```bash
+# From implementation/:
 shadow-cljs watch examples/linearlite
 ```
 
