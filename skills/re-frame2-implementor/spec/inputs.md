@@ -50,7 +50,7 @@ These shape the skill's discipline but aren't quoted directly.
 - **`skills/re-frame2/SKILL.md`** + reference leaves — the canonical example of the authoring pattern. Voice, structure, "cardinal rules" framing all mirror this skill.
 - **`skills/re-frame2-setup/`** — distribution-metadata triad (`LICENSE`, `package.json`, `.claude-plugin/plugin.json`) and README shape.
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table; this skill's audience is "Section 2 — Implementing the spec".
-- **`docs/the-mayor-method.md`** — methodology context for Mike's AI-first framing. Influences the "the engineer runs their builds; the skill teaches them the workflow" framing (Q14 lock).
+- **`docs/the-mayor-method/`** — methodology context for Mike's AI-first framing. Influences the "the engineer runs their builds; the skill teaches them the workflow" framing (Q14 lock).
 
 ## 4. Anthropic skill conventions
 

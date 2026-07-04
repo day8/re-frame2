@@ -56,7 +56,7 @@ bd close <id>         # Complete work
 
 ## Local working files (the `ai/` tree)
 
-Per `docs/the-mayor-method.md`, the `ai/` directory at repo root holds all AI working artefacts. **The whole tree is local-only** (`/ai/` is in `.gitignore`); never `git add` anything under it.
+Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI working artefacts. **The whole tree is local-only** (`/ai/` is in `.gitignore`); never `git add` anything under it.
 
 - **`ai/decisions.md`** — the index of holds awaiting Mike (review gates, operator-run actions, held beads). Surface every gate here; operator-facing state otherwise goes in chat.
 - **`ai/findings/`** — exploratory work, audits, design drafts, research notes. Agents writing findings docs put them here.

@@ -866,7 +866,7 @@ One-shot measurement; not a CI gate. Rerun via
 `node tools/story/bench/bundle-size.cjs` from `implementation/`.
 Companion findings doc (with the full SB9 comparison table and
 sources): `ai/findings/story-bundle-vs-sb9-20260513.md` (local-only
-per `docs/the-mayor-method.md`; the headline numbers and methodology
+per `docs/the-mayor-method/`; the headline numbers and methodology
 are committed here + in the bench script).
 
 ## v1 ship list (high-confidence + must-ships)

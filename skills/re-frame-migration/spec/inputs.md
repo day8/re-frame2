@@ -30,7 +30,7 @@ These shape the skill's discipline but aren't quoted directly.
 - **The four-pillar design rationale + Q14 lock** — inherited from the `re-frame2` skill family (the leaf-loading shape, the four pillars, and the Q14 lock — refined for this skill so it never *executes* builds/tests/smoke yet does teach + gate "done" on a read-only boot smoke-test; see [`design.md` §L3](design.md)). The original derivation lived in a local-only `ai/findings/` exploration doc (gitignored, not in-repo); the pillars and the refined Q14 lock are reproduced in full in [`design.md` §2 and §3 (L3)](design.md) so this `spec/` folder is self-contained.
 - **`skills/re-frame2/SKILL.md`** + **`skills/re-frame2/references/**`** — the canonical example of the authoring pattern. Voice, structure, density, "load-bearing-rules" style all mirror this skill.
 - **`skills/re-frame2-setup/SKILL.md`** + **`skills/re-frame2-setup/references/**`** — the closest structural analogue. Per-build-tool detail, the `LICENSE`/`package.json`/`.claude-plugin/plugin.json` triad, the README shape.
-- **`docs/the-mayor-method.md`** — the methodology context for how Mike works with AI. Influences the "the user runs their tests; the skill teaches them what's likely to break" framing (Q14 lock).
+- **`docs/the-mayor-method/`** — the methodology context for how Mike works with AI. Influences the "the user runs their tests; the skill teaches them what's likely to break" framing (Q14 lock).
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for AI skills. The migration skill references it as the place for full-API URLs and EP design rationale (rather than duplicating URLs in the leaves).
 
 ## 4. Anthropic skill conventions

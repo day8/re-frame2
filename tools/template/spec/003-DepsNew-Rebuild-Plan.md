@@ -38,7 +38,7 @@ on Clojars (publish pipeline wired via clein). Per Mike's lock
 The full audit — current template inventory, deps-new vs clj-new
 comparison, risk list — lives in the worker-local findings note
 `ai/findings/2026-05-20-rf2-dolpf-template-deps-new-audit.md`
-(local-only per `docs/the-mayor-method.md`).
+(local-only per `docs/the-mayor-method/`).
 
 ## §1 Final shape (steady state, post-migration)
 
