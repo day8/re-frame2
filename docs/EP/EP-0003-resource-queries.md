@@ -164,7 +164,8 @@ bookkeeping. It should also define timer policy for stale/GC behavior and
 resolve background-refresh error semantics up front. GraphQL read transport is
 explicitly out of the initial scope and is sketched in
 [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase) as a follow-on
-once the HTTP core lands.
+that fires when a concrete consumer needs a query-language transport (not merely
+once the HTTP core lands).
 
 Two distinctions are important enough to be part of the first specification:
 
@@ -1118,7 +1119,8 @@ First public-beta gate (landed):
 Later slices:
 
 - GraphQL read transport (`:rf.graphql/query`) and GraphQL mutations — the first
-  follow-on phase once the HTTP core lands (see
+  follow-on phase, fired when a concrete consumer needs a query-language
+  transport rather than merely once the HTTP core lands (see
   [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase));
 - optimistic rollback;
 - generic transport extension protocol;
@@ -2488,13 +2490,19 @@ read mechanics.
 ## Deferred: GraphQL (later phase)
 
 GraphQL is **out of the initial HTTP-only scope** and is a deferred follow-on
-phase, scheduled as the first transport extension once the HTTP core (the
-read-resource MVP plus the HTTP mutation slice) has landed. This section
-consolidates the GraphQL rationale, transport shape, and examples so the design
-reads as "HTTP now, GraphQL later" rather than treating GraphQL as erased.
+phase. It is the first transport extension, but its **fires-when trigger is
+consumer-driven**, not a milestone proxy: the phase fires when a real in-corpus
+example or consumer app needs a query-language transport — when the managed
+`:rf.http/managed` request/reply surface is measurably insufficient for a
+concrete consumer's read/write. The HTTP core having landed makes the phase
+*possible* but does not make it *due*; infrastructure readiness is not demand.
+This section consolidates the GraphQL rationale, transport shape, and examples so
+the design reads as "HTTP now, GraphQL when a consumer needs it" rather than
+treating GraphQL as erased.
 
 The analysis below is retained, not normative for the initial scope. None of it
-ships until the HTTP core is stable.
+ships until a concrete consumer demonstrates the need (and the HTTP core is
+stable enough to extend).
 
 ### Why GraphQL Is Deferred (Not Dropped)
 
@@ -3245,7 +3253,8 @@ re-frame2 runtime process.
 8. Should GraphQL be part of the initial scope, or deferred to a later phase?
    Recommendation: defer GraphQL. The initial scope is HTTP-only over managed
    HTTP; the GraphQL read transport (`:rf.graphql/query`) is the first follow-on
-   phase once the HTTP core lands, ahead of the generic transport extension
+   phase, firing when a concrete consumer needs a query-language transport (not
+   merely once the HTTP core lands), ahead of the generic transport extension
    protocol. See [Deferred: GraphQL (later phase)](#deferred-graphql-later-phase).
 9. What is the cache scope shape?
    Recommendation: make scope explicit EDN and the first element of the resource
@@ -3356,7 +3365,8 @@ Acceptance review should therefore see this coupling as **already resolved on
 main**: this amendment cites both landed prerequisites rather than waiting on
 them.
 
-Deferred GraphQL-phase beads (after the HTTP core lands):
+Deferred GraphQL-phase beads (filed when a concrete consumer needs a
+query-language transport, not merely after the HTTP core lands):
 
 - GraphQL transport bead: `:rf.graphql/query`, operation metadata, variables,
   partial-success policy, SSR hydration, trace summaries, and parity with the
