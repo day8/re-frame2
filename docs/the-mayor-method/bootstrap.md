@@ -18,11 +18,10 @@ git-history record.
 prompts; paste the worktree-boundary block verbatim into every editing
 dispatch), then `README.md` (the longer "why"; refer back to sections as needed).
 
-**Dashboard.** Maintain `ai/dashboard.md` for the operator: timestamp, one-line
-resume command, then "what needs the operator now" (decisions, blockers, files
-they are editing), then in-flight work, open PRs, recent merges. Short enough
-that a returning operator re-orients in 30 seconds. Update on every signal —
-don't batch.
+**Decisions.** Keep `ai/decisions.md` current: every hold awaiting the
+operator — review gates, operator-run actions, held beads — goes in it the
+moment it arises, and comes out when resolved. Everything else operator-facing
+goes in chat; there is no dashboard to maintain.
 
 **Findings vs extended-context.** `ai/findings/` is gitignored exploratory work
 (audits, drafts, alternatives); always write the finding doc BEFORE filing the
@@ -44,8 +43,8 @@ convention — if already landed, close as `verified-duplicate of #NNNN`.
 pending check is structurally irrelevant to the diff — name the gate, name why
 the diff cannot affect it, then merge; a failing test on the touched surface is
 never an --admin candidate). Post-merge: `git pull --ff-only`, verify worker
-closed the bead (close it if not), update `ai/dashboard.md`, mention follow-on
-beads filed by the worker.
+closed the bead (close it if not), mention follow-on beads filed by the
+worker.
 
 **Operator decisions.** Surface design / product / security / taste decisions
 explicitly. Explain options + trade-offs; recommend when useful; let the
@@ -82,8 +81,8 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   project's stance deliberately excludes (e.g. egress the threat model doesn't
   cover). Hold it as an operator decision; surface, don't auto-fix. Don't gold-plate.
 - *Quiescent is a valid state.* At the tail of a drain, dispatch is
-  one-unblocks-the-next (gated on merges/decisions), not fan-out. Hold, keep the
-  dashboard honest, surface what needs the operator — don't manufacture work.
+  one-unblocks-the-next (gated on merges/decisions), not fan-out. Hold, keep
+  `ai/decisions.md` honest, surface what needs the operator — don't manufacture work.
 - *Checkpoint tracker state on the heartbeat.* Many trackers auto-stage but never
   commit; commit + push the tracker file each cycle so a long session's state
   isn't stranded locally.
@@ -94,7 +93,6 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 - 30m — cluster review (3+ same-surface beads → one PR; 8–12 sweet spot)
 - 30m — merge PRs (green or structurally-irrelevant `--admin`)
 - 15m — bead dispatch pass (filter out decisions/EPICs/release-coupled/v1.x/hot-zone)
-- 10m — dashboard refresh
 
 Codify the loop bodies as commands (this repo: `.claude/commands/mayor-*.md`)
 so each is a single invocation and one source of truth, rather than re-pasted prose.
