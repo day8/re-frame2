@@ -165,7 +165,18 @@
     ;; set regardless of the artefact wiring. The JVM companion
     ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
     ;; the parsed catalogue.
-    :rf.error/machine-spawn-unregistered-type})
+    :rf.error/machine-spawn-unregistered-type
+    ;; rf2-fcbrjo: the drain-depth halt graduated `always-on` in the Spec 009
+    ;; catalogue. A runaway / infinite dispatch cascade hitting `:drain-depth`
+    ;; is production-reachable + data-dependent, so before promotion it went
+    ;; SILENT under `goog.DEBUG=false` (the dev trace is DCE'd). It now fans a
+    ;; STRUCTURAL-ONLY NON-EVENT union record (ids / counts / the cycle-evidence
+    ;; ring `:tail-event-ids`) via the `:error-emit/dispatch-error-record` hook
+    ;; so an off-box shipper sees the halt in production. The emit SITE lives in
+    ;; `re-frame.router/handle-depth-exceeded!`; this leg drives the category
+    ;; through `dispatch-error-record!` (the `record-categories` branch below)
+    ;; to prove the listener fan-out.
+    :rf.error/drain-depth-exceeded})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
@@ -187,7 +198,10 @@
     :rf.error/ssr-ring-error-view-failed
     ;; rf2-nv3mua: the direct-dispatch frame-id-mismatch handler guard rides
     ;; the same non-event union-record helper as the malformed-payload guard.
-    :rf.error/hydration-frame-id-mismatch})
+    :rf.error/hydration-frame-id-mismatch
+    ;; rf2-fcbrjo: the drain-depth halt rides the same non-event union-record
+    ;; helper (structural-only: ids / counts / the cycle-evidence ring).
+    :rf.error/drain-depth-exceeded})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on

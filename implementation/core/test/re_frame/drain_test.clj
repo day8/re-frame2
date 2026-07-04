@@ -8,6 +8,7 @@
   Each deftest's docstring cites the specific Spec 002 anchor."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
@@ -20,6 +21,10 @@
   (reset! frame/frames {})
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
+  ;; rf2-fcbrjo: the always-on error-emit listener registry is a `defonce`
+  ;; atom — clear it so an `:errors` listener from one test cannot leak into
+  ;; the next (the drain-depth always-on assertion below registers one).
+  (error-emit/clear-error-listeners!)
   (rf/init! plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
@@ -539,4 +544,64 @@
             ":rollback? false — per rf2-nj6p7 there is no whole-drain rollback"))
 
       (rf/unregister-listener! :trace ::iso))))
+
+;; ---- rf2-fcbrjo: drain-depth-exceeded is ALWAYS-ON + carries cycle evidence
+
+(deftest drain-depth-exceeded-fans-out-on-the-always-on-axis-with-cycle-evidence
+  ;; rf2-fcbrjo — the production halt must be VISIBLE. Before promotion the
+  ;; drain-depth halt rode ONLY the dev trace surface (`:trace` listeners /
+  ;; `trace/emit-error!`), which Closure DCEs under `goog.DEBUG=false`, so a
+  ;; production build shipped NOTHING when a runaway drain halted. This pins
+  ;; the promotion: the halt ALSO fans a STRUCTURAL-ONLY record out through the
+  ;; ALWAYS-ON error-emit axis (`rf/register-listener! :errors`, surface #4 —
+  ;; production-survivable, NOT gated on `interop/debug-enabled?`), carrying
+  ;; the CYCLE EVIDENCE (`:tail-event-ids`, the last K settled event-ids — the
+  ;; repeating suffix IS the runaway cycle).
+  (testing "a runaway drain fans a structural always-on record with cycle evidence"
+    (let [records (atom [])]
+      ;; The ALWAYS-ON listener — NOT the dev `:trace` stream. This is the
+      ;; surface that survives production.
+      (rf/register-listener! :errors ::depth-always-on
+                             (fn [rec] (swap! records conj rec)))
+      (rf/reg-frame :drain.always-on/loop {:drain-depth 6})
+      ;; A two-event cycle: :ping → :pong → :ping → … so the tail ring shows a
+      ;; repeating suffix (the cycle evidence), not just one repeated id.
+      (rf/reg-event :ping (fn [_ _] {:fx [[:dispatch [:pong]]]}))
+      (rf/reg-event :pong (fn [_ _] {:fx [[:dispatch [:ping]]]}))
+      (rf/dispatch-sync [:ping] {:frame :drain.always-on/loop})
+      (rf/unregister-listener! :errors ::depth-always-on)
+      (let [rec (some (fn [r]
+                        (when (= :rf.error/drain-depth-exceeded (:error r)) r))
+                      @records)]
+        (is (some? rec)
+            "the drain-depth halt fanned out on the ALWAYS-ON error axis")
+        (when rec
+          ;; --- structural fields
+          (is (= :drain.always-on/loop (:frame rec))
+              ":frame identifies the overflowing frame")
+          (is (= 6 (:depth rec)) ":depth equals the frame's :drain-depth")
+          (is (number? (:queue-size rec)) ":queue-size is a count")
+          (is (false? (:rollback? rec))
+              ":rollback? false — no whole-drain rollback under per-event epochs")
+          (is (= :no-recovery (:recovery rec)) ":recovery is :no-recovery")
+          ;; --- CYCLE EVIDENCE: the tail ring of settled event-ids.
+          (is (vector? (:tail-event-ids rec))
+              ":tail-event-ids is the cycle-evidence ring (a vector)")
+          (is (seq (:tail-event-ids rec))
+              ":tail-event-ids is non-empty (events settled before the halt)")
+          (is (every? #{:ping :pong} (:tail-event-ids rec))
+              ":tail-event-ids carries the cycle's event-ids (ids only, no args)")
+          ;; The repeating suffix names the cycle: the last two settled ids are
+          ;; the two members of the ping↔pong loop.
+          (is (= #{:ping :pong} (set (take-last 2 (:tail-event-ids rec))))
+              "the repeating suffix IS the runaway cycle (both members present)")
+          (is (contains? #{:ping :pong} (:last-event-id rec))
+              ":last-event-id is the id of the most-recently-settled event")
+          ;; --- STRUCTURAL-ONLY: the always-on record must NOT drag the dev-only
+          ;; prose / full-vector slots (the elision discipline — those ride the
+          ;; DCE'd dev trace, not this production-surviving axis).
+          (is (not (contains? rec :reason))
+              "the always-on record carries NO :reason prose (dev-trace only)")
+          (is (not (contains? rec :last-event))
+              "the always-on record carries NO :last-event vector (dev-trace only)"))))))
 

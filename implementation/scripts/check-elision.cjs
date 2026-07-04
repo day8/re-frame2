@@ -558,7 +558,20 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.routing.classification/advise-query-promotion! (direct emit! :advice prose)',
     sentinel: 'stays a STRING in the route slice' },
   { source: 're-frame.machines.lifecycle-fx.traces/emit-destroy-exit-failure! (direct emit-error! :reason prose)',
-    sentinel: 'An :exit action threw during destroy-time cascade' }
+    sentinel: 'An :exit action threw during destroy-time cascade' },
+  // re-frame.router/handle-depth-exceeded! — the drain-depth halt's dev-only
+  // `:reason` prose (rf2-fcbrjo). The halt was PROMOTED to the always-on axis:
+  // the structural record (`error-emit/dispatch-error-record!`, ids/counts/the
+  // cycle-evidence ring only) SURVIVES production, but the rich human `:reason`
+  // built with `(str … (pr-str tail-event-ids))` must NOT. Because
+  // `handle-depth-exceeded!` ALSO makes the live always-on call, it is not a
+  // sole-statement leaf Closure folds on the emit body's nil-return (the exact
+  // rf2-cprm0q / #5107 leak), so the dev-trace `emit-error!` carries an EXPLICIT
+  // `(when interop/debug-enabled? …)` call-site gate. The elision-probe's
+  // `touch-drain-depth!` triggers a real halt so the control build (DEBUG=true)
+  // contains this prose and the production build (DEBUG=false) must elide it.
+  { source: 're-frame.router/handle-depth-exceeded! (drain-depth :reason prose, always-on-promoted)',
+    sentinel: 'likely a dispatch loop. Cycle (last settled ids)' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any
