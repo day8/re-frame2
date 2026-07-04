@@ -208,7 +208,8 @@ A registration-metadata key is **elidable** in production iff it has ZERO produc
 
 | Key(s) | Class | Why |
 |---|---|---|
-| `:doc` | **Elidable** | Pure documentation — surfaced in dev tooling / agent inspection only; never read at runtime, never shipped to off-box observability. |
+| `:doc` | **Elidable** (stored-then-stripped) | Pure documentation — surfaced in dev tooling / agent inspection only; never read at runtime, never shipped to off-box observability. |
+| `:rf.handler/source` (DEBUG-gated source-as-data) | **Elidable at capture** — never stored in production meta | The `pr-str` of the whole macro-captured `(reg-event …)` form, dev-only. Distinct from `:doc`'s stored-then-stripped path: the macro emits `(if debug-enabled? <src> nil)` and the registrar-side merge is gated, so the source bytes AND the keyword's reachability are DCE'd from the `:advanced` + `goog.DEBUG=false` bundle — the slot never enters production public meta at all (JVM always-on). Read via `(rf/handler-meta …)`; a machine guard/action derives the same key from the enclosing spec's internal `:source-code` slot (Spec 005). Never lands in app-db / frame-state — registry-meta only. The elision probe pins its production absence. |
 | `:ns` / `:file` / `:line` / `:column` (auto-captured source coords) | **Elidable from public meta** (Policy A) — but RETAINED on the always-on error-coord registry (Policy B) | Public-meta coords serve dev jump-to-source; the error-emit channel keeps `:ns`/`:file`/`:line` for Sentry-style shippers. |
 | `:sensitive?` / `:large?` | **Retained** | Drive production redaction / egress projection (Spec 015 / [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md)). Production-critical. |
 | `:tags` | **Retained** | Runtime: machine `:tags` → `:fsm/tags` containment subs; resource `:tags` → invalidation. |
@@ -217,12 +218,13 @@ A registration-metadata key is **elidable** in production iff it has ZERO produc
 | resource/mutation runtime keys (`:request`, `:transport`, `:scope`, `:params-schema`, `:stale-after-ms`, `:gc-after-ms`, `:invalidates`, `:populates`, `:patches`) | **Retained** | Runtime behaviour of the Resources artefact (Spec 016). |
 | `:rf/id` + the handler fn | **Retained** | They ARE the registration. |
 
-The elidable set in the CLJS reference is `re-frame.registrar/pure-documentation-keys` — exactly `#{:doc}`, fixed-and-additive by Spec change. The elision probe (`scripts/check-elision.cjs`) pins the `:doc` string's production absence.
+The **stored-then-stripped** elidable set in the CLJS reference is `re-frame.registrar/pure-documentation-keys` — exactly `#{:doc}`, fixed-and-additive by Spec change. `:rf.handler/source` is elidable too (row above) but is NOT a member of that set: it is elided at *capture* (the macro + registrar-side gate emit nothing in production) rather than stored-then-stripped, so there is nothing for the strip set to remove. The elision probe (`scripts/check-elision.cjs`) pins both the `:doc` and the `:rf.handler/source` string's production absence.
 
 | Sink | Dev (`debug-enabled? true`) | Prod (`debug-enabled? false`) |
 |---|---|---|
 | `(rf/handler-meta kind id)` `:ns`/`:file`/`:line`/`:column` | Present (full coord-map) | Absent (stripped — Policy A) |
 | `(rf/handler-meta kind id)` `:doc` | Present (retained for tooling / agent inspection) | Absent (stripped — pure documentation) |
+| `(rf/handler-meta kind id)` `:rf.handler/source` | Present (JVM always; CLJS dev) | Absent (never captured — DCE'd at the macro + registrar gate) |
 | `(rf/handler-meta kind id)` load-bearing keys (`:sensitive?`/`:large?`/`:tags`/`:interceptors`/`:schema`/resource-mutation/`:rf/id`) | Present | Present (RETAINED) |
 | Tight error-record `:source-coord` (Sentry shippers) | Present `{:ns :file :line :column}` | Present `{:ns :file :line}` (no `:column`) |
 
