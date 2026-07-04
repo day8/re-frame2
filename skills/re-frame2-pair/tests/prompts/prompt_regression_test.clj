@@ -391,10 +391,10 @@
 ;;
 ;; wire-size-budget.md must describe the SAME topic-dependent
 ;; subscribe payload slot as streaming-subscriptions.md: `:events` for the
-;; flat topics (epoch/frameless) and `:cascades` for the cascade-bundle
+;; flat topics (epoch/frameless) and `:cascades` for the event-bundle
 ;; topics (trace/fx/error). A host decoding subscribe dedup off the
 ;; size-budget leaf that only knew `:events` would leave trace/fx/error
-;; cascade ticks unexpanded. Mirrors the streaming-subscriptions guard above.
+;; event-bundle ticks unexpanded. Mirrors the streaming-subscriptions guard above.
 
 (deftest wire-size-budget-names-both-subscribe-slots
   (testing "wire-size-budget.md subscribe dedup names both :events and :cascades (rf2-a85bb2 finding 2)"
@@ -403,7 +403,7 @@
         (str "wire-size-budget.md must document the topic-dependent subscribe "
              "payload slot — :events (epoch/frameless) AND :cascades "
              "(trace/fx/error) — not :events alone, or a host will leave "
-             "cascade-bundle dedup ticks unexpanded (rf2-a85bb2)."))))
+             "event-bundle dedup ticks unexpanded (rf2-a85bb2)."))))
 
 ;; Finding 3 — the render-source-coord recipe must NOT tell an agent to pass
 ;; the whole `:render-key` tuple to `handler-meta {kind: "view"}`. The schema
