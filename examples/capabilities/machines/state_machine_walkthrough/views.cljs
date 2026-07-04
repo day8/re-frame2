@@ -93,7 +93,7 @@
           locked-panel []
   [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
-   [:p "Three failed attempts. Contact support to unlock."]])
+   [:p "Too many failed attempts. Contact support to unlock."]])
 
 (rf/reg-view root-view []
   (let [locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]

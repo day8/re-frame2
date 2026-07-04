@@ -581,7 +581,7 @@
           locked-panel []
   [:div.locked {:data-testid "locked-panel"}
    [:h2 "Account locked"]
-   [:p "Three failed attempts. Contact support to unlock."]])
+   [:p "Too many failed attempts. Contact support to unlock."]])
 
 ;; The top-level switch. It reads two tags off the machine and shows one of
 ;; three faces: a welcome when authed, the locked panel when locked, and the
