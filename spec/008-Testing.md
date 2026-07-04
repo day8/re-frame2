@@ -757,20 +757,26 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 
 > Forward-reference normative section (NewTestStory EPIC). The
 > Story-as-test work introduces a variant-plan execution model and a set
-> of low-level evidence tools. The tools below live **at the testing-
-> substrate level**, below Story, and run without the Story UI; Story
-> consumes them but does not own them. The full Story-facing contract —
-> variant plans, the three execution verbs (`run` / `is` / `explain`),
-> `:cannot-run`, composition, the schema floor, and the run-result shape
-> — is normative in
-> [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md).
-> This section states the substrate primitives that contract depends on,
-> kept consistent with the existing 008 surfaces (`re-frame.test-support`
-> / `re-frame.test-helpers` / `compute-sub`). These primitives have
-> landed — `settled-boundary`, the invariant sentinels / `first-bad-epoch`,
-> the run-artifact replay / determinism utilities, and `canonicalize` are
-> all shipped and build on the always-on substrate seams (`dispatch-sync`,
-> the epoch-listener seam, the one epoch tape) named below.
+> of evidence tools. **These tools are Story-owned** — they ship in the
+> `re-frame.story.*` namespaces under `tools/story/src` and their full
+> contract is normative in
+> [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md)
+> (variant plans, the three execution verbs `run` / `is` / `explain`,
+> `:cannot-run`, composition, the schema floor, and the run-result shape).
+> They run headless, without the Story UI, so a plain `clojure.test` /
+> `cljs.test` suite reaches them without mounting a Story — but the code
+> lives in, and is owned by, the Story tool. What lives **below** Story,
+> in `re-frame.core`, is the set of always-on **substrate seams** these
+> tools build on: `dispatch-sync`'s run-to-fixed-point drain, the
+> epoch-listener seam, and the one epoch tape. This section documents that
+> Story-facing surface from the 008 side because it is the general
+> testing-substrate counterpart of the 008 helpers
+> (`re-frame.test-support` / `re-frame.test-helpers` / `compute-sub`) — it
+> describes the tools, it does not relocate their ownership. These
+> primitives have landed — `settled-boundary`, the invariant sentinels /
+> `first-bad-epoch`, the run-artifact replay / determinism utilities, and
+> `canonicalize` are all shipped in `re-frame.story.*` and build on the
+> substrate seams named above.
 
 ### `settled-boundary`
 
@@ -819,12 +825,13 @@ below).
 
 ### Invariant sentinels and first-bad-epoch
 
-The testing substrate SHOULD add two evidence utilities over committed
-epochs:
+Story adds two evidence utilities over committed epochs (shipped in
+`re-frame.story.invariants`, building on the epoch-listener seam this
+Spec provides):
 
 ```clojure
-(test/with-invariants [invariant-spec ...] body...)
-(test/first-bad-epoch epoch-tape invariant)
+(with-invariants [invariant-spec ...] body...)
+(first-bad-epoch epoch-tape invariant)
 ```
 
 Invariants run after each committed epoch (via the existing epoch-listener
@@ -836,12 +843,15 @@ event, db-diff, and trace events), or `nil`.
 
 ### Run-artifact replay and determinism gate
 
-The testing substrate SHOULD add three pure-over-evidence utilities:
+Story adds three pure-over-evidence utilities (shipped across
+`re-frame.story.artifact` / `re-frame.story.determinism` /
+`re-frame.story.diff`, consuming the Story play-runner and the one epoch
+tape):
 
 ```clojure
-(test/replay-run-artifact   artifact opts)
-(test/assert-deterministic  plan-or-artifact opts)   ; N fresh runs, compared via canonicalize
-(test/diff-run-artifacts    baseline current opts)
+(replay-run-artifact   artifact opts)
+(assert-deterministic  plan-or-artifact opts)   ; N fresh runs, compared via canonicalize
+(diff-run-artifacts    baseline current opts)
 ```
 
 A **run artifact** is the low-level evidence emitted by generated tests,

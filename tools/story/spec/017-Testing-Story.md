@@ -2455,12 +2455,18 @@ slot is what makes the round-trip succeed (§Run artifact and replay).
 
 ## Unit and integration testing adjustments
 
-The general testing-substrate counterpart of these additions
-(inline-plan execution surface, invariant sentinels, first-bad-epoch,
-run-artifact replay/determinism, and the cookbook) is owned by
+These additions (inline-plan execution surface, invariant sentinels,
+first-bad-epoch, run-artifact replay/determinism, and the cookbook) are
+**Story-owned** — they ship in the `re-frame.story.*` namespaces and are
+normative here in 017.
 [`spec/008-Testing.md`](../../../spec/008-Testing.md) §Story plan
-execution surface and evidence tools — those tools live **below** Story
-and run without the Story UI. Story consumes them; it does not own them.
+execution surface and evidence tools documents them from the general
+testing-substrate side, as the counterpart of the 008 helpers, and
+cross-links back here for the owning contract. What lives **below** Story
+is the set of always-on substrate seams these tools build on
+(`dispatch-sync`'s drain, the epoch-listener seam, the one epoch tape);
+the tools themselves run headless — without the Story UI — but the code
+is owned by the Story tool.
 
 Equivalent inline plans and registered variants SHOULD be testable as a
 **metamorphic relation**: when they describe the same behaviour and
