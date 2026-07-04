@@ -134,6 +134,81 @@
           beat (th/find-by-attr tree :data-test "story-evidence-beat")]
       (is (= "true" (get (second beat) :data-selected))))))
 
+;; ---- rf2-2b3ael: per-row data-selected highlight (multi-beat) ----------
+;;
+;; 015-Test-Coverage.md:186 owes the fuller `data-selected` DOM assertion
+;; the retired trace-scrubber cascade rows carried: scrubbing to an epoch
+;; sets `data-selected="true"` on the producing row while NON-selected rows
+;; carry `data-selected="false"`. The scrubber panel is retired (Xray owns
+;; the ribbon), but the evidence-spine `beat-row` is Story's live
+;; selectable-row surface and carries exactly that `data-selected` attr,
+;; driven by the pure `select-beat!` / `selected-beat-idx` state. The
+;; single-beat `select-beat-highlights-the-beat` above proves the positive
+;; half; a two-beat narrative is needed to prove the NEGATIVE half (siblings
+;; are "false") and the round-trip (re-select moves the highlight).
+
+(def ^:private two-beat-narrative
+  ;; Two committed dispatch beats → flattened beat-idx 0 and 1 in tape
+  ;; order (narrative-beats assigns a flat 0-based index across spans).
+  [{:step [:dispatch [:counter/inc]]
+    :epochs [{:epoch-id 100 :dispatch-id 100 :trigger-event [:counter/inc]
+              :db-before {:count 0} :db-after {:count 1}
+              :effects [{:fx-id :db}] :sub-runs [] :renders []
+              :trace-events []}]}
+   {:step [:dispatch [:counter/inc]]
+    :epochs [{:epoch-id 101 :dispatch-id 101 :trigger-event [:counter/inc]
+              :db-before {:count 1} :db-after {:count 2}
+              :effects [{:fx-id :db}] :sub-runs [] :renders []
+              :trace-events []}]}])
+
+(defn- seed-two-beat! [variant-id]
+  (swap! test-state/results-atom assoc variant-id
+         {:result {:status :pass :narrative two-beat-narrative}}))
+
+(deftest data-selected-true-on-producing-row-false-on-others
+  (testing "scrubbing to a beat sets data-selected=true on that beat's row
+            and data-selected=false on every other beat row (rf2-2b3ael —
+            the producing-row highlight contract)"
+    (reg-counter!)
+    (state/swap-state! state/select-variant :story.evidence/basic)
+    (seed-two-beat! :story.evidence/basic)
+    ;; Select the FIRST beat (idx 0).
+    (spine/select-beat! :story.evidence/basic 0)
+    (let [tree  (render-panel)
+          beats (th/find-all-by-attr tree :data-test "story-evidence-beat")
+          sel   (mapv #(get (second %) :data-selected) beats)]
+      (is (= 2 (count beats)) "both committed beats render as rows")
+      (is (= ["true" "false"] sel)
+          (str "the selected producing row is data-selected=true and the "
+               "sibling is false; got " (pr-str sel))))))
+
+(deftest data-selected-round-trip-moves-the-highlight
+  (testing "re-selecting a different beat moves the data-selected=true marker
+            to the newly-selected row (rf2-2b3ael — the scrub round-trip)"
+    (reg-counter!)
+    (state/swap-state! state/select-variant :story.evidence/basic)
+    (seed-two-beat! :story.evidence/basic)
+    ;; Now select the SECOND beat (idx 1) — the highlight must move.
+    (spine/select-beat! :story.evidence/basic 1)
+    (let [tree  (render-panel)
+          beats (th/find-all-by-attr tree :data-test "story-evidence-beat")
+          sel   (mapv #(get (second %) :data-selected) beats)]
+      (is (= ["false" "true"] sel)
+          (str "the highlight moved to the second row; got " (pr-str sel))))))
+
+(deftest no-selection-leaves-every-row-unselected
+  (testing "with no beat selected every row carries data-selected=false —
+            the scrub-on-load default (no producing row highlighted)"
+    (reg-counter!)
+    (state/swap-state! state/select-variant :story.evidence/basic)
+    (seed-two-beat! :story.evidence/basic)
+    ;; selection-atom is reset by the fixture — no select-beat! call.
+    (let [tree  (render-panel)
+          beats (th/find-all-by-attr tree :data-test "story-evidence-beat")
+          sel   (mapv #(get (second %) :data-selected) beats)]
+      (is (= ["false" "false"] sel)
+          (str "no row is highlighted before a scrub; got " (pr-str sel))))))
+
 (deftest row-to-beat-index-then-select
   (testing "a result row resolved to a beat index drives the spine selection
             (the spec/021 §2 linkage end to end)"
