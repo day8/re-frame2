@@ -2638,7 +2638,7 @@ filter wins). Don't do this — but the substrate doesn't refuse it.
 ### Event-bundle wire format (rf2-mscih)
 
 On the event-bundle topics (`:trace`, `:fx`, `:error`) every
-progress payload's `:cascades` slot is a vector of event bundles
+progress payload's `:event-bundles` slot is a vector of event bundles
 keyed by `:dispatch-id`. Each bundle matches the framework's
 `(rf/trace-buffer frame-id)` shape per [spec/009 §Event-bundle projection](../../../spec/009-Instrumentation.md#event-bundle-projection-group-by-event--domino-bucket)
 and [Tool-Pair.md §Reading the per-frame trace ring](../../../spec/Tool-Pair.md#reading-the-per-frame-trace-ring--event-bundles--flat-opt-in):
@@ -2831,7 +2831,7 @@ While the subscription is open, each non-empty batch tick emits
   "params": {
     "progressToken": "<token>",  // echoed from the call's _meta
     "progress": <tick-number>,   // monotonic, 1-based
-    "message": "{:sub-id \"...\" :cascades [...] :dropped-events 0 :dropped-bytes 0}",
+    "message": "{:sub-id \"...\" :event-bundles [...] :dropped-events 0 :dropped-bytes 0}",
     "_meta": {
       "data": {
         "dropped-events": 0,                    // events evicted this tick
@@ -2847,7 +2847,7 @@ While the subscription is open, each non-empty batch tick emits
 same shape the runtime's `drain-subscription!` returns. The
 payload-slot name reflects the topic's wire shape (rf2-mscih):
 
-- `:cascades` — vector of event bundles, on event-bundle topics
+- `:event-bundles` — vector of event bundles, on event-bundle topics
   (`:trace` / `:fx` / `:error`). See §Event-bundle wire format above.
 - `:events` — flat vector, on `:epoch` (one `:rf/epoch-record` per
   entry) and `:frameless` (one trace event per entry).

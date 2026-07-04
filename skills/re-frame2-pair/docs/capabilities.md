@@ -40,7 +40,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Inspect the live sub cache | *done* | `list-subscriptions` (and `snapshot`'s `:sub-cache` slice) return the per-frame materialised cache `{query-v {:value v :ref-count n}}` (CLJS-only) |
 | Show subs that re-ran for one epoch | *done* | `:sub-runs` projection per epoch (Spec-Schemas) |
 | Show effects fired for one epoch | *partial* | `:effects` projection captures warning/error outcomes; successful-fx attribution requires walking `:trace-events` |
-| Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; the `:cascades` bundle on the `subscribe` trace topics walks the tree |
+| Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; the `:event-bundles` slot on the `subscribe` trace topics walks the tree |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
 | Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is a finalised **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` — resolve coords from `(first render-key)` via `handler-meta {kind: "view"}`, or `read-ui`'s `:source-coord` for anonymous fns (see `references/recipes.md` "Explain this dispatch") |
 | List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `re-frame.machines/machines` / `re-frame.machines/machine-meta` / `rf/snapshot-of` |

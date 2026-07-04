@@ -797,9 +797,9 @@
 ;; merge.
 ;; ---------------------------------------------------------------------------
 
-(deftest drain-form-handles-both-cascade-and-events-slots
+(deftest drain-form-handles-both-event-bundles-and-events-slots
   ;; For a TRACE-event topic (event-bundle `:trace`/`:fx`/
-  ;; `:error` ship `:cascades`; `:frameless` ships `:events`), `drain-form`
+  ;; `:error` ship `:event-bundles`; `:frameless` ships `:events`), `drain-form`
   ;; with elision ON wraps WHICHEVER trace-event slot the runtime produced.
   ;; The walker arm uses `cond->` over slot presence so it's slot-agnostic
   ;; WITHIN the trace-event family; the runtime determines which slot the
@@ -807,8 +807,8 @@
   ;; take a DIFFERENT primitive — `projected-record` — so they are NOT in
   ;; this walker arm; covered by `drain-form-epoch-*` above.)
   (let [form (sub/drain-form "sub-1" :trace true false)]
-    (is (str/includes? form ":cascades")
-        "drain form mentions the :cascades slot for event-bundle topics")
+    (is (str/includes? form ":event-bundles")
+        "drain form mentions the :event-bundles slot for event-bundle topics")
     (is (str/includes? form ":events")
         "drain form mentions the :events slot for the frameless flat topic")
     (is (str/includes? form "contains?")
@@ -816,20 +816,20 @@
     (is (str/includes? form "re-frame.core/elide-wire-value")
         "the walker is applied to whichever trace-event slot is present")))
 
-(deftest progress-payload-uses-cascades-slot-on-event-bundle-topics
+(deftest progress-payload-uses-event-bundles-slot-on-event-bundle-topics
   ;; The progress payload's load slot is named per the
-  ;; topic's wire shape: `:cascades` for event-bundle topics
+  ;; topic's wire shape: `:event-bundles` for event-bundle topics
   ;; (`:trace`/`:fx`/`:error`), `:events` for flat topics
   ;; (`:epoch`/`:frameless`).
-  (testing "the :cascade? flag in tick-state routes the payload to :cascades"
+  (testing "the :cascade? flag in tick-state routes the payload to :event-bundles"
     ;; Pure-data assertion: simulate the slot-selection logic the
     ;; emitter applies.
     (let [cascade? true
-          slot     (if cascade? :cascades :events)]
-      (is (= :cascades slot))))
+          slot     (if cascade? :event-bundles :events)]
+      (is (= :event-bundles slot))))
   (testing "the :cascade? flag false routes the payload to :events"
     (let [cascade? false
-          slot     (if cascade? :cascades :events)]
+          slot     (if cascade? :event-bundles :events)]
       (is (= :events slot)))))
 
 (deftest event-bundle-shape-pins-projection-slots
@@ -915,9 +915,9 @@
                            :dropped-events 0
                            :dropped-bytes  0}]
     (is (contains? frameless-tick :events)
-        ":frameless ticks carry an :events slot, not :cascades")
-    (is (not (contains? frameless-tick :cascades))
-        ":frameless ticks MUST NOT carry a :cascades slot")
+        ":frameless ticks carry an :events slot, not :event-bundles")
+    (is (not (contains? frameless-tick :event-bundles))
+        ":frameless ticks MUST NOT carry an :event-bundles slot")
     (is (every? #(nil? (get-in % [:tags :rf.trace/dispatch-id]))
                 (:events frameless-tick))
         "frameless events MUST carry no :rf.trace/dispatch-id tag")))

@@ -1935,10 +1935,10 @@
    calls do not share state. Use `unsubscribe!` to release.
 
    Topic delivery shape:
-     :trace / :fx / :error — drain returns `:cascades [<bundle> ...]`
+     :trace / :fx / :error — drain returns `:event-bundles [<bundle> ...]`
                              with each bundle in the `(rf/trace-buffer
-                             frame-id)` shape (per Spec 009 §Cascade
-                             projection). One bundle per cascade per
+                             frame-id)` shape (per Spec 009 §Event-bundle
+                             projection). One bundle per event per
                              drain.
      :epoch                — drain returns `:events [<:rf/epoch-record>
                              ...]` unchanged.
@@ -1946,7 +1946,7 @@
                              ...]` for events with no
                              `:rf.trace/dispatch-id` tag (registration
                              emits, REPL evals, lifecycle outside any
-                             cascade)."
+                             run)."
   [{:keys [topic filter max-buffered-events max-buffered-bytes] :as opts}]
   (cond
     (not (contains? #{:trace :epoch :fx :error :frameless} topic))
@@ -1993,7 +1993,7 @@
    Returns one of two envelopes per the sub's topic:
 
    - Event-bundle topics (`:trace`/`:fx`/`:error`):
-     `{:ok? true :sub-id ... :cascades [<bundle> ...] :dropped-events <n>
+     `{:ok? true :sub-id ... :event-bundles [<bundle> ...] :dropped-events <n>
        :dropped-bytes <m> :overflow-reason <kw|nil> :gone? bool}`
      — queued raw events are grouped by `:rf.trace/dispatch-id` and
      projected into event bundles (`group-by-event` shape with a
@@ -2051,7 +2051,7 @@
           ;; so `event-bundle-events`'s `:ungrouped`-drop is purely
           ;; defensive.
           (contains? #{:trace :fx :error} topic)
-          (assoc base :cascades (event-bundle-events queue))
+          (assoc base :event-bundles (event-bundle-events queue))
 
           ;; Flat delivery — :epoch and :frameless.
           :else

@@ -5,7 +5,7 @@
   re-frame2-pair-mcp's streaming `subscribe` tool ships matched events
   under one of two payload-slots per the sub's topic:
 
-    - `:cascades` — vector of event bundles on `:trace`/`:fx`/`:error`
+    - `:event-bundles` — vector of event bundles on `:trace`/`:fx`/`:error`
                     (event-bundle delivery, rf2-mscih). Each bundle
                     matches `(rf/trace-buffer frame-id)` shape per
                     spec/009 §Event-bundle projection + Tool-Pair §Reading
@@ -23,7 +23,7 @@
        event-bundle slots.
     3. (No source-text pin — the event-bundle SHAPE is the framework's
        `(rf/trace-buffer frame-id)` projection, not a re-frame2-pair-mcp
-       literal. The MCP server walks the drain envelope's `:cascades`
+       literal. The MCP server walks the drain envelope's `:event-bundles`
        slot transparently.)"
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core   :as m]
@@ -84,13 +84,13 @@
    [:parent-dispatch-id {:optional true} :any]])
 
 (def EventBundleVector
-  "A drain tick's `:cascades` slot — a vector of event bundles."
+  "A drain tick's `:event-bundles` slot — a vector of event bundles."
   [:sequential EventBundle])
 
 (def ^:private re-frame2-pair-event-bundle-fixture
   "Canonical event-bundle shape for a single run — what
   `subscribe`'s `:trace`/`:fx`/`:error` topics ship inside the
-  `:cascades` slot per tick (rf2-mscih)."
+  `:event-bundles` slot per tick (rf2-mscih)."
   {:dispatch-id        17
    :frame              :rf/default
    :event              [:cart/add-item {:sku "abc"}]
@@ -188,7 +188,7 @@
                      (assoc re-frame2-pair-event-bundle-fixture
                             :dispatch-id :ungrouped)]]
       (is (not (m/validate EventBundleVector leaky-vec))
-          "a :cascades vector with even one :ungrouped bundle MUST fail")))
+          "an :event-bundles vector with even one :ungrouped bundle MUST fail")))
   (testing "schema ACCEPTS a typed/numeric dispatch id (guard against over-tightening)"
     (is (m/validate EventBundle re-frame2-pair-event-bundle-fixture)
         "the canonical numeric :dispatch-id 17 must still validate")
@@ -198,7 +198,7 @@
         "a keyword dispatch id (not :ungrouped) is application-shaped and accepted")))
 
 ;; rf2-hvn83u (LOW): the former "event-bundle topics ship under
-;; :cascades; frameless under :events" testing block was DROPPED — it
+;; :event-bundles; frameless under :events" testing block was DROPPED — it
 ;; asserted `vector?` / `not contains?` over locally hand-built literal
 ;; maps (`cascade-tick` / `frameless-tick`), which is tautological: the
 ;; values were constructed as vectors / without the key the assertion
