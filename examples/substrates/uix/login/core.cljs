@@ -456,7 +456,7 @@
 (defui locked-panel []
   ($ :div.locked {:data-testid "locked-panel"}
      ($ :h2 "Account locked")
-     ($ :p "Three failed attempts. Contact support to unlock.")))
+     ($ :p "Too many failed attempts. Contact support to unlock.")))
 
 (defui login-banner []
   (let [authed? (uix-adapter/use-subscribe [:rf/machine-has-tag?

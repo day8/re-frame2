@@ -477,7 +477,7 @@
      {:class "locked"
       :data-testid "locked-panel"}
      (d/h2 "Account locked")
-     (d/p "Three failed attempts. Contact support to unlock.")))
+     (d/p "Too many failed attempts. Contact support to unlock.")))
 
 (defnc login-banner []
   (let [authed? (helix-adapter/use-subscribe [:rf/machine-has-tag?
