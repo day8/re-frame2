@@ -290,8 +290,9 @@
     ;; The heart of it — the state that carries :spawn-all. Entering it,
     ;; the runtime seeds the join-state map and spawns a child for each
     ;; entry below. Leaving it — by ANY route, :cancel or :work/all-done
-    ;; alike — fires a single :rf.machine/destroy that reads the join
-    ;; state and clears away every child still standing.
+    ;; alike — runs the exit cascade, which (because :spawn-all is sugar
+    ;; over N :spawns, per spec 005) fires a :rf.machine/destroy per
+    ;; surviving child and clears every one still standing.
     ;;
     ;; The :progress event is just a child checking in. It's an internal
     ;; self-transition that updates :data :progress — and because
@@ -328,8 +329,8 @@
              :work/all-done   {:target :complete  :action :stamp-outcome}
              :work/any-failed {:target :error     :action :stamp-outcome}
              ;; The user pulling the plug. Leaving :working is the part
-             ;; that matters: that exit fires the one :rf.machine/destroy
-             ;; that takes every surviving child with it.
+             ;; that matters: that exit fires a :rf.machine/destroy per
+             ;; surviving child, taking every one of them with it.
              :cancel          {:target :cancelled :action :stamp-outcome}}}
 
     :complete

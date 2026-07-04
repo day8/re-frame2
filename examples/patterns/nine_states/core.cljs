@@ -556,7 +556,7 @@
    ;; form region — the transient Correct / Incorrect acknowledgements
    {:tag :form/success    :render :correct}
    {:tag :form/invalid    :render :incorrect}
-   ;; data region — error first (also transient), then loading, then the
+   ;; data region — loading first, then error (both transient), then the
    ;; resting cardinality buckets
    {:tag :data/loading    :render :loading}
    {:tag :data/error      :render :error}

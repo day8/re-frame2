@@ -35,7 +35,7 @@
             [re-frame.registrar :as registrar]))
 
 ;; ============================================================================
-;; THE TRANSITION TABLE — guide §The same flow as a transition table
+;; THE TRANSITION TABLE — guide §A machine at a glance
 ;; ============================================================================
 ;;
 ;; It's all just data. The `:guards` and `:actions` sit right here in the table,
@@ -140,7 +140,7 @@
      :meta {:terminal? true}}}})
 
 ;; ============================================================================
-;; FX — guide §Composing with async effects
+;; FX — guide §An action returns effects
 ;; ============================================================================
 ;;
 ;; `:auth.session/store` is a stub — it shows you the SHAPE of the effect without

@@ -9,15 +9,18 @@
     (.addEventListener js/window \"popstate\"
       (fn [_] (rf/dispatch [:rf.route/handle-url-change (current-url)])))
 
-  which dispatches the URL-change event WITHOUT a `:frame`, so it lands
-  on `:rf/default`. That is correct only while `:rf/default` owns the
-  URL. When a non-default frame opts into URL binding
+  which dispatches the URL-change event WITHOUT a `:frame`. Under Spec
+  002's no-fallback ladder there is no `:rf/default` floor: a frameless
+  ambient dispatch fails with `:rf.error/no-frame-context` — the runtime
+  never synthesises or selects a default frame. So a hand-rolled listener
+  has to name its target explicitly, and it must name the RIGHT one. When
+  a non-default frame opts into URL binding
   (`(reg-frame :my-frame {:url-bound? true})`, with `:rf/default`
   releasing ownership via `{:url-bound? false}` — the single-non-default
   owner case, rf2-6qgbs.3), the PUSH side correctly routes through that
-  frame (`url-owner-frame-id` gates `:rf.nav/push-url`), but a
-  default-targeted popstate dispatch would update `:rf/default`'s
-  (frozen) slice instead of the owner's — so Back/Forward never restored
+  frame (`url-owner-frame-id` gates `:rf.nav/push-url`), but a popstate
+  dispatch targeted at the wrong (or defaulted) frame would update that
+  frame's slice instead of the owner's — so Back/Forward never restored
   the visible route (rf2-6qgbs.4).
 
   `install-history-listener!` resolves the URL owner AT POP TIME via
