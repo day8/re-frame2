@@ -15,7 +15,7 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
-It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`. See [`CONTRIBUTING.md`](https://github.com/day8/re-frame2/blob/main/CONTRIBUTING.md#skills--link-dont-copy) for the full setup. Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
+It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`. See [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the full setup. Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
 
 The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the **spec-consuming** skills — they point at it for spec-corpus depth and EP rationale. (Two skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, and `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`.)
 
