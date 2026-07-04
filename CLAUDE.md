@@ -56,7 +56,7 @@ bd close <id>         # Complete work
 
 ## Local working files (the `ai/` tree)
 
-Per `docs/the-mayor-method.md`, the `ai/` directory at repo root holds all AI working artefacts. **The whole tree is local-only** (`/ai/` is in `.gitignore`); never `git add` anything under it.
+Per `docs/the-mayor-method/`, the `ai/` directory at repo root holds all AI working artefacts. **The whole tree is local-only** (`/ai/` is in `.gitignore`); never `git add` anything under it.
 
 - **`ai/dashboard.md`** — Mike's personal dashboard listing open beads that need his decision. Categorised by urgency; carries Claude's read on each. Update whenever a decision bead is filed, resolved, or surfaced as pending.
 - **`ai/findings/`** — exploratory work, audits, design drafts, research notes. Agents writing findings docs put them here.

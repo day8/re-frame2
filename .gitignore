@@ -29,7 +29,7 @@ Thumbs.db
 **/.scratch/
 
 # AI working tree (local-only — findings, map, super-prompt playground)
-# Per docs/the-mayor-method.md
+# Per docs/the-mayor-method/
 /ai/
 # Exception: extended-context is durable committed project context (the mayor
 # consults it on bootstrap, contributes on retrospectives) — keep it tracked.

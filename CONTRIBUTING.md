@@ -37,7 +37,7 @@ For now, please use GitHub issues at
 - what you think the right resolution looks like, even if tentative.
 
 Internally we use [beads](https://github.com/gastownhall/beads) for issue
-tracking (see [`docs/the-mayor-method.md`](docs/the-mayor-method.md) for the
+tracking (see [`docs/the-mayor-method/`](docs/the-mayor-method/README.md) for the
 workflow this repo is built with). External contributors do not need to learn
 beads; a GitHub issue is sufficient and will be mirrored into the bead graph
 by a maintainer when appropriate.
