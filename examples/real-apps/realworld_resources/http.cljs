@@ -9,12 +9,15 @@
    `js/setTimeout`) so the runtime's `:loading` state is actually observable and
    the replies stay time-travel-safe.
 
-   Two helpers live here:
+   What lives here:
    - `failure->message` — turn a `:rf.http/*` failure envelope (the shape a
      resource `:error` / `:refresh-error` and a mutation `:error` carry) into a
      human-readable string.
-   - `install-demo-backend!` — register the stub fx and wire it as the
-     `:rf.http/managed` override on the demo frame.
+   - the demo-backend stub fx, `:realworld-resources.demo/http-stub`,
+     registered at namespace load. It routes by URL + method to canned
+     Conduit-shaped replies. `core.cljs` wires it as the `:rf.http/managed`
+     override on the demo frame via `:fx-overrides` — there is no explicit
+     install call to make.
 
    Three ways to point the app at a backend (see the README §Running against a
    real backend):

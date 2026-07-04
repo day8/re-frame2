@@ -1,6 +1,6 @@
 (ns counter.core
   "The smallest possible re-frame2 app: a number and two buttons. One slice
-   of app-db, three event handlers, one subscription, one view, one frame.
+   of app-db, three event handlers, one subscription, two views, one frame.
 
    Small on purpose. With nothing else in the way, you can watch a single
    click make the whole loop turn. The click dispatches an event, a handler

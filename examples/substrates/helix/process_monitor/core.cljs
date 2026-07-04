@@ -1,9 +1,10 @@
 (ns helix.process-monitor.core
   "A terminal-style process monitor, built on Helix. Two panes — a
-   filterable process list on the left, a live log feed on the right — with
-   status tiles across the top. The log pane gains a fresh line every couple
-   of seconds with nobody touching it, which is the fun part: it proves this
-   is a real reactive loop, not a screenshot.
+   selectable process list on the left (click a process to filter the logs
+   to it), a live log feed on the right — with status tiles across the top.
+   The log pane gains a fresh line every couple of seconds with nobody
+   touching it, which is the fun part: it proves this is a real reactive
+   loop, not a screenshot.
 
    Four things worth watching:
 

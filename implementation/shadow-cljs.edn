@@ -883,8 +883,8 @@
   ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
   ;;
   ;; The `:init-fn` is the gate-owned entrypoint
-  ;; `counter-slim-and-fast.bundle-isolation-entry/run` — NOT the teaching
-  ;; `counter-slim-and-fast.core/run`. The entry boots the same app and
+  ;; `reagent-slim.counter.bundle-isolation-entry/run` — NOT the teaching
+  ;; `reagent-slim.counter.core/run`. The entry boots the same app and
   ;; additionally exercises the pure-CLJS `render-to-static-markup` path so
   ;; Contract 4 (S3-005 non-vacuity) has signal; keeping the fixture behind
   ;; this entry leaves the teaching `core` namespace free of harness plumbing
@@ -1454,9 +1454,10 @@
   ;; core.cljc's :clj-side `handle-request` would stream chunk-by-
   ;; chunk via `re-frame.ssr.ring/stream-handler`. The CLJS branch
   ;; reads the inline __rf_payload and dispatches :rf/hydrate against
-  ;; the seeded app-db (the streaming-runtime client shim is a
-  ;; future host-opt-in; the worked example demonstrates the JVM-
-  ;; side primitive shape).
+  ;; the seeded app-db, then installs the streaming-runtime client
+  ;; shim (`ssr/streaming-install!`, called in `run`) — the shim ships
+  ;; and the example wires it up, so both the JVM-side primitive shape
+  ;; and the client-side reveal path are exercised end-to-end.
   :examples/ssr-streaming
   {:target     :browser
    :output-dir "out/examples/ssr-streaming"

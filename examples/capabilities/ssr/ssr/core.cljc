@@ -34,8 +34,11 @@
      ../../../docs/ssr/glossary.md#hydration-mismatch.
 
    Want to see it live? The hand-written `index.html` beside this file is a
-   frozen snapshot of exactly what `handle-request` below produces: the
-   pre-rendered markup sits in `<div id='app'>`, and the baked
+   runnable stand-in for what `handle-request` below would emit if a real
+   Clojure server sat in front — close in shape, but hand-authored, not
+   byte-exact (it deliberately omits the render-hash attribute + payload key
+   a genuine server stamps; see the comment in index.html). The pre-rendered
+   markup sits in `<div id='app'>`, and the baked
    `<script id='__rf_payload'>` carries the state. The browser-side `run`
    reads that payload, hydrates, verifies, and renders on top of the seeded
    state — no flash, no re-fetch."

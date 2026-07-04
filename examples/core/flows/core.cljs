@@ -161,8 +161,9 @@
 
 (rf/reg-event :cart/remove-discount
   {:doc "Disengage the feature gate. `:rf.fx/clear-flow` removes the flow and
-         resets its [:cart :discount-rate] output to nil, so :cart/total
-         climbs back to full price on the next walk."}
+         `dissoc-in`s its [:cart :discount-rate] output path (per spec 013 —
+         the key is removed, not set to nil), so :cart/total climbs back to
+         full price on the next walk."}
   (fn handler-cart-remove-discount [_ _]
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]
           [:dispatch [:cart/touch]]]}))

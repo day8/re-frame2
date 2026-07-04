@@ -28,7 +28,7 @@
    - Cycles (A1 → B1 → A1) caught by a visited-set walk, not a stack overflow
    - Bad arithmetic turned into typed error markers — the evaluator never throws
    - A sparse cell registry: only edited cells take up space
-   - A pure parser + evaluator — no `eval`, no host I/O, runs anywhere
+   - A pure parser + evaluator — no `eval`, no DOM, easy to unit-test
 
    The formula language is a tiny parenthesised calculator: numbers, cell refs
    (A1..Z100), and `+ - * /`, all written prefix inside `()`."
@@ -105,8 +105,9 @@
 ;; A formula is a string like '=(+ A1 (* B2 3))'. Turning that into an answer
 ;; is two steps: parse the text into an AST, then walk the AST computing a
 ;; number. Everything here is a pure function — no `eval`, no DOM, no surprises
-;; — so it runs just as happily on the JVM in a unit test as it does in the
-;; browser.
+;; — so it's trivial to unit-test in isolation. (The numeric parse leans on
+;; `js/parseFloat` / `js/isNaN`, so this particular file is CLJS-only; the
+;; parse/eval shape itself is host-agnostic.)
 
 (def num-re
   "Matches a string that is *entirely* a number: optional sign, an integer

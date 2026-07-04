@@ -38,7 +38,7 @@
    The view reads one combined view-model, `[:rf.resource/infinite-state …]`:
    `:items` (the merged flat list — the read you care about most),
    `:has-next-page?`, `:fetching-next?`, `:page-error`, `:loading?`,
-   `:has-data?`. Then it dispatches one causal event. Scope is the leak
+   `:error`. Then it dispatches one causal event. Scope is the leak
    boundary, and it fails closed: this feed is public — the same for every
    viewer — so it makes the explicit `:rf.scope/global` claim. A per-user feed
    would carry a scope resolver instead. See docs/resources/glossary.md#scope.
@@ -54,9 +54,10 @@
    There's no backend here, so the example overrides `:rf.http/managed` with a
    per-cursor canned stub that hands off to the framework's
    `:rf.http/managed-canned-success` — the same reply shape a live server would
-   send. So every page fetch still runs the real thing: a real fetch, in-flight
-   dedupe, stale-reply suppression, the passive status flow. A small reply delay
-   gives the load-more spinner a moment on screen before each page lands."
+   send. The transport is canned, but everything above it is the real thing:
+   in-flight dedupe, stale-reply suppression, the passive status flow all run
+   exactly as they would over a live network. A small reply delay gives the
+   load-more spinner a moment on screen before each page lands."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
