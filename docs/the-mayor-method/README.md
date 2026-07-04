@@ -24,7 +24,7 @@ Prompt engineering and context management are still the keys.
 - [Beads](https://github.com/gastownhall/beads) are used to work.
 - Prompts are treated very seriously.
 - Git worktrees isolate workers.
-- `/ai/dashboard.md` keeps me oriented.
+- `/ai/decisions.md` tracks the calls waiting on me.
 - I make the important calls.
 
 The rest is good discipline.
@@ -110,7 +110,7 @@ Keep AI working material out of the product tree:
   spec, or docs.
 - `/ai/extended-context/` — durable project context not obvious from code.
   The mayor consults it on bootstrap and contributes on retrospectives.
-- `/ai/dashboard.md` — my dashboard.
+- `/ai/decisions.md` — the index of holds awaiting the operator (review gates, operator-run actions, held beads).
 
 ## Beads are the work queue
 
@@ -166,8 +166,7 @@ Before merging, the mayor checks:
 - tests or CI are green;
 - bead state will be updated after merge.
 
-After merge, the mayor pulls main, closes the bead with a concrete reason,
-and updates `/ai/dashboard.md`.
+After merge, the mayor pulls main and closes the bead with a concrete reason.
 
 This is the difference between "a lot of agents did things" and "the
 project advanced."
@@ -229,8 +228,8 @@ Different lenses find different issues.
 ## Standing prompts
 
 The cron prompts I register with the scheduler are defined in
-[`bootstrap.md`](bootstrap.md). Five `/loop` blocks: bead dispatch,
-clustering review, worktree hygiene, PR merge, and dashboard.md upkeep. Each
+[`bootstrap.md`](bootstrap.md). Four `/loop` blocks: bead dispatch,
+clustering review, worktree hygiene, and PR merge. Each
 carries its own operating manual inline (short-circuit rules,
 phase-transition behaviour, `--admin` discipline, the Windows-worktree
 merge trap recovery sequence). Register them once with your local
