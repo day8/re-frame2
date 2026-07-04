@@ -267,3 +267,62 @@
              (is (= :running (:status run-state))
                  (str "expected the variant marked :running after the cell-
                        override edit; run-state was " (pr-str run-state)))))))))
+
+;; ---- rf2-3h3c2y: drift re-runs ONLY the drifted variant's dot ----------
+;;
+;; The spec/009 §Test-watch-mode contract (015-Test-Coverage.md:112 +
+;; scenario :216) says watch-mode "re-runs drifted testable variants
+;; only". The single-variant `cell-override-edit-perturbs-watch-mode-hash`
+;; test above proves drift → re-run for the edited variant, but with only
+;; ONE testable variant registered it cannot prove the SELECTIVE half —
+;; that a sibling testable variant does NOT re-run when it hasn't drifted.
+;;
+;; This test registers TWO :test variants, seeds the baseline, edits only
+;; A's :cell-overrides, and asserts the detector stamps A :running while
+;; leaving B untouched. That is the "only that variant's dot" contract the
+;; retired browser assertion owed, expressed against the CLJS state the DOM
+;; dot reflects (per the locked Story testing posture).
+
+#?(:cljs
+   (deftest drift-reruns-only-the-drifted-variant
+     (testing "editing one variant's :cell-overrides drifts + re-runs ONLY
+               that variant; the sibling testable variant's dot is left
+               untouched (rf2-3h3c2y — selective drift-rerun)"
+       (story/reg-variant :story.x/a
+         {:component :app.ui/echo
+          :args      {:n 0}
+          :tags      #{:test}
+          :events    []
+          :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/b
+         {:component :app.ui/echo
+          :args      {:n 0}
+          :tags      #{:test}
+          :events    []
+          :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       ;; Watch on + empty baseline so the first pass seeds both hashes.
+       (state/swap-state! state/set-test-watch-mode true)
+       (state/swap-state! #(state/record-test-content-hashes % {}))
+       ;; First pass seeds the baseline (and, because prev is empty,
+       ;; treats both as drifted). Clear the :running stamps so we can
+       ;; detect a fresh re-run from the NEXT pass alone.
+       (shell/detect-watch-drift!)
+       (let [seeded (get-in (state/get-state) [:tests :content-hashes])]
+         (is (contains? seeded :story.x/a))
+         (is (contains? seeded :story.x/b)
+             "both testable variants are hashed into the baseline"))
+       (state/swap-state! state/clear-test-run :story.x/a)
+       (state/swap-state! state/clear-test-run :story.x/b)
+       ;; Edit ONLY variant A. B's slots are untouched, so B's hash is
+       ;; stable and B must NOT re-run.
+       (state/swap-state! state/set-cell-override :story.x/a [:n] 99)
+       (shell/detect-watch-drift!)
+       (let [runs (get-in (state/get-state) [:tests :runs])]
+         (testing "the drifted variant A re-runs (dot flips :running)"
+           (is (= :running (get-in runs [:story.x/a :status]))
+               (str "expected A :running after its cell-override edit; runs was "
+                    (pr-str runs))))
+         (testing "the undrifted sibling B does NOT re-run (dot untouched)"
+           (is (nil? (get runs :story.x/b))
+               (str "expected B to have no fresh run stamp — only the drifted "
+                    "variant re-runs; runs was " (pr-str runs))))))))
