@@ -178,75 +178,72 @@
   rejects with :rf.error/flow-frame-not-live."
   []
 
-  (rf/reg-flow
-  {:id     ::flow-a
-   :inputs [[:input]]
-   :derive (fn flow-a [input]
-             ;; Trivial pure transform. The point is the WRITE — on a
-             ;; clean tick :a-result advances and commits; on a failing
-             ;; tick :flow-a's :rf.flow/computed still fires (it ran)
-             ;; but the write is DISCARDED when the tick aborts.
-             (* 2 input))
+  (rf/reg-flow ::flow-a
+  {:inputs [[:input]]
    :output-path [:a-result]
    :doc    "Doubles :input. Watched by :flow-b (topo-order pin) and
-            :flow-c (math)."})
+            :flow-c (math)."}
+  (fn flow-a [input]
+    ;; Trivial pure transform. The point is the WRITE — on a
+    ;; clean tick :a-result advances and commits; on a failing
+    ;; tick :flow-a's :rf.flow/computed still fires (it ran)
+    ;; but the write is DISCARDED when the tick aborts.
+    (* 2 input)))
 
-(rf/reg-flow
-  {:id     ::flow-b
-   ;; Two inputs — :input drives the math; :a-result is the topo-
+(rf/reg-flow ::flow-b
+  {;; Two inputs — :input drives the math; :a-result is the topo-
    ;; order pin (see flows-block comment above). The :derive fn
    ;; ignores the a-result value; its only job is to declare the
    ;; dependency edge so :flow-a's write is observably PRIOR when
    ;; this flow throws.
    :inputs [[:input] [:a-result]]
-   :derive (fn flow-b [input _a-result]
-             ;; HOT PATH — the failure-injection site for the
-             ;; cascade. The throw fires whenever this fn is called
-             ;; with input ≥ :fail-at. The throw aborts the whole
-             ;; tick (no install); last-inputs is rolled back, so the
-             ;; next drain with a new :input value re-attempts. If the
-             ;; new :input is also ≥ :fail-at, the throw re-fires.
-             ;;
-             ;; A consumer reading the trace stream sees
-             ;; :rf.flow/failed (this flow's id) followed by
-             ;; :rf.error/flow-eval-exception on EVERY tick after the
-             ;; fail-at threshold — with NO :rf.event/db-changed for
-             ;; any of those aborted ticks.
-             (let [fail-at-input
-                   ;; The :input value the :tick handler bumps to
-                   ;; coincides with the tick index — tick 5
-                   ;; bumps :input to 5. So we throw iff input >=
-                   ;; :fail-at. We close over `(fn ...)` via the
-                   ;; module-level atom rather than reading another
-                   ;; app-db path so the failure threshold isn't
-                   ;; tangled with the dirty-check graph (matches
-                   ;; the realworld shape where the failure config
-                   ;; rides out-of-band, not in app-db).
-                   @fail-at-atom]
-               (if (and (some? fail-at-input)
-                        (>= input fail-at-input))
-                 (throw (ex-info "long-flow-w-failure / :flow-b"
-                                 {:where :flow
-                                  :input input
-                                  :fail-at fail-at-input}))
-                 (* 3 input))))
    :output-path [:b-result]
    :doc    "Triples :input — UNLESS input ≥ fail-at, in which case
             throws every recompute past that threshold. Reads
-            :a-result for topo-order only (math uses :input)."})
+            :a-result for topo-order only (math uses :input)."}
+  (fn flow-b [input _a-result]
+    ;; HOT PATH — the failure-injection site for the
+    ;; cascade. The throw fires whenever this fn is called
+    ;; with input ≥ :fail-at. The throw aborts the whole
+    ;; tick (no install); last-inputs is rolled back, so the
+    ;; next drain with a new :input value re-attempts. If the
+    ;; new :input is also ≥ :fail-at, the throw re-fires.
+    ;;
+    ;; A consumer reading the trace stream sees
+    ;; :rf.flow/failed (this flow's id) followed by
+    ;; :rf.error/flow-eval-exception on EVERY tick after the
+    ;; fail-at threshold — with NO :rf.event/db-changed for
+    ;; any of those aborted ticks.
+    (let [fail-at-input
+          ;; The :input value the :tick handler bumps to
+          ;; coincides with the tick index — tick 5
+          ;; bumps :input to 5. So we throw iff input >=
+          ;; :fail-at. We close over `(fn ...)` via the
+          ;; module-level atom rather than reading another
+          ;; app-db path so the failure threshold isn't
+          ;; tangled with the dirty-check graph (matches
+          ;; the realworld shape where the failure config
+          ;; rides out-of-band, not in app-db).
+          @fail-at-atom]
+      (if (and (some? fail-at-input)
+               (>= input fail-at-input))
+        (throw (ex-info "long-flow-w-failure / :flow-b"
+                        {:where :flow
+                         :input input
+                         :fail-at fail-at-input}))
+        (* 3 input)))))
 
-(rf/reg-flow
-  {:id     ::flow-c
-   :inputs [[:a-result] [:b-result]]
-   :derive (fn flow-c [a b]
-             ;; Watches :flow-a's and :flow-b's outputs. Only runs
-             ;; when both upstreams have successfully advanced —
-             ;; :flow-c does NOT run on the drain where :flow-b
-             ;; throws (the cascade halts before it).
-             (+ a b))
+(rf/reg-flow ::flow-c
+  {:inputs [[:a-result] [:b-result]]
    :output-path [:c-result]
    :doc    "Sums :a-result + :b-result. Watches :flow-a and
-            :flow-b's outputs."}))
+            :flow-b's outputs."}
+  (fn flow-c [a b]
+    ;; Watches :flow-a's and :flow-b's outputs. Only runs
+    ;; when both upstreams have successfully advanced —
+    ;; :flow-c does NOT run on the drain where :flow-b
+    ;; throws (the cascade halts before it).
+    (+ a b))))
 
 ;; ----------------------------------------------------------------------------
 ;; Tick handler — the cascade engine

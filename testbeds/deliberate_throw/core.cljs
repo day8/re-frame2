@@ -101,14 +101,13 @@
   scope) — a frame must be live or the rf2-zbxvqj guard in `reg-flow`
   rejects with :rf.error/flow-frame-not-live."
   []
-  (rf/reg-flow
-    {:id          ::throws
-     :inputs      [[:flow-input]]
-     :derive      (fn [_input]
-                    ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
-                    (throw (ex-info "deliberate-throw / flow" {:where :flow})))
+  (rf/reg-flow ::throws
+    {:inputs      [[:flow-input]]
      :output-path [:flow-output]
-     :doc         "Flow :derive that throws every recompute."}))
+     :doc         "Flow :derive that throws every recompute."}
+    (fn [_input]
+      ;; HOT PATH — the throw site for :rf.error/flow-eval-exception.
+      (throw (ex-info "deliberate-throw / flow" {:where :flow})))))
 
 (rf/reg-event ::throw-in-flow
   (fn [{:keys [db]} _ev]
