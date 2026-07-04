@@ -104,10 +104,7 @@
               :<- [:rf/machine :upload/main]
               (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
   ;; :flows — a materialized after-event derivation.
-  (rf/reg-flow {:id     :cart/materialized-total
-                :inputs [[:cart :items]]
-                :derive count
-                :output-path   [:cart :total]})
+  (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items]] :output-path [:cart :total]} count)
   ;; :resources — a process node (runtime-db / remote authority).
   (rf/reg-resource :article/by-slug
                    {:scope         :rf.scope/global
@@ -219,15 +216,9 @@
     (rf/reg-frame :app/b {})
     ;; Same flow-id, different output paths, on two different frames.
     (rf/with-frame :app/a
-      (rf/reg-flow {:id     :shared/total
-                    :inputs [[:cart :items]]
-                    :derive count
-                    :output-path   [:a-total]}))
+      (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))
     (rf/with-frame :app/b
-      (rf/reg-flow {:id     :shared/total
-                    :inputs [[:basket :lines]]
-                    :derive count
-                    :output-path   [:b-total]}))
+      (rf/reg-flow :shared/total {:inputs [[:basket :lines]] :output-path [:b-total]} count))
     (let [g     (graph/derivation-graph all-contributors)
           nodes (:nodes g)
           a-id  [:flow :app/a :shared/total]

@@ -155,11 +155,10 @@
   (rf/reg-event
     :rf.tyivx/increment-flow
     (fn [{:keys [db]} _] {:db (update db :base (fnil inc 0))}))
-  (rf/reg-flow
-    {:id          :rf.tyivx/derived
-     :inputs      [[:base]]
-     :derive      (fn [base] (* 2 (or base 0)))
-     :output-path [:derived]}))
+  (rf/reg-flow :rf.tyivx/derived
+    {:inputs      [[:base]]
+     :output-path [:derived]}
+    (fn [base] (* 2 (or base 0)))))
 
 (deftest real-substrate-emits-t1-t2-for-handler-vs-flow-attribution
   (testing "rf2-4wywy — a LIVE flow-bearing cascade emits t1

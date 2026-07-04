@@ -839,24 +839,93 @@
 ;; surface.
 (declare vacate-output-path!)
 
+(defn- reconstruct-flow
+  "Reconstruct the internal flow-map from the 3-slot grammar `(reg-flow
+  flow-id metadata derive-fn)` (rf2-bqstzr): the id moves back onto the map
+  under `:id`, and the pure `:derive` value slot is placed under `:derive`.
+  The `:frame` mounting key (if present in metadata) is pulled OUT — it is the
+  frame-mounting concern, not a flow-map key (per Conventions §The `:frame`
+  registration-metadata key). Returns `[flow frame]` where `flow` is the
+  internal flow-map (id + `:inputs` / `:output-path` / `:doc` / `:schema` /
+  classification keys + `:derive`) and `frame` is the extracted `:frame`
+  override (nil when absent). Mirrors reg-resource / reg-mutation / reg-route's
+  `(assoc metadata <value-key> value)` reconstruction (rf2-wvh95f F1).
+
+  Guards the MIDDLE slot is a map BEFORE any `assoc` / `contains?` runs (a
+  non-map metadata would otherwise leak a raw host exception), and rejects a
+  `:derive` left INSIDE the metadata map as a mislocated key with the loud
+  `:rf.error/invalid-flow-metadata` — the third slot is `:derive`'s one home."
+  [flow-id metadata derive-fn]
+  ;; rf2-bqstzr — the metadata MIDDLE slot must be a map BEFORE any `assoc` /
+  ;; `contains?` / `dissoc` runs against it. A non-map metadata would otherwise
+  ;; leak a raw host exception instead of the public
+  ;; `:rf.error/invalid-flow-metadata`. Mirrors reg-route's `route-bad-metadata`
+  ;; / reg-resource's `resource-bad-spec` non-map guard.
+  (when-not (map? metadata)
+    (throw (error/thrown-ex-info
+             :rf.error/invalid-flow-metadata
+             'rf/reg-flow
+             (str "flow " flow-id "'s metadata (the MIDDLE slot) must be a map, "
+                  "got " (pr-str (type metadata)) ". Per rf2-bqstzr the grammar "
+                  "is (reg-flow " flow-id " {…} derive-fn): the :inputs / "
+                  ":output-path / :doc / :schema reflection-config metadata map "
+                  "is the SECOND slot, the pure :derive fn is the THIRD.")
+             {:recovery :fix-registration
+              :extra    {:id flow-id :value metadata}})))
+  ;; rf2-bqstzr — `:derive` is the 3-slot VALUE (the pure derivation). A
+  ;; `:derive` left INSIDE the metadata map is a mislocated key; reject it
+  ;; loudly so the grammar change cannot be half-applied (a stray metadata
+  ;; `:derive` would otherwise silently win or lose against the value-slot one).
+  (when (contains? metadata :derive)
+    (throw (error/thrown-ex-info
+             :rf.error/invalid-flow-metadata
+             'rf/reg-flow
+             (str "flow " flow-id " declares :derive inside its metadata map — "
+                  "per rf2-bqstzr the pure derivation is the THIRD slot: "
+                  "(reg-flow " flow-id " {…} derive-fn). Move the derive fn out "
+                  "of the metadata map into the value slot.")
+             {:recovery :fix-registration
+              :extra    {:id flow-id :value (:derive metadata)}})))
+  [(-> metadata (dissoc :frame) (assoc :id flow-id :derive derive-fn))
+   (:frame metadata)])
+
 (defn reg-flow
-  "Register a flow against a frame. Per Spec 013 — flows are frame-
-  scoped: their lifecycle, evaluation, undo / time-travel semantics
-  all belong to one frame.
+  "Register a flow against a frame. Per the canonical Spec 001 3-slot grammar
+  (rf2-bqstzr, completing the rf2-wvh95f F1 alignment of the fused registrars):
 
-  Required keys on the flow map: :id :inputs :derive :output-path.
-  Optional: :doc :schema.
+      (rf/reg-flow :rectangle/area
+        {:inputs      [[:width] [:height]]
+         :output-path [:area]
+         :doc         \"Rectangle area from :width × :height.\"}
+        (fn [w h] (* w h)))
 
-  EP-0002 — flows are CONTEXT-REQUIRED FRAME-LOCAL registration. The
-  frame to register against is the explicit `:frame` opt (the *override*),
-  else the carried-invariant scope chain via `frame/require-current-frame!`
-  (a `with-frame` / frame-provider scope, or a frame `:initial-events` step). A
-  `reg-flow` issued under no established scope and no explicit `:frame`
-  raises the always-on `:rf.error/no-frame-context` (per Spec 002 §Frame
-  target resolution) rather than silently registering against `:rf/default`
-  — namespace-load time is not a reason to synthesise a default frame."
-  ([flow] (reg-flow flow {}))
-  ([flow {:keys [frame] :as _opts}]
+  The pure `:derive` fn — the flow's HANDLER (the derivation the input change
+  runs) — is the THIRD slot; the middle slot is the reflection-config metadata
+  map (`:inputs`, `:output-path`, `:doc`, `:schema`, the EP-0025 output
+  classification keys `:sensitive` / `:large` / `:large?`, and the `:frame`
+  mounting key). Splitting the derivation out of the fused flow-map restores
+  clean doc-DCE (the middle slot is now a pure metadata map) and brings flows
+  into line with reg-resource / reg-mutation / reg-route. A `:derive` left
+  INSIDE the metadata map is rejected loudly as a mislocated key
+  (`:rf.error/invalid-flow-metadata`).
+
+  Per Spec 013 — flows are frame-scoped: their lifecycle, evaluation, undo /
+  time-travel semantics all belong to one frame.
+
+  EP-0002 — flows are CONTEXT-REQUIRED FRAME-LOCAL registration. The frame to
+  register against is the explicit `:frame` metadata key (the *override*), else
+  the carried-invariant scope chain via `frame/require-current-frame!` (a
+  `with-frame` / frame-provider scope, or a frame `:initial-events` step). A
+  `reg-flow` issued under no established scope and no explicit `:frame` raises
+  the always-on `:rf.error/no-frame-context` (per Spec 002 §Frame target
+  resolution) rather than silently registering against `:rf/default` —
+  namespace-load time is not a reason to synthesise a default frame.
+
+  Returns the flow's id per the `reg-*` return-value convention
+  ([Conventions §reg-* return-value convention])."
+  ([flow-id derive-fn] (reg-flow flow-id {} derive-fn))
+  ([flow-id metadata derive-fn]
+   (let [[flow frame] (reconstruct-flow flow-id metadata derive-fn)]
    (validate-flow flow)
    (let [frame-id (or frame
                       (frame/require-current-frame!
@@ -1125,7 +1194,7 @@
      ;; frame-scoped elision-registry write is the single source of truth
      ;; the wire walker, the db-diff projection, and the view-render-arg
      ;; projection all read.
-     flow-id)))
+     flow-id))))
 
 (defn- dissoc-in-safe
   "Like `dissoc-in` over `(butlast path) → (last path)` but robust against

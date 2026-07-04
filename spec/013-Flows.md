@@ -44,31 +44,38 @@ Three use cases the reference implementation has hit repeatedly:
 
 ## The registration shape
 
+Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) 3-slot shape (rf2-bqstzr, completing the rf2-wvh95f F1 alignment of the fused registrars), `reg-flow` is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive` fn — the flow's HANDLER — is the third VALUE slot, and the middle slot is the reflection-config metadata map.
+
 ```clojure
-(rf/reg-flow
-  {:id     :rectangle/area
-   :inputs [[:width] [:height]]            ;; vector of frame-state paths (bare = app-db)
-   :derive (fn [w h] (* w h))               ;; pure: (in-1, in-2, ...) → output
-   :output-path [:area]                      ;; where the result is written
-   :doc    "Rectangle area computed from :width and :height."})
+(rf/reg-flow :rectangle/area
+  {:inputs      [[:width] [:height]]         ;; vector of frame-state paths (bare = app-db)
+   :output-path [:area]                       ;; where the result is written
+   :doc         "Rectangle area computed from :width and :height."}
+  (fn [w h] (* w h)))                          ;; pure: (in-1, in-2, ...) → output
 ```
 
-Required keys:
+Slot 1 — `flow-id`: the unique flow identifier. Per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention), namespace by feature.
+
+Slot 3 — `derive-fn`: the pure derivation. Receives input values positionally. Must be deterministic (same inputs → same output).
+
+Slot 2 — `metadata`, the reflection-config map. Required keys:
 
 | Key | Meaning |
 |---|---|
-| `:id` | Unique flow identifier. Per [Conventions §Feature-modularity prefix convention](Conventions.md#feature-modularity-prefix-convention), namespace by feature. |
-| `:inputs` | Vector of frame-state paths read against the pending frame-state's two partitions (binary syntax — a bare path reads app-db; a `[:rf.db/runtime …]` path reads runtime-db; see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)). The order matches positional args to `:derive`. |
-| `:derive` | Pure function. Receives input values positionally. Must be deterministic (same inputs → same output). |
+| `:inputs` | Vector of frame-state paths read against the pending frame-state's two partitions (binary syntax — a bare path reads app-db; a `[:rf.db/runtime …]` path reads runtime-db; see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db)). The order matches positional args to the `derive-fn`. |
 | `:output-path` | App-db path to write the output to. Writes are **app-db only** — a flow never writes runtime-db. |
 
-Optional keys (per the [001-Registration §Registration grammar](001-Registration.md#registration-grammar) standard):
+Optional metadata keys (per the [001-Registration §Registration grammar](001-Registration.md#registration-grammar) standard):
 
 | Key | Meaning |
 |---|---|
 | `:doc` | One-sentence what-and-why; surfaces in tooling. |
 | `:schema` | Malli schema for the output value, validated on every recompute in dev (see [§Flow output validation](#flow-output-validation)). |
+| `:frame` | The frame the flow registers against (the *override* — see [§Frame-scoping](#frame-scoping)). The mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). |
+| `:sensitive` / `:large` / `:large?` | EP-0025 output data-classification declarations (see [§Flow output data classification](#flow-output-data-classification-ep-0025) and [015-Data-Classification](015-Data-Classification.md)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
+
+Splitting the `derive-fn` out of the fused flow-map (v1-alpha's single-map inheritance) restores clean documentation-DCE (the middle slot is now a pure metadata map) and brings flows into line with `reg-resource` / `reg-mutation` / `reg-route`. A `:derive` left INSIDE the metadata map is rejected loudly as a mislocated key (`:rf.error/invalid-flow-metadata`) — the third slot is `:derive`'s one home. Likewise a non-map metadata slot throws the same error before any reconstruction runs.
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. Each path is read against the pending frame-state, whose two partitions select on the path's leading element — see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db). (A map-keyed alternative was considered — see [§Open questions](#open-questions).)
 
@@ -88,18 +95,25 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 **There is no `[:rf.runtime/…]` *app-db* path — runtime state is not an app-db root.** Read runtime state through the `[:rf.db/runtime …]` partition-qualified input above.
 
-`reg-flow` returns the flow's `:id` — the primary id under which the flow registers in the `:flow` kind — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). The id is carried by the flow-map rather than as a separate positional arg, but the return-value contract is the same as the rest of the `reg-*` family.
+`reg-flow` returns its `flow-id` — the primary id under which the flow registers — per the family-wide [`reg-*` return-value convention](Conventions.md#reg--return-value-convention). Under the 3-slot grammar the id is the first positional argument, exactly like the rest of the `reg-*` family.
 
-`reg-flow` accepts an optional second argument carrying a `:frame` opt — the frame the flow registers against. The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `{:frame …}` opt (*override*) or a surrounding `with-frame` / `frame-provider` *scope* — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A bare `(reg-flow flow)` outside any scope is the registration-time case and fails with `:rf.error/no-frame-context`:
+`reg-flow` reads the frame the flow registers against from the `:frame` metadata key — the frame is the mounting concern, so it rides the metadata map like every other 3-slot `reg-*` surface (per [Conventions §`reg-*` frame-binding convention](Conventions.md#reg--frame-binding-convention--opts-kwarg-not-main-arg)). The frame is resolved by the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): the runtime reads the frame from the carried token — an explicit `:frame` metadata key (*override*) or a surrounding `with-frame` / `frame-provider` *scope* — and **never synthesises one from absence**. There is no `:rf/default` fall-through. A `reg-flow` outside any scope with no `:frame` metadata key is the registration-time case and fails with `:rf.error/no-frame-context`:
 
 ```clojure
-(rf/reg-flow flow)                    ;; raises :rf.error/no-frame-context outside any frame scope
+(rf/reg-flow :rectangle/area
+  {:inputs [[:width] [:height]] :output-path [:area]}   ;; raises :rf.error/no-frame-context outside any frame scope
+  (fn [w h] (* w h)))
 (rf/with-frame :scratch
-  (rf/reg-flow flow))                 ;; registers against :scratch via the surrounding scope
-(rf/reg-flow flow {:frame :scratch})  ;; explicit frame (override)
+  (rf/reg-flow :rectangle/area
+    {:inputs [[:width] [:height]] :output-path [:area]}  ;; registers against :scratch via the surrounding scope
+    (fn [w h] (* w h))))
+(rf/reg-flow :rectangle/area
+  {:inputs [[:width] [:height]] :output-path [:area]
+   :frame  :scratch}                                     ;; explicit frame (override) — a metadata key
+  (fn [w h] (* w h)))
 ```
 
-`clear-flow` mirrors the shape:
+`clear-flow` — whose primary arg IS the flow-id it removes — keeps its trailing `opts` map for the `:frame` override (there is no metadata slot on a teardown surface):
 
 ```clojure
 (rf/clear-flow :rectangle/area)
@@ -126,7 +140,7 @@ Three consequences follow:
 
 **Hot-reload trace surface.** A same-frame re-registration still emits `:rf.registry/handler-replaced` (with `:different-fn?`, dedup-by-shape per [009 §Hot-reload dedup](009-Instrumentation.md)) so devtools refresh their per-flow view — emitted **directly by `reg-flow`** under single-store rather than as a side effect of a registrar `:flow` write. A first-time per-frame registration emits `:rf.flow/registered` instead (per-frame gated).
 
-Frame resolution matches the rest of the API and obeys the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): a bare `(reg-flow flow)` resolves the frame only from a surrounding `with-frame` scope or `frame-provider` — there is **no** `:rf/default` fall-through, so a frameless registration outside any scope fails with `:rf.error/no-frame-context`. Tests and per-tenant runtimes pass an explicit `{:frame ...}` as the second arg, or wrap the registration in `with-frame`.
+Frame resolution matches the rest of the API and obeys the EP-0002 carried invariant (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)): a `reg-flow` with no `:frame` metadata key resolves the frame only from a surrounding `with-frame` scope or `frame-provider` — there is **no** `:rf/default` fall-through, so a frameless registration outside any scope fails with `:rf.error/no-frame-context`. Tests and per-tenant runtimes pass an explicit `:frame` metadata key (the middle slot), or wrap the registration in `with-frame`.
 
 ## Frame-destroy teardown
 
@@ -239,8 +253,8 @@ The runtime topologically sorts the registry by this dependency relation. The so
 
 ```clojure
 ;; This will throw at registration:
-(rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
-(rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})
+(rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
+(rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
 ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
 ```
 
@@ -255,12 +269,12 @@ The reason this is an error and not merely a topological edge: the dependency ru
 ```clojure
 ;; All of these throw at registration — the second flow's :output-path
 ;; overlaps the first's (one is a prefix of the other, identical included):
-(rf/reg-flow {:id :a :inputs [[:w]] :derive identity :output-path [:x]})
-(rf/reg-flow {:id :b :inputs [[:h]] :derive identity :output-path [:x]})
+(rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
+(rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
 ;; → ex-info ":rf.error/flow-path-overlap"  (identical paths)
 
-(rf/reg-flow {:id :c :inputs [[:w]] :derive identity :output-path [:x]})
-(rf/reg-flow {:id :d :inputs [[:h]] :derive identity :output-path [:x :y]})
+(rf/reg-flow :c {:inputs [[:w]] :output-path [:x]}    identity)
+(rf/reg-flow :d {:inputs [[:h]] :output-path [:x :y]} identity)
 ;; → ex-info ":rf.error/flow-path-overlap"  (:x is a prefix of [:x :y])
 ```
 
@@ -331,6 +345,8 @@ Every flow lifecycle event emits a structured trace event under op-type `:flow`.
 
 Every event carries `:flow-id` and `:frame` under `:tags`. Pair-shaped tools, Xray's flow panel, and custom dashboards filter `op-type :flow` to subscribe to the whole flow stream — see [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach) and [009 §Flow trace events](009-Instrumentation.md#flow-trace-events) for the consumer-side pattern.
 
+<a id="flow-output-data-classification-ep-0025"></a>
+
 **Flow classification — TWO distinct mechanisms.** Two classification mechanisms touch a flow, at **different granularities**; they COEXIST and compose. Do not conflate them:
 
 - **(i) Handler-scope `:sensitive?` run stamp (coarse — whole trace event).** A flow's `:derive` fn runs inside the after-interceptor of the surrounding handler scope; the dirty-check write and any thrown exception are framework-owned but the resolved input values and computed output ride from the **handler whose event triggered the drain**. The runtime stamps `:sensitive? true` at the top level of every `:rf.flow/*` trace event when the in-scope handler's registration meta carries `:sensitive? true` — per the inheritance rule at [009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key). At THIS mechanism the flow does not declare `:sensitive?` directly; the *whole-event* marker rides the run. An auth-handler dispatching `[:auth/signed-in token]` whose drain re-evaluates the `:auth/derived-user` flow emits a `:rf.flow/computed` carrying `:sensitive? true`, and the framework-published forwarders (Sentry / Honeybadger / re-frame2-pair / Xray-MCP) default-drop it.
@@ -348,12 +364,11 @@ A flow's optional `:schema` key (per [§The registration shape](#the-registratio
 **Observational, not a rollback.** A flow `:schema` violation does **not** throw and does **not** unwind the write. This is distinct from a flow `:derive` *throw* (which aborts the whole event — [§Failure semantics](#failure-semantics)): a schema violation is a soft, dev-time diagnostic. The flow computed a value successfully; the value simply fails its declared shape. By the time a violation could be observed, downstream flows in the same drain may already have read the value as their input, so retroactively unwinding one flow's write mid-walk would leave an inconsistent pending `:db` effect. So the output **is** written into the pending effect and the run proceeds normally (the event still commits if no flow throws); the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` error event with `:where :flow-output` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), carrying the failing `:rf.flow/id`, the flow's `:output-path`, the failing `:value` (size/sensitivity-elided like every wire-bearing trace slot), and the registered explainer's `:explain` output. `:recovery` is `:no-recovery`, matching the category's documented disposition — the check exists to surface a producer bug early, not to repair state.
 
 ```clojure
-(rf/reg-flow
-  {:id     :cart/total
-   :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :derive (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0)))))
+(rf/reg-flow :cart/total
+  {:inputs      [[:cart :subtotal] [:cart :discount-rate]]
    :output-path [:cart :total]
-   :schema [:int {:min 0}]})        ;; output must be a non-negative integer
+   :schema      [:int {:min 0}]}     ;; output must be a non-negative integer
+  (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0))))))
 ```
 
 Like the rest of the validation surface, flow output validation is dev-only: it sits behind `re-frame.interop/debug-enabled?` and is compile-time eliminated in production builds.
@@ -409,23 +424,23 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 
 | Fx-id | Args | Effect |
 |---|---|---|
-| `:rf.fx/reg-flow` | A flow map (same shape as `reg-flow`'s argument) | Register the flow against the dispatching frame. Next drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). |
+| `:rf.fx/reg-flow` | The 3-slot triple `[flow-id metadata derive-fn]` (the same shape `reg-flow` takes) | Register the flow against the dispatching frame. Next drain's topsort observes the new node (no cache to invalidate; per [§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). |
 | `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:output-path` in that frame's `app-db`. Next drain's topsort observes the removal. |
 
 ```clojure
 (rf/reg-event :wizard/enter-step-2
   (fn [_ _]
-    {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
-                             :inputs [[:step-2 :foo] [:step-2 :bar]]
-                             :derive (fn [foo bar] (compute foo bar))
-                             :output-path [:step-2 :result]}]]}))
+    {:fx [[:rf.fx/reg-flow [:step-2/computed
+                            {:inputs      [[:step-2 :foo] [:step-2 :bar]]
+                             :output-path [:step-2 :result]}
+                            (fn [foo bar] (compute foo bar))]]]}))
 
 (rf/reg-event :wizard/leave-step-2
   (fn [_ _]
     {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
 ```
 
-**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` opt — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
+**Frame routing.** Both fx run inside the standard `:fx` walk and receive the `{:frame frame-id}` cofx from the dispatching frame. They thread the frame through to `reg-flow` / `clear-flow` as the `:frame` metadata key — there is no explicit `:frame` to set in the fx args. A flow registered via `:rf.fx/reg-flow` from an event dispatched on frame `:left` is registered against `:left`; the same fx invoked from a `:right` dispatch routes to `:right`. This makes fx-driven flow lifecycle (wizard step in / out, feature gating) automatically frame-correct without ceremony.
 
 ### Sequencing — the one-event lag
 
@@ -440,10 +455,10 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
 ```clojure
 (rf/reg-event :wizard/enter-step-2
   (fn [_ _]
-    {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
-                            :inputs [[:step-2 :foo] [:step-2 :bar]]
-                            :derive (fn [foo bar] (compute foo bar))
-                            :output-path [:step-2 :result]}]
+    {:fx [[:rf.fx/reg-flow [:step-2/computed
+                            {:inputs      [[:step-2 :foo] [:step-2 :bar]]
+                             :output-path [:step-2 :result]}
+                            (fn [foo bar] (compute foo bar))]]
           ;; The flow is in the registry by the time THIS dispatched event
           ;; drains — so the flow transform on :wizard/settle computes the
           ;; initial output. Without this, :step-2/result stays unset until

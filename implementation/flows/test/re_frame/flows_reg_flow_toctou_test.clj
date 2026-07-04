@@ -120,7 +120,12 @@
                         (fn []
                           (.await barrier)        ; release both at once
                           (try
-                            (rf/reg-flow flow {:frame frame-id})
+                            ;; rf2-bqstzr — 3-slot grammar: id slot 1, :derive
+                            ;; the value slot, remaining reflection keys (+ the
+                            ;; `:frame` mounting key) the metadata middle slot.
+                            (rf/reg-flow (:id flow)
+                                         (assoc (dissoc flow :id :derive) :frame frame-id)
+                                         (:derive flow))
                             (catch Throwable t
                               (when (re-find #":rf.error/flow-cycle"
                                              (or (ex-message t) ""))

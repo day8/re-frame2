@@ -579,7 +579,7 @@
    {:key         :resources/reg-resource-scope
     :producer-ns 're-frame.resources
     :design-bead "rf2-hls77w"
-    :description "Register a PURE named scope resolver under a scope-id (Spec 016 §Named resource-scope resolvers / EP-0016 D3) — the one scope-resolution currency reused by resource registration, route resources, ensure / subscriptions, invalidation descriptors, and clear-scope. The resolver is the declared-inputs map {:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)} or the whole-db fn sugar. The shipped input source is [:db <rf-path>]; [:runtime …] is reserved. A nil resolve result is FAIL-CLOSED. Referenced via {:from-db <scope-id>}."}
+    :description "Register a PURE named scope resolver under a scope-id (Spec 016 §Named resource-scope resolvers / EP-0016 D3) — the one scope-resolution currency reused by resource registration, route resources, ensure / subscriptions, invalidation descriptors, and clear-scope. Per rf2-bqstzr the 3-slot grammar is (reg-resource-scope scope-id metadata resolve-fn): the :resolve fn is the value slot, metadata carries the declared :inputs {name [:db <rf-path>]}; omit :inputs for the whole-db fn sugar. The shipped input source is [:db <rf-path>]; [:runtime …] is reserved. A nil resolve result is FAIL-CLOSED. Referenced via {:from-db <scope-id>}."}
    {:key         :resources/clear-resource-scope
     :producer-ns 're-frame.resources
     :design-bead "rf2-hls77w"

@@ -59,9 +59,9 @@
 (defn- init! []
   (registrar/clear-kind! :resource-scope)
   (rf/reg-resource-scope :t/session
-    {:inputs  {:username [:db [:auth :user :username]]}
-     :resolve (fn [{:keys [username]} _ctx]
-                (when username [:rf.scope/session {:username username}]))})
+    {:inputs {:username [:db [:auth :user :username]]}}
+    (fn [{:keys [username]} _ctx]
+      (when username [:rf.scope/session {:username username}])))
   (rf/reg-event :t/login (fn [{:keys [db]} [_ username]]
                            {:db (assoc-in db [:auth :user :username] username)})))
 

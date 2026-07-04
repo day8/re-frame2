@@ -166,31 +166,32 @@ The `resolve-resource-scope` helper used here is a **pure** data helper over the
 
 One scope-resolution currency beats local seams: the same named resolver should work wherever current viewer identity determines resource identity — resource registration, route resources, event-side ensure, subscriptions, invalidation descriptors, populate/patch/remove targets, and `clear-scope`. [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) Decision 3 adds a registry of **named resource-scope resolvers**.
 
+Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) 3-slot shape (rf2-bqstzr, completing the rf2-wvh95f F1 alignment), `reg-resource-scope` is `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn — the resolver HANDLER — is the third VALUE slot, and the middle slot is the reflection-config metadata map (its `:inputs` declaration shapes the resolver, exactly as `reg-resource`'s `:params-schema` shapes its `:request`).
+
 ```clojure
 (rf/reg-resource-scope :realworld/session
-  {:inputs {:username [:db [:auth :user :username]]}
-   :resolve
-   (fn [{:keys [username]} _ctx]
-     (when username
-       [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))
 
 (rf/clear-resource-scope :realworld/session)   ;; registration-lifecycle removal
 ```
 
-A resolver is **pure**. It derives a resource scope; it does **not** fetch, dispatch, mutate state, read ambient host state, or perform transport work. The runtime evaluates declared inputs and calls `:resolve` with the resolved input map.
+A resolver is **pure**. It derives a resource scope; it does **not** fetch, dispatch, mutate state, read ambient host state, or perform transport work. The runtime evaluates the metadata's declared inputs and calls the resolver with the resolved input map. A `:resolve` left INSIDE the metadata map, or a non-fn value slot, or a non-map metadata slot, is rejected loudly (`:rf.error/invalid-resource-scope-spec`) — the third slot is the resolver's one home.
 
-### The `{:inputs … :resolve …}` grammar
+### The `{:inputs …}` metadata + resolver-fn grammar
 
-The primary form **declares its inputs**: names on the left, source descriptors on the right — the same shape as other derivation input declarations. This lets tools explain which app facts decide a resource identity, and lets the runtime re-resolve scope only when a relevant input changes.
+The primary form **declares its inputs** in the metadata middle slot: names on the left, source descriptors on the right — the same shape as other derivation input declarations. This lets tools explain which app facts decide a resource identity, and lets the runtime re-resolve scope only when a relevant input changes.
 
-- **`:inputs`** — a map `{name source-descriptor}`. The shipped source descriptor is **`[:db <rf-path>]`**, where `<rf-path>` is an [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) concrete `:rf/path` (see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). The whole `{:inputs … :resolve …}` declaration shape is pinned **forward-compatible** by EP-0012's reserved named-declaration shape (disposition 3).
-- **`:resolve`** — `(fn [inputs ctx] …)` returning a **canonical scope value** (e.g. `[:rf.scope/session {…}]`), `:rf.scope/global`, or **`nil`**. `nil` is **fail-closed**: at a scope-requiring site it is the unresolved condition, never permission to read global. The resolved scope is routed through the shared scope-canonicalization path, so a misspelled `:rf.scope/*` keyword or an opaque host value is rejected loudly.
+- **`:inputs`** (metadata) — a map `{name source-descriptor}`. The shipped source descriptor is **`[:db <rf-path>]`**, where `<rf-path>` is an [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) concrete `:rf/path` (see [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra)). The declaration shape is pinned **forward-compatible** by EP-0012's reserved named-declaration shape (disposition 3).
+- **`resolve-fn`** (value slot) — `(fn [inputs ctx] …)` returning a **canonical scope value** (e.g. `[:rf.scope/session {…}]`), `:rf.scope/global`, or **`nil`**. `nil` is **fail-closed**: at a scope-requiring site it is the unresolved condition, never permission to read global. The resolved scope is routed through the shared scope-canonicalization path, so a misspelled `:rf.scope/*` keyword or an opaque host value is rejected loudly.
 
-> **The `ctx` argument is reserved, currently `nil`.** `:resolve` is invoked `(resolve-fn inputs nil)` — `ctx` is **literal nil** in this slice, reserved for a future declared resolver context and **not to be relied on**. This is the same reservation discipline the resource `:request` fn carries (see [§The `ctx` argument is reserved across resource/mutation fn surfaces](#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces) below); a resolver MUST derive scope from its **declared `:inputs`**, not from `ctx`.
+> **The `ctx` argument is reserved, currently `nil`.** The resolver is invoked `(resolve-fn inputs nil)` — `ctx` is **literal nil** in this slice, reserved for a future declared resolver context and **not to be relied on**. This is the same reservation discipline the resource `:request` fn carries (see [§The `ctx` argument is reserved across resource/mutation fn surfaces](#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces) below); a resolver MUST derive scope from its **declared `:inputs`**, not from `ctx`.
 
 #### Whole-db function sugar (explicit-cost)
 
-An implementation MAY support a function sugar:
+**Omitting `:inputs`** from the metadata selects the whole-db form — the 2-arg sugar (no metadata) or a `:doc`-only metadata:
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
@@ -199,7 +200,7 @@ An implementation MAY support a function sugar:
       [:rf.scope/session {:username username}])))
 ```
 
-The sugar lowers to an **explicit whole-db dependency**. The declared-inputs form is the recommended path (it marks the whole-db cost on the narrow-re-resolution axis); the sugar is a marked convenience, not a peer.
+The `:inputs` KEY presence — not the value fn's shape — selects the form, so both slots stay simple positionals. The sugar lowers to an **explicit whole-db dependency** (a synthetic `:inputs {:db [:db []]}`, `:whole-db? true`); the resolver reads the whole db as its first arg (the one deliberate, documented first-arg meaning-shift). The declared-inputs form is the recommended path (it marks the whole-db cost on the narrow-re-resolution axis); the sugar is a marked convenience, not a peer.
 
 ##### No derived-sensitivity propagation
 
@@ -581,7 +582,7 @@ config metadata map:
 (rf/reg-mutation mutation-id metadata request-fn)
 (rf/clear-mutation mutation-id)
 
-(rf/reg-resource-scope scope-id resolver-spec)   ;; named db-derived scope resolver (EP-0016 D3)
+(rf/reg-resource-scope scope-id metadata resolve-fn)   ;; named db-derived scope resolver (EP-0016 D3); :inputs in metadata, :resolve is the value slot
 (rf/clear-resource-scope scope-id)               ;; registration-lifecycle removal
 (rf/resolve-resource-scope db scope-id)          ;; resolver helper: PURELY resolve a named scope against a db value (no trace)
 ```
@@ -1570,9 +1571,9 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
-  {:inputs {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username [:rf.scope/session {:username username}])))
 
 (rf/reg-resource
   :article/by-slug
@@ -1729,7 +1730,7 @@ The three [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) decision
 
 - **D1 — mutation completion continuations.** Call-site `:reply-to` on `:rf.mutation/execute`; the appended reply map is the canonical `:rf/reply-map` plus mutation-specific facts; delivery is keyed on **acceptance** (any accepted terminal reply fires; stale/suppressed never do); the deterministic phase order is resolve-scope → send → accept/suppress → cache-consequences → instance-settlement → continuation; the cause is `[:mutation <id> <instance>]`. Load-bearing prose: [§Mutation completion continuations](#mutation-completion-continuations--call-site-reply-to). Registration-level `:reply-to` is deferred (EP-0016 issue 1).
 - **D2 — per-target scoped invalidation.** `:invalidates` descriptors `{:scope … :tags …}` with per-target scope (`:rf.scope/same` default, `:rf.scope/global`, concrete, or `{:from-db …}`); one invalidation engine; the three-rung lattice (bare-no-scope = loud error, descriptors = the precise path, `:cross-scope? true` = the audited escape requiring `:cause` + privacy-relevant trace + dev/Xray warning). Load-bearing prose: [§Scoped invalidation descriptors](#scoped-invalidation-descriptors-per-target).
-- **D3 — named resource-scope resolvers.** `reg-resource-scope` with declared `{:inputs … :resolve …}`; whole-db fn = tooling-marked explicit-cost sugar; `nil` = fail-closed at scope-requiring sites; `{:from-db …}` references resolve at use time; the `[:runtime path]` source is **reserved, not shipped**. Load-bearing prose: [§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope).
+- **D3 — named resource-scope resolvers.** `reg-resource-scope` in the 3-slot grammar `(reg-resource-scope scope-id {:inputs …} resolve-fn)` (rf2-bqstzr) — declared `:inputs` in the metadata slot, the `:resolve` fn in the value slot; omitting `:inputs` selects the whole-db tooling-marked explicit-cost sugar; `nil` = fail-closed at scope-requiring sites; `{:from-db …}` references resolve at use time; the `[:runtime path]` source is **reserved, not shipped**. Load-bearing prose: [§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope).
 - **Riders.** R1 populate-as-authoritative-load + `:refetch-populated?` opt-out ([§Populate is an authoritative load](#populate-is-an-authoritative-load)); R2 map-form exact targets as the only public input form, tuple = internal/storage, no migration window ([§Map-form exact resource targets](#map-form-exact-resource-targets)); R3 request-decoration in the Spec 014 managed-HTTP seam ([§Request decoration belongs to the managed-HTTP seam](#request-decoration-belongs-to-the-managed-http-seam-not-the-resource-declaration)). The one-name-per-fact items are resolved inline: the reply `:status` references the [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) canonical enum, and the reply `:value` vs durable mutation-instance `:result` layering is documented at [§The uniform reply envelope](#the-uniform-reply-envelope-and-the-canonical-reply-map).
 
 > **EP-0016 related work** (the slice-1 absorption context). The dogfood findings and adjacent work this slice composes with: the feed-invalidation bug (the D2 dogfood acceptance case the descriptor mechanism fixes); the global-scope spelling ambiguity Rider 2's map-form input eliminates at the API boundary; the invalidate-tags fail-closed scope strictness D2 composes with (the bottom rung of the cross-scope lattice); the sub-side scope-mismatch dev warning adjacent to D3's fail-closed nil; the hybrid mutation scope-resolution rule D2's `:rf.scope/same` default cites, now homed in [§Mutation scope is two distinct scopes](#mutation-scope-is-two-distinct-scopes-hybrid); live sub re-keying when resolver inputs change mid-session (answered by the slice-3 route/event/sub integration, not this spec slice); and the tenant-switcher testbed (the un-defer consumer for the reserved `[:runtime path]` source).

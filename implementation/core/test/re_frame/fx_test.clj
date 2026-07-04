@@ -1234,10 +1234,12 @@
     ;; flow unregistered; the reject runs the reserved body so the flow lands.
     (let [traces        (collect-traces! ::reject-reg-flow)
           stub-fired    (atom 0)
-          flow          {:id     :fx-test.snsup5/a-flow
-                         :inputs [[:fx-test.snsup5 :seed]]
-                         :derive (fn [_] 42)
-                         :output-path [:fx-test.snsup5 :out]}]
+          ;; rf2-bqstzr — :rf.fx/reg-flow carries the 3-slot triple
+          ;; [flow-id metadata derive-fn].
+          flow          [:fx-test.snsup5/a-flow
+                         {:inputs [[:fx-test.snsup5 :seed]]
+                          :output-path [:fx-test.snsup5 :out]}
+                         (fn [_] 42)]]
       (rf/reg-event :fx-test.snsup5/install-flow
         (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
       (rf/dispatch-sync
@@ -1264,10 +1266,7 @@
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! redir-ran inc)))
       (rf/reg-event :fx-test.snsup5/install-flow-2
-        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/b-flow
-                                          :inputs [[:fx-test.snsup5 :seed]]
-                                          :derive (fn [_] 1)
-                                          :output-path [:fx-test.snsup5 :b]}]]}))
+        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/b-flow {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :b]} (fn [_] 1)]]]}))
       (rf/dispatch-sync
         [:fx-test.snsup5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.snsup5/redir-target}})
@@ -1295,10 +1294,7 @@
             out through register-error-listener! with event/id/frame context"
     (let [errors (collect-errors! ::reject-always-on)]
       (rf/reg-event :fx-test.uh5ic5/install-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/a-flow
-                                          :inputs [[:fx-test.uh5ic5 :seed]]
-                                          :derive (fn [_] 7)
-                                          :output-path [:fx-test.uh5ic5 :out]}]]}))
+        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.uh5ic5/a-flow {:inputs [[:fx-test.uh5ic5 :seed]] :output-path [:fx-test.uh5ic5 :out]} (fn [_] 7)]]]}))
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow]
         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
@@ -1325,10 +1321,7 @@
                  {:platforms #{:client :server}}
                  (fn [_ _] :should-not-fire))
       (rf/reg-event :fx-test.uh5ic5/install-flow-2
-        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/b-flow
-                                          :inputs [[:fx-test.uh5ic5 :seed]]
-                                          :derive (fn [_] 1)
-                                          :output-path [:fx-test.uh5ic5 :b]}]]}))
+        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.uh5ic5/b-flow {:inputs [[:fx-test.uh5ic5 :seed]] :output-path [:fx-test.uh5ic5 :b]} (fn [_] 1)]]]}))
       (rf/dispatch-sync
         [:fx-test.uh5ic5/install-flow-2]
         {:fx-overrides {:rf.fx/reg-flow :fx-test.uh5ic5/redir-target}})
@@ -1406,10 +1399,7 @@
     (let [traces      (collect-traces! ::cascade-exclude)
           child-stub  (atom 0)]
       (rf/reg-event :fx-test.snsup5/child-installs-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/child-flow
-                                          :inputs [[:fx-test.snsup5 :seed]]
-                                          :derive (fn [_] 7)
-                                          :output-path [:fx-test.snsup5 :child]}]]}))
+        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.snsup5/child-flow {:inputs [[:fx-test.snsup5 :seed]] :output-path [:fx-test.snsup5 :child]} (fn [_] 7)]]]}))
       (rf/reg-event :fx-test.snsup5/parent-cascades
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-installs-flow]]]}))
       ;; The parent carries a reject-tier :rf.fx/reg-flow override. At the

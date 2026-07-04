@@ -67,9 +67,9 @@
                 ;; INHERITS :redact from the resolver's inputs — the OWNER must
                 ;; declare :sensitive? to redact its scoped key off-box.
                 (rf/reg-resource-scope :rt/session
-                  {:inputs  {:username [:db [:auth :user :username]]}
-                   :resolve (fn [{:keys [username]} _]
-                              (when username [:rf.scope/session {:username username}]))})
+                  {:inputs {:username [:db [:auth :user :username]]}}
+                  (fn [{:keys [username]} _]
+                    (when username [:rf.scope/session {:username username}])))
                 (rf/reg-resource :derived/profile
                   {:scope         {:from-db :rt/session}
                    :sensitive?    true

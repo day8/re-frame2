@@ -175,10 +175,7 @@
     ;; `flows/flow-meta-at`, which returns the per-frame flow-map (including
     ;; the source-coords stamped into the store at reg-flow) — the flows
     ;; analogue of `schemas/app-schema-meta-at` (rf2-0frdi).
-    (rf/reg-flow {:id     :rf2-k84s/reg-flow-sample
-                  :inputs [[:source]]
-                  :derive (fn [v] v)
-                  :output-path   [:dest]})
+    (rf/reg-flow :rf2-k84s/reg-flow-sample {:inputs [[:source]] :output-path [:dest]} (fn [v] v))
     (assert-coords (flows/flow-meta-at :rf2-k84s/reg-flow-sample)
                    :flow :rf2-k84s/reg-flow-sample)))
 

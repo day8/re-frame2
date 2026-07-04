@@ -104,10 +104,7 @@
 
       ;; Register the flow and arm the rejection. The flow computes on the
       ;; NEXT drain (registration does not drain).
-      (rf/reg-flow {:id     :double
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 (or n 0)))
-                    :output-path   [:out]})
+      (rf/reg-flow :double {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
       (reset! reject-out? true)
 
       ;; A drain whose handler does NOT touch :n. The flow transform computes
@@ -159,10 +156,7 @@
   (testing "a flow whose output passes post-commit validation commits durably and advances last-inputs"
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:out]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
     ;; Schema always accepts.
     (rf/reg-app-schema [:out] {:schema (fn [_] true) :frame :rf/default})
     (rf/dispatch-sync [:seed])

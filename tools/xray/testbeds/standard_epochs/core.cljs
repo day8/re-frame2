@@ -311,12 +311,11 @@
   frame-local; the `with-frame` scope names the frame they install into."
   [frame-id]
   (rf/with-frame frame-id
-    (rf/reg-flow
-      {:id          :standard-epochs/derived
-       :inputs      [[:base]]
-       :derive      (fn [base] (* 2 (or base 0)))
+    (rf/reg-flow :standard-epochs/derived
+      {:inputs      [[:base]]
        :output-path [:derived]
-       :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."})
+       :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}
+      (fn [base] (* 2 (or base 0))))
     (rf/reg-app-schema [:auth] {:schema AuthSlice})))
 
 ;; ============================================================================

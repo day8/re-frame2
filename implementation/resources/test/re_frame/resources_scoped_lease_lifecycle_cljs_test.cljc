@@ -60,9 +60,9 @@
   (registrar/clear-kind! :resource-scope)
   (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope :t/tenant
-    {:inputs  {:tenant [:db [:viewer :tenant-id]]}
-     :resolve (fn [{:keys [tenant]} _ctx]
-                (when tenant [:rf.scope/tenant {:tenant-id tenant}]))})
+    {:inputs {:tenant [:db [:viewer :tenant-id]]}}
+    (fn [{:keys [tenant]} _ctx]
+      (when tenant [:rf.scope/tenant {:tenant-id tenant}])))
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/tenant}
      :params-schema [:map [:page :int]]

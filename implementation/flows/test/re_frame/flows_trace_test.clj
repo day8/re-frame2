@@ -106,10 +106,7 @@
 
 (deftest reg-flow-emits-registered-trace
   (testing "reg-flow fires :rf.flow/registered with :flow-id, :inputs, :path, :frame"
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (let [evs (by-op :rf.flow/registered)]
       (is (= 1 (count evs))
           "exactly one :rf.flow/registered fired for the reg-flow call")
@@ -129,30 +126,18 @@
             `reg-flow` under rf2-en00bk single-store, per Spec 001
             §Hot-reload trace surface) is the hot-reload signal — both
             traces no longer double-emit on the same re-registration."
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (= 1 (count (by-op :rf.flow/registered)))
         "first-time registration fires :rf.flow/registered once")
     (reset! *captured* [])
     ;; Re-register with the SAME shape — :rf.flow/registered must NOT fire.
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
     (is (zero? (count (by-op :rf.flow/registered)))
         "re-registration does NOT fire :rf.flow/registered — hot-reload signal rides :rf.registry/handler-replaced (emitted directly by reg-flow, rf2-en00bk)"))
   (testing "re-registration with a NEW :derive also does not double-emit"
-    (rf/reg-flow {:id     :area2
-                  :inputs [[:w]]
-                  :derive (fn [w] w)
-                  :output-path   [:rect :area2]})
+    (rf/reg-flow :area2 {:inputs [[:w]] :output-path [:rect :area2]} (fn [w] w))
     (reset! *captured* [])
-    (rf/reg-flow {:id     :area2
-                  :inputs [[:w]]
-                  :derive (fn [w] (* 2 w))
-                  :output-path   [:rect :area2]})
+    (rf/reg-flow :area2 {:inputs [[:w]] :output-path [:rect :area2]} (fn [w] (* 2 w)))
     (is (zero? (count (by-op :rf.flow/registered)))
         "real body change still does not re-emit :rf.flow/registered — only first-time")))
 
@@ -168,18 +153,10 @@
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
     ;; First-time registration on :left — emits with :frame :left.
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :left})
+    (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 2 (or n 0))))
     ;; First-time registration of the SAME id on :right — an INDEPENDENT
     ;; definition per Spec 013 §Frame-scoping line 102; must ALSO emit.
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 100 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :right})
+    (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:result]} (fn [n] (* 100 (or n 0))))
     (let [evs (by-op :rf.flow/registered)]
       (is (= 2 (count evs))
           "TWO :rf.flow/registered — one per frame's first-time registration")
@@ -196,31 +173,23 @@
             under rf2-en00bk single-store) — the per-frame gating must
             not over-fire for the replacement case."
     (rf/reg-frame :left {:doc "left frame"})
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :left})
+    (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 2 (or n 0))))
     (is (= 1 (count (by-op :rf.flow/registered)))
         "first-time registration on :left emitted once")
     (reset! *captured* [])
     ;; Re-register on the SAME frame with a NEW body — replacement, NOT a
     ;; first-time registration. :rf.flow/registered must NOT fire again.
-    (rf/reg-flow {:id     :shared
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 7 (or n 0)))
-                  :output-path   [:result]}
-                 {:frame :left})
+    (rf/reg-flow :shared {:frame :left :inputs [[:n]] :output-path [:result]} (fn [n] (* 7 (or n 0))))
     (is (zero? (count (by-op :rf.flow/registered)))
         "same-frame re-registration does NOT re-emit :rf.flow/registered")))
 
 (deftest reg-flow-cycle-does-NOT-emit-registered
   (testing "when reg-flow throws cycle, no :rf.flow/registered fires for the rejected flow"
-    (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
+    (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
     ;; one event so far for :a
     (is (= 1 (count (by-op :rf.flow/registered))))
     (is (thrown? Throwable
-                 (rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})))
+                 (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)))
     ;; Still just the one — :b's registration unwound before the trace.
     (is (= 1 (count (by-op :rf.flow/registered)))
         "only :a's register trace; :b's was rolled back")))
@@ -232,10 +201,7 @@
 (deftest flow-computed-fires-on-input-change
   (testing "first drain after registration emits :rf.flow/computed with :input-values, :result, :path, :frame"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:init])
     (let [computes (by-op :rf.flow/computed)]
       (is (pos? (count computes))
@@ -283,10 +249,7 @@
   (testing "second :rf.flow/computed's :before equals the first compute's :result"
     (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     (rf/dispatch-sync [:init])           ;; first compute: 3 -> 6
     (rf/dispatch-sync [:replace-n 5])    ;; second compute: 5 -> 10
     (let [computes (by-op :rf.flow/computed)]
@@ -306,10 +269,7 @@
     ;; the flow ever fires. The first compute's :before MUST be that
     ;; prior value — not nil — because the slot was non-empty.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3 :doubled :preseeded}}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     (rf/dispatch-sync [:seed])
     (let [ev (last (by-op :rf.flow/computed))
           tags (:tags ev)]
@@ -322,10 +282,7 @@
   (testing ":before reads the pre-write value at a deeply-nested :output-path"
     (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:w 3 :h 4 :rect {:area :initial-area}}}))
     (rf/reg-event :grow  (fn [{:keys [db]} _] {:db (assoc db :w 5)}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:grow])
     (let [[first-ev second-ev] (by-op :rf.flow/computed)]
@@ -347,14 +304,8 @@
     ;; flow's :before is independent — captured against its own :output-path.
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-flow {:id     :A
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:a-out]})
-    (rf/reg-flow {:id     :B
-                  :inputs [[:a-out]]
-                  :derive (fn [a] (str "B-saw-" a))
-                  :output-path   [:b-out]})
+    (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 2 n)))
+    (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]} (fn [a] (str "B-saw-" a)))
     (rf/dispatch-sync [:init])
     (let [first-pass (by-op :rf.flow/computed)
           a-first    (first (filterv #(= :A (:flow-id (:tags %))) first-pass))
@@ -385,10 +336,7 @@
   (testing "writing :n with =-equal value emits :rf.flow/skip not :rf.flow/computed"
     (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-event :replace-n  (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:derived :doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
     (rf/dispatch-sync [:init])
     ;; Reset capture so we look only at the :replace-n drain.
     (reset! *captured* [])
@@ -426,10 +374,7 @@
     ;; the tag must enumerate every declared input path.
     (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-event :rewrite-wh (fn [{:keys [db]} [_ w h]] {:db (assoc db :w w :h h)}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:init])
     (reset! *captured* [])
     ;; Rewrite both inputs with their SAME values → value-equal skip.
@@ -444,10 +389,7 @@
   (testing "skip fires on equal rewrite; subsequent real change fires :rf.flow/computed"
     (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:derived :doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
     (rf/dispatch-sync [:init])
     (reset! *captured* [])
     (rf/dispatch-sync [:replace-n 5])    ;; same value → skip
@@ -462,10 +404,7 @@
 (deftest clear-flow-emits-cleared-trace
   (testing "clear-flow emits :rf.flow/cleared with :flow-id, :path, :frame"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:rect :w] [:rect :h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:rect :w] [:rect :h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (rf/dispatch-sync [:seed])
     (reset! *captured* [])
     (flows/clear-flow :area)
@@ -489,10 +428,7 @@
   (testing "a flow whose :derive fn throws emits :rf.flow/failed; the exception propagates"
     (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-event :bump       (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "boom" {:why :test})))
-                  :output-path   [:doomed]})
+    (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {:why :test}))))
     (reset! *captured* [])
     ;; The router catches the cascade-level throw and emits
     ;; :rf.error/flow-eval-exception per Spec 009 §Error contract; our
@@ -547,10 +483,7 @@
         :test/flow-eval-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-      (rf/reg-flow {:id     :boom
-                    :inputs [[:n]]
-                    :derive (fn [_] (throw (ex-info "flow boom" {:why :test})))
-                    :output-path   [:doomed]})
+      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "flow boom" {:why :test}))))
       (rf/dispatch-sync [:init])
       (is (= 1 (count @seen))
           "exactly one substrate record fired for one flow-eval throw")
@@ -601,10 +534,7 @@
         :test/flow-eval-shape-recorder
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-      (rf/reg-flow {:id     :boom
-                    :inputs [[:n]]
-                    :derive (fn [_] (throw (ex-info "flow boom" {:why :test})))
-                    :output-path   [:doomed]})
+      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "flow boom" {:why :test}))))
       (rf/dispatch-sync [:init])
       (is (= 1 (count @seen)) "one error-emit record fired for the throw")
       (let [thrown (:exception (first @seen))
@@ -651,19 +581,12 @@
         :test/fx-reg-flow-cycle-recorder
         (fn [record] (swap! seen conj record)))
       ;; Register flow :a that depends on :b's path.
-      (rf/reg-flow {:id     :a
-                    :inputs [[:b-out]]
-                    :derive identity
-                    :output-path   [:a-out]})
+      (rf/reg-flow :a {:inputs [[:b-out]] :output-path [:a-out]} identity)
       ;; Now dispatch an event whose :fx registers :b such that
       ;; :b's :inputs overlap :a's :output-path → cycle.
       (rf/reg-event :introduce-cycle
                        (fn [_ _]
-                         {:fx [[:rf.fx/reg-flow
-                                {:id     :b
-                                 :inputs [[:a-out]]
-                                 :derive identity
-                                 :output-path   [:b-out]}]]}))
+                         {:fx [[:rf.fx/reg-flow [:b {:inputs [[:a-out]] :output-path [:b-out]} identity]]]}))
       (rf/dispatch-sync [:introduce-cycle])
       (is (= 1 (count @seen))
           "exactly one substrate record fired for one :rf.fx/reg-flow cycle")
@@ -696,10 +619,7 @@
             (reset! trace-saw ev))))
       (try
         (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-        (rf/reg-flow {:id     :boom
-                      :inputs [[:n]]
-                      :derive (fn [_] (throw (ex-info "boom" {})))
-                      :output-path   [:doomed]})
+        (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
         (rf/dispatch-sync [:init])
         (is (some? @trace-saw)
             "trace bus saw `:rf.error/flow-eval-exception` — dev path intact")
@@ -717,10 +637,7 @@
   (testing "register → first compute → skip on equal rewrite → real recompute → clear"
     (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:replace-n 3])     ;; same → skip
     (rf/dispatch-sync [:replace-n 4])     ;; change → compute
@@ -755,10 +672,7 @@
     ;; the runtime-db partition (see
     ;; `re-frame.events/reject-legacy-runtime-root!`).
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-flow {:id     :payload
-                  :inputs [[:n]]
-                  :derive (fn [_] {:bytes "BIG"})
-                  :output-path   [:derived :blob]})
+    (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob]} (fn [_] {:bytes "BIG"}))
     (install-large! :rf/default [:derived :blob])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
@@ -778,10 +692,7 @@
     ;; Register the flow that will throw; the input path is frame-
     ;; declared large so the walker substitutes the marker on emit.
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:payload {:big "value"}}}))
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:payload]]
-                  :derive (fn [_] (throw (ex-info "boom" {})))
-                  :output-path   [:doomed]})
+    (rf/reg-flow :boom {:inputs [[:payload]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
     (install-large! :rf/default [:payload])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
@@ -815,18 +726,9 @@
     ;; (throwing) drain installs nothing on top of it.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-event :touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
-    (rf/reg-flow {:id     :A
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:a-out]})
-    (rf/reg-flow {:id     :B
-                  :inputs [[:a-out]]
-                  :derive (fn [_] (throw (ex-info "boom" {:why :test})))
-                  :output-path   [:b-out]})
-    (rf/reg-flow {:id     :C
-                  :inputs [[:b-out]]
-                  :derive (fn [b] (str "C-saw-" b))
-                  :output-path   [:c-out]})
+    (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 2 n)))
+    (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]} (fn [_] (throw (ex-info "boom" {:why :test}))))
+    (rf/reg-flow :C {:inputs [[:b-out]] :output-path [:c-out]} (fn [b] (str "C-saw-" b)))
     ;; First drain seeds :n. :A computes [:a-out]; :B throws → that whole
     ;; drain aborts, so even :n does not land. Re-seed cleanly is not
     ;; possible while :B throws, so capture app-db right after the
@@ -884,16 +786,10 @@
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (let [a-calls (atom 0)
           b-calls (atom 0)]
-      (rf/reg-flow {:id     :A
-                    :inputs [[:n]]
-                    :derive (fn [n] (swap! a-calls inc) (* 2 n))
-                    :output-path   [:a-out]})
-      (rf/reg-flow {:id     :B
-                    :inputs [[:a-out]]
-                    :derive (fn [_]
+      (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (swap! a-calls inc) (* 2 n)))
+      (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]} (fn [_]
                               (swap! b-calls inc)
-                              (throw (ex-info "boom" {})))
-                    :output-path   [:b-out]})
+                              (throw (ex-info "boom" {}))))
       (rf/dispatch-sync [:init])
       (is (= 1 @a-calls) ":A computed once on the first drain")
       (is (= 1 @b-calls) ":B threw once on the first drain")
@@ -921,14 +817,8 @@
 (deftest failed-flow-app-db-unchanged-across-multiple-failing-drains
   (testing "across multiple failing drains, NOTHING lands — app-db stays unchanged (no partial commit)"
     (rf/reg-event :n!   (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow {:id     :A
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 10 n))
-                  :output-path   [:a-out]})
-    (rf/reg-flow {:id     :B
-                  :inputs [[:a-out]]
-                  :derive (fn [_] (throw (ex-info "boom" {})))
-                  :output-path   [:b-out]})
+    (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 n)))
+    (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]} (fn [_] (throw (ex-info "boom" {}))))
     (rf/dispatch-sync [:n! 5])
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :n))
@@ -981,10 +871,7 @@
       ;; :after — after the handler, BEFORE :db install and BEFORE :fx
       ;; walks; a throw aborts the event, so :after-throw must NOT dispatch
       ;; and the handler's :db must NOT install.
-      (rf/reg-flow {:id     :boom
-                    :inputs [[:n]]
-                    :derive (fn [_] (throw (ex-info "boom" {:why :test})))
-                    :output-path   [:doomed]})
+      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {:why :test}))))
       (rf/dispatch-sync [:run-with-throwing-flow])
       (is (false? @child-fired?)
           "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw")
@@ -1003,10 +890,7 @@
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:after-ok]]]}))
-      (rf/reg-flow {:id     :double
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 n))
-                    :output-path   [:doubled]})
+      (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
       (rf/dispatch-sync [:init])
       (reset! child-fired? false)
       (rf/dispatch-sync [:run-with-ok-flow])
@@ -1029,10 +913,7 @@
                          {:db {:n 2}
                           :fx [[:dispatch [:must-not-fire]]]}))
       (rf/reg-event :must-not-fire (fn [{:keys [db]} _] {:db db}))
-      (rf/reg-flow {:id     :boom
-                    :inputs [[:n]]
-                    :derive (fn [_] (throw (ex-info "boom" {})))
-                    :output-path   [:doomed]})
+      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
       (rf/dispatch-sync [:run-with-throwing-flow])
       (is (>= (count @seen) 1)
           "error-emit substrate fired — the cascade-halt does not silence the error fan-out")
@@ -1067,10 +948,7 @@
                          {:db {:n 5}
                           :fx [[:test/ok-fx true]
                                [:test/boom-fx true]]}))
-      (rf/reg-flow {:id     :double
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 2 n))
-                    :output-path   [:doubled]})
+      (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
       ;; An fx throw surfaces an error event but does not propagate out of
       ;; the dispatch (each fx is isolated per Spec 002 §Cascade
       ;; propagation); the drain continues. dispatch-sync returns normally.
@@ -1104,10 +982,7 @@
     ;; This handler writes NO :db — only an :fx that is a noop.
     (rf/reg-event :no-write
                      (fn [_ _] {:fx [[:test/noop true]]}))
-    (rf/reg-flow {:id     :double
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     ;; First drain seeds :n and computes the flow (outside the record
     ;; window — we only care about the no-write drain's trace stream).
     (rf/dispatch-sync [:seed])
@@ -1136,10 +1011,7 @@
     ;; Belt-and-braces against an over-eager rewrite — the walker must be
     ;; a no-op on plain values not nominated for elision.
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/computed)))]
@@ -1156,10 +1028,7 @@
     ;; therefore frame-large. The walker must substitute the marker.
     (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}})}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-flow {:id     :payload
-                  :inputs [[:n]]
-                  :derive (fn [n] {:bytes (str "blob-" n)})
-                  :output-path   [:derived :blob]})
+    (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob]} (fn [n] {:bytes (str "blob-" n)}))
     (install-large! :rf/default [:derived :blob])
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
@@ -1217,13 +1086,7 @@
     ;; [:rf.runtime/elision] — survives for the flow's evaluate-time + egress
     ;; registry read.
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-flow {:id          :payload
-                  :inputs      [[:n]]
-                  :derive      (fn [_] {:bytes "BIG"})
-                  :output-path [:derived :blob]
-                  ;; The flow classifies its OWN whole output large — a
-                  ;; :source :flow registry write, NOT an install-large! effect.
-                  :large?      true})
+    (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob] :large? true} (fn [_] {:bytes "BIG"}))
     ;; Precondition: the flow's own registration installed the :source :flow
     ;; declaration (not a helper, not an effect).
     (is (= :flow (:source (get (elision/declarations :rf/default) [:derived :blob])))
@@ -1258,13 +1121,7 @@
             destination slot projects :rf/redacted via the SAME registry —
             from a :source :flow declaration, not the :source :effect helper"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n "raw-token"}}))
-    (rf/reg-flow {:id          :creds
-                  :inputs      [[:n]]
-                  :derive      (fn [n] {:secret (str "Bearer-" n)})
-                  :output-path [:auth :creds]
-                  ;; The flow classifies the :secret sub-slot of its own output
-                  ;; sensitive — a :source :flow registry write.
-                  :sensitive   [[:secret]]})
+    (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]} (fn [n] {:secret (str "Bearer-" n)}))
     ;; Precondition: the sensitive sub-slot roots at :output-path ++ [:secret]
     ;; and is a :source :flow declaration.
     (is (= :flow (:source (get (elision/sensitive-declarations :rf/default)
@@ -1315,10 +1172,7 @@
     ;; `:rf/sensitive? true`). The flow reads [:auth :token] and writes
     ;; [:auth :derived-user] — it recomputes inside the sensitive scope.
     (install-sensitive! :rf/default [:auth :token])
-    (rf/reg-flow {:id     :auth/derived-user
-                  :inputs [[:auth :token]]
-                  :derive (fn [t] (str "user-of-" t))
-                  :output-path   [:auth :derived-user]})
+    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]} (fn [t] (str "user-of-" t)))
     (rf/reg-event :auth/signed-in
                      {:interceptors [[:rf.interceptor/path [:auth]]]}
                      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
@@ -1335,10 +1189,7 @@
   (testing "Spec 013:242 — `:rf.flow/failed` is also stamped `:sensitive?`
             when the triggering handler's cascade is frame-sensitive"
     (install-sensitive! :rf/default [:auth :token])
-    (rf/reg-flow {:id     :auth/derived-user
-                  :inputs [[:auth :token]]
-                  :derive (fn [_] (throw (ex-info "derive boom" {})))
-                  :output-path   [:auth :derived-user]})
+    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]} (fn [_] (throw (ex-info "derive boom" {}))))
     (rf/reg-event :auth/signed-in
                      {:interceptors [[:rf.interceptor/path [:auth]]]}
                      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
@@ -1362,10 +1213,7 @@
             exception summary (`:exception-message` + `:exception-data`),
             NEVER a raw Throwable under `:ex`"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "kaboom" {:code 42})))
-                  :output-path   [:doomed]})
+    (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "kaboom" {:code 42}))))
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/failed)))]
@@ -1392,13 +1240,8 @@
     (rf/reg-event :auth/signed-in
                      {:interceptors [[:rf.interceptor/path [:auth]]]}
                      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
-    (rf/reg-flow {:id     :auth/derived-user
-                  :inputs [[:auth :token]]
-                  ;; The exception ex-data smuggles the sensitive value the
-                  ;; flow just read — the exact leak class the bead names.
-                  :derive (fn [tok] (throw (ex-info "derive failed"
-                                                    {:leaked-token tok})))
-                  :output-path   [:auth :derived-user]})
+    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]} (fn [tok] (throw (ex-info "derive failed"
+                                                    {:leaked-token tok}))))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "TOP-SECRET"])
     (let [failures (by-op :rf.flow/failed)
@@ -1423,10 +1266,7 @@
             verbatim (the projection is precise, not a blanket scrub —
             symmetric with every other per-registration projection)"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "boom" {:detail :useful})))
-                  :output-path   [:doomed]})
+    (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {:detail :useful}))))
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     (let [tags (:tags (last (by-op :rf.flow/failed)))]
@@ -1439,10 +1279,7 @@
   (testing "Spec 013:242 — `:rf.flow/skip` is stamped `:sensitive?` when the
             triggering handler's cascade is frame-sensitive"
     (install-sensitive! :rf/default [:auth :token])
-    (rf/reg-flow {:id     :auth/derived-user
-                  :inputs [[:auth :token]]
-                  :derive (fn [t] (str "user-of-" t))
-                  :output-path   [:auth :derived-user]})
+    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]} (fn [t] (str "user-of-" t)))
     (rf/reg-event :auth/signed-in
                      {:interceptors [[:rf.interceptor/path [:auth]]]}
                      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
@@ -1467,10 +1304,7 @@
     (install-sensitive! :rf/default [:auth :token])
     ;; This handler is path-scoped to :profile (disjoint from the sensitive
     ;; :auth slot) and the flow reads :profile — non-sensitive cascade.
-    (rf/reg-flow {:id     :profile/derived
-                  :inputs [[:profile :name]]
-                  :derive (fn [n] (str "hello-" n))
-                  :output-path   [:profile :greeting]})
+    (rf/reg-flow :profile/derived {:inputs [[:profile :name]] :output-path [:profile :greeting]} (fn [n] (str "hello-" n)))
     (rf/reg-event :profile/rename
                      {:interceptors [[:rf.interceptor/path [:profile]]]}
                      (fn [{:keys [db]} [_ name]] {:db (assoc db :name name)}))
@@ -1492,10 +1326,7 @@
     ;; sensitive input) ride through the elision walker → `:rf/redacted`,
     ;; while the cascade is sensitive → top-level stamp.
     (install-sensitive! :rf/default [:auth :token] [:auth :derived-token])
-    (rf/reg-flow {:id     :auth/derived-token
-                  :inputs [[:auth :token]]
-                  :derive (fn [t] (str "derived-" t))
-                  :output-path   [:auth :derived-token]})
+    (rf/reg-flow :auth/derived-token {:inputs [[:auth :token]] :output-path [:auth :derived-token]} (fn [t] (str "derived-" t)))
     (rf/reg-event :auth/signed-in
                      {:interceptors [[:rf.interceptor/path [:auth]]]}
                      (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
@@ -1533,14 +1364,8 @@
                   ;; so a :db effect + a prior-flow write both exist when
                   ;; :boom throws — proving that EVEN THEN nothing installs.
                   (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-                  (rf/reg-flow {:id     :ok
-                                :inputs [[:n]]
-                                :derive (fn [n] (* 10 n))
-                                :output-path   [:a-out]})
-                  (rf/reg-flow {:id     :boom
-                                :inputs [[:a-out]]
-                                :derive (fn [_] (throw (ex-info "boom" {})))
-                                :output-path   [:doomed]})
+                  (rf/reg-flow :ok {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 n)))
+                  (rf/reg-flow :boom {:inputs [[:a-out]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
                   (rf/dispatch-sync [:bump])))
           ;; Restrict to the :bump cascade. Take everything from the
           ;; :bump :run-start trace to the end.
@@ -1609,10 +1434,7 @@
                                    (fn [_ _]
                                      {:db {:n 3}
                                       :fx [[:test/noop true]]}))
-                  (rf/reg-flow {:id     :double
-                                :inputs [[:n]]
-                                :derive (fn [n] (* 2 n))
-                                :output-path   [:doubled]})
+                  (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
                   (rf/dispatch-sync [:go])))
           evs-v       (vec evs)
           ;; Restrict to the :go cascade — from its :run-start trace on.

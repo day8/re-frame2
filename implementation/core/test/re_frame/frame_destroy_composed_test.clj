@@ -446,11 +446,7 @@
 
     ;; --- flows: register a flow rooted at the frame -----------------------
     (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :composed/area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* (or w 0) (or h 0)))
-                  :output-path   [:rect :area]}
-                 {:frame :composed/leak-audit})
+    (rf/reg-flow :composed/area {:frame :composed/leak-audit :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
 
     ;; --- epoch: register a listener BEFORE the cascade so the cb's
     ;;     observed-frames-by-cb entry gets populated by the drain --------

@@ -91,11 +91,7 @@
   (testing "a flow whose output conforms to :schema emits no violation and writes the value"
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]
-                  :schema (fn [v] (and (integer? v) (pos? v)))})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [v] (and (integer? v) (pos? v)))} (fn [w h] (* w h)))
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "the flow computed and wrote its output")
@@ -111,11 +107,7 @@
     (install-predicate-validator!)
     ;; Output is negative; the schema demands a non-negative integer.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h -4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]
-                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [w h] (* w h)))
     (rf/dispatch-sync [:seed])
     (is (= -12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "the output is STILL written — flow validation is observational, not a rollback")
@@ -168,10 +160,7 @@
       (schemas/set-schema-fns!
         {:validate (fn [_ _] (swap! validator-calls inc) false)})
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-      (rf/reg-flow {:id     :area
-                    :inputs [[:w] [:h]]
-                    :derive (fn [w h] (* w h))
-                    :output-path   [:rect :area]})
+      (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
       (rf/dispatch-sync [:seed])
       (is (zero? @validator-calls)
           "no :schema means the validator is never invoked")
@@ -188,11 +177,7 @@
     ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
     (schemas/set-schema-validator! nil)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]
-                  :schema (fn [_] false)}) ;; would reject everything IF consulted
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject everything IF consulted
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "value written")
@@ -207,11 +192,7 @@
   (testing "with debug-enabled? false the whole validation surface is silent (prod elision mirror)"
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow {:id     :area
-                  :inputs [[:w] [:h]]
-                  :derive (fn [w h] (* w h))
-                  :output-path   [:rect :area]
-                  :schema (fn [_] false)}) ;; would reject IF the gate let it run
+    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject IF the gate let it run
     (with-redefs [interop/debug-enabled? false]
       (rf/dispatch-sync [:seed]))
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
@@ -229,17 +210,9 @@
     (install-predicate-validator!)
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:cart {:items [{:price 10} {:price -5}]}}}))
     ;; subtotal sums the (here intentionally negative-capable) prices.
-    (rf/reg-flow {:id     :cart/subtotal
-                  :inputs [[:cart :items]]
-                  :derive (fn [items] (reduce + 0 (map :price items)))
-                  :output-path   [:cart :subtotal]
-                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    (rf/reg-flow :cart/subtotal {:inputs [[:cart :items]] :output-path [:cart :subtotal] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [items] (reduce + 0 (map :price items))))
     ;; total doubles the subtotal; demands a non-negative result too.
-    (rf/reg-flow {:id     :cart/total
-                  :inputs [[:cart :subtotal]]
-                  :derive (fn [subtotal] (* 2 subtotal))
-                  :output-path   [:cart :total]
-                  :schema (fn [v] (and (integer? v) (not (neg? v))))})
+    (rf/reg-flow :cart/total {:inputs [[:cart :subtotal]] :output-path [:cart :total] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [subtotal] (* 2 subtotal)))
     (rf/dispatch-sync [:seed])
     ;; subtotal = 10 + -5 = 5 (conforms); total = 10 (conforms). No violation.
     (is (= 5  (get-in (rf/app-db-value :rf/default) [:cart :subtotal])))

@@ -234,24 +234,35 @@
 ;; projection-relative `:sensitive` / `:large` declarations.
 
 (defn- canonical-spec
-  "Normalize a resolver registration argument into the canonical STORED
-  spec map. Per Spec 016 §The `{:inputs … :resolve …}` grammar +
-  §Whole-db function sugar (rf2-wvh95f F3).
+  "Normalize the 3-slot `(reg-resource-scope scope-id metadata resolve-fn)`
+  registration into the canonical STORED spec map. Per Spec 016 §The
+  `{:inputs … :resolve …}` grammar + §Whole-db function sugar (rf2-wvh95f F3,
+  brought into the canonical 3-slot registration grammar by rf2-bqstzr).
 
-  - The CANONICAL map form `{:inputs {name [:db path]} :resolve (fn [inputs ctx]
-    …)}` validates every declared input descriptor, requires a fn `:resolve`,
-    and stores `{:inputs <canonical> :resolve <fn> :whole-db? false :doc …}`.
-    Its `:resolve` first arg is ALWAYS the resolved inputs map (the one stable
-    Name-over-place meaning).
-  - The bare-fn sugar `(fn [db ctx] …)` is the ONE documented explicit
-    alternative. It lowers to the SAME canonical stored shape: a synthetic
-    `:inputs {:db [:db []]}` (the root path), `:whole-db? true`, and the user
-    fn WRAPPED so the STORED `:resolve` is still called with the canonical
-    `(inputs ctx)` arity — the wrapper reads `db` off the inputs map and
-    forwards `(user-fn db ctx)`. So the stored resolver's first-arg meaning is
-    uniform (inputs map) even for the sugar; only the USER's bare fn sees the
-    whole db as its first arg (the deliberate, documented exception). Tooling
-    reads `:whole-db?` to mark the cost on both axes (EP-0015 disposition 8).
+  The `:resolve` fn is the THIRD slot (the resolver HANDLER); the middle
+  `metadata` slot carries the reflection-config keys (`:inputs`, `:doc`). This
+  mirrors reg-resource / reg-mutation, where `:params-schema` shapes the
+  `:request` handler from the metadata slot — here `:inputs` shapes the
+  `:resolve` handler.
+
+  - **Declared-inputs form** — `metadata` CARRIES an `:inputs` key
+    (`{:inputs {name [:db path]} :doc …}`). Validates every declared input
+    descriptor and stores `{:inputs <canonical> :resolve <fn> :whole-db? false
+    :doc …}`. The `:resolve` first arg is ALWAYS the resolved inputs map (the
+    one stable Name-over-place meaning).
+  - **Whole-db sugar** — `metadata` has NO `:inputs` key (an empty metadata map,
+    the 2-arg `(reg-resource-scope scope-id resolve-fn)` sugar, or a
+    `{:doc …}`-only metadata). The resolver reads the whole db as its first arg
+    — the ONE documented explicit alternative (rf2-wvh95f F3). It lowers to the
+    SAME canonical stored shape: a synthetic `:inputs {:db [:db []]}` (the root
+    path), `:whole-db? true`, and the user fn WRAPPED so the STORED `:resolve`
+    is still called with the canonical `(inputs ctx)` arity — the wrapper reads
+    `db` off the inputs map and forwards `(user-fn db ctx)`. So the stored
+    resolver's first-arg meaning is uniform (inputs map) even for the sugar;
+    only the USER's fn sees the whole db as its first arg (the deliberate,
+    documented exception). Tooling reads `:whole-db?` to mark the cost on both
+    axes (EP-0015 disposition 8). The `:inputs` KEY presence — not the value
+    fn's shape — selects the form, so both slots are simple positionals.
 
   EP-0025 (rf2-71dr8t): there is NO `:rf.egress/output-sensitivity` claim — all
   sensitivity propagation is removed. A `:rf.egress/output-sensitivity` key on a
@@ -261,76 +272,102 @@
 
   Returns the canonical stored spec; throws a loud
   `:rf.error/invalid-resource-scope-spec` on a malformed argument."
-  [scope-id resolver]
-  (cond
-    ;; whole-db fn sugar — lower to an explicit whole-db input
-    (fn? resolver)
-    {:inputs    {:db [:db []]}
-     :resolve   (fn [{:keys [db]} ctx] (resolver db ctx))
-     :whole-db? true
-     :doc       nil}
-
-    (map? resolver)
-    (let [{:keys [inputs resolve doc]} resolver]
-      (when-not (fn? resolve)
-        (throw (registration-error
-                 :rf.error/invalid-resource-scope-spec
-                 'rf/reg-resource-scope
-                 (str "resource-scope " scope-id " declares no fn `:resolve`. "
-                      "The primary form is {:inputs {name [:db path]} :resolve "
-                      "(fn [inputs ctx] -> scope|nil)}. Per Spec 016 §The "
-                      ":inputs grammar.")
-                 {:scope-id scope-id :resolve resolve})))
-      (when (and (some? inputs) (not (map? inputs)))
-        (throw (registration-error
-                 :rf.error/invalid-resource-scope-spec
-                 'rf/reg-resource-scope
-                 (str "resource-scope " scope-id " has a non-map `:inputs` "
-                      (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
-                      "Per Spec 016 §The :inputs grammar.")
-                 {:scope-id scope-id :inputs inputs})))
-      {:inputs    (reduce-kv
-                    (fn [acc input-name descriptor]
-                      (assoc acc input-name
-                             (validate-input-descriptor! scope-id input-name descriptor)))
-                    {} (or inputs {}))
-       :resolve   resolve
-       :whole-db? false
-       :doc       doc})
-
-    :else
+  [scope-id metadata resolve-fn]
+  (when-not (map? metadata)
     (throw (registration-error
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
-             (str "resource-scope " scope-id "'s resolver must be either a "
-                  "{:inputs … :resolve …} map or a (fn [db ctx] …) whole-db "
-                  "sugar, got " (pr-str (type resolver)) ". Per Spec 016 §The "
+             (str "resource-scope " scope-id "'s metadata (the MIDDLE slot) must "
+                  "be a map, got " (pr-str (type metadata)) ". Per rf2-bqstzr the "
+                  "grammar is (reg-resource-scope " scope-id " {…} resolve-fn): "
+                  "the :inputs / :doc reflection-config metadata map is the "
+                  "SECOND slot, the :resolve fn is the THIRD.")
+             {:scope-id scope-id :value metadata})))
+  ;; rf2-bqstzr — `:resolve` is the 3-slot VALUE (the resolver handler). A
+  ;; `:resolve` left INSIDE the metadata map is a mislocated key; reject it
+  ;; loudly so the grammar change cannot be half-applied.
+  (when (contains? metadata :resolve)
+    (throw (registration-error
+             :rf.error/invalid-resource-scope-spec
+             'rf/reg-resource-scope
+             (str "resource-scope " scope-id " declares :resolve inside its "
+                  "metadata map — per rf2-bqstzr the resolver fn is the THIRD "
+                  "slot: (reg-resource-scope " scope-id " {…} resolve-fn). Move "
+                  "the resolver out of the metadata map into the value slot.")
+             {:scope-id scope-id :value (:resolve metadata)})))
+  (when-not (fn? resolve-fn)
+    (throw (registration-error
+             :rf.error/invalid-resource-scope-spec
+             'rf/reg-resource-scope
+             (str "resource-scope " scope-id "'s resolver (the THIRD slot) must "
+                  "be a fn, got " (pr-str (type resolve-fn)) ". The primary form "
+                  "is (reg-resource-scope " scope-id " {:inputs {name [:db path]}} "
+                  "(fn [inputs ctx] -> scope|nil)); the whole-db sugar omits "
+                  ":inputs and reads the db (fn [db ctx] …). Per Spec 016 §The "
                   ":inputs grammar / §Whole-db function sugar.")
-             {:scope-id scope-id :value resolver}))))
+             {:scope-id scope-id :value resolve-fn})))
+  (let [{:keys [inputs doc]} metadata]
+    (if (contains? metadata :inputs)
+      ;; declared-inputs form — `:inputs` present shapes the resolver
+      (do
+        (when-not (map? inputs)
+          (throw (registration-error
+                   :rf.error/invalid-resource-scope-spec
+                   'rf/reg-resource-scope
+                   (str "resource-scope " scope-id " has a non-map `:inputs` "
+                        (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
+                        "Per Spec 016 §The :inputs grammar.")
+                   {:scope-id scope-id :inputs inputs})))
+        {:inputs    (reduce-kv
+                      (fn [acc input-name descriptor]
+                        (assoc acc input-name
+                               (validate-input-descriptor! scope-id input-name descriptor)))
+                      {} inputs)
+         :resolve   resolve-fn
+         :whole-db? false
+         :doc       doc})
+      ;; whole-db sugar — no `:inputs` declared; the resolver reads the whole db
+      {:inputs    {:db [:db []]}
+       :resolve   (fn [{:keys [db]} ctx] (resolve-fn db ctx))
+       :whole-db? true
+       :doc       doc})))
 
 ;; ---- reg-resource-scope / clear-resource-scope ---------------------------
 
 (defn reg-resource-scope
-  "Register a named resource-scope resolver under `scope-id`. Per Spec 016
-  §Named resource-scope resolvers (`reg-resource-scope`) / EP-0016 D3.
+  "Register a named resource-scope resolver under `scope-id`. Per the canonical
+  Spec 001 3-slot grammar (rf2-bqstzr, completing the rf2-wvh95f F1 alignment)
+  / Spec 016 §Named resource-scope resolvers / EP-0016 D3:
 
-  `resolver` is either the ONE canonical declared-inputs map
-  `{:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}`
-  (where the `:resolve` first arg is ALWAYS the resolved inputs map — the
-  stable Name-over-place meaning, rf2-wvh95f F3) or the single documented
-  explicit alternative, the whole-db fn sugar `(fn [db ctx] -> scope|nil)`
-  (its first arg is the whole db — the one deliberate exception). Validates the
-  declared inputs (only `[:db <rf-path>]` ships; `[:runtime …]` is reserved
-  and rejected loudly), requires a fn `:resolve`, and writes a
-  `:resource-scope`-kind registrar entry carrying the canonical spec plus
-  captured source coords.
+      (rf/reg-resource-scope :realworld/session
+        {:inputs {:username [:db [:auth :user :username]]}}
+        (fn [{:keys [username]} _ctx]
+          (when username [:rf.scope/session {:username username}])))
+
+  The `:resolve` fn — the resolver HANDLER — is the THIRD slot; the middle slot
+  is the reflection-config metadata map (`:inputs`, `:doc`). This mirrors
+  reg-resource / reg-mutation (where `:params-schema` shapes the `:request`
+  handler from the metadata slot). The `:resolve` first arg is ALWAYS the
+  resolved inputs map (the stable Name-over-place meaning, rf2-wvh95f F3).
+
+  The whole-db sugar OMITS `:inputs` from the metadata — the 2-arg
+  `(reg-resource-scope scope-id (fn [db ctx] …))` or a `:doc`-only metadata:
+  the resolver reads the whole db as its first arg (the ONE documented explicit
+  alternative, the deliberate cost-marked exception; tooling reads `:whole-db?`).
+
+  Validates the declared inputs (only `[:db <rf-path>]` ships; `[:runtime …]` is
+  reserved and rejected loudly), requires a fn resolver in the value slot, and
+  writes a `:resource-scope`-kind registrar entry carrying the canonical spec
+  plus captured source coords. A `:resolve` left INSIDE the metadata map is
+  rejected loudly as a mislocated key.
 
   Emits `:rf.resource/registered` (`:kind :resource-scope`) on first-time
   registration so the resolver appears in the Xray resource lifecycle
   timeline alongside resources. Returns `scope-id` per the `reg-*`
   return-value convention ([Conventions §reg-* return-value convention])."
-  [scope-id resolver]
-  (let [spec     (canonical-spec scope-id resolver)
+  ([scope-id resolve-fn] (reg-resource-scope scope-id {} resolve-fn))
+  ([scope-id metadata resolve-fn]
+  (let [spec     (canonical-spec scope-id metadata resolve-fn)
         previous (registrar/lookup scope-kind scope-id)]
     (registrar/register!
       scope-kind
@@ -345,7 +382,7 @@
                     :kind        :resource-scope
                     :inputs      (vec (keys (:inputs spec)))
                     :whole-db?   (:whole-db? spec)}))
-    scope-id))
+    scope-id)))
 
 (defn clear-resource-scope
   "Remove a registered resource-scope resolver (a registration-lifecycle

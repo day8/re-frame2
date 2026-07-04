@@ -236,9 +236,11 @@
        reg-resource    rf-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture). Register a PURE named
-  scope resolver under `scope-id`; `resolver` is the declared-inputs map
-  `{:inputs {name [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}`
-  or the whole-db fn sugar. Implementation ships in `day8/re-frame2-resources`;
+  scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
+  `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is the
+  value slot, `metadata` carries the declared `:inputs` map `{name [:db
+  <rf-path>]}` (+ optional `:doc`). Omit `:inputs` for the whole-db sugar (the
+  resolver reads the db). Implementation ships in `day8/re-frame2-resources`;
   require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
        reg-resource-scope rf-resources/reg-resource-scope)
@@ -373,11 +375,16 @@
        {:arglists '([id metadata])})
 
      (rm/defreg-macro reg-flow rf-flows/reg-flow
-       "Register a flow. Captures source-coords (Spec 001) at this
-       call site. Implementation ships in `day8/re-frame2-flows`
-       (rf2-tfw3); apps must add the artefact and require
-       `re-frame.flows` at boot. See `re-frame.core-flows/reg-flow`
-       for the full signature.")
+       "Register a flow under `flow-id`. Per rf2-bqstzr the canonical 3-slot
+       grammar is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive`
+       fn is the third VALUE slot, and `metadata` carries `:inputs` /
+       `:output-path` (both REQUIRED) plus optional `:doc` / `:schema` / the
+       EP-0025 classification keys and the `:frame` mounting key. Captures
+       source-coords (Spec 001) at this call site. Implementation ships in
+       `day8/re-frame2-flows` (rf2-tfw3); apps must add the artefact and require
+       `re-frame.flows` at boot. See `re-frame.core-flows/reg-flow` for the full
+       signature."
+       {:arglists '([flow-id metadata derive-fn] [flow-id derive-fn])})
 
      (rm/defreg-macro reg-route rf-routing/reg-route
        "Register a route under `id`. Per rf2-wvh95f F1 the canonical
@@ -423,16 +430,19 @@
        "Register a PURE named scope resolver under `scope-id` (EP-0016 D3) —
        the one scope-resolution currency reused by resource registration,
        route resources, ensure / subscriptions, invalidation descriptors, and
-       clear-scope. `resolver` is the declared-inputs map `{:inputs {name
-       [:db <rf-path>]} :resolve (fn [inputs ctx] -> scope|nil)}` or the
-       whole-db fn sugar. The shipped input source is `[:db <rf-path>]`;
-       `[:runtime …]` is reserved. A nil resolve result is FAIL-CLOSED.
-       Referenced via `{:from-db <scope-id>}`. Captures source-coords (Spec
-       001) at this call site. Implementation ships in
-       `day8/re-frame2-resources` (rf2-hls77w); apps must add the artefact and
+       clear-scope. Per rf2-bqstzr the canonical 3-slot grammar is
+       `(reg-resource-scope scope-id metadata resolve-fn)`: the `:resolve` fn is
+       the third VALUE slot, and `metadata` carries the declared `:inputs` map
+       `{name [:db <rf-path>]}` (plus optional `:doc`). Omitting `:inputs` (the
+       2-arg `(reg-resource-scope scope-id resolve-fn)` sugar) selects the
+       whole-db form — the resolver reads the db as its first arg. The shipped
+       input source is `[:db <rf-path>]`; `[:runtime …]` is reserved. A nil
+       resolve result is FAIL-CLOSED. Referenced via `{:from-db <scope-id>}`.
+       Captures source-coords (Spec 001) at this call site. Implementation ships
+       in `day8/re-frame2-resources` (rf2-hls77w); apps must add the artefact and
        require `re-frame.resources` at boot. See
        `re-frame.core-resources/reg-resource-scope` for the full signature."
-       {:arglists '([scope-id resolver])})
+       {:arglists '([scope-id metadata resolve-fn] [scope-id resolve-fn])})
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped

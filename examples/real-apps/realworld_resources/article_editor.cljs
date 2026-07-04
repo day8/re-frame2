@@ -120,16 +120,19 @@
 ;; walk fires on the next drain; a fresh editor starts invalid and clean anyway,
 ;; so that one-event lag never carries a stale value.
 
+;; The 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr) — the exact
+;; shape both `reg-flow` and `:rf.fx/reg-flow` take, so `[:rf.fx/reg-flow
+;; can-submit-flow]` splats it straight through.
 (def can-submit-flow
-  {:id     :editor/can-submit?
-   :doc    "True when the editor draft is both valid AND dirty (differs from the
-            loaded baseline). Materialised into app-db so the submit handler can
-            read it as plain data."
-   :inputs [[:editor :draft] [:editor :baseline]]
-   :derive (fn [draft baseline]
-             (and (empty? (validate-draft draft))
-                  (not= draft baseline)))
-   :output-path [:editor :can-submit?]})
+  [:editor/can-submit?
+   {:doc    "True when the editor draft is both valid AND dirty (differs from the
+             loaded baseline). Materialised into app-db so the submit handler can
+             read it as plain data."
+    :inputs [[:editor :draft] [:editor :baseline]]
+    :output-path [:editor :can-submit?]}
+   (fn [draft baseline]
+     (and (empty? (validate-draft draft))
+          (not= draft baseline)))])
 
 ;; ============================================================================
 ;; THE WRITE — mutations (POST create / PUT edit / DELETE)

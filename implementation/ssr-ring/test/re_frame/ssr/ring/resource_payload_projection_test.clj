@@ -80,9 +80,9 @@
   ;; resolver reading the FRAME-SENSITIVE viewer-identity path. EP-0025: this no
   ;; longer propagates sensitivity to the resource (no inheritance arm).
   (rf/reg-resource-scope :p026f5/session
-    {:inputs  {:username [:db [:auth :user :username]]}
-     :resolve (fn [{:keys [username]} _ctx]
-                (when username [:rf.scope/session {:username username}]))})
+    {:inputs {:username [:db [:auth :user :username]]}}
+    (fn [{:keys [username]} _ctx]
+      (when username [:rf.scope/session {:username username}])))
   ;; a session-scoped feed resource — :sensitive? per the case under test.
   (rf/reg-resource :p026f5/feed
     (cond-> {:scope         {:from-db :p026f5/session}
@@ -268,9 +268,9 @@
     (registrar/clear-kind! :resource-scope)
     (registrar/clear-kind! :resource)
     (rf/reg-resource-scope :p026f5/locale
-      {:inputs  {:locale [:db [:i18n :locale]]}
-       :resolve (fn [{:keys [locale]} _]
-                  (when locale [:rf.scope/locale {:locale locale}]))})
+      {:inputs {:locale [:db [:i18n :locale]]}}
+      (fn [{:keys [locale]} _]
+        (when locale [:rf.scope/locale {:locale locale}])))
     (rf/reg-resource :p026f5/prefs
       {:scope         {:from-db :p026f5/locale}
        :params-schema [:map]}

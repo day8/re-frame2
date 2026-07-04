@@ -431,12 +431,7 @@
       ;; A REAL flow whose output is classified sensitive. `reg-flow` installs
       ;; the `{:source :flow}` mark at REGISTRATION time, so it is present in
       ;; `runtime-before` (the chain-start snapshot) and must survive a rollback.
-      (rf/reg-flow {:id          :creds
-                    :inputs      [[:n]]
-                    :derive      (fn [n] {:secret n})
-                    :output-path [:derived :creds]
-                    :sensitive   [[:secret]]}
-                   {:frame :pc/rb-srcaware})
+      (rf/reg-flow :creds {:frame :pc/rb-srcaware :inputs [[:n]] :output-path [:derived :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
       (is (= {:source :flow :flow-id :creds}
              (get (elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
@@ -522,12 +517,7 @@
                                             :rf.db/runtime {}})
       ;; A real flow whose sensitive output sits at the OLD path. The mark is
       ;; installed at reg-flow time, so it is in the chain-start snapshot.
-      (rf/reg-flow {:id          :mover
-                    :inputs      [[:n]]
-                    :derive      (fn [n] {:secret n})
-                    :output-path [:old :creds]
-                    :sensitive   [[:secret]]}
-                   {:frame :pc/rb-move})
+      (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:old :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
       (is (= {:source :flow :flow-id :mover}
              (get (elision/sensitive-declarations :pc/rb-move)
                   [:old :creds :secret]))
@@ -539,12 +529,7 @@
       ;; installs a NEW-path one — BEFORE the post-commit schema rejection.
       (rf/reg-interceptor* :pc/flow-mover
         {:after (fn [ctx]
-                  (rf/reg-flow {:id          :mover
-                                :inputs      [[:n]]
-                                :derive      (fn [n] {:secret n})
-                                :output-path [:new :creds]
-                                :sensitive   [[:secret]]}
-                               {:frame :pc/rb-move})
+                  (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:new :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
                   ctx)})
       (rf/reg-event :pc/bad-move
         {:doc "schema-violating handler; the interceptor moves the flow output-path"

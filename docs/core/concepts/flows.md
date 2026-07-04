@@ -22,12 +22,11 @@ Here is the *same* label as a flow. Same pure function, no new domain:
 
 ```clojure
 ;; Flows live in their own namespace: (:require [re-frame.flows]) once, somewhere in your app.
-(rf/reg-flow
-  {:id     :counter/parity
-   :doc    "Whether the count is odd or even, materialised into app-db."
+(rf/reg-flow :counter/parity
+  {:doc    "Whether the count is odd or even, materialised into app-db."
    :inputs [[:counter/value]]                  ;; paths to watch (bare = app-db)
-   :derive (fn [n] (if (odd? n) :odd :even))   ;; pure: input values, in order → output
-   :output-path [:counter/parity]})            ;; the app-db path the answer is written to
+   :output-path [:counter/parity]}             ;; the app-db path the answer is written to
+  (fn [n] (if (odd? n) :odd :even)))           ;; pure: input values, in order → output
 ```
 
 Read it top to bottom and the shape is a sentence: *watch `[:counter/value]`; when it changes, run `(fn [n] …)`; write the result to `[:counter/parity]`.* That's the whole idea. The input values arrive at `:derive` positionally — one input here, so `:derive` takes one argument — and the result lands at the app-db `:output-path`.
@@ -98,14 +97,17 @@ The RealWorld editor's submit gate is the canonical case. "Can the user submit?"
 
 ```clojure
 ;; Condensed from examples/real-apps/realworld_resources/article_editor.cljs
+;; The 3-slot triple [flow-id metadata derive-fn] — the exact shape both
+;; reg-flow and :rf.fx/reg-flow take, so [:rf.fx/reg-flow can-submit-flow]
+;; splats it straight through.
 (def can-submit-flow
-  {:id     :editor/can-submit?
-   :doc    "True when the draft is valid AND differs from the loaded baseline."
-   :inputs [[:editor :draft] [:editor :baseline]]   ;; two inputs → two :derive args
-   :derive (fn [draft baseline]
-             (and (empty? (validate-draft draft))   ;; pure validator → {field msg}, empty when valid
-                  (not= draft baseline)))
-   :output-path [:editor :can-submit?]})
+  [:editor/can-submit?
+   {:doc    "True when the draft is valid AND differs from the loaded baseline."
+    :inputs [[:editor :draft] [:editor :baseline]]    ;; two inputs → two derive args
+    :output-path [:editor :can-submit?]}
+   (fn [draft baseline]
+     (and (empty? (validate-draft draft))             ;; pure validator → {field msg}, empty when valid
+          (not= draft baseline)))])
 
 (rf/reg-event :editor/initialise
   (fn [{:keys [db]} _event]
@@ -156,12 +158,11 @@ A typical app has *dozens* of subscriptions and *one to a handful* of flows. Ten
 Most flows read app-db with bare paths. But a flow's `:inputs` can also reach into **[runtime-db](../glossary.md#runtime-db)** — the frame's *other* partition, where the framework keeps route state and [machine](../../machines/glossary.md#machine) snapshots (the full story is in [app-db](app-db.md), and the split itself in [the two partitions](../glossary.md#the-two-partitions)). Lead a path with `:rf.db/runtime` and it reads runtime-db instead of app-db; the framework strips that marker before the lookup. This lets you materialise an app-db fact *from* the URL or *from* a machine's current state:
 
 ```clojure
-(rf/reg-flow
-  {:id     :nav/on-checkout?
-   :doc    "True while the router sits on the checkout route — materialised for handlers."
+(rf/reg-flow :nav/on-checkout?
+  {:doc    "True while the router sits on the checkout route — materialised for handlers."
    :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]  ;; runtime-db: the live route
-   :derive (fn [route-id] (= route-id :checkout))
-   :output-path [:nav/on-checkout?]})                                 ;; written to app-db, as always
+   :output-path [:nav/on-checkout?]}                                  ;; written to app-db, as always
+  (fn [route-id] (= route-id :checkout)))
 ```
 
 Two things stay true no matter how many runtime inputs a flow reads. First, **the output is still app-db** — a flow never writes runtime-db, so `:rf.db/runtime`-led paths are an input-only privilege. Second, the dirty-check watches *both* partitions: a pure route transition that changes runtime-db but touches no app-db still re-fires this flow, because the resolved route-id is part of the flow's cached input vector. You get a materialised, time-travelling, handler-readable mirror of route state without writing a single sync handler.
@@ -175,12 +176,11 @@ Two things stay true no matter how many runtime inputs a flow reads. First, **th
 A flow is a producer, and producers can have bugs. The optional `:schema` key declares a Malli schema for the **output value**; in dev, the runtime checks every recompute's result against it:
 
 ```clojure
-(rf/reg-flow
-  {:id     :cart/total
-   :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :derive (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0)))))
+(rf/reg-flow :cart/total
+  {:inputs [[:cart :subtotal] [:cart :discount-rate]]
    :output-path [:cart :total]
-   :schema  [:int {:min 0}]})        ;; the output must be a non-negative integer
+   :schema  [:int {:min 0}]}         ;; the output must be a non-negative integer
+  (fn [subtotal rate] (Math/round (* subtotal (- 1 (or rate 0))))))
 ```
 
 This is **observational, not a rollback** — and that distinction matters. A `:schema` violation does *not* throw and does *not* unwind the write. The flow computed a value successfully; it just failed its declared shape. So the value *is* written, the commit proceeds normally, and the failure surfaces as a diagnostic `:rf.error/schema-validation-failure` [error record](../glossary.md#error-record) — carrying the flow id, the `:output-path`, the offending value, and Malli's explanation. It is there to surface a producer bug early, not to repair state.
@@ -196,13 +196,12 @@ Like the rest of the validation surface, this is dev-only: it sits behind the fr
 A flow's output rides the [trace stream](../glossary.md#trace-stream) to Xray and any off-box monitor you've wired up. If that output is sensitive (a token, a decrypted field) or large (a megabyte of computed report data), you don't want it spilling onto the wire verbatim. Two optional registration keys classify the output the same way [keeping secrets out of traces](../how-to/keep-secrets-out-of-traces.md) works elsewhere — this is the flow-level expression of [data classification](../glossary.md#data-classification):
 
 ```clojure
-(rf/reg-flow
-  {:id        :auth/derived-session
-   :inputs    [[:auth :raw-claims]]
-   :derive    (fn [claims] (build-session claims))
+(rf/reg-flow :auth/derived-session
+  {:inputs    [[:auth :raw-claims]]
    :output-path [:auth :session]
    :sensitive [[:token]]          ;; redact the :token sub-path on the trace/wire surface
-   :large     [[:audit-log]]})    ;; elide the (big) :audit-log sub-path off-box
+   :large     [[:audit-log]]}     ;; elide the (big) :audit-log sub-path off-box
+  (fn [claims] (build-session claims)))
 ```
 
 Each of `:sensitive` and `:large` is a **vector of subpaths** *into the output shape* — each subpath itself a vector of keys. `[[]]` (a single empty subpath) classifies the whole output. `:large? true` is the whole-output shorthand for `:large`. These mark *which slices* of the output get redacted (sensitive) or elided (large) when the flow's trace event and the `:output-path` write cross a trust boundary.
@@ -240,10 +239,10 @@ Here's the trick a materialised view in a database can't do: you can switch a fl
 ;; Condensed from examples/core/flows/core.cljs — a 10%-off feature gate
 (rf/reg-event :cart/apply-discount
   (fn [_cofx _event]
-    {:fx [[:rf.fx/reg-flow {:id     :cart/discount-rate
-                            :inputs [[:cart :subtotal]]
-                            :derive (fn [_subtotal] 0.10)
-                            :output-path [:cart :discount-rate]}]
+    {:fx [[:rf.fx/reg-flow [:cart/discount-rate
+                            {:inputs [[:cart :subtotal]]
+                             :output-path [:cart :discount-rate]}
+                            (fn [_subtotal] 0.10)]]
           [:dispatch [:cart/touch]]]}))             ;; see the lag note below
 
 (rf/reg-event :cart/remove-discount
@@ -262,9 +261,12 @@ The fx variant is the common one because most toggling happens *inside* event ha
 ```clojure
 (require '[re-frame.flows :as flows])
 
+;; can-submit-flow is the 3-slot triple [id metadata derive-fn], so `apply` it:
 (rf/with-frame :scratch
-  (rf/reg-flow can-submit-flow))                   ;; frame from the surrounding scope
-(rf/reg-flow can-submit-flow {:frame :scratch})    ;; or an explicit frame opt
+  (apply rf/reg-flow can-submit-flow))             ;; frame from the surrounding scope
+;; or register with an explicit frame — :frame is a metadata key (the middle slot):
+(let [[id metadata derive-fn] can-submit-flow]
+  (rf/reg-flow id (assoc metadata :frame :scratch) derive-fn))
 
 (flows/clear-flow :editor/can-submit? {:frame :scratch})  ;; clear lives on re-frame.flows
 ```
@@ -295,10 +297,10 @@ A flow splits into the two layers you'd expect, and each tests like everything e
 ```clojure
 (deftest parity-materialises-with-the-write
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/reg-flow {:id     :counter/parity          ;; frame comes from the surrounding scope
-                  :inputs [[:counter/value]]
-                  :derive (fn [n] (if (odd? n) :odd :even))
-                  :output-path [:counter/parity]})
+    (rf/reg-flow :counter/parity                   ;; frame comes from the surrounding scope
+                 {:inputs [[:counter/value]]
+                  :output-path [:counter/parity]}
+                 (fn [n] (if (odd? n) :odd :even)))
     (rf/dispatch-sync [:rf/set-db {:counter/value 3}])
     (is (= :odd (get-in (rf/app-db-value f) [:counter/parity])))))
 ```
@@ -309,27 +311,27 @@ A flow splits into the two layers you'd expect, and each tests like everything e
 
 Flows [fail loud](../glossary.md#fail-loud-not-silent) and early. Almost everything that can go wrong is caught at registration time — when you call `reg-flow` (or its fx), before any state changes — so a bad flow definition never silently corrupts your app-db. They split into two groups: **shape** errors (the map itself is malformed) and **semantic / lifecycle** errors (the map is well-formed but can't be seated). The semantic ones are the ones worth memorising:
 
-- **`:rf.error/no-frame-context`** — a bare `(reg-flow flow)` with no surrounding `with-frame` scope and no `{:frame …}` opt. The framework won't guess a frame; give it one.
+- **`:rf.error/no-frame-context`** — a `reg-flow` with no surrounding `with-frame` scope and no `:frame` metadata key. The framework won't guess a frame; give it one.
 - **`:rf.error/flow-cycle`** — flow A reads B's output and B reads A's (directly or through a chain). The thrown `ex-data` carries `:cycle`, an ordered vector of flow ids with a closing repeat naming the loop, e.g. `[:a :b :a]`. Flows are a DAG; break the cycle.
 
   ```clojure
-  (rf/reg-flow {:id :a :inputs [[:b]] :derive identity :output-path [:a]})
-  (rf/reg-flow {:id :b :inputs [[:a]] :derive identity :output-path [:b]})
+  (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
+  (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
   ;; → ex-info ":rf.error/flow-cycle" {:cycle [:a :b :a]}
   ```
 
 - **`:rf.error/flow-path-overlap`** — two flows in the same frame whose `:output-path`s stand in a prefix relationship (identical paths included). Two flows writing the same slot would race with no defined order, so the framework rejects the second at registration rather than let one silently clobber the other. Sibling paths under a shared parent — `[:x :y]` and `[:x :z]` — are *fine*; only a genuine prefix overlap is an error.
 
   ```clojure
-  (rf/reg-flow {:id :a :inputs [[:w]] :derive identity :output-path [:x]})
-  (rf/reg-flow {:id :b :inputs [[:h]] :derive identity :output-path [:x]})
+  (rf/reg-flow :a {:inputs [[:w]] :output-path [:x]} identity)
+  (rf/reg-flow :b {:inputs [[:h]] :output-path [:x]} identity)
   ;; → ex-info ":rf.error/flow-path-overlap"  ([:x] vs [:x])
   ```
 
 - **`:rf.error/flow-frame-not-live`** — `reg-flow` against a frame that was never created or has already been destroyed. The framework won't seat flow state on a dead frame (a later frame reusing that id would inherit the ghost). `clear-flow`, by contrast, is permissive on an absent frame — it just no-ops, so teardown stays idempotent.
 - **`:rf.error/flow-bad-marks`** — a malformed `:sensitive` / `:large` declaration (a non-vector axis, a non-path entry, or the boolean `:sensitive?` spelling). Rejected fail-closed, as covered in [Classifying a flow's output](#classifying-a-flows-output).
 
-The **shape** errors are the ones you meet while you're still typing the map — each names the offending key in its `ex-data` so you can fix it without a stack-trace dig. They're checked in order, most-fundamental-first: `:rf.error/flow-missing-id` (no `:id`), `:rf.error/flow-bad-id` (`:id` present but not a keyword), `:rf.error/flow-bad-inputs` (`:inputs` isn't a vector of non-empty paths), `:rf.error/flow-bad-output` (`:derive` isn't a function — the name predates the key), and `:rf.error/flow-bad-path` (`:output-path` isn't a non-empty vector of path segments). You'll mostly hit these once, the first time you write a flow; they're listed here so a thrown `:rf.error/flow-bad-*` keyword is self-explaining when it lands.
+The **shape** errors are the ones you meet while you're still typing the call — each names the offending slot in its `ex-data` so you can fix it without a stack-trace dig. First, the 3-slot grammar itself is enforced: `:rf.error/invalid-flow-metadata` fires when the middle slot isn't a map, or when a `:derive` is left inside the metadata map (the derive fn is the third slot — its one home). Then the reconstructed flow is checked in order, most-fundamental-first: `:rf.error/flow-missing-id` (a nil `flow-id`), `:rf.error/flow-bad-id` (a `flow-id` that isn't a keyword), `:rf.error/flow-bad-inputs` (`:inputs` isn't a vector of non-empty paths), `:rf.error/flow-bad-output` (the `derive-fn` isn't a function — the name predates the split), and `:rf.error/flow-bad-path` (`:output-path` isn't a non-empty vector of path segments). You'll mostly hit these once, the first time you write a flow; they're listed here so a thrown `:rf.error/*` keyword is self-explaining when it lands.
 
 !!! warning "Gotcha — forgot the artefact? `:rf.error/flows-artefact-missing`"
 

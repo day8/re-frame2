@@ -66,9 +66,9 @@
   (rf/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
-    {:inputs  {:username [:db [:auth :user :username]]}
-     :resolve (fn [{:keys [username]} _ctx]
-                (when username [:rf.scope/session {:username username}]))})
+    {:inputs {:username [:db [:auth :user :username]]}}
+    (fn [{:keys [username]} _ctx]
+      (when username [:rf.scope/session {:username username}])))
   ;; a session-scoped feed resource whose spec :scope is the {:from-db …} ref
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/session}
@@ -485,9 +485,9 @@
   ;; UNCONDITIONALLY fail-closed. A resolver that once carried :rf.egress/public
   ;; now still redacts its resolved values (the key is silently ignored).
   (rf/reg-resource-scope :t/public-locale
-    {:inputs  {:locale [:db [:i18n :locale]]}
-     :rf.egress/output-sensitivity :rf.egress/public   ;; silently ignored now
-     :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
+    {:inputs {:locale [:db [:i18n :locale]]}
+     :rf.egress/output-sensitivity :rf.egress/public}   ;; silently ignored now
+    (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}])))
   (testing "a resolver's resolved values are REDACTED off-box regardless of the
             (now-ignored) :rf.egress/output-sensitivity key"
     (let [tags {:resource-id  :t/public-locale
@@ -512,7 +512,7 @@
   (testing "a resolver that once declared :rf.egress/public is STILL sensitive
             (the declassify hatch was removed)"
     (rf/reg-resource-scope :t/public2
-      {:inputs  {:locale [:db [:i18n :locale]]}
-       :rf.egress/output-sensitivity :rf.egress/public
-       :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))})
+      {:inputs {:locale [:db [:i18n :locale]]}
+       :rf.egress/output-sensitivity :rf.egress/public}
+      (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}])))
     (is (true? (scope-registry/scope-resolver-egress-sensitive? :t/public2)))))

@@ -34,10 +34,12 @@
   (:rf.error/id (ex-data ex)))
 
 (defn- reg-flow-throws
-  "Register a flow and return the thrown ExceptionInfo (or nil)."
+  "Register a flow and return the thrown ExceptionInfo (or nil).
+  rf2-bqstzr — the 3-slot grammar: id is slot 1, :derive is the value slot,
+  the remaining reflection keys are the metadata middle slot."
   [flow]
   (try
-    (rf/reg-flow flow)
+    (rf/reg-flow (:id flow) (dissoc flow :id :derive) (:derive flow))
     nil
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e)))
 
@@ -73,10 +75,7 @@
                          [:instant #inst "2026-06-12T00:00:00.000-00:00"]
                          [:nilkey  nil]]]
       (let [flow-id (keyword "elt" (name label))]
-        (is (some? (rf/reg-flow {:id     flow-id
-                                 :inputs [[:root elt]]
-                                 :derive identity
-                                 :output-path   [:out elt]}))
+        (is (some? (rf/reg-flow flow-id {:inputs [[:root elt]] :output-path [:out elt]} identity))
             (str "shared-domain segment " (pr-str elt) " is accepted on this host"))
         (flows/clear-flow flow-id)))))
 
@@ -112,11 +111,11 @@
   (testing "two same-frame flows with overlapping OUTPUT :paths but disjoint
             inputs are rejected at registration on this host
             (:rf.error/flow-path-overlap) — the prior registration survives"
-    (rf/reg-flow {:id :a :inputs [[:src-a]] :derive identity :output-path [:dest]})
+    (rf/reg-flow :a {:inputs [[:src-a]] :output-path [:dest]} identity)
     (let [ex (reg-flow-throws {:id :b :inputs [[:src-b]] :derive identity :output-path [:dest :child]})]
       (is (some? ex) "the overlapping-output registration throws")
       (is (= :rf.error/flow-path-overlap (error-id ex))
           "structured :rf.error/flow-path-overlap"))
     ;; DISJOINT sibling outputs (the common, valid case) still register cleanly.
-    (is (some? (rf/reg-flow {:id :c :inputs [[:src-c]] :derive identity :output-path [:other :x]}))
+    (is (some? (rf/reg-flow :c {:inputs [[:src-c]] :output-path [:other :x]} identity))
         "disjoint sibling outputs still register")))

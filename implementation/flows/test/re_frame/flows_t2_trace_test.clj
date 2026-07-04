@@ -61,10 +61,7 @@
 (deftest t2-emits-when-flow-changes-db
   (testing ":rf.event/db-pending-post-flow fires once when a registered flow
    `:after` transformed the pending :db value the handler returned"
-    (rf/reg-flow {:id     :doubled
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 7)}))
     (let [acc (collect-traces! ::t2-emit)]
       (try
@@ -88,10 +85,7 @@
    the pre-flow value, t2 is OMITTED — t1 == t2 carries no information.
    First dispatch primes the flow's last-inputs; second dispatch with the
    same inputs hits the skip branch."
-    (rf/reg-flow {:id     :doubled
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 n))
-                  :output-path   [:doubled]})
+    (rf/reg-flow :doubled {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
     (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
     (rf/dispatch-sync [:t2/set-n])      ; prime
     (let [acc (collect-traces! ::t2-skip)]
@@ -112,10 +106,7 @@
   (testing "Spec 009 §Canonical per-event trace sequence — t2 fires AFTER
    the last :rf.flow/computed and BEFORE :rf.event/db-changed (the deferred
    commit). Mirrors the t1 contract — t1 leads the flow walk, t2 trails it."
-    (rf/reg-flow {:id     :sum
-                  :inputs [[:a] [:b]]
-                  :derive +
-                  :output-path   [:sum]})
+    (rf/reg-flow :sum {:inputs [[:a] [:b]] :output-path [:sum]} +)
     (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:a 3 :b 4}}))
     (let [acc (collect-traces! ::t2-order)]
       (try
@@ -141,10 +132,7 @@
   (testing "the (t1, t2) pair lets Xray render the t1→t2 reshape without
    a framework-precomputed diff: t1 carries the handler's :db, t2 carries
    the flow-augmented :db. Mike's ruling — full values, no diff."
-    (rf/reg-flow {:id     :len
-                  :inputs [[:items]]
-                  :derive (fn [items] (count items))
-                  :output-path   [:item-count]})
+    (rf/reg-flow :len {:inputs [[:items]] :output-path [:item-count]} (fn [items] (count items)))
     (rf/reg-event :t2/add-items (fn [{:keys [db]} _] {:db {:items [:a :b :c]}}))
     (let [acc (collect-traces! ::t1-t2-pair)]
       (try
@@ -170,10 +158,7 @@
   (testing "a flow throw aborts the event before commit (Spec 013 atomicity).
    No t2 emit: the partial-cascade :db was discarded. t1 stays — it
    recorded what the handler returned, before the throw."
-    (rf/reg-flow {:id     :boom
-                  :inputs [[:x]]
-                  :derive (fn [_] (throw (ex-info "boom" {})))
-                  :output-path   [:boom]})
+    (rf/reg-flow :boom {:inputs [[:x]] :output-path [:boom]} (fn [_] (throw (ex-info "boom" {}))))
     (rf/reg-event :t2/trigger-boom (fn [{:keys [db]} _] {:db {:x 1}}))
     (let [acc (collect-traces! ::t2-throw)]
       (try

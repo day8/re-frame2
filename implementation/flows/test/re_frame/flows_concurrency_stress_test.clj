@@ -215,14 +215,10 @@
                           ;; transform) before returning so the `:derive` fn runs to
                           ;; completion before this thread observes
                           ;; the next iter.
-                          (rf/reg-flow {:id     flow-id
-                                        :inputs [[:n]]
-                                        :derive (fn [n]
+                          (rf/reg-flow flow-id {:frame frame-id :inputs [[:n]] :output-path [:doubled]} (fn [n]
                                                   (.incrementAndGet global-counter)
                                                   (swap! counter inc)
-                                                  (* 2 (or n 0)))
-                                        :output-path   [:doubled]}
-                                       {:frame frame-id})
+                                                  (* 2 (or n 0))))
                           ;; Drive `stress-iters` dirty evaluations.
                           ;; Use the loop counter (i+1) as the input
                           ;; value so each iter's :n is distinct from
@@ -241,17 +237,9 @@
                           ;; the prospective edge, the throw would
                           ;; silently fail to fire. The cycle-hits
                           ;; atomic counts every confirmed throw.
-                          (rf/reg-flow {:id     cyc-a
-                                        :inputs [[cyc-b]]
-                                        :derive identity
-                                        :output-path   [cyc-a]}
-                                       {:frame frame-id})
+                          (rf/reg-flow cyc-a {:frame frame-id :inputs [[cyc-b]] :output-path [cyc-a]} identity)
                           (try
-                            (rf/reg-flow {:id     cyc-b
-                                          :inputs [[cyc-a]]
-                                          :derive identity
-                                          :output-path   [cyc-b]}
-                                         {:frame frame-id})
+                            (rf/reg-flow cyc-b {:frame frame-id :inputs [[cyc-a]] :output-path [cyc-b]} identity)
                             ;; If we reach here, the cycle was NOT
                             ;; detected — leave cycle-hits unbumped
                             ;; and let invariant 3 fail loudly.

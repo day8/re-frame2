@@ -1424,10 +1424,9 @@ A flow is derived state: declared inputs (frame-state paths), a pure `:derive`, 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reg-flow flow)
-  (reg-flow flow opts)
+  (reg-flow flow-id metadata derive-fn)
   ```
-- Register a flow. The flow map carries `:id`, `:inputs`, `:derive`, `:output-path`; `opts` (currently `{:frame frame-id}`) selects the owning frame. Returns the flow's `:id`. Full contract in [re-frame.flows.md](re-frame.flows.md).
+- Register a flow in the canonical 3-slot grammar: `flow-id` first, the pure `derive-fn` last, and `metadata` carrying `:inputs` / `:output-path` (both required) plus optional `:doc` / `:schema` / the `:frame` mounting key. Returns `flow-id`. Full contract in [re-frame.flows.md](re-frame.flows.md).
 
 ### Schemas → [re-frame.schemas.md](re-frame.schemas.md)
 
@@ -1562,8 +1561,8 @@ Resources are an optional, post-v1 capability (TanStack/RTK/SWR-style cached ser
 #### `reg-resource-scope`
 
 - **Kind**: macro
-- **Signature**: `(reg-resource-scope scope-id resolver)`
-- Register a named resource-scope resolver under `scope-id` (referenced by a resource's `:scope` policy). Returns `scope-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
+- **Signature**: `(reg-resource-scope scope-id metadata resolve-fn)`
+- Register a named resource-scope resolver under `scope-id` (referenced by a resource's `:scope` policy) in the canonical 3-slot grammar: the `:resolve` fn is the value slot, and `metadata` carries the declared `:inputs` (omit `:inputs` for the 2-arg whole-db sugar). Returns `scope-id`. Full contract in [re-frame.resources.md](re-frame.resources.md).
 
 #### `clear-resource`
 

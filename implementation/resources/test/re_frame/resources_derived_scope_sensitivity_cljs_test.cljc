@@ -63,9 +63,9 @@
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :user :username]]})))
   ;; resolver reading the sensitive viewer-identity path — NO propagation now.
   (rf/reg-resource-scope :t/session
-    {:inputs  {:username [:db [:auth :user :username]]}
-     :resolve (fn [{:keys [username]} _ctx]
-                (when username [:rf.scope/session {:username username}]))})
+    {:inputs {:username [:db [:auth :user :username]]}}
+    (fn [{:keys [username]} _ctx]
+      (when username [:rf.scope/session {:username username}])))
   ;; a session-scoped feed resource — NOT declared :sensitive?
   (rf/reg-resource :t/feed
     {:scope         {:from-db :t/session}
@@ -116,18 +116,18 @@
             propagation: the key is gone and silently ignored if present)"
     (is (= :t/with-claim
            (rf/reg-resource-scope :t/with-claim
-             {:inputs  {:username [:db [:auth :user :username]]}
-              :rf.egress/output-sensitivity :rf.egress/sensitive
-              :resolve (fn [{:keys [username]} _] (when username [:rf.scope/session {:username username}]))}))
+             {:inputs {:username [:db [:auth :user :username]]}
+              :rf.egress/output-sensitivity :rf.egress/sensitive}
+             (fn [{:keys [username]} _] (when username [:rf.scope/session {:username username}]))))
         "a resolver with :rf.egress/output-sensitivity registers cleanly")
     (testing "the key is not stored on the canonical spec"
       (is (nil? (:output-sensitivity (scope-registry/scope-resolver-meta :t/with-claim)))))
     (testing "even a previously-invalid enum value is ignored (no fail-closed throw)"
       (is (= :t/garbage-claim
              (rf/reg-resource-scope :t/garbage-claim
-               {:inputs  {:locale [:db [:i18n :locale]]}
-                :rf.egress/output-sensitivity :rf.egress/publik   ;; was a fail-closed typo
-                :resolve (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))}))))))
+               {:inputs {:locale [:db [:i18n :locale]]}
+                :rf.egress/output-sensitivity :rf.egress/publik}   ;; was a fail-closed typo
+               (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))))))))
 
 ;; ===========================================================================
 ;; 3. Whole-entry disposition is the OWNER claim ALONE — no inheritance.

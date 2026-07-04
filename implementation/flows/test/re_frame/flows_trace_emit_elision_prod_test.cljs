@@ -84,11 +84,10 @@
             gate is symmetric); the assertion below is total."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-flow
-                     {:id     :prod-elision/area
-                      :inputs [[:w] [:h]]
-                      :derive (fn [w h] (* (or w 0) (or h 0)))
-                      :output-path   [:rect :area]})))]
+                   (rf/reg-flow :prod-elision/area
+                     {:inputs      [[:w] [:h]]
+                      :output-path [:rect :area]}
+                     (fn [w h] (* (or w 0) (or h 0))))))]
       (is (empty? seen)
           "no trace events delivered under :advanced + goog.DEBUG=false"))
     ;; Cross-check: the flow IS registered — the registrar mutation
@@ -111,11 +110,10 @@
                  (fn []
                    (rf/reg-event :prod-elision/seed-rect
                      (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
-                   (rf/reg-flow
-                     {:id     :prod-elision/area
-                      :inputs [[:w] [:h]]
-                      :derive (fn [w h] (* (or w 0) (or h 0)))
-                      :output-path   [:rect :area]})
+                   (rf/reg-flow :prod-elision/area
+                     {:inputs      [[:w] [:h]]
+                      :output-path [:rect :area]}
+                     (fn [w h] (* (or w 0) (or h 0))))
                    ;; Seed inputs; the drain runs the flow.
                    (rf/dispatch-sync [:prod-elision/seed-rect])))]
       (is (empty? seen)
@@ -140,13 +138,12 @@
                  (fn []
                    (rf/reg-event :prod-elision/seed-throw-input
                      (fn [{:keys [db]} _] {:db (assoc db :trigger? true)}))
-                   (rf/reg-flow
-                     {:id     :prod-elision/throwing
-                      :inputs [[:trigger?]]
-                      :derive (fn [t?]
-                                (when t?
-                                  (throw (ex-info "prod-elision throw" {}))))
-                      :output-path   [:prod-elision/result]})
+                   (rf/reg-flow :prod-elision/throwing
+                     {:inputs      [[:trigger?]]
+                      :output-path [:prod-elision/result]}
+                     (fn [t?]
+                       (when t?
+                         (throw (ex-info "prod-elision throw" {})))))
                    (rf/dispatch-sync [:prod-elision/seed-throw-input])))]
       (is (empty? seen)
           "no :rf.flow/failed (or any other) trace events under prod"))))
@@ -164,11 +161,10 @@
       (fn [{:keys [db]} _] {:db (assoc db :a 1)}))
     (rf/reg-event :prod-elision/touch-skip
       (fn [{:keys [db]} _] {:db (update db :touched (fnil inc 0))}))
-    (rf/reg-flow
-      {:id     :prod-elision/skipper
-       :inputs [[:a]]
-       :derive (fn [a] (* (or a 0) 2))
-       :output-path   [:prod-elision/double]})
+    (rf/reg-flow :prod-elision/skipper
+      {:inputs      [[:a]]
+       :output-path [:prod-elision/double]}
+      (fn [a] (* (or a 0) 2)))
     (rf/dispatch-sync [:prod-elision/seed-skip])
     ;; Second dispatch leaves :a unchanged → inputs value-equal → skip.
     (let [seen (listener-fixture
@@ -184,11 +180,10 @@
             flow registration but emits NO `:rf.flow/cleared` trace
             under prod. The registry-mutation side-effect happens; the
             trace fan-out elides."
-    (rf/reg-flow
-      {:id     :prod-elision/clearable
-       :inputs [[:w]]
-       :derive (fn [w] (or w 0))
-       :output-path   [:prod-elision/copy]})
+    (rf/reg-flow :prod-elision/clearable
+      {:inputs      [[:w]]
+       :output-path [:prod-elision/copy]}
+      (fn [w] (or w 0)))
     (let [seen (listener-fixture
                  (fn []
                    (flows/clear-flow :prod-elision/clearable)))]
@@ -213,12 +208,11 @@
     (schemas/set-schema-fns! {:validate (fn [_ _] false)})
     (rf/reg-event :prod-elision/seed-validate
       (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
-    (rf/reg-flow
-      {:id     :prod-elision/validated
-       :inputs [[:w] [:h]]
-       :derive (fn [w h] (* (or w 0) (or h 0)))
-       :output-path   [:prod-elision/area]
-       :schema (fn [_] false)})
+    (rf/reg-flow :prod-elision/validated
+      {:inputs      [[:w] [:h]]
+       :output-path [:prod-elision/area]
+       :schema      (fn [_] false)}
+      (fn [w h] (* (or w 0) (or h 0))))
     (let [seen (listener-fixture
                  (fn []
                    (rf/dispatch-sync [:prod-elision/seed-validate])))]

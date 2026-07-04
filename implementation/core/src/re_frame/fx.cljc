@@ -557,9 +557,20 @@
    ;; Callers needing the initial value immediately dispatch a follow-up
    ;; no-op event from the SAME handler (see Spec 013 §Sequencing). Do not
    ;; "fix" this by re-running the flow transform after `:fx`.
+   ;; rf2-bqstzr — `:rf.fx/reg-flow` carries the SAME 3-slot triple as the
+   ;; `reg-flow` macro: `[:rf.fx/reg-flow [flow-id metadata derive-fn]]`. The
+   ;; dispatching frame threads through as the `:frame` metadata key (the frame
+   ;; is the mounting concern — per Conventions §The `:frame` registration
+   ;; key — not a positional arg), so the reserved fx stays frame-correct
+   ;; without the author naming a frame in the args. The `:flows/reg-flow` hook
+   ;; is the 3-arity `re-frame.flows.registry/reg-flow`; a missing artefact
+   ;; leaves the hook unregistered and the effect no-ops (matching every other
+   ;; frame-scoped reserved fx).
    :rf.fx/reg-flow
    (fn [frame-id _parent-envelope args]
-     (call-frame-scoped-hook! :flows/reg-flow frame-id args))
+     (when-let [f (late-bind/get-fn :flows/reg-flow)]
+       (let [[flow-id metadata derive-fn] args]
+         (f flow-id (assoc metadata :frame frame-id) derive-fn))))
 
    :rf.fx/clear-flow
    (fn [frame-id _parent-envelope args]

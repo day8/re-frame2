@@ -77,17 +77,9 @@
     (rf/reg-frame :b {:doc "frame B — sibling, drains successfully"})
 
     ;; Frame A: a flow that always throws when it recomputes.
-    (rf/reg-flow {:id     :flow-x
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "boom-A" {})))
-                  :output-path   [:out]}
-                 {:frame :a})
+    (rf/reg-flow :flow-x {:frame :a :inputs [[:n]] :output-path [:out]} (fn [_] (throw (ex-info "boom-A" {}))))
     ;; Frame B: the SAME flow id registered against B with a benign output.
-    (rf/reg-flow {:id     :flow-x
-                  :inputs [[:n]]
-                  :derive (fn [n] (* 2 (or n 0)))
-                  :output-path   [:out]}
-                 {:frame :b})
+    (rf/reg-flow :flow-x {:frame :b :inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
 
     ;; Simulate B having drained to completion: its dirty-check row is V2.
     (registry/set-frame-flow-last-inputs! :b :flow-x [42])
@@ -124,16 +116,8 @@
     (let [a-row-before (atom nil)]
       ;; :A succeeds (advances its row); :B (downstream of :A's output)
       ;; throws — so :A's advance must be rolled back.
-      (rf/reg-flow {:id     :A
-                    :inputs [[:n]]
-                    :derive (fn [n] (* 10 (or n 0)))
-                    :output-path   [:a-out]}
-                   {:frame :solo})
-      (rf/reg-flow {:id     :B
-                    :inputs [[:a-out]]
-                    :derive (fn [_] (throw (ex-info "boom-B" {})))
-                    :output-path   [:b-out]}
-                   {:frame :solo})
+      (rf/reg-flow :A {:frame :solo :inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 (or n 0))))
+      (rf/reg-flow :B {:frame :solo :inputs [[:a-out]] :output-path [:b-out]} (fn [_] (throw (ex-info "boom-B" {}))))
       (is (thrown? Throwable (flows/run-flows-on-db :solo {:n 5} nil)))
       (reset! a-row-before (registry/get-frame-flow-last-inputs :solo :A))
       (is (nil? @a-row-before)
@@ -178,21 +162,13 @@
 
     ;; Frame A: a flow that throws on every recompute. A's input changes
     ;; every iter so it ALWAYS recomputes (and therefore always rolls back).
-    (rf/reg-flow {:id     :rf2-94ol5/throws
-                  :inputs [[:n]]
-                  :derive (fn [_] (throw (ex-info "boom-A" {})))
-                  :output-path   [:out]}
-                 {:frame :rf2-94ol5/a})
+    (rf/reg-flow :rf2-94ol5/throws {:frame :rf2-94ol5/a :inputs [[:n]] :output-path [:out]} (fn [_] (throw (ex-info "boom-A" {}))))
 
     ;; Frame B: a successful flow with STABLE inputs after the first drain.
     (let [b-output-calls (AtomicLong. 0)]
-      (rf/reg-flow {:id     :rf2-94ol5/doubles
-                    :inputs [[:n]]
-                    :derive (fn [n]
+      (rf/reg-flow :rf2-94ol5/doubles {:frame :rf2-94ol5/b :inputs [[:n]] :output-path [:out]} (fn [n]
                               (.incrementAndGet b-output-calls)
-                              (* 2 (or n 0)))
-                    :output-path   [:out]}
-                   {:frame :rf2-94ol5/b})
+                              (* 2 (or n 0))))
 
       ;; Count B's :rf.flow/computed traces (the spurious-recompute symptom).
       (let [b-computed (AtomicLong. 0)]
