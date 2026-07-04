@@ -6,7 +6,7 @@ Most other examples in this tree show one idea on its own — a subscription, a 
 
 Read this when you've seen the smaller examples and you want to know how the pieces fit.
 
-Everything in the feature shares one prefix: `:auth.login/*`. The machine, the events, the subscriptions, the views — all of it. That prefix marks the unit you'd lift into its own folder in a real codebase (more on that below). Here it's one file, kept compact so you — or an AI reading it — can take in the whole feature at once.
+Everything in the feature shares one prefix: `:auth.login/*`. The machine, the events, the subscriptions — all of it. (The registered views are the one exception: their ids come from the file's namespace, e.g. `:login.core/root-view`.) That prefix marks the unit you'd lift into its own folder in a real codebase (more on that below). Here it's one file, kept compact so you — or an AI reading it — can take in the whole feature at once.
 
 ## What this demonstrates
 
@@ -26,23 +26,23 @@ The whole flow is one transition table, registered with `reg-machine` under the 
 
 - **Two schemas, two boundaries.** A Malli schema (`AuthLoginData`) is attached to the machine's `[:schemas :data]` slot. It validates the snapshot's `:data` map — *just* that slot, not the whole `{:state … :data …}` snapshot — at the `:where :machine-data` boundary on every transition. A second schema (`Credentials`, riding `AuthLoginEvent`) validates the inbound event *vector* at the `:where :event` boundary. So a too-short password or a malformed email is rejected at the door, and the handler never runs. (Snapshots are runtime-db, not app-db — which is why `reg-app-schema`, the surface for *app-db* paths, isn't used here.)
 
-- **Pure handlers, pure subscriptions.** The transition logic is pure functions of state and event. The two named subscriptions (`:auth.login/state`, `:auth.login/error`) are pure derivations off the machine snapshot.
+- **Pure handlers, pure subscriptions.** The transition logic is pure functions of state and event. The two machine-facing subscriptions (`:auth.login/state`, `:auth.login/error`) are pure derivations off the machine snapshot; three more (`:auth.login/form-slice`, `:auth.login/draft`, `:auth.login/field-error`) project the form slice.
 
 - **Managed HTTP, no backend required.** The `:issue-request` action fires a `:rf.http/managed` request to `/api/login`. The example ships no server, so a small demo stub stands in: `:rf.http/managed` is redirected to it on the default frame via `:fx-overrides`. The stub reads the request body and synthesises a success or failure reply through the framework's canned-response effects, keeping the real reply shape intact. The neat part: that reply lands *back inside the machine* as just another event — `[:auth.login/flow [:auth.login/success]]`, with the reply payload appended — and there's no glue code in between. That's the uniform reply at work.
 
-- **Registered views.** `login-form`, `locked-panel`, `login-banner`, and `root-view` are all registered with `reg-view`. The form is a **controlled** [Pattern-Forms](../../../spec/Pattern-Forms.md) view. It holds no view-local state. The email/password **draft** lives in app-db at `[:auth :login-form]`; each input's `:value` reads it through the `:auth.login/draft` subscription, and `:on-change` dispatches `:auth.login/edit-field`. (`reg-view` auto-injects `dispatch` and `subscribe`, bound to the render-time frame, so they survive async callbacks.)
+- **Registered views.** `login-form`, `locked-panel`, `login-banner`, and `root-view` are all registered with `reg-view`. The form is a **controlled** [Pattern-Forms](../../../spec/Pattern-Forms.md) view. It holds no view-local state. The email/password **draft** lives in the app-db slice at `[:auth :login-form]`; each input's `:value` reads it through the `:auth.login/draft` subscription, and `:on-change` dispatches `:auth.login/edit-field`. (`reg-view` auto-injects `dispatch` and `subscribe`, bound to the render-time frame, so they survive async callbacks.)
 
 - **The form's draft is application state, not view state.** This is the Pattern-Forms *machine + slice* split. The **slice** at `[:auth :login-form]` owns the **draft**, projected via subscriptions and changed via the standard form events (`initialise-form` / `edit-field` / `submit-form` / `reset-form`). The **machine** owns submit/auth status. On submit, the draft is read out of the slice and dispatched *into* the machine — the one point it is checked against `Credentials`. The slice, events, and subscriptions are identical across the Reagent, UIx, and Helix variants; only the view syntax differs.
 
-- **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`. Views ask the question by tag — `@(rf/machine-has-tag? :auth.login/flow :auth/busy)` to disable inputs while a request is in flight — instead of listing exact state names. *Ask, don't tell*: add a fourth busy state later, and the views don't change.
+- **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`. Views ask the question by tag — `@(rf/machine-has-tag? :auth.login/flow :auth/busy)` to disable inputs while a request is in flight — instead of listing exact state names. *Ask, don't tell*: add a second busy state later, and the views don't change.
 
 - **Open maps everywhere.** Every shape on the wire is an open map.
 
-One detail worth noticing, about the password. As a controlled field it lives in the form draft while the user types. But `:submit-form` reads it out, hands it to the machine, and **clears `[:draft :password]` in the same commit** — the secret-field hygiene the Forms pattern prescribes for auth forms. So once the request is in flight, the password is gone from app-db. The machine never copies it into its `:data` slot or `:submitted`. Its only path off-box is the HTTP request body, scrubbed from every trace by the per-request `:sensitive? true` flag on the call. The secret stays off the observability wire with no app-db classification machinery.
+One detail worth noticing, about the password. As a controlled field it lives in the form draft while the user types. But `:submit-form` reads it out, hands it to the machine, and **clears `[:draft :password]` in the same commit** — secret-field hygiene for an auth form. So once the request is in flight, the password is gone from app-db. The machine never copies it into its `:data` slot, and the slice never writes it to `:submitted`. Its only path off-box is the HTTP request body, scrubbed from every trace by the per-request `:sensitive? true` flag on the call. The secret stays off the observability wire with no app-db classification machinery.
 
 ## Why this shape
 
-This is the **canonical cross-substrate base**. The exact same login feature — same machine, same schemas, same HTTP stub — is mirrored 1:1 as [`examples/substrates/uix/login/`](../../substrates/uix/login/) and [`examples/substrates/helix/login/`](../../substrates/helix/login/). Only the view layer differs. That's deliberate: it makes the three substrate variants a clean apples-to-apples comparison, where the only moving part is the rendering library. (Per Spec 006 §Adapter shipping convention Decision 7.)
+This is the **canonical cross-substrate base**. The exact same login feature — same machine, same schemas, same HTTP stub — is mirrored 1:1 as [`examples/substrates/uix/login/`](../../substrates/uix/login/) and [`examples/substrates/helix/login/`](../../substrates/helix/login/). Only the view layer differs. That's deliberate: it makes the three substrate variants a clean apples-to-apples comparison, where the only moving part is the rendering library. (Per Decision 7 — the curated example set — in Spec 006's UIx and Helix substrate sections.)
 
 The substrate here is **stock Reagent** (not reagent-slim). This is the reference example, so it sits on the reference substrate. If it's the stock-vs-slim *contrast* you want, that's a different pair: `counter` / `counter_slim_and_fast`.
 
@@ -54,7 +54,7 @@ The substrate here is **stock Reagent** (not reagent-slim). This is the referenc
 login/
   core.cljs            — schema + events + subs + views + machine + mount.
   index.html           — minimal host page (the live app).
-  stories.cljs         — Story showcase: one variant per reachable
+  stories.cljs         — Story showcase: variants covering every reachable
                          :auth.login/flow state (auxiliary; see below).
   stories_host.cljs    — Story-showcase entry point (live-app ↔ shell hash router).
   stories.index.html   — host page for the Story-showcase build.

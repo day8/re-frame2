@@ -22,12 +22,12 @@ the next state back — no frame, no DOM, no network, microseconds per transitio
 One table, two lives. This example shows both.
 
 This is the [machines chapter](../../../../docs/machines/concepts.md)'s login flow,
-lifted off the page and made to run. Every snippet the chapter shows lives here
-as real, compiling code, in the order the chapter introduces it — the
-[transition](../../../../docs/machines/glossary.md#transition) table first, then
-[guards](../../../../docs/machines/glossary.md#guard),
-[actions](../../../../docs/machines/glossary.md#action),
-[tags](../../../../docs/machines/glossary.md#state-tag), and finally an HTTP call
+lifted off the page and made to run. The chapter's login-flow snippets live here
+as real, compiling code — the
+[transition](../../../../docs/machines/glossary.md#transition) table, its
+[guards](../../../../docs/machines/glossary.md#guard) and
+[actions](../../../../docs/machines/glossary.md#action), its
+[tags](../../../../docs/machines/glossary.md#state-tag), and an HTTP call
 whose reply lands back inside the machine. If a passage left you wanting to poke
 at it, poke here.
 
@@ -54,7 +54,7 @@ at it, poke here.
   panel. That is *ask, don't tell*: the view never names a state keyword, so
   adding a sixth busy state wouldn't touch it. The demo wires the request to
   always fail (more below), so what you watch is the lockout path — three
-  rejected attempts, then a fourth that trips the retry guard and parks the
+  rejected attempts, then a fourth that the retry guard rejects, parking the
   machine in `:locked-out`.
 
 - **The same flow tested as pure function calls.** Feed a starting
@@ -64,8 +64,11 @@ at it, poke here.
   [drain](../../../../docs/core/glossary.md#drain--run-to-completion) the event
   queue through a throwaway [frame](../../../../docs/core/glossary.md#frame) and
   check where the [app-db](../../../../docs/core/glossary.md#app-db) settles. The
-  chapter promises "runs in microseconds on the JVM, no browser, no network,"
-  and the same `login-flow` value makes good on it.
+  chapter promises tests that run "on the JVM in microseconds" — no frame, no
+  browser, no mocks — and the same `login-flow` value makes good on it. The four
+  scenarios live as the `state-machine-walkthrough-runs-headless` deftest in
+  [`implementation/core/test/re_frame/examples_test.clj`](../../../../implementation/core/test/re_frame/examples_test.clj)
+  — the examples tree itself stays test-free.
 
 - **An HTTP call that composes with the machine for free.** The
   `:issue-request` action returns an
@@ -76,19 +79,20 @@ at it, poke here.
   inner event and dispatches it straight back into the machine. That is
   [the uniform reply](../../../../docs/core/glossary.md#the-uniform-reply), and
   it's why the async boundary needs no glue code. The network is swapped out via
-  the [`:fx-overrides`](../../../../docs/core/glossary.md#effect) seam: it
-  redirects `:rf.http/managed` to the example's own
-  `:auth.login/canned-success` / `:auth.login/canned-failure` wrapper effects in
-  [`core.cljc`](core.cljc), which fix this example's payloads. No real traffic,
-  identical reply shape.
+  the [`:fx-overrides`](../../../../docs/core/testing/pipeline-runs.md#redirect-anything-fx-overrides)
+  seam: the browser demo redirects `:rf.http/managed` to
+  `:auth.login/canned-failure`, and the headless tests pick
+  `:auth.login/canned-failure` or `:auth.login/canned-success` per scenario —
+  both thin wrapper effects in [`core.cljc`](core.cljc) that fix this example's
+  payloads. No real traffic, identical reply shape.
 
 ## Why .cljc
 
-The chapter sells state machines as something you can test from a Clojure REPL,
+The chapter sells state machines as something you can test on the bare JVM,
 and `.cljc` is what delivers that. The *identical* source compiles two ways:
-under shadow-cljs node-test for the CLJS surface, and under a JVM Clojure REPL
-or test for the headless story. One artefact, two runtimes — and the testing
-pitch only lands because the JVM runs the very same code the browser does.
+under shadow-cljs for the browser demo, and on the JVM for the headless
+tests. One artefact, two runtimes — and the testing pitch only lands because
+the JVM runs the very same code the browser does.
 
 ## Why this shape
 

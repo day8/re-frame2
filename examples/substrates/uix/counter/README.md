@@ -54,7 +54,7 @@ that makes that swap a one-liner.
   atom. Same subscription, same cached value.
 - **`dispatch` off a frame api** — UIx has no `reg-view` macro to inject
   `dispatch` for you (that convenience stays Reagent-only; UIx users write
-  `defui` directly). So the view grabs a
+  `defui` directly). So the view takes `dispatch` off a
   [frame api](../../../../docs/core/glossary.md#capture-frame) —
   `(:dispatch (rf/capture-frame))` — and closes over it. A frame api is a
   frame captured *as a value*. It pins the render-time frame, so the
@@ -80,7 +80,7 @@ could.
 ## Files
 
 ```
-counter_uix/
+counter/
   core.cljs    — events, sub, defui view, mount.
   index.html   — minimal host page.
 ```

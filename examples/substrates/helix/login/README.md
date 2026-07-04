@@ -68,8 +68,8 @@ one moving part.
 literally. *Above* the line is the **substrate-agnostic artefact layer**: the
 Malli schemas, the `:auth.login.demo/managed-stub` effect, the
 `:auth.login/flow` state machine (a named `auth-login-machine` def passed to
-`reg-machine` — the exact shape all three substrates use), and the named subs.
-None of it names a substrate. None of it could tell you whether Reagent, UIx, or
+`reg-machine` — the exact shape all three substrates use), the form-slice
+events, and the named subs. None of it names a substrate. None of it could tell you whether Reagent, UIx, or
 Helix sits downstream. *Below* the line is the **only** substrate-specific code
 in the file: the Helix `defnc` views and the mount.
 
@@ -88,8 +88,8 @@ needs the three to stand alone.
 ## Files
 
 ```
-login_helix/
-  core.cljs    — schema + events + subs + machine + defnc views + mount.
+login/
+  core.cljs    — schemas + fx + machine + events + subs + defnc views + mount.
   index.html   — minimal host page.
 ```
 

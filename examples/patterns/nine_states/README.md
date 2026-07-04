@@ -25,7 +25,7 @@ The key idea is that the nine states aren't one axis. They're **three
 independent questions**, asked at the same time:
 
 - **How much data have we got?** — `nothing → loading → empty / one /
-  some / too-many → error`
+  some / too-many`, or `error` if the fetch fails
 - **Is the form input any good?** — `neutral → correct / incorrect`
 - **Is this list still live, or archived?** — `active → done`
 
@@ -69,8 +69,9 @@ keyword. Nine states, three regions, one branch site.
 | 8 | **Correct**   | Form submission succeeded; "Todo added." confirmation. | type a 3+ char title, submit |
 | 9 | **Done**      | Mode region reached `:done`; terminal, read-only. | `[:ui/nine-states [:archive {}]]` |
 
-A control panel at the top of the demo triggers each transition, so you
-can walk the whole taxonomy by clicking.
+A control panel at the top of the demo drives the data and mode
+transitions, and the add-a-todo form drives the two form states — so you
+can walk the whole taxonomy in a minute.
 
 ## How the model is structured
 
@@ -137,8 +138,8 @@ beats which, you edit one table, not ten views.
   (`:too-many?`, `:set-items`, `:stamp-archived`, …) are *named* entries
   in the machine's `:guards` / `:actions` maps, so a diagram or a tool
   reads the condition right off the arrow. Only the genuinely trivial
-  transitions use inline anonymous fns. The machine declaration is meant
-  to be read.
+  transitions stay inline, as plain `event → target` entries. The
+  machine declaration is meant to be read.
 
 ## Legacy variant
 
@@ -171,8 +172,8 @@ wired so the `load → loading → loaded/error` cascade is inspectable. See
 [How to run](#how-to-run) for the showcase command.
 
 The whole example is one file for brevity. In a real codebase you'd split
-it the way re-frame2 conventions recommend — `schema.cljc / machine.cljc
-/ events.cljs / subs.cljs / views.cljs` — but a single readable file
+it the way re-frame2 conventions recommend — `schema.cljc / events.cljs
+/ subs.cljs / views.cljs / machines.cljs` — but a single readable file
 makes the shape easier to take in at one sitting.
 
 ## How to run

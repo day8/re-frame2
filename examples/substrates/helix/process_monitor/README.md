@@ -1,8 +1,9 @@
 # A process monitor with a log that scrolls on its own
 
-A terminal-style process monitor with two panes. The left pane shows a
-filterable list of processes. The right pane shows a live log feed that
-scrolls on its own. Status tiles run across the top.
+A terminal-style process monitor with two panes. The left pane lists
+the processes — click a row to narrow the log feed to just that
+process. The right pane shows a live log feed that scrolls on its own.
+Status tiles run across the top.
 
 It is built on **Helix** — the most React-native of the three
 substrates, all `defnc` components and hooks. The example shows that
@@ -31,11 +32,12 @@ tick loop, third below, is where the real care went.
   contract on its own terms.
 
 - **Two controls feed one projection.** The interesting [subscription](../../../../docs/core/glossary.md#subscription)
-  is `:process-monitor/visible-logs`. It folds three things into the one
+  is `:process-monitor/visible-logs`. It folds four inputs into the one
   slice the log pane renders: the raw log list, the set of active
-  levels, and the selected process. Clicking a filter chip changes which
-  levels pass. Clicking a process row narrows the feed to that process's
-  pid. Two independent inputs, one re-derived projection — this is the
+  levels, the selected process, and the process list (to map that
+  selection to its pid). Clicking a filter chip changes which levels
+  pass. Clicking a process row narrows the feed to that process's
+  pid. Two independent controls, one re-derived projection — this is the
   [derivation graph](../../../../docs/core/glossary.md#the-derivation-graph)
   earning its keep. The view just reads the answer; it never filters
   anything itself.
@@ -65,14 +67,15 @@ tick loop, third below, is where the real care went.
   cancel API.)
 
 - **Per-row dispatch, captured across the hook boundary.** Each process
-  row and each filter chip is a `defnc` that grabs `dispatch` off a
+  row is its own `defnc`, and the chip strip is another; each grabs
+  `dispatch` off a
   [`capture-frame`](../../../../docs/core/glossary.md#capture-frame) —
   `(:dispatch (rf/capture-frame))` — and closes over it. So clicking a
   row [dispatches](../../../../docs/core/glossary.md#dispatch)
   `[:process-monitor/select-process id]` into the right frame. The
-  `monitor` `use-effect` uses the same trick to carry the frame into its
-  mount/unmount callbacks: grab the frame api while the frame is in scope,
-  use it later.
+  `monitor` `use-effect` uses the same trick to carry dispatch into its
+  mount/unmount callbacks: grab it while the frame is in scope, use it
+  later.
 
 ## Why this shape
 
@@ -95,8 +98,8 @@ regardless. This is the Helix member of the trio:
 | Substrate | Example | Shape |
 |---|---|---|
 | Reagent | [`notebook`](../../../core/notebook/) | Three-pane editor |
-| UIx | [`dashboard_uix`](../../uix/dashboard/) | Cards + sparklines |
-| Helix | `process_monitor_helix` (this) | Terminal log viewer |
+| UIx | [`dashboard`](../../uix/dashboard/) | Cards + sparklines |
+| Helix | `process_monitor` (this) | Terminal log viewer |
 
 Three substantial UIs, one per substrate, sharing one visual identity
 from [`examples/_shared/css/style.css`](../../../_shared/css/style.css).
@@ -107,9 +110,9 @@ deliberately no HTTP and no state machines here.
 ## Files
 
 ```
-process_monitor_helix/
+process_monitor/
   core.cljs    — seed data, events (including the tick loop), subs, defnc views, mount.
-  index.html   — minimal host page.
+  index.html   — host page; carries the per-example styles.
 ```
 
 ## How to run

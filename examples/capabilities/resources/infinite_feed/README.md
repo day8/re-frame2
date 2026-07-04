@@ -31,7 +31,7 @@ guide's load-more half,
 There are two ways to paginate, and this is the second.
 
 - **Numbered pages** ([Spec 016 §Paginated and previous data](../../../../spec/016-Resources.md#paginated-and-previous-data),
-  shown as a route in [`reagent/realworld_resources/`](../../../real-apps/realworld_resources/)).
+  shown as a route in [`real-apps/realworld_resources/`](../../../real-apps/realworld_resources/)).
   The page number lives in `:params`, so each page is its own cache entry you
   navigate *to*. You jump around the pages.
 - **One growing feed** — this example. The whole accumulation stays together as a
@@ -88,7 +88,7 @@ all of them.
 The view reads the combined `[:rf.resource/infinite-state …]` view-model —
 `:items` (the merged flat list, the main read), `:has-next-page?`,
 `:fetching-next?` (a load-more in flight, distinct from a whole-feed
-`:fetching?`), `:page-error`, `:loading?`, `:has-data?` — and dispatches **one**
+`:fetching?`), `:page-error`, `:loading?`, `:error` — and dispatches **one**
 causal event. Worth restating, because it's the payoff: there is **no app-db
 list slice, no `:loading-more?` flag, no cursor threading, and no append
 reducer**. The runtime owns every bit of it. Hand-rolling all four on every feed you build
@@ -117,10 +117,10 @@ the `:rf.http/managed` [effect](../../../../docs/core/glossary.md#effect) with a
 26-row demo dataset, and returns a `{:items [...] :page-info {:next-cursor …}}`
 envelope — the *same* shape a real cursor-paginated server would produce. The
 reply still flows through the real
-[managed-HTTP](../../../../docs/resources/glossary.md#managed-http) path, so every
-page fetch exercises a genuine fetch, in-flight dedupe, generation/stale
-suppression, and the passive status flow — none of that is faked. A small 140 ms
-delay lets the load-more spinner render before each page lands.
+[managed-HTTP](../../../../docs/resources/glossary.md#managed-http) reply path, so
+every page fetch exercises the real in-flight dedupe, generation/stale
+suppression, and passive status flow — only the transport itself is canned. A
+small 140 ms delay lets the load-more spinner render before each page lands.
 
 ## Deferred — not built here
 

@@ -2,7 +2,9 @@
 
 This directory holds the assets every example shares: one stylesheet,
 one favicon, one social card. Every example `index.html` links the same
-three, on every substrate (Reagent, Reagent Slim, UIx, Helix).
+three, on every substrate (Reagent, Reagent Slim, UIx, Helix). The one
+exception is TodoMVC, which keeps the official TodoMVC stylesheets but
+still carries the shared favicon and social card.
 
 Keeping them here means there's only one copy. Change the palette in this
 directory and the whole catalogue re-skins — no per-example copy drifts
@@ -33,15 +35,15 @@ the same, give or take the rendering layer.
 | Palette           | warm paper bg #F7F3EC / deep ink #1A1814 / amber #C8741A |
 | Atmosphere        | paper-grain radial gradients fixed to the viewport       |
 
-The fonts echo the rest of the project: Xray uses Inter + JBM, Story uses
-IBM Plex on a similarly light surface. So an example, a dev tool, and the
-docs open side by side read as one family, not three unrelated apps.
+The fonts echo the rest of the project: Xray uses Inter + JBM, and Story
+and the docs use IBM Plex. So an example, a dev tool, and the docs open
+side by side read as one family, not three unrelated apps.
 
 **No remote fonts.** The stylesheet *names* Inter and JetBrains Mono as
 its first-preference families, but it loads **no** web fonts to back them
 up — no `@import` of Google Fonts or any other host. The font stacks fall
-through to their declared system fallbacks: `system-ui` / `Segoe UI` /
-`-apple-system` for the UI, `ui-monospace` / `SF Mono` / `Menlo` for the
+through to their declared system fallbacks: `system-ui` / `-apple-system` /
+`Segoe UI` for the UI, `ui-monospace` / `SF Mono` / `Menlo` for the
 mono.
 
 So a staged example makes **zero** third-party network requests just to
@@ -52,16 +54,16 @@ a server that might have changed.
 
 ## Files
 
-Five files. Most are plain; only the social card needs explaining.
+Five asset files. Most are plain; only the social card needs explaining.
 
 - `css/style.css` — the shared design system itself, linked by every
-  `index.html`. Imports `structure.css`.
+  `index.html` except TodoMVC's. Imports `structure.css`.
 - `css/structure.css` — the substrate-agnostic structural baseline:
   form geometry, grid layout, the max-widths. This is about *shape*, not
   brand — that's why it's split out from `style.css`.
-- `img/favicon.svg` — the shared favicon (warm-slate with an amber
-  accent). Browsers render SVG favicons fine, so it ships as-is, with no
-  raster step.
+- `img/favicon.svg` — the shared favicon (an `r2` monogram on a deep-ink
+  tile with an amber accent). Browsers render SVG favicons fine, so it
+  ships as-is, with no raster step.
 - `img/og.png` — the shared Open Graph preview card, a 1200×630 raster.
   Every `index.html` references this one. It has to be a raster because
   link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) won't

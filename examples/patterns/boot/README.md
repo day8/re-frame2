@@ -102,7 +102,7 @@ together.
    the *only* place that reads host config; everything below it gets the
    value as plain data. No action reaches into a host global. This is
    the canonical Pattern-Boot parameter shape (see
-   [`spec/Pattern-Boot.md` §Parameters](../../../spec/Pattern-Boot.md)).
+   [`spec/Pattern-Boot.md` §Parameters](../../../spec/Pattern-Boot.md#parameters)).
 
 5. **A staging slot carries child results to the parent.** You might
    expect each child's done event to *carry* its loaded data up to the
@@ -112,8 +112,10 @@ together.
    track the join — they never reach the parent's `:on` table, and the
    join-resolution event carries no per-child data. So the canonical way
    to thread loaded data out of a join is a staging slot in app-db: each
-   child writes its result to `[:boot/staging <child-id>]` before
-   signalling done, and the parent reads it back in `:enter-hydrating`.
+   child writes its result to `[:boot/staging <staging-key>]` before
+   signalling done, and the whole slot is read back on entry to
+   `:hydrating` (by the `:boot/apply-hydration` handler that
+   `:enter-hydrating` dispatches).
    This also means the loaded data lives in app-db the whole time — so
    it's visible in the pair tools and snapshottable for SSR hydration.
 

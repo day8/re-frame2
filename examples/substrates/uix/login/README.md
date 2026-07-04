@@ -1,4 +1,4 @@
-# login_uix — UIx substrate login
+# A login form, rendered with UIx
 
 This is a login form. You type an email and a password, hit **Sign in**, and
 one of three things happens: you're signed in, you get an error and can try
@@ -26,10 +26,12 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 ## What this demonstrates
 
 - **The substrate boundary, drawn in one file.** Above the boundary is the
-  substrate-agnostic model: a Malli [schema](../../../../docs/core/glossary.md#schema)
-  on the login credentials and the event vector, the `:auth.login/flow`
-  [machine](../../../../docs/machines/glossary.md#machine), two named
-  [subscriptions](../../../../docs/core/glossary.md#subscription), and the demo
+  substrate-agnostic model: Malli [schemas](../../../../docs/core/glossary.md#schema)
+  on the login credentials, the event vector, and the machine's `:data` slot;
+  the `:auth.login/flow`
+  [machine](../../../../docs/machines/glossary.md#machine); the form-slice
+  events and five named
+  [subscriptions](../../../../docs/core/glossary.md#subscription); and the demo
   HTTP stub. None of it names a substrate. Below the boundary is the *only*
   substrate-specific code: the [views](../../../../docs/core/glossary.md#view) and
   the mount. The Reagent twin runs the identical model — same ids, same shapes,
@@ -85,19 +87,20 @@ view layer is the only thing that differs. Three renderers, one model.
 
 The model is *duplicated* across the three logins on purpose, not by copy-paste
 drift. Each substrate login is a self-contained build. The bundle-isolation gate
-proves a UIx `main.js` carries no Reagent code, and vice versa — a shared model
-required into all three would defeat exactly the isolation the parity claim
-rests on.
+proves the point on the counter twins — a UIx-only `main.js` carries no Reagent
+code — and a shared model required into all three logins would defeat exactly
+the isolation the parity claim rests on.
 
-One mechanical note: the folder carries the `_uix` suffix so its top-level
-namespace doesn't collide with `examples/core/login/` on the classpath. Three
-examples that share the same `:auth.login/*` ids need distinct namespaces to
-live together in one build.
+One mechanical note: the namespace here is `uix.login.core`, not `login.core` —
+the `substrates/uix/` folder becomes the namespace prefix, so this example
+doesn't collide with `examples/core/login/` on the classpath. Three examples
+that share the same `:auth.login/*` ids still need distinct namespaces to sit
+on one classpath together.
 
 ## Files
 
 ```
-login_uix/
+login/
   core.cljs    — schema + events + subs + machine + defui views + mount.
   index.html   — minimal host page.
 ```

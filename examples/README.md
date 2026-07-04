@@ -2,7 +2,7 @@
 
 These are small, complete apps you can run and read top to bottom — each one composing the spec's primitives into real UI. They're organised by concept:
 
-- **Core** — the fundamentals (the dataflow concepts in [docs/core/concepts](../docs/core/)).
+- **Core** — the fundamentals (the dataflow concepts in [docs/core/concepts](../docs/core/concepts/)).
 - **Capabilities** — one framework subsystem per folder (each has its own `docs/<capability>/` guide).
 - **Patterns** — composition recipes built from the capabilities (the `spec/Pattern-*` docs).
 - **Real-apps** — full applications that put it all together.
@@ -15,6 +15,7 @@ They range from the counter (the smallest app the pattern admits) to RealWorld (
 ```
 examples/
   scripts/                     <-- example dev runner + Story launchers + shared Playwright helpers
+  _shared/                     <-- shared CSS + images (the "Editorial Warm" identity)
   core/                        <-- the fundamentals
     counter/
     login/
@@ -70,7 +71,7 @@ The fundamentals — the dataflow concepts every other example builds on.
 
 | Example | What it demonstrates |
 |---|---|
-| [`core/counter/`](core/counter/) — `examples/counter` | The smallest possible app — one event, one sub, one view. The "hello world" of the pattern. **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md). |
+| [`core/counter/`](core/counter/) — `examples/counter` | The smallest app in the set — three one-line events, one sub, two tiny views. The "hello world" of the pattern. **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md). |
 | [`core/login/`](core/login/) — `examples/login` | Single-feature scaffold — schema, events, subs, views, and a machine in one file for a typical login flow. Ships an auxiliary [Story showcase](core/login/README.md#how-to-run) (`:examples/login-with-stories`) enumerating every reachable login state. **Specs:** [005 StateMachines](../spec/005-StateMachines.md), [014 HTTPRequests](../spec/014-HTTPRequests.md), [010 Schemas](../spec/010-Schemas.md), [008 Testing](../spec/008-Testing.md). |
 | [`core/todomvc/`](core/todomvc/README.md) — `examples/todomvc` | Canonical cross-framework todo app: localStorage persistence, editing, bulk actions, remaining count, and hash-routing filters. **Specs:** [002 Frames](../spec/002-Frames.md), [004 Views](../spec/004-Views.md), [012 Routing](../spec/012-Routing.md). |
 | [`core/flows/`](core/flows/) — `examples/flows` | The canonical Flows exemplar: a cart whose subtotal + total are *materialised into app-db* by registered flows (not subs). A flow-reads-flow cascade, reading a flow inside an event handler, and a runtime-toggleable discount. **Specs:** [013 Flows](../spec/013-Flows.md). |

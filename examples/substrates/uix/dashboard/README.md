@@ -42,7 +42,7 @@ each metric's series to the last N points:
   (fn [[metrics active-tags {:keys [points]}] _]
     (->> metrics
          (filter #(contains? active-tags (:tag %)))
-         (map (fn [m] (update m :series #(vec (take-last points %))))))))
+         (map (fn [metric] (update metric :series #(vec (take-last points %))))))))
 ```
 
 Toggle a chip or change the range, and the framework re-runs just this
@@ -86,8 +86,8 @@ framework.
 | Substrate | Example | Shape |
 |---|---|---|
 | Reagent | [`notebook`](../../../core/notebook/) | Three-pane editor |
-| UIx | `dashboard_uix` (this) | Cards + sparklines |
-| Helix | [`process_monitor_helix`](../../helix/process_monitor/) | Terminal log viewer |
+| UIx | `dashboard` (this) | Cards + sparklines |
+| Helix | [`process_monitor`](../../helix/process_monitor/) | Terminal log viewer |
 
 Three different apps, one per substrate — yet they all wear the same
 "Editorial Warm" identity from
@@ -117,7 +117,7 @@ even here.
 ## Files
 
 ```
-dashboard_uix/
+dashboard/
   core.cljs    — seed data, events, signal-graph subs, sparkline computation, defui views, mount.
   index.html   — minimal host page.
 ```

@@ -12,12 +12,12 @@ re-frame2's core is substrate-agnostic: your events, subscriptions, and app-db n
 
 ## What changes (and how little it is)
 
-You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to/use-uix-helix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change. So the whole diff against the canonical counter is just two things:
+You wire a substrate to re-frame2 with an [adapter](../../../../docs/core/how-to/use-uix-helix-or-slim.md): a small value you hand to `init!` once at boot. Switching substrate is a one-line change. So the diff that matters against the canonical counter is just two things:
 
-1. **The imports point at `reagent2.*`** instead of stock `reagent.*`, so the views render through the slim substrate.
+1. **The mount import points at `reagent2.dom.client`** instead of stock `reagent.dom.client`, so the React root comes from the slim substrate.
 2. **`(rf/init!)` gets the slim adapter Var** instead of the stock one.
 
-Everything else is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, the two views, and the lazy mount under a `frame-provider`. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
+The dataflow is character-for-character the canonical counter — `:counter/initialise`, `:counter/inc`, `:counter/dec`, the `:counter/value` subscription, and the two views. The mount keeps the same lazy shape under a `frame-provider`, folded into a single `boot!` that the gate files below also call. The same event pipeline runs through a different substrate, and nothing downstream can tell. That's the demonstration.
 
 Read [`core.cljs`](core.cljs) as the example. It's plain, idiomatic re-frame2.
 
@@ -25,7 +25,7 @@ Read [`core.cljs`](core.cljs) as the example. It's plain, idiomatic re-frame2.
 
 The `re-frame.adapter.reagent-slim` require in `core.cljs` is an **in-tree** spelling. It exists for a dull reason: the monorepo build shares a classpath with the stock adapter, so the two need different namespaces to avoid a clash.
 
-That is not the spelling an adopter uses. The published `day8/reagent-slim` jar ships its adapter Var at the canonical `re-frame.adapter.reagent` — the same name as stock Reagent (renamed at publication). In a real app you write `(rf/init! re-frame.adapter.reagent/adapter)`, the exact same line as for stock Reagent. You **pick slim by dependency coordinate, not by import line.** That's the payoff: adopting the fast substrate costs you a `deps.edn` change and nothing in your source.
+That is not the spelling an adopter uses. The published `day8/reagent-slim` jar ships its adapter Var at the canonical `re-frame.adapter.reagent` — the same name as stock Reagent (renamed at publication). In a real app you write `(rf/init! re-frame.adapter.reagent/adapter)`, the exact same line as for stock Reagent. You **pick slim by dependency coordinate, not by adapter import line.** That's the payoff: adopting the fast substrate costs you a `deps.edn` change and a `reagent.*` → `reagent2.*` rename in your requires — the init line survives untouched.
 
 So don't copy the in-tree `-slim` namespace into published code. See [`docs/core/how-to/use-uix-helix-or-slim.md`](../../../../docs/core/how-to/use-uix-helix-or-slim.md) and [`DESIGN-RATIONALE.md`](../../../../implementation/adapters/reagent-slim/DESIGN-RATIONALE.md) §7.
 
@@ -38,7 +38,7 @@ The share is safe **only** because stock and slim build as two separate standalo
 ## Files
 
 ```
-counter_slim_and_fast/
+counter/
   core.cljs                          the teaching example: events/subs/views + the shared boot! + mount
   bundle_isolation_entry.cljs        gate-owned :init-fn — calls core/boot! with the SSR-exercise hook (not app practice)
   bundle_isolation_fixture.cljs      SSR/sentinel proof for the gate (not app practice)

@@ -47,7 +47,9 @@ three-page site. It's the worked companion to
   in and raises `:rf.error/no-frame-context`.
 - **The same routing runs on the server** — the routing artefact is
   `.cljc`, so this exact `reg-route` table works on a JVM server too.
-  Nothing here is browser-only. The `:rf.route/handle-url-change` handler
+  Nothing in the table is browser-only (this demo's file is `.cljs` only
+  because the mount beside it is browser code). The
+  `:rf.route/handle-url-change` handler
   that popstate and the initial load drive on the client is the same one
   a server render uses — the server just feeds it the request URL
   (Spec 012 §URL changes are events).

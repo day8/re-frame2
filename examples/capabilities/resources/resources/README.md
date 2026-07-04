@@ -2,7 +2,7 @@
 
 This example is an articles list and an article's detail. Click **Preview** on a
 row to peek at an article, **Open in reader** to read it, or **Refresh** to reload
-the list. Each fetch flashes a brief loading skeleton, then the data lands.
+the list. Each first load flashes a brief loading skeleton, then the data lands.
 There's no server to set up — a stub answers every request right in the page, so
 you just start it and click.
 
@@ -59,12 +59,14 @@ live. They go from "the framework decides" to "a workflow decides":
 - **Machine-owned resource — a workflow decides.** Sometimes a read should live
   exactly as long as some workflow. Model that workflow as a
   [machine](../../../../docs/machines/concepts.md) and let it hold the lease. The
-  per-row **Open in reader** button starts the `:resources.app/reader` machine.
-  Its `:reading` entry action ensures the article under a
-  `[:machine machine-id instance-id]` owner. **Stop reader** emits
-  `[:rf.machine/destroy …]`; destroying the actor releases the owner. The machine
-  stays the workflow; the resource runtime just handles the cached-read mechanics
-  underneath it.
+  per-row **Open in reader** button starts the `:resources.app/reader` machine,
+  then dispatches `[:reader/load …]` into it (the birth cascade carries no
+  event, so the slug rides in on that dispatch). The `:reading` state handles it
+  with the `:ensure-article` action, which ensures the article under a
+  `[:machine machine-id instance-id]` owner. **Stop reader** runs the
+  `[:rf.machine/destroy …]` effect; destroying the actor releases the owner. The
+  machine stays the workflow; the resource runtime just handles the cached-read
+  mechanics underneath it.
 
 ### No backend, real lifecycle
 
@@ -86,8 +88,9 @@ running with no backend at all.
 
 ### The read side: one passive subscription, five distinctions
 
-Views read everything through one **passive** subscription, `[:rf.resource/state …]`
-(plus narrower projections over it). The view-model is rich enough that a network
+Views read everything through one **passive** subscription, `[:rf.resource/state …]`.
+(One small derived sub also layers over the narrower `[:rf.resource/data …]` to
+pull out the top article's slug.) The view-model is rich enough that a network
 hiccup never blanks the page. It draws these distinctions:
 
 - `:loading?` — the first-load skeleton; nothing usable yet.
@@ -95,8 +98,8 @@ hiccup never blanks the page. It draws these distinctions:
 - `:fetching?` — a refresh is in flight; the old value is still shown.
 - `:refresh-error` — that background refresh failed, but the prior data is kept.
 
-Only a first-load failure shows an error page. A failed refresh quietly keeps
-what it had.
+Only a first-load failure shows an error page. A failed refresh keeps what it
+had — the list just adds a warning line.
 
 ### Scope is the leak boundary
 
@@ -135,8 +138,8 @@ resources/
 
 There is no server, so there is **no `api/` asset**. (Contrast
 `managed_http_counter`, which fetches a real static `api/inc.json`.) The detail
-route's per-slug URL (`/api/articles/:slug`) is served by the stub, not by a
-static file tree.
+resource's per-slug request (`/api/articles/:slug`) is answered by the stub, not
+by a static file tree.
 
 ## How to run
 
@@ -146,5 +149,5 @@ shadow-cljs watch examples/resources
 ```
 
 Then serve `out/examples/resources/` over HTTP and open it. Click **Preview**,
-**Refresh**, or **Open in reader** and watch the skeleton flash before each reply
-lands — all served by the in-page stub.
+**Refresh**, or **Open in reader** and watch the loading states flash before each
+reply lands — all served by the in-page stub.
