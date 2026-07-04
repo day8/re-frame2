@@ -23,9 +23,9 @@ powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
 It is idempotent, refuses to clobber a non-link copy without `--force`
-(`-Force`), and supports `--check` (`-Check`) to verify the links. See
-[`CONTRIBUTING.md`](../CONTRIBUTING.md#skills--link-dont-copy) for the full
-contributor setup.
+(`-Force`), and supports `--check` (`-Check`) to verify the links. Run it
+once after cloning, and re-run with `--force` once to retire any stale copy
+a previous copy-install left behind.
 
 The docs-site landing page mirrors this index at
 [`docs/skills/index.md`](../docs/skills/index.md) — same eight skills, same
