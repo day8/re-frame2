@@ -4,7 +4,7 @@ On this page, a sketch of how re-frame2 does computation.
 
 ## Events
 
-We start with **events** because they are literally the language of your re-frame2 application. You design a set of events for your application, and together they become its vocabulary.
+We start with **events** because they are the language of your re-frame2 application. You design a set of events, and together they become its vocabulary.
 
 The general shape of an event is:
 
@@ -22,13 +22,13 @@ Some examples:
 [:route/changed {:page :about :params {...}}]
 ```
 
-Nothing "happens" in a re-frame2 app without an event. A re-frame2 app moves forward through time like this:
+Nothing "happens" in a re-frame2 app without an event. The app moves forward through time like this:
 
 ```text
 event1 → event2 → event3 → event4 → ...
 ```
 
-**Most events represent user intent**: the user clicked a button, dragged something somewhere else, opened a route, chose a tab. But while the user is the principal actor in a web app, they are not the only one. Other actors speak in events too: timers, browser APIs, route loaders, to name a few.
+**Most events represent user intent**: the user clicked a button, dragged something somewhere else, opened a route, chose a tab. But while the user is the principal actor in a web app, other actors speak in events too: timers, browser APIs, route loaders, to name a few.
 
 ## Dispatch
 
@@ -40,7 +40,7 @@ You announce that an event has happened via the function `dispatch`:
 (dispatch [:article/loaded {:id 42}])
 ```
 
-Typically (but not always), such dispatches happen in a DOM event handler (the DOM being the browser's live tree of page elements):
+Typically, such dispatches happen in a DOM event handler (the DOM being the browser's live tree of page elements):
 
 ```clojure
 [:div {:on-click #(dispatch [:it :happened])}]
@@ -60,11 +60,11 @@ happens → enqueue → dequeue → event pipeline
 
 ## The event pipeline
 
-re-frame2 never pauses halfway through processing an event to come back to it later. Once it starts, it processes the event completely, all the way to the end. This is called **run-to-completion**.
+re-frame2 never pauses halfway through processing an event to come back to it later. This is called **run-to-completion**.
 
-Then, if there is another event in the FIFO queue, it processes that one from beginning to end too.
+Then, if there is another event in the queue, it processes that one too.
 
-So the overall control flow in a re-frame2 app is pretty simple. If events happen like this:
+So the overall control flow in a re-frame2 app is simple. If events happen like this:
 
 ```text
 event1 → event2 → event3 → event4 → ...
@@ -107,7 +107,7 @@ How it looks in code (properly explained on the next page):
 
 ## Commit
 
-The `effects` returned by the event handler have to be actioned. They have to be *done*. This part is impure: for example, new application state is committed to `app-db`, the HTTP request actually leaves the building, there's a call to `postMessage`, etc.
+The `effects` returned by the event handler have to be actioned. They have to be *done*. This part is impure: for example, new application state is committed to `app-db`, the HTTP request actually leaves the building, there's a call to `postMessage`.
 
 How it looks in code (properly explained later, on the Effects page):
 
@@ -123,7 +123,7 @@ How it looks in code (properly explained later, on the Effects page):
 
 Back in 2014, when React (the JavaScript library re-frame2 renders through) wasn't trying to do too much, this part was written as the formula `v = f(s)`. Views are a function of state.
 
-And, while that formula is true, there's a layered mechanism to it in re-frame2:
+While that formula is true, there's a layered mechanism to it in re-frame2:
 
 ```text
 view-model = subscribe(state)   ;; derive a projection of state suitable for use in a view (renderer)
@@ -131,7 +131,7 @@ vdom       = views(view-model)  ;; render a data representation of DOM (hiccup) 
 dom        = reconcile(vdom)    ;; React does this part
 ```
 
-The read side is reactive: when committed state changes, only the affected derivations recompute, and only the affected views re-render. `view-model` is computed as a graph of cached derivations (a memoised DAG, sometimes called a signal graph): each derivation recomputes only when its inputs change. You supply these derivations via `reg-sub`.
+The read side is reactive: when committed state changes, only the affected derivations recompute, and only the affected views re-render. `view-model` is computed as a graph of cached derivations (a memoised DAG, sometimes called a signal graph). You supply these derivations via `reg-sub`.
 
 How it looks in code (properly explained on the next page):
 
@@ -159,10 +159,10 @@ A program is a set of registrations. Yes, really — your handlers, registered b
 A `frame` is an isolated execution context:
 
 - it manages its own event queue, application state, view-model DAG, and views, and it runs the event pipeline
-- you have to give it handlers (which slot into the event pipeline)
+- you have to give it handlers
 
 Frames are cheap to create and tear down, which makes them ideal for unit tests — and for running several isolated instances of your app on one page.
 
 ## And that's a wrap
 
-There are a few small white lies of omission above, but that's all the concepts. We're now ready to write code.
+There are a few white lies of omission above, but that's all the concepts. We're now ready to write code.

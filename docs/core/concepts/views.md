@@ -1,6 +1,6 @@
 # Views: pure functions of data
 
-A [view](../glossary.md#view)'s whole job is to turn data into a description of the screen. It reads some application state, returns a picture of what the screen should look like for that state, and that's it — no stored state of its own, no side effects, no lifecycle to manage. When the state changes, the framework re-runs the view and updates the DOM to match. So the entire contract fits in one sentence, and it's worth holding onto as you read the rest of this page:
+A [view](../glossary.md#view)'s whole job is to turn data into a description of the screen: it reads some application state, returns the picture for that state, and that's it — no stored state of its own, no side effects, no lifecycle to manage. When the state changes, the framework re-runs the view and updates the DOM to match. So the entire contract fits in one sentence, and it's worth holding onto as you read the rest of this page:
 
 > **A view is a pure function from subscription values to hiccup.**
 
@@ -66,7 +66,7 @@ The important word is *data*. Not "data-like" — these are actual vectors, maps
 (into [:ul] (for [item items] [:li (:name item)]))
 ```
 
-Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server (Clojure runs on the JVM there, not in a browser) — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser.
+Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser.
 
 ??? info "For JavaScript developers"
 
@@ -74,7 +74,7 @@ Because hiccup is just data, views compose like any other values: a function can
 
 ??? note "Going deeper"
 
-    Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary, which is what lets [server-side rendering](../../ssr/concepts.md) render the same views without a browser. Other hosts use their own render-tree shape behind the same contract.
+    Hiccup is the ClojureScript render-tree — the shape that survives serialisation across the JVM/browser boundary. Other hosts use their own render-tree shape behind the same contract.
 
 ## Subscribe in, dispatch out
 
@@ -154,23 +154,23 @@ The cell above writes the view as a plain `defn`, and that genuinely *is* a view
 
 A `reg-view` and a `defn` define the **same render function**. `reg-view` adds exactly two things on top:
 
-1. **A registry entry.** The view is registered — in the process-wide [registrar](../glossary.md#registrar), the one table every `reg-*` form writes to — under an auto-derived id pairing the current namespace with the symbol — in `my.app`, `qty-stepper` registers as `:my.app/qty-stepper`. That id is what lets tooling list the view, jump to its source, and resolve a rendered DOM node back to the view that produced it.
+1. **A registry entry.** The view is registered in the process-wide [registrar](../glossary.md#registrar) — the one table every `reg-*` form writes to — under an auto-derived id pairing namespace with symbol: in `my.app`, `qty-stepper` registers as `:my.app/qty-stepper`. That id is what lets tooling list the view, jump to its source, and resolve a rendered DOM node back to the view that produced it.
 
-2. **Frame-aware injection.** Inside the body, the unqualified `dispatch` and `subscribe` are locals, bound to the [frame](../glossary.md#frame) — the isolated re-frame2 world — that the view renders under. That binding is what lets the same view mount in several isolated frames at once, each reading and writing only its own world.
+2. **Frame-aware injection.** Inside the body, the unqualified `dispatch` and `subscribe` are locals, bound to the [frame](../glossary.md#frame) — the isolated re-frame2 world — that the view renders under. That binding is what lets the same view mount in several frames at once, each reading and writing only its own world.
 
 So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and `subscribe` → `rf/subscribe`. Nothing else differs about the render function.
 
 !!! note "Hot-reload just works"
 
-    Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The registered view is a thin wrapper that resolves its render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
+    Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The registered view resolves its render fn through the registry on every render; the swap also emits a `:rf.registry/handler-replaced` trace event, which is how tooling refreshes its view list.
 
-!!! note "`reg-view` is the Reagent surface"
+??? note "`reg-view` is the Reagent surface"
 
     The `defn`-shape macro rewrite is specific to **Reagent**, the default React-based rendering [substrate](../glossary.md#substrate) this page's examples assume ("The substrate seam" below introduces the full cast). On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/capture-frame)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ### The three call shapes
 
-`reg-view` is *defn-shape*, and like `defn` it takes an optional docstring and lets you override the auto-derived id. There are three call shapes; they all produce the same registered view, and the choice is only about what you want at the source level:
+`reg-view` is *defn-shape*, and like `defn` it takes an optional docstring and lets you override the auto-derived id. All three call shapes produce the same registered view; the choice is only about what you want at the source level:
 
 ```clojure
 ;; 1. Bare — id auto-derived as (keyword *ns* "cart-line"), e.g. :my.app.cart/cart-line
@@ -191,11 +191,11 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
   [:tr [:td (:name item)] [:td (:qty item)]])
 ```
 
-In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]` from sibling code regardless. The docstring and the `^{:rf/id …}` override are the only two knobs; the body is just hiccup.
+In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]` from sibling code regardless.
 
 !!! warning "Gotcha"
 
-    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a pre-built component object (`reagent.core/create-class …` — a legacy Reagent shape covered under *From re-frame v1* below) `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
+    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a pre-built component object (`reagent.core/create-class …` — a legacy Reagent shape covered under *From re-frame v1* below) — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
 
 ??? info "From re-frame v1"
 
@@ -203,7 +203,7 @@ In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]`
 
 ### Plain `defn` views, and when they break
 
-A plain `defn` view still works — but only when it renders *inside* a frame scope it can read. The qualified `rf/dispatch` / `rf/subscribe` resolve their frame from the surrounding React context, and a mounted app's [frame-provider](../glossary.md#frame-provider) — the bit of React context that broadcasts "the frame to render under" to the views inside it — hands that frame only to **registered** views. An unregistered `defn` that derefs `rf/subscribe` under a non-default provider fails loud with a named [error record](../glossary.md#error-record): `:rf.error/no-frame-context`.
+A plain `defn` view still works — but only when it renders *inside* a frame scope it can read. The qualified `rf/dispatch` / `rf/subscribe` resolve their frame from the surrounding React context, and a mounted app's [frame-provider](../glossary.md#frame-provider) — which broadcasts "the frame to render under" — hands that frame only to **registered** views. An unregistered `defn` that derefs `rf/subscribe` under a non-default provider fails loud with a named [error record](../glossary.md#error-record): `:rf.error/no-frame-context`.
 
 That isn't an oversight — it's [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) doing its job. An operation reads its frame from scope; the runtime never invents one. So the reverse rewrite — turning a `reg-view` into a `defn` — is not free. If a view genuinely must stay an unregistered plain fn, it captures a [`(rf/capture-frame)`](../glossary.md#capture-frame) at render time and uses its bound ops instead.
 
@@ -215,7 +215,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
     (rf/reg-frame :cart {:initial-events [[:cart/load]]})
     ```
 
-    The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the home for "do this on mount" that keeps the view itself a plain render fn for "do this on mount" — see [Frames](frames.md).
+    The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the home for "do this on mount", and it keeps the view itself a plain render fn — see [Frames](frames.md).
 
 ??? info "From re-frame v1"
 
@@ -278,11 +278,11 @@ Register the state-touching child instead, and it subscribes to exactly the slic
           :on-click #(dispatch [:todo/toggle id])} title]))
 ```
 
-The plain-`defn` lane is not a lesser option — it's the right lane for a *genuine helper*: an input helper that takes its current `:value` and an `on-change` callback as arguments, a formatting fn that turns a data map into hiccup, a presentational wrapper. What marks a helper is that everything it depends on is in its signature and it touches no state. The moment a component reaches for `subscribe` or `dispatch`, it has state to touch, and that's the `reg-view` lane. The [TodoMVC example](../../../examples/core/todomvc) is written to this rule: its state-touching views (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are each a `reg-view`; only `todo-input` (data + callbacks) and `filter-link` (pure data → hiccup) stay plain fns.
+The plain-`defn` lane is not a lesser option — it's the right lane for a *genuine helper*: an input helper that takes its current `:value` and an `on-change` callback as arguments, a formatting fn that turns a data map into hiccup, a presentational wrapper. What marks a helper is that everything it depends on is in its signature and it touches no state. The [TodoMVC example](../../../examples/core/todomvc) is written to this rule: its state-touching views (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are each a `reg-view`; only `todo-input` (data + callbacks) and `filter-link` (pure data → hiccup) stay plain fns.
 
-!!! note "On the hooks substrates"
+??? note "On the hooks substrates"
 
-    UIx and Helix don't have the `reg-view` macro; a component reaches for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) instead — see the *"`reg-view` is the Reagent surface"* note under [`reg-view`: registering a view for project code](#reg-view-registering-a-view-for-project-code) above. The *lane rule still holds*: a component that reads state reads it through those hooks itself, rather than receiving a `dispatch`/`subscribe` (or their hook results) drilled down as props. Reach for state where you need it; don't thread it.
+    The lane rule holds on UIx and Helix too. There's no `reg-view` macro there (see *"`reg-view` is the Reagent surface"* above) — a component that reads state reads it through the adapter's hooks (`use-subscribe`, `use-current-frame`) itself, rather than receiving a `dispatch`/`subscribe` (or their hook results) drilled down as props. Reach for state where you need it; don't thread it.
 
 ## The one rule: views compute hiccup only
 
@@ -322,25 +322,22 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
 
 !!! note "Why this matters"
 
-    A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too — a re-rendering parent re-runs any child it hands changed arguments. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
+    A view re-runs whenever any value it derefs changes, and whenever a re-rendering parent hands it changed arguments. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many. This is the single most common way re-frame2 apps get accidentally slow; the hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
-!!! note "Need the derived value in an *event handler*, not just a view?"
+??? note "Need the derived value in an *event handler*, not just a view?"
 
     A subscription's value is only available to views. When a handler needs the same derivation as plain state, materialise it with a [flow](../glossary.md#flow) — a pure derivation re-frame2 keeps written at a path *in* `app-db`. Same "compute once" idea, the other side of the loop. ([Flows](flows.md) has the full picture; [Where state lives](../where-state-lives.md) is the chooser.)
 
-!!! warning "Compute-in-view is the most common way apps get slow"
-
-    Pushing computation into the view is the single most common way re-frame2 apps get accidentally slow, because the work re-runs on every render instead of only when its inputs change. The hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
 !!! note "What's the `^{:key (:id item)}` for?"
 
     Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
-    **Gotcha — missing or colliding keys.** Omit the key on a list and the substrate falls back to *position*; key two siblings the same and they collide. Either way reconciliation can keep stale DOM in place, drop a row, or duplicate one when the list changes — a silent visual bug, not an error. The `^{:key …}` rides through `reg-view` to React untouched, so a registered row keys exactly like a plain one; the discipline is the same in both. (This `:key` is React's reconciliation key — distinct from the trace `:render-key` further down, which is instrumentation identity, not reconciliation.)
+    **Gotcha — missing or colliding keys.** Omit the key on a list and the substrate falls back to *position*; key two siblings the same and they collide. Either way reconciliation can keep stale DOM in place, drop a row, or duplicate one when the list changes — a silent visual bug, not an error. The `^{:key …}` rides through `reg-view` to React untouched, so a registered row keys exactly like a plain one. (This `:key` is React's reconciliation key — distinct from the trace `:render-key` further down, which is instrumentation identity, not reconciliation.)
 
 ## The trap: imperative listeners lose the frame
 
-Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole `:on-*` family (*synthetic events*, in the substrate's vocabulary) — are wrapped by the *substrate* (the rendering library underneath the view — React, by way of Reagent, UIx, or Helix; "The substrate seam" below covers it) at render time, so a `dispatch` inside them is routed to the right [frame](../glossary.md#frame) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loud with `:rf.error/no-frame-context`:
+Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole `:on-*` family (*synthetic events*, in the substrate's vocabulary) — are wrapped by the *substrate* — the rendering library underneath the view — at render time, so a `dispatch` inside them is routed to the right [frame](../glossary.md#frame) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loud with `:rf.error/no-frame-context`:
 
 ```clojure
 ;; WRONG — imperative listener: the callback fires on a fresh stack with no
@@ -366,7 +363,7 @@ Rule of thumb: if an `:on-*` attr exists for what you need, use it. If one doesn
 
 ??? note "Going deeper"
 
-    The runtime fails fast rather than synthesising a default frame, and the carried-frame mechanism (a [capture-frame](../glossary.md#capture-frame) closing over the right world) lets a registered effect's closure dispatch back into it — the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md).
+    The carried-frame mechanism — a [capture-frame](../glossary.md#capture-frame) closing over the right world — is what lets a registered effect's closure dispatch back into its frame: the *carried invariant*. The full account is in [Frames: isolated worlds](frames.md).
 
 ## Targeting a different frame, deliberately
 
@@ -397,4 +394,4 @@ The render itself is observable too, which helps with the *other* failure mode �
 
 !!! note "Why register the views you care about"
 
-    Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. That's one more reason to register the views you want to see. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.
+    Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.
