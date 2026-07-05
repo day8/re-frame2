@@ -34,7 +34,7 @@ Each function takes one argument, `ctx` — the **context** — and returns it (
 
 Three small things trip people up the first time:
 
-- **The context is the only channel.** Each [dispatch](../glossary.md#dispatch) gets its own fresh context map, which is why the same interceptor is safe even on events that overlap in time.
+- **The context is the only channel.** Each [dispatch](../glossary.md#dispatch) gets its own fresh context map, which is why the same interceptor is Each [dispatch](../glossary.md#dispatch) gets its own fresh context map, so scratch like `::started-at` can never leak from one dispatch into the next — one registration is safe on any number of handlers and frames.
 - **The id is the handle.** Once registered, `:my-app/logger` *is* the interceptor everywhere — chains reference it by id, the [trace stream](../glossary.md#trace-stream) and [Xray](../glossary.md#xray) name it by id, overrides find it by id. There is no anonymous interceptor to lose track of.
 - **Both slots must return the context.** ("Slot" is just a handy name for one of the two functions — the `:before` or the `:after`.) A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
 
@@ -54,7 +54,7 @@ Registering an interceptor doesn't run it — you have to put it in a handler's 
 (rf/reg-event :cart.item/add
   {:doc               "Add an item to the cart."
    :interceptors      [:my-app/logger]    ;; a reference, not the interceptor value
-   :rf.cofx/requires  [:rf/time-ms]}      ;; declared so the ctx below carries it
+   :rf.cofx/requires  [:rf/time-ms]}      ;; not needed yet — you'll see it land in the context map below
   (fn [{:keys [db]} [_ item]]
     {:db (update db :cart/items conj item)
      :fx [[:dispatch [:toast/show "Added"]]]}))
@@ -62,7 +62,7 @@ Registering an interceptor doesn't run it — you have to put it in a handler's 
 
 That bare keyword `:my-app/logger` *names* the registered interceptor; the runtime resolves it at dispatch time. Dispatch `[:cart.item/add ...]` now and the console shows the trip in and the timed trip out.
 
-This register-once-reference-everywhere split is the whole shape, and it has a quiet payoff: the chain is **plain data** — a vector of keywords you can serialize, diff, and carry in an [image](../glossary.md#image). And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the very next dispatch; you don't re-register the event just because an interceptor's implementation changed.
+This register-once-reference-everywhere split is the whole shape, and it has a quiet payoff: the chain is **plain data** — a vector of keywords you can serialize, diff, and carry in an [image](../glossary.md#image) — the portable registration set a later page covers —. And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the very next dispatch; you don't re-register the event just because an interceptor's implementation changed.
 
 !!! warning "Gotcha — an inline interceptor map in a chain is rejected"
 
@@ -144,6 +144,8 @@ The order for one event is:
 envelope finalization → context assembly → :before pass → handler → :after pass
 ```
 
+(*Envelope finalization* is the runtime completing the dispatch's own metadata record — the [event envelope](../glossary.md#event-envelope), covered properly with [observability](observability.md); here it only marks where the pipeline starts.)
+
 Coeffect satisfaction is **context assembly**, a step that runs to completion *before* the chain. You can still *modify* an assembled `:coeffects` map inside a `:before` — that's an ordinary transformation of a finished context — but you can never witness a half-filled one.
 
 ??? info "From re-frame v1"
@@ -202,7 +204,7 @@ Reference it with the bracket form, passing the factory's single arg (need sever
     {:db (update db :cart/items conj item)}))
 ```
 
-One detail that matters: the factory's `:after` reads `:rf/time-ms` out of `:coeffects`, and delivery is declared-only — an interceptor sees exactly the facts the *registration* declared, nothing more. Leave the `:rf.cofx/requires` line off and the stamp's `:at` is quietly `nil`. (A fresh event id, too — re-registering `:cart.item/add` here would replace its earlier chain.)
+One detail that matters: the factory's `:after` reads `:rf/time-ms` out of `:coeffects`, and delivery is declared-only — an interceptor sees exactly the facts the *attaching event's* registration declared, nothing more (the `requires` lives on the event, not on the interceptor). Leave the `:rf.cofx/requires` line off and the stamp's `:at` is quietly `nil`. (Note the example registers a fresh event id, too — re-registering `:cart.item/add` here would replace its earlier chain.)
 
 The factory runs once per chain assembly to build the executable interceptor for that arg. Two refs to the *same* factory with *different* args (`[:cart/stamp-meta :a]` and `[:cart/stamp-meta :b]`) are two distinct chain entries, each matchable on its own in overrides — which is exactly why override matching (below) is by full reference, not by id.
 
@@ -250,7 +252,7 @@ Here's the rule from the top of the page, made precise. The chain is part of the
 
 !!! warning "Gotcha — work done in an interceptor body re-fires on replay"
 
-    Don't do real work directly in an interceptor body. It re-fires on every replay, and it escapes every seam: `:fx-overrides` redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](../glossary.md#effect) rows and let the [effect handler](../glossary.md#effect-handler) execute them.
+    Don't do real work directly in an interceptor body. It re-fires on every replay, and it escapes every seam: `:fx-overrides` (the effects-side sibling of the `:interceptor-overrides` you just met) redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](../glossary.md#effect) rows and let the [effect handler](../glossary.md#effect-handler) execute them.
 
 ```clojure
 ;; ❌ performs — re-fires on replay, invisible to :fx-overrides and the trace
@@ -267,7 +269,7 @@ Here's the rule from the top of the page, made precise. The chain is part of the
 
 (`:localstorage/set` is the app-registered effect from [effects](effects.md) — its `reg-fx` handler stays the one place that touches the host.)
 
-So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play — the schema [boundary validator](../how-to/validate-with-schemas.md) (a second framework-provided reference, attached by its bare id, `:rf.schema/at-boundary`) does this on invalid input, marking the context so the handler becomes a no-op while every `:after` still runs. And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
+So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play — the schema [boundary validator](../how-to/validate-with-schemas.md) (a second framework-provided reference, attached by its bare id, `:rf.schema/at-boundary`) does this on invalid input, marking the context so the handler becomes a no-op while every `:after` still runs. (Setting that mark yourself — an auth guard, say — is the [validator how-to](../how-to/validate-with-schemas.md)'s recipe; this page only needs the shape: a `:before` decides, and every `:after` still runs.) And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
 
 !!! warning "Gotcha — a frame interceptor runs on the server too"
 
@@ -275,7 +277,7 @@ So what *are* interceptors allowed to do? Two things. They **decide**: a `:befor
 
 ## A real interceptor: undo
 
-The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The 7GUIs Circle Drawer example registers it once, under a name, and then events opt in by *referencing* it:
+The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The Circle Drawer example — one of the classic [7GUIs](https://eugenkiss.github.io/7guis/tasks/) benchmark tasks — registers it once, under a name, and then events opt in by *referencing* it:
 
 ```clojure
 ;; Adapted from examples/core/seven_guis/circle_drawer/core.cljs — registered once,
@@ -286,10 +288,10 @@ The most satisfying interceptor is undo. Hand-rolled, it smears "remember the ol
              ;; snapshot taken from coeffects (the pre-handler db).
              (let [db    (get-in ctx [:coeffects :db])
                    prior (get-in db [:drawer :circles])]
-               (assoc-in ctx [:coeffects :prior-circles] prior)))
+               (assoc ctx ::prior-circles prior)))
    :after  (fn after [ctx]
              ;; if the handler changed db, push the prior value to :undo.
-             (let [prior    (get-in ctx [:coeffects :prior-circles])
+             (let [prior    (::prior-circles ctx)
                    db-after (get-in ctx [:effects :db])]
                (if (and db-after (not= prior (get-in db-after [:drawer :circles])))
                  (-> ctx
@@ -417,9 +419,9 @@ Every slot runs guarded, and two rules govern how throws compose.
 
 !!! warning "Gotcha — your `:after` must survive error paths"
 
-    A throw in a `:before` (or in the handler) skips the remaining `:before` stages **and the handler** — nothing runs against a half-built context. But the `:after` pass always runs, in full, even after a `:before` failure, in the same reverse order. That's exactly why cleanup belongs in `:after` — and why your `:after` should be written to run on error paths, not just happy ones. An `:after` that assumes the handler always populated `[:effects :db]` will itself throw on the error path.
+    A throw in a `:before` (or in the handler) skips the remaining `:before` stages **and the handler** — nothing runs against a half-built context. But the `:after` pass always runs in full — every interceptor in the chain, including those whose `:before` never got to run — even after a `:before` failure, in the same reverse order. That's exactly why cleanup belongs in `:after` — and why your `:after` should be written to run on error paths, not just happy ones. An `:after` that assumes the handler always populated `[:effects :db]` will itself throw on the error path.
 
-Errors collect on the context — the first throw under `:rf/interceptor-error`, every throw under `:rf/interceptor-errors`, so post-hoc inspection (Xray, Story) sees them all even though the trace stream emits just one. A throw anywhere means the event installs nothing: `app-db` unchanged, no `:fx` fired. That one emitted event is attributed to the **true culprit**, not just "something in the chain":
+Errors collect on the context — the first throw under `:rf/interceptor-error`, every throw under `:rf/interceptor-errors`, so post-hoc inspection (Xray, Story) sees them all even though the trace stream emits just one. A throw anywhere means the event installs nothing: `app-db` unchanged, no `:fx` fired. The one error the trace stream does emit is attributed to the **true culprit**, not just "something in the chain":
 
 - `:rf.error/handler-exception` — the event handler itself threw.
 - `:rf.error/coeffect-exception` — a coeffect supplier threw during context assembly (before any `:before` ran).

@@ -2,7 +2,7 @@
 
 You already know one way to derive a value: a [subscription](../glossary.md#subscription) — a named, pure derivation that reads [app-db](../glossary.md#app-db) (your app's single state map) and hands the result to a [view](../glossary.md#view). Keep that as your reflex. Most derived values are subscriptions, and a typical app has dozens of them.
 
-But there's a catch in *where* a subscription keeps its answer. It lives in a view-facing cache — built for views to read on the way to rendering, and only views. An [event handler](../glossary.md#event-handler) — the pure function that runs when an [event](../glossary.md#event) is dispatched and returns the next app-db — can't reach into that cache. Neither can a schema, another derivation, or anything else that wants the answer as plain data rather than as something a view will render. (The glossary says it in one line: a subscription's value is available to views; need it inside a handler? Materialise it with a flow.)
+But there's a catch in *where* a subscription keeps its answer. It lives in a view-facing cache — built for views to read on the way to rendering, and only views. An [event handler](../glossary.md#event-handler) — the pure function that runs when an [event](../glossary.md#event) is dispatched and returns the next app-db — can't reach into that cache. Neither can an app-db validation [schema](../glossary.md#schema) (they check state, not caches), another derivation, or anything else that wants the answer as plain data rather than as something a view will render. (The glossary says it in one line: a subscription's value is available to views; need it inside a handler? Materialise it with a flow.)
 
 Sometimes a derived value needs to be *state*: plain data sitting in app-db that the rest of your program reads. For that you want a **[flow](../glossary.md#flow)** — a registered rule that says *"when these paths change, run this pure function and write the result into app-db."* The framework keeps the answer fresh, so you never write it by hand.
 
@@ -21,17 +21,18 @@ The fastest way to *see* a flow is to take a derivation you already understand a
 Here is the *same* label as a flow. Same pure function, no new domain:
 
 ```clojure
-;; Flows live in their own namespace: (:require [re-frame.flows]) once, somewhere in your app.
+;; One-time setup: (:require [re-frame.flows]) anywhere in your app loads the flow
+;; machinery. The fns you call stay on rf — the artefact note at the end explains.
 (rf/reg-flow :parity
   {:doc    "Whether the count is odd or even, materialised into app-db."
-   :inputs [[:value]]                  ;; paths to watch (bare = app-db)
+   :inputs [[:value]]                  ;; app-db paths to watch
    :output-path [:parity]}             ;; the app-db path the answer is written to
   (fn [n] (if (odd? n) :odd :even)))           ;; pure: input values, in order → output
 ```
 
 Read it top to bottom and the shape is a sentence: *watch `[:value]`; when it changes, run `(fn [n] …)`; write the result to `[:parity]`.* That's the whole idea. The input values arrive at the derive fn — the third slot — positionally: one input here, so it takes one argument — and the result lands at the app-db `:output-path`.
 
-Here it is running — note the view reads parity with an ordinary app-db subscription, because the answer now *is* state:
+Here it is running — note the view reads parity with an ordinary app-db subscription, because the answer now *is* state. (The seed event fires when the frame is created, before the flow registers, so the label is blank until your first click changes the input — recompute-on-change, live:)
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -41,10 +42,14 @@ Here it is running — note the view reads parity with an ordinary app-db subscr
 (rf/reg-event :inc
   (fn [{:keys [db]} _] {:db (update db :value inc)}))
 
+;; the frame first — the flow below registers into it
+(rf/reg-frame :app {:initial-events [[:initialise]]})
+
 ;; the new idea: the derivation is materialised INTO app-db
 (rf/reg-flow :parity
   {:inputs [[:value]]
-   :output-path [:parity]}
+   :output-path [:parity]
+   :frame :app}   ;; a flow belongs to a frame — this key targets the cell's
   (fn [n] (if (odd? n) :odd :even)))
 
 ;; both subs are now plain app-db reads
@@ -57,8 +62,8 @@ Here it is running — note the view reads parity with an ordinary app-db subscr
    [:span " " @(subscribe [:value])
     " is " (some-> @(subscribe [:parity]) name)]])
 
-(rf/dispatch-sync [:initialise])
-[flow-counter]
+[rf/frame-provider {:frame :app}
+ [flow-counter]]
 ```
 
 
@@ -90,11 +95,11 @@ The flow also skips recomputing when its inputs didn't actually change value —
 
 ### A flow belongs to a frame
 
-One thing to know before you copy this, because it trips people up: a flow belongs to a [frame](../glossary.md#frame) — the isolated runtime instance that owns one app-db. Register it inside your app's frame scope — the one your boot established ([Frames](frames.md) shows that wiring) — or pass an explicit `{:frame ...}` second argument. Register it from inside an event handler (via `:rf.fx/reg-flow`, below) and the dispatching frame is carried for you automatically. That's the framework's standing rule — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — applied to flow registration.
+One thing to know before you copy this, because it trips people up: a flow belongs to a [frame](../glossary.md#frame) — the isolated runtime instance that owns one app-db. Register it inside your app's frame scope — the one your boot established ([Frames](frames.md) shows that wiring) — or include a `:frame` key in the metadata map (the middle slot). Register it from inside an event handler (via `:rf.fx/reg-flow`, below) and the dispatching frame is carried for you automatically. That's the framework's standing rule — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — applied to flow registration.
 
 Outside any scope, `reg-flow` refuses with `:rf.error/no-frame-context` rather than guessing which frame you meant.
 
-Now dispatch `[:inc]` and open [Xray](../glossary.md#xray). The event's row records the handler's change and, in the same commit, the flow's recompute — the write to `[:parity]` attributed to the flow that made it. Restore an older [epoch](../glossary.md#epoch) and parity travels back with the rest of app-db. Because a materialised value is ordinary state, [time-travel](../glossary.md#time-travel) and the inspector get it for free.
+Now dispatch `[:inc]` and open [Xray](../glossary.md#xray). The event's row records the handler's change and, in the same commit, the flow's recompute — the write to `[:parity]` attributed to the flow that made it. Restore an older [epoch](../glossary.md#epoch) — one of the per-event snapshots the runtime keeps — and parity travels back with the rest of app-db. Because a materialised value is ordinary state, [time-travel](../glossary.md#time-travel) and the inspector get it for free.
 
 The honest part: the counter's parity should *stay* a subscription. Nothing but the view reads it, so materialising it buys nothing and costs an app-db write per click. We re-expressed it only to learn the shape with familiar material. Next, a value that genuinely *earns* a flow.
 
@@ -106,10 +111,11 @@ The middle slot is the **metadata map**. Two keys are required; the rest are opt
 
 | Key | Required? | Meaning |
 |---|---|---|
-| `:inputs` | yes | A vector of paths to watch. A **bare** path reads app-db; a path led by **`:rf.db/runtime`** reads [runtime-db](../glossary.md#runtime-db) (route / machine state). Their values arrive at the derive fn positionally, in this order. |
+| `:inputs` | yes | A vector of paths to watch. A **bare** path reads app-db; a path led by **`:rf.db/runtime`** reads [runtime-db](../glossary.md#runtime-db) — the frame's *other* state map, where the framework (not you) keeps route and machine state ([below](#deriving-from-route-or-machine-state)). Their values arrive at the derive fn positionally, in this order. |
 | `:output-path` | yes | The **app-db** path the result is written to. Always app-db — a flow never writes runtime-db, even when it reads one. |
 | `:doc` | no | A one-sentence what-and-why. Surfaces in Xray and the rest of the tooling; you'll thank yourself later. |
-| `:schema` | no | A Malli [schema](../glossary.md#schema) for the output value, checked in dev on every recompute. See [Validating a flow's output](#validating-a-flows-output). |
+| `:frame` | no | Target frame, for registration outside any frame scope. See [A flow belongs to a frame](#a-flow-belongs-to-a-frame). |
+| `:schema` | no | A [schema](../glossary.md#schema) for the output value, written in Malli (the Clojure data-schema library re-frame2 standardises on), checked in dev on every recompute. See [Validating a flow's output](#validating-a-flows-output). |
 | `:sensitive` | no | A vector of output subpaths to redact on the trace/wire surface. See [Classifying a flow's output](#classifying-a-flows-output). |
 | `:large` / `:large?` | no | Output subpaths (or, with `:large? true`, the whole output) too big to ship to off-box tooling; elided on the trace surface. See [Classifying a flow's output](#classifying-a-flows-output). |
 
@@ -239,7 +245,7 @@ Each of `:sensitive` and `:large` is a **vector of subpaths** *into the output s
 
 !!! warning "Gotcha — `:sensitive` is a list of paths, not a boolean"
 
-    At the registration layer `:sensitive` already means "a collection of sensitive paths", so writing `:sensitive true` (the boolean spelling) is a *mistake*. A malformed declaration — a non-vector axis, a non-path entry, or the boolean spelling — is rejected fail-closed at registration with `:rf.error/flow-bad-marks`. It fails loud rather than silently shipping the secret, which is exactly what you want from a safety feature. (Keep the two layers straight: the *handler*-level marker is the boolean `:sensitive?`; a *flow's output* classification is the plural `:sensitive` path-list.)
+    At the registration layer `:sensitive` already means "a collection of sensitive paths", so writing `:sensitive true` (the boolean spelling) is a *mistake*. A malformed declaration — a non-vector axis, a non-path entry, or the boolean spelling — is rejected fail-closed at registration with `:rf.error/flow-bad-marks`. It fails loud rather than silently shipping the secret, which is exactly what you want from a safety feature. (Keep the two layers straight: an event *handler* can carry a boolean `:sensitive?` marker — a separate device, covered in [keeping secrets out of traces](../how-to/keep-secrets-out-of-traces.md); a *flow's output* classification is the plural `:sensitive` path-list.)
 
 !!! warning "Gotcha — classification does not flow from input to output"
 
@@ -252,9 +258,9 @@ A `:derive` function is pure, but pure functions still blow up — a `nil` where
 This is the single most important safety property of flows, so it's worth stating precisely. The app-db install is one deferred, all-or-nothing write. A flow throw happens *before* that write, so:
 
 - **app-db is left unchanged.** Not the handler's `:db`, not any *earlier* flow's output in the same pass — nothing lands. There is no partial commit. The event you dispatched is simply as if it never reached app-db.
-- **No `db-changed` trace fires**, and **`:fx` is skipped** — no `:dispatch`-issued children, no HTTP, no navigation queued by this event.
+- **No `db-changed` trace fires** — the commit record tooling like Xray watches for — and **`:fx` is skipped** — no `:dispatch`-issued children, no HTTP, no navigation queued by this event.
 - **The failure surfaces on the error stream** as `:rf.error/flow-eval-exception`, carrying the offending flow id and the originating event. This rides the *always-on production error substrate*, so even in a `:advanced` production build your Sentry/Honeybadger/Rollbar monitor gets the record. A per-flow `:rf.flow/failed` trace fires first with the full detail, but that one is dev-only and elides in production.
-- **The work re-attempts cleanly.** Because the whole commit was discarded, the dirty-check bookkeeping rolls back too — every flow in that pass re-attempts on the next, clean pass. Nothing half-done is ever observable.
+- **The dirty-check resets cleanly.** Because the whole commit was discarded, the bookkeeping rolls back too — the aborted event is *not* retried; every flow in that pass simply re-evaluates on the next event's pass.
 
 The same atomic rule covers a throw in a [coeffect](../glossary.md#coeffect) supplier, the handler body, or an [interceptor](../glossary.md#interceptor)'s `:after` step: an event either commits in full or not at all. A flow's `:derive` throwing is just one more pre-install throw, behaving identically to all of them.
 
@@ -294,7 +300,8 @@ The fx variant is the common one because most toggling happens *inside* event ha
 
 ;; can-submit-flow is the 3-slot triple [id metadata derive-fn], so `apply` it:
 (rf/with-frame :scratch
-  (apply flows/reg-flow can-submit-flow))             ;; frame from the surrounding scope
+  (apply flows/reg-flow can-submit-flow))   ;; with-frame pins :scratch as the ambient frame
+                                            ;; for its body (Frames page); reg-flow seats there
 ;; or register with an explicit frame — :frame is a metadata key (the middle slot):
 (let [[id metadata derive-fn] can-submit-flow]
   (rf/reg-flow id (assoc metadata :frame :scratch) derive-fn))
@@ -362,7 +369,7 @@ Flows [fail loud](../glossary.md#fail-loud-not-silent) and early. Almost everyth
 - **`:rf.error/flow-frame-not-live`** — `reg-flow` against a frame that was never created or has already been destroyed. The framework won't seat flow state on a dead frame (a later frame reusing that id would inherit the ghost). `clear-flow`, by contrast, is permissive on an absent frame — it just no-ops, so teardown stays idempotent.
 - **`:rf.error/flow-bad-marks`** — a malformed `:sensitive` / `:large` declaration (a non-vector axis, a non-path entry, or the boolean `:sensitive?` spelling). Rejected fail-closed, as covered in [Classifying a flow's output](#classifying-a-flows-output).
 
-The **shape** errors are the ones you meet while you're still typing the call — each names the offending slot in its `ex-data` so you can fix it without a stack-trace dig. First, the 3-slot grammar itself is enforced: `:rf.error/invalid-flow-metadata` fires when the middle slot isn't a map, or when a `:derive` is left inside the metadata map (the derive fn is the third slot — its one home). Then the reconstructed flow is checked in order, most-fundamental-first: `:rf.error/flow-missing-id` (a nil `flow-id`), `:rf.error/flow-bad-id` (a `flow-id` that isn't a keyword), `:rf.error/flow-bad-inputs` (`:inputs` isn't a vector of non-empty paths), `:rf.error/flow-bad-output` (the `derive-fn` isn't a function — the name predates the split), and `:rf.error/flow-bad-path` (`:output-path` isn't a non-empty vector of path segments). You'll mostly hit these once, the first time you write a flow; they're listed here so a thrown `:rf.error/*` keyword is self-explaining when it lands.
+The **shape** errors are the ones you meet while you're still typing the call — each names the offending slot in its `ex-data` so you can fix it without a stack-trace dig. First, the 3-slot grammar itself is enforced: `:rf.error/invalid-flow-metadata` fires when the middle slot isn't a map, or when a `:derive` is left inside the metadata map (the derive fn is the third slot — its one home). Then the reconstructed flow is checked in order, most-fundamental-first: `:rf.error/flow-missing-id` (a nil `flow-id`), `:rf.error/flow-bad-id` (a `flow-id` that isn't a keyword), `:rf.error/flow-bad-inputs` (`:inputs` isn't a vector of non-empty paths), `:rf.error/flow-bad-output` (the `derive-fn` isn't a function — a historical name: it guards the derive slot, not `:output-path`), and `:rf.error/flow-bad-path` (`:output-path` isn't a non-empty vector of path segments). You'll mostly hit these once, the first time you write a flow; they're listed here so a thrown `:rf.error/*` keyword is self-explaining when it lands.
 
 !!! warning "Gotcha — forgot the artefact? `:rf.error/flows-artefact-missing`"
 

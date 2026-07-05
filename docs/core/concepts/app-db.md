@@ -36,11 +36,11 @@ This page builds that idea up one step at a time: first the map and the one thin
    [:button {:on-click #(dispatch [:set-step 1])} "1"]
    [:button {:on-click #(dispatch [:set-step 10])} "10"]])
 
-(rf/dispatch-sync [:initialise])
-[stepping-counter]
-```
+(rf/reg-frame :app {:initial-events [[:initialise]]})
 
-(Cell mechanics, once: the cell supplies the frame, and `dispatch-sync` seeds it synchronously — the event runs to completion before the next form; [Run to completion](run-to-completion.md) is its page.)
+[rf/frame-provider {:frame :app}
+ [stepping-counter]]
+```
 
 No second atom, no context, no module-level variable holding the step. app-db grew from the first app's one-fact shape to `{:value 0 :step 1}`, the `:inc` handler reads both facts from the one map it was already handed, and everything you learned about the first fact — how it changes, who may write it, how views watch it — is automatically true of the second. That scaling move is this page's whole subject.
 
@@ -64,7 +64,7 @@ Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. And exac
 
 Read that carefully, because it is the whole immutability story in four lines. The handler receives the current map as `db` (pulled out of the argument map by `{:keys [db]}`, Clojure's way of saying "bind the `:db` key to a local named `db`"). It does not *change* that map. `update-in` doesn't edit `db`; it returns a *new* map with one nested spot updated — here, `conj` (add an element) appended onto the items vector. The handler hands that new map back as its `:db` effect rather than editing anything in place.
 
-Then the runtime does the only mutable step in the whole story. The map itself is immutable, but the name `app-db` is a cell that *points* at a map, and the runtime atomically swaps which map it points at — old value out, new value in, in one indivisible move. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, so the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
+Then the runtime does the only mutable step in the whole story. The map itself is immutable, but the name `app-db` is a mutable reference that *points* at a map, and the runtime atomically swaps which map it points at — old value out, new value in, in one indivisible move. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, so the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
 
 That is the entire shape of state in re-frame2: **structured data in one map; events in, new map out.** You can hold that and start writing apps. The rest of this page is what follows from it.
 
@@ -82,13 +82,13 @@ Not every event has to return a new map, though. A handler that returns no `:db`
 
     app-db is *always* a map, never `nil`. So a handler that accidentally computes `{:db nil}` — a `get-in` that missed, a threading macro that fell off the end — doesn't throw: the runtime coerces the `nil` to `{}` and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic, because that pattern is almost always a bug quietly erasing your state. If you *mean* to clear app-db, say so explicitly with `{:db {}}` (which fires no warning). Watch for this one: the symptom is "my whole app went blank after that event," and the warning in the console is the thread to pull.
 
-Here's the "one map" claim, live. Two views below share one value — the input edits it, the badge reads it — and neither owns a copy, so there is nothing to drift out of sync. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then type:
+Here's the "one map" claim, live. Two views below share one value — the input edits it, the badge reads it — and neither owns a copy, so there is nothing to drift out of sync. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then type into the input that appears — the badge follows every keystroke:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
 (rf/reg-event :appdb.demo/initialise
-  (fn [_cofx _event] {:db {:appdb.demo/name "Ada"}}))
+  (fn [_world _event] {:db {:appdb.demo/name "Ada"}}))
 
 (rf/reg-event :appdb.demo/name-typed
   (fn [{:keys [db]} [_ v]] {:db (assoc db :appdb.demo/name v)}))
@@ -99,7 +99,7 @@ Here's the "one map" claim, live. Two views below share one value — the input 
 ;; Two views, one truth — neither owns the value; both read the same path.
 ;; (Plain-fn views: reg-view's injected dispatch/subscribe are a convenience,
 ;; not a requirement — the ordinary rf/ functions work in any view, resolved
-;; against the frame in scope; here, the cell's.)
+;; against the frame in scope — here the :demo frame this cell creates below.)
 (defn name-editor []
   [:input {:value     @(rf/subscribe [:appdb.demo/name])
            :on-change #(rf/dispatch [:appdb.demo/name-typed (.. % -target -value)])}])
@@ -107,8 +107,10 @@ Here's the "one map" claim, live. Two views below share one value — the input 
 (defn name-badge []
   [:p "Hello, " [:strong @(rf/subscribe [:appdb.demo/name])] "!"])
 
-(rf/dispatch-sync [:appdb.demo/initialise])
-[:div [name-editor] [name-badge]]
+(rf/reg-frame :demo {:initial-events [[:appdb.demo/initialise]]})
+
+[rf/frame-provider {:frame :demo}
+ [:div [name-editor] [name-badge]]]
 ```
 
 !!! tip "Try it"
@@ -130,7 +132,7 @@ If a handler only ever *transforms* app-db, what hands it the very first one? Ev
 
 The steps dispatch synchronously, in order, each one run to completion before the next, so by the time `reg-frame` returns app-db is in whatever state they produced. The point is consistency: there is no special "initial state" mechanism off to one side. The first value of app-db is built by the same dispatch you use for the millionth. [Frames](frames.md) covers `:initial-events` and the rest of the registration grammar in full.
 
-`:rf/set-db` is an ordinary event in every respect — it commits a `:db`, rides schema validation, shows up in the trace (the framework's per-event record, which tools like Xray read) — with one thing worth knowing: it *replaces* the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one. (It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`; and because the `:rf/*` namespace is the framework's, re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.)
+`:rf/set-db` is an ordinary event in every respect — it commits a `:db`, rides schema validation (once you've added one — next section), shows up in the trace (the framework's per-event record, which tools like Xray read) — with one thing worth knowing: it *replaces* the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one. (It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`; and because the `:rf/*` namespace is the framework's, re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.)
 
 ??? info "From re-frame v1"
 
@@ -194,11 +196,11 @@ A **path** names a place inside app-db. It is the same vector you hand to `get-i
 
 So far app-db has been the *only* state in the app, and for everything you write that is true: app-db holds your data, events change it, subscriptions read it. You can stop here and be productive. This section is the one piece of the picture you've been promised but not yet seen — and it is worth knowing, because it's the reason your data stays clean.
 
-There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A [machine](../../machines/glossary.md#machine)'s [snapshot](../../machines/glossary.md#snapshot), the current route, the [resource](../../resources/glossary.md#resource) cache and its in-flight work ledger. This is real, per-[frame](../glossary.md#frame) state — it belongs to a frame just as app-db does — and it must time-travel and survive the wire like everything else. But it is not application data, and hand-editing it corrupts the process that owns it.
+There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A [machine](../../machines/glossary.md#machine)'s [snapshot](../../machines/glossary.md#snapshot), the current route, the [resource](../../resources/glossary.md#resource) cache and its in-flight work ledger. (Machines, routing, and resources are each a later page; the names are all you need for now.) This is real, per-[frame](../glossary.md#frame) state — it belongs to a frame just as app-db does — and it must time-travel and survive the wire like everything else. But it is not application data, and hand-editing it corrupts the process that owns it.
 
 So it doesn't live in app-db at all. A frame holds [**two partitions**](../glossary.md#the-two-partitions):
 
-- [**app-db**](../glossary.md#app-db) — yours. Application data and *nothing else*. Every event handler receives it (as the `:db` [coeffect](../glossary.md#coeffect)) and replaces it (by returning a `:db` effect).
+- [**app-db**](../glossary.md#app-db) — yours. Application data and *nothing else*. Every event handler receives it (as `:db` in the world map every handler is handed — [coeffect](../glossary.md#coeffect) is the formal name) and replaces it (by returning a `:db` effect).
 - [**runtime-db**](../glossary.md#runtime-db) — the framework's. [Machine](../../machines/concepts.md) snapshots, the [route](../../routing/concepts.md) slice, the [resource](../../resources/concepts.md) cache, in-flight work records, all under reserved `:rf.runtime/*` keys. The relevant runtime writes it; you read it through that feature's subscriptions, like `[:rf/machine :checkout/flow]` or `[:rf.route/id]`.
 
 !!! note "Why the partition is structural, not a convention"
@@ -255,7 +257,7 @@ Two properties matter at the write site. The classification is **applied with th
 
 ## Two lanes: the front door, and the surgeon's table
 
-Everything above is the **front door** — the one lane application code ever uses to change state. An event handler returns a new app-db, the runtime swaps it atomically, subscriptions recompute, and a snapshot of any path is yours to read. Handlers, effects, subscriptions, snapshots: that is the whole of how a re-frame2 app moves from one value to the next, and almost nothing you write will ever touch anything else.
+Everything above is the **front door** — the one lane application code ever uses to change state. An event handler returns a new app-db, the runtime swaps it atomically, subscriptions recompute, and a snapshot of any path is yours to read (the app-db-value readers in [See it move](#see-it-move), below). Handlers, effects, subscriptions, snapshot reads: that is the whole of how a re-frame2 app moves from one value to the next, and almost nothing you write will ever touch anything else.
 
 There is a second lane, and it is not for app code. The runtime exposes a small set of operations that *overwrite* a frame's state wholesale, bypassing the event pipeline entirely:
 
@@ -269,7 +271,7 @@ There is a second lane, and it is not for app code. The runtime exposes a small 
 
 Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the pipeline — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
 
-- **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine actors and the route slice live in runtime-db.
+- **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine snapshots and the route slice live in runtime-db.
 - **Tooling.** [Xray](observability.md) time-travel — and the pair MCP, the tooling server an AI pair-programmer drives a live app through — rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
 - **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
 
@@ -279,11 +281,13 @@ Call these **state surgery**. They don't run a handler, fire no effects, and car
 
 !!! warning "Gotcha"
 
-    State surgery is gated on debug mode and [elided](../glossary.md#elide) from a release artefact (`:advanced` + `goog.DEBUG=false`) along with the rest of the epoch machinery — the functions are simply not in the shipped bundle. That is deliberate: a production app has no business overwriting its own state out-of-band, and a tooling surface that could is an attack surface. The practical consequence is for *tests* — run a test that calls `replace-frame-state!` (or `restore-epoch!`) against a production-elided build and it will not behave; these belong to dev/test builds. If the epoch artefact itself isn't on the classpath, the epoch-backed surfaces raise `:rf.error/epoch-artefact-missing` rather than silently doing nothing.
+    State surgery is gated on debug mode and [elided](../glossary.md#elide) from a release artefact (`:advanced` + `goog.DEBUG=false`) along with the rest of the epoch machinery — the functions are simply not in the shipped bundle. That is deliberate: a production app has no business overwriting its own state out-of-band, and a tooling surface that could is an attack surface. The practical consequence is for *tests* — run a test that calls `replace-frame-state!` (or `restore-epoch!`) against a production-elided build and it will not behave; these belong to dev/test builds. If the epoch artefact — epochs ship as their own optional library — isn't on the classpath, the epoch-backed surfaces raise `:rf.error/epoch-artefact-missing` rather than silently doing nothing.
 
 The contrast is the point. The front door is auditable because every change is an event with a cause; surgery is powerful because it answers to no cause — which is exactly why it belongs to the test harness and the debugger, not the application. Reach for it only when you are *operating on* a frame from outside (a fixture, a tool, the REPL), never when you are *writing* the app that runs inside one.
 
-A note on what each one targets, since the names are deliberately exact. `replace-app-db!` and `reset-app-db!` touch *only* the app partition and leave runtime-db live — so the route and machine snapshots survive. `replace-frame-state!` is the full-frame install: it replaces both partitions atomically from a `{:rf.db/app … :rf.db/runtime …}` value, which is what an epoch-history test or a tool-driven replay needs. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine actors and the route slice come back exactly as they were, not just the app-db projection. Every one of these mutators returns a boolean — `true` on success, `false` on a refusal — and a refusal is always a clean **no-op**: the frame is left exactly as it was. They refuse, and tell you why through an error trace, for an unknown or destroyed frame, for a call made *mid-drain* (while a run-to-completion drain is still in flight — you retry once it settles), and — for the partition-replace surfaces — when the value you handed in fails the frame's registered [schema](../glossary.md#schema). So even though surgery skips the *event-time* validation gate, the `replace-*!` surfaces still won't install a value that violates a schema you declared; they decline rather than corrupt.
+A note on what each one targets, since the names are deliberately exact. `replace-app-db!` and `reset-app-db!` touch *only* the app partition and leave runtime-db live — so the route and machine snapshots survive. `replace-frame-state!` is the full-frame install: it replaces both partitions atomically from a `{:rf.db/app … :rf.db/runtime …}` value, which is what an epoch-history test or a tool-driven replay needs. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine snapshots and the route slice come back exactly as they were, not just the app-db projection.
+
+Every one of these mutators returns a boolean — `true` on success, `false` on a refusal — and a refusal is always a clean **no-op**: the frame is left exactly as it was. They refuse, and tell you why through an error trace, for an unknown or destroyed frame, for a call made *mid-drain* (while a run-to-completion drain is still in flight — you retry once it settles), and — for the partition-replace surfaces — when the value you handed in fails the frame's registered [schema](../glossary.md#schema). So even though surgery skips the *event-time* validation gate, the `replace-*!` surfaces still won't install a value that violates a schema you declared; they decline rather than corrupt.
 
 `restore-epoch!` has a wider set of refusals than the others, because it isn't installing a value you hand it — it's reviving a *recorded* one out of a finite, evolving history, and several things can make a past epoch no longer restorable. On any of them it is a no-op and names the reason in an error trace (under `:rf.epoch/*`, except the unknown-frame case):
 

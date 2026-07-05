@@ -193,17 +193,22 @@ const PAGE = `<!DOCTYPE html>
   (fn [{:keys [db]} _] {:db (assoc db :fval 0)}))
 (rf/reg-event :rf2smoke/flow-inc
   (fn [{:keys [db]} _] {:db (update db :fval inc)}))
+;; the guide's cell shape: the cell creates its own frame, and the flow
+;; targets it with the metadata :frame key (seed fires before the flow
+;; registers, so the label stays blank until the first input change).
+(rf/reg-frame :rf2smoke/flowframe {:initial-events [[:rf2smoke/flow-init]]})
 (rf/reg-flow :rf2smoke/parity
   {:inputs [[:fval]]
-   :output-path [:fparity]}
+   :output-path [:fparity]
+   :frame :rf2smoke/flowframe}
   (fn [n] (if (odd? n) "odd" "even")))
 (rf/reg-sub :rf2smoke/fparity (fn [db _] (:fparity db)))
 (rf/reg-view flow-view []
   [:div
    [:button#rf2-flow-btn {:on-click #(dispatch [:rf2smoke/flow-inc])} "inc"]
    [:span#rf2-flow "parity: " (str @(subscribe [:rf2smoke/fparity]))]])
-(rf/dispatch-sync [:rf2smoke/flow-init])
-[flow-view]</pre>
+[rf/frame-provider {:frame :rf2smoke/flowframe}
+ [flow-view]]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -475,8 +480,8 @@ assert(true, "declared :rf/time-ms delivered into the handler's world map");
 await page.waitForSelector(".cljs-cell--rf2 #rf2-flow", { timeout: 20000 });
 const flowBefore = (await page.locator("#rf2-flow").innerText()).trim();
 console.log("flow cell (initial):", JSON.stringify(flowBefore));
-assert(flowBefore === "parity: even",
-  `flow recomputed at init commit (got ${JSON.stringify(flowBefore)})`);
+assert(flowBefore === "parity:",
+  `flow blank before first input change (got ${JSON.stringify(flowBefore)})`);
 await page.click("#rf2-flow-btn");
 await page.waitForFunction(
   () => document.querySelector("#rf2-flow")?.innerText.trim() === "parity: odd",

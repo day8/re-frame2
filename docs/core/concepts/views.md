@@ -35,8 +35,10 @@ This page builds that sentence up one piece at a time. We'll start with the outp
    [counter-display]
    [counter-button "+" [:inc]]])
 
-(rf/dispatch-sync [:initialise])
-[counter]
+(rf/reg-frame :app {:initial-events [[:initialise]]})
+
+[rf/frame-provider {:frame :app}
+ [counter]]
 ```
 
 Three things to notice, each of which the rest of this page unpacks. A child view is used *as data* — `[counter-button "−" [:dec]]` is just a vector whose tail is the child's arguments, so `counter-button` renders twice with different args and never knows it. The display subscribes for itself — the parent doesn't fetch the value and pass it down, so only `counter-display` re-renders when the value changes. And the button takes the *event to announce* as an argument — passing events as data is how a piece stays reusable without knowing what its click means.
@@ -56,6 +58,7 @@ The rules are quick to learn:
 - A vector whose first element is a keyword is an **element**. `:div.cart` is a `<div class="cart">` — the `.class` shorthand comes from CSS selectors, and `:input#email.wide` adds an id too.
 - A map in second position is the **attributes**: `[:button {:on-click f :disabled true} "Go"]`.
 - Everything after that is **children**. Strings become text; nested vectors become nested elements.
+- A vector whose first element is a **view** (not a keyword) renders that view, with the rest of the vector as its arguments — `[counter-button "−" [:dec]]` above. That's the composition rule the counter used.
 
 The important word is *data*. Not "data-like" — these are actual vectors, maps, and keywords, the same structures you manipulate everywhere else in the program. So you build screens with ordinary code and no template syntax:
 
@@ -83,7 +86,7 @@ A static screen isn't much use. A view needs to read live application state, and
 @(rf/subscribe [:cart/total])
 ```
 
-This declares "I depend on this derived value. Re-run me when it changes." That's the only way a view learns application state. It doesn't read [app-db](../glossary.md#app-db) directly, and it doesn't receive a props object threaded down through ten ancestors. It asks the [derivation graph](../glossary.md#the-derivation-graph) for exactly the slice it needs, *by name* — via a [query vector](../glossary.md#query-vector), the `[id & args]` shape that names the subscription and keys its cache. (More on subscriptions in [Subscriptions](subscriptions.md).)
+This declares "I depend on this derived value. Re-run me when it changes." That's the only way a view learns application state. It doesn't read [app-db](../glossary.md#app-db) directly, and it doesn't receive the value as an argument threaded down through ten ancestors. It asks the [derivation graph](../glossary.md#the-derivation-graph) for exactly the slice it needs, *by name* — via a [query vector](../glossary.md#query-vector), the `[id & args]` shape that names the subscription and keys its cache. (More on subscriptions in [Subscriptions](subscriptions.md).)
 
 **Sending events out: the view [dispatches](../glossary.md#dispatch).** Wire a `dispatch` to an [event handler](../glossary.md#event-handler):
 
@@ -125,8 +128,10 @@ Here is a view doing its whole job: subscribe in, dispatch out, hiccup between. 
    [:span {:style {:margin "0 1em"}} @(rf/subscribe [:views.qty/value])]
    [:button {:on-click #(rf/dispatch [:views.qty/inc])} "+"]])
 
-(rf/dispatch-sync [:views.qty/initialise])
-[qty-stepper]
+(rf/reg-frame :demo {:initial-events [[:views.qty/initialise]]})
+
+[rf/frame-provider {:frame :demo}
+ [qty-stepper]]
 ```
 
 That's a complete view. You use it by referencing it inside other hiccup — `[qty-stepper]` — and a view that takes arguments takes them like any function: `[labelled-stepper "Apples"]`.
@@ -157,11 +162,11 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
 
 !!! note "Hot-reload just works"
 
-    Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The wrapper resolves the render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
+    Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The registered view is a thin wrapper that resolves its render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
 
 !!! note "`reg-view` is the Reagent surface"
 
-    The `defn`-shape macro rewrite is Reagent-specific. On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/capture-frame)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
+    The `defn`-shape macro rewrite is specific to **Reagent**, the default React-based rendering [substrate](../glossary.md#substrate) this page's examples assume ("The substrate seam" below introduces the full cast). On the hooks-shaped [substrates](../glossary.md#substrate) — UIx and Helix — you write native components and reach for the frame through the adapter's hooks (`use-subscribe`, `use-current-frame`) and a captured `(rf/capture-frame)` instead; there's no `reg-view` macro and most views need no registration at all, because UIx/Helix components compose by Var reference like ordinary React components. The `reg-view*` lookup lane (below) is still available on every substrate for registry-keyed addressing. Everything else on this page — the one rule, the imperative-listener trap, frame isolation — holds identically across all three. See [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md).
 
 ### The three call shapes
 
@@ -190,7 +195,7 @@ In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]`
 
 !!! warning "Gotcha"
 
-    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a Form-3 `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
+    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a pre-built component object (`reagent.core/create-class …` — a legacy Reagent shape covered under *From re-frame v1* below) `(reagent.core/create-class …)` — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
 
 ??? info "From re-frame v1"
 
@@ -210,7 +215,7 @@ That isn't an oversight — it's [frame identity is carried, not found](../gloss
     (rf/reg-frame :cart {:initial-events [[:cart/load]]})
     ```
 
-    The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the Form-1-friendly home for "do this on mount" — see [Frames](frames.md).
+    The events fire once, synchronously, in order, the moment the frame is created, and they show up in the trace by name. That's the home for "do this on mount" that keeps the view itself a plain render fn for "do this on mount" — see [Frames](frames.md).
 
 ??? info "From re-frame v1"
 
@@ -273,7 +278,7 @@ Register the state-touching child instead, and it subscribes to exactly the slic
           :on-click #(dispatch [:todo/toggle id])} title]))
 ```
 
-The plain-`defn` lane is not a lesser option — it's the right lane for a *genuine helper*: a controlled input that takes its `:value` and `on-change` as props, a formatting fn that turns a data map into hiccup, a presentational wrapper. What marks a helper is that everything it depends on is in its signature and it touches no state. The moment a component reaches for `subscribe` or `dispatch`, it has state to touch, and that's the `reg-view` lane. The [TodoMVC example](../../../examples/core/todomvc) is written to this rule: its state-touching views (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are each a `reg-view`; only `todo-input` (data + callbacks) and `filter-link` (pure data → hiccup) stay plain fns.
+The plain-`defn` lane is not a lesser option — it's the right lane for a *genuine helper*: an input helper that takes its current `:value` and an `on-change` callback as arguments, a formatting fn that turns a data map into hiccup, a presentational wrapper. What marks a helper is that everything it depends on is in its signature and it touches no state. The moment a component reaches for `subscribe` or `dispatch`, it has state to touch, and that's the `reg-view` lane. The [TodoMVC example](../../../examples/core/todomvc) is written to this rule: its state-touching views (`task-entry`, `task-list`, `todo-item`, `footer-controls`) are each a `reg-view`; only `todo-input` (data + callbacks) and `filter-link` (pure data → hiccup) stay plain fns.
 
 !!! note "On the hooks substrates"
 
@@ -317,7 +322,7 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
 
 !!! note "Why this matters"
 
-    A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
+    A view re-runs whenever any value it derefs changes, and an ancestor re-render can trigger it too — a re-rendering parent re-runs any child it hands changed arguments. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many.
 
 !!! note "Need the derived value in an *event handler*, not just a view?"
 
@@ -335,11 +340,12 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
 
 ## The trap: imperative listeners lose the frame
 
-Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole synthetic-event surface — are wrapped by the *substrate* (the rendering library underneath the view — React, by way of Reagent, UIx, or Helix; "The substrate seam" below covers it) at render time, so a `dispatch` inside them is routed to the right [frame](../glossary.md#frame) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loud with `:rf.error/no-frame-context`:
+Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole `:on-*` family (*synthetic events*, in the substrate's vocabulary) — are wrapped by the *substrate* (the rendering library underneath the view — React, by way of Reagent, UIx, or Helix; "The substrate seam" below covers it) at render time, so a `dispatch` inside them is routed to the right [frame](../glossary.md#frame) automatically. Anything you attach *imperatively* from a render body is **not** wrapped, though. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loud with `:rf.error/no-frame-context`:
 
 ```clojure
 ;; WRONG — imperative listener: the callback fires on a fresh stack with no
 ;; frame in scope; the dispatch raises :rf.error/no-frame-context.
+;; (:ref calls this fn with the real DOM element once it's on the page.)
 (defn tile []
   [:div {:ref (fn [el]
                 (when el
@@ -352,7 +358,7 @@ Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the who
   [:div {:on-animation-end #(rf/dispatch [:tile/finished])}])
 ```
 
-Rule of thumb: if a synthetic prop exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job. It belongs in a registered [effect](effects.md), which captures the frame for you. The loud failure is deliberate: the runtime refuses to guess which world a frameless dispatch belongs to.
+Rule of thumb: if an `:on-*` attr exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job. It belongs in a registered [effect](effects.md), which captures the frame for you. The loud failure is deliberate: the runtime refuses to guess which world a frameless dispatch belongs to.
 
 !!! warning "It's still wrong inside a `reg-view`"
 

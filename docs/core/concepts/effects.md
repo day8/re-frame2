@@ -36,8 +36,10 @@ One new feature for the counter: every fifth click deserves a little celebration
    (when-let [m @(subscribe [:milestone])]
      [:span " — milestone: " m "!"])])
 
-(rf/dispatch-sync [:initialise])
-[acting-counter]
+(rf/reg-frame :app {:initial-events [[:initialise]]})
+
+[rf/frame-provider {:frame :app}
+ [acting-counter]]
 ```
 
 (Reading the `cond->`: it starts from the `{:db …}` map and applies each following step only when its test is true — so the `:fx` key is added only on multiples of five.)
@@ -64,7 +66,7 @@ This fails three ways, and the failures *are* the reasons for the architecture �
 
 - **The handler isn't pure anymore.** It calls `js/fetch`. Testing it now means mocking the network. You took the most testable function in the codebase and made it the least.
 - **The async path is a trap.** The `.then` callback fires *after* the handler returned. The `db` it closed over is the previous state, and the callback has no legal way to produce a new one. You've written a function that is half pure, half effectful, by accident.
-- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a side effect the [ledger](coeffects.md#the-ledger) never recorded — and the ledger, as the [next page](coeffects.md#the-ledger) shows, is the asset this framework most refuses to give up.
+- **The history goes dark.** The fetch never appears in the event record. Reading the handler no longer tells you what the app will look like when the response lands. Replaying the app's events no longer reproduces its state. The inline fetch is a side effect the [ledger](coeffects.md#the-ledger) — the replayable record of everything that ever entered the app — never recorded — and the ledger, as the [next page](coeffects.md#the-ledger) shows, is the asset this framework most refuses to give up.
 
 !!! warning "Gotcha — never call `js/fetch` (or any I/O) from a handler body"
 
@@ -104,7 +106,7 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
 
 (One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set," each step feeding the next. Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
 
-The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the pipeline and its own row in Xray.
+The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the pipeline and its own row in [Xray](../glossary.md#xray), re-frame2's inspection tool.
 
 That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:error` — and every managed async surface answers the same way. [Managed HTTP](../../async/http.md) is its home.
 
@@ -118,7 +120,7 @@ Read what that bought you. The entire fetch flow is three pure handlers you read
 
     A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` args map carries far more than the four keys above — `:decode`, `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the pipeline point.
+The `:rf.http/managed` args map carries far more than the four keys above — `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject. Here it earns its place purely as the `:fx` row that proves the pipeline point.
 
 Two notes before moving on:
 
@@ -127,7 +129,7 @@ Two notes before moving on:
 
 ## The grammar: the effect map
 
-One move covers *every* side-effect, not just state: a handler returns an [**effect map**](../glossary.md#effect-map), and the entire grammar is two top-level keys:
+One move covers *every* side-effect, not just state: a handler returns an [**effect map**](../glossary.md#effect-map), and the entire grammar is two top-level keys (plus the privacy classifications [app-db](app-db.md) already taught — restated in a gotcha below):
 
 | Key | Meaning |
 |---|---|
@@ -148,7 +150,7 @@ Because `:fx` is just a vector, you keep adding rows. A richer checkout reads li
                       :request-content-type :json}
             :on-success [:checkout/placed]
             :on-failure [:checkout/place-failed]}]
-          [:localstorage/set {:key "cart" :value (:cart/items db)}]
+          [:localstorage/set {:key "cart" :value (:cart/items db)}]   ;; our own fx — registered below
           [:dispatch [:notification/show "Order placed!"]]]}))
 ```
 
@@ -165,7 +167,7 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold, 
 
 !!! warning "Gotcha — an effect throwing does NOT halt the others"
 
-    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; lift the dependent step into a `:dispatch` chain so it observes the result via the queue.
+    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, and each error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit (which happened first) is kept. This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, don't express that as two sibling rows; have the first effect report its outcome as an event (as `:rf.http/managed` does via `:on-success`), and run the dependent step in that event's handler.
 
 !!! warning "Gotcha — `:db` and `:fx` are the whole top level"
 
@@ -197,7 +199,7 @@ The `:platforms #{:client}` declaration says where the effect may run. During [s
 
 #### The effect handler's two arguments
 
-The handler you pass `reg-fx` takes two arguments. The first is a small *context map* carrying `:frame` — the frame the originating event ran in — and `:event`, the originating event vector. (It is *not* the handler's coeffects map: there's no `:db` in it, deliberately — an effect that wants state reads it through `app-db-value` or receives it in its args.) The second argument is the row's args map, exactly as the handler built it.
+The handler you pass `reg-fx` takes two arguments. The first — call it `m`, as the code below does — is a small *context map* carrying `:frame` — the frame the originating event ran in — and `:event`, the originating event vector. (It is *not* the handler's coeffects map: there's no `:db` in it, deliberately — an effect that wants state reads it at run time with `app-db-value` (the function returning a frame's current app-db) or receives it in its args.) The second argument is the row's args map, exactly as the handler built it.
 
 That `:frame` entry earns its keep the moment an effect needs to dispatch back. A [frame](../glossary.md#frame) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? The answer is `(:frame m)`: the frame the originating event ran in. **Frame-aware effects read `(:frame m)`** so the reply lands in the right `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
 
@@ -212,9 +214,11 @@ That `:frame` entry earns its keep the moment an effect needs to dispatch back. 
           (.catch #(rf/dispatch on-failure {:frame frame}))))))
 ```
 
+(Note the second argument to `dispatch`: it accepts an optional options map, and `{:frame frame}` addresses the dispatch to that frame.)
+
 !!! note "Why thread `:frame` back through the callback?"
 
-    Outside a synchronous dispatch there is no ambient frame in scope, so a bare `(rf/dispatch …)` in a `.then` raises `:rf.error/no-frame-context` — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found). Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work. (You'd normally `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists only to show the closure rule for fx you write yourself — and `capture-frame` is the keystone for carrying a frame across an async boundary in app code.)
+    A detached callback like this `.then` runs with no ambient frame in scope — unlike a view, where the surrounding `frame-provider` supplies one — so a bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context` — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found). Capturing `(:frame m)` and threading it through keeps the reply addressed to the frame that started the work. (You'd normally `:dispatch`/`:dispatch-later`/`:rf.http/managed` instead of hand-rolling fetch; this example exists only to show the closure rule for fx you write yourself — and in app code — where there's no `m` to read — the `capture-frame` helper makes the same move: capture the current frame now, hand it to `dispatch` later (the [Frames](frames.md) page covers it).)
 
 Periodic and delayed work goes through that same door. An auto-dismissing notification rides a `[:dispatch-later {:ms 5000 :event [:notification/dismiss]}]` row — so there's no `js/setInterval` in app code, and the delayed dispatch is an ordinary recorded event that carries its frame.
 
