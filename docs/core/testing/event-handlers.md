@@ -52,7 +52,7 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
 
 !!! note "A handler may legitimately return `nil`"
 
-    A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Events and the pipeline](../concepts/events-and-the-pipeline.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
+    A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../concepts/effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
 
 ## 2. A handler that needs the world
 
@@ -97,7 +97,7 @@ So the test supplies exactly what that vector lists, as literal entries in the c
            (first (:fx result))))))
 ```
 
-Look at what *didn't* happen here, because this is the part that trips people up. The handler did not fire an HTTP request. Its job is to *describe* one — an [effect](../glossary.md#effect) is just a piece of data saying "please do this" — and the runtime, which is absent in this test, would be the thing that actually performs it. So the test asserts on the description. No fetch was mocked because no fetch was involved. The clock wasn't frozen with fake timers; the clock was simply an entry in a map you wrote. The handler returned a map. You checked the map. For why the world only ever appears at this boundary, see [Effects and coeffects](../concepts/effects-and-coeffects.md).
+Look at what *didn't* happen here, because this is the part that trips people up. The handler did not fire an HTTP request. Its job is to *describe* one — an [effect](../glossary.md#effect) is just a piece of data saying "please do this" — and the runtime, which is absent in this test, would be the thing that actually performs it. So the test asserts on the description. No fetch was mocked because no fetch was involved. The clock wasn't frozen with fake timers; the clock was simply an entry in a map you wrote. The handler returned a map. You checked the map. For why the world only ever appears at this boundary, see [Effects and coeffects](../concepts/coeffects.md).
 
 !!! note
 

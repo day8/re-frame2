@@ -294,7 +294,7 @@ flowchart LR
     WIRE --> YOU[your listener]
 ```
 
-**Xray answers: what happened?** It's the Redux DevTools of this world, grown to the full run: the epoch ledger, app-db diffs per event, which subscriptions recomputed, which views rendered, effects, machine transitions, schema failures — and time-travel scrubbing via `restore-epoch`. It also assembles the registration facts into the [derivation graph](../derivations-and-algebra-views.md): "where does this value come from?" drawn as a picture. Reach for it when you're debugging the running app — start with [debug with Xray](../how-to/debug-with-xray.md).
+**Xray answers: what happened?** It's the Redux DevTools of this world, grown to the full run: the epoch ledger, app-db diffs per event, which subscriptions recomputed, which views rendered, effects, machine transitions, schema failures — and time-travel scrubbing via `restore-epoch`. It also assembles the registration facts into the [derivation graph](../derivations-and-algebra-views.md): "where does this value come from?" drawn as a picture. Reach for it when you're debugging the running app — start with [debug with Xray](../../xray/index.md).
 
 **Story answers: what states should this thing have?** It's the Storybook of this world. You render a [view](../glossary.md#view)'s loading, empty, error, and happy states as named variants, each in its own isolated frame, without driving the whole app there by hand — then promote the good examples into tests. Story embeds Xray's panels for diagnosis rather than growing a second diff engine, and it has [its own tutorial track](../../story/index.md) in its docs.
 

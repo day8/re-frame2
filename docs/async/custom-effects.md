@@ -1,10 +1,10 @@
 # Your own async effect
 
-Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/concepts/events-and-the-pipeline.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
+Managed HTTP is one async effect the framework ships. But you'll meet others it doesn't: a **promise-returning SDK** (Stripe, Firebase, WebAuthn), a callback API, an IndexedDB request, a message from a worker. For those, write a small `fx`: start the host work, then dispatch a named reply [event](../core/introduction.md) when it finishes. That gives you the same continuation style as HTTP. It does not give you HTTP's managed extras — retry, abort, stale-result suppression, and the HTTP failure categories — unless you build those too.
 
 !!! note "The one rule"
 
-    An [event handler](../core/concepts/effects-and-coeffects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
+    An [event handler](../core/concepts/effects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
 ## Wrapping a promise
 

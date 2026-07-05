@@ -69,7 +69,7 @@ You make a coeffect available by registering a supplier for it with [`reg-cofx`]
 
 Declaring the world this way — rather than reading it inside the handler — is what makes events pure, testable, and replayable.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ### **effect**
 
@@ -81,7 +81,7 @@ A single side effect, described as data for the framework to perform — an HTTP
 
 The [event handler](#event-handler) only *describes* the effect; the runtime performs it, via the [effect handler](#effect-handler) you registered for that `effect-id` with [`reg-fx`](../api/re-frame.core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ### **effect handler**
 
@@ -95,7 +95,7 @@ The function — registered with `reg-fx` for a given `effect-id` — that actua
 
 re-frame2 ships handlers for the common effects (`:dispatch`, `:dispatch-later`, `:rf.http/managed`, …); you register your own with `reg-fx`.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ### **effect map**
 
@@ -117,7 +117,7 @@ It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace 
 
 `:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Each effect is performed by an [effect handler](#effect-handler); register your own with [`reg-fx`](../api/re-frame.core.md#reg-fx).
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md). The `:fx` key is why effects are often just called "fx".
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md). The `:fx` key is why effects are often just called "fx".
 
 ### **error record**
 
@@ -151,7 +151,7 @@ Prefer a single map payload over positional arguments — it's self-describing a
 
 Because an event is just data, it can be logged, recorded, and replayed — the basis of re-frame2's testability and time-travel.
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 <a id="event-cascade"></a>
 ### **event pipeline**
@@ -167,25 +167,25 @@ The commit is the seam: the write side is transactional up to it and best-effort
 
 One traversal of the pipeline is a [**run**](#run); the record a run leaves behind is an [**epoch**](#epoch). Read the triple as **pipeline** (the structure) / **run** (one traversal) / **epoch** (the record). The to-fixed-point family — running the whole queue before the read side — is a [**drain**](#drain--run-to-completion).
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). (Older prose called this the *event cascade* or a *turn of the loop*; those spellings are retired for the event-traversal sense — the machines *cancellation cascade* keeps its name.)
+Related: [Events & the pipeline](introduction.md). (Older prose called this the *event cascade* or a *turn of the loop*; those spellings are retired for the event-traversal sense — the machines *cancellation cascade* keeps its name.)
 
 ### **run**
 
 One traversal of the [event pipeline](#event-pipeline) — a single dispatched [event](#event) carried through every stage, write side then read side. It's the middle term of the triple: the [**pipeline**](#event-pipeline) is the fixed structure, a **run** is one trip through it, and the [**epoch**](#epoch) is the record that trip leaves. One dispatch = one run = one epoch. (A whole queue run to a fixed point before the read side is a [drain](#drain--run-to-completion), which is many runs but one read side.)
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 ### **write side**
 
 The first half of the [event pipeline](#event-pipeline) — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform) — the part that runs *once per [event](#event)* and computes and applies the change. It's transactional up to the [commit](#commit) (a throwing handler installs nothing) and best-effort after it. The [commit](#commit) is the seam that ends it; nothing crosses to the [read side](#read-side) except the value the commit lands.
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 ### **read side**
 
 The second half of the [event pipeline](#event-pipeline) — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
 
-Related: [Subscriptions](concepts/subscriptions.md), [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Subscriptions](concepts/subscriptions.md), [Events & the pipeline](introduction.md).
 
 ### **world**
 
@@ -198,7 +198,7 @@ The map of declared facts assembled for an [event handler](#event-handler) to re
 
 A [**frame**](#frame) is a *running* world: a world plus the runtime machinery (queue, caches, lifecycle) that keeps it alive and re-assembles it per event.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [frame](#frame).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [frame](#frame).
 
 ### **event envelope**
 
@@ -223,7 +223,7 @@ Most application code never reads an event envelope directly. It is the router's
  :rf.cofx  {:rf/time-ms 1781078400123}}
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md), [Frames](concepts/frames.md), [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Events & the pipeline](introduction.md), [Frames](concepts/frames.md), [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ### **event handler**
 
@@ -243,7 +243,7 @@ Register one with `reg-event`:
     {:db (update db :cart/items conj item)}))
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 ### **flow**
 
@@ -479,13 +479,13 @@ The six pipeline stages — [**assemble → transform → commit → perform**](
 
 The pipeline's first stage: gather the [**world**](#world) an [event handler](#event-handler) will read — [app-db](#app-db) (`:db`) plus every fact the event declared with `:rf.cofx/requires` — into one [coeffects](#coeffect) map, before the handler runs. This is where declared facts (the clock, a fresh id, a storage read) enter as data, so the handler stays pure.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [world](#world).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [world](#world).
 
 ### **transform**
 
 The pipeline's second stage: run the pure [event handler](#event-handler) — the assembled [world](#world) and the [event](#event) in, an [effect map](#effect-map) out. It *transforms* the world into a description of the change (`{:db … :fx …}`) and performs none of it; the stages after the [commit](#commit) carry that description out.
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md), [event handler](#event-handler).
+Related: [Events & the pipeline](introduction.md), [event handler](#event-handler).
 
 ### **commit**
 
@@ -495,13 +495,13 @@ The single, deferred, all-or-nothing write of the new [app-db](#app-db) — and 
 ;; the :db you return is staged; it's committed once, atomically — the write/read seam
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 ### **perform**
 
 The pipeline's fourth stage and the last of the [write side](#write-side): run the `:fx` rows the [transform](#transform) returned, in source order, after the [commit](#commit). This is the *only* place the system touches the world — the HTTP call, the navigation, the follow-up dispatch — carried out by the [effect handler](#effect-handler) registered for each id. Past the [commit](#commit) seam it's best-effort: an effect that throws doesn't un-commit the state.
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md), [effect](#effect).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [effect](#effect).
 
 ### **derive**
 
@@ -536,7 +536,7 @@ Like [`dispatch`](#dispatch), but it runs the [event](#event) and drains the who
 (rf/dispatch-sync [:app/initialise])   ;; app-db is committed before the next line
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md).
+Related: [Events & the pipeline](introduction.md).
 
 ### **drain / run-to-completion**
 
@@ -546,7 +546,7 @@ The runtime drains the *whole* event queue to a fixed point — running the [wri
 ;; every queued event's write side runs, THEN — once — subs recompute and views render
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). Hyphenate **run-to-completion** consistently.
+Related: [Events & the pipeline](concepts/run-to-completion.md). Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
@@ -582,7 +582,7 @@ Name your handlers and machinery at boot time with [registration](#registration)
 (rf/reg-event :cart/clear (fn [{:keys [db]} _] {:db (dissoc db :cart)}))
 ```
 
-Related: [Events & the pipeline](concepts/events-and-the-pipeline.md). There is **one** `reg-event`: `reg-event-db`/`-fx`/`-ctx` are gone.
+Related: [Events & the pipeline](introduction.md). There is **one** `reg-event`: `reg-event-db`/`-fx`/`-ctx` are gone.
 
 ### **subscribe / derive**
 
@@ -604,7 +604,7 @@ An [event handler](#event-handler) returns a *description* of side-effects — a
 {:fx [[:http {:url "/api/login"}] [:dispatch [:ui/spinner true]]]}
 ```
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ### **Fail loud, not silent**
 
@@ -677,7 +677,7 @@ Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) 
 {:rf.cofx/requires [:rf/time-ms]}   ;; :rf/time-ms is recordable — stamped on the envelope
 ```
 
-Related: [Effects & Coeffects](concepts/effects-and-coeffects.md).
+Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
 
 ## Observability
 
@@ -719,7 +719,7 @@ The dev inspector: an in-app panel that reads the [trace stream](#trace-stream) 
 ;; open Xray to step through epochs, inspect app-db, and read each pipeline run
 ```
 
-Related: [Debug with Xray](how-to/debug-with-xray.md).
+Related: [the Xray docs](../xray/index.md).
 
 ### **Story**
 

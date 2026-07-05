@@ -1,6 +1,6 @@
 # Errors: dossiers, not log lines
 
-You know [events and the pipeline](events-and-the-pipeline.md) and [effects and coeffects](effects-and-coeffects.md). Now: what happens when one of them breaks?
+You know the pipeline, [effects](effects.md), and [coeffects](coeffects.md). Now: what happens when one of them breaks?
 
 You've caught a hundred errors with `console.error("something broke", e)`. It kept the message and the stack — and threw away the important half: *which [event](../glossary.md#event) was in flight, which [frame](../glossary.md#frame) owned it, which [handler](../glossary.md#event-handler) was on the hook, what the [pipeline run](../glossary.md#run) had already done*. All of that existed in the runtime microseconds before the catch, and then you spent the next hour rebuilding it by hand.
 
@@ -71,7 +71,7 @@ The catalogue itself — every category, its trigger, its `:tags` payload, its r
 
 !!! note "This page is bound to the catalogue"
 
-    The failure examples on this page — and the framework's own failure testbeds (`testbeds/schema_violation`, `testbeds/drain_depth_trigger`, …) — are a *teaching corpus* for the error catalogue in [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). They are bound to it by the same **co-edit invariant** that binds the feature specs: a PR that renames, retires, or re-semantics a category (a new `:where`, a recovery change, a category that now throws instead of traces) MUST update the teaching corpus in the same PR, or it teaches a shape the runtime no longer produces. A CI advisory scan (`scripts/check_failure_corpus_residue.py`) greps the corpus for known-retired failure spellings so this drift is caught mechanically, not left for a reader to trip over.
+    The failure examples on this page track [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) — the closed reference table of every category — and CI keeps the two in lockstep, so a category you meet in a trace matches what you read here.
 
 ## Recovery is typed — and it isn't yours
 
@@ -86,7 +86,7 @@ The `:recovery` vocabulary is small and readable on sight:
 - `:logged-and-skipped` — the offending input is dropped; siblings still apply.
 - `:warned-and-replaced` — last-write-wins on a conflicting set; advisory only.
 - `:skipped` — a platform-gated effect documented out, not really an error.
-- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `dispatch` to a misspelled fx-id, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
+- `:fix-registration` — the "you registered it wrong, here's how" verb covering typos and bad `reg-*` arguments (a `reg-sub` handed a malformed argument shape, a [resource](../../resources/glossary.md#resource) subscribed before it's registered, a `reg-view` missing its args vector).
 
 Plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. Every category carries its assigned recovery verb in the dossier itself, so you read it off the record rather than memorising the assignment.
 
@@ -109,11 +109,11 @@ Four of those defaults shape how your app degrades, so they're worth knowing by 
 
     If you guard an [app-db](../glossary.md#app-db) path, an event, or an HTTP `:decode` step with a [schema](../glossary.md#schema), a value that fails it emits `:rf.error/schema-validation-failure` to surface the bug *early*, where the bad value was produced. Recovery is **not uniform** — the `:where` tag names the boundary that caught it (`:event` / `:app-db` / `:sub-return` / `:fx-args` / `:flow-output` / `:machine-data` / `:machine-output` / `:sub-override`) and the recovery follows the boundary: an `:event` failure **skips the handler**; an `:app-db` or `:machine-data` failure **rolls the cascade back** (no commit); an `:fx-args` failure **skips just the offending fx** and lets its siblings run; a `:sub-return` or `:sub-override` failure **surfaces `nil` and renders on**; and `:flow-output` / `:machine-output` are **observational** — the value still commits / the machine still completes (the [per-`:where` recovery table](../../../spec/009-Instrumentation.md#schema-validation-failure-per-where-recovery) in Spec 009 is the full map, and `:explain` carries the Malli explanation). The surprise is the asymmetry: production builds [*elide*](../glossary.md#elide) the check entirely, so this category fires **only in dev**. Treat schema checks as a development assertion that hardens your data at its source, not as a runtime gate you can lean on in production. (A *malformed registered schema* — a structurally broken Malli form — is the separate `:rf.error/malformed-schema`, which fails closed and rolls the commit back.)
 
-    One boundary is **not** on that list on purpose: a *recordable coeffect* (`:rf.cofx/requires`) whose supplied, replayed, or generated value fails its `reg-cofx` `:schema` is **not** a `:where :cofx` schema-validation trace. It is the separate, halting `:rf.error/cofx-value-invalid` — a **production hard error** that throws (`:recovery :no-recovery`), because a recordable coeffect rides the durable causal record and a bad one corrupts replay/SSR/Xray silently. It fires in production too, not just dev — look the `:rf.error/cofx-value-invalid` row up in the catalogue when you meet it, and see [effects and coeffects](effects-and-coeffects.md) for why a coeffect value must stay recordable.
+    One boundary is **not** on that list on purpose: a *recordable coeffect* (`:rf.cofx/requires`) whose supplied, replayed, or generated value fails its `reg-cofx` `:schema` is **not** a `:where :cofx` schema-validation trace. It is the separate, halting `:rf.error/cofx-value-invalid` — a **production hard error** that throws (`:recovery :no-recovery`), because a recordable coeffect rides the durable causal record and a bad one corrupts replay/SSR/Xray silently. It fires in production too, not just dev — look the `:rf.error/cofx-value-invalid` row up in the catalogue when you meet it, and see [effects and coeffects](coeffects.md) for why a coeffect value must stay recordable.
 
 ## The failures you'll actually meet
 
-Read each category through the production incident it describes. Here are the three you'll meet first; the rest read the same way, so once you have the rhythm you can find the catalogue row, read the trigger, and check the recovery for any of them.
+Read each category through the production incident it describes. Here are the four you'll meet first; the rest read the same way, so once you have the rhythm you can find the catalogue row, read the trigger, and check the recovery for any of them.
 
 ### A dispatch with no frame in scope
 
@@ -121,24 +121,7 @@ Read each category through the production incident it describes. Here are the th
 
 [`dispatch`](../glossary.md#dispatch) and [`subscribe`](../glossary.md#subscribe--derive) resolve their target [frame](../glossary.md#frame) from the surrounding scope, but a deferred callback runs on a fresh stack, long after that scope has unwound. The runtime does not guess a default — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found). It emits `:rf.error/no-frame-context` (recovery: `:supply-frame`) and dispatches nothing.
 
-The fix is always the same: **carry the frame** across the async gap. In an [effect handler](../glossary.md#effect-handler), the first argument is the same context map the event handler received — capture `:frame` from it at entry and pass it explicitly on the deferred dispatch:
-
-```clojure
-;; Capture the frame at fx-handler entry, pass it on every dispatch that fires
-;; later — the same idiom managed HTTP uses for its async callbacks. Here a
-;; payment SDK confirms the checkout via host success/error callbacks.
-(rf/reg-fx :checkout/confirm-payment
-  {:platforms #{:client}}
-  (fn [frame-ctx args]
-    (let [frame (:frame frame-ctx)]
-      (.confirm js/window.paymentSdk (:token args)
-        (fn [receipt] (rf/dispatch [:checkout/paid {:receipt-id (.-id receipt)}]
-                                   {:frame frame}))
-        (fn [err]     (rf/dispatch [:checkout/payment-failed {:code (.-code err)}]
-                                   {:frame frame}))))))
-```
-
-Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a [view](../glossary.md#view), you render under the [frame-provider](../glossary.md#frame-provider) — and registered views do this for you, so you rarely think about it. At the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`, or grab a [capture-frame](../glossary.md#capture-frame) to carry across the boundary by value.
+The fix is always the same: **carry the frame** across the async gap — capture `:frame` at fx-handler entry and pass it explicitly on the deferred dispatch (`{:frame frame}` in the opts), exactly as [Effects](effects.md) showed; `capture-frame` is the same move for app code, and [Frames](frames.md) is the pattern's canonical home. In a [view](../glossary.md#view) you're already under the [frame-provider](../glossary.md#frame-provider), so you rarely think about it; at the REPL or in a test, `with-frame` / `with-new-frame` pin the scope.
 
 ### A handler throws
 
@@ -170,7 +153,7 @@ The runtime catches it and emits `:rf.error/handler-exception` with `:recovery :
 
 *You moved an fx-id behind a feature module, the load order shifted, and an event now fires before the fx registers.* The bogus entry emits `:rf.error/no-such-fx`, naming the fx-id and the event that carried it. The rest of the handler's work proceeds: `:db` applies, sibling effects fire. The reason it's safe to drop is that an [effect](../glossary.md#effect) is *output* — dropping one corrupts nothing the handler already computed.
 
-A missing [coeffect](../glossary.md#coeffect) is the stricter sibling, because a cofx is *input*. If a handler's `:rf.cofx/requires` names an id with no `reg-cofx` registration, the framework emits `:rf.error/unregistered-cofx` and [fails loud](../glossary.md#fail-loud-not-silent) — at registration where it can check statically, else at first processing, always *before* the handler runs. Running the handler anyway would mean computing new state from a silently-missing fact, and that's exactly the silent-`nil` coupling the [declared-coeffects model](effects-and-coeffects.md) exists to kill.
+A missing [coeffect](../glossary.md#coeffect) is the stricter sibling, because a cofx is *input*. If a handler's `:rf.cofx/requires` names an id with no `reg-cofx` registration, the framework emits `:rf.error/unregistered-cofx` and [fails loud](../glossary.md#fail-loud-not-silent) — at registration where it can check statically, else at first processing, always *before* the handler runs. Running the handler anyway would mean computing new state from a silently-missing fact, and that's exactly the silent-`nil` coupling the [declared-coeffects model](coeffects.md) exists to kill.
 
 ??? note "Going deeper — the asymmetry is about data flow"
 

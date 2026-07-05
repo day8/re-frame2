@@ -4,6 +4,34 @@ Sooner or later you want two independent copies of your app on one screen. A spl
 
 The good news is you can ignore frames almost entirely. Most apps establish exactly one frame at boot and never name it again. So we'll start there — the simplest working thing — and add a second frame only once the first one is solid. By the end you'll know the one rule everything else falls out of: *frame identity is carried, not found.*
 
+## The counter, twice
+
+Before any theory, the whole point of frames, running. One set of registrations — the same events, the same sub, the same view — mounted into **two** frames:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :initialise
+  (fn [_world [_id start]] {:db {:value start}}))
+(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :value inc)}))
+(rf/reg-sub :value (fn [db _] (:value db)))
+
+(rf/reg-view counter []
+  [:div
+   [:span @(subscribe [:value]) " "]
+   [:button {:on-click #(dispatch [:inc])} "+"]])
+
+;; the new idea: the SAME code, mounted in two isolated worlds
+(rf/reg-frame :left  {:initial-events [[:initialise 0]]})
+(rf/reg-frame :right {:initial-events [[:initialise 100]]})
+
+[:div {:style {:display "flex" :gap "2em"}}
+ [rf/frame-provider {:frame :left}  [counter]]
+ [rf/frame-provider {:frame :right} [counter]]]
+```
+
+Click one. The other doesn't move. Nothing in `counter` names a frame — its injected `dispatch` and `subscribe` resolve *whichever frame it's rendered inside* — so the same view runs against two independent app-dbs, unchanged. That's the payoff this page builds toward; the road there starts from the opposite end, with the one-frame app you already have.
+
 ## What a frame is
 
 A frame is one running instance of your app. It owns the runtime state of that instance:
@@ -30,7 +58,7 @@ A frame isolates **state, not behaviour**. You write the app once; the frame dec
 
 Almost every app is a one-frame app, and stays one. You register a frame at boot, establish it at the root of your view tree, and never name it again.
 
-Two pieces of syntax show up in the view below, so here they are up front: inside a `reg-view`, `dispatch` and `subscribe` arrive as injected functions — `dispatch` sends an [event](../glossary.md#event) into the queue, `subscribe` reads a derived value (both detailed on the [views](views.md) page). And `@` is Clojure's deref — `@(subscribe [:screen])` reads the *current value* out of the reactive subscription. Both quietly target whichever frame this view is rendering under; you'll see how in a moment.
+One piece of syntax recurs on this page: inside a `reg-view`, `dispatch` and `subscribe` arrive as injected functions — `dispatch` sends an [event](../glossary.md#event) into the queue, `subscribe` reads a derived value (both detailed on the [views](views.md) page). And `@` is Clojure's deref — `@(subscribe [:screen])` reads the *current value* out of the reactive subscription. Both quietly target whichever frame this view is rendering under; you'll see how in a moment.
 
 ```clojure
 (ns my-app.core
@@ -60,7 +88,7 @@ Two pieces of syntax show up in the view below, so here they are up front: insid
 
 Three lines do the work. `init!` installs the [substrate](../glossary.md#substrate) [adapter](../glossary.md#adapter) — and creates *no* frame. `reg-frame` then creates the `:app` frame explicitly and runs its `:initial-events`. Finally `frame-provider {:frame :app}` scopes that already-registered frame for everything underneath it, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it.
 
-That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app` — that's why the injected `dispatch` and `subscribe` in `main-view` above just *worked* without naming a frame, and it's exactly what lets you go multi-frame later without touching a line of app code.
+That last point is the payoff: the frame is **invisible inside its own scope**. Your views and handlers never mention `:app` — that's why the injected `subscribe` in `main-view` above just *worked* without naming a frame, and it's exactly what lets you go multi-frame later without touching a line of app code.
 
 ??? info "For JavaScript developers"
 
@@ -150,7 +178,8 @@ Here's the split pane, end to end. Watch how little changes from the one-frame c
    [rf/frame-provider {:frame :pane/left}  [counter-panel "Left"]]
    [rf/frame-provider {:frame :pane/right} [counter-panel "Right"]]])
 
-;; At boot — after (rf/init! ...) — register the pane frames, then render.
+;; At boot — after (rf/init! ...) — register the root and pane frames, then render.
+(rf/reg-frame :app        {})
 (rf/reg-frame :pane/left  {:initial-events [[::init]]})
 (rf/reg-frame :pane/right {:initial-events [[::init]]})
 
@@ -179,7 +208,6 @@ Its other shape, `{:id …}`, **ensures** a named frame. It creates the frame th
 ;; without re-seeding. No boot-time reg-frame needed — the provider ensures it.
 (rf/reg-view counter-widget [label]
   [rf/frame-provider {:id             :counter/widget
-                      :images         [counter-image]
                       :initial-events [[:rf/set-db {:n 0}]]}
    [counter-panel label]])
 ```
@@ -207,7 +235,7 @@ Everything above rests on a single invariant. It's worth stating plainly, becaus
 
 !!! note
 
-    **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it. An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
+    **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it (the captured operations bundle you'll meet below). An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
 
 So a bare `(rf/dispatch [:counter/inc])` works when — and only when — something above it established a frame: the root provider, the event handler it's firing from, a `with-frame` block in a test or at the REPL. With no established scope and no carried frame, the operation fails loud:
 
@@ -303,7 +331,7 @@ If you feel the need for one, you've answered the discriminator question wrongly
 
 ## Ending and resetting a frame
 
-Most frames live for the whole program and you never tear them down — `frame-provider` handles unmount for the UI-owned ones, and SSR/test harnesses tear theirs down for you. But two verbs cover the lifetime explicitly, and you'll meet them in tests and tools:
+Most frames live for the whole program and you never tear them down — a UI-owned frame simply outlives its mounts (a provider never destroys a frame on unmount), and SSR/test harnesses tear theirs down explicitly. But two verbs cover the lifetime explicitly, and you'll meet them in tests and tools:
 
 ```clojure
 (rf/destroy-frame! :pane/left)   ;; remove it from the registry; run teardown
@@ -329,7 +357,7 @@ A test or REPL session is *outside* any provider, so there's no ambient scope �
   @(rf/subscribe [:items]))
 
 ;; CREATE a frame, use it, and destroy it on exit (success or throw):
-(rf/with-new-frame [f (rf/make-frame {:images [cart-image]})]
+(rf/with-new-frame [f (rf/make-frame {})]
   (rf/dispatch-sync [:cart/add "milk"])
   (is (= 1 (count (:items (rf/app-db-value f))))))
 ```

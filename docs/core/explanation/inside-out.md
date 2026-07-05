@@ -1,6 +1,6 @@
 # Inside out: why views come last
 
-This page is the argument, not the instructions. You don't need it to build with re-frame2 — the working mental model lives in [The model: the event pipeline](../concepts/index.md), and you can ship without ever reading this essay. But re-frame2 asks something of you up front. It costs ceremony a `useState` user never pays, and it forbids things React happily allows. You deserve the case for that trade, made once, in full. Every concepts page that touches it links back here rather than re-arguing it.
+This page is the argument, not the instructions. You don't need it to build with re-frame2 — the working mental model lives in [The model: the event pipeline](../introduction.md), and you can ship without ever reading this essay. But re-frame2 asks something of you up front. It costs ceremony a `useState` user never pays, and it forbids things React happily allows. You deserve the case for that trade, made once, in full. Every concepts page that touches it links back here rather than re-arguing it.
 
 The whole essay compresses to one sentence:
 
@@ -75,7 +75,7 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
     (is (= 6 (handler {:counter/value 6} [:counter/value])))))
 ```
 
-That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../testing/event-handlers.md) walks the pattern in full; [the pipeline](../concepts/events-and-the-pipeline.md) shows the same two functions in their runtime habitat.
+That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../testing/event-handlers.md) walks the pattern in full; [the pipeline](../introduction.md) shows the same two functions in their runtime habitat.
 
 ??? info "For JavaScript developers"
 
@@ -98,7 +98,7 @@ Why constrain it? Because a constrained execution model is far easier to reason 
 Those aren't four ad-hoc rules; they're a deliberate ladder, and the spec names it as five stacked layers of constraint, each one buying back a specific kind of reasoning:
 
 - **Discrete events.** The app advances one event at a time. Events don't suspend or interleave, and a state update lands in one [commit](../glossary.md#commit) — so *between* events the app is in exactly one well-defined state, schema-checkable as a whole. (This is why there's no "torn read": no observer ever catches app-db half-written.)
-- **A fixed pipeline (the six dominoes).** Every event flows through the same invariant sequence — dispatch → event handler → effects → derivations → view → DOM. Stages can't be skipped, reordered, or invented at runtime. (The "six dominoes" is the first-contact mnemonic for those stages; [the pipeline](../concepts/events-and-the-pipeline.md) is its full treatment.)
+- **A fixed pipeline (the six dominoes).** Every event flows through the same invariant sequence — dispatch → event handler → effects → derivations → view → DOM. Stages can't be skipped, reordered, or invented at runtime. (The "six dominoes" is the first-contact mnemonic for those stages; [the pipeline](../introduction.md) is its full treatment.)
 - **Purity within each stage.** Inside a stage the host language is Turing-complete but harnessed: handlers are pure `(coeffects, event) → effect map`, derivations are pure `state → value`, data is immutable, and neither time nor place reaches in — the world arrives only as declared [coeffects](../glossary.md#coeffect) and leaves only as described [effects](../glossary.md#effect). A pure function's behaviour is fixed by its arguments alone, which is exactly why the counter above tested in two lines.
 - **State machines as a sub-pattern.** When a *handler's own* internal logic wants the FSM shape — modal flows, multi-step lifecycles — a [**machine**](../../machines/glossary.md#machine) gives you a smaller finite-state, transition-table form, with the [frame](../glossary.md#frame) as the actor boundary and run-to-completion drain. (See [machines](../../machines/concepts.md).)
 - **Declarative data DSLs.** What gets done is described as data — events, effect maps, hiccup, transition tables, schemas — and the runtime interprets the *how*. A tool can read your app's behaviour without executing it.

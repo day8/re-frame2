@@ -103,7 +103,7 @@ This is the surface every re-frame2 app touches. Every entry registers a named h
   ```clojure
   (reg-cofx id ?metadata supplier)
   ```
-- **Description**: "Register a named supplier for a world fact a handler can ask for." The supplier is a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the call site — *not* a context-mutating fn. The runtime calls it and puts the result into the coeffects map under the cofx's id. A handler opts in with `:rf.cofx/requires` registration metadata; v2 has **no `inject-cofx` interceptor**. The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact, `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator), a bare registration for an ambient (unrecorded) read. Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it. Full model: [Effects and coeffects](../core/concepts/effects-and-coeffects.md).
+- **Description**: "Register a named supplier for a world fact a handler can ask for." The supplier is a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the call site — *not* a context-mutating fn. The runtime calls it and puts the result into the coeffects map under the cofx's id. A handler opts in with `:rf.cofx/requires` registration metadata; v2 has **no `inject-cofx` interceptor**. The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact, `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator), a bare registration for an ambient (unrecorded) read. Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it. Full model: [Effects](../core/concepts/effects.md), [Coeffects](../core/concepts/coeffects.md).
 - **Example**:
   ```clojure
   ;; A value-returning supplier — quarantines an impure read behind a named id.
@@ -1646,7 +1646,7 @@ Resources are an optional, post-v1 capability (TanStack/RTK/SWR-style cached ser
 
 ## See also
 
-- [Subscriptions](../core/concepts/subscriptions.md), [Frames](../core/concepts/frames.md), [Effects and coeffects](../core/concepts/effects-and-coeffects.md), [Observability](../core/concepts/observability.md) — the concept guides behind these surfaces.
+- [Subscriptions](../core/concepts/subscriptions.md), [Frames](../core/concepts/frames.md), [Effects](../core/concepts/effects.md), [Coeffects](../core/concepts/coeffects.md), [Observability](../core/concepts/observability.md) — the concept guides behind these surfaces.
 - [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md), [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the working guides.
 - [Core glossary](../core/glossary.md) — the surface vocabulary in one place.
 - The feature namespace docs linked under [Feature registration (re-exports)](#feature-registration-re-exports) carry the deep contract for every re-exported macro and its keyword surfaces.

@@ -39,4 +39,9 @@
                            :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
          day8/re-frame2          {:local/root "../../../../implementation/core"}
          day8/reagent-slim       {:local/root "../../../../implementation/adapters/reagent-slim"}
-         day8/re-frame2-machines {:local/root "../../../../implementation/machines"}}}
+         day8/re-frame2-machines {:local/root "../../../../implementation/machines"}
+         ;; Spec 007 flows artefact: `:require`d by the SCI bundle ns so the
+         ;; flows late-bind hooks register at bundle init — live cells can
+         ;; then call the real `rf/reg-flow` (guide page 7, One concept at a
+         ;; time). Same pattern as machines above.
+         day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}}}

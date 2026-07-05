@@ -4,7 +4,7 @@ Here's the whole idea in one line: **the URL is application state, and your back
 
 Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a [registration](../core/glossary.md#registration): one row in re-frame2's table of routes. Navigating is dispatching an [event](../core/glossary.md#event): a data vector sent through the app. The active route is a [subscription](../core/glossary.md#subscription): a read of state your [views](../core/glossary.md#view) watch. That's it — three things you already know, pointed at the URL.
 
-Which means everything you already know about [events](../core/concepts/events-and-the-pipeline.md) and [subscriptions](../core/concepts/subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
+Which means everything you already know about [events](../core/introduction.md) and [subscriptions](../core/concepts/subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
 
 > **From re-frame v1.** There was no routing in v1 — you reached for secretary, bidi, or reitit, wired a third-party router to `dispatch` by hand, and kept the active route somewhere in [app-db](../core/glossary.md#app-db) yourself. re-frame2 folds all of that into the framework: routes are registrations, navigation is a built-in event, and the active route is a built-in subscription. The bring-your-own-router era is over. (It's still a *separate* artefact — `day8/re-frame2-routing` — so an app with no shareable URLs ships zero routing bytes.)
 
@@ -252,7 +252,7 @@ Two of those you'll read constantly — the whole slice, and the pending navigat
 
 > **Coming from TanStack Query?** That global `:transition` plays the role `isFetching` plays at the page level — except you didn't have to thread it through any component, because it's a subscription anyone can read from anywhere in the tree.
 
-Try it with the [Xray inspector](../core/how-to/debug-with-xray.md) open. Dispatch a navigation and watch the trace: the navigate event, the fresh nav-token allocation, then each loader dispatch, in order. Routing has no hidden machinery — everything it does shows up on the same wire as your own events, which is exactly what makes it easy to trust.
+Try it with the [Xray inspector](../xray/index.md) open. Dispatch a navigation and watch the trace: the navigate event, the fresh nav-token allocation, then each loader dispatch, in order. Routing has no hidden machinery — everything it does shows up on the same wire as your own events, which is exactly what makes it easy to trust.
 
 ### Fragments and scrolling
 
@@ -315,7 +315,7 @@ A route can declare what data to load when it becomes active, so a page's data-n
   "/cart")
 ```
 
-`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](../core/concepts/effects-and-coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
+`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](../core/concepts/coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
 
 > **Coming from React Router or Remix?** `:on-match` *is* the route loader — but as a list of event vectors, not a function. Because it's data, you can read it, test it, and draw a dependency graph from it without running it. And it runs on the server through the exact same vector, so there's no separate "server loader" to keep in sync.
 
@@ -497,7 +497,7 @@ Frames without the flag still route internally, in memory. That's a feature, not
 
 `install-url-listener!` installs the URL-change listener (aimed at whichever frame owns the URL) and syncs the URL into state once at startup, so deep links and refreshes land on the right page. It's idempotent — hot-reload can call it again — and `rf/remove-url-listener!` tears it down. (`install-history-listener!` is retained as an alias — history is the default strategy, so the two behave identically for a path-URL app.)
 
-> **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../core/how-to/debug-with-xray.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
+> **From re-frame v1.** This is where the inversion lands hardest. In v1 the browser URL was the source of truth and your router *reacted* to it. Here the frame's state is the source of truth and the URL is a *print-out* of it. So a back-button press is, literally, a dispatch: popstate fires, the URL-change handler runs, the slice updates, the views re-derive. And [time-travel](../xray/index.md) falls out for free — rewind the frame and the URL rewinds with it, because the URL was never truth, only a projection.
 
 ### URL strategies
 

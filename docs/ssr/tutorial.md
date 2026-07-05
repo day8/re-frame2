@@ -6,7 +6,7 @@ Every step below is adapted from the worked example at [`examples/capabilities/s
 
 !!! note "Before you start"
 
-    You've done the [core quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-pipeline.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are, and what a [frame](../core/concepts/frames.md) is. That's the only prerequisite: SSR adds no new kind of handler, which is rather the point.
+    You've done the [core quickstart](../core/first-app.md) — you know what an [event](../core/introduction.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are, and what a [frame](../core/concepts/frames.md) is. That's the only prerequisite: SSR adds no new kind of handler, which is rather the point.
 
     Steps 1–3 run at a plain **JVM REPL** — evaluate along as you read. Steps 4 and 5 are browser-side; the worked example ships a page you can open to see them live.
 

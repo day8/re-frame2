@@ -44,6 +44,27 @@
   border: 1px solid var(--md-default-fg-color--lightest, #ddd);
 }
 
+/* Bare [:button ...] hiccup inside a live-mounted component: give it a real
+ * button look so demo apps carry zero styling ink in their teaching code.
+ * Theme-aware via the Material palette variables (light + slate). */
+.cljs-mount button {
+  padding: 0.1rem 0.7rem;
+  margin: 0 0.35rem;
+  border: 1px solid var(--md-default-fg-color--lighter, #c5c5c5);
+  border-radius: 4px;
+  background: var(--md-code-bg-color, #f4f7f4);
+  color: var(--md-default-fg-color, #333);
+  font: inherit;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.cljs-mount button:first-child { margin-left: 0; }
+.cljs-mount button:hover {
+  border-color: var(--md-accent-fg-color, #526cfe);
+  color: var(--md-accent-fg-color, #526cfe);
+}
+.cljs-mount button:active { transform: translateY(1px); }
+
 /* An error in a render cell falls back to the error styling (set by JS). */
 .cljs-mount.cljs-result--err {
   font-family: var(--md-code-font, monospace);

@@ -6,7 +6,7 @@ By the end you'll have used every part of `:rf.http/managed` that everyday work 
 
 !!! note "Before you start"
 
-    You've read [Effects and coeffects](../core/concepts/effects-and-coeffects.md) and can return an effect map from a handler. That's the only prerequisite.
+    You've read [Effects](../core/concepts/effects.md) and can return an effect map from a handler. That's the only prerequisite.
 
 ## Step 0 — turn managed HTTP on
 
@@ -211,6 +211,6 @@ The stubbed reply has the exact envelope a live request produces, so both tests 
 
 !!! note "Do, observe"
 
-    Run the app with [Xray](../core/how-to/debug-with-xray.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
+    Run the app with [Xray](../xray/index.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
 
 That's the everyday surface. The [Managed HTTP reference](http.md) has the rest — the full request envelope, `:accept`, timeouts, verb helpers, manual abort — and [Interceptors and secrets](http-going-further.md) covers stamping auth on every request once and keeping credentials out of traces.

@@ -309,7 +309,7 @@ Two guard-rails enforce the boundary:
             (< (- time-ms (:first-attempt-at data)) 60000))}}
     ```
 
-    The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/effects-and-coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
+    The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
 
 ## The snapshot — `{:state :data :tags}`
 

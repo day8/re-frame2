@@ -4,6 +4,46 @@ Your application's state lives in one place. It is a single immutable map called
 
 This page builds that idea up one step at a time: first the map and the one thing allowed to change it, then where the first value comes from, then the handful of properties you get for free, and finally — once you are already productive — the framework's own bookkeeping that lives next door and the surgical lane that tests and tools use.
 
+## The counter grows a second fact
+
+[Our first app](../first-app.md)'s counter knows one fact: its value. Give it a second — an adjustable step size — and you've hit the first real design question of any growing app: *where does the new fact live?* In re-frame2 the answer never changes. It goes in the same map:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+;; the new idea: state GROWS INSIDE the one map — no second store
+(rf/reg-event :initialise
+  (fn [_world _event] {:db {:value 0 :step 1}}))
+
+(rf/reg-event :set-step
+  (fn [{:keys [db]} [_id n]] {:db (assoc db :step n)}))
+
+(rf/reg-event :inc
+  (fn [{:keys [db]} _] {:db (update db :value + (:step db))}))
+
+(rf/reg-event :dec
+  (fn [{:keys [db]} _] {:db (update db :value - (:step db))}))
+
+(rf/reg-sub :value (fn [db _] (:value db)))
+(rf/reg-sub :step  (fn [db _] (:step db)))
+
+(rf/reg-view stepping-counter []
+  [:div
+   [:button {:on-click #(dispatch [:dec])} "−"]
+   [:span " " @(subscribe [:value]) " "]
+   [:button {:on-click #(dispatch [:inc])} "+"]
+   [:span {:style {:margin-left "1.5em"}} "step:"]
+   [:button {:on-click #(dispatch [:set-step 1])} "1"]
+   [:button {:on-click #(dispatch [:set-step 10])} "10"]])
+
+(rf/dispatch-sync [:initialise])
+[stepping-counter]
+```
+
+(Cell mechanics, once: the cell supplies the frame, and `dispatch-sync` seeds it synchronously — the event runs to completion before the next form; [Run to completion](run-to-completion.md) is its page.)
+
+No second atom, no context, no module-level variable holding the step. app-db grew from the first app's one-fact shape to `{:value 0 :step 1}`, the `:inc` handler reads both facts from the one map it was already handed, and everything you learned about the first fact — how it changes, who may write it, how views watch it — is automatically true of the second. That scaling move is this page's whole subject.
+
 ## One map, one writer
 
 Everything your app knows sits in one map — the logged-in user, the cart, which modal is open:
@@ -45,8 +85,7 @@ Not every event has to return a new map, though. A handler that returns no `:db`
 Here's the "one map" claim, live. Two views below share one value — the input edits it, the badge reads it — and neither owns a copy, so there is nothing to drift out of sync. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then type:
 
 ```cljs-rf2
-(require '[reagent2.core :as r]
-         '[re-frame.core :as rf])
+(require '[re-frame.core :as rf])
 
 (rf/reg-event :appdb.demo/initialise
   (fn [_cofx _event] {:db {:appdb.demo/name "Ada"}}))
@@ -58,6 +97,9 @@ Here's the "one map" claim, live. Two views below share one value — the input 
   (fn [db _query] (:appdb.demo/name db)))
 
 ;; Two views, one truth — neither owns the value; both read the same path.
+;; (Plain-fn views: reg-view's injected dispatch/subscribe are a convenience,
+;; not a requirement — the ordinary rf/ functions work in any view, resolved
+;; against the frame in scope; here, the cell's.)
 (defn name-editor []
   [:input {:value     @(rf/subscribe [:appdb.demo/name])
            :on-change #(rf/dispatch [:appdb.demo/name-typed (.. % -target -value)])}])
@@ -88,7 +130,7 @@ If a handler only ever *transforms* app-db, what hands it the very first one? Ev
 
 The steps dispatch synchronously, in order, each one run to completion before the next, so by the time `reg-frame` returns app-db is in whatever state they produced. The point is consistency: there is no special "initial state" mechanism off to one side. The first value of app-db is built by the same dispatch you use for the millionth. [Frames](frames.md) covers `:initial-events` and the rest of the registration grammar in full.
 
-`:rf/set-db` is an ordinary event in every respect — it commits a `:db`, rides schema validation, shows up in the trace — with one thing worth knowing: it *replaces* the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one. (It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`; and because the `:rf/*` namespace is the framework's, re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.)
+`:rf/set-db` is an ordinary event in every respect — it commits a `:db`, rides schema validation, shows up in the trace (the framework's per-event record, which tools like Xray read) — with one thing worth knowing: it *replaces* the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one. (It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`; and because the `:rf/*` namespace is the framework's, re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.)
 
 ??? info "From re-frame v1"
 
@@ -135,7 +177,7 @@ A bare `get` can't tell them apart, and the framework preserves the difference w
 
     A few surfaces treat `nil` as absence on purpose — routing drops a `nil` query parameter from the URL, for example. But that is always a declared, local policy, never an accidental erasure. Where the distinction matters, it survives.
 
-## Paths, in five lines
+## Paths, in four lines
 
 A **path** names a place inside app-db. It is the same vector you hand to `get-in` — Clojure's built-in for reaching into a nested map, `(get-in m [:a :b])` being the data-structure cousin of `m.a.b`:
 
@@ -209,7 +251,7 @@ There are four of these classification effects — they ride along with the `:db
 - `:large` — flag each path as too big to ship inline; egress carries a size marker instead
 - `:clear-sensitive` / `:clear-large` — un-classify, the rare mirror for when a path is reused for non-secret data
 
-Two properties matter at the write site. The classification is **applied with the `:db` write** — it lands in the same atomic transition, so a path classified in an event is redacted from its *very first* egress, never a beat late. And it is **value-independent**: you can classify `[:auth :token]` before any token exists there, and the marker redacts whatever later occupies the path — classifying an absent path is a harmless no-op. Everything after that — what redaction looks like at each boundary, why the marker time-travels with the frame, how subsystems and transient HTTP payloads are classified — is the egress story, told in full in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
+Two properties matter at the write site. The classification is **applied with the `:db` write** — it lands in the same atomic transition, so a path classified in an event is redacted from its *very first* egress, never a beat late. And it is **value-independent**: you can classify `[:auth :token]` before any token exists there, and the marker redacts whatever later occupies the path — classifying a currently-absent path is harmless — there is simply nothing to redact until a value arrives, and the standing marker catches it when it does. Everything after that — what redaction looks like at each boundary, why the marker time-travels with the frame, how subsystems and transient HTTP payloads are classified — is the egress story, told in full in [Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).
 
 ## Two lanes: the front door, and the surgeon's table
 
@@ -228,7 +270,7 @@ There is a second lane, and it is not for app code. The runtime exposes a small 
 Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the pipeline — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
 
 - **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine actors and the route slice live in runtime-db.
-- **Tooling.** [Xray](observability.md) time-travel and the pair MCP rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
+- **Tooling.** [Xray](observability.md) time-travel — and the pair MCP, the tooling server an AI pair-programmer drives a live app through — rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
 - **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
 
 !!! warning "Gotcha — never reach for state surgery in application code"
@@ -254,7 +296,7 @@ So a failed rewind never half-restores; it leaves you where you were and tells y
 
 ## See it move
 
-Don't take the "one inspectable value" claim on faith. It is the most useful property you now own, so try it on a running app (the [quickstart](../quickstart.md) gives you one in five minutes). At the REPL:
+Don't take the "one inspectable value" claim on faith. It is the most useful property you now own, so try it on a running app ([Our First App](../first-app.md) gives you one in five minutes). At the REPL:
 
 ```clojure
 (require '[clojure.pprint :refer [pprint]])
@@ -271,4 +313,4 @@ Your entire application state, printed top to bottom, readable as a map. `app-db
 
 `frame-state-value` is the coherent full-frame projection — the same shape SSR ships and time-travel reverts. All three return `nil` for an unknown or destroyed frame, so a read against a torn-down frame degrades quietly rather than throwing. (Dispatching or subscribing to a destroyed frame is the same story — `dispatch` no-ops, `subscribe` returns `nil`, and the framework emits a production-survivable `:rf.error/frame-destroyed` so the diagnostic reaches your error monitor instead of vanishing.)
 
-Now open Xray and watch it move. Dispatch an event — say `[:cart/add {:id 22 :qty 1}]` — and the App-db tab shows exactly the slices that changed in that run, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed, so when something is wrong, this is where you look first. [Debug with Xray](../how-to/debug-with-xray.md) makes a workflow of it.
+Now open Xray and watch it move. Dispatch an event — say the counter's `[:inc]` — and the App-db tab shows exactly the slices that changed in that run, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed, so when something is wrong, this is where you look first. [Debug with Xray](../../xray/index.md) makes a workflow of it.

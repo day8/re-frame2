@@ -207,7 +207,7 @@ The four questions get you there the first time. This table is for the *second* 
 
 | The smell | What it really means | Move it to |
 |---|---|---|
-| A **subscription that does IO** — fetches, writes `localStorage`, reads the clock. | A subscription is a *pure read*. If it reaches into the world, it isn't a derivation. | A **resource** if it's remote data; otherwise the [event boundary](concepts/effects-and-coeffects.md) — an effect for the write, a declared coeffect for the read. |
+| A **subscription that does IO** — fetches, writes `localStorage`, reads the clock. | A subscription is a *pure read*. If it reaches into the world, it isn't a derivation. | A **resource** if it's remote data; otherwise the [event boundary](concepts/coeffects.md) — an effect for the write, a declared coeffect for the read. |
 | A **flow whose output no handler reads.** | An `app-db` write paid to materialise a value only views consume — a subscription wearing a flow's costume. | A **subscription** — drop the flow, recompute on demand. |
 | A **handler writing a flow's `:output-path` by hand.** | The two-copies-drift bug the flow exists to kill, reintroduced — and now flow and handler fight over the same slot. | Nothing — *remove the hand-write*. Let the handler `assoc` an **input**; the flow owns the output. |
 | A **machine wrapping a single fetch** — `:loading`, `:loaded`, nothing else. | No real branching, timers, or cancellation isn't a process; it's a remote read with a status. | A **resource** — its status model already *is* the loading/loaded/error lifecycle. |
