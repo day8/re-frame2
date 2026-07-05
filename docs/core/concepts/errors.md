@@ -6,7 +6,7 @@ You've caught a hundred errors with `console.error("something broke", e)`. It ke
 
 re-frame2's rule is one sentence: **if the runtime knows it, the [error record](../glossary.md#error-record) carries it.**
 
-Read that again — it's the whole model, and the rest of this page is that sentence unpacked. Every error the framework detects becomes a structured map — fat on purpose — with the causal context already attached. This page teaches you to read that map, predict how your app degrades after each kind of failure, fix the error you'll hit first, and test the structure instead of the string.
+That one sentence is the whole model; the rest of this page is it, unpacked. Every error the framework detects becomes a structured map — fat on purpose — with the causal context already attached. This page teaches you to read that map, predict how your app degrades after each kind of failure, fix the error you'll hit first, and test the structure instead of the string.
 
 ## The dossier
 

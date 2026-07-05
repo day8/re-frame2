@@ -189,7 +189,7 @@ That picture comes with a promise precise enough to test — the **replay promis
 
 > **Two fresh apps, fed the same sequence of events, finish in identical states.** Start two copies from the same initial app-db, replay the same event log into each, and they land on the same value. The events *are* the state; the current app-db carries no information the log didn't put there.
 
-I'll pause while you read that again. Everything else on this page — the grades, the strict declarations, the minting ladder — exists to keep that sentence true.
+Read it twice. Everything else on this page — the grades, the strict declarations, the minting ladder — exists to keep that sentence true.
 
 Because the promise has one precondition: handlers must be honest about their inputs. A handler that secretly reads the clock or mints a random id mid-fold smuggles in a value the ledger never recorded, and replay diverges. re-frame2 closes that hole structurally. World facts enter handlers as [recordable coeffects](../glossary.md#recordable-vs-ambient-coeffects), declared at registration and recorded with the event, so replay re-presents the very values the original run consumed. The rule of thumb is: *durable state folds facts, never reads.*
 

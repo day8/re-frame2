@@ -138,7 +138,7 @@ Two details carry weight. First, **the handler runs as the last `:before`.** The
 
 The handler doesn't know it's wrapped, and an interceptor doesn't know what it wraps. That mutual ignorance is exactly why the pattern scales: any interceptor can decorate any handler, because they only ever talk through one shared value. They never reach into each other.
 
-One discipline, said plainly: never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
+One discipline: never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
 
 ??? info "From re-frame v1 — the chain no longer rewrites itself"
 

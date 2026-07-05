@@ -10,7 +10,7 @@ The answer is the [**image**](../glossary.md#image):
 
 > **An image is which registrations are loaded; a frame is the live run that resolves against them.**
 
-I'll pause while you read that again. It's the load-bearing sentence of this page — everything below is that one line wearing different clothes.
+Don't skim past that one — it's the sentence this page hangs off, and everything below is the same line in different costumes.
 
 If you want something concrete to hold, hold a theatre. The image is the script: which characters exist, what their lines are. The frame is tonight's performance: live, on stage, with its own history of everything that has already happened. One script can play on two stages at once. Two different scripts can both contain a character called the King. Keep the theatre; the rest of the page will use it.
 
