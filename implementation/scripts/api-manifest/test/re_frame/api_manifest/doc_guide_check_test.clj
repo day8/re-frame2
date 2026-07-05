@@ -87,6 +87,6 @@
     (let [scoped (:doc-guide-known-unmanifested-scoped (gen/read-sidecar))]
       (is (map? scoped) "the scoped allowlist must be a {name -> #{files}} map")
       (is (= #{"docs/core/25-from-re-frame-v1.md"
-               "docs/core/concepts/effects-and-coeffects.md"}
+               "docs/core/concepts/coeffects.md"}
              (get scoped "inject-cofx"))
           "inject-cofx must be scoped to the from-v1 chapter + the cofx callout"))))

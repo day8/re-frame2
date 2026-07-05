@@ -327,14 +327,14 @@
  :doc-guide-known-unmanifested-scoped
  {"on-changes"   #{"docs/core/25-from-re-frame-v1.md"}   ; removed v1 reaction API, named as migration guidance
   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` removed from the public façade (no
-  ;; manifest row). The from-v1 chapter AND the effects-and-coeffects
-  ;; concept page's "Coming from re-frame v1?" callout name the v1
+  ;; manifest row). The from-v1 chapter AND the coeffects concept page's
+  ;; "From re-frame v1" callout name the v1
   ;; `(rf/inject-cofx …)` interceptor entry as the left-hand side of old→new
   ;; migration guidance (it becomes `:rf.cofx/requires` registration
   ;; metadata). A `(rf/inject-cofx …)` ANYWHERE ELSE in the guide is live
   ;; teaching prose that EP-0017 forbids — and now goes RED.
   "inject-cofx"  #{"docs/core/25-from-re-frame-v1.md"
-                   "docs/core/concepts/effects-and-coeffects.md"}
+                   "docs/core/concepts/coeffects.md"}
   ;; EP-0018 Z (rf2-xhfxcs.14): `reg-event-db` / `reg-event-fx` removed from
   ;; the public façade (`reg-event` is the ONE public event form). Named as
   ;; the left-hand side of old→new migration guidance in the from-v1 chapter.
