@@ -16,7 +16,7 @@ We'll build it up one step at a time: first the single line that picks a substra
 
 ## Step 1 — The one line that changes
 
-Start with the boot shape from the [quick start](../quickstart.md). The substrate decision is its very first line:
+Start with the boot shape from the [quick start](../first-app.md). The substrate decision is its very first line:
 
 ```clojure
 (defn run []

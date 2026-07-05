@@ -64,6 +64,10 @@
             [re-frame.core :as rf]
             [re-frame.views]
             [re-frame.machines]
+            ;; flows artefact (Spec 007): required for its late-bind hooks so
+            ;; `rf/reg-flow` (a copy-ns'd core fn-alias) is live in cells —
+            ;; same pattern as re-frame.machines above (rf2 guide page 7).
+            [re-frame.flows]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [reagent2.core :as r]
             [reagent2.ratom :as ratom]
@@ -104,6 +108,45 @@
 
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
+;; `reg-view` is a JVM-only defn-shape macro on the public surface (its
+;; expansion lives in re-frame.core-reg-view-macro/expand-reg-view). Cells
+;; want the same sugar, so this SCI macro mirrors that expansion — register
+;; the render fn via the REAL `reg-view*`, inject `dispatch` / `subscribe`
+;; as locals from a render-time `make-capture-frame` (so frame resolution
+;; is genuine: the harness frame by default, or a cell-created
+;; `frame-provider`'s frame via the context tier), `def` the var to
+;; `(rf/view id)`, and return the id per Conventions §`reg-*` return-value.
+;; Omitted vs the real expansion: source-coord capture (`*pending-coords*`,
+;; `:rf.trace/call-site`) — a browser cell has no `*file*` to stamp, and
+;; coord capture is an optional capability per Spec 001. The id derives
+;; under the cell namespace (`:user/<sym>`), matching the auto-derive rule.
+(defn- sci-reg-view
+  [_&form _&env sym & more]
+  (let [[docstring more] (if (string? (first more))
+                           [(first more) (rest more)]
+                           [nil more])
+        [args & body]    more]
+    (when-not (and (symbol? sym) (vector? args) (seq body))
+      (throw (ex-info (str "reg-view's second argument must be an args vector "
+                           "(defn-shape: (reg-view sym [args] body)). Got: "
+                           (pr-str (first more)))
+                      {:rf.error/id :rf.error/reg-view-bad-args})))
+    (let [id     (keyword "user" (str sym))
+          handle (gensym "handle")]
+      (list 'do
+            (list 're-frame.core/reg-view* id
+                  (if docstring {:doc docstring} {})
+                  (list 'fn sym args
+                        (list 'let
+                              [handle     (list 're-frame.core/make-capture-frame
+                                                (list 're-frame.core/current-frame-id)
+                                                {:dispatch-opts {:source :ui}})
+                               'dispatch  (list :dispatch handle)
+                               'subscribe (list :subscribe handle)]
+                              (cons 'do body))))
+            (list 'def sym (list 're-frame.core/view id))
+            id))))
+
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
 ;; reg-cofx, ...), plus init!, configure, clear-event,
@@ -129,7 +172,15 @@
    {'dispatch      (sci/copy-var playground-dispatch rf-ns)
     'dispatch-sync (sci/copy-var playground-dispatch-sync rf-ns)
     'subscribe     (sci/copy-var playground-subscribe rf-ns)
-    'reg-machine   (sci/copy-var re-frame.machines/reg-machine* rf-ns)}))
+    'reg-machine   (sci/copy-var re-frame.machines/reg-machine* rf-ns)
+    ;; Flows (guide page 7): like reg-machine, `reg-flow` is a JVM-only
+    ;; macro on the façade; the runtime fn lives on the owned namespace
+    ;; (front-porch shrink, rf2-wad2fl). Bind it so cells call the real
+    ;; 3-slot (reg-flow flow-id metadata derive-fn) grammar.
+    'reg-flow      (sci/copy-var re-frame.flows/reg-flow rf-ns)
+    ;; JVM-only defn-shape macro → SCI macro shim (see sci-reg-view above).
+    'reg-view      (sci/new-var 'reg-view sci-reg-view
+                                {:ns rf-ns :macro true :sci/macro true})}))
 
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))

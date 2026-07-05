@@ -49,7 +49,7 @@ External observers see `:asking → :winner` in one step. The "answer counted, s
 
 ### The mental model: settle, then commit once
 
-`:always` extends the event [pipeline](../core/concepts/events-and-the-pipeline.md): after the triggering transition, the runtime runs a **microstep loop** that keeps taking enabled `:always` transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal events) until it reaches a **fixed point** — no `:always` guard matches and no raised event is pending. Only then does it commit the snapshot, **once, atomically**, and emit the accumulated `:fx`.
+`:always` extends the event [pipeline](../core/concepts/run-to-completion.md): after the triggering transition, the runtime runs a **microstep loop** that keeps taking enabled `:always` transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal events) until it reaches a **fixed point** — no `:always` guard matches and no raised event is pending. Only then does it commit the snapshot, **once, atomically**, and emit the accumulated `:fx`.
 
 This is classic statechart **macrostep** semantics: the externally-observable transition is the *settled* result of an internal cascade of microsteps. Time-travel, [Xray](../core/concepts/observability.md), and undo all see the single committed transition; the inner microsteps ride the trace stream for tools that want them.
 

@@ -2,7 +2,7 @@
 
 The fastest way to understand re-frame2 routing is to build something small and watch each piece arrive on its own. We'll make a three-page app — a **home** page, a **list of articles**, and a **detail** page for one article — then add the touches that make it real: page data, a 404, the Back button, and a shared layout.
 
-You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [core Quickstart](../core/quickstart.md) — you know what an [event](../core/concepts/events-and-the-pipeline.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
+You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [core Quickstart](../core/first-app.md) — you know what an [event](../core/introduction.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
 
 > **One idea to carry through.** The URL is just application state. You *read* the active route through a subscription and *change* it by dispatching an event. There's no router object to hold and no route context to thread down your tree. Keep that in mind and every step below is a small variation on something you already know.
 
@@ -147,7 +147,7 @@ And the detail page from Step 3 now reads the loaded article, like any other sta
 
 There's no special "loader data" hook, because the loader just wrote to [app-db](../core/concepts/app-db.md) like every other event. And `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
 
-**What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../core/how-to/debug-with-xray.md) and you'll see exactly those dispatches on the wire.
+**What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../xray/index.md) and you'll see exactly those dispatches on the wire.
 
 > **This is the loader — as data.** Because `:on-match` is a vector of event vectors rather than a function, you can read it, test it, and draw a route's data-dependency graph from it without running it: `(rf/handler-meta :route :app/article)` hands you the list. The same events run on the server during [SSR](../ssr/concepts.md) — there's no separate server loader to keep in sync. For server *state* (cached, deduplicated fetches with a built-in click-away race fix), declare `:resources` instead — see [Concepts → Loaders](concepts.md#loaders-declaring-a-pages-data).
 
@@ -201,7 +201,7 @@ Back in Step 1, the mount had two routing lines you took on faith. Time to cash 
 
 > **One mount shape, two spellings.** `frame-provider` with `:id` *creates* the frame if it doesn't exist — handy for a small app that boots everything in one spot. Elsewhere you'll see the two-step spelling: `reg-frame` first, then `frame-provider {:frame …}` to scope it. Same frame, same result; the second form just makes the registration explicit.
 
-> **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../core/how-to/debug-with-xray.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
+> **The inversion.** In most routers the URL is the source of truth and your app reacts to it. Here your frame's state is the truth and the URL is a *print-out* of it — which is why [time-travel](../xray/index.md) rewinds the URL for free. [Concepts → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source) goes deeper.
 
 ## Step 7 — a shared layout
 

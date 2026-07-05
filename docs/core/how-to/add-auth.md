@@ -59,7 +59,7 @@ One [effect handler](../glossary.md#effect-handler), two behaviours, called from
 
 Persisting is half the seam; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
 
-But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world — so the handler can't do it directly. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Effects and coeffects](../concepts/effects-and-coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
+But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world — so the handler can't do it directly. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../concepts/coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
 
 Now the auth-specific wrinkle: *which kind* of coeffect this is. Coeffects come in [two grades](../glossary.md#recordable-vs-ambient-coeffects). An *ambient* one is read live and re-read on every replay — fine for a display hint, fatal here. The saved token folds into durable `[:auth :token]`, and anything that feeds a durable write must arrive as **recorded data**: captured once, re-presented verbatim under replay. An ambient read would let an epoch-restore land *whatever `localStorage` holds now*, not the token recorded with the boot.
 
@@ -95,7 +95,7 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
 
 ??? note "Going deeper — the one-question test"
 
-    Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Effects and coeffects](../concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
+    Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Coeffects](../concepts/coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
@@ -394,7 +394,7 @@ Now logout itself. There's one subtlety, and the ordering is the whole game: res
 
 ## Observe it in Xray
 
-With all six steps wired, watch the whole flow in [Xray](debug-with-xray.md):
+With all six steps wired, watch the whole flow in [Xray](../../xray/index.md):
 
 - Logged out, click a link to a guarded route: the navigation event's row shows the guard skipping the handler and a follow-on dispatch to login — the protected route never reaches the route slice.
 - Logged in, find an authenticated request: the live request carried `Authorization`, the captured trace shows it redacted — as is `[:auth :token]` in the app-db view.

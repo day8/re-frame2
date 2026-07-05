@@ -1,6 +1,6 @@
 # Guide authoring contract
 
-> **Who this is for.** Contributors writing or revising any page under `/docs` — the core guide (`docs/core/`) and the machines, async, resources, routing, and ssr corpora alike. They all hold to the same standards now: a simple, direct voice; a standalone corpus with no spec links; no ceremony footers; delta teaching; the live-cell rules. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every docs page — **teaching material and reference material alike** — is held to, and the gates that enforce it.
+> **Who this is for.** Contributors writing or revising any page under `/docs` — the core guide (`docs/core/`) and the machines, async, resources, routing, and ssr corpora alike. They all hold to the same standards now: a simple, direct voice; a standalone corpus with no spec links; no ceremony footers; delta teaching; the live-cell rules. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](introduction.md). This page's one job: state the contract every docs page — **teaching material and reference material alike** — is held to, and the gates that enforce it.
 
 The corpus is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate refinements. First, **reference is separated, never slighted**: the exact API shape lives in the [API reference](../api/README.md) (`docs/api/`) and the vocabulary in the [glossaries](glossary.md), and both are authored to their own best-practice bar ([Reference pages](#reference-pages--glossaries-and-the-api)). A guide page that starts accumulating option tables and precedence rules is absorbing reference weight — move it there, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
@@ -47,7 +47,7 @@ The test in every register: would it sound natural said aloud, and could a tired
 
 ## Define before use
 
-A reader goes top to bottom. The first time a page uses a core term — `app-db`, event, handler, subscription, view, effect, coeffect, frame, resource, mutation — it carries a one-line plain gloss at or before that first use ("app-db, your app's single state map"). Never use a load-bearing term cold, and never pack the reader off to another page mid-flow for a basic word — gloss it inline in a few words. The guide's reading order (quickstart → the loop → tutorial → deeper concepts) exists so the fundamentals are taught before a real domain leans on them.
+A reader goes top to bottom. The first time a page uses a core term — `app-db`, event, handler, subscription, view, effect, coeffect, frame, resource, mutation — it carries a one-line plain gloss at or before that first use ("app-db, your app's single state map"). Never use a load-bearing term cold, and never pack the reader off to another page mid-flow for a basic word — gloss it inline in a few words. The guide's reading order (introduction → first app → the one-concept-at-a-time track → tutorial) exists so the fundamentals are taught before a real domain leans on them.
 
 ## Callouts
 
@@ -69,8 +69,8 @@ Paths below are relative to `docs/`. This table maps the **core guide**; the dom
 
 | Where | Tier | Mode | Job |
 |---|---|---|---|
-| `core/README.md` | start | index | Route readers; teach nothing |
-| `core/quickstart.md` | start | start | Pixels in five minutes |
+| `core/introduction.md` | start | concepts sketch | How re-frame2 computes, before any code |
+| `core/first-app.md` | start | start | Pixels in five minutes |
 | `resources/tutorial/` (its own tab) | tutorial | tutorial | Build RealWorld end to end |
 | `core/concepts/`, `core/where-state-lives.md` | concepts | explanation | The mental model, one piece per page |
 | `core/how-to/` | how-to | how-to | One task, complete code, done |
@@ -104,7 +104,7 @@ Reference is a **first-class authoring track** with its own best-practice bar, n
 
 A learning track is read top-to-bottom in the left nav, so the nav itself must carry the progression:
 
-- **Number the pages of a sequential track** — `"1. Events and the pipeline"`, `"2. app-db: state in one place"`, … — so a reader always knows where they are and what's next. The loop pages and the tutorial parts do this; a future sequential track should too.
+- **Number the pages of a sequential track** — `"1. app-db: state in one place"`, `"2. Subscriptions: derived values"`, … — so a reader always knows where they are and what's next. The loop pages and the tutorial parts do this; a future sequential track should too.
 - **Give every nav label a descriptive tail** (`"Frames: isolated worlds"`, not `"Frames"`). The reader should be able to pick their page from the nav alone, without opening three wrong ones first.
 - **Order pages so each leans only on what came before it**, and open each page by placing it: one sentence on what the reader just learned and what this page adds. The prev/next buttons carry the navigation; the opening sentence carries the *thread*.
 
@@ -159,14 +159,14 @@ Reach for a live cell **wherever editing teaches more than reading** — the cou
 
 The `cljs-rf2` rules, each of which bites the first time:
 
-- **Standard preamble:** `(require '[reagent2.core :as r] '[re-frame.core :as rf])` — the `reg-*` family and `dispatch` / `dispatch-sync` / `subscribe` all resolve as functions.
+- **Standard preamble:** `(require '[re-frame.core :as rf])` — the `reg-*` family and `dispatch` / `dispatch-sync` / `subscribe` all resolve (add `'[reagent2.core :as r]` only when the cell uses reagent2 directly). An `(ns …)` form with the same `:require` also works, so a cell can mirror app-file shape exactly.
 - **Top-level forms only** — never wrap the cell in `(do …)`; it breaks the require's alias resolution for everything inside.
 - **The last form must be renderable hiccup** (`[counter]` or a literal `[:div …]`). There is no plain-eval path; anything else renders blank. To show a computed value, wrap it in a tiny display view.
 - **Seed app-db with `rf/dispatch-sync`** before the final view form — plain `dispatch` races the first render.
 - **Cell dialect is plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`** — the cell environment is functions-only, so macro sugar like `reg-view` is unavailable. Don't re-explain this; the reader-facing statement is the plain-`defn` section in [Views: pure functions of data](concepts/views.md#plain-defn-views-and-when-they-break) — link it when a cell and a static listing differ.
 - **One shared registry and app-db per page**, across all cells. Write each cell self-contained (require, registrations, seed, view) and namespace ids (`:demo-a/inc`) when cells must be independent.
 - **Name the eval shortcut once per page** — `Ctrl-Enter` (`Cmd-Enter` on macOS) — the first time you ask for an evaluation; after that, "re-evaluate".
-- **Stay on the proven cell surface** — what shipped cells already exercise: `reg-event`, `reg-sub` (including `:<-` chains), `dispatch` / `dispatch-sync` / `subscribe`, plain `defn` views, and `reg-machine` / `sub-machine`. Flows, interceptors, and routing are **unproven** in the cell environment — a cell reaching for a new surface is exactly the cell you must click in a browser before merging, and the first one that works earns its surface a place on this list.
+- **Stay on the proven cell surface** — what shipped cells already exercise: `reg-event`, `reg-sub` (including `:<-` chains), `dispatch` / `dispatch-sync` / `subscribe`, plain `defn` views, `reg-view` (an SCI macro shim mirrors the real expansion — the injected `dispatch` / `subscribe` work, and ids derive as `:user/<sym>`), `reg-frame` + `frame-provider` `{:frame …}` (a cell can create and scope its own frame; the injected ops resolve it through the context tier), `(ns …)` forms, declared coeffects (`reg-event` with a `{:rf.cofx/requires [...]}` metadata map — `:rf/time-ms` delivers), `reg-flow` (the flows artefact is bundled; a flow registered at cell top level mounts in the harness frame), and `reg-machine` / `sub-machine`. Interceptors and routing are **unproven** in the cell environment — a cell reaching for a new surface is exactly the cell you must click in a browser before merging, and the first one that works earns its surface a place on this list.
 - The rf2 bundle loads on demand, so a page's first cell may take a moment to come alive. After authoring, build and click every cell in a browser — a cell that compiles but doesn't mount is worse than a static block.
 
 ## Standing per-page devices

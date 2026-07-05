@@ -10,11 +10,11 @@ This page builds flows up one step at a time: first the smallest possible flow, 
 
 ## Your first flow
 
-The fastest way to *see* a flow is to take a derivation you already understand and move its answer from the view-cache into app-db. [The quickstart](../quickstart.md) derived a counter's odd/even label as a subscription — a formula cell over the `:counter/value` fact:
+The fastest way to *see* a flow is to take a derivation you already understand and move its answer from the view-cache into app-db. [Subscriptions](subscriptions.md) derived the counter's odd/even label as a formula cell over the `:value` fact:
 
 ```clojure
-(rf/reg-sub :counter/parity
-  :<- [:counter/value]
+(rf/reg-sub :parity
+  :<- [:value]
   (fn [n _query] (if (odd? n) :odd :even)))
 ```
 
@@ -22,18 +22,49 @@ Here is the *same* label as a flow. Same pure function, no new domain:
 
 ```clojure
 ;; Flows live in their own namespace: (:require [re-frame.flows]) once, somewhere in your app.
-(rf/reg-flow :counter/parity
+(rf/reg-flow :parity
   {:doc    "Whether the count is odd or even, materialised into app-db."
-   :inputs [[:counter/value]]                  ;; paths to watch (bare = app-db)
-   :output-path [:counter/parity]}             ;; the app-db path the answer is written to
+   :inputs [[:value]]                  ;; paths to watch (bare = app-db)
+   :output-path [:parity]}             ;; the app-db path the answer is written to
   (fn [n] (if (odd? n) :odd :even)))           ;; pure: input values, in order → output
 ```
 
-Read it top to bottom and the shape is a sentence: *watch `[:counter/value]`; when it changes, run `(fn [n] …)`; write the result to `[:counter/parity]`.* That's the whole idea. The input values arrive at `:derive` positionally — one input here, so `:derive` takes one argument — and the result lands at the app-db `:output-path`.
+Read it top to bottom and the shape is a sentence: *watch `[:value]`; when it changes, run `(fn [n] …)`; write the result to `[:parity]`.* That's the whole idea. The input values arrive at the derive fn — the third slot — positionally: one input here, so it takes one argument — and the result lands at the app-db `:output-path`.
 
-From now on, every event that changes `:counter/value` also recomputes `:counter/parity`. And here's the part worth pausing on: the recompute is part of the *same write*. An [event pipeline](../glossary.md#event-pipeline) run in re-frame2 doesn't dribble out a sequence of little app-db mutations; it gathers up everything it wants to change and installs it as one all-or-nothing write — the glossary's word for that is **[commit](../glossary.md#commit)**, and we'll lean on it from here. A flow runs after the event's handler (and after the rest of the interceptor chain has finished shaping `:db`) and *before* that commit, so the handler's change and the fresh flow output land together, in a single commit. Views never see a half-updated state where the counter ticked but the label hasn't caught up.
+Here it is running — note the view reads parity with an ordinary app-db subscription, because the answer now *is* state:
 
-The flow also skips recomputing when its inputs didn't actually change value — write the same `:counter/value` back and the flow stays quiet, which keeps the cost honest. (This input-changed test is the flow's **dirty-check**, a name worth remembering — it comes back later.)
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :initialise
+  (fn [{:keys [db]} _] {:db (assoc db :value 0)}))
+(rf/reg-event :inc
+  (fn [{:keys [db]} _] {:db (update db :value inc)}))
+
+;; the new idea: the derivation is materialised INTO app-db
+(rf/reg-flow :parity
+  {:inputs [[:value]]
+   :output-path [:parity]}
+  (fn [n] (if (odd? n) :odd :even)))
+
+;; both subs are now plain app-db reads
+(rf/reg-sub :value  (fn [db _] (:value db)))
+(rf/reg-sub :parity (fn [db _] (:parity db)))
+
+(rf/reg-view flow-counter []
+  [:div
+   [:button {:on-click #(dispatch [:inc])} "+"]
+   [:span " " @(subscribe [:value])
+    " is " (some-> @(subscribe [:parity]) name)]])
+
+(rf/dispatch-sync [:initialise])
+[flow-counter]
+```
+
+
+From now on, every event that changes `:value` also recomputes `:parity`. And here's the part worth pausing on: the recompute is part of the *same write*. An [event pipeline](../glossary.md#event-pipeline) run in re-frame2 doesn't dribble out a sequence of little app-db mutations; it gathers up everything it wants to change and installs it as one all-or-nothing write — the [**commit**](../glossary.md#commit) you've met on every page since the introduction. A flow runs after the event's handler (and after any cross-cutting [interceptors](../glossary.md#interceptor) — a later page — have finished shaping `:db`) and *before* that commit, so the handler's change and the fresh flow output land together, in a single commit. Views never see a half-updated state where the counter ticked but the label hasn't caught up.
+
+The flow also skips recomputing when its inputs didn't actually change value — write the same `:value` back and the flow stays quiet, which keeps the cost honest. (This input-changed test is the flow's **dirty-check**, a name worth remembering — it comes back later.)
 
 !!! note "A flow is a derivation whose answer your handlers can read"
 
@@ -41,9 +72,9 @@ The flow also skips recomputing when its inputs didn't actually change value —
 
 ### What changed, and what didn't
 
-- **The view doesn't change.** It still reads `@(rf/subscribe [:counter/parity])`. Only the sub's body changes, from *computing* the answer to *reading* it: `(rf/reg-sub :counter/parity (fn [db _query] (:counter/parity db)))`. Flows publish no special subscription ids — the output path *is* the contract, and anything that reads app-db can read it.
-- **Handlers can now read it.** Any event handler can ask `(:counter/parity db)` as plain data. With the sub version that answer was stranded in the view-cache — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
-- **You never write the output path.** You keep writing `:counter/value` through ordinary handlers. The runtime is the sole author of `[:counter/parity]`.
+- **The view doesn't change.** It still reads `@(rf/subscribe [:parity])`. Only the sub's body changes, from *computing* the answer to *reading* it: `(rf/reg-sub :parity (fn [db _query] (:parity db)))`. Flows publish no special subscription ids — the output path *is* the contract, and anything that reads app-db can read it.
+- **Handlers can now read it.** Any event handler can ask `(:parity db)` as plain data. With the sub version that answer was stranded in the view-cache — visible to views, invisible to handlers. A handler always sees the output as of the last completed event; if the handler itself changes an input, the recompute happens right after it, inside that same event's single commit.
+- **You never write the output path.** You keep writing `:value` through ordinary handlers. The runtime is the sole author of `[:parity]`.
 
 ??? info "From re-frame v1"
 
@@ -59,23 +90,23 @@ The flow also skips recomputing when its inputs didn't actually change value —
 
 ### A flow belongs to a frame
 
-One thing to know before you copy this, because it trips people up: a flow belongs to a [frame](../glossary.md#frame) — the isolated runtime instance that owns one app-db. Register it inside your app's frame scope: the `with-frame` your boot dispatch already runs in, or an explicit `{:frame ...}` second argument. Register it from inside an event handler (via `:rf.fx/reg-flow`, below) and the dispatching frame is carried for you automatically. That's the framework's standing rule — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — applied to flow registration.
+One thing to know before you copy this, because it trips people up: a flow belongs to a [frame](../glossary.md#frame) — the isolated runtime instance that owns one app-db. Register it inside your app's frame scope — the one your boot established ([Frames](frames.md) shows that wiring) — or pass an explicit `{:frame ...}` second argument. Register it from inside an event handler (via `:rf.fx/reg-flow`, below) and the dispatching frame is carried for you automatically. That's the framework's standing rule — [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — applied to flow registration.
 
 Outside any scope, `reg-flow` refuses with `:rf.error/no-frame-context` rather than guessing which frame you meant.
 
-Now dispatch `[:counter/inc]` and open [Xray](../glossary.md#xray). The event's row records the handler's change and, in the same commit, the flow's recompute — the write to `[:counter/parity]` attributed to the flow that made it. Restore an older [epoch](../glossary.md#epoch) and parity travels back with the rest of app-db. Because a materialised value is ordinary state, [time-travel](../glossary.md#time-travel) and the inspector get it for free.
+Now dispatch `[:inc]` and open [Xray](../glossary.md#xray). The event's row records the handler's change and, in the same commit, the flow's recompute — the write to `[:parity]` attributed to the flow that made it. Restore an older [epoch](../glossary.md#epoch) and parity travels back with the rest of app-db. Because a materialised value is ordinary state, [time-travel](../glossary.md#time-travel) and the inspector get it for free.
 
 The honest part: the counter's parity should *stay* a subscription. Nothing but the view reads it, so materialising it buys nothing and costs an app-db write per click. We re-expressed it only to learn the shape with familiar material. Next, a value that genuinely *earns* a flow.
 
-## The registration map, key by key
+## The registration, slot by slot
 
-`reg-flow` takes one map. Four keys are required; the rest are optional, and you reach for them as the need arises.
+`reg-flow` takes three slots — `(reg-flow flow-id metadata derive-fn)` — and the page's examples have used all three. The first slot is the **flow id**: namespace it by feature (`:editor/can-submit?`, `:cart/total`) the same way you namespace events and subs. The third is the **derive fn**: a pure function of the resolved input values (one argument per `:inputs` entry, in order) returning the output — deterministic, same inputs, same output. (Leaving a `:derive` key inside the metadata map instead is a loud registration error; the fn's one home is the third slot.)
+
+The middle slot is the **metadata map**. Two keys are required; the rest are optional, and you reach for them as the need arises.
 
 | Key | Required? | Meaning |
 |---|---|---|
-| `:id` | yes | The flow's unique identifier. Namespace it by feature (`:editor/can-submit?`, `:cart/total`) the same way you namespace events and subs. |
-| `:inputs` | yes | A vector of paths to watch. A **bare** path reads app-db; a path led by **`:rf.db/runtime`** reads [runtime-db](../glossary.md#runtime-db) (route / machine state). Their values arrive at `:derive` positionally, in this order. |
-| `:derive` | yes | A pure function of the resolved input values (one argument per `:inputs` entry, in order) returning the output. Must be deterministic — same inputs, same output. |
+| `:inputs` | yes | A vector of paths to watch. A **bare** path reads app-db; a path led by **`:rf.db/runtime`** reads [runtime-db](../glossary.md#runtime-db) (route / machine state). Their values arrive at the derive fn positionally, in this order. |
 | `:output-path` | yes | The **app-db** path the result is written to. Always app-db — a flow never writes runtime-db, even when it reads one. |
 | `:doc` | no | A one-sentence what-and-why. Surfaces in Xray and the rest of the tooling; you'll thank yourself later. |
 | `:schema` | no | A Malli [schema](../glossary.md#schema) for the output value, checked in dev on every recompute. See [Validating a flow's output](#validating-a-flows-output). |
@@ -233,7 +264,7 @@ The same atomic rule covers a throw in a [coeffect](../glossary.md#coeffect) sup
 
 ## Toggling a derivation at runtime
 
-Here's the trick a materialised view in a database can't do: you can switch a flow on and off *while the app runs*. Because flows are registered against the runtime rather than compiled into event chains, they're data the framework holds in a registry — and data can be added or removed at any time. Two reserved [effects](../glossary.md#effect) — actions the framework performs on a handler's behalf — do it: `:rf.fx/reg-flow` (register a flow map) and `:rf.fx/clear-flow` (remove one by id). Use this for a wizard step's derived check, a feature gate, an "advanced mode" — derivations that should only run while something is engaged:
+Here's the trick a materialised view in a database can't do: you can switch a flow on and off *while the app runs*. Because flows are registered against the runtime rather than compiled into event chains, they're data the framework holds in a registry — and data can be added or removed at any time. Two reserved [effects](../glossary.md#effect) — actions the framework performs on a handler's behalf — do it: `:rf.fx/reg-flow` (register a flow — the same 3-slot triple) and `:rf.fx/clear-flow` (remove one by id). Use this for a wizard step's derived check, a feature gate, an "advanced mode" — derivations that should only run while something is engaged:
 
 ```clojure
 ;; Condensed from examples/core/flows/core.cljs — a 10%-off feature gate
@@ -263,7 +294,7 @@ The fx variant is the common one because most toggling happens *inside* event ha
 
 ;; can-submit-flow is the 3-slot triple [id metadata derive-fn], so `apply` it:
 (rf/with-frame :scratch
-  (apply rf/reg-flow can-submit-flow))             ;; frame from the surrounding scope
+  (apply flows/reg-flow can-submit-flow))             ;; frame from the surrounding scope
 ;; or register with an explicit frame — :frame is a metadata key (the middle slot):
 (let [[id metadata derive-fn] can-submit-flow]
   (rf/reg-flow id (assoc metadata :frame :scratch) derive-fn))
@@ -297,12 +328,12 @@ A flow splits into the two layers you'd expect, and each tests like everything e
 ```clojure
 (deftest parity-materialises-with-the-write
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/reg-flow :counter/parity                   ;; frame comes from the surrounding scope
-                 {:inputs [[:counter/value]]
-                  :output-path [:counter/parity]}
+    (rf/reg-flow :parity                   ;; frame comes from the surrounding scope
+                 {:inputs [[:value]]
+                  :output-path [:parity]}
                  (fn [n] (if (odd? n) :odd :even)))
-    (rf/dispatch-sync [:rf/set-db {:counter/value 3}])
-    (is (= :odd (get-in (rf/app-db-value f) [:counter/parity])))))
+    (rf/dispatch-sync [:rf/set-db {:value 3}])
+    (is (= :odd (get-in (rf/app-db-value f) [:parity])))))
 ```
 
 `with-new-frame` pins the frame for the body, so `reg-flow` seats the flow there without an explicit `{:frame …}` — and tears the frame down on exit, so nothing leaks into the next test. Note the one-event lag doesn't bite here: it applies to a flow registered *mid-event* via the fx; a flow registered before the dispatch (as above) computes with that first event's commit.

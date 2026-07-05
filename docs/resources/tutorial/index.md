@@ -1,12 +1,12 @@
 # Build RealWorld — what you'll make, and setup
 
-The [quickstart](../../core/quickstart.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
+The [quickstart](../../core/first-app.md) taught you the loop in a browser cell, with nothing installed and no server on the other end. That was the idea in a petri dish. Now you'll grow it into a real app on the real toolchain: **Conduit**, a working Medium-style blogging app — feeds, tags, auth, favoriting, posting, tests, and a production build. This page orients you (where the five parts go) and scaffolds the project (the part the quickstart hid). Budget five minutes from `npm install` to pixels.
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark — which means the same app already exists in React, Vue, Svelte, Solid, and Elm. So every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have built a real app, not a toy: **one app, grown a part at a time.** And you'll grow it the same way you worked the quickstart — *do* a thing, *observe* what the app actually did, *explain* why. (That **do → observe → explain** loop is the spine of this whole tutorial; the *observe* step is where [Xray](../../core/glossary.md#xray), the inspector you'll set up below, earns its keep.)
 
 !!! note "Haven't done the quickstart?"
 
-    [Do that first.](../../core/quickstart.md) It teaches the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
+    [Do that first.](../../core/first-app.md) It teaches the loop — [events](../../core/glossary.md#event) → [app-db](../../core/glossary.md#app-db) → [subs](../../core/glossary.md#subscription) → [views](../../core/glossary.md#view) — right in your browser, with nothing installed. This page assumes you've felt that rhythm at least once.
 
 ## One app, five parts
 
@@ -269,4 +269,4 @@ Xray auto-opened with the app, and `Ctrl+Shift+C` toggles it. Take a moment to l
 - **The event spine** shows one row: `:app/initialise`. That's not a log line you wrote — it's the runtime's own record of the only thing that has happened so far.
 - **app-db** shows `{:session {:user nil}}` — exactly the value the boot event returned.
 
-One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. (The framework keeps *its* own state in a separate partition, [runtime-db](../../core/glossary.md#runtime-db), which Xray will also show you once routing and resources start using it.) [Debug with Xray](../../core/how-to/debug-with-xray.md) is the deeper tour when you want it.
+One event, one state, nothing else. **Keep Xray open for the whole tutorial.** This is the *observe* step of the do → observe → explain loop in the flesh — so when something misbehaves later, you won't reach for print statements, you'll just read what the app actually did. (The framework keeps *its* own state in a separate partition, [runtime-db](../../core/glossary.md#runtime-db), which Xray will also show you once routing and resources start using it.) [Debug with Xray](../../xray/index.md) is the deeper tour when you want it.

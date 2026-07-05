@@ -158,31 +158,31 @@ nav:
     - "ClojureScript for non-Clojurians": cljs/index.md
 
   - Core:
-    # navigation.indexes: the section label IS the Guide overview page (no
-    # redundant "Overview" child) — see theme.features (rf2-qgpkm).
-    - core/README.md
-    # Human-first structure: quickstart (a taste) -> the loop (the model,
-    # on the counter) -> the RealWorld tutorial (build something real) -> the
-    # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
-    # migration -> glossary -> API reference. The fundamentals come BEFORE the
-    # tutorial so the reader meets the one-way loop before a real domain.
-    # The loop pages are NUMBERED in pipeline order (events -> effects ->
-    # subs -> views, with app-db as the centre) and every label carries a
-    # descriptive tail, so the nav itself reads as the learning track.
-    - "Quickstart: a counter in five minutes": core/quickstart.md
-    - "The loop, one piece at a time":
-      - core/concepts/index.md
-      - "1. Events and the pipeline": core/concepts/events-and-the-pipeline.md
-      - "2. app-db: state in one place": core/concepts/app-db.md
-      - "3. Effects and coeffects: the world": core/concepts/effects-and-coeffects.md
-      - "4. Subscriptions: derived values": core/concepts/subscriptions.md
-      - "5. Views: render the data": core/concepts/views.md
+    # The Introduction is an explicit titled row rather than a
+    # navigation.indexes section index: the LHS should read "Introduction",
+    # not repeat the section label "Core".
+    - Introduction: core/introduction.md
+    # Growth-order track: Introduction (the model) -> Our First App (the
+    # whole counter, live) -> numbered pages that each grow the SAME counter
+    # by exactly one concept, live cell first, depth after. Read side
+    # completes first (app-db -> subs -> views), then the write side deepens
+    # (effects -> coeffects), then scheduling, flows, frames, interceptors,
+    # errors. Every label carries a descriptive tail so the nav reads as the
+    # learning track.
+    - Our First App: core/first-app.md
+    - "One concept at a time":
+      - "1. app-db: state in one place": core/concepts/app-db.md
+      - "2. Subscriptions: derived values": core/concepts/subscriptions.md
+      - "3. Views: render the data": core/concepts/views.md
+      - "4. Effects: the way out": core/concepts/effects.md
+      - "5. Coeffects: the way in": core/concepts/coeffects.md
+      - "6. Run to completion: the queue settles": core/concepts/run-to-completion.md
+      - "7. Flows: derived values for handlers": core/concepts/flows.md
+      - "8. Frames: isolated worlds": core/concepts/frames.md
+      - "9. Interceptors: cross-cutting behaviour": core/concepts/interceptors.md
+      - "10. Errors: failures as data": core/concepts/errors.md
     - "Beyond the loop":
-      - "Frames: isolated worlds": core/concepts/frames.md
-      - "Flows: derived values for handlers": core/concepts/flows.md
-      - "Interceptors: cross-cutting behaviour": core/concepts/interceptors.md
       - "Images: a frame's registrations": core/concepts/images.md
-      - "Errors: failures as data": core/concepts/errors.md
       - "Observability: one wire, every tool": core/concepts/observability.md
     - "How-to recipes":
       - core/how-to/index.md
@@ -190,7 +190,6 @@ nav:
       - "Add auth": core/how-to/add-auth.md
       - "Build a form": core/how-to/build-a-form.md
       - "Validate with schemas": core/how-to/validate-with-schemas.md
-      - "Debug with Xray": core/how-to/debug-with-xray.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
       - "Report errors in production": core/how-to/report-errors-in-production.md

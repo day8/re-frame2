@@ -280,7 +280,7 @@ And a fourth thing worth knowing when you read a *real* graph: **the families ar
 
     The law is what lets conformance tests verify a node by recomputing it, and lets a tool trust declared edges and classifications without executing your app code. It also pins down what optimizations are *allowed*: anything that preserves the observable value (memoization, equality pruning, dirty checks, deltas) is legal; anything that changes it is a bug, not a feature. The composer that stitches the per-family views together reaches each family through a contributor seam and simply skips any family that isn't present — which is why the graph degrades gracefully to whatever the app loaded.
 
-To see one live, open [Xray](glossary.md#xray) on a running app. The panel that draws the dependency graph renders exactly this assembled view — one node per algebra view, one arrow per edge record — even though the mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot. [Debug with Xray](how-to/debug-with-xray.md) shows the workflow.
+To see one live, open [Xray](glossary.md#xray) on a running app. The panel that draws the dependency graph renders exactly this assembled view — one node per algebra view, one arrow per edge record — even though the mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot. [Debug with Xray](../xray/index.md) shows the workflow.
 
 ## When the graph is wrong: errors as graph facts
 

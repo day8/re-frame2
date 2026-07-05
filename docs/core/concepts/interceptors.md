@@ -52,10 +52,12 @@ Registering an interceptor doesn't run it — you have to put it in a handler's 
 
 ```clojure
 (rf/reg-event :cart.item/add
-  {:doc          "Add an item to the cart."
-   :interceptors [:my-app/logger]}        ;; a reference, not the interceptor value
+  {:doc               "Add an item to the cart."
+   :interceptors      [:my-app/logger]    ;; a reference, not the interceptor value
+   :rf.cofx/requires  [:rf/time-ms]}      ;; declared so the ctx below carries it
   (fn [{:keys [db]} [_ item]]
-    {:db (update db :cart/items conj item)}))
+    {:db (update db :cart/items conj item)
+     :fx [[:dispatch [:toast/show "Added"]]]}))
 ```
 
 That bare keyword `:my-app/logger` *names* the registered interceptor; the runtime resolves it at dispatch time. Dispatch `[:cart.item/add ...]` now and the console shows the trip in and the timed trip out.
@@ -72,7 +74,7 @@ We've been reaching into `ctx` with `get-in [:coeffects :event]`. Time to look a
 
 | Key | Holds | Filled by |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: `:event`, `:db`, plus each world fact the handler declared with [`:rf.cofx/requires`](effects-and-coeffects.md) — flat, under its own id | The runtime — completely, *before* the chain runs |
+| `:coeffects` | The handler's **inputs**: `:event`, `:db`, plus each world fact the handler declared with [`:rf.cofx/requires`](coeffects.md) — flat, under its own id | The runtime — completely, *before* the chain runs |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector | The handler; then decorated by `:after` stages on the way out |
 
 Caught mid-chain, just after the handler has run, the map looks like this:
@@ -85,7 +87,7 @@ Caught mid-chain, just after the handler has run, the map looks like this:
              :fx [[:dispatch [:toast/show "Added"]]]}}
 ```
 
-This is the same `:coeffects` / `:effects` pair you met in [effects and coeffects](effects-and-coeffects.md): coeffects are the world facts a handler reads, effects are the descriptions it writes. Interceptors live in the gap between them. So the whole mental model fits in one line:
+This is the same `:coeffects` / `:effects` pair you met in [effects](effects.md) and [coeffects](coeffects.md): coeffects are the world facts a handler reads, effects are the descriptions it writes. Interceptors live in the gap between them. So the whole mental model fits in one line:
 
 - a **`:before`** sees only `:coeffects` — the outputs don't exist yet;
 - an **`:after`** sees both `:coeffects` *and* `:effects`.
@@ -134,7 +136,7 @@ The handler doesn't know it's wrapped, and an interceptor doesn't know what it w
 
 ### Inputs are complete before the chain runs
 
-Notice the table said `:coeffects` is filled "completely, *before* the chain runs." That's a deliberate guarantee. By the time the first `:before` runs, `:coeffects` is finished — `:db`, `:event`, and every fact the handler declared via [`:rf.cofx/requires`](effects-and-coeffects.md) are already delivered. Every interceptor sees the complete input.
+Notice the table said `:coeffects` is filled "completely, *before* the chain runs." That's a deliberate guarantee. By the time the first `:before` runs, `:coeffects` is finished — `:db`, `:event`, and every fact the handler declared via [`:rf.cofx/requires`](coeffects.md) are already delivered. Every interceptor sees the complete input.
 
 The order for one event is:
 
@@ -150,7 +152,7 @@ Coeffect satisfaction is **context assembly**, a step that runs to completion *b
 
 ## The one standard interceptor: `path`
 
-The framework ships exactly one standard interceptor, and you reference it with a second kind of reference — an `[id arg]` vector. `[:rf.interceptor/path <path-vector>]` **focuses** a handler on an [`app-db`](../glossary.md#app-db) sub-slice: on the way in it stages just that slice as the handler's `:db`; on the way out it widens the returned slice back into the full `app-db`.
+Core ships exactly one standard interceptor (the schemas artefact contributes a second — the boundary validator you'll meet below), and you reference it with a second kind of reference — an `[id arg]` vector. `[:rf.interceptor/path <path-vector>]` **focuses** a handler on an [`app-db`](../glossary.md#app-db) sub-slice: on the way in it stages just that slice as the handler's `:db`; on the way out it widens the returned slice back into the full `app-db`.
 
 ```clojure
 (rf/reg-event :cart/add
@@ -193,11 +195,14 @@ You can build your own `path`-shaped interceptors too. So far a descriptor has b
 Reference it with the bracket form, passing the factory's single arg (need several inputs? pass one map or vector):
 
 ```clojure
-(rf/reg-event :cart.item/add
-  {:interceptors [[:cart/stamp-meta :cart/last-touched]]}
+(rf/reg-event :cart.item/restock
+  {:interceptors      [[:cart/stamp-meta :cart/last-restocked]]
+   :rf.cofx/requires  [:rf/time-ms]}   ;; the :after reads it from :coeffects
   (fn [{:keys [db]} [_ item]]
     {:db (update db :cart/items conj item)}))
 ```
+
+One detail that matters: the factory's `:after` reads `:rf/time-ms` out of `:coeffects`, and delivery is declared-only — an interceptor sees exactly the facts the *registration* declared, nothing more. Leave the `:rf.cofx/requires` line off and the stamp's `:at` is quietly `nil`. (A fresh event id, too — re-registering `:cart.item/add` here would replace its earlier chain.)
 
 The factory runs once per chain assembly to build the executable interceptor for that arg. Two refs to the *same* factory with *different* args (`[:cart/stamp-meta :a]` and `[:cart/stamp-meta :b]`) are two distinct chain entries, each matchable on its own in overrides — which is exactly why override matching (below) is by full reference, not by id.
 
@@ -260,9 +265,9 @@ Here's the rule from the top of the page, made precise. The chain is part of the
                                         :value (get-in ctx [:effects :db :cart])}]))
 ```
 
-(`:localstorage/set` is the app-registered effect from [effects and coeffects](effects-and-coeffects.md) — its `reg-fx` handler stays the one place that touches the host.)
+(`:localstorage/set` is the app-registered effect from [effects](effects.md) — its `reg-fx` handler stays the one place that touches the host.)
 
-So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play — the schema [boundary validator](../how-to/validate-with-schemas.md) (a second framework-provided reference, attached as `[:rf.schema/at-boundary]`) does this on invalid input, marking the context so the handler becomes a no-op while every `:after` still runs. And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
+So what *are* interceptors allowed to do? Two things. They **decide**: a `:before` can take the handler out of play — the schema [boundary validator](../how-to/validate-with-schemas.md) (a second framework-provided reference, attached by its bare id, `:rf.schema/at-boundary`) does this on invalid input, marking the context so the handler becomes a no-op while every `:after` still runs. And they **decorate**: transform `:coeffects`, rewrite `[:effects :db]`, append `:fx` rows. The actual doing belongs to effect handlers. The one exemption is diagnostics — the logger's `console.log` may stay in the body, because re-executing it on replay is harmless.
 
 !!! warning "Gotcha — a frame interceptor runs on the server too"
 
@@ -273,7 +278,7 @@ So what *are* interceptors allowed to do? Two things. They **decide**: a `:befor
 The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The 7GUIs Circle Drawer example registers it once, under a name, and then events opt in by *referencing* it:
 
 ```clojure
-;; From examples/core/seven_guis/circle_drawer/core.cljs — registered once,
+;; Adapted from examples/core/seven_guis/circle_drawer/core.cljs — registered once,
 ;; then referenced by id from the events that deserve it.
 (rf/reg-interceptor :drawer/undoable
   {:doc "Snapshot the pre-handler circles; on a real change push to :undo and clear :redo."}

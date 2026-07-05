@@ -4,6 +4,42 @@
 
 This page builds that graph one concept at a time: a single named derivation first, then chaining derivations into a graph, then the one rule that makes it fast, then parametric inputs, metadata, testing, and lifecycle. By the end you'll read a subscription's registration and know exactly when it recomputes.
 
+## The counter learns a trick
+
+[Our first app](../first-app.md)'s counter shows its value; suppose we also want to show whether that value is odd or even. The tempting move is to store a parity flag in app-db and keep it updated alongside the value. Don't — odd-or-even isn't a *new* fact, it's a *consequence* of one you already have, and two copies of the same truth is two chances to disagree. Derive it instead, live:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :initialise
+  (fn [{:keys [db]} _] {:db (assoc db :value 5)}))
+
+(rf/reg-event :inc
+  (fn [{:keys [db]} _] {:db (update db :value inc)}))
+
+(rf/reg-event :dec
+  (fn [{:keys [db]} _] {:db (update db :value dec)}))
+
+(rf/reg-sub :value
+  (fn [db _] (:value db)))
+
+;; the new idea: a subscription whose input is ANOTHER subscription
+(rf/reg-sub :parity
+  :<- [:value]
+  (fn [n _] (if (odd? n) :odd :even)))
+
+(rf/reg-view parity-counter []
+  [:div
+   [:button {:on-click #(dispatch [:dec])} "−"]
+   [:span @(subscribe [:value]) " is " (name @(subscribe [:parity]))]
+   [:button {:on-click #(dispatch [:inc])} "+"]])
+
+(rf/dispatch-sync [:initialise])
+[parity-counter]
+```
+
+The `:<-` line is the one new idea: it declares `:value` as the *input*, so `:parity` reads the other subscription rather than reaching into app-db. You've built a two-node spreadsheet — `:value` is a cell, `:parity` is a formula over it — and because the framework knows that dependency, `:parity` recomputes only when its declared input changes, and anything watching it re-renders only when the *answer* changes. (With a step of one, parity flips on every click — the pruning pays off the moment a derivation is coarser than its input, which is exactly what the equality gate below is about.) The rest of this page builds the machinery under that little `:<-`.
+
 ## A subscription is a named derivation
 
 At bottom, a subscription is just a function from app-db to a value some view wants. That's the whole idea. You register it under a keyword id:
@@ -22,7 +58,7 @@ A view reads the current value by deref-ing the subscription:
 
 !!! warning "Gotcha — a wrong sub-id fails loud, not silent"
 
-    Subscribe to an id that was never registered — a typo, a not-yet-loaded namespace — and re-frame2 doesn't quietly hand back `nil` and leave you guessing. It emits `:rf.error/no-such-sub` (an always-on [error record](../glossary.md#error-record) that survives production, carrying the offending `:rf.sub/id`) and recovers the reaction to `nil` so the view still renders. The same id appearing as a `:<-` input of another sub reports the same way. Because the miss isn't cached, registering the sub later — boot order, a lazy load — lets the next subscribe build cleanly against the real body.
+    Subscribe to an id that was never registered — a typo, a not-yet-loaded namespace — and re-frame2 doesn't quietly hand back `nil` and leave you guessing. It emits `:rf.error/no-such-sub` (an always-on [error record](../glossary.md#error-record) that survives production, carrying the offending `:rf.sub/id`) and recovers the subscription to `nil` so the view still renders. The same id appearing as a `:<-` input of another sub reports the same way. Because the miss isn't cached, registering the sub later — boot order, a lazy load — lets the next subscribe build cleanly against the real body.
 
 The vector `[:cart/category-filter]` is the [**query vector**](../glossary.md#query-vector): the id plus any arguments. `[:cart/line-item "sku-1"]` carries one argument. The whole vector arrives as the computation function's second argument — named `_query` above, where the leading underscore is the Clojure convention for "a parameter I'm deliberately ignoring." This sub takes no arguments, so it ignores the query vector entirely.
 
@@ -111,13 +147,12 @@ The gate scales further than you'd guess. The [Cells spreadsheet example](../../
 
 ## Watch it prune
 
-Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. The cell below is self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both. Two names appear that this is the first concept page to use: an [event](../glossary.md#event) is an inert data vector you [`dispatch`](../glossary.md#dispatch) to change state, and [`reg-event`](../glossary.md#event-handler) registers the [event handler](../glossary.md#event-handler) that processes it and returns the next app-db — the scaffolding that lets you watch the gate work, not the subject of this page.
+Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. The cell below is self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both. The `reg-event` / `dispatch` scaffolding is the same you've used since [Our First App](../first-app.md) — it's here to let you watch the gate work, not as the subject of the page.
 
 Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **add item** a few times:
 
 ```cljs-rf2
-(require '[reagent2.core :as r]
-         '[re-frame.core :as rf])
+(require '[re-frame.core :as rf])
 
 (rf/reg-event :cart/initialise
   (fn [{:keys [db]} _event]
@@ -157,7 +192,7 @@ Every add builds a brand-new app-db value, and *both* branches are attached to i
 
     Add a deliberate no-op to the cell — `(rf/reg-event :cart/restate-currency (fn [{:keys [db]} _] {:db (assoc db :cart/currency "USD")}))`, plus a button that dispatches it — and re-evaluate. Clicking it does nothing anywhere: the new app-db is `=` to the old one, so *nothing* recomputes and nothing re-renders. The graph proved nothing changed and went back to sleep.
 
-To see the gate's decisions rather than infer them, run the same shape in your own app with [Xray](../glossary.md#xray) attached (the one-line setup is in [Debug with Xray](../how-to/debug-with-xray.md)): click **add item**, select the newest event row, and open the **Views** tab — `:cart/count-label` is marked as the re-render's trigger while `:cart/currency-label` sits beside it unmarked, never having recomputed.
+To see the gate's decisions rather than infer them, run the same shape in your own app with [Xray](../glossary.md#xray) attached (the one-line setup is in [Debug with Xray](../../xray/index.md)): click **add item**, select the newest event row, and open the **Views** tab — `:cart/count-label` is marked as the re-render's trigger while `:cart/currency-label` sits beside it unmarked, never having recomputed.
 
 ## Parametric inputs: the two-function form
 
@@ -194,7 +229,7 @@ A few things keep this form predictable. The first trips people up, so it leads:
 The other two predictability rules are gentler:
 
 - **It is not on the hot path.** It runs once, when a concrete query vector like `[:article/page :a1]` is first materialised. From then on that entry is an ordinary cached node, and `[:article/page :a2]` is a separate entry with its own inputs.
-- **Dependencies cannot come from app-db.** A sub whose edges changed with state would break disposal, hot reload, and Xray's topology view. So when the parameter you need lives in app-db, read it at the call site and thread it through the query vector:
+- **Dependencies cannot come from app-db.** A sub whose edges changed with state would break disposal (see Lifecycle, below), hot reload, and Xray's topology view. So when the parameter you need lives in app-db, read it at the call site and thread it through the query vector:
 
 ```clojure
 (rf/reg-view article-pane []
@@ -289,7 +324,7 @@ This matters in two everyday ways:
 
 Two functions let you step outside the deref-driven lifecycle deliberately:
 
-- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once query-v {:frame f})` to read a named frame from outside any scope) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, a machine action, or a handler body that genuinely needs a derived value once. The `{:frame f}` opts form mirrors `subscribe`'s — `f` is a frame-id keyword or a live frame object — so the call shape you learned for `subscribe` carries straight over. If you reach for it routinely from a handler, the value probably wants to be a [flow](../glossary.md#flow) instead (see below).
+- **`rf/subscribe-once`** — `(subscribe-once query-v)` (or `(subscribe-once query-v {:frame f})` to read a named frame from outside any scope) subscribes, derefs once, and immediately unsubscribes, returning the plain value. It's a **non-reactive** read: you get the value as of right now and you are *not* registered for change notification. It's the right tool for a one-shot read inside a REPL session, or a handler body that genuinely needs a derived value once. The `{:frame f}` opts form mirrors `subscribe`'s — `f` is a frame-id keyword or a live frame object — so the call shape you learned for `subscribe` carries straight over. If you reach for it routinely from a handler, the value probably wants to be a [flow](../glossary.md#flow) instead (see below).
 - **`rf/unsubscribe`** — `(unsubscribe query-v)` decrements the ref-count by hand, for the rare case where you took a reference programmatically and need to release it. Views never call this; their mount/unmount lifecycle does it for you.
 
 ## Standard registered subscriptions
@@ -326,7 +361,7 @@ A computation function is just code, and code can throw — a `nil` where you as
 
 ### When a schema'd sub computes the wrong shape
 
-If a sub carries a `:schema` (see [Registration metadata](#registration-metadata-docs-schema-and-classification)), the runtime validates the computed value *after* the body runs, at the `:sub-return` boundary. On a mismatch it emits `:rf.error/schema-validation-failure` with `:where :sub-return` and, by default, **surfaces `nil`** to the consumer (the same `:replaced-with-default` posture as a throw) — so a derivation quietly producing the wrong shape is caught at the sub that produced it, not three layers downstream where a view chokes on it. A strict mode re-raises instead, for CI. Like every schema check, this whole boundary is [elided](../glossary.md#elide) in production builds — it's a development guard, not a runtime tax.
+If a sub carries a `:schema` (see [Registration metadata](#registration-metadata-docs-schema-and-classification)), the runtime validates the computed value *after* the body runs, at the `:sub-return` boundary. On a mismatch it emits `:rf.error/schema-validation-failure` with `:where :sub-return` and, by default, **surfaces `nil`** to the consumer (the same recover-to-`nil` posture as a throw) — so a derivation quietly producing the wrong shape is caught at the sub that produced it, not three layers downstream where a view chokes on it. A strict mode re-raises instead, for CI. Like every schema check, this whole boundary is [elided](../glossary.md#elide) in production builds — it's a development guard, not a runtime tax.
 
 !!! warning "Gotcha — subscribing during teardown returns `nil`, loudly"
 

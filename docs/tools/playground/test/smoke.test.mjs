@@ -35,6 +35,9 @@
  *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
  *
  * Asserts the rf2-2h1yhk (eager creation marker) contract:
+ *   - A fourth ```cljs-rf2 cell pins the quickstart shape: (ns ...) form,
+ *     reg-view via the SCI macro shim (injected bare dispatch/subscribe),
+ *     and a cell-created frame (reg-frame + frame-provider {:frame ...}).
  *   - A third ```cljs-rf2 cell dispatches the eager creation marker
  *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword, renamed
  *     from the retired :rf.machine/bootstrap per rf2-gl588) against a machine
@@ -144,6 +147,63 @@ const PAGE = `<!DOCTYPE html>
     [:div
      [:span#rf2-eager-state "state: " (str (:state snap))]]))
 [eager-view]</pre>
+  <h2>reg-view cell (SCI macro shim, frame-scoped)</h2>
+  <pre class="language-cljs-rf2">(ns rf2smoke.rv
+  (:require [re-frame.core :as rf]))
+;; This cell pins the quickstart's exact shape: an (ns ...) form, reg-view
+;; via the SCI macro shim (sci.cljs sci-reg-view) with its INJECTED bare
+;; dispatch / subscribe locals, and a cell-created frame — reg-frame +
+;; frame-provider {:frame ...} — that the injected ops must resolve through
+;; the context tier. Its state lives in :rf2smoke/frame, not the shared
+;; harness frame, so no cross-cell app-db interference is possible.
+(rf/reg-event :rf2smoke/rv-init (fn [_ _] {:db {:rv 0}}))
+(rf/reg-event :rf2smoke/rv-inc  (fn [{:keys [db]} _] {:db (update db :rv inc)}))
+(rf/reg-sub   :rf2smoke/rv      (fn [db _] (:rv db)))
+(rf/reg-view rv-counter []
+  [:div
+   [:span#rf2-rv-cnt "rv: " @(subscribe [:rf2smoke/rv])]
+   [:button#rf2-rv-btn {:on-click #(dispatch [:rf2smoke/rv-inc])} "inc"]])
+(rf/reg-frame :rf2smoke/frame {:initial-events [[:rf2smoke/rv-init]]})
+[rf/frame-provider {:frame :rf2smoke/frame}
+ [rv-counter]]</pre>
+  <h2>declared coeffect cell (:rf.cofx/requires)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
+;; Pins the coeffects-page opener surface: reg-event with a METADATA map
+;; declaring :rf/time-ms, which must arrive flat in the handler's world map
+;; (recorded at enqueue). If delivery regressed, the stamp stays false.
+(rf/reg-event :rf2smoke/stamp-init
+  (fn [{:keys [db]} _] {:db (assoc db :stamp nil)}))
+(rf/reg-event :rf2smoke/stamp
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} _]
+    {:db (assoc db :stamp time-ms)}))
+(rf/reg-sub :rf2smoke/stamp (fn [db _] (:stamp db)))
+(rf/reg-view stamp-view []
+  [:div
+   [:button#rf2-stamp-btn {:on-click #(dispatch [:rf2smoke/stamp])} "stamp"]
+   [:span#rf2-stamp "stamped: " (str (some? @(subscribe [:rf2smoke/stamp])))]])
+(rf/dispatch-sync [:rf2smoke/stamp-init])
+[stamp-view]</pre>
+  <h2>flow cell (reg-flow, rf2 flows artefact)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
+;; Pins the flows artefact in the bundle (guide page 7): rf/reg-flow must
+;; resolve, the flow must recompute at commit when its input changes, and
+;; the output path must be readable as ordinary app-db state.
+(rf/reg-event :rf2smoke/flow-init
+  (fn [{:keys [db]} _] {:db (assoc db :fval 0)}))
+(rf/reg-event :rf2smoke/flow-inc
+  (fn [{:keys [db]} _] {:db (update db :fval inc)}))
+(rf/reg-flow :rf2smoke/parity
+  {:inputs [[:fval]]
+   :output-path [:fparity]}
+  (fn [n] (if (odd? n) "odd" "even")))
+(rf/reg-sub :rf2smoke/fparity (fn [db _] (:fparity db)))
+(rf/reg-view flow-view []
+  [:div
+   [:button#rf2-flow-btn {:on-click #(dispatch [:rf2smoke/flow-inc])} "inc"]
+   [:span#rf2-flow "parity: " (str @(subscribe [:rf2smoke/fparity]))]])
+(rf/dispatch-sync [:rf2smoke/flow-init])
+[flow-view]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -213,7 +273,7 @@ await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 // All cells mount (3 plain-eval + 3 rf2 render: counter + toggle-machine +
 // eager-start-machine).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 6, `6 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 9, `9 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -269,7 +329,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 3, `3 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 6, `6 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
@@ -292,6 +352,18 @@ const rf2EagerErr = await rf2Cells[2].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
 assert(!rf2EagerErr, "re-frame2 eager-start machine cell not flagged error");
+const rf2RegViewErr = await rf2Cells[3].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2RegViewErr, "re-frame2 reg-view cell not flagged error");
+const rf2CofxErr = await rf2Cells[4].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2CofxErr, "re-frame2 declared-coeffect cell not flagged error");
+const rf2FlowErr = await rf2Cells[5].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2FlowErr, "re-frame2 flow cell not flagged error");
 
 // Clicking the button dispatches a re-frame2 event; the v2 subscription updates
 // and the reagent2 view re-renders.
@@ -353,6 +425,65 @@ assert(
   eagerState === "state: :ready",
   `eager [:rf.machine/start] settles :booting -> :ready (got ${JSON.stringify(eagerState)})`
 );
+
+// --- reg-view SCI macro shim ------------------------------------------------
+//
+// reg-view is macro-only on the public surface; the SCI bundle shims it
+// (sci.cljs sci-reg-view) mirroring the real expansion: reg-view* under a
+// :user/<sym> id, injected `dispatch` / `subscribe` locals from a render-time
+// make-capture-frame, and a def'd var. This cell also pins the (ns ...) form
+// and a cell-created frame (reg-frame + frame-provider {:frame ...}): the
+// injected ops must resolve :rf2smoke/frame through the context tier, so the
+// seed lands and the clicks move the count IN THAT frame. If any of it
+// regressed, this cell errors or the clicks below do nothing.
+await page.waitForSelector(".cljs-cell--rf2 #rf2-rv-cnt", { timeout: 20000 });
+const rvBefore = (await page.locator("#rf2-rv-cnt").innerText()).trim();
+console.log("reg-view cell count (initial):", JSON.stringify(rvBefore));
+assert(
+  rvBefore === "rv: 0",
+  `reg-view cell shows initial subscribed count 0 (got ${JSON.stringify(rvBefore)})`
+);
+await page.click("#rf2-rv-btn");
+await page.click("#rf2-rv-btn");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-rv-cnt")?.innerText.trim() === "rv: 2",
+  null,
+  { timeout: 5000 }
+);
+const rvAfter = (await page.locator("#rf2-rv-cnt").innerText()).trim();
+console.log("reg-view cell count (after 2 dispatches):", JSON.stringify(rvAfter));
+assert(
+  rvAfter === "rv: 2",
+  `reg-view injected dispatch/subscribe drive the count to 2 (got ${JSON.stringify(rvAfter)})`
+);
+
+// --- declared coeffect (:rf.cofx/requires) --------------------------------
+await page.waitForSelector(".cljs-cell--rf2 #rf2-stamp", { timeout: 20000 });
+const stampBefore = (await page.locator("#rf2-stamp").innerText()).trim();
+console.log("cofx cell (initial):", JSON.stringify(stampBefore));
+assert(stampBefore === "stamped: false",
+  `cofx cell starts unstamped (got ${JSON.stringify(stampBefore)})`);
+await page.click("#rf2-stamp-btn");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-stamp")?.innerText.trim() === "stamped: true",
+  null, { timeout: 5000 }
+);
+console.log("cofx cell (after click): \"stamped: true\"");
+assert(true, "declared :rf/time-ms delivered into the handler's world map");
+
+// --- reg-flow (flows artefact) ---------------------------------------------
+await page.waitForSelector(".cljs-cell--rf2 #rf2-flow", { timeout: 20000 });
+const flowBefore = (await page.locator("#rf2-flow").innerText()).trim();
+console.log("flow cell (initial):", JSON.stringify(flowBefore));
+assert(flowBefore === "parity: even",
+  `flow recomputed at init commit (got ${JSON.stringify(flowBefore)})`);
+await page.click("#rf2-flow-btn");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-flow")?.innerText.trim() === "parity: odd",
+  null, { timeout: 5000 }
+);
+console.log("flow cell (after click): \"parity: odd\"");
+assert(true, "flow recomputes when its input changes, inside the same commit");
 
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle
 // (Scittle + window.rf2sci coexist without interference).

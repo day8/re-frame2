@@ -2,7 +2,7 @@
 
 Sooner or later your app must talk to a server, and the moment it does you inherit a family of problems: errors, timeouts, retries, loading states, stale replies racing each other.
 
-re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/concepts/effects-and-coeffects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/concepts/events-and-the-pipeline.md)** — success and failure each named:
+re-frame2's answer is the **managed request**. You describe the request as data, return it from a pure [event handler](../core/concepts/effects.md), and finish. The runtime performs it. The reply arrives later as an **ordinary [event](../core/introduction.md)** — success and failure each named:
 
 ```clojure
 {:fx [[:rf.http/managed {:request    {:url "/api/articles/intro"}
@@ -25,7 +25,7 @@ No `await`, no callback nesting, no resumed stack frame. The answer comes back o
 
 Two boundaries worth knowing before you dive in:
 
-- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the event pipeline are async too, and they live in [Effects and coeffects](../core/concepts/effects-and-coeffects.md).
+- This section covers *managed* async — effects whose completion returns as a reply event. That's narrower than "async" in general: the event loop, `dispatch-later`, and the event pipeline are async too, and they live in [Effects](../core/concepts/effects.md) and [Run to completion](../core/concepts/run-to-completion.md).
 - For the *cache* over server reads — staleness, invalidation, scope — see [Resources](../resources/index.md), which rides on managed HTTP underneath. This section is the transport.
 
 !!! note "Setup"

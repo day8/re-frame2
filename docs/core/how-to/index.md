@@ -4,7 +4,7 @@ You've got a working app and one task in front of you. Each page here is a recip
 
 > **Find the task, follow the recipe.**
 
-These recipes assume you've already built something — the [quick start](../quickstart.md) gets you there — and that the loop is familiar. Every dispatch sets off one traversal of the [**event pipeline**](../glossary.md#event-pipeline): the fixed, ordered run — [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM — that the *six dominoes* name as a first-contact mnemonic. [The model](../concepts/index.md) walks all six in a single page, and it's worth the few minutes, because every recipe below is one stage of that pipeline filled in for a real feature. Each recipe links to the concept page that owns the *why*, right where it's relevant.
+These recipes assume you've already built something — the [quick start](../first-app.md) gets you there — and that the loop is familiar. Every dispatch sets off one traversal of the [**event pipeline**](../glossary.md#event-pipeline): the fixed, ordered run — [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM — that the *six dominoes* name as a first-contact mnemonic. [The model](../introduction.md) walks all six in a single page, and it's worth the few minutes, because every recipe below is one stage of that pipeline filled in for a real feature. Each recipe links to the concept page that owns the *why*, right where it's relevant.
 
 The recipes are grouped by where they sit in the life of an app — **build it**, then, when something's off, **debug it**, and finally **ship it**. (Testing has grown into [its own section](../testing/index.md) — handlers, subscriptions, views, and whole pipeline runs, one page each.) You don't read the recipes in order; drop into the group that matches what's in front of you. Each is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
 
@@ -27,7 +27,7 @@ When the app does something you didn't ask for, you don't reach for `println` �
 
 | I want to… | Recipe |
 |---|---|
-| see exactly why the app just did that | [Debug with Xray](debug-with-xray.md) |
+| see exactly why the app just did that | [Debug with Xray](../../xray/index.md) |
 | find the view that re-renders too much, and stop it | [Find and fix a slow view](fix-a-slow-view.md) |
 
 !!! note

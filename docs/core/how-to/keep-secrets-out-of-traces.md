@@ -86,7 +86,7 @@ You reach for `:clear-*` rarely — when a value disappears its redaction effect
 
 ## Classify a transient payload on the registration
 
-Not every secret lives in app-db. Some *flow through* the [event pipeline](../concepts/events-and-the-pipeline.md) — the fixed, ordered run one dispatch sets off — passing through event args, fx/cofx values, or a [subscription](../glossary.md#subscription)'s output, and never coming to rest at an app-db path. These are owned by the [registration](../glossary.md#registration) that introduces their shape. Declare the sensitive paths right there, in the registration map, relative to the payload:
+Not every secret lives in app-db. Some *flow through* the [event pipeline](../introduction.md) — the fixed, ordered run one dispatch sets off — passing through event args, fx/cofx values, or a [subscription](../glossary.md#subscription)'s output, and never coming to rest at an app-db path. These are owned by the [registration](../glossary.md#registration) that introduces their shape. Declare the sensitive paths right there, in the registration map, relative to the payload:
 
 ```clojure
 (rf/reg-event :auth/sign-in

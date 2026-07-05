@@ -211,7 +211,7 @@ The `:after` is a declarative timer: it arms when you enter `:submitting` and ca
 
 !!! note "Do, then observe"
 
-    Dispatch a submit with [Xray](../core/how-to/debug-with-xray.md) open. The request leaves; when the reply returns, the transition shows up as an ordinary event row — snapshot before and after — riding the same trace stream as everything else.
+    Dispatch a submit with [Xray](../xray/index.md) open. The request leaves; when the reply returns, the transition shows up as an ordinary event row — snapshot before and after — riding the same trace stream as everything else.
 
 ## Step 5 — render every state
 

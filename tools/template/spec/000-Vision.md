@@ -78,7 +78,7 @@ and recognises the shape. That continuity is deliberate.
   adapter coord differ.
 - **Counter as canonical example.** The generated counter is the
   same shape the developer reads about in [the Guide quickstart
-  — a counter in five minutes](../../../docs/core/quickstart.md).
+  — a counter in five minutes](../../../docs/core/first-app.md).
   What the template emits is what the guide walks through.
 - **Lockstep with the reference implementation's pins.** The
   shadow-cljs / react pins the template emits track
@@ -167,6 +167,6 @@ the split is rf2-7jgkv (rf2-dolpf §4).
 - [API.md](API.md) — the consolidated public invocation surface.
 - [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) — WHY each major call
   was made.
-- [Quickstart — your first app](../../../docs/core/quickstart.md)
+- [Quickstart — your first app](../../../docs/core/first-app.md)
   — the worked-example throughline the template's generated counter
   aligns with.

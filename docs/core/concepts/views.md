@@ -8,7 +8,38 @@ This page builds that sentence up one piece at a time. We'll start with the outp
 
 ??? info "For JavaScript developers"
 
-    A re-frame2 view is a React function component with everything except rendering removed. There's no `useState`, because state lives in [app-db](app-db.md) — your app's single state map — and arrives through [subscriptions](subscriptions.md). There's no `useEffect`, because anything that touches the world is an [effect](effects-and-coeffects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. And there's no JSX, because a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
+    A re-frame2 view is a React function component with everything except rendering removed. There's no `useState`, because state lives in [app-db](app-db.md) — your app's single state map — and arrives through [subscriptions](subscriptions.md). There's no `useEffect`, because anything that touches the world is an [effect](effects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. And there's no JSX, because a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
+
+## The counter gets components
+
+[Our first app](../first-app.md) rendered the whole counter in one view. Real screens are built from *pieces* — and views compose exactly the way the hiccup they return does. Here's the counter split into three registered views: a display, a reusable button, and a parent that assembles them:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :initialise (fn [_ _] {:db {:value 0}}))
+(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :value inc)}))
+(rf/reg-event :dec (fn [{:keys [db]} _] {:db (update db :value dec)}))
+(rf/reg-sub :value (fn [db _] (:value db)))
+
+;; the new idea: views compose — each piece registered, each pure
+(rf/reg-view counter-display []
+  [:span {:style {:margin "0 0.5em"}} @(subscribe [:value])])
+
+(rf/reg-view counter-button [label event]
+  [:button {:on-click #(dispatch event)} label])
+
+(rf/reg-view counter []
+  [:div
+   [counter-button "−" [:dec]]
+   [counter-display]
+   [counter-button "+" [:inc]]])
+
+(rf/dispatch-sync [:initialise])
+[counter]
+```
+
+Three things to notice, each of which the rest of this page unpacks. A child view is used *as data* — `[counter-button "−" [:dec]]` is just a vector whose tail is the child's arguments, so `counter-button` renders twice with different args and never knows it. The display subscribes for itself — the parent doesn't fetch the value and pass it down, so only `counter-display` re-renders when the value changes. And the button takes the *event to announce* as an argument — passing events as data is how a piece stays reusable without knowing what its click means.
 
 ## Hiccup: the screen is data
 
@@ -60,7 +91,7 @@ This declares "I depend on this derived value. Re-run me when it changes." That'
 [:button {:on-click #(rf/dispatch [:cart/add id])} "Add"]
 ```
 
-A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](../glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is [Events & the pipeline](events-and-the-pipeline.md).)
+A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](../glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is the [Introduction](../introduction.md)'s subject.)
 
 Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with.
 
@@ -73,8 +104,7 @@ Notice the shape of the round trip, because it's the whole idea. A click never m
 Here is a view doing its whole job: subscribe in, dispatch out, hiccup between. Click into the cell, press **Ctrl-Enter** (**Cmd-Enter** on macOS) to evaluate, then click the buttons.
 
 ```cljs-rf2
-(require '[reagent2.core :as r]
-         '[re-frame.core :as rf])
+(require '[re-frame.core :as rf])
 
 ;; A line in the shopping cart: one quantity you can step up and down.
 (rf/reg-event :views.qty/initialise
@@ -128,10 +158,6 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
 !!! note "Hot-reload just works"
 
     Re-evaluating a `reg-view` form overwrites its registry entry, and mounted instances pick up the new body on their next render — no manual remount, no cache to bust. The wrapper resolves the render fn through the registry on every render, so a saved edit (or a REPL re-eval) flows through immediately. The runtime also emits a `:rf.registry/handler-replaced` trace event on the swap, which is how tooling refreshes its view list.
-
-!!! note "Why every live cell uses `defn`"
-
-    The cells in this guide run in a functions-only environment where `reg-view` isn't available, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell supplies the frame scope. So a cell and a prose listing of the same view differ in exactly this one way — same view, two spellings. In project code, write `reg-view`.
 
 !!! note "`reg-view` is the Reagent surface"
 
@@ -301,7 +327,7 @@ Ask the "after" view what it does: all it does is walk the list and emit `<li>`s
 
     Pushing computation into the view is the single most common way re-frame2 apps get accidentally slow, because the work re-runs on every render instead of only when its inputs change. The hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
-!!! note "What's the `^{:key (:id p)}` for?"
+!!! note "What's the `^{:key (:id item)}` for?"
 
     Same as React's `key`. When you emit a *list* of elements, give each a stable identity so the substrate diffs by identity instead of position — insert or remove one item and only that item's DOM moves, not everything below it. Attach it as metadata on the element (`^{:key v} [:li ...]`) and key by something durable from the data, never the loop index. More on why this matters for big lists in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
@@ -326,7 +352,7 @@ Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the who
   [:div {:on-animation-end #(rf/dispatch [:tile/finished])}])
 ```
 
-Rule of thumb: if a synthetic prop exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job. It belongs in a registered [effect](effects-and-coeffects.md), which captures the frame for you. The loud failure is deliberate: the runtime refuses to guess which world a frameless dispatch belongs to.
+Rule of thumb: if a synthetic prop exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job. It belongs in a registered [effect](effects.md), which captures the frame for you. The loud failure is deliberate: the runtime refuses to guess which world a frameless dispatch belongs to.
 
 !!! warning "It's still wrong inside a `reg-view`"
 
@@ -359,7 +385,7 @@ Step back and notice what all this buys you at debugging time. A view holds no s
 
 > **When something renders wrong, the bug is almost never in the view — it's in the data the view was handed.**
 
-So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](events-and-the-pipeline.md) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../how-to/debug-with-xray.md)).
+So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](../glossary.md#event-handler) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../../xray/index.md)).
 
 The render itself is observable too, which helps with the *other* failure mode — not "wrong value" but "why did this re-render at all?" Each render emits a [trace event](../glossary.md#trace-event) keyed by a `:render-key` — the tuple `[view-id instance-token]`, where the token disambiguates two mounted instances of the same view (`[:cart/row 1473]` vs `[:cart/row 1474]`). The entry also carries what *triggered* the render (the sub or props that changed) and the view's render args, so an over-rendering view shows its cause rather than leaving you to guess.
 
