@@ -1,8 +1,12 @@
 # Where should this value live?
 
-You have a value — a cart total, an article you fetched, the step a checkout is sitting in — and re-frame2 hands it four possible homes: a [**subscription**](glossary.md#subscription) (a derived value computed on demand), a [**flow**](glossary.md#flow) (a derived value written into your state), a [**resource**](../resources/glossary.md#resource) (a cached copy of server data), or a [**machine**](../machines/glossary.md#machine) (a process with named states). Pick the wrong one and the value fights you: it goes stale, it lies to your handlers, it scatters across booleans nobody keeps in sync. Pick the right one and it just behaves — because each home is shaped for a different job.
+You have a value.
 
-This is the page every other concept page links back to instead of answering the question a fifth time. The whole decision comes down to **four questions, asked in order — the first *yes* is your answer.** Read on and we'll grow one value — a shopping cart — until it has lived in all four homes and you can feel why each one exists.
+A cart total. An article you fetched. The step a checkout is sitting in. And re-frame2 hands it four possible homes: a [**subscription**](glossary.md#subscription) (a derived value computed on demand), a [**flow**](glossary.md#flow) (a derived value written into your state), a [**resource**](../resources/glossary.md#resource) (a cached copy of server data), or a [**machine**](../machines/glossary.md#machine) (a process with named states).
+
+Pick the wrong home and the value fights you. It goes stale. It lies to your handlers. It scatters across booleans nobody keeps in sync. Pick the right home and it just behaves — because each home is shaped for a different job.
+
+This is the page every other concept page links back to instead of answering the question a fifth time. And the whole decision comes down to **four questions, asked in order — the first *yes* is your answer.** We'll grow one value — a shopping cart — until it has lived in all four homes, and you can feel why each one exists.
 
 ## The four questions
 
@@ -14,6 +18,8 @@ Ask them top to bottom. Stop at the first *yes*.
 4. **Does it have a lifecycle of its own — named states, timers, retries, cancellation?** → It's a **machine**. ([State machines](../machines/concepts.md))
 
 The order sorts by cost, cheapest first. A subscription costs nothing to declare and stores nothing. A flow pays an `app-db` write. A resource brings a whole cache. A machine brings a whole transition table. So you reach for a heavier home only when the value genuinely needs what it buys. **The cheapest home that fits is the right one.**
+
+Read that again — it's the load-bearing sentence of this page. Everything below is that one rule, unpacked four times.
 
 !!! note "Why ask in order?"
 
@@ -29,7 +35,9 @@ The order sorts by cost, cheapest first. A subscription costs nothing to declare
 
 ## One value, four homes: the cart
 
-The fastest way to feel the four questions is to follow a single value as a feature grows up. We'll take a shopping cart and let it pick up obligations until it has needed all four homes in turn.
+The fastest way to feel the four questions is to follow a single value as a feature grows up — because a value moves house the way people do. It starts out owning nothing, recomputed fresh whenever anyone asks. Then it needs a fixed address other code can find it at. Then it's dealing with a landlord on another continent who can change the place while you're out. And eventually it has house rules, a timer on the porch light, and a homeowners' association with opinions about which room may follow which.
+
+Too much? Fine. Watch a shopping cart do it instead.
 
 ### Question 1 — can you recompute it? Then it's a subscription
 
@@ -42,19 +50,17 @@ The cart total is the sum of the line items' prices, and the items already live 
     (reduce + (map :price items))))
 ```
 
-The total is never wrong, because there's no second copy to drift out of sync. It recomputes from the items whenever they change — and only while something is actually subscribed to it, so when no view is looking it costs nothing. You never write an "update the total" handler. A view reads `@(rf/subscribe [:cart/total])` and stays in lockstep for free. This is the default home, and most derived values in your app land here.
+The total is never wrong. There's no second copy, so there is nothing to drift. It recomputes from the items whenever they change — and only while something is actually subscribed to it, so when no view is looking it costs nothing. You never write an "update the total" handler. A view reads `@(rf/subscribe [:cart/total])` and stays in lockstep for free. This is the default home, and most derived values in your app land here.
 
 ??? info "Coming from Redux?"
 
     This is a reselect selector — a memoised derivation over store state — and `:<- [:cart/items]` is its input-signal vector, the moral equivalent of the selectors you'd thread into `createSelector`. The difference: in re-frame2 the dependency wiring is explicit *data*, not a closure you assemble by hand, so the framework can draw the [derivation graph](glossary.md#the-derivation-graph) for you.
 
-!!! warning "Gotcha — a subscription must stay pure"
-
-    A subscription is a *read*: same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell — and where the value should go instead — is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
+One rule keeps this home standing, so hear it now: **a subscription must stay pure.** It is a *read* — same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell — and where the value should go instead — is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
 
 ### Question 2 — must a handler read it? Then promote it to a flow
 
-Now a new requirement lands. When the total crosses $50 the user gets free shipping, and the *checkout event handler* — the function that runs in response to a dispatched event — needs to know that while building its order payload. Here's the wall you hit: **handlers can't read subscriptions.** A subscription lives view-side, not in `app-db`, and a handler reads state as the plain `db` value handed to it — so it has no way to ask for a subscription. Recomputing the total inside the handler would put the formula in two places, and they'll drift the first time pricing changes.
+Now a new requirement lands. When the total crosses $50 the user gets free shipping, and the *checkout event handler* — the function that runs in response to a dispatched event — needs to know that while building its order payload. Here's the wall you hit, and everyone hits it: **handlers can't read subscriptions.** A subscription lives view-side, not in `app-db`, and a handler reads state as the plain `db` value handed to it — so it has no way to ask for a subscription. You could recompute the total inside the handler, sure. Now the formula lives in two places, and they'll drift the first time pricing changes.
 
 This is the moment the value wants to be *part of the application's state*. That's a [flow](glossary.md#flow): "when these `app-db` paths change, recompute this and write the result to *this* `app-db` path."
 
@@ -77,7 +83,7 @@ The formula is identical. What changed is *where the value lives*. Your checkout
 
 Those four keys are the whole core of a flow: `:id` names it, `:inputs` is the ordered vector of paths to watch (each value arrives positionally to `:derive`), `:derive` is the pure recompute, and `:output-path` is the `app-db` path written for you.
 
-The cost is an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. Rule of thumb: a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you've over-paid — go back to a sub.
+The rent is real: an `app-db` write on every recompute, plus a piece of registered runtime. You pay it *because a handler needs the value as data*, and not before. Rule of thumb: a typical app has dozens of subscriptions and a *handful* of flows. If no handler reads a flow's output, you're over-paying — go back to a sub.
 
 !!! note "You write the inputs, never the output"
 
@@ -101,7 +107,7 @@ The cost is an `app-db` write on every recompute, plus a piece of registered run
 
 ### Question 3 — does it come from a server and go stale? Then it's a resource
 
-The cart so far is *local*. The user built it, so it's true by construction. But the checkout page must show the article being bought — title, price, stock — and that data isn't yours. It lives on a server, and you hold a *cache* of it that's stale the instant you read it. A value like that — remote origin, an identity naming *which* thing you fetched, staleness, refetch, invalidation — is a [resource](../resources/glossary.md#resource).
+The cart so far is *local*. The user built it, so it's true by construction. But the checkout page must show the article being bought — title, price, stock — and that data isn't yours. It never was. It lives on a server, and what you hold is a *cache* of it, stale the instant you read it. A value like that — remote origin, an identity naming *which* thing you fetched, staleness, refetch, invalidation — is a [resource](../resources/glossary.md#resource).
 
 A resource splits cleanly into two halves: a **read** and a **cause**. The read is an ordinary subscription a view pulls passively — it never reaches out to the network. The fetch happens separately, set off by a **cause**: some named thing in your app that says "go get this now" — a route opening, an event firing, a machine entering a state. So the slogan is *a sub you read and a cause you fire*. Keeping the fetch off the render path is the whole point: a view that fetched while rendering would re-fetch on every re-render, and two views showing the same article would race to fetch it twice. A cause fires once, for a reason you can name and see in the trace.
 
@@ -161,7 +167,7 @@ Staleness and invalidation come built in too: ensuring a stale entry refetches i
 
 ### Question 4 — does it have its own lifecycle? Then it's a machine
 
-The user clicks **Checkout**. Now you're not modelling a value anymore — you're modelling a *process*: idle, then validating, then awaiting payment, then done, or failed-and-retrying. There are rules about which state may follow which, a timeout, and cancellation. The load-bearing question has shifted to "**what state are we in, and what moves us to the next one?**" That's a [machine](../machines/glossary.md#machine). You can usually spot the smell that precedes one:
+The user clicks **Checkout**. Now you're not modelling a value anymore — you're modelling a *process*: idle, then validating, then awaiting payment, then done, or failed-and-retrying. There are rules about which state may follow which, a timeout, and cancellation. The question itself has changed shape: "**what state are we in, and what moves us to the next one?**" That's a [machine](../machines/glossary.md#machine). You can usually spot the smell that precedes one:
 
 ```clojure
 ;; THE SMELL — three booleans pretending to be one state.
@@ -222,4 +228,4 @@ Each wrong home is a value asked to do a job its home isn't shaped for. Move it,
 
     → subscription. **Must a handler read it as `app-db` data?** → flow. **Remote, cached, can go stale?** → resource. **A process with states and timers?** → machine.
 
-A value graduates to a heavier home only when it *earns* the upgrade — a handler that needs it, a server it answers to, a lifecycle of its own. Pick the right home and the value just behaves.
+A value graduates to a heavier home only when it *earns* the upgrade — a handler that needs it, a server it answers to, a lifecycle of its own. Ask the four questions, top to bottom. Stop at the first *yes*. Move in.

@@ -1,6 +1,6 @@
 # Inside out: why views come last
 
-This page is the argument, not the instructions. You don't need it to build with re-frame2 — the working mental model lives in [The model: the event pipeline](../introduction.md), and you can ship without ever reading this essay. But re-frame2 asks something of you up front. It costs ceremony a `useState` user never pays, and it forbids things React happily allows. You deserve the case for that trade, made once, in full. Every concepts page that touches it links back here rather than re-arguing it.
+This page is the argument, not the instructions. The working mental model lives in [The model: the event pipeline](../introduction.md), and you can ship without ever reading this essay. But re-frame2 asks something of you up front — it costs ceremony a `useState` user never pays, and it forbids things React happily allows — and I'd rather make the case for that trade once, in full, than have you take it on faith. Every concepts page that touches it links back here rather than re-arguing it.
 
 The whole essay compresses to one sentence:
 
@@ -8,17 +8,19 @@ The whole essay compresses to one sentence:
 
 The first half is uncontroversial — of course the language you compute in should be able to express anything. The surprising half is the second: deliberately *withholding* that full power from the shape your app's behaviour flows through, and getting something valuable back in return. That trade is the whole argument, and we'll earn it slowly rather than assert it.
 
-The rest of this page unpacks it — one idea at a time, each building on the last. We start with the problem the inversion solves, state the inversion itself, then cash out what it buys and what it honestly costs.
+The route: the problem the inversion solves, then the inversion itself, then what it buys, then what it honestly costs.
 
 ## The gravity well: ten years of React state management
 
-For about a decade, the React world has organised itself around one centre: the component. State lives in the component, in a `useState`. Data fetching lives in the component, in a `useEffect`. Store subscriptions are a `useSelector`, another hook in the component. Everything orbits the component.
+For about a decade, the React world has organised itself around one centre of mass: the component. State lives in the component, in a `useState`. Data fetching lives in the component, in a `useEffect`. Store subscriptions are a `useSelector` — another hook, in the component. Everything orbits the component.
 
-Here's the part worth dwelling on. Most people already sense this is a problem. The history of React state management is a long run of attempts to get state *out* of the component tree. Redux arrived in 2015 and said: one store, off to the side, pure reducers. That was the right instinct. Then the ecosystem spent five years migrating the Redux bits back into hooks — `useReducer`, `useContext`, "co-location." MobX, Zustand, Recoil, Jotai, signals, server components: each one is, in the end, another way to bolt state back onto the component tree.
+Here's the part worth dwelling on: most people already sense this is a problem. The history of React state management is a long run of escape attempts — attempt after attempt to get state *out* of the component tree. Redux reached escape velocity in 2015: one store, off to the side, pure reducers. That was the right instinct. Then the ecosystem spent five years hauling the Redux bits back down into hooks — `useReducer`, `useContext`, "co-location." MobX, Zustand, Recoil, Jotai, signals, server components: each one a fresh trajectory, and each one, in the end, another way to bolt state back onto the component tree. At this rate the flagship 2030 state library will be a hook that keeps your state in the component but feels bad about it.
 
-This isn't carelessness, and it isn't a failure of taste. The component tree is the thing the framework can see, so the component tree is where everything ends up living. But in a mature app the consequence is real, and you've probably felt it. "Where does this piece of state live?" gets answered "somewhere in a tree of three hundred components, possibly four of them, possibly out of sync between two of them." "What changed it?" is a shrug and a debugger session.
+Too glib? A little. Because this isn't carelessness, and it isn't a failure of taste — the people building these libraries are excellent engineers. The component tree is the thing the framework can see, so the component tree is where everything ends up living. The pull is structural. That's why this section is called what it's called: the component is a **gravity well**, and no amount of discipline beats gravity indefinitely.
 
-re-frame — the 2015 original this framework is the sequel to — looked at that pull and declined to follow it inward.
+In a mature app the consequence is real, and you've probably felt it. "Where does this piece of state live?" gets answered "somewhere in a tree of three hundred components. Possibly four of them. Possibly out of sync between two of them." "What changed it?" is a shrug and a debugger session.
+
+re-frame — the 2015 original this framework is the sequel to — looked at that pull and declined to fall in.
 
 ## The inversion: state in one place, views last
 
@@ -30,6 +32,8 @@ There is exactly one container of application state: [**app-db**](../glossary.md
 
 Notice what dissolves. There is no "lifting state up," because state was never down in the components in the first place — there is nothing to lift. A view is a render function from subscription values to [**hiccup**](../glossary.md#hiccup), and that is its entire job. It doesn't start anything. It doesn't fetch. It doesn't own anything. Nothing *originates* in a view — it's derived from state, not the home of it.
 
+That's the climb out of the well. The component stops being the centre of mass and becomes the last stop on a pipeline that starts somewhere else.
+
 ??? info "For JavaScript developers"
 
     Map the pipeline onto what you already run in your head. The **event** is your action object. The **event handler** is your reducer — but with effects pulled out of it. The **subscription** is your selector. The **view** is your component, minus everything except the `return`. The unfamiliar move isn't any one of those pieces; it's that re-frame2 takes the pieces that normally live *inside* the component — the dispatch wiring, the selectors, the data-fetching effect — and lifts every one of them *out*, so the component is left with nothing to do but render. The callout below makes the analogy precise for Redux users.
@@ -40,11 +44,11 @@ Notice what dissolves. There is no "lifting state up," because state was never d
 
 ## Boring views are the point
 
-This is the part that surprises every React-shaped brain on first contact, so don't be thrown by it. Your views are going to be boring. Structurally boring. Can't-get-into-a-weird-state boring. That isn't a limitation the framework apologises for — it's the design objective. The most bug-prone real estate in a typical frontend is where state, effects, and rendering tangle together inside components, and re-frame2 simply evicts all of it. Views render, and that's the whole story.
+This is the part that surprises every React-shaped brain on first contact, so don't be thrown by it. Your views are going to be boring. Structurally boring. Can't-get-into-a-weird-state boring. That isn't a limitation the framework apologises for — it's the design objective. The most bug-prone real estate in a typical frontend is where state, effects, and rendering tangle together inside components, and re-frame2 simply evicts the lot. Views render. That's the whole story.
 
-The reason this matters: a boring view can't be the source of a state bug, because it's downstream of everything and decides nothing. So when the screen is wrong, the cause is in an event handler or a subscription — and those are pure functions you can test with plain data, no DOM required.
+Why does that matter? A boring view can't be the source of a state bug, because it's downstream of everything and decides nothing. So when the screen is wrong, the cause is in an event handler or a subscription — and those are pure functions you can test with plain data, no DOM required.
 
-That last sentence is the whole payoff, so it's worth making concrete rather than leaving as a promise. Here is the entire causal machinery behind a counter that increments. Two pieces of vocabulary it leans on, defined once so the code reads clean: a handler receives a [**coeffects**](../glossary.md#coeffect) map — the facts it's allowed to see, with the current app-db under `:db` — and returns an [**effect map**](../glossary.md#effect-map), a description of what should change, with the next app-db under `:db`. In short: data in, data out, and the runtime does the actual mutating.
+That's worth cashing out rather than leaving as a promise. Here is the entire causal machinery behind a counter that increments. Two pieces of vocabulary it leans on, defined once so the code reads clean: a handler receives a [**coeffects**](../glossary.md#coeffect) map — the facts it's allowed to see, with the current app-db under `:db` — and returns an [**effect map**](../glossary.md#effect-map), a description of what should change, with the next app-db under `:db`. In short: data in, data out, and the runtime does the actual mutating.
 
 ```clojure
 ;; The event handler: (coeffects, event) → effect map. Pure.
@@ -75,19 +79,16 @@ Neither of those touches the DOM, a clock, the network, or a component. So neith
     (is (= 6 (handler {:counter/value 6} [:counter/value])))))
 ```
 
-That's the boring-view dividend cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../testing/event-handlers.md) walks the pattern in full; [the pipeline](../introduction.md) shows the same two functions in their runtime habitat.
+That's the boring-view dividend, cashed out. The two functions that *decide* anything are testable with maps and vectors; the view that *decides nothing* doesn't need a test of its own at all. [Test an event handler](../testing/event-handlers.md) walks the pattern in full; [the pipeline](../introduction.md) shows the same two functions in their runtime habitat.
 
 ??? info "For JavaScript developers"
 
     Compare the React version, where the increment, the state it lives in, and the render are the same component — to test the increment logic you must mount the component and simulate a click, because the logic has no existence apart from the component. Here the logic *is* a plain function with a name in a registry, so the test is a function call with two literals. That's the difference between testing behaviour and testing a rendering of behaviour.
 
-!!! note "Where does `handler-meta` come from?"
+Notes:
 
-    It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function. You rarely reach for it outside tests, because in an app the runtime looks handlers up for you; its reason to be public is that "test it as a plain function" is a first-class promise, not a hack.
-
-!!! warning "Gotcha — a typo'd id returns `nil`, not a clean error"
-
-    `handler-meta` returns `nil` for an id it doesn't know, so `(:handler-fn nil)` is also `nil`, and the *next* line blows up with "nil is not a function" rather than "no such handler." If a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.
+1. Where does `handler-meta` come from? It reads the registry back — given a kind (`:event`, `:sub`, …) and an id, it hands back the registration map, whose `:handler-fn` is your function, exactly as you wrote it. You'll rarely reach for it outside tests, because in an app the runtime looks handlers up for you; it's public because "test it as a plain function" is a first-class promise, not a hack.
+2. One gotcha, and it bites everyone exactly once: `handler-meta` returns `nil` for an id it doesn't know, so `(:handler-fn nil)` is also `nil`, and the *next* line blows up with "nil is not a function" rather than "no such handler." If a handler you *know* you registered comes back `nil`, suspect the id spelling or a missing `:require`.
 
 ## Why your architecture shouldn't be Turing complete
 
@@ -119,21 +120,19 @@ Now the honest part, because it's only fair to put it plainly. A counter in plai
 
     Inside a re-frame2 app, though, "does *this* value go in app-db or stay a `useState`?" is a real per-value judgment, and this page argues only the default (app-db, for the reasons above). The full placement rule — the default, the tightly-worded render-mechanical exception (uncommitted IME composition, transient focus/hover, animation interpolation), and the forbidden tier (anything a handler, sub, schema, or tool reads) — lives in [Spec 004 §Where ephemeral view-state lives](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md), which owns it.
 
-The ceremony is a fixed cost per feature. The claim is that it amortises: the same shape that feels like bureaucracy at thirty lines is the only thing keeping you sane at thirty thousand. That claim needs to be specific to be believable, so here it is.
+The ceremony is a fixed cost per feature — the price of keeping state out of the well. The claim is that it amortises: the same shape that feels like bureaucracy at thirty lines is the only thing keeping you sane at thirty thousand. A claim like that needs to be specific to be believable, so here it is, made specific.
 
 ## The bounded-cost claim
 
 **The cost of adding a feature is bounded by the size of the feature, not the size of the app.**
 
-Sit with that, because it's the opposite of how most codebases age. In a normally-shaped app, adding a feature means first reading a large fraction of the existing code: which components own the relevant state, which effects might fire, what will break. The marginal cost of a feature grows with the app — that's the slow death every large frontend eventually circles. In a re-frame2 app you read the events, the subscriptions, and the one view that touches the area you're changing. That is *enough*, because there's nowhere else for the relevant logic to hide. State is in one place. Changes happen in one place. Effects are described as data in one place. The architecture can't sprout new kinds of place, because it isn't Turing complete.
+I'll pause while you read that again. It's the sentence this essay exists to earn, and it's the opposite of how most codebases age. In a normally-shaped app, adding a feature means first reading a large fraction of the existing code: which components own the relevant state, which effects might fire, what will break. The marginal cost of a feature grows with the app — that's the slow death every large frontend eventually circles. In a re-frame2 app you read the events, the subscriptions, and the one view that touches the area you're changing. That is *enough*, because there's nowhere else for the relevant logic to hide. State is in one place. Changes happen in one place. Effects are described as data in one place. The architecture can't sprout new kinds of place, because it isn't Turing complete.
 
 The boundedness isn't a vibe; it's structural, and you can name the reason. Because state lives only in [app-db](../concepts/app-db.md) and changes only through registered event handlers, the set of things that can mutate your feature's slice is *enumerable* — it's exactly the handlers that write that path, and a grep finds all of them. There is no fifth component three screens away quietly reaching into the same `useState` through a context provider, because there is no such mechanism to reach with. The question "what can change this?" has a finite, searchable answer. In a component-tree app it does not.
 
 That's what the ceremony buys. Not elegance — boundedness.
 
-!!! warning "Gotcha"
-
-    "A grep finds all of them" only holds if a *miss* is loud. So re-frame2 [fails loud, not silent](../glossary.md#fail-loud-not-silent): when it recognises a value as input but can't honour it, it raises a structured [error record](../glossary.md#error-record) keyed by a reserved `:rf.error/*` category — never a `nil` or a no-op. Dispatch an id nobody registered and you get `:rf.error/no-such-handler` (the trace names the exact id), not a button that silently does nothing. Return an effect for an fx-id nobody registered and you get `:rf.error/no-such-fx`. Declare a coeffect with no supplier and the requirement fails with `:rf.error/unregistered-cofx` *before* the handler runs. Return an effect map with a stray top-level key beyond `:db`/`:fx` and you get `:rf.error/effect-map-shape` — the bad key is named and dropped, your `:db` still lands. The point isn't the catalogue — it's that a typo can't smuggle in a new "place" where state hides; it surfaces as a named failure at the boundary. [Errors](../concepts/errors.md) is the full catalogue and the branch-on-category discipline.
+One thing has to hold for "a grep finds all of them" to be true, so hear it now: a *miss* must be loud. re-frame2 therefore [fails loud, not silent](../glossary.md#fail-loud-not-silent): when it recognises a value as input but can't honour it, it raises a structured [error record](../glossary.md#error-record) keyed by a reserved `:rf.error/*` category — never a `nil` or a no-op. Dispatch an id nobody registered and you get `:rf.error/no-such-handler` (the trace names the exact id), not a button that silently does nothing. Return an effect for an fx-id nobody registered and you get `:rf.error/no-such-fx`. Declare a coeffect with no supplier and the requirement fails with `:rf.error/unregistered-cofx` *before* the handler runs. Return an effect map with a stray top-level key beyond `:db`/`:fx` and you get `:rf.error/effect-map-shape` — the bad key is named and dropped, your `:db` still lands. The point isn't the catalogue — it's that a typo can't smuggle in a new "place" where state hides; it surfaces as a named failure at the boundary. [Errors](../concepts/errors.md) is the full catalogue and the branch-on-category discipline.
 
 ??? note "Going deeper"
 
@@ -149,12 +148,15 @@ Circle back to the React question this essay opened on — *"what changed this p
 
 [Observability: one wire, every tool](../concepts/observability.md) is the full tour.
 
-!!! note "Two honest limits on the wire"
+Notes — two honest limits on the wire:
 
-    First, the rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — two always-on streams (`:events` and `:errors`) that survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the always-on streams. Second, revertibility ends at the effect boundary: the framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
+1. The rich trace wire is production-[elided](../glossary.md#elide): the whole emit substrate sits behind a `goog.DEBUG` gate (the JVM mirror is `-Dre-frame.debug`) that the Closure compiler dead-code-eliminates in `:advanced` builds. What you ship to users keeps a separate, deliberately smaller channel — two always-on streams (`:events` and `:errors`) that survive elision — so production tells you *that* an event ran and *whether* it failed, without the rich per-stage detail (db snapshots, render args, derivation values) the dev trace carries. Build your monitoring on the always-on streams.
+2. Revertibility ends at the effect boundary. The framework can rewind its own state perfectly, but it cannot un-send an HTTP request. The world is compensated, never reversed.
 
 ## When not to use it
 
-!!! note "Pre-alpha, and there's a floor below which this doesn't pay"
+Honest to the last, then.
 
-    re-frame2's contracts are still settling, and this guide says so wherever it matters. Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.
+re-frame2 is pre-alpha. Its contracts are still settling, and this guide says so wherever it matters.
+
+Beyond that, the architecture has a floor. A static content site, a single embedded widget, a weekend prototype you'll throw away — the loop pays for itself only when the app outgrows the loop, and those don't. And if your team is committed to component-local state as a philosophy, this framework will feel like swimming upstream the entire time, because it is. The current flows the other way here, on purpose.

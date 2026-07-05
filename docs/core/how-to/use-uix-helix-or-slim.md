@@ -1,10 +1,10 @@
 # Use UIx, Helix, or reagent-slim
 
-You're adopting re-frame2, but your team writes React function components in UIx or Helix, not Reagent's [hiccup](../glossary.md#hiccup). Or you're already on Reagent and the shipped bundle has grown a little too round for comfort. Either way, this page shows you how to run the *same* app on a different [substrate](../glossary.md#substrate) — the React-rendering layer underneath your [views](../glossary.md#view) — without touching a single [event](../glossary.md#event), [subscription](../glossary.md#subscription), [effect](../glossary.md#effect), or your [app-db](../glossary.md#app-db).
+You're adopting re-frame2, but your team writes React function components — UIx or Helix — and Reagent's [hiccup](../glossary.md#hiccup) isn't going to happen. Or you're already on Reagent, and the shipped bundle has grown a little too round for comfort. Both problems have the same fix: swap the [substrate](../glossary.md#substrate) — the React-rendering layer underneath your [views](../glossary.md#view) — and leave every [event](../glossary.md#event), [subscription](../glossary.md#subscription), [effect](../glossary.md#effect), and your [app-db](../glossary.md#app-db) untouched. This page shows you how.
 
-A word on the term *substrate*, since the rest of the page leans on it. A re-frame2 app is two layers stacked. On top sits your dataflow — events, subscriptions, effects, and the app-db map they all read and write — and it's plain Clojure data and functions, with no idea React exists. Underneath sits the [substrate](../glossary.md#substrate): the thin layer that actually drives a React renderer, turning your views into pixels. Reagent is one such substrate; UIx, Helix, and reagent-slim are three more. The whole trick of this page is that you can swap the bottom layer and the top layer never notices.
+A word on *substrate*, since the rest of the page leans on it. A re-frame2 app is two layers stacked. On top: your dataflow — events, subscriptions, effects, and the app-db map they all read and write — plain Clojure data and functions, with no idea React exists. Underneath: the [substrate](../glossary.md#substrate), the thin layer that actually drives a React renderer and turns your views into pixels. Reagent is one substrate. UIx, Helix, and reagent-slim are three more. The whole trick of this page: you can swap the bottom layer, and the top layer never notices.
 
-We'll build it up one step at a time: first the single line that picks a substrate, then a working UIx view, then how its callbacks [dispatch](../glossary.md#dispatch), then how you mount and scope it, and finally how Helix and reagent-slim fit the same mould. By the end you'll be able to boot one app on any of four substrates, write UIx/Helix views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
+We'll take it one step at a time: the single line that picks a substrate, then a working UIx view, then how its callbacks [dispatch](../glossary.md#dispatch), then how you mount and scope it, and finally how Helix and reagent-slim fit the same mould. By the end you'll be able to boot one app on any of four substrates, write UIx/Helix views that read subs and dispatch correctly, and recognise the handful of errors the framework throws when you get the boundary wrong.
 
 !!! note "Same app, four substrates — the only line that changes is `init!`"
 
@@ -58,7 +58,7 @@ That's the point: swapping stock Reagent for slim touches your `deps.edn` coordi
 
     In-tree the slim adapter lives at `re-frame.adapter.reagent-slim` — it has to, because the monorepo puts both it and the bridge adapter on one classpath and two namespaces can't share a name. The publication step (the `Rename adapter ns at publication` job in `.github/workflows/release.yml`) renames it to `re-frame.adapter.reagent` before packaging the jar. So a `:git/sha` consumer requires `re-frame.adapter.reagent-slim`, while a published-artefact consumer requires `re-frame.adapter.reagent`. Everything below assumes the published shape.
 
-There's deliberately no registry and no auto-install here, because the project holds boot to one rule: it must name its substrate in plain sight. Open any app's boot function and you can read its substrate straight off the page — no spelunking required. The framework enforces this strictly:
+There's deliberately no registry and no auto-install here, because boot is held to one rule: name your substrate in plain sight. Open any app's boot function and its substrate reads straight off the page — no spelunking. The framework enforces this strictly:
 
 - `(rf/init!)` with no argument is an arity error — `init!` has exactly one arity (it takes the adapter spec map), so there's no zero-arg form to fall through to.
 - A keyword, a `nil`, or anything that isn't the adapter spec map raises `:rf.error/no-adapter-specified`, whose message says it plainly: *"rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry."*
@@ -169,7 +169,7 @@ So the last move is to mount the root inside it. The scope shape takes a `:frame
   react-root)
 ```
 
-Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. There's no `:children` prop-map key to remember — the subtree rides the trailing-args channel, so there's no key to forget.
+Children ride the native `$` trailing-args channel — `($ frame-provider {:frame :f} ($ a) ($ b))` — exactly the shape every other UIx/Helix component uses. No `:children` prop-map key to remember, so no key to forget.
 
 ??? info "For JavaScript developers"
 
@@ -197,9 +197,7 @@ The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. T
    ($ checkout-app))
 ```
 
-!!! warning "Gotcha — the prop map selects the shape"
-
-    A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
+And here is that stumble, said plainly: **the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
 
 !!! note "Idempotent re-mount is safe"
 

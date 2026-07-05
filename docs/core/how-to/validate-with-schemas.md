@@ -4,7 +4,7 @@ Picture an [event handler](../glossary.md#event-handler) — the pure function a
 
 A [schema](../glossary.md#schema) turns that silent corruption into a loud, named, instant failure. You describe the shape of a slice once, register it, and from then on the runtime checks every write against it. When a write doesn't conform you get the handler's name, the offending value, and the exact path it landed on — at the moment it happens, not six weeks later in a bug report. And it costs production nothing: validation is **dev-only by default** and is elided entirely from a release build.
 
-This page builds up one idea at a time, starting from the simplest useful thing — a schema on one app-db path — then schemas on events, the handful of shapes you'll actually write, the other surfaces you can validate, how to read a failure, and how to decide whether a schema is even worth writing.
+This page builds up one idea at a time. The simplest useful thing first — a schema on one app-db path — then schemas on events, the handful of shapes you'll actually write, the other surfaces you can validate, how to read a failure, and how to decide whether a schema is worth writing at all.
 
 ??? info "Coming from Zod?"
 
@@ -28,7 +28,7 @@ Start with the most common case — pin the shape of one slice of app-db. `reg-a
   (rf/reg-app-schema [:auth] {:schema AuthSlice}))
 ```
 
-Two pieces of that snippet are new and worth naming up front, because they recur on every example below.
+Two pieces of that snippet are new. Both recur on every example below, so let's name them now.
 
 The schema itself — `AuthSlice` — is just a **vector of plain data**: `[:map [:user ...] [:token ...]]`. No builder chain, no class to instantiate. That's [Malli](https://github.com/metosin/malli), the default schema language; we'll learn its handful of shapes in a moment.
 
@@ -104,9 +104,7 @@ The piece to watch is the `[:int {:min 0}]` on the `[:howto.schema/article]` sli
 
 Click `unfavorite` down to `0` and keep clicking: nothing happens, because the `pos?` guard stands. Now simulate the bug the schema exists to catch. **Delete the guard** — replace `(if (pos? n) (-> db …) db)` with just the `(-> db …)` threading — re-evaluate, and click `unfavorite` past zero. The handler writes `-1`, and `[:int {:min 0}]` rejects it. The browser console shows the `:rf.error/schema-validation-failure`, and the count on screen stays `0`: the write was rolled back, so app-db never held the bad value. Put the guard back when you're done.
 
-!!! warning "Gotcha — the rollback is a debugging aid, not app behaviour"
-
-    Validation, rollback included, is elided from production builds. In production that unguarded handler happily ships `-1`. So the handler keeps its real guard, *always*; the schema's job is to catch the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens.
+One thing to hear plainly before you move on: **the rollback is a debugging aid, not app behaviour.** Validation, rollback included, is elided from production builds — in production that unguarded handler happily ships `-1`. So the handler keeps its real guard, *always*. The schema is the tripwire that catches the day the guard gets deleted, refactored wrong, or bypassed by some *other* handler writing the same slice — in dev, the moment it happens.
 
 ## The shapes you'll actually write
 
@@ -151,9 +149,9 @@ Paths nest and overlap freely, which is more useful than it first sounds: a writ
 
 These paths address *your* data only. The framework's [runtime-db partition next door](../concepts/app-db.md) validates through its own machinery, and reaching into it is an error (see the callout below).
 
-!!! warning "Gotcha — two ways to get a registration wrong"
+!!! warning "Gotcha — three ways to get a registration wrong"
 
-    Both fail closed, because a malformed path or schema could otherwise install a validator that silently never checks anything — the worst outcome, a false sense of safety.
+    All three fail closed, because a malformed path or schema could otherwise install a validator that silently never checks anything — the worst outcome, a false sense of safety.
 
     - **A non-sequential path is rejected at registration.** The path must be a `get-in`-shaped sequential collection of keys (or `[]` for the root). Pass a bare keyword, string, or map and `reg-app-schema` throws `:rf.error/app-schema-bad-path` *before* anything registers. `reg-app-schemas` validates every key up front and rejects the whole batch atomically (`:rf.error/app-schemas-bad-batch` for a non-map argument). This check is always-on, not dev-only.
     - **A path that reaches into runtime-db is a hard error.** App-db schemas validate the [app-db](../glossary.md#app-db) partition only. Register one whose first segment is a reserved `:rf.runtime/*` key (or the retired `:rf/runtime` root) and you get `:rf.error/app-schema-runtime-path` at registration — [runtime-db](../glossary.md#runtime-db) is framework-owned, with no public schema surface; the remedy is to drop the runtime path. (See [app-db's two partitions](../concepts/app-db.md) for why the boundary is structural.)
@@ -238,9 +236,7 @@ Two tags reward a closer look. `:path` is the **failing leaf** — the registere
 
 In **Xray**, these don't pile up in a footnote: the four runtime boundaries (`:event` / `:app-db` / `:fx-args` / `:sub-return`) attach to the matching DISPATCH / HANDLER / FX / SUBSCRIPTIONS step of the event row, and an `:app-db` rollback mutes every downstream step with a "run rolled back" banner so you read the blast radius at a glance. [Debug with Xray](../../xray/index.md) walks the panel.
 
-!!! note "Why this matters"
-
-    A structured trace is the one thing that keeps documentation honest: the schema *is* the slice's description, and the runtime would catch any lie. A schema can't drift from reality, because the moment it does, a dispatch fails.
+One quiet consequence is worth saying plainly: the schema *is* the slice's description, and the runtime would catch any lie. A schema can't drift from reality, because the moment it does, a dispatch fails.
 
 !!! warning "Gotcha — editing a schema mid-session can flag a value no handler wrote"
 
@@ -346,3 +342,5 @@ One question decides it: *could this schema catch something no test of yours wou
 **Skip it** when the slice is a single scalar — `{:nav/open? true}` doesn't need `[:map [:open? :boolean]]`. And never register `:any` as a placeholder: it implies a constraint that isn't there, which is worse than silence.
 
 Three conventions are worth adopting from day one. Use `[:enum …]` for fixed value sets, never bare `:keyword` — the enum is where the leverage lives. Keep maps open, closing only at boundaries. And keep each schema in the same namespace as the handlers that write its slice, because the schema is the slice's documentation, and documentation lives next to the thing it describes.
+
+And when a slice clears the bar, promise me you'll write the schema. Promise me. Okay, good.

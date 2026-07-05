@@ -33,12 +33,16 @@ Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalo
 
 The test in every register: would it sound natural said aloud, and could a tired engineer follow it at 11pm? The reader knows React or Redux but is new to re-frame2 — meet them as a knowledgeable colleague, not as a terse README and not as an essay.
 
+- **A person is talking.** The corpus speaks in first person where an opinion is being offered, and the opinions are owned, not hedged ("two copies of one truth is two chances to disagree"). First-person *conviction* must restate something the project actually holds (the specs, READMEs, and existing docs are full of them); first-person *biography* is off-limits — never invent personal history.
 - **Explain the why, not just the what.** After an instruction, a short *because* / *which means* / *so that* clause earns its keep. A senior dev tells you why a thing works, briefly.
-- **Vary your rhythm and connect your ideas.** Mix sentence lengths; carry the reader with transitions ("Now that X works…", "Here's the catch…", "The reason this matters…"). Stacks of clipped four-word sentences read cold — that's the failure mode to avoid.
+- **Rhythm is the instrument.** Short paragraphs — one sentence is fine, one word occasionally ("Don't.") — alternating with a longer roller that carries the payload. The failure mode isn't short sentences; it's *uniform* ones. Read it aloud: if every sentence is the same length, rewrite.
+- **Ask the reader's next question, then answer it.** Socratic headers ("Why Bother Naming Something So Trivial?") and self-answered questions in prose ("Fine. But what data?") are house devices in the teaching registers. Use them where they genuinely track the reader's thinking, not as decoration.
+- **One committed metaphor per concept, promoted to vocabulary.** The spreadsheet for derivations, the circuit breaker for extractors, the sandwich for interceptors. Pick one, use it for the whole page (and corpus), never mix two images in one explanation.
+- **Flag the load-bearing sentence.** Every teaching page has one sentence the rest hangs off. Say so, out loud: "I'll pause while you read that again." One per page.
 - **Be warm, and on the reader's side.** Acknowledge what trips people up, what they might expect, what they can ignore for now. That small gesture is most of what reads as friendly.
 - **Trust the reader with the obvious.** Calm seniority, not anxious over-hedging: spend the words on what's genuinely hard, not on what they already know.
-- **Humor is seasoning, Yegge-calibrated.** An occasional flash of conversational candor or a vivid concrete image in the *teaching* registers is welcome — the absurdity of a bug class, the honest confession of what everyone gets wrong the first time. The guardrails that keep it from rotting back into the essayist voice: the humor rises out of the material, never bolted on; the sentence must survive the joke's deletion; never in reference mode, never inside a gotcha; about one moment per page. When in doubt, cut it.
-- **Never show off.** Still the standing guardrail: no aphorism-per-paragraph, no flourish for its own sake, no deep-cut analogies. Anchor to one tool the reader knows. One bolded takeaway per page, not one per paragraph.
+- **Humor is seasoning — about one moment per screenful** in the teaching registers, straight prose between. The riff form is escalate-then-deflate (ride a true idea past reasonableness, then pull back: "Too much? Okay, fine.") — at most one riff per page, and the deflation is mandatory. Honest hedging is part of the register: a made-up number is flagged made-up in the same breath. Never in reference mode; the sentence must survive the joke's deletion. When in doubt, cut it.
+- **Never trade precision for charm.** The discipline that makes the rest work: every error id, signature, and semantic claim stays exact, and the jokes sit *beside* the contract statements, never instead of them. No aphorism-per-paragraph, no deep-cut analogies; anchor to one tool the reader knows.
 
 **Two standing lens-callouts run terser than their page.** A callout is dense by design, so both families drop the warmth and compress:
 
@@ -51,7 +55,7 @@ A reader goes top to bottom. The first time a page uses a core term — `app-db`
 
 ## Callouts
 
-Callouts are **MkDocs admonitions** — never bold-lead blockquotes — and the expanded-vs-collapsed choice turns on how skippable the content is:
+Callouts are **MkDocs admonitions** — never bold-lead blockquotes — and the expanded-vs-collapsed choice turns on how skippable the content is. One carve-out first: a *single-beat* warning may skip the box entirely and be said in plain prose at the point of need ("One rookie mistake will quietly defeat this, so hear it now: …") — that's the voice doing the callout's job. Box the warning when it needs a title to be scannable, carries multiple paragraphs, or must survive a skim; say it in prose when it's one sentence the reader is already mid-flow past. For the boxed kind:
 
 - **Footguns and gotchas** → `!!! warning "Gotcha — …"`, expanded, inline beside the risky step. A footgun the reader scrolls past unread has failed at its one job.
 - **Notes, heads-ups, "why this matters", "when not to"** → `!!! note "…"`, expanded.

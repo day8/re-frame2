@@ -1,12 +1,14 @@
 # Build a form
 
-You're adding a form — a login, a signup, a settings panel, an editor. What you want is a draft the user types into, validation, a submit round-trip, and server rejections shown next to the right fields. This page is the recipe for that whole lifecycle, so you don't have to reinvent it every time: one state shape, seven [events](../glossary.md#event), and one rule for when errors become visible.
+You're adding a form. A login, a signup, a settings panel, an editor. Different chrome, same lifecycle underneath: a draft the user types into, validation, a submit round-trip, and server rejections shown next to the right fields. This page is the recipe for that lifecycle, so you don't have to reinvent it every time: one state shape, seven [events](../glossary.md#event), and one rule for when errors become visible.
 
 One page-specific word carries the rest: a **slice** is the corner of [app-db](../glossary.md#app-db) a feature claims (this form's lives under `[:auth :login]`). Everything in it changes the usual way — you [dispatch](../glossary.md#dispatch) an [event](../glossary.md#event) (a keystroke, a blur, a submit) and an [event handler](../glossary.md#event-handler) writes new state.
 
-Here's the thing about forms: they look trivial and turn out to be one of the buggier corners of any UI. When does an error appear — on the first keystroke, on blur, on submit? Where do *server* validation failures show up versus client ones? What makes the submit button live? Get these wrong and you ship a form that yells "required!" at a user who hasn't typed a single character. So before any code, one rule carries the whole page, and everything else is plumbing around it:
+Here's the thing about forms: they look trivial and turn out to be one of the buggier corners of any UI. When does an error appear — on the first keystroke, on blur, on submit? Where do *server* validation failures show up versus client ones? What makes the submit button live? Get these wrong and you ship a form that yells "required!" at a user who hasn't typed a single character. So before any code, the one rule that carries the whole page:
 
 > **A field's errors show when the field is touched OR a submit was attempted — one rule, one one-way latch, encoded in exactly one [subscription](../glossary.md#subscription).**
+
+Read it twice — everything below is plumbing around that one sentence.
 
 We'll build the simplest thing that works first — a login form that validates the whole draft on submit — and only then layer on the trimmings (cross-field rules, per-field and async validation, server rejections). The running example lives at `[:auth :login]`; that vector is a *path* into app-db, the same way `["auth"]["login"]` would be in a nested object. A form's slice always lives under its feature's key like this, which keeps the whole feature's state in one inspectable place.
 
@@ -37,7 +39,7 @@ Each key earns its place — drop one and the user notices. Three of them carry 
 
 !!! note "Why two error slots and not one?"
 
-    It's tempting to dump every failure into `:errors` and be done. But field errors and transport errors render in completely different places — one sits under an input, the other is a banner that says "couldn't reach the server, try again." Conflating them means the view has to *guess* which kind it's holding. Two slots, two render sites, zero guessing. We'll lean on this split hard in step 2.
+    It's tempting to dump every failure into `:errors` and be done. Resist. Field errors and transport errors render in completely different places — one sits under an input, the other is a banner that says "couldn't reach the server, try again." Conflating them means the view has to *guess* which kind it's holding. Two slots, two render sites, zero guessing. We'll lean on this split hard in step 2.
 
 Now bind two [schemas](../glossary.md#schema), one for the slice's shape and one for the value you're actually collecting. (A schema is a data description of a valid shape; here it guards what may be written into app-db.)
 
@@ -95,7 +97,7 @@ Everything that can happen to a form is one of seven events. That's not arbitrar
 | `:form.login/submit-error` | Route structured rejections to `:errors`, transport failures to `:submit-error`. |
 | `:form.login/reset` | Re-dispatch `:initialise`. |
 
-We'll wire up the three that carry the form's spine — the keystroke, the submit, and the two replies — then mop up the mechanical ones.
+We'll wire up the spine first — the keystroke, the submit, and the two replies — then mop up the mechanical ones.
 
 ### The keystroke
 
@@ -157,9 +159,7 @@ The [effect map](../glossary.md#effect-map) this handler returns has two keys wo
 
 Read the latch line carefully: `:submit-attempted?` flips to `true` on the way into *both* branches, valid or not. That's the whole trick behind the visibility rule in step 3 — the moment the user first presses submit, every invalid field is allowed to speak, whether or not they ever visited it.
 
-!!! warning "Gotcha — a malformed request is caught at dispatch, not at the server"
-
-    Two slots on the `:rf.http/managed` map are validated the instant the effect runs, before any packet leaves: `:on-success` / `:on-failure` must each be an event vector (or `nil`) — anything else throws `:rf.error/http-bad-reply-target` — and the final `:url` must be a non-blank string, or you get `:rf.error/http-bad-request`. Both fail loud at the call site rather than surfacing as a baffling `:rf.http/transport` failure three handlers downstream. So a fat-fingered reply target (`:on-success :form.login/submit-success` — a bare keyword, not `[:form.login/submit-success]`) is a named error you fix in seconds, not a submit that silently never replies.
+One gotcha to hear now: a malformed request is caught at dispatch, not at the server. Two slots on the `:rf.http/managed` map are validated the instant the effect runs, before any packet leaves: `:on-success` / `:on-failure` must each be an event vector (or `nil`) — anything else throws `:rf.error/http-bad-reply-target` — and the final `:url` must be a non-blank string, or you get `:rf.error/http-bad-request`. Both fail loud at the call site rather than surfacing as a baffling `:rf.http/transport` failure three handlers downstream. So a fat-fingered reply target (`:on-success :form.login/submit-success` — a bare keyword, not `[:form.login/submit-success]`) is a named error you fix in seconds, not a submit that silently never replies.
 
 ### The success reply
 

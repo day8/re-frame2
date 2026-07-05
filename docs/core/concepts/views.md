@@ -1,18 +1,26 @@
 # Views: pure functions of data
 
-A [view](../glossary.md#view)'s whole job is to turn data into a description of the screen: it reads some application state, returns the picture for that state, and that's it — no stored state of its own, no side effects, no lifecycle to manage. When the state changes, the framework re-runs the view and updates the DOM to match. So the entire contract fits in one sentence, and it's worth holding onto as you read the rest of this page:
+A [view](../glossary.md#view) has one job: turn data into a picture of the screen.
+
+Not "manage local state" — a view stores nothing. Not "fetch what it needs" — a view never touches the world. Not "coordinate a lifecycle" — there's nothing to coordinate. It reads some application state, returns the description of the screen for that state, and it's finished. State changes; the framework re-runs the view; the DOM catches up.
+
+So the entire contract fits in one sentence:
 
 > **A view is a pure function from subscription values to hiccup.**
 
-This page builds that sentence up one piece at a time. We'll start with the output — [*hiccup*](../glossary.md#hiccup), the data a view returns — then add the two ways a view talks to the rest of the app, then look at a complete view running live, and finally cover the one discipline that keeps views fast and the handful of escape hatches you'll occasionally reach for.
+I'll pause while you read that again, because every heading below is that sentence being unpacked. That's the whole page, right there.
+
+Behind it sits a conviction, and I'd rather own it out loud than have you discover it sideways: **views are derivative, not causal.** For about ten years the React world has organised itself around one gravitational centre — the component. Components own state. Components fetch data. Components route. Components subscribe to stores through whatever `useFoo` hook this year's library plumbed in. Effects colocate with the view tree because the view tree is what the framework can see, so the view tree is where *everything* ends up living — state, IO, navigation, the lot, bolted onto render functions. Too grumpy? Maybe; those tools ship real products. But re-frame2 makes the opposite bet. [Events](../glossary.md#event) update centralised state. [Subscriptions](subscriptions.md) derive values from it. Views sit at the very end of the flow and render whatever arrives. A view is a **window** onto your application's state: it shows you the room. It doesn't get to be the room.
+
+Hold onto the window; we'll be looking through it for the rest of the page. The route: first the output — [*hiccup*](../glossary.md#hiccup), the data a view returns — then the two ways a view talks to the rest of the app, then a complete view running live, and finally the one discipline that keeps views fast, plus the handful of escape hatches you'll occasionally reach for.
 
 ??? info "For JavaScript developers"
 
-    A re-frame2 view is a React function component with everything except rendering removed. There's no `useState`, because state lives in [app-db](app-db.md) — your app's single state map — and arrives through [subscriptions](subscriptions.md). There's no `useEffect`, because anything that touches the world is an [effect](effects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. And there's no JSX, because a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
+    A re-frame2 view is a React function component with everything except rendering removed. No `useState` — state lives in [app-db](app-db.md), your app's single state map, and arrives through [subscriptions](subscriptions.md). No `useEffect` — anything that touches the world is an [effect](effects.md), produced as data by an [event handler](../glossary.md#event-handler) and never run from a component. No JSX — a view returns plain Clojure data. The design here is in what got *subtracted*, not in anything added.
 
 ## The counter gets components
 
-[Our first app](../first-app.md) rendered the whole counter in one view. Real screens are built from *pieces* — and views compose exactly the way the hiccup they return does. Here's the counter split into three registered views: a display, a reusable button, and a parent that assembles them:
+[Our first app](../first-app.md) rendered the whole counter in one view. Real screens are built from *pieces*, and views compose exactly the way the hiccup they return does — one vector inside another. Here's the counter split into three registered views: a display, a reusable button, and a parent that assembles them:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -41,7 +49,13 @@ This page builds that sentence up one piece at a time. We'll start with the outp
  [counter]]
 ```
 
-Three things to notice, each of which the rest of this page unpacks. A child view is used *as data* — `[counter-button "−" [:dec]]` is just a vector whose tail is the child's arguments, so `counter-button` renders twice with different args and never knows it. The display subscribes for itself — the parent doesn't fetch the value and pass it down, so only `counter-display` re-renders when the value changes. And the button takes the *event to announce* as an argument — passing events as data is how a piece stays reusable without knowing what its click means.
+Notes:
+
+1. A child view is used *as data*. `[counter-button "−" [:dec]]` is just a vector whose tail is the child's arguments, so `counter-button` renders twice with different args and never knows it.
+2. The display subscribes for itself. The parent doesn't fetch the value and hand it down — so when the value changes, only `counter-display` re-renders.
+3. The button takes the *event to announce* as an argument. Passing events as data is how a piece stays reusable without knowing what its click means.
+
+The rest of this page unpacks all three.
 
 ## Hiccup: the screen is data
 
@@ -60,13 +74,13 @@ The rules are quick to learn:
 - Everything after that is **children**. Strings become text; nested vectors become nested elements.
 - A vector whose first element is a **view** (not a keyword) renders that view, with the rest of the vector as its arguments — `[counter-button "−" [:dec]]` above. That's the composition rule the counter used.
 
-The important word is *data*. Not "data-like" — these are actual vectors, maps, and keywords, the same structures you manipulate everywhere else in the program. So you build screens with ordinary code and no template syntax:
+The important word is *data*. Not "data-like". Actual vectors, maps, and keywords — the same structures you manipulate everywhere else in the program. So you build screens with ordinary code and no template syntax:
 
 ```clojure
 (into [:ul] (for [item items] [:li (:name item)]))
 ```
 
-Because hiccup is just data, views compose like any other values: a function can take hiccup and return hiccup, you can `pprint` a view's output and read it, and a pure function that walks hiccup and emits an HTML string can run on the server — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser.
+And because hiccup is just data, everything you already know how to do with data works on screens. A function can take hiccup and return hiccup. You can `pprint` a view's output and *read* it. A pure function that walks hiccup and emits an HTML string can run on the server — which is how [server-side rendering](../../ssr/concepts.md) renders the *same* views without a browser in the building.
 
 ??? info "For JavaScript developers"
 
@@ -78,7 +92,7 @@ Because hiccup is just data, views compose like any other values: a function can
 
 ## Subscribe in, dispatch out
 
-A static screen isn't much use. A view needs to read live application state, and it needs to react to clicks and typing. It does both through exactly two openings — and both are one-way.
+A static screen isn't much use. A view needs to read live application state, and it needs to react to clicks and typing. Two jobs, exactly two openings — and both are one-way.
 
 **Reading state in: the view derefs a [subscription](../glossary.md#subscription).**
 
@@ -96,7 +110,7 @@ This declares "I depend on this derived value. Re-run me when it changes." That'
 
 A dispatch *announces that something happened* by handing the framework an [event](../glossary.md#event) — a plain vector naming what occurred — and returns immediately. It does not change state. It does not know or care what the handler will do with it. The [event pipeline](../glossary.md#event-pipeline) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and at the very end this view re-renders to match. (The whole traversal is the [Introduction](../introduction.md)'s subject.)
 
-Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with.
+Notice the shape of the round trip, because it's the whole idea. A click never mutates the number it sits next to. It dispatches an event that produces a *new* `app-db`, which flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with. In window terms: you can see into the room, and you can knock. What happens after the knock is the room's business, not the window's.
 
 ??? info "Coming from Redux?"
 
@@ -136,9 +150,7 @@ Here is a view doing its whole job: subscribe in, dispatch out, hiccup between. 
 
 That's a complete view. You use it by referencing it inside other hiccup — `[qty-stepper]` — and a view that takes arguments takes them like any function: `[labelled-stepper "Apples"]`.
 
-!!! note "Try it"
-
-    Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate. Click either stepper: both move, because neither owns the number — each is a window onto the same `app-db` value. There is no local copy to fall out of sync.
+Now try something. Change the last form to `[:div [qty-stepper] [qty-stepper]]` and re-evaluate. Click either stepper: both move, because neither owns the number — each is a window onto the same `app-db` value, and two windows onto one room show the same furniture. There is no local copy to fall out of sync. There is no local copy at all.
 
 ## `reg-view`: registering a view for project code
 
@@ -193,9 +205,7 @@ So to *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and
 
 In all three the symbol `cart-line` is `def`-ed, so you write `[cart-line item]` from sibling code regardless.
 
-!!! warning "Gotcha"
-
-    Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a pre-built component object (`reagent.core/create-class …` — a legacy Reagent shape covered under *From re-frame v1* below) — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
+One warning before moving on. Get the *shape* wrong — pass a render fn instead of an args vector, or hand it a pre-built component object (`reagent.core/create-class …` — a legacy Reagent shape covered under *From re-frame v1* below) — and the macro refuses at compile time with a stable error pointing you at `re-frame.core/reg-view*` (the plain-fn surface described under *Tooling and library registration* below). The macro is the defn-shaped 80% lane; those cases have a different door.
 
 ??? info "From re-frame v1"
 
@@ -320,9 +330,7 @@ And the *after*, with the derivation pushed up into a [subscription](subscriptio
 
 Ask the "after" view what it does: all it does is walk the list and emit `<li>`s. That's a view that knows what it's for.
 
-!!! note "Why this matters"
-
-    A view re-runs whenever any value it derefs changes, and whenever a re-rendering parent hands it changed arguments. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many. This is the single most common way re-frame2 apps get accidentally slow; the hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+Why so strict? Because a view re-runs whenever any value it derefs changes, and whenever a re-rendering parent hands it changed arguments — and a `sort-by` in the view re-runs on every single one of those. The same `sort-by` in a sub re-runs *only when `:cart/items` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list. Compute once, read many. This is the single most common way re-frame2 apps get accidentally slow; the hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
 
 ??? note "Need the derived value in an *event handler*, not just a view?"
 
@@ -357,9 +365,7 @@ Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the who
 
 Rule of thumb: if an `:on-*` attr exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job. It belongs in a registered [effect](effects.md), which captures the frame for you. The loud failure is deliberate: the runtime refuses to guess which world a frameless dispatch belongs to.
 
-!!! warning "It's still wrong inside a `reg-view`"
-
-    Inside a `reg-view` body the injected `dispatch` happens to survive, because it captured its frame at render time. But the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.
+And don't let a `reg-view` lull you. Inside a `reg-view` body the injected `dispatch` happens to survive, because it captured its frame at render time — but the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.
 
 ??? note "Going deeper"
 
@@ -388,10 +394,10 @@ Step back and notice what all this buys you at debugging time. A view holds no s
 
 > **When something renders wrong, the bug is almost never in the view — it's in the data the view was handed.**
 
-So don't debug views. Inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](../glossary.md#event-handler) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../../xray/index.md)).
+So don't debug views. Inspect data. When the room looks wrong, you don't repaint the window — you go and look at the room. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](../glossary.md#event-handler) that wrote it. Both are pure functions you can test without a browser. With [Xray](../glossary.md#xray) open, find the [event](../glossary.md#event) row that preceded the bad render and look at the data it produced. The wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../../xray/index.md)).
 
 The render itself is observable too, which helps with the *other* failure mode — not "wrong value" but "why did this re-render at all?" Each render emits a [trace event](../glossary.md#trace-event) keyed by a `:render-key` — the tuple `[view-id instance-token]`, where the token disambiguates two mounted instances of the same view (`[:cart/row 1473]` vs `[:cart/row 1474]`). The entry also carries what *triggered* the render (the sub or props that changed) and the view's render args, so an over-rendering view shows its cause rather than leaving you to guess.
 
-!!! note "Why register the views you care about"
+This is also the practical reason to register the views you care about: plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.
 
-    Plain unregistered fns render under the fallback key `[:rf.view/anonymous nil]` — a registered `reg-view` is what gives a render a *name* in the trace. All of this sits behind the dev-build gate and [elides](../glossary.md#elide) completely in production.
+A view is a pure function from subscription values to hiccup. That's the whole job: show the room, pass along the knocks, keep nothing. Everything interesting happens on the other side of the glass — and the rest of this guide is about that side.

@@ -1,8 +1,8 @@
 # Test an event handler
 
-You wrote an [**event handler**](../glossary.md#event-handler) — the pure function that runs in response to a dispatched [event](../glossary.md#event) and computes how your app's state should change — and now you want a unit test for it. The good news: this test runs in a millisecond, with no browser, no DOM, and no test double for the network or the clock. The recipe is short — pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, assert on what it returns.
+You wrote an [**event handler**](../glossary.md#event-handler) — the pure function that runs in response to a dispatched [event](../glossary.md#event) and computes how your app's state should change — and now you want a unit test for it. Good instinct: this is where most of your testing effort should go, because this is where most of the logic lives. It's also the cheapest test you'll write — a millisecond, no browser, no DOM, no test double for the network or the clock. The recipe is short: pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, assert on what it returns.
 
-Hold on to one sentence as you read this page, because it's the whole trick:
+One sentence is the whole trick. Hold on to it as you read this page:
 
 > **The handler returned a map. You checked the map.**
 
@@ -46,13 +46,9 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
 
     This is the reducer test — call the function, check the return — except it never hits the ceiling where you'd reach for `vi.mock` or fake timers. A handler's world arrives as declared data and its side effects leave as data, so the plain function call covers the ground that mocks cover in JS. If you're coming from Vitest or Jest, notice what's *absent*: no mock module, no spy, no `beforeEach` wiring up a fake clock.
 
-!!! warning "Gotcha — `handler-meta` returns `nil` for an unregistered id"
+One gotcha before we add anything, because it produces a misleading error. `handler-meta` returns `nil` for an unregistered id. Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta :event :articels/page-changed)` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
 
-    Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta :event :articels/page-changed)` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
-
-!!! note "A handler may legitimately return `nil`"
-
-    A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../concepts/effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
+The mirror case is legitimate. A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../concepts/effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
 
 ## 2. A handler that needs the world
 
@@ -166,7 +162,7 @@ This is exactly the trap you want sprung. A silently-minted random value would m
 
 ### Seeding state: the frame boots it, the body tests it
 
-When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
+When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — that buries the dispatch under test. Events are the language of the system, and setup can speak it too, just not in the test body: hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
 
 ```clojure
 (deftest page-change-from-a-seeded-feed
@@ -207,9 +203,7 @@ For the assertion itself, `test-support` ships two `clojure.test`-aware helpers 
 
 There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registrar. `reg-event` and its siblings register into a process-global [registrar](../glossary.md#registrar) — one table shared across the whole test run. (This is the rule in action: a frame isolates **state, not registrations** — see [Frames](../concepts/frames.md).)
 
-!!! warning "Gotcha — same id, last load wins"
-
-    If two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic flake-hunt horror: every test passes alone, the suite fails together, and the failure jumps around as test order changes. It's maddening to chase, so guard against it before it bites.
+So: if two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic flake-hunt horror — every test passes alone, the suite fails together, and the failure jumps around as test order changes. Maddening to chase. Cheap to prevent.
 
 If your tests — or any helpers they load — register anything themselves, bracket each test with a registrar snapshot/restore so the table is put back the way it was:
 
@@ -236,9 +230,7 @@ If your tests — or any helpers they load — register anything themselves, bra
 
 `make-reset-runtime-fixture` is the right default because its resets are no-ops when an artefact is absent — a plain JVM event-handler suite that never pulls in flows or schemas doesn't pay for resetting them.
 
-!!! warning "Gotcha — the two fixtures have different call shapes"
-
-    `with-fresh-registrar` *takes a thunk and runs it* (`(ts/with-fresh-registrar test-fn)`), while `make-reset-runtime-fixture` *returns a fixture fn* you hand to `use-fixtures` (`(ts/make-reset-runtime-fixture {})`). Mixing the two shapes up is the usual stumble — if `use-fixtures` complains, check which side of this line you're on.
+One last stumble, and it's a common one: the two fixtures have different call shapes. `with-fresh-registrar` *takes a thunk and runs it* (`(ts/with-fresh-registrar test-fn)`), while `make-reset-runtime-fixture` *returns a fixture fn* you hand to `use-fixtures` (`(ts/make-reset-runtime-fixture {})`). If `use-fixtures` complains, check which side of this line you're on.
 
 ??? info "For JavaScript developers"
 

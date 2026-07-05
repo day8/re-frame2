@@ -1,6 +1,6 @@
 # Boot and mount an app
 
-An app's entry/boot namespace has three jobs:
+An app's entry/boot namespace has three jobs. Only three, and always the same three:
 
 - require the namespaces that register the app's behaviour;
 - install the reactive adapter for the process;
@@ -8,18 +8,19 @@ An app's entry/boot namespace has three jobs:
 
 A [frame](../glossary.md#frame) is one isolated running instance of your app: its own
 [app-db](../glossary.md#app-db), event queue, runtime state, and subscription cache.
+One division of labour catches nearly everyone, so hear it before the code:
 `rf/init!` does not create a frame. It only installs the
 [adapter](../glossary.md#adapter) for your React substrate, such as Reagent, UIx,
 or Helix. The frame is created later by the rendered
 [frame-provider](../glossary.md#frame-provider).
 
-The goal is simple: first page load should create and seed the app; hot reload
-should re-render changed views without losing app-db.
+The whole recipe serves two moments. First page load should create and seed the
+app. Hot reload should re-render changed views without losing app-db.
 
 ## The small shape
 
-For an app with no browser listeners, there is no need for a separate `boot!`
-function. Keep the process setup inline in `run`, and put DOM work in `mount!`.
+For an app with no browser listeners, you don't need a separate `boot!`
+function. Keep the process setup inline in `run`, and put the DOM work in `mount!`.
 
 ```clojure
 (ns counter.core
@@ -51,19 +52,20 @@ function. Keep the process setup inline in `run`, and put DOM work in `mount!`.
   (mount!))
 ```
 
-Wire `run` as the build's `:init-fn`, for example
+Wire `run` as the build's `:init-fn` — for example
 `:init-fn counter.core/run` in `shadow-cljs.edn`.
 
-`rf/init!` is process setup. `mount!` is browser setup. Keeping the DOM touch
-inside `mount!` lets the namespace load in tests or Node hosts where
-`js/document` is not present.
+`rf/init!` is process setup. `mount!` is browser setup. The split is not
+ceremony: keeping the DOM touch inside `mount!` lets the namespace load in tests
+or Node hosts where `js/document` is not present.
 
-The `ns` form is also part of boot. `counter.events` and `counter.subs` may look
-unused in this namespace, but requiring them loads their `reg-event` and
-`reg-sub` forms. A real app's entry/boot namespace usually requires every
-namespace whose top-level registrations must exist before the app runs: events,
-effects, coeffects, subscriptions, views, routes, resources, machines, and
-schemas.
+The `ns` form is also part of boot. `counter.events` and `counter.subs` look
+unused in this namespace — nothing in the file names them again — but requiring
+them loads their `reg-event` and `reg-sub` forms. Registration happens as a
+direct result of loading the code; there is no manifest and no wiring step. A
+real app's entry/boot namespace usually requires every namespace whose
+top-level registrations must exist before the app runs: events, effects,
+coeffects, subscriptions, views, routes, resources, machines, and schemas.
 
 ## What the provider does
 
@@ -84,12 +86,18 @@ On the first mount it:
 - runs the `:initial-events` once, in order, to seed app-db;
 - scopes descendant views, subscriptions, and dispatches to that frame.
 
-On a later remount under the same `:id`, such as a hot reload, it reuses the
-live frame. It does not replay `:initial-events`, and it does not destroy the
-frame on unmount. That is why app-db survives reload.
+Notice how the seeding happens. `:initial-events` are ordinary events, handled
+by ordinary handlers — even the initial values arrive by event. Those are the
+rules.
 
-If you edit the setup event itself and want the new setup to run, reset the
-frame or reload the page. Hot reload preserves state by design.
+On a later remount under the same `:id` — a hot reload, say — it reuses the
+live frame. It does not replay `:initial-events`, and it does not destroy the
+frame on unmount. That sentence is the whole hot-reload story: it is why app-db
+survives a reload.
+
+Which cuts both ways. If you edit the setup event itself and want the new setup
+to run, reset the frame or reload the page. Hot reload preserves state by
+design, and it will preserve it right past your edited setup event.
 
 ## Hot reload
 
@@ -114,10 +122,13 @@ It does not re-run `run`.
 Some apps also install browser listeners: `hashchange`, `popstate`, `storage`,
 or similar. Those listeners are process/browser wiring, not frame creation.
 
-When listener code can change during development, reinstall the listener from a
-hot-reload hook as well as from `run`. The browser removes listeners by exact
-function object identity, so keep the installed listener in a `defonce` cell and
-remove that stored value before adding the new one.
+Here's the trap. The browser removes listeners by exact function object
+identity, and after a hot reload your namespace holds *new* function objects —
+so removing "the listener" by name removes nothing, and each reload stacks
+another copy. The cure: keep the installed listener in a `defonce` cell, and
+remove that stored value before adding the new one. When listener code can
+change during development, reinstall the listener from a hot-reload hook as
+well as from `run`.
 
 ```clojure
 (defonce hash-listener (atom nil))
@@ -148,21 +159,23 @@ remove that stored value before adding the new one.
   (mount!))
 ```
 
-The separate `install-host-listeners!` function earns its name because it runs in
-two situations: first page load and hot reload. A separate `boot!` wrapper is
+`install-host-listeners!` earns its own name because it runs in two
+situations: first page load and hot reload. A separate `boot!` wrapper is
 optional; use one only if it makes your app's entry point clearer.
 
-In this shape, put `^:dev/after-load` on `reload!`, not on `mount!`, so a reload
-reinstalls listeners and renders once.
+In this shape, put `^:dev/after-load` on `reload!`, not on `mount!`, so a
+reload reinstalls listeners and renders once.
 
-For history routing, prefer the routing helper where it fits. It already owns the
-same hot-reload-safe listener pattern.
+For history routing, prefer the routing helper where it fits. It already owns
+this same hot-reload-safe listener pattern.
 
 ## Two frame shapes
 
-`frame-provider` has two useful shapes.
+`frame-provider` has two useful shapes, and the difference fits in one
+question: does the subtree *bring* its frame, or *borrow* it?
 
-Use `{:id ...}` when the rendered subtree should ensure its own frame exists:
+Use `{:id ...}` when the rendered subtree should ensure its own frame exists —
+it brings one:
 
 ```clojure
 [rf/frame-provider {:id             :counter/widget
@@ -173,7 +186,8 @@ Use `{:id ...}` when the rendered subtree should ensure its own frame exists:
 This creates the frame if absent, reuses it if present, and scopes descendants to
 it.
 
-Use `{:frame ...}` when the frame was already created somewhere else:
+Use `{:frame ...}` when the frame was already created somewhere else — it
+borrows:
 
 ```clojure
 (rf/reg-frame :checkout {:initial-events [[:checkout/initialise]]})
@@ -187,6 +201,8 @@ nothing and destroys nothing. Use it when boot, tests, SSR/request setup, or a
 tooling harness needs to create the frame before rendering.
 
 ## The boot lifecycle
+
+The whole recipe, one moment per row:
 
 | Moment | What should happen |
 | --- | --- |
@@ -216,25 +232,37 @@ Top-level DOM work is not:
 (defonce root (rdc/create-root (js/document.getElementById "app")))
 ```
 
-The namespace may be loaded by a test host, a Story tool, or another namespace
-that wants the registrations without mounting the app. Lazy DOM work keeps that
-safe.
+Why so strict? The namespace may be loaded by a test host, a Story tool, or
+another namespace that wants the registrations without mounting the app. Lazy
+DOM work keeps all of those safe.
 
 ## When boot goes wrong
 
-Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../concepts/errors.md) rather than a blank page.
+Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../concepts/errors.md) rather than a blank page. Three, in the order you're likely to meet them.
 
-!!! warning "Gotcha — touching the substrate before `init!`"
+**You touched the substrate before `init!`.** `rf/init!` installs the
+[adapter](../glossary.md#adapter); until it runs there is nothing to render
+through. A `render` or `mount!` that beats `(rf/init! …)` throws
+`:rf.error/no-adapter-installed`, naming the call; a `dispatch` or `subscribe`
+fired from a bare top-level form fails on its missing frame scope first
+(`:rf.error/no-frame-context`). Either way the cure is the same: boot before
+anything runs — in the shapes above, `run` installs the adapter on its first
+line.
 
-    `rf/init!` installs the [adapter](../glossary.md#adapter); until it runs there is nothing to render through. A `render` or `mount!` that beats `(rf/init! …)` throws `:rf.error/no-adapter-installed`, naming the call; a `dispatch` or `subscribe` fired from a bare top-level form fails on its missing frame scope first (`:rf.error/no-frame-context`). Either way the cure is the same: boot before anything runs — in the shapes above, `run` installs the adapter on its first line.
+**You pointed `{:frame …}` at a frame that doesn't exist.** The scope shape
+only *scopes* a frame someone else created; it creates nothing. Point
+`[rf/frame-provider {:frame :checkout} …]` at a frame that was never
+`reg-frame`'d (nor ensured by an `{:id}` provider) and it throws
+`:rf.error/frame-provider-frame-absent`. When the subtree should bring its own
+frame into being, use the **ensure** shape `{:id …}` instead — that's the whole
+difference between [the two shapes](#two-frame-shapes).
 
-!!! warning "Gotcha — `{:frame …}` needs a frame that already exists"
-
-    The scope shape only *scopes* a frame someone else created; it creates nothing. Point `[rf/frame-provider {:frame :checkout} …]` at a frame that was never `reg-frame`'d (nor ensured by an `{:id}` provider) and it throws `:rf.error/frame-provider-frame-absent`. When the subtree should bring its own frame into being, use the **ensure** shape `{:id …}` instead — that's the whole difference between [the two shapes](#two-frame-shapes).
-
-!!! warning "Gotcha — a registration namespace you forgot to require"
-
-    A `reg-event` or `reg-sub` runs only when its namespace loads, so a missing `require` means the registration never happened. Drop `counter.events` from the entry `ns` and the first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id, not a silent dead button. The fix is the require list in the `ns` form above.
+**You forgot to require a registration namespace.** A `reg-event` or `reg-sub`
+runs only when its namespace loads, so a missing `require` means the
+registration never happened. Drop `counter.events` from the entry `ns` and the
+first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud
+`:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id,
+not a silent dead button. The fix is the require list in the `ns` form above.
 
 ## Worked examples
 
@@ -248,9 +276,11 @@ creation, and render calls change.
 
 ??? info "From re-frame v1"
 
-    The old `mount-root` pattern rendered again after a hot
-    reload while global app-db survived as a top-level value. In re-frame2, the
-    state container is explicit: a frame. The provider ensures or scopes that
-    frame, and `:initial-events` seed it through the normal event pipeline.
+    The old `mount-root` pattern rendered again after a hot reload while a
+    global app-db survived as a top-level value — the state container was
+    ambient. In re-frame2 it is explicit: a frame. The provider ensures or
+    scopes that frame, and `:initial-events` seed it through the normal event
+    pipeline.
 
-The full frame lifecycle is covered in [Frames](../concepts/frames.md).
+That's the recipe. The full frame lifecycle is covered in
+[Frames](../concepts/frames.md).

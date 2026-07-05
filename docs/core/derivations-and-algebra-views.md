@@ -1,16 +1,16 @@
 # One graph: derivations and their algebra views
 
-You're reading a re-frame2 app you didn't write. A tool has just drawn its dependency graph — subscriptions, a flow, a resource cache, a machine — as one picture, and you want to know what you're looking at. This page is the model that makes the picture legible. It fits in one sentence:
+Everything flows; nothing stands still. Heraclitus said that, around 500 BC — a man who, being Greek, had never seen a frozen river — and it is still the best one-line description of a re-frame2 app.
 
-!!! note
+Here's the scene this page exists for. You're reading a re-frame2 app you didn't write. A tool has just drawn its dependency graph — subscriptions, a flow, a resource cache, a machine — as one picture, and you want to know what you're looking at. This page is the model that makes the picture legible, and the model fits in one sentence:
 
-    **A subscription, a flow, a resource, and a machine are the same thing seen four ways** — one node in one dependency graph rooted at your state, distinguished only by *where its value is kept* and *when it's recomputed*.
+**A subscription, a flow, a resource, and a machine are the same thing seen four ways** — one node in one dependency graph rooted at your state, distinguished only by *where its value is kept* and *when it's recomputed*.
 
-You don't need this page to *write* an app. [Where should this value live?](where-state-lives.md) routes any value to the right home with four questions and no theory. This page is for *reading* apps — yours six months from now, or somebody else's tomorrow — when the graph a tool draws has to make sense without opening every source file.
+One thing before we start, so nobody sits through theory they don't need: you don't need this page to *write* an app. [Where should this value live?](where-state-lives.md) routes any value to the right home with four questions and no theory. This page is for *reading* apps — yours six months from now, or somebody else's tomorrow — when the graph a tool draws has to make sense without opening every source file.
 
 ## Start with a spreadsheet
 
-The anchor here is a spreadsheet. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea: a value declares its inputs, and it recomputes when those inputs move.
+The anchor here is a spreadsheet — the same one the [subscriptions](concepts/subscriptions.md) page told you to hold onto, now asked to carry the whole framework. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea. A value declares its inputs, and it recomputes when those inputs move.
 
 re-frame2's [subscriptions](concepts/subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
 
@@ -18,9 +18,9 @@ re-frame2's [subscriptions](concepts/subscriptions.md) are exactly spreadsheet c
 
     The JS world rediscovered the spreadsheet as the **signals graph** — `createMemo`, `computed`, signals — where a derived value declares its inputs and recomputes when those inputs move. A re-frame2 subscription is one of those derived signals. If you've reached for `useMemo` to avoid recomputing a value on every render, you already have the intuition: declare the inputs, let the framework decide when to recompute.
 
-This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model; re-frame2 does.
+This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model. re-frame2 does.
 
-re-frame2 calls this model the **derivation/process algebra**. Don't let "algebra" summon high-school equations — here it just means *a small fixed set of node kinds plus rules for how they combine into a graph*, the same sense in which "relational algebra" is the handful of operations you compose into a SQL query. The payoff is that one vocabulary describes every node; this page is the tour.
+re-frame2 calls this model the **derivation/process algebra**. Don't let "algebra" summon high-school equations — here it just means *a small fixed set of node kinds plus rules for how they combine into a graph*, the same sense in which "relational algebra" is the handful of operations you compose into a SQL query. The payoff is that one vocabulary describes every node. This page is the tour.
 
 ## The keystone: one function, two policies
 
@@ -49,15 +49,19 @@ Here's the example that makes the whole idea click — a cart total, expressed t
 | When it recomputes | when something reads it | after each event, in that event's commit |
 | Who keeps it alive | a subscription-cache entry | the frame |
 
-The subscription stores nothing and recomputes on demand. The [flow](concepts/flows.md) stores its answer into [app-db](glossary.md#app-db) (your app's single immutable state map) and recomputes after each event. The math is identical; the *policy over the graph* is what differs.
+The subscription stores nothing and recomputes on demand — a formula cell. The [flow](concepts/flows.md) stores its answer into [app-db](glossary.md#app-db) (your app's single immutable state map) and recomputes after each event — a cell that writes its result back into the sheet. The math is identical; the *policy over the graph* is what differs.
 
-That's the entire reason the algebra exists. Hold onto this one sentence and the rest of the page is just extending it across the other homes:
+That's the entire reason the algebra exists:
 
 > The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.**
 
+I'll pause while you read that sentence again. That's the whole page, right there — everything below is that sentence, visiting the other homes.
+
 ## The five questions every node answers
 
-Every declared fact in re-frame2 — subscription, flow, resource read, route fact, machine selector — answers the *same five questions*. Learn to ask these five of any node and you can read any graph:
+Every declared fact in re-frame2 — subscription, flow, resource read, route fact, machine selector — answers the *same five questions*. Not five per family. Five, total, across every node kind a tool will ever draw for you: a plain sub, a flow writing back into the sheet, a resource mid-fetch, a machine mid-transition, the route sitting in your user's address bar. Learn to ask these five of any node and you can read any graph in any re-frame2 app — yours, your team's, the ones that haven't been written yet. **Any of them.**
+
+Too much? Only slightly. Further down you'll meet *refinements* and some diagnostic dressing, but they only ever add colour to a node — never a sixth question. Here are the five:
 
 | Question | Field | Example answers |
 |---|---|---|
@@ -83,7 +87,7 @@ That's the whole vocabulary. The five source forms you actually write — `reg-s
 
 ## One node, opened up
 
-Here's the complete algebra view of that cart subscription — the shape every node in an inspected graph has. Don't memorize it; just see that it's the five questions plus some labelling and diagnostics:
+Here's the complete algebra view of that cart subscription — the shape every node in an inspected graph has. Don't memorize it. Just see that it's the five questions plus some labelling and diagnostics:
 
 ```clojure
 {:id          :cart/total
@@ -103,17 +107,17 @@ Here's the complete algebra view of that cart subscription — the shape every n
  :source      {:ns "app.cart" :file "src/app/cart.cljs" :line 42}}
 ```
 
-Three fields earn a comment:
+Notes:
 
-- **`:kind`** is one of exactly two closed superkinds — `:derivation` or `:process`. A tool that understands only those two can still classify every node.
-- **`:refinement`** carries the finer labels you'll meet below (`:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector`). They never live in `:kind`, so a refinement always refines its node's superkind and never invents a third one.
-- **`:derive`** is an opaque token. (`#'app.cart/sum-cart` is Clojure's var-quote — a reference *to* the function named `sum-cart`, not the function's source code.) The graph contract is about dependencies, storage, evaluation, and ownership; it never requires serializing your functions.
+1. **`:kind`** is one of exactly two closed superkinds — `:derivation` or `:process`. A tool that understands only those two can still classify every node.
+2. **`:refinement`** carries the finer labels you'll meet below (`:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector`). They never live in `:kind`, so a refinement always refines its node's superkind and never invents a third one.
+3. **`:derive`** is an opaque token. (`#'app.cart/sum-cart` is Clojure's var-quote — a reference *to* the function named `sum-cart`, not the function's source code.) The graph contract is about dependencies, storage, evaluation, and ownership; it never requires serializing your functions.
 
 The trailing fields — `:schema` (the output's Malli [schema](glossary.md#schema)), `:source` (namespace / file / line), plus a doc string — are the **diagnostic dressing**. They're optional; a node with none of them is still a complete node. But a good graph carries them, because "where is this defined and what shape does it produce?" is exactly the question a reader of an unfamiliar app asks first.
 
 ### Parametric nodes and the don't-execute rule
 
-So far the subscription's inputs were fixed. But some subscriptions compute their inputs from the [query vector](glossary.md#query-vector) — `[:article/page "welcome"]` reads a different article than `[:article/page "intro"]`. The static graph can't know those edges before a concrete query exists, **and it must not guess**. So it reports `:parametric` and names the producer; the live graph reports the realized edges once a real query is in play:
+Now, I haven't been entirely straight with you. So far the subscription's inputs were fixed, and I've let you believe they always are. But some subscriptions compute their inputs from the [query vector](glossary.md#query-vector) — `[:article/page "welcome"]` reads a different article than `[:article/page "intro"]`. The static graph can't know those edges before a concrete query exists, **and it must not guess**. So it reports `:parametric` and names the producer; the live graph reports the realized edges once a real query is in play:
 
 ```clojure
 ;; STATIC — derived from registrations alone
@@ -140,7 +144,7 @@ This is the **don't-execute rule**: static inspection never runs your input, par
 
 Subscriptions and flows are derivations — pure formulas. Now we cross into **processes**: nodes that carry state, have a lifecycle, and run commands over time. The first one is the **resource**.
 
-A resource is a fact whose authoritative value lives on a server, with a local cached copy ([Server state: resources](../resources/concepts.md)). Here's the wrinkle that makes resources more than a fancy subscription: one `reg-resource` declaration lowers to *more than one* node — a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work; it just reads the cache.
+A resource is a fact whose authoritative value lives on a server, with a local cached copy ([Server state: resources](../resources/concepts.md)). Here's the wrinkle that makes resources more than a fancy subscription: one `reg-resource` declaration lowers to *more than one* node — a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work. It just reads the cache.
 
 ```clojure
 ;; STATIC ALGEBRA VIEW of (rf/reg-resource :article/by-slug {…})
@@ -159,11 +163,7 @@ A resource is a fact whose authoritative value lives on a server, with a local c
                :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}
 ```
 
-The view makes a split explicit that folklore usually muddles. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server.
-
-!!! warning "Gotcha — 'remote' is not a storage class"
-
-    This is the one place people reliably tie themselves in knots. Locally you *always* hold a representation; the truth living on a server doesn't move it out of your `:storage`. So `:storage` is `:runtime-db` (where your copy sits) and `:authority` is the remote server (whose fact it is) — two separate axes, never collapsed into one. A graph that printed "storage: remote" would be telling you nothing about where the bytes actually are.
+The view makes a split explicit that folklore usually muddles — and it's the one place people reliably tie themselves in knots, so hear it plainly. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server. "Remote" is not a storage class. Locally you *always* hold a representation; the truth living on a server doesn't move it out of your `:storage`. So `:storage` is `:runtime-db` (where your copy sits) and `:authority` is the remote server (whose fact it is) — two separate axes, never collapsed into one. A graph that printed "storage: remote" would be telling you nothing about where the bytes actually are.
 
 ??? info "Coming from TanStack Query?"
 
@@ -175,7 +175,7 @@ The view makes a split explicit that folklore usually muddles. **`:storage` alwa
 
 ### Buying back static visibility: named resolvers
 
-The don't-execute rule says static inspection won't *run* your scope function — so a resource scoped by an inline `(fn [route ctx] …)` reports the opaque marker `[:scope :rf.scope/resolver]` and nothing more. But there's an escape hatch that buys back static visibility: a **named scope resolver**. Declare the scope as a data reference — `{:from-db :session/current-tenant}` instead of an inline function — and the resolver's *declared inputs* are themselves declarations, so the static graph can read them without running anything:
+The don't-execute rule has a price. Static inspection won't *run* your scope function — so a resource scoped by an inline `(fn [route ctx] …)` reports the opaque marker `[:scope :rf.scope/resolver]` and nothing more. Fair enough. But there's an escape hatch that buys back static visibility: a **named scope resolver**. Declare the scope as a data reference — `{:from-db :session/current-tenant}` instead of an inline function — and the resolver's *declared inputs* are themselves declarations, so the static graph can read them without running anything:
 
 ```clojure
 ;; STATIC ALGEBRA VIEW — named-resolver scope
@@ -189,15 +189,11 @@ The don't-execute rule says static inspection won't *run* your scope function �
  :params      :parametric}
 ```
 
-The lesson generalizes, and it's the trade the whole algebra makes:
-
-!!! note
-
-    **Declaring a dependency as *data*, rather than burying it in a function body, is what lets a tool see it before the app runs.** An inline function is opaque to static analysis on purpose; a named, data-described resolver hands the same information to the graph for free. The more you say in data, the more a tool can answer without executing you.
+The lesson generalizes, and it's the trade the whole algebra makes: **declaring a dependency as *data*, rather than burying it in a function body, is what lets a tool see it before the app runs.** An inline function is opaque to static analysis on purpose; a named, data-described resolver hands the same information to the graph for free. The more you say in data, the more a tool can answer without executing you.
 
 ### Machines: a node with memory
 
-A [machine](../machines/glossary.md#machine) is the algebra's canonical process — a stateful node whose *next* value depends on its *current* one. It's the feature that motivates the `:process` superkind in the first place: a pure derivation can't depend on its own previous value, so a machine simply isn't expressible as one. Its [snapshot](../machines/glossary.md#snapshot) is durable runtime-db state, written only by its own transitions.
+A [machine](../machines/glossary.md#machine) is the algebra's canonical process — a cell with memory, a stateful node whose *next* value depends on its *current* one. It's the feature that motivates the `:process` superkind in the first place: a pure derivation can't depend on its own previous value, so a machine simply isn't expressible as one. Its [snapshot](../machines/glossary.md#snapshot) is durable runtime-db state, written only by its own transitions.
 
 The view, side by side with one of its selectors:
 
@@ -229,7 +225,9 @@ That `:checkout/progress` selector's algebra view is an `:ephemeral`, `:on-deman
 
 ### Routes: the same fact, every route
 
-A route lowers the same way, with a twist worth pausing on: every route materializes the *same* route fact — `:rf/route`, the one consumer-facing name for the route slice in runtime-db — with the per-route id recorded in `:source-form` and evaluation `:on-route`. Its `:inputs` are the framework route-transition events (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/handle-url-change`), the same across every route, because the same events materialize the slice no matter which route matched. Forty routes, one fact.
+A route lowers the same way, with a twist worth pausing on: every route materializes the *same* route fact — `:rf/route`, the one consumer-facing name for the route slice in runtime-db — with the per-route id recorded in `:source-form` and evaluation `:on-route`. Its `:inputs` are the framework route-transition events (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/handle-url-change`), the same across every route, because the same events materialize the slice no matter which route matched.
+
+Forty routes. One fact.
 
 A route's `:resources` declaration becomes a route-owned **activation edge** into the resource it ensures ([Routing: the URL is a sub](../routing/concepts.md)):
 
@@ -284,7 +282,7 @@ To see one live, open [Xray](glossary.md#xray) on a running app. The panel that 
 
 ## When the graph is wrong: errors as graph facts
 
-Reading a healthy graph is the common case. But the algebra also shapes how the framework reports an *unhealthy* one — and because errors are attributed to **graph identities** rather than to low-level functions, the diagnostics line up with the same node vocabulary you've been reading. When something goes wrong, the framework tells you *which node* and *which axis*, not just which function threw. The cases worth recognizing:
+Reading a healthy graph is the common case. But the algebra also shapes how the framework reports an *unhealthy* one — and because errors are attributed to **graph identities** rather than to low-level functions, the diagnostics speak the same node vocabulary you've been reading all page. When something goes wrong, the framework tells you *which node* and *which axis*, not just which function threw. The cases worth recognizing:
 
 - **Unknown input fact** — a derivation declares an input (`[:sub …]`, `[:db …]`, `[:resource …]`) that names a fact nothing produces. The graph has a dangling edge; the framework [fails loud](glossary.md#fail-loud-not-silent) rather than silently feeding `nil`.
 - **Cycle in an acyclic graph** — a flow whose inputs depend, transitively, on its own output. Flows are topologically sorted before they drain, so a cycle is a registration-time error (`:rf.error/flow-cycle`, thrown by `reg-flow` *before* any snapshot is created), not a hang at runtime. The error even carries the offending chain — a `:cycle` vector with a closing repeat, `[:a :b :a]` for `:a → :b → :a` — which a tool like Xray renders verbatim. (Subscriptions tolerate some shapes flows can't, because a flow must reach a fixed point inside one commit; the subscription graph stays dynamic at the view boundary and has no registration-time cycle gate.)
@@ -330,3 +328,5 @@ You don't memorize the tables. You carry the sentence the keystone example prove
 > A subscription, a flow, a resource, a route fact, and a machine are the same dependency-graph node under different **storage** and **evaluation** policies. The source forms differ for good ergonomic reasons; the algebra view is what they share.
 
 When you just want to pick a home for a value, ask the four questions in [Where should this value live?](where-state-lives.md). This page is what sits underneath that router: *why* the four homes are four faces of one idea.
+
+Everything flows; nothing stands still — and now you can read the picture. Derived data, flowing.

@@ -1,6 +1,12 @@
 # Interceptors
 
-Say you have three hundred [event handlers](../glossary.md#event-handler), and three chores that apply to all of them: log every event, snapshot state for undo, validate input at the boundary. Nobody wants to write those chores into three hundred handlers — that's nine hundred copies of code that isn't the handler's job.
+Say you have three hundred [event handlers](../glossary.md#event-handler), and three chores that apply to all of them: log every event, snapshot state for undo, validate input at the boundary.
+
+Where do the chores go?
+
+Not into the handlers. Do that and you have nine hundred copies of code that isn't any handler's job. Nine hundred copies drifting quietly apart. Three hundred edits the day the logging format changes — and it will change — three hundred chances to miss one, and a bug filed weeks later against the one you missed. And the undo chore isn't even stateless: it's a snapshot stack, smeared across every mutating handler you own.
+
+Okay. Deep breath. The diagnosis stands, though: these chores *cut across* handlers, so they can't live *inside* handlers.
 
 An **interceptor** is where a cross-cutting chore lives instead. You write the chore *once*, register it under a name, and wrap it around any handler — or around every handler in a [frame](../glossary.md#frame) — just by referencing that name. The handler stays focused on its one job: turning [coeffects](../glossary.md#coeffect) into an [effect map](../glossary.md#effect-map).
 
@@ -32,11 +38,11 @@ You register an interceptor the same way you register an event or a sub: give it
 
 Each function takes one argument, `ctx` — the **context** — and returns it (possibly modified). That single value is the only channel an interceptor has: `:before` here stashes the start time on the context, and its own `:after` reads it back. (That `::started-at` key, with the double colon, is just Clojure shorthand for a keyword namespaced to the current file — a safe place to park scratch data without colliding with anyone else's keys.) No closures, no side atoms.
 
-Three small things trip people up the first time:
+Notes — the three things that trip people up the first time:
 
-- **Each dispatch gets a fresh context.** Scratch like `::started-at` can never leak from one dispatch into the next — one registration is safe on any number of handlers and frames.
-- **The id is the handle.** Once registered, `:my-app/logger` *is* the interceptor everywhere — chains reference it by id, the [trace stream](../glossary.md#trace-stream) and [Xray](../glossary.md#xray) name it by id, overrides find it by id. There is no anonymous interceptor to lose track of.
-- **Both slots must return the context.** ("Slot" is just a handy name for one of the two functions — the `:before` or the `:after`.) A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
+1. **Each dispatch gets a fresh context.** Scratch like `::started-at` can never leak from one dispatch into the next — one registration is safe on any number of handlers and frames.
+2. **The id is the handle.** Once registered, `:my-app/logger` *is* the interceptor everywhere — chains reference it by id, the [trace stream](../glossary.md#trace-stream) and [Xray](../glossary.md#xray) name it by id, overrides find it by id. There is no anonymous interceptor to lose track of.
+3. **Both slots must return the context.** ("Slot" is just a handy name for one of the two functions — the `:before` or the `:after`.) A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
 
 ??? info "Coming from Express / Koa middleware?"
 
@@ -64,9 +70,7 @@ That bare keyword `:my-app/logger` *names* the registered interceptor; the runti
 
 This register-once-reference-everywhere split is the whole shape, and it has a quiet payoff: the chain is **plain data** — a vector of keywords you can serialize, diff, and carry in an [image](../glossary.md#image) (the portable registration set a later page covers). And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the very next dispatch; you don't re-register the event just because an interceptor's implementation changed.
 
-!!! warning "Gotcha — an inline interceptor map in a chain is rejected"
-
-    Drop an interceptor *map* straight into a public chain — `{:interceptors [{:before ...}]}` — and the runtime refuses it (`:rf.error/inline-interceptor-removed`). A chain holds references only. The fix is always the same: register the behaviour under a name, and reference that name.
+Tempted to skip the registration step and drop an interceptor *map* straight into a public chain — `{:interceptors [{:before ...}]}`? The runtime refuses it (`:rf.error/inline-interceptor-removed`). A chain holds references only. The fix is always the same: register the behaviour under a name, and reference that name.
 
 ## The context map: two keys
 
@@ -92,6 +96,8 @@ This is the same `:coeffects` / `:effects` pair you met in [effects](effects.md)
 - a **`:before`** sees only `:coeffects` — the outputs don't exist yet;
 - an **`:after`** sees both `:coeffects` *and* `:effects`.
 
+I'll pause while you read those two lines again. That's the key concept, right there: the way in is about the handler's inputs, the way out is about its outputs, and everything an interceptor will ever do for you happens on one of those two trips.
+
 That's why our logger's `:before` could read `:event` but our undo example (later) needs `:after` to compare the before-`:db` against the after-`:db`.
 
 ??? note "Going deeper"
@@ -100,7 +106,13 @@ That's why our logger's `:before` could read `:event` but our undo example (late
 
 ## The sandwich: how a chain runs
 
-A single interceptor is a `:before`/`:after` pair wrapped around the handler. Stack three of them — `A`, `B`, `C` — around a handler `H` and the runtime makes two sweeps over one shared context:
+A single interceptor is a `:before`/`:after` pair wrapped around the handler. So what happens when you stack several?
+
+They wrap.
+
+Each one wraps *everything inside it*. Picture your event handler as a piece of ham. One interceptor is the bread on either side — its `:before` on the way in, its `:after` on the way out — and now you have a sandwich. A second interceptor doesn't line up *beside* the first; it goes *around* it, another pair of slices outside the existing sandwich. A sandwich of the sandwich. Three interceptors, and it is a very thick sandwich.
+
+Stack three of them — `A`, `B`, `C` — around a handler `H` and the runtime makes two sweeps over one shared context:
 
 ```text
 declared:  [A B C]  + handler H
@@ -122,13 +134,11 @@ If you'd rather see that as code, here it is — the whole execution is one thre
 
 (Morally, anyway — the runtime resolves the references and guards each call, but this is the shape. There's no machinery hiding under the machinery.)
 
-Two details carry weight. First, **the handler runs as the last `:before`.** The runtime wraps it as an interceptor too, so there's exactly one kind of thing to execute, all the way down. Second, **the trip out mirrors the trip in.** Whatever `B:before` set up, `B:after` tears down — and teardown happens *after* everything that ran inside the setup. Think of a sandwich: the outer slice goes on first and comes off last. Every cleanup interceptor you write leans on this symmetry.
+Two details carry weight. First, **the handler runs as the last `:before`.** The runtime wraps it as an interceptor too — even the ham gets wrapped — so there's exactly one kind of thing to execute, all the way down. Second, **the trip out mirrors the trip in.** Whatever `B:before` set up, `B:after` tears down — and teardown happens *after* everything that ran inside the setup, because the outer slice goes on first and comes off last. Every cleanup interceptor you write leans on this symmetry.
 
 The handler doesn't know it's wrapped, and an interceptor doesn't know what it wraps. That mutual ignorance is exactly why the pattern scales: any interceptor can decorate any handler, because they only ever talk through one shared value. They never reach into each other.
 
-!!! note "One discipline"
-
-    Never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
+One discipline, said plainly: never depend on chain position. An interceptor that only works when another one happens to wrap it has encoded an ordering as a hidden precondition — a trap for whoever reorders the chain next.
 
 ??? info "From re-frame v1 — the chain no longer rewrites itself"
 
@@ -221,7 +231,7 @@ Per-handler attachment, as above, fires for that event only — the right scope 
   {:interceptors [:my-app/logger]})   ;; a reference; wraps EVERY event handled in this frame
 ```
 
-Per-frame interceptors are **prepended** to each event's own chain. Frame-wide concerns sit outermost, event-specific ones inside them, the handler in the middle, and the same forward-then-reverse sweep runs across all of it. This is the answer to the three hundred handlers from the top of the page: the boring chores become two or three frame interceptors, registered once, referenced by id, touching no handler code.
+Per-frame interceptors are **prepended** to each event's own chain — the frame's slices go on the outside of every sandwich it serves. Frame-wide concerns sit outermost, event-specific ones inside them, the handler in the middle, and the same forward-then-reverse sweep runs across all of it. This is the answer to the three hundred handlers from the top of the page: the boring chores become two or three frame interceptors, registered once, referenced by id, touching no handler code.
 
 ??? info "From re-frame v1 — `reg-global-interceptor` is gone"
 
@@ -248,11 +258,9 @@ When both a frame and a dispatch supply overrides, they **merge, and on any key 
 
 ## Contribute, don't perform
 
-Here's the rule from the top of the page, made precise. The chain is part of the *step function* — the pure fold that replay, time-travel, and deterministic tests re-run against recorded inputs. So this is where discipline pays off:
+Here's the rule from the top of the page, made precise. The chain is part of the *step function* — the pure fold that replay, time-travel, and deterministic tests re-run against recorded inputs. So this is where discipline pays off.
 
-!!! warning "Gotcha — work done in an interceptor body re-fires on replay"
-
-    Don't do real work directly in an interceptor body. It re-fires on every replay, and it escapes every seam: `:fx-overrides` (the effects-side sibling of the `:interceptor-overrides` you just met) redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](../glossary.md#effect) rows and let the [effect handler](../glossary.md#effect-handler) execute them.
+Don't do real work directly in an interceptor body. Not because it won't run — it will — but because it re-fires on every replay, and it escapes every seam: `:fx-overrides` (the effects-side sibling of the `:interceptor-overrides` you just met) redirects *registered effects*, not a stray `localStorage` write buried in an `:after`. The sanctioned pattern is **contribute, don't perform** — append [effect](../glossary.md#effect) rows and let the [effect handler](../glossary.md#effect-handler) execute them.
 
 ```clojure
 ;; ❌ performs — re-fires on replay, invisible to :fx-overrides and the trace
@@ -393,11 +401,7 @@ Testing the *wiring* — that the reference actually wraps the handler — is on
 
 ## When a reference is wrong
 
-Because a chain is just data, the runtime can check it *eagerly* — and it does. The single most common mistake, a misspelled id, dies at the earliest possible moment:
-
-!!! warning "Gotcha — a misspelled id fails at registration, not at dispatch"
-
-    Register an event whose `:interceptors` names an id that nobody has registered, and `reg-event` (or `reg-frame`) throws `:rf.error/unregistered-interceptor` right there at the registration site — naming the missing id. You find out when you load the namespace, not when an unlucky user trips the chain.
+Because a chain is just data, the runtime can check it *eagerly* — and it does. The single most common mistake, a misspelled id, dies at the earliest possible moment: register an event whose `:interceptors` names an id that nobody has registered, and `reg-event` (or `reg-frame`) throws `:rf.error/unregistered-interceptor` right there at the registration site — naming the missing id. You find out when you load the namespace, not when an unlucky user trips the chain.
 
 A handful of sibling errors cover the other ways a reference can be malformed. They all [fail loud](../glossary.md#fail-loud-not-silent) — re-frame2 never silently drops a chain entry it can't make sense of:
 
