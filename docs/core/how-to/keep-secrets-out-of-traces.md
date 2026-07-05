@@ -1,10 +1,12 @@
 # Keep secrets and large things out of traces
 
-Your login form just dispatched `[:auth/sign-in {:password "hunter2"}]`. In re-frame2 an [event](../glossary.md#event) is *just data* — an inert vector recording that something happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable: events, snapshots of [app-db](../glossary.md#app-db), and HTTP records all flow down one in-process feed — the [trace stream](../glossary.md#trace-stream) — and every tool drinks from that one feed ([one wire, every tool](../concepts/observability.md)). [Xray](../glossary.md#xray) (the dev inspector) reads it live; the [epoch](../glossary.md#epoch) history (the before/after record each event leaves behind, for [time-travel](../glossary.md#time-travel) debugging) keeps it; and any **shipper** — a [listener](../glossary.md#listener) you register to forward records to a hosted monitor like Datadog or Sentry — can carry it off-box.
+Your login form just dispatched `[:auth/sign-in {:password "hunter2"}]`.
+
+In re-frame2 an [event](../glossary.md#event) is *just data* — an inert vector recording that something happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable. Events, snapshots of [app-db](../glossary.md#app-db), and HTTP records all flow down one in-process feed — the [trace stream](../glossary.md#trace-stream) — and every tool drinks from that one feed ([one wire, every tool](../concepts/observability.md)). [Xray](../glossary.md#xray), the dev inspector, reads it live. The [epoch](../glossary.md#epoch) history — the before/after record each event leaves behind, for [time-travel](../glossary.md#time-travel) debugging — keeps it. And any **shipper** — a [listener](../glossary.md#listener) you register to forward records to a hosted monitor like Datadog or Sentry — can carry it off-box.
 
 That's a feature most of the time and a problem exactly once: when the data on the wire is a password, a token, or a 5MB upload. This page is the short list of declarations that keep those off the wire — **without ever hiding them from your own handler code**.
 
-Whenever a value leaves the wire for somewhere it can be *observed* — a dev panel, the saved epoch history, an off-box monitor — it crosses what we'll call an **observation boundary** (or just *egress*, the point where data exits the runtime to be looked at). The whole idea of this page fits in one sentence: **you name a *path* as sensitive once, where the data is defined, and the framework redacts whatever lives at that path everywhere it crosses an observation boundary.** That's it. This is the framework's [data classification](../glossary.md#data-classification) capability, and we'll build it up one declaration at a time.
+Whenever a value leaves the wire for somewhere it can be *observed* — a dev panel, the saved epoch history, an off-box monitor — it crosses what we'll call an **observation boundary** (or just *egress*: the point where data exits the runtime to be looked at). And the whole page fits in one sentence: **you name a *path* as sensitive once, where the data is defined, and the framework redacts whatever lives at that path everywhere it crosses an observation boundary.** That's it. That's the framework's [data classification](../glossary.md#data-classification) capability, and the rest of this page is that sentence applied to each kind of owner, one declaration at a time.
 
 !!! note "This is hygiene, not a security boundary — and it is fail-open"
 
@@ -25,7 +27,7 @@ Start with the most common case: a token that *lives* in app-db at a path you ow
      :sensitive [[:auth :token] [:auth :refresh-token]]}))
 ```
 
-What just happened: `:sensitive` takes a vector of paths and marks each one. From now on, whatever value comes to rest at `[:auth :token]` is redacted to `:rf/redacted` everywhere it would cross an observation boundary — the App-DB panel in Xray, the saved epoch history, your off-box shipper. Your handlers still read the real token. What gets redacted is only the *observable shadow* of your data: the copy the framework projects onto the wire for tools to look at, which is separate from the live value your code actually runs on.
+What just happened: `:sensitive` takes a vector of paths and marks each one. From now on, whatever value comes to rest at `[:auth :token]` is redacted to `:rf/redacted` everywhere it would cross an observation boundary — the App-DB panel in Xray, the saved epoch history, your off-box shipper. Your handlers still read the real token. What gets redacted is only the **observable shadow** of your data: the copy the framework projects onto the wire for tools to look at, separate from the live value your code actually runs on. That term does a lot of work on this page — hold onto it.
 
 Notice we classified the path **before any token exists there** — `:auth/init` just seeds an empty map. That's the safe, common pattern: a classification over an absent path is a harmless no-op that quietly redacts whatever later occupies the path. You don't re-classify on every write.
 
@@ -76,9 +78,7 @@ You reach for `:clear-*` rarely — when a value disappears its redaction effect
      :clear-sensitive [[:docs doc-id :body]]}))
 ```
 
-!!! warning "Gotcha — `:sensitive` is a *path collection*, never `:sensitive false`"
-
-    You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (Don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
+One rookie mistake, so hear it now: `:sensitive` is a *path collection*, never a flag. You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (And don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
 
 ??? note "Going deeper"
 
@@ -124,15 +124,13 @@ The same `:sensitive` metadata key works on **every** registration that introduc
 (rf/reg-fx :rf.ws/send {:sensitive [[:auth]]} ws-send-handler)
 ```
 
-!!! warning "Gotcha"
+!!! warning "Gotcha — a positional secret ships raw"
 
     A path like `[:password]` reaches into the event's **arg-map** (`[:auth/sign-in {:password "…"}]`), so the mark can name it. A positionally-passed secret (`[:auth/sign-in "alice" "hunter2"]`) has **no** stable named path — a positional index isn't addressable, so there's nothing for `:sensitive` to classify. Under fail-open that means it ships RAW into every trace and error sink. This is a structural limitation, not a bug: redaction is path-based, and only the arg-map (`(second event)`) is reachable. **So when an event carries a secret, pass a map payload and classify the key.** (The glossary [recommends a map payload over positional args](../glossary.md#event) anyway — this is one more reason.) The positional form is fine for data you wouldn't mind seeing in a trace.
 
 Note the `:decode` schema in the sign-in example: `[:token {:sensitive? true} :string]` classifies the *response body*. That's a second, separate declaration for the same secret — the **HTTP reply** is redacted by its `:decode` schema, and the **durable copy** that `:auth/signed-in` later stores at `[:auth :token]` is redacted by the path classification from the first section. There's no propagation carrying one to the other. **Classify each surface the secret crosses** — the wire it arrives on, *and* the slot it comes to rest in.
 
-!!! note "A malformed mark is the loud case"
-
-    A non-vector path is rejected at *registration* with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s bad output marks raise `:rf.error/flow-bad-marks`), so the typo surfaces when you reload — not in a production log six weeks later.
+And while a mark at a *missing* slot is a silent no-op, a *malformed* mark is loud: a non-vector path is rejected at *registration* with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s bad output marks raise `:rf.error/flow-bad-marks`), so the typo surfaces when you reload — not in a production log six weeks later.
 
 ### HTTP carriers: redact by header and query-param name
 

@@ -1,6 +1,6 @@
 # Configure dev and production builds
 
-You're about to ship, and you want to know two things: what's actually in your production bundle, and which knobs you need to touch. For that second question the answer is *almost none*, because the defaults are already correct. **This page is the pre-ship pass.** We'll build it up one piece at a time: first the single flag that makes a build "production", then how to gate your *own* dev code so it disappears alongside the framework's, then the JVM/SSR variant, then the dev knobs, and finally the always-on guardrails.
+You're about to ship. Two questions matter: what's actually in your production bundle, and which knobs do you need to touch? Take the second one first: *almost none*. The defaults are already correct. **This page is the pre-ship pass.** One piece at a time: the single flag that makes a build "production", then gating your *own* dev code so it disappears alongside the framework's, then the JVM/SSR variant, then the dev knobs, and finally the guardrails you can't turn off.
 
 ??? info "Coming from React?"
 
@@ -19,7 +19,7 @@ Here is the whole production story — one line in your release build:
 
 That's it. Most production CLJS builds already set `goog.DEBUG false`, so re-frame2 reuses the canonical flag rather than inventing its own — odds are you have this line already.
 
-Under that `:advanced` build with `goog.DEBUG=false`, the framework's *surfaces* — the distinct things you can attach to or read from, like the [trace stream](../glossary.md#trace-stream) or [schema](../glossary.md#schema) validation — sort into three piles. It's worth knowing which is which before you ship.
+Under that `:advanced` build with `goog.DEBUG=false`, the framework's *surfaces* — the distinct things you can attach to or read from, like the [trace stream](../glossary.md#trace-stream) or [schema](../glossary.md#schema) validation — sort into three piles. Know which is which before you ship.
 
 **Elided — gone from the bundle, zero cost:**
 
@@ -61,9 +61,7 @@ The framework elides its own dev surface; yours needs the same gate so it disapp
 
 In production, `debug-enabled?` is the constant `false`, so the `when` body is dead code and the whole registration disappears with everything else.
 
-!!! warning "Gotcha — the gate must be outermost"
-
-    `(when (and something debug-enabled?) ...)` does **not** constant-fold. Closure can't rule out `something`, so it can't prove the branch is dead, and the code ships in your bundle. Keep `debug-enabled?` as the outermost test, on its own. The same applies to every dev-only call you write — a `register-epoch-listener!`, a `trace-buffer` read, a `(rf/configure! {:trace-buffer …})` — each belongs under its own `when ^boolean re-frame.interop/debug-enabled?` guard.
+One rookie mistake quietly defeats this gate: `(when (and something debug-enabled?) ...)` does **not** constant-fold. Closure can't rule out `something`, so it can't prove the branch is dead, and the code ships in your bundle. Keep `debug-enabled?` as the outermost test, on its own. The same applies to every dev-only call you write — a `register-epoch-listener!`, a `trace-buffer` read, a `(rf/configure! {:trace-buffer …})` — each belongs under its own `when ^boolean re-frame.interop/debug-enabled?` guard.
 
 ## 3. Shipping a JVM/SSR tier? One system property
 
@@ -111,9 +109,7 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
 
 A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all three in one value. An unknown top-level key is a silent no-op, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
 
-!!! note "One thing fails loud"
-
-    The *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The silent no-op is reserved for *unknown keys inside* a well-formed map (that's the property that lets a wrapper pass a composed config straight through); a malformed argument is a programming error and surfaces as one.
+One thing fails loud, though: the *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The silent no-op is reserved for *unknown keys inside* a well-formed map; a malformed argument is a programming error and surfaces as one.
 
 The three keys, in detail:
 
@@ -182,3 +178,5 @@ The elision mechanism itself — what disappears from a production build, and th
 4. Handlers receiving untrusted payloads reference the `:rf.schema/at-boundary` interceptor in their `:interceptors` chain.
 5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
 6. No Xray preload or pair-server artefact on the release classpath.
+
+Six checks. If every one holds, ship.

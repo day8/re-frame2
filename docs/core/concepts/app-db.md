@@ -1,12 +1,18 @@
 # app-db: the one place
 
-Your application's state — all of it — lives in one place: a single immutable map called [**app-db**](../glossary.md#app-db). That is the whole answer, and almost everything else in re-frame2 stays simple *because* of it.
+Your application's state — all of it — lives in one place: a single immutable map called [**app-db**](../glossary.md#app-db).
 
-This page builds that idea up one step at a time: first the map and the one thing allowed to change it, then where the first value comes from, then the handful of properties you get for free, and finally the framework's own bookkeeping that lives next door and the surgical lane that tests and tools use.
+That is the whole answer. Almost everything else in re-frame2 stays simple *because* of it.
+
+If you have a background in OO, that first sentence is a hard one to swallow. You've spent your career breaking systems into pieces, organising them around behaviour, hiding state where nothing can touch it — and here is a framework asking you to lay every fact your app knows in one big map, exposed and passive. I still wake up in a sweat some nights thinking about all that Clojure data just lying around.
+
+The cure for the sweats is knowing exactly what the exposure buys, and that is this page's job. One step at a time: first the map and the one thing allowed to change it; then where the first value comes from; then the handful of properties you get for free; and finally the framework's own bookkeeping that lives next door, and the surgical lane that tests and tools use.
 
 ## The counter grows a second fact
 
-[Our first app](../first-app.md)'s counter knows one fact: its value. Give it a second — an adjustable step size — and you've hit the first real design question of any growing app: *where does the new fact live?* In re-frame2 the answer never changes. It goes in the same map:
+[Our first app](../first-app.md)'s counter knows one fact: its value. Give it a second — an adjustable step size — and you've hit the first real design question of any growing app: *where does the new fact live?*
+
+In re-frame2 the answer never changes. It goes in the same map:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -42,7 +48,9 @@ This page builds that idea up one step at a time: first the map and the one thin
  [stepping-counter]]
 ```
 
-No second atom, no context, no module-level variable holding the step. app-db grew from the first app's one-fact shape to `{:value 0 :step 1}`, the `:inc` handler reads both facts from the one map it was already handed, and everything you learned about the first fact — how it changes, who may write it, how views watch it — is automatically true of the second. That scaling move is this page's whole subject.
+No second atom. No context. No module-level variable holding the step. app-db grew from the first app's one-fact shape to `{:value 0 :step 1}`, the `:inc` handler reads both facts from the one map it was already handed, and everything you learned about the first fact — how it changes, who may write it, how views watch it — is automatically true of the second.
+
+That scaling move is this page's whole subject.
 
 ## One map, one writer
 
@@ -62,11 +70,13 @@ Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. And exac
     {:db (update-in db [:cart :items] conj item)}))
 ```
 
-Read that carefully, because it is the whole immutability story in four lines. The handler receives the current map as `db` (pulled out of the argument map by `{:keys [db]}`, Clojure's way of saying "bind the `:db` key to a local named `db`"). It does not *change* that map: `update-in` returns a *new* map with one nested spot updated — here, `conj` (add an element) appends the item onto the items vector. The handler hands that new map back as its `:db` effect.
+Those four lines are the whole immutability story, so walk them slowly. The handler receives the current map as `db` — pulled out of the argument map by `{:keys [db]}`, Clojure's way of saying "bind the `:db` key to a local named `db`". It does not *change* that map: `update-in` returns a *new* map with one nested spot updated — here, `conj` (add an element) appends the item onto the items vector. The handler hands that new map back as its `:db` effect.
 
-Then the runtime does the only mutable step in the whole story. The map itself is immutable, but the name `app-db` is a mutable reference that *points* at a map, and the runtime swaps which map it points at — old value out, new value in, one atomic move. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, so the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
+Then the runtime does the only mutable step in the whole story. The map itself is immutable, but the name `app-db` is a mutable reference that *points* at a map, and the runtime swaps which map it points at — old value out, new value in, one atomic move. (This is also why the docs say `app-db` for the place and `db` for the value currently in it — worth keeping straight as you read code.) The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy; the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
 
-That is the entire shape of state in re-frame2: **structured data in one map; events in, new map out.** You can hold that and start writing apps. The rest of this page is what follows from it.
+That is the entire shape of state in re-frame2: **structured data in one map; events in, new map out.**
+
+I'll pause while you read that again. Hold it and you can start writing apps — the rest of this page is what follows from it.
 
 ??? info "Coming from Redux?"
 
@@ -78,9 +88,7 @@ That is the entire shape of state in re-frame2: **structured data in one map; ev
 
 Not every event has to return a new map, though. A handler that returns no `:db` key — or returns the *same* `db` object it was handed — changes nothing, on purpose. An event that only fires effects (a `:fx` with no `:db`) leaves app-db exactly as it was; so does the common short-circuit `{:db (if changed? (assoc db …) db)}`, whose `else` arm hands back the unchanged object. The runtime notices that object is the one it already holds (an `identical?` check, cheaper than comparing values) and skips the write entirely — no commit, no subscription recompute, nothing downstream re-renders. "Events in, new map out" is the shape; "no new map" is a legitimate special case of it.
 
-!!! warning "Gotcha — `{:db nil}` wipes app-db; it doesn't error"
-
-    app-db is *always* a map, never `nil`. So a handler that accidentally computes `{:db nil}` — a `get-in` that missed, a threading macro that fell off the end — doesn't throw: the runtime coerces the `nil` to `{}` and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic, because that pattern is almost always a bug quietly erasing your state. If you *mean* to clear app-db, say so explicitly with `{:db {}}` (which fires no warning). the symptom is "my whole app went blank after that event," and the warning in the console is the thread to pull.
+One gotcha will bite you exactly once, so hear it now: **`{:db nil}` wipes app-db, and it doesn't error.** app-db is *always* a map, never `nil`. So a handler that accidentally computes `{:db nil}` — a `get-in` that missed, a threading macro that fell off the end — doesn't throw: the runtime coerces the `nil` to `{}` and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic, because that pattern is almost always a bug quietly erasing your state. If you *mean* to clear app-db, say so explicitly with `{:db {}}`, which fires no warning. The symptom is "my whole app went blank after that event"; the warning in the console is the thread to pull.
 
 Here's the "one map" claim, live. Two views below share one value — the input edits it, the badge reads it — and neither owns a copy, so there is nothing to drift out of sync. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then type into the input that appears — the badge follows every keystroke:
 
@@ -113,13 +121,13 @@ Here's the "one map" claim, live. Two views below share one value — the input 
  [:div [name-editor] [name-badge]]]
 ```
 
-!!! tip "Try it"
-
-    Add a third view reading the same subscription — `(defn greeter [] [:p "Welcome back, " @(rf/subscribe [:appdb.demo/name])])`, mounted beside the others — and re-evaluate. Three windows, still one value, and you wrote no synchronisation code to keep them agreeing.
+Want a third witness? Add another view reading the same subscription — `(defn greeter [] [:p "Welcome back, " @(rf/subscribe [:appdb.demo/name])])`, mounted beside the others — and re-evaluate. Three windows, still one value, and you wrote no synchronisation code to keep them agreeing.
 
 ### Where the first value comes from
 
-If a handler only ever *transforms* app-db, what hands it the very first one? Every [frame](../glossary.md#frame) — the isolated, independently-running instance of your app that app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same [event pipeline](../glossary.md#event-pipeline) as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
+If a handler only ever *transforms* app-db, what hands it the very first one?
+
+Every [frame](../glossary.md#frame) — the isolated, independently-running instance of your app that app-db belongs to — starts with `app-db` equal to the empty map `{}`. There is no `:db` config slot to seed it with. Seeding the initial state is itself an event, so it runs through the same [event pipeline](../glossary.md#event-pipeline) as every later change. You list the setup events when you register the frame, as `:initial-events`, and the conventional first step seeds app-db with the built-in `:rf/set-db` event:
 
 ```clojure
 (rf/reg-frame :app
@@ -132,7 +140,13 @@ If a handler only ever *transforms* app-db, what hands it the very first one? Ev
 
 The steps dispatch synchronously, in order, each one run to completion before the next, so by the time `reg-frame` returns app-db is in whatever state they produced. The point is consistency: the first value of app-db is built by the same dispatch you use for the millionth. [Frames](frames.md) covers `:initial-events` and the rest of the registration grammar in full.
 
-`:rf/set-db` is an ordinary event in every respect: it commits a `:db`, rides schema validation once you add one (next section), and shows up in the trace — the framework's per-event record, which tools like Xray read. One thing is worth knowing: it *replaces* the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one. (It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`; and because the `:rf/*` namespace is the framework's, re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.)
+`:rf/set-db` is an ordinary event in every respect: it commits a `:db`, rides schema validation once you add one (next section), and shows up in the trace — the framework's per-event record, which tools like Xray read.
+
+Notes:
+
+1. It **replaces** the whole of app-db with the map you give it, rather than merging into what's there. That is exactly what you want for a fresh `{}` frame, and it is the right tool for a test fixture that wants a clean known state. For an ordinary in-place change you still write your own event; `:rf/set-db` is the wholesale-replace one.
+2. It takes exactly one map argument — a non-map, or extra arguments, raise `:rf.error/set-db-bad-value`.
+3. The `:rf/*` namespace is the framework's, so re-registering `:rf/set-db` in your own code is a loud `:rf.error/reserved-event-id` collision.
 
 ??? info "From re-frame v1"
 
@@ -140,21 +154,31 @@ The steps dispatch synchronously, in order, each one run to completion before th
 
 ## A database, on purpose
 
-The name is `app-db`, not `app-state`, and the `db` carries weight. Not in the storage sense — it is all in memory, and nothing survives a reload unless you make it. The weight is in the mindset. Think how much care you give data in PostgreSQL: a schema, invariants, deliberate queries, atomic transactions, and no random function scribbling on a row as a side effect. Now think how much care the average frontend gives data scattered across thirty `useState`s. app-db asks you to treat your in-memory state with that same database care: structured data in, reads out through [subscriptions](../glossary.md#subscription) (named, cached, pure derivations of the map), and changes only through events. The name is a discipline disguised as a noun.
+The name is `app-db`, not `app-state`, and the `db` carries weight. `app-state` would arguably be the more accurate name; `app-db` is the more useful one, because it tells you how to *treat* the thing.
+
+Treat it as an in-memory database. Not in the storage sense — it is all in memory, and nothing survives a reload unless you make it — but in the working sense: it holds structured data; you query it, through [subscriptions](../glossary.md#subscription) (named, cached, pure derivations of the map); you transact on it atomically, through events. Nothing scribbles on a row as a side effect.
+
+None of this is remotely controversial for *real* databases. You'd happily give PostgreSQL every well-formed fact you own — behind a schema, with invariants, deliberate queries, atomic transactions. Then the same team hands its in-memory state — often the very same rows, freshly fetched — a `useState` here, a `useState` there, a context for the theme, a ref for the scroll position, a module-level singleton somebody swore was temporary, and a bolted-on store for whatever got embarrassing. Six homes. No schema. Nothing you can print.
+
+Too harsh? A little. But distributing state like that, then writing code to keep the copies agreeing, all while trying to *hide* it — that is, when you think about it, quite crazy. And I did it for years.
+
+app-db asks you to give your in-memory data the PostgreSQL kind of care. The name is a discipline disguised as a noun.
 
 You can [add a schema](../how-to/validate-with-schemas.md) when you want the app to scream the instant the shape goes wrong — but you never have to, and nothing forces one on you.
 
-> *Well-formed data at rest is as close to perfection in programming as it gets.* — [Fogus](https://twitter.com/fogus/status/454582953067438080)
+> *Well-formed data at rest is as close to perfection in programming as it gets. All the crap that had to happen to put it there however...* — [Fogus](https://twitter.com/fogus/status/454582953067438080)
+
+He's right on both counts, and this framework is organised around both sentences. The data at rest is app-db. The crap that has to happen to put it there is exactly what the event pipeline exists to manage.
 
 ## Why one place pays for itself
 
-Most frameworks let state live anywhere: any component's `useState`, a context, a ref, an external store. Every one of those is a place state can hide, and a way two copies can quietly disagree. re-frame2 makes the opposite bet, and you get four properties that are genuinely hard to buy any other way:
+Most frameworks let state live anywhere: any component's `useState`, a context, a ref, an external store. Every one of those is a place state can hide, and a way two copies can quietly disagree. re-frame2 makes the opposite bet, and you get four properties that are genuinely hard to buy any other way.
 
-1. **No synchronisation code.** When a piece of data has exactly one home, no code copies it to a second home and keeps the two in step. The "these two parts of the screen disagree" bug can't occur, because there are no copies to drift. You don't write the sync code, you don't debug it — you just have less app.
+1. **No synchronisation code.** This is the big one. When a piece of data has exactly one home, no code copies it to a second home and keeps the two in step. The "these two parts of the screen disagree" bug can't occur, because there are no copies to drift. I cannot stress enough how significant this is: you don't write the sync code, you don't debug it — you just have less app.
 
 2. **State changes are transactional.** Each event handler returns one new app-db, and the runtime [commits](../glossary.md#commit) it atomically. There is no instant where the cart total has updated but the items haven't, so there's no intermediate inconsistency for a subscription to read and render. Either the whole transition happened or none of it did.
 
-3. **One schema validates the whole app.** All state is one map, so a single [schema](../glossary.md#schema) can describe the entire application and run in one place: after every event, in dev. Because it spans the *whole* map, that schema can state relationships *between* values ("if logged in, a token must be present") — something thirty scattered state cells never could. [Validate with schemas](../how-to/validate-with-schemas.md) shows how.
+3. **One schema validates the whole app.** All state is one map, so a single [schema](../glossary.md#schema) can describe the entire application and run in one place: after every event, in dev. **All of it.** And because it spans the *whole* map, that schema can state relationships *between* values ("if logged in, a token must be present") — something thirty scattered state cells never could. [Validate with schemas](../how-to/validate-with-schemas.md) shows how.
 
 4. **Undo and time-travel come for almost nothing.** Snapshotting an immutable map takes a *reference*, not a copy, so structural sharing makes a ring buffer of hundreds of past values nearly free. Undo is "swap the reference back". [Xray](../glossary.md#xray)'s [epoch](../glossary.md#epoch) history — the thing that lets you scrub a running app backwards — is literally this. You don't build undo; you discover you already have it.
 
@@ -173,11 +197,9 @@ One small distinction matters everywhere in re-frame2, so meet it here. A key th
 (get-in {:page nil} [:page])   ;; => nil — the key is there, holding nil
 ```
 
-A bare `get` can't tell them apart, and the framework preserves the difference wherever it matters. Did the server send `null`, or send nothing? Is this form field cleared, or never touched? Those are different questions, and the answers shouldn't collapse into one.
+A bare `get` can't tell them apart, and the framework preserves the difference wherever it matters. Did the server send `null`, or send nothing? Is this form field cleared, or never touched? Different questions. The answers shouldn't collapse into one.
 
-!!! warning "Gotcha — some surfaces drop `nil` on purpose"
-
-    A few surfaces treat `nil` as absence on purpose — routing drops a `nil` query parameter from the URL, for example. That is always a declared, local policy, never an accidental erasure.
+One caveat, said plainly: a few surfaces treat `nil` as absence *on purpose* — routing drops a `nil` query parameter from the URL, for example. That is always a declared, local policy, never an accidental erasure.
 
 ## Paths, in four lines
 
@@ -273,9 +295,7 @@ Call these **state surgery**. They don't run a handler, fire no effects, and car
 - **Tooling.** [Xray](observability.md) time-travel — and the pair MCP, the tooling server an AI pair-programmer drives a live app through — rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
 - **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
 
-!!! warning "Gotcha — never reach for state surgery in application code"
-
-    These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](../glossary.md#epoch) ledger has no run to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop.
+Now the warning, plainly, because it is the whole point of the two-lane design: **never reach for state surgery in application code.** These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](../glossary.md#epoch) ledger has no run to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop.
 
 ??? warning "Gotcha — surgery is elided from release builds"
 
@@ -306,7 +326,7 @@ Don't take the "one inspectable value" claim on faith. It is the most useful pro
 (pprint (rf/app-db-value :app))         ;; read the app partition — your data
 ```
 
-Your entire application state, printed top to bottom, readable as a map. `app-db-value` is the non-reactive snapshot read — the one for tools, tests, and the REPL, distinct from the front-door `subscribe`. Two sibling readers complete the set when you want to see the framework's side too:
+Your entire application state, printed top to bottom, readable as a map. The in-memory database, answering a query. `app-db-value` is the non-reactive snapshot read — the one for tools, tests, and the REPL, distinct from the front-door `subscribe`. Two sibling readers complete the set when you want to see the framework's side too:
 
 ```clojure
 (pprint (rf/runtime-db-value :app))     ;; the framework partition — routes, machines, …

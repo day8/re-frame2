@@ -1,10 +1,12 @@
 # Test a view
 
-You've tested the [handler](event-handlers.md) and the [pipeline run](pipeline-runs.md), and now you want the same confidence about a view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button. Like the rest of the suite, this needs no browser. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
+You've tested the [handler](event-handlers.md) and the [pipeline run](pipeline-runs.md). Now the view: the right structure comes out, the right text shows for a given state, and the right handler is wired to the right button.
+
+No browser for this one either. A [view](../glossary.md#view) is a pure function that returns [hiccup](../glossary.md#hiccup) — plain data — so a view test is a function call and a tree walk, and it runs on the JVM in milliseconds.
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
-One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong the cause is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../concepts/views.md#when-something-renders-wrong) makes the case). Reach for a view test for what a view genuinely *owns*: its structure, its text, and its wiring.
+One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../concepts/views.md#when-something-renders-wrong) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
 
 The toolkit is `re-frame.test-helpers` — pure walks over hiccup, [catalogued in the API reference](../../api/re-frame.test-helpers.md) — alongside the `re-frame.test-support` fixtures you already use:
 
@@ -37,9 +39,7 @@ Give the nodes you'll assert on a stable address at the view site — `th/testid
 
 `find-by-testid` returns the first node carrying that `:data-testid`; `text-content` collects the string leaves under it. Their generic siblings — `find-by-attr`, `find-all-by-testid`, `find-by-testid-prefix`, `attrs`, `children` — cover lists and custom attributes ("every node whose testid starts with `row-`").
 
-!!! note "Nested views expand for you"
-
-    A view that renders another view returns it as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. The finders and `text-content` expand those references as they walk, so asserting *through* a child view just works. `th/expand-tree` is the same expansion as a standalone step — reach for it when you want the fully-expanded tree as a value (to `let`-bind once for several assertions, or to walk by hand).
+What about a view that renders *another* view? It comes back as a *component reference* — `[cart-line item]`, a vector whose head is a function, not a tag. The finders and `text-content` expand those references as they walk, so asserting *through* a child view just works. And when you want the fully-expanded tree as a value — to `let`-bind once for several assertions, or to walk by hand — `th/expand-tree` is the same expansion as a standalone step.
 
 ??? info "Coming from React Testing Library?"
 
@@ -63,9 +63,7 @@ A presentational view takes data as arguments. A *connected* view subscribes and
 
 The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it in the fixture opts rather than the body: `:frame-config` merges into the fixture frame's config map, so `:frame-config {:initial-events [[:cart/seed-items …]]}` boots the frame through the same [construction script](../concepts/frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
 
-!!! warning "Gotcha — `:install` registrations land in the process-global registrar"
-
-    The fixture destroys its *frame*, but registrations are global, exactly as [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top so one test's registrations can't leak into the next.
+One trap here, and it's the same one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns about: the fixture destroys its *frame*, but **`:install` registrations land in the process-global registrar**. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top, so one test's registrations can't leak into the next.
 
 ## 3. Drive the wiring
 
@@ -82,7 +80,11 @@ The last thing a view owns is the connection from a node to its dispatch. `th/in
     (th/wait-until :counter-display "1" {:label "counter reached 1"})))
 ```
 
-Two details carry this test. `invoke-handler` **throws** when the node has no handler under that key — a missing handler is almost always the bug you're hunting, so it refuses to pass silently. And the assertion is `th/wait-until`, not `expect-text`: the invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the rendered view against a bounded deadline (the view-side sibling of `ts/poll-until` — same defaults, same loud timeout carrying `:rf.error/wait-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. For a synchronous run, `expect-text` after `dispatch-sync` is enough.
+Two details carry this test.
+
+First, `invoke-handler` **throws** when the node has no handler under that key. A missing handler is almost always the bug you're hunting, so it refuses to pass silently.
+
+Second, the assertion is `th/wait-until`, not `expect-text`. The invoked `:on-click` fires a plain `dispatch`, which queues rather than draining synchronously, so the test polls the rendered view against a bounded deadline (the view-side sibling of `ts/poll-until` — same defaults, same loud timeout carrying `:rf.error/wait-until-timeout`). The same form covers any async settle whose outcome is *visible in the view* — an HTTP reply, a machine `:after` transition, a scheduled event. For a synchronous run, `expect-text` after `dispatch-sync` is enough.
 
 ## When you want more than hiccup
 
@@ -94,4 +96,8 @@ Three neighbouring tools pick up where the tree walk stops:
 
 ## When not to test a view
 
-Don't re-prove upstream logic through the view. If the assertion is really "the sort order is right" or "the total is correct", that's a [subscription test](subscriptions.md) — cheaper, and it fails at the function that owns the logic. If it's "the state changed correctly", that's a [handler test](event-handlers.md). A view test earns its keep only when the thing under test is the view's own contribution: structure, text, wiring. Most views are boring enough — deliberately — that they need no test at all.
+A confession to close on: I don't write many view tests. There, I said it.
+
+Every test you write is a ball and chain you must forevermore drag about, so each one has to pay its way — and a view test that re-proves upstream logic doesn't. If the assertion is really "the sort order is right" or "the total is correct", that's a [subscription test](subscriptions.md) — cheaper, and it fails at the function that owns the logic. If it's "the state changed correctly", that's a [handler test](event-handlers.md). A view test earns its keep only when the thing under test is the view's own contribution: structure, text, wiring.
+
+Most views are boring enough — deliberately — that they need no test at all. Boring is the goal.

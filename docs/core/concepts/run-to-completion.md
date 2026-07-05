@@ -1,10 +1,14 @@
 # Run to completion
 
-Every dispatch you've made so far queued an event and walked away, and the pipeline caught up moments later. The scheduling rule that governs that catch-up is the one guarantee about *when* things run that the whole rendering story leans on.
+Every dispatch you've made so far queued an event and walked away, and the pipeline caught up moments later. "Moments later" has been doing quiet work all along: hiding inside it is the one guarantee about *when* things run, and the whole rendering story leans on it. This page pins it down.
 
-Most frameworks let renders interleave with event processing, which is why this rule deserves a hard stop. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. And so on until the queue is empty. Only then does the read side run — once — and the render boundary arrives: the single point in the cycle where the settled state reaches the screen. So the write side runs *per event*; the read side runs *once per drain*, at settle. This is the dispatch semantics, not a mode; there is no opt-out.
+Most frameworks let renders interleave with event processing, which is why this rule deserves a hard stop. When the runtime starts processing events, it [**drains the queue to completion**](../glossary.md#drain--run-to-completion) before any view re-renders. The dequeued event runs its full write side. Then any events its handler `:fx`-dispatched run theirs. Boom, boom, boom, until the queue is empty. Only then does the read side run — once — and the render boundary arrives: the single point in the cycle where the settled state reaches the screen.
 
-What it buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint. The flicker-of-intermediate-state bug is structurally absent.
+So the write side runs *per event*; the read side runs *once per drain*, at settle. Read that again — the rest of this page is that sentence, illustrated. And it is the dispatch semantics, not a mode; there is no opt-out.
+
+Here's the picture to keep: the render boundary is a **theatre curtain**. Every event in a drain is a stagehand shifting scenery behind it, and the curtain does not go up until the last stagehand steps off. What that buys is coherence. If submitting a form dispatches three follow-up events, the view does not glimpse the state after each one. It sees one settled state, once. Either the form is submitting or it's failed, never both in one paint.
+
+No half-updated spinner. No screenshot in the support inbox of a state that cannot exist. No ticket closed "cannot reproduce" because the guilty render lived for one animation frame last Tuesday. Too much? Fine, the sober version: the flicker-of-intermediate-state bug is structurally absent, because there is no moment in the cycle for it to happen in.
 
 Watch it happen. The counter's `:inc` already dispatched a follow-up on [Effects](effects.md), but a form submit is the fan-out you'll actually meet. One click below dispatches a single `:drain.demo/submit` whose handler fans out three follow-up events — four pipeline runs in one drain. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then click **submit**:
 
@@ -43,18 +47,18 @@ Watch it happen. The counter's `:inc` already dispatched a follow-up on [Effects
  [drain-demo]]
 ```
 
-All four steps appear **together**. The view never shows `[:submitted]` alone — by the time the render boundary arrives, the whole drain has settled.
+All four steps appear **together**. The view never shows `[:submitted]` alone — by the time the curtain rises, the whole drain has settled.
 
 !!! tip "Try it"
 
     Make `:drain.demo/validate` fan out its *own* follow-up — add `:fx [[:dispatch [:drain.demo/notify]]]` to its handler — re-evaluate, then click **submit** again. Five more steps settle in one drain, still one paint. (The earlier four stay — the cell's frame, and its app-db, survive a re-eval.) However deep the chain goes, the screen only ever sees the end of it.
 
-Two precise details, both visible in Xray:
+Notes, both visible in Xray:
 
-- **Each dequeued event is its own [epoch](../glossary.md#epoch).** A parent event and the child it `:fx`-dispatched are *two* rows in the record, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
-- **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous run, not the outside world.
+1. **Each dequeued event is its own [epoch](../glossary.md#epoch).** A parent event and the child it `:fx`-dispatched are *two* rows in the record, each with its own handler run and its own before/after state — even though they settled inside one drain and produced one paint. The record stays per-event; the rendering stays per-drain.
+2. **Async effects are not drained.** An HTTP request fired during the drain doesn't hold anything open; its reply arrives later as a fresh event and starts a fresh drain. "Run to completion" bounds the synchronous run, not the outside world.
 
-Strictly, the drain is per [**frame**](../glossary.md#frame) — a running [world](../glossary.md#world) with its own app-db and its own queue — and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
+Now, a confession — I haven't been entirely straight with you. I've been saying *the* queue all page, as if there's exactly one. Strictly, the drain is per [**frame**](../glossary.md#frame) — a running [world](../glossary.md#world) with its own app-db and its own queue — and an app can run several ([Frames](frames.md)). But with one frame, which is every app until it isn't, "per frame" and "per app" say the same thing.
 
 ??? info "For JavaScript developers"
 
@@ -66,7 +70,7 @@ Strictly, the drain is per [**frame**](../glossary.md#frame) — a running [worl
 
 ### When the drain won't stop
 
-Run-to-completion is unconditional, which raises an obvious question: what if a handler dispatches an event whose handler dispatches the first one again? An infinite drain would spin forever. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
+Run-to-completion is unconditional, which raises the question you're already asking: what if a handler dispatches an event whose handler dispatches the first one again? Stagehands queueing up stagehands, forever — a curtain that never rises. The runtime won't let it. Each frame carries a **`:drain-depth`** — the maximum number of events one drain may process (default `100`). When a drain reaches it, the runtime stops with a loud, machine-readable [error record](../glossary.md#error-record):
 
 ```clojure
 {:operation :rf.error/drain-depth-exceeded
@@ -84,7 +88,7 @@ The important part is what survives. Atomicity in re-frame2 is per [**event**](.
 
 ### Dispatching from outside the drain
 
-One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler there's nothing to return effects to, so you call directly — every `:on-click` so far has called `dispatch`, fire-and-forget. When the caller also needs the drain settled before its next line — app startup, a test, the REPL — that's what [**`dispatch-sync`**](../glossary.md#dispatch-sync) is for:
+One more entry point completes the picture. Inside a handler, you never call `dispatch` directly — you return `:fx [[:dispatch ...]]` and let the runtime queue it. But *outside* any handler there's nothing to return effects to, so you call directly — every `:on-click` so far has done exactly that, fire-and-forget. Sometimes, though, the caller needs the drain settled before its next line runs. App startup. A test fixture. The REPL. That's what [**`dispatch-sync`**](../glossary.md#dispatch-sync) is for:
 
 ```clojure
 ;; App bootstrap, or a test fixture: run the drain to completion, synchronously.
@@ -94,12 +98,10 @@ One more entry point completes the picture. Inside a handler, you never call `di
 
 `dispatch-sync` runs the event through the same run-to-completion drain as `dispatch`, but it *blocks* until the drain settles, instead of scheduling the drain asynchronously (a later tick) and returning immediately.
 
-!!! warning "Gotcha — `dispatch-sync` is an *outside* call only"
-
-    Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`. Under run-to-completion the drain is *already* running synchronously, so "sync" would mean nothing there — the in-handler shape for a follow-up is always `:fx [[:dispatch event]]`.
+One gotcha, and the runtime enforces it: `dispatch-sync` is an *outside* call only. Call it from inside a handler and you'll be handed `:rf.error/dispatch-sync-in-handler` — under run-to-completion the drain is *already* running synchronously, so "sync" would mean nothing there. The in-handler shape for a follow-up is always `:fx [[:dispatch event]]`.
 
 !!! warning "Gotcha — a dispatch needs a frame in scope"
 
     Both `dispatch` and `dispatch-sync` resolve [which frame](../glossary.md#frame) to target from the scope they're called in — a [provider](../glossary.md#frame-provider), a running handler, or a [capture-frame](../glossary.md#capture-frame). The runtime never invents one. A call from a *rootless* async callback — a stray `setTimeout`, a WebSocket `onmessage`, a bare promise `.then` that escaped the view tree — has no frame in scope and raises `:rf.error/no-frame-context` (an error that survives into production builds). The fix is to grab a `capture-frame` while the frame *is* in scope and dispatch through it, or to pass `{:frame <id>}` explicitly in the dispatch opts. (This is the everyday face of [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found); [Frames](frames.md) is the full story.)
 
-The trade is the framework's signature move, made again here. Give up a little flexibility — interleaved renders, inline effects, ambient reads — and get back inspectability: a recorded, replayable, coherent history.
+The trade is the framework's signature move, made again here. Give up a little flexibility — interleaved renders, inline effects, ambient reads — and get back inspectability: a recorded, replayable, coherent history. Behind the curtain, any amount of work. In front of it, only finished scenes.

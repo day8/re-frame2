@@ -4,7 +4,7 @@ You have an [event handler](../glossary.md#event-handler) that does real work. I
 
 What you want to test is that journey end to end: an event goes in, the queue [drains to a fixed point](../glossary.md#drain--run-to-completion), and the final committed [`app-db`](../glossary.md#app-db) comes out the other side. This recipe tests exactly that, on the JVM. No browser, no mock library, milliseconds per test.
 
-The trick that makes it fast is one idea: **you don't mock, you redirect.** The handler under test runs unmodified and produces the same [effect](../glossary.md#effect) data it produces in production — an effect is just a *description* of work, returned as data. The test changes only *who answers* that effect. No service worker, no patched `fetch`, no module-mock hoisting.
+One idea makes it that fast, and the whole recipe hangs off it: **you don't mock, you redirect.** The handler under test runs unmodified and produces the same [effect](../glossary.md#effect) data it produces in production — an effect is just a *description* of work, returned as data. The test changes only *who answers* that effect. No service worker, no patched `fetch`, no module-mock hoisting.
 
 ??? info "Coming from MSW?"
 
@@ -12,7 +12,7 @@ The trick that makes it fast is one idea: **you don't mock, you redirect.** The 
 
 ## The shape of every pipeline-run test
 
-Start with the simplest possible version. Every pipeline-run test is the same three moves: a fresh [frame](../glossary.md#frame), a [`dispatch-sync`](../glossary.md#dispatch-sync), an assertion against the frame's `app-db`. (A frame is one isolated, running instance of your app — its own `app-db`, its own event queue.)
+Start with the simplest possible version. Every test has three steps — setup, execute, verify — and a pipeline-run test spends them the same way every time: a fresh [frame](../glossary.md#frame), a [`dispatch-sync`](../glossary.md#dispatch-sync), an assertion against the frame's `app-db`. (A frame is one isolated, running instance of your app — its own `app-db`, its own event queue.)
 
 ```clojure
 (rf/reg-event :counter/inc
@@ -71,7 +71,7 @@ The counter was a warm-up. Now a real chain — a RealWorld-style login that sta
                    :session/error  (:kind error))}))
 ```
 
-Two *seams* are already visible in that code — a "seam" being a spot where the test can step in and substitute a value without editing the handler. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a [coeffect](../glossary.md#coeffect), a declared input the framework injects — instead of calling the host clock directly. That's the seam that lets a test hand it an exact value. Second, the HTTP request is an **effect** in the returned effect map — a described side-effect, data, not a live connection — which is the seam that lets a test answer it without a network. Both seams are the same idea: the world arrives as data (coeffects) and leaves as data (effects), the model owned by [Effects and coeffects](../concepts/coeffects.md).
+Now look at that code for the *seams* — a "seam" being a spot where the test can step in and substitute a value without editing the handler. There are two. First, the clock: the handler **declares** it with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a [coeffect](../glossary.md#coeffect), a declared input the framework injects — instead of calling the host clock directly. That seam lets a test hand it an exact value. Second, the HTTP request: it's an **effect** in the returned effect map — a described side-effect, data, not a live connection. That seam lets a test answer it without a network. Both seams are the same idea: the world arrives as data (coeffects) and leaves as data (effects), the model owned by [Effects and coeffects](../concepts/coeffects.md).
 
 !!! note "Where do `:value` and `:error` come from?"
 
@@ -170,9 +170,7 @@ Both tests above assert the *settled* state — the reply has already folded in 
 
 That last test reaches for `ts/poll-until` — `ts` is the conventional alias for `re-frame.test-support`, the test-only helper namespace already in this page's require block. `poll-until` is the **settle** primitive: it polls a predicate against a bounded deadline (defaults `:timeout-ms 2000`, `:interval-ms 5`) and fails fast if the condition never holds, so a genuinely stuck drain surfaces as a timeout rather than a hang. On the JVM it's synchronous and returns the truthy value (and on timeout throws an `ex-info` carrying `:rf.error/poll-until-timeout`, so you can branch on the discriminator); on CLJS it returns a `js/Promise` you compose under `cljs.test/async` — resolving with the value, rejecting on timeout. The optional `:label` rides into the timeout message, so a failing poll names *what* it was waiting for instead of a bare deadline. Reach for it whenever a reply or a scheduled event drains *past* `dispatch-sync` — a deferred reply, a machine `:after` transition, a `:dispatch-later`.
 
-!!! warning "Gotcha — `poll-until` is for *settles*, not *windows*"
-
-    Don't reach for it to wait out a timer window (a grace period, a debounce). That's a `Thread/sleep` whose duration *is* the contract — annotate it `;; Timer-semantics sleep: ...` so audits leave it alone. `poll-until` waits for a state change to *appear*; a timer sleep proves something does or doesn't happen *within* a fixed window. Different jobs.
+One misuse to head off now, because it looks so plausible: `poll-until` is for *settles*, not *windows*. Don't reach for it to wait out a timer window (a grace period, a debounce) — that's a `Thread/sleep` whose duration *is* the contract, annotated `;; Timer-semantics sleep: ...` so audits leave it alone. `poll-until` waits for a state change to *appear*; a timer sleep proves something does or doesn't happen *within* a fixed window. Different jobs.
 
 ### Redirect anything: `:fx-overrides`
 
@@ -276,7 +274,7 @@ Keys are interceptor *references* — a bare keyword matches that registered int
 
 ## Replay a bug as a regression test
 
-A user reports: "I favorited an article, then unfavorited it, and the count stuck." Here's the thing — that description is really just a *list of events in order*: favorite, then unfavorite. And in re-frame2 the current `app-db` is nothing more than what you get by starting from the initial state and applying each event in turn — so replaying that exact list rebuilds the exact state, bug and all. A bug report **is a replayable event sequence in disguise.**
+A user reports: "I favorited an article, then unfavorited it, and the count stuck." Read that report again — it isn't prose, it's a *list of events in order*: favorite, then unfavorite. Events are the language of the system, and the user has just dictated a program in it. And in re-frame2 the current `app-db` is nothing more than what you get by starting from the initial state and applying each event in turn — so replaying that exact list rebuilds the exact state, bug and all. A bug report **is a replayable event sequence in disguise.**
 
 If [Xray](../glossary.md#xray) — the dev inspector — was open when the bug happened, don't even reconstruct the sequence from prose: read the exact event rows (and each one's `:rf.cofx` facts) straight off its recorded [epoch](../glossary.md#epoch) ledger and paste them in. The test is just that sequence replayed with the right answer pinned:
 

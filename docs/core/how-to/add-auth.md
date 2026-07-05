@@ -45,11 +45,7 @@ A page reload throws away app-db, so to stay logged in across refreshes the toke
         (.removeItem ls "auth-token")))))
 ```
 
-One [effect handler](../glossary.md#effect-handler), two behaviours, called from exactly one place each. That `:platforms #{:client}` is doing real work — see the next callout.
-
-!!! warning "Gotcha — this effect is client-only"
-
-    Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage`, so a session rides an http-only cookie instead. The effect is declared `:platforms #{:client}` for exactly this reason — the registration exists everywhere, but on a server drain the runtime *skips* the row, leaving a `:rf.fx/skipped-on-platform` trace instead of crashing on a missing `localStorage`.
+One [effect handler](../glossary.md#effect-handler), two behaviours, called from exactly one place each. And that `:platforms #{:client}` is doing real work. Under [SSR](../../ssr/glossary.md#ssr) there is no `localStorage` — a session rides an http-only cookie instead — so the effect is declared client-only: the registration exists everywhere, but on a server drain the runtime *skips* the row, leaving a `:rf.fx/skipped-on-platform` trace instead of crashing on a missing `localStorage`.
 
 !!! note
 
@@ -59,7 +55,7 @@ One [effect handler](../glossary.md#effect-handler), two behaviours, called from
 
 Persisting is half the seam; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
 
-But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world — so the handler can't do it directly. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../concepts/coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
+But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world. Handlers that reach out to the world are like a well salted paper cut — we try hard to avoid them. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../concepts/coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
 
 Now the auth-specific wrinkle: *which kind* of coeffect this is. Coeffects come in [two grades](../glossary.md#recordable-vs-ambient-coeffects). An *ambient* one is read live and re-read on every replay — fine for a display hint, fatal here. The saved token folds into durable `[:auth :token]`, and anything that feeds a durable write must arrive as **recorded data**: captured once, re-presented verbatim under replay. An ambient read would let an epoch-restore land *whatever `localStorage` holds now*, not the token recorded with the boot.
 
@@ -130,7 +126,7 @@ Upgrade the form's `:form.login/submit-success` to an fx handler that stores the
 
 One token, one home. The classified `[:auth :token]` path holds it; the user map ships with `:token` stripped, so the JWT isn't *also* sitting unclassified at `[:auth :user :token]`, ready to leak to every off-box record. The decorator in step 3 always reads from `[:auth :token]`, never from the user.
 
-The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed` retry is entirely opt-in — nothing retries unless the request carries a `:retry` block, and the retryable categories are a closed set; the convention is retry policies on idempotent reads, never on writes.) Register is the same wiring with a different URL and draft.
+The failure handler is unchanged from the form recipe. Notice login does **not** retry — one submission per click. That's the [managed-HTTP](../../resources/glossary.md#managed-http) default (`:max-attempts 1`); the rule here is *don't add* a `:retry` block to a credential submission, even though you would to a public GET. A transient 5xx (`:rf.http/http-5xx`) or network drop (`:rf.http/transport`) surfaces as a failure reply and the user clicks again, which is the behaviour you want; silently re-firing a credential submission is a fine way to lock an account or double-charge a flow. (`:rf.http/managed` retry is entirely opt-in — nothing retries unless the request carries a `:retry` block, and the retryable categories are a closed set; the convention is retry policies on idempotent reads, never on writes.) Register is the same wiring with a different URL and draft — left as an exercise.
 
 !!! warning "Gotcha — keep the credential out of the trace on the way *in*, too"
 
@@ -209,9 +205,7 @@ An interceptor map carries **`:before`**, **`:after`**, or both — supply at le
 
     Re-evaluating `reg-http-interceptor` with the same id replaces the slot **in place** — its position in the chain is preserved, which is exactly what you want on a file save. `clear-http-interceptor` removes the slot entirely; a later re-registration then **appends to the end** of the chain. So don't clear-then-reg in hot-reload paths unless you genuinely want a fresh end-of-chain slot.
 
-!!! note "One write site, not many"
-
-    The frame seam is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
+One write site, not many. The frame seam is the single write site for this decoration, so there's no per-request call site to forget — one forgotten wrapper around an `http-xhrio` map is one unauthenticated request, and there are no wrappers here. It's the same shift you make moving from passing an `axios` config object around everywhere to registering one request interceptor: the decoration becomes structural, not something each caller has to remember.
 
 ## 4. Guard the protected routes
 
@@ -340,9 +334,7 @@ A guard's headline feature is returning the user to exactly where they were head
                          [:rf.route/navigate :app/home])]]})))
 ```
 
-!!! note "Why this matters — read-and-clear, not just read"
-
-    A stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consuming the stash in the same handler that reads it means the bounce target lives exactly as long as one login round-trip — no longer.
+Why read *and clear*? Because a stash that lingers is a footgun. The user logs in directly from `/login` an hour later, and a `:return-to` left over from this morning silently teleports them somewhere they never asked to go. Consume the stash in the same handler that reads it and the bounce target lives exactly as long as one login round-trip — no longer.
 
 ## 6. Logout is a teardown
 
@@ -400,3 +392,5 @@ With all six steps wired, watch the whole flow in [Xray](../../xray/index.md):
 - Logged in, find an authenticated request: the live request carried `Authorization`, the captured trace shows it redacted — as is `[:auth :token]` in the app-db view.
 - Reload the page while signed in: the `:auth/init` row shows the saved token folded in from the coeffect, and the slice comes back classified — no re-login.
 - Dispatch `:auth/logout`: one clear-scope row lists what was removed, what was aborted, and what was left alone.
+
+And that's auth. A slice, a guard, and a teardown — no subsystem, no new machinery, just the loop you already know doing one more job.

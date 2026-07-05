@@ -1,14 +1,16 @@
 # Report errors in production
 
-Ship a re-frame2 app with an optimised production build and the compiler **[elides](../glossary.md#elide)** the whole dev-time *trace surface* — the rich "here's everything that just happened" feed that powers tools like [Xray](../glossary.md#xray). No [trace stream](../glossary.md#trace-stream), no per-frame [epoch](../glossary.md#epoch) rings, none of it. That keeps the bundle lean (you're not shipping a debugger to every user), but it leaves a gap: an [event handler](../glossary.md#event-handler) can still throw at 3am, and when it does you want that failure to land in your monitor with real context attached — not a bare stack trace stripped of *what the app was doing*.
+Ship a re-frame2 app as an optimised production build and the compiler **[elides](../glossary.md#elide)** the whole dev-time *trace surface* — the rich "here's everything that just happened" feed that powers tools like [Xray](../glossary.md#xray). No [trace stream](../glossary.md#trace-stream), no per-frame [epoch](../glossary.md#epoch) rings, none of it. Good. You're not shipping a debugger to every user.
 
-re-frame2 closes that gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. On every production-reachable failure it fans one structured **[error record](../glossary.md#error-record)** out to every error [listener](../glossary.md#listener) you've registered. Each record carries three things worth having at 3am:
+But it leaves a gap. An [event handler](../glossary.md#event-handler) can still throw at 3am, and when it does you want that failure to land in your monitor with real context attached — not a bare stack trace stripped of *what the app was doing*.
+
+re-frame2 closes the gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. On every production-reachable failure it fans one structured **[error record](../glossary.md#error-record)** out to every error [listener](../glossary.md#listener) you've registered. Each record carries three things worth having at 3am:
 
 - **the [event](../glossary.md#event) that was in flight** — the data vector describing what the user asked for;
 - **the [frame](../glossary.md#frame) it ran in** — the isolated app instance, with its own [app-db](../glossary.md#app-db); and
 - **the raw host exception** — the actual throwable, stack and all.
 
-This guide builds a production bridge to Sentry one step at a time: register the listener, gate it so it can't leak dev data, then branch correctly on every record shape the substrate hands you. We start with the smallest thing that works and add safety as we go.
+This guide builds a production bridge to Sentry, one step at a time: register the listener, gate it so it can't leak dev data, then branch correctly on every record shape the substrate hands you. Smallest thing that works first. Safety as we go.
 
 ??? info "Coming from plain JavaScript?"
 
@@ -34,9 +36,7 @@ One verb, `register-listener!`. Its leading `:errors` keyword names the **stream
 
 That's a working bridge — but it's naive in three ways we'll fix in turn: it fires in dev too, it assumes every record carries an `:exception` (some don't), and it ships nothing useful about *what* the app was doing. The rest of this page is those three fixes.
 
-!!! warning "Gotcha — the `:trace` stream is not a production wire"
-
-    There's a *different* stream, `register-listener! :trace`, and it's tempting because it carries everything. Don't reach for it here: it's dev-only and gets **elided** in a production build (`:advanced` + `goog.DEBUG=false`). A monitor built on `:trace` works beautifully on your laptop and ships *nothing* in production — and you discover the gap mid-incident, which is the worst possible time. The `:errors` stream is the always-on substrate that survives elision. That's the one.
+One trap to disarm before you go further. There's a *different* stream, `register-listener! :trace`, and it's tempting because it carries everything. Don't reach for it here. It's dev-only and gets **elided** in a production build (`:advanced` + `goog.DEBUG=false`), so a monitor built on `:trace` works beautifully on your laptop and ships *nothing* in production — and you discover the gap mid-incident, which is the worst possible time. The `:errors` stream is the always-on substrate that survives elision. That's the one.
 
 ??? info "From re-frame v1"
 
@@ -141,9 +141,7 @@ For exactly these two, the record **also** carries `:failing-id` (the broken int
 
 You don't have to redact the event vector by hand to keep secrets out of Sentry. The substrate runs it through `re-frame.elision/elide-wire-value` once before fan-out, with the off-box defaults. Paths your app classified as sensitive arrive as `:rf/redacted`, and oversized payloads arrive as the `:rf.size/large-elided` marker rather than the full thing. That's [data classification](../glossary.md#data-classification) doing its job at the egress boundary ([Keep secrets out of traces](keep-secrets-out-of-traces.md)).
 
-!!! warning "Gotcha — the raw `:exception` is *not* scrubbed"
-
-    The `:event` vector is wire-elided, but the host throwable rides **raw** — deliberately, because a post-mortem shipper needs the stack to be useful. The consequence: a value that landed in an exception message or `ex-data` is *not* redacted on this surface. This is the documented exception to the always-on substrate's "structured data only" rule. If that worries you for a given frame, the projected frame sink (§8) drops the `:exception` for you under its `:rf.egress/public-error` profile.
+Now the flip side, said plainly: the raw `:exception` is **not** scrubbed. The `:event` vector is wire-elided, but the host throwable rides raw — deliberately, because a post-mortem shipper needs the stack to be useful. The consequence: a value that landed in an exception message or `ex-data` is *not* redacted on this surface. This is the documented exception to the always-on substrate's "structured data only" rule. If that worries you for a given frame, the projected frame sink (§8) drops the `:exception` for you under its `:rf.egress/public-error` profile.
 
 ## 4. Handle the frame-teardown report {#handle-the-frame-teardown-report}
 
@@ -301,6 +299,4 @@ The `:rf.egress/profile` on each entry is load-bearing, and it's the one slot th
 
 The mental split: the corpus-wide `:errors` listener is the global black-box recorder (raw exceptions, one fan-out per process, *unprojected*); the frame `:observability` sink is the per-frame, policy-aware egress for metrics and projected diagnostics. Crash reporting that needs the host stack wants the former; dashboards and privacy-policy-bound error egress want the latter.
 
-!!! warning "Gotcha — frameless records reach only the corpus-wide listener"
-
-    One record type the sink *can't* carry is a **frameless** (`:frame nil`) record — the pre-frame SSR hydration-parse path and `:rf.error/no-frame-context` — because there's no owning frame to supply a policy. Those reach the corpus-wide `:errors` listener only. It's the other reason a black-box `:errors` listener stays useful even when you've gone all-in on frame sinks.
+One boundary to carry away. A **frameless** (`:frame nil`) record — the pre-frame SSR hydration-parse path and `:rf.error/no-frame-context` — can't reach a frame sink at all: there's no owning frame to supply a policy. Those records reach the corpus-wide `:errors` listener only. Which is the other reason the black-box `:errors` listener stays useful even after you've gone all-in on frame sinks — it's the seat that sees everything, including the failures that belong to nobody.
