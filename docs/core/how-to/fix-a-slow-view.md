@@ -262,7 +262,7 @@ Once more, because it decides what ships: the channel is off by default, and it 
 
     `rf:` measures are plain [User Timing API](https://developer.mozilla.org/en-US/docs/Web/API/Performance_API/User_timing) `measure` entries — the same ones React emits, the same ones your APM (Datadog RUM, Sentry, New Relic) already ingests. There's no re-frame2-specific tooling to install on the production side: it's `performance.getEntriesByType('measure')` and a `PerformanceObserver`, exactly as you'd instrument any web app. The framework just gives every event, sub, fx, and render a stable, namespaced entry name for free.
 
-One warning, said plainly because it undoes everything above: **never profile the dev build.** The dev build carries the whole trace surface, so the profile ends up measuring the measurement apparatus — you'll chase phantom costs that vanish in production. Build `:advanced` with the perf flag on, serve *that*, and profile that. The numbers you get are the numbers your users get.
+One warning, and it undoes everything above if you skip it: **never profile the dev build.** The dev build carries the whole trace surface, so the profile ends up measuring the measurement apparatus — you'll chase phantom costs that vanish in production. Build `:advanced` with the perf flag on, serve *that*, and profile that. The numbers you get are the numbers your users get.
 
 !!! note "JVM and SSR"
 

@@ -232,7 +232,7 @@ Everything above rests on a single invariant — the rule that makes isolation *
 
 > **[Frame identity is a value that travels with the work](../glossary.md#frame-identity-is-carried-not-found).** A dispatch, a subscription, a captured callback — each reads its frame from the context it was *given*: the provider above it, the handler it's running in, the frame api that carried it (the captured operations bundle you'll meet below). An operation never goes looking for a frame in the ambient world, and the runtime never invents one from absence.
 
-I'll pause while you read that sentence again. Everything below — the loud errors, the capture tool, the test macros — is that sentence, enforced.
+Stop on that sentence for a second. Everything below — the loud errors, the capture tool, the test macros — is that sentence, enforced.
 
 So a bare `(rf/dispatch [:counter/inc])` works when — and only when — something above it established a frame: the root provider, the event handler it's firing from, a `with-frame` block in a test or at the REPL. With no established scope and no carried frame, the operation fails loud:
 
@@ -264,7 +264,7 @@ From outside any scope — a test, a tool, the REPL — you name the frame expli
 
 There is no `dispatch-to` / `subscribe-to` sugar — the two-argument opts form is the one mechanism. It's also the right shape from non-Reagent contexts: server-side rendering, headless JVM tests, and tooling agents all address frames this way.
 
-One distinction will save you a confused half-hour, so hear it now. `:rf.error/no-frame-context` is reserved for **absence** — you carried no frame at all. The moment you *do* carry one (`{:frame :ghost}`), you've supplied an explicit target, and a bad target — a typo, or a frame already torn down — is the registry-lookup case instead: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record lands on the always-on [error stream](../glossary.md#error-record). (Same recovery as a [destroyed frame](#ending-and-resetting-a-frame) — the runtime can't tell a typo from a teardown race.) A missing scope and a bad target are two distinct failures. Branch on the category, not the absence.
+One distinction will save you a confused half-hour, so draw it now. `:rf.error/no-frame-context` is reserved for **absence** — you carried no frame at all. The moment you *do* carry one (`{:frame :ghost}`), you've supplied an explicit target, and a bad target — a typo, or a frame already torn down — is the registry-lookup case instead: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record lands on the always-on [error stream](../glossary.md#error-record). (Same recovery as a [destroyed frame](#ending-and-resetting-a-frame) — the runtime can't tell a typo from a teardown race.) A missing scope and a bad target are two distinct failures. Branch on the category, not the absence.
 
 ## The async boundary: capture the frame
 
@@ -333,7 +333,7 @@ Most frames live for the whole program and you never tear them down — a UI-own
 
 **`reset-frame!`** is "I want this back to how it started." It's equivalent to a destroy followed by a fresh `reg-frame` with the same config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use it between cases; Story "reset" buttons use it. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `reset-app-db!` — but `reset-frame!` is the whole-world one.)
 
-And one construction rule, said plainly: constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on — a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-run frame-creation path.
+And one construction rule, stated flat: constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on — a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-run frame-creation path.
 
 ### Scoping a frame in a test or at the REPL
 

@@ -19,7 +19,7 @@ Ask them top to bottom. Stop at the first *yes*.
 
 The order sorts by cost, cheapest first. A subscription costs nothing to declare and stores nothing. A flow pays an `app-db` write. A resource brings a whole cache. A machine brings a whole transition table. So you reach for a heavier home only when the value genuinely needs what it buys. **The cheapest home that fits is the right one.**
 
-Read that again — it's the load-bearing sentence of this page. Everything below is that one rule, unpacked four times.
+That rule is the whole page; everything below is it, unpacked four times.
 
 !!! note "Why ask in order?"
 
@@ -56,7 +56,7 @@ The total is never wrong. There's no second copy, so there is nothing to drift. 
 
     This is a reselect selector — a memoised derivation over store state — and `:<- [:cart/items]` is its input-signal vector, the moral equivalent of the selectors you'd thread into `createSelector`. The difference: in re-frame2 the dependency wiring is explicit *data*, not a closure you assemble by hand, so the framework can draw the [derivation graph](glossary.md#the-derivation-graph) for you.
 
-One rule keeps this home standing, so hear it now: **a subscription must stay pure.** It is a *read* — same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell — and where the value should go instead — is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
+One rule keeps this home standing: **a subscription must stay pure.** It is a *read* — same inputs, same output, no reaching into the world. The moment it fetches, writes `localStorage`, or reads the clock, it has stopped being a derivation and become a question the wrong home is trying to answer. (That smell — and where the value should go instead — is the first row of [the wrong-home table](#signs-you-picked-the-wrong-home) below.)
 
 ### Question 2 — must a handler read it? Then promote it to a flow
 

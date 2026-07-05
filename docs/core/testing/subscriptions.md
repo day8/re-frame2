@@ -48,7 +48,7 @@ The fix is to build the db the way your app builds it — through events. Boot a
 
     `compute-sub` against a literal `db` when the reader is trivial and the shape is obvious. Seed with real events and read `(rf/app-db-value f)` when the db shape matters — that test exercises the same db your handlers actually build, so it can't drift from reality. And skip `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter.
 
-Now the boundary, said plainly, because it spares you a whole category of useless test: `compute-sub` runs the *computation*, not the *reactive machinery*. It proves the value is right — not that a view re-renders when it changes. That's by design. Change propagation (the equality gate, ref-counting, disposal) is the framework's contract, not your code, so you don't re-test it per sub. When the thing under test genuinely is "the view updated", that's a [view test](views.md) with the app fixture, or a [pipeline-run test](pipeline-runs.md) asserting on committed state.
+Now the boundary — worth stating bluntly, because it spares you a whole category of useless test: `compute-sub` runs the *computation*, not the *reactive machinery*. It proves the value is right — not that a view re-renders when it changes. That's by design. Change propagation (the equality gate, ref-counting, disposal) is the framework's contract, not your code, so you don't re-test it per sub. When the thing under test genuinely is "the view updated", that's a [view test](views.md) with the app fixture, or a [pipeline-run test](pipeline-runs.md) asserting on committed state.
 
 ## When the sub carries a `:schema`
 

@@ -197,7 +197,7 @@ The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. T
    ($ checkout-app))
 ```
 
-And here is that stumble, said plainly: **the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
+And here is that stumble: **the prop map selects the shape.** A `:frame` key selects scope; *anything else* selects ensure, which **requires** a keyword `:id`. So if you mean to ensure a frame but forget `:id` (or pass an empty `{}`), the provider reads it as an ensure shape with no id and raises `:rf.error/ensure-frame-provider-missing-id`. The fix is in the message: pass `:id` to ensure a frame, or `:frame` to scope an existing one.
 
 !!! note "Idempotent re-mount is safe"
 

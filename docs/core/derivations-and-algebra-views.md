@@ -55,7 +55,7 @@ That's the entire reason the algebra exists:
 
 > The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.**
 
-I'll pause while you read that sentence again. That's the whole page, right there — everything below is that sentence, visiting the other homes.
+If you keep one sentence from this essay, keep that one. Everything below is it, visiting the other homes.
 
 ## The five questions every node answers
 

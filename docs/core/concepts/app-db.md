@@ -76,7 +76,7 @@ Then the runtime does the only mutable step in the whole story. The map itself i
 
 That is the entire shape of state in re-frame2: **structured data in one map; events in, new map out.**
 
-I'll pause while you read that again. Hold it and you can start writing apps — the rest of this page is what follows from it.
+Sit with that sentence for a moment. Hold it and you can start writing apps — the rest of this page is what follows from it.
 
 ??? info "Coming from Redux?"
 
@@ -88,7 +88,7 @@ I'll pause while you read that again. Hold it and you can start writing apps —
 
 Not every event has to return a new map, though. A handler that returns no `:db` key — or returns the *same* `db` object it was handed — changes nothing, on purpose. An event that only fires effects (a `:fx` with no `:db`) leaves app-db exactly as it was; so does the common short-circuit `{:db (if changed? (assoc db …) db)}`, whose `else` arm hands back the unchanged object. The runtime notices that object is the one it already holds (an `identical?` check, cheaper than comparing values) and skips the write entirely — no commit, no subscription recompute, nothing downstream re-renders. "Events in, new map out" is the shape; "no new map" is a legitimate special case of it.
 
-One gotcha will bite you exactly once, so hear it now: **`{:db nil}` wipes app-db, and it doesn't error.** app-db is *always* a map, never `nil`. So a handler that accidentally computes `{:db nil}` — a `get-in` that missed, a threading macro that fell off the end — doesn't throw: the runtime coerces the `nil` to `{}` and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic, because that pattern is almost always a bug quietly erasing your state. If you *mean* to clear app-db, say so explicitly with `{:db {}}`, which fires no warning. The symptom is "my whole app went blank after that event"; the warning in the console is the thread to pull.
+One gotcha will bite you exactly once, so let's disarm it early: **`{:db nil}` wipes app-db, and it doesn't error.** app-db is *always* a map, never `nil`. So a handler that accidentally computes `{:db nil}` — a `get-in` that missed, a threading macro that fell off the end — doesn't throw: the runtime coerces the `nil` to `{}` and emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic, because that pattern is almost always a bug quietly erasing your state. If you *mean* to clear app-db, say so explicitly with `{:db {}}`, which fires no warning. The symptom is "my whole app went blank after that event"; the warning in the console is the thread to pull.
 
 Here's the "one map" claim, live. Two views below share one value — the input edits it, the badge reads it — and neither owns a copy, so there is nothing to drift out of sync. Click into the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to evaluate, then type into the input that appears — the badge follows every keystroke:
 
@@ -199,7 +199,7 @@ One small distinction matters everywhere in re-frame2, so meet it here. A key th
 
 A bare `get` can't tell them apart, and the framework preserves the difference wherever it matters. Did the server send `null`, or send nothing? Is this form field cleared, or never touched? Different questions. The answers shouldn't collapse into one.
 
-One caveat, said plainly: a few surfaces treat `nil` as absence *on purpose* — routing drops a `nil` query parameter from the URL, for example. That is always a declared, local policy, never an accidental erasure.
+One caveat, though: a few surfaces treat `nil` as absence *on purpose* — routing drops a `nil` query parameter from the URL, for example. That is always a declared, local policy, never an accidental erasure.
 
 ## Paths, in four lines
 

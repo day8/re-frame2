@@ -78,7 +78,7 @@ You reach for `:clear-*` rarely — when a value disappears its redaction effect
      :clear-sensitive [[:docs doc-id :body]]}))
 ```
 
-One rookie mistake, so hear it now: `:sensitive` is a *path collection*, never a flag. You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (And don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
+One mistake to dodge: `:sensitive` is a *path collection*, never a flag. You *clear* the sensitive axis with `:clear-sensitive`; you never set `:sensitive false`. (And don't confuse it with `:sensitive?`, the yes/no schema prop — that's a different axis, covered later.)
 
 ??? note "Going deeper"
 
