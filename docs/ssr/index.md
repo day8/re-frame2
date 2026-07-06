@@ -5,8 +5,9 @@ Ship HTML before the JavaScript loads, then let the client take over — without
 On the server, [`render-to-string`](glossary.md#render-to-string) runs your real views in a per-request [frame](../core/glossary.md#frame) and emits HTML plus a serialized state payload. On the client, [hydration](glossary.md#hydration) adopts that HTML and installs the state instead of re-rendering from scratch — and a [hydration mismatch](glossary.md#hydration-mismatch) is *detected and traced*, never silently patched.
 
 ```clojure
-;; server (JVM): your real views, rendered against a frame — no DOM anywhere
-(ssr/render-to-string [(rf/view :app/root)] {:frame f})
+;; server (JVM): your real views, rendered inside a per-request frame — no DOM anywhere
+(rf/with-frame f
+  (ssr/render-to-string [(rf/view :app/root)] {}))
 
 ;; client: adopt the server's HTML and its state instead of re-rendering
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})

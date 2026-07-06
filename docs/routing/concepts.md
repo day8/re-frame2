@@ -109,12 +109,12 @@ Because routes are registry entries, the route table is *queryable data* — and
 
 ### The metadata map, in full
 
-You've now met the keys you'll reach for daily. The metadata map has thirteen reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so treat this table as a map of where you're going — and the [API reference](../api/re-frame.routing.md#reg-route) for the canonical, per-key spec.
+You've now met the keys you'll reach for daily. The metadata map has fourteen reserved keys in total — the largest registration shape in re-frame2 — but you never learn them as a flat list. They cluster into four groups by *what they control*; pick the group first, then the key. The rest of this page introduces the remaining keys in context, so treat this table as a map of where you're going — and the [API reference](../api/re-frame.routing.md#reg-route) for the canonical, per-key spec.
 
 | Group | Keys | What it controls |
 |---|---|---|
 | **Shape** — URL ↔ params | `:params`, `:query`, `:query-defaults`, `:query-retain` | Which URLs match, and how their parts coerce into maps. The contract `match-url` and `route-url` agree on. |
-| **Lifecycle** — events at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | What the runtime dispatches when the route activates (`:on-match`), when a loader errors (`:on-error`), and a guard sub consulted before you leave (`:can-leave`). |
+| **Lifecycle** — events at navigation boundaries | `:on-match`, `:on-error`, `:can-leave`, `:can-enter` | What the runtime dispatches when the route activates (`:on-match`), when a loader errors (`:on-error`), a guard sub consulted before you leave (`:can-leave`), and a guard sub consulted before you enter (`:can-enter`). |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described, nested (`:parent`), grouped for interceptors (`:tags`), and scrolled on entry (`:scroll`). |
 | **Classification** — data hygiene | `:sensitive`, `:large` | Which slice values are redacted or kept off the wire at egress while the route is active (see [Data classification](#keeping-tokens-off-the-wire) below). |
 

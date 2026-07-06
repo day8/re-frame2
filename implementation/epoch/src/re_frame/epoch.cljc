@@ -64,9 +64,11 @@
 ;;
 ;; Design provenance (kept out of the public `configure!` docstring per the
 ;; rf2-ee38b clarity review):
-;;   * `:trace-events-keep` defaults to a FINITE value equal to `:depth`
-;;     (50 — see `re-frame.epoch.state/default-trace-events-keep`; rf2-mrsck /
-;;     Security.md §Epoch privacy posture). With the default the most-recent
+;;   * `:trace-events-keep` defaults to a FINITE fixed 50 — chosen to equal
+;;     the shipped `:depth` DEFAULT (see
+;;     `re-frame.epoch.state/default-trace-events-keep`; rf2-mrsck /
+;;     Security.md §Epoch privacy posture). It does NOT track a configured
+;;     `:depth` — the two are independent slots. With the default the most-recent
 ;;     `:depth` records per frame retain raw `:trace-events`; when an epoch
 ;;     evicts from the ring its raw trace evicts with it, so trace + epoch
 ;;     stay atomic (Mike pair-debug 2026-05-27 — the prior finite-5 default
@@ -97,9 +99,12 @@
                         `:trace-events` vector. Older records keep the cheap
                         structured projections (`:sub-runs` / `:renders` /
                         `:effects`) but drop `:trace-events` to bound memory.
-                        Defaults to the `:depth` value (50) so trace + epoch
-                        evict atomically; pass a smaller value (e.g. 5) to
-                        bound dev-session heap more aggressively.
+                        Defaults to a fixed 50 — chosen to equal the shipped
+                        `:depth` default so trace + epoch evict atomically. It
+                        is a fixed default, NOT one that tracks a configured
+                        `:depth`: set `{:depth 100}` and `:trace-events-keep`
+                        stays 50 unless you also set it. Pass a smaller value
+                        (e.g. 5) to bound dev-session heap more aggressively.
     :redact-fn          fn? or nil. The ADVANCED PROJECTION-SIDE override
                         (EP-0015 §15 + open-issue 6, RULED). When non-nil the
                         framework invokes the fn ONCE per record at the

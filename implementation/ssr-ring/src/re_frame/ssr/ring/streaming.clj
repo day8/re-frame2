@@ -723,9 +723,12 @@
   Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:initial-events` /
   `:root-view` / `:payload` / `:on-error` /
   `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
-  `:content-type` plus the four trusted shell-hook opts (`:head` /
-  `:body-end` / `:script-src` / `:app-element-id`, honoured by
-  `default-streaming-prefix` / `default-streaming-suffix`). `:initial-events`
+  `:content-type` / `:fx-overrides` / `:ssr` (the last two are threaded
+  through the shared `pipeline/setup-request-frame!` into the per-request
+  `(rf/make-frame …)`, exactly as `ssr-handler` does) plus the four trusted
+  shell-hook opts (`:head` / `:body-end` / `:script-src` /
+  `:app-element-id`, honoured by `default-streaming-prefix` /
+  `default-streaming-suffix`). `:initial-events`
   accepts BOTH forms `ssr-handler` does — an `:initial-events` vector OR a
   `(fn [request] -> initial-events-vector)` deriving the setup vector from
   the Ring request (rf2-kzns7l; both flow through the shared

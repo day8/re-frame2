@@ -54,7 +54,7 @@ Now install the headless SSR adapter, stand up a frame, seed it, render:
 
 (rf/with-new-frame [f (rf/make-frame {})]
   (rf/dispatch-sync [:articles/seed [{:id "1" :title "Hello, server"}]] {:frame f})
-  (ssr/render-to-string [(rf/view :app/root)] {:frame f}))
+  (ssr/render-to-string [(rf/view :app/root)] {}))   ;; renders against the with-new-frame scope
 ;; => "<div class=\"page\"><h1>Recent articles</h1><ul><li><h3>Hello, server</h3></li></ul></div>"
 ```
 

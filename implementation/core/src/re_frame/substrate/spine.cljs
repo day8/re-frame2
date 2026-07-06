@@ -2245,8 +2245,10 @@
         ;; render drain (the injected `:rdc/flush-render!` op — stock
         ;; `reagent.core/flush` / slim's `reagent2.*` flush) so dirty
         ;; components forceUpdate and Reactions recompute before `act`
-        ;; returns. No-op when act() is unreachable in the current React
-        ;; build (mirrors the React-hook spine `flush-views!`).
+        ;; returns. When act() is unreachable in the current React build it
+        ;; degrades to a plain synchronous flush — the ratom family has a
+        ;; real synchronous render drain even without act (unlike the
+        ;; React-hook spine `flush-views!`, which no-ops).
         flush-views!
         (fn flush-views!
           ([] (flush-views! (fn [] nil)))

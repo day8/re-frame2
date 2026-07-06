@@ -244,10 +244,13 @@
   "Return mutation introspection for a frame target (EP-0003 §Mutations /
   Xray). Returns `{:mutation-ids [...] :instances {…}}` — the static
   registry (every registered mutation id) plus, when `:frame` is supplied,
-  the live per-frame mutation-INSTANCE map (`{<instance-id> <instance>}`).
-  Xray groups instances under their registered `:mutation/id` while showing
-  each separately. Without `:frame` only the static registry is returned
-  (no ambient frame fallback, EP-0002)."
+  the live per-frame mutation-INSTANCE map. That map is keyed on each
+  instance id's CEDN-1 byte `key-id` (`{<key-id> <instance>}`, per
+  rf2-8iciw8), NOT the raw instance id — each instance carries its
+  kind-preserving id alongside under `:instance/id`. Xray groups instances
+  under their registered `:mutation/id` while showing each separately.
+  Without `:frame` only the static registry is returned (no ambient frame
+  fallback, EP-0002)."
   ([] {:mutation-ids (mutation-ids) :instances {}})
   ([{:keys [frame]}]
    {:mutation-ids (mutation-ids)

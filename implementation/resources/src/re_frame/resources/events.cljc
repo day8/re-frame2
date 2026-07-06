@@ -6,7 +6,7 @@
   vectors):
 
     [:rf.resource/ensure          {:resource … :scope … :params … :owner … :cause …}]
-    [:rf.resource/refetch         {:resource … :scope … :params … :cause …}]
+    [:rf.resource/refetch         {:resource … :scope … :params … :owner … :cause …}]
     [:rf.resource/invalidate-tags {:scope … :tags … :cause …}]
     [:rf.resource/release-owner   {:owner …}]
     [:rf.resource/clear-scope     {:scope … :cause …}]
@@ -646,7 +646,9 @@
   "`:rf.resource/refetch` — force a refresh of a resource instance (forces
   a new generation; supersede + suppress any in-flight prior request by
   generation). Per Spec 016 §Events and §Race and in-flight semantics.
-  Payload: `{:resource :scope :params :cause}`."
+  Payload: `{:resource :scope :params :owner :cause}` — like `ensure`, a
+  supplied `:owner` is attached as a lease (both route through the shared
+  `ensure-load` core)."
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 

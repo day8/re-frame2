@@ -194,7 +194,9 @@
   "Project an error trace event via the active projector for frame-id
   and stamp the public-error's :status onto the response accumulator.
   Returns the public-error map on success, nil on no-op (frame missing
-  / not server / no pending trace / redirect set on the response).
+  / not server / no pending trace). When a redirect is already set on the
+  response the projected map is STILL returned — only the :status stamp is
+  suppressed (per Spec 011 §Redirect precedence, below).
 
   Two arities:
 

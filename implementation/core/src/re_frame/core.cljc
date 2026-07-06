@@ -384,7 +384,7 @@
        `day8/re-frame2-flows` (rf2-tfw3); apps must add the artefact and require
        `re-frame.flows` at boot. See `re-frame.core-flows/reg-flow` for the full
        signature."
-       {:arglists '([flow-id metadata derive-fn] [flow-id derive-fn])})
+       {:arglists '([flow-id metadata derive-fn])})
 
      (rm/defreg-macro reg-route rf-routing/reg-route
        "Register a route under `id`. Per rf2-wvh95f F1 the canonical
@@ -497,7 +497,7 @@
    (defmacro reg-machine
      "Register a machine as an event handler. Captures source-coords
      (Spec 001) at this call site plus co-located per-element source on
-     each `:guards` / `:actions` / `:on-spawn-action` entry (`{:fn ..
+     each `:guards` / `:actions` / `:on-spawn-actions` entry (`{:fn ..
      :source-coords .. :source-code ..}`) and a reference-site
      `:source-coords` co-located onto each `:states`-tree map node
      (state-node / transition map) at its spec-path (Spec 005 §Source-coord
@@ -536,7 +536,7 @@
 ;; compile-time literal-walk captures nothing (the spec form is not a map
 ;; literal). `defmachine` is the `def`-replacement that walks the inline
 ;; literal AT THE DEFINITION SITE and co-locates per-element source onto each
-;; `:guards` / `:actions` / `:on-spawn-action` entry (plus a reference-site
+;; `:guards` / `:actions` / `:on-spawn-actions` entry (plus a reference-site
 ;; `:source-coords` on each `:states`-tree map node), so the per-element
 ;; source travels WITH the value into `reg-machine`. Per Spec 005
 ;; §Source-coord stamping (value-registered machines; rf2-npvsx / rf2-vqja2).
@@ -2496,10 +2496,12 @@
   Spec 009 §Trace projection."}
   group-by-event-with-events  trace-projection/group-by-event-with-events)
 
-(def ^{:doc "Classify a trace event into one of the six domino buckets
-  (`:event` / `:event-handler` / `:fx` / `:db` / `:sub` / `:view`).
-  Pure fn used by trace projections and event-bundle views. Per Spec 009
-  §Trace projection."}
+(def ^{:doc "Classify a trace event into one of the domino buckets —
+  one of `#{:event :handler :fx :effect :sub :render :other}`. `:other`
+  covers every event that isn't part of the six-domino cascade (errors,
+  warnings, machine transitions, frame lifecycle, flows). The
+  classification is total. Pure fn used by trace projections and
+  event-bundle views. Per Spec 009 §Trace projection."}
   domino-bucket   trace-projection/domino-bucket)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
@@ -2666,12 +2668,16 @@
 (def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
   `:rf.http/managed` middleware chain. EP-0002 context-required
   frame-local: the single-arity `(clear-http-interceptor id)` resolves
-  the frame through the carried-invariant scope chain; the two-arity
-  `(clear-http-interceptor frame id)` names the frame explicitly (the
-  *override*). Under no scope and no explicit frame the call raises
-  `:rf.error/no-frame-context` — it does NOT synthesise a `:rf/default`
-  target. Implementation ships in `day8/re-frame2-http`. Per Spec 014
-  §Middleware. Late-bound via `:http/clear-http-interceptor`."}
+  the frame through the carried-invariant scope chain; pass the public
+  opts form `(clear-http-interceptor id {:frame target})` to name the
+  frame explicitly (the *override*) — `target` is a frame-id keyword or a
+  live frame value. Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on
+  the second arg (mirroring `reg-http-interceptor`'s `:frame` opt): an
+  opts map ⇒ the public form; a bare frame target ⇒ the internal
+  frame-first plumbing. Under no scope and no explicit frame the call
+  raises `:rf.error/no-frame-context` — it does NOT synthesise a
+  `:rf/default` target. Implementation ships in `day8/re-frame2-http`.
+  Per Spec 014 §Middleware. Late-bound via `:http/clear-http-interceptor`."}
   clear-http-interceptor           rf-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
@@ -2752,8 +2758,11 @@
   destroy-adapter!     adapter/dispose-adapter!)
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
-  adapter, or `nil` if none. One of `:reagent` / `:plain-atom` /
-  `:uix` / `:helix` per Spec 006 §Adapter introspection."}
+  adapter, or `nil` if none. One of `:rf.adapter/reagent`,
+  `:rf.adapter/reagent-slim`, `:rf.adapter/uix`, `:rf.adapter/helix`,
+  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
+  user-supplied adapters that didn't pick a canonical kind. Per Spec 006
+  §Adapter introspection."}
   current-adapter      adapter/current-adapter)
 
 (def ^{:doc "Return the installed adapter spec map, or `nil` if none.
