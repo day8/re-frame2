@@ -3315,9 +3315,12 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events to dispatch when this route becomes active
    [:on-error        {:optional true} [:vector :any]]                      ;; event to dispatch if any :on-match event errors
    [:can-leave       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id>]) returns boolean — true means "OK to leave". Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
+   [:can-enter       {:optional true} :keyword]                            ;; sub-id; enter-gate mirror of :can-leave (rf2-p69yaz). Block dispatches :rf.route/entry-blocked. Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:scroll          {:optional true} [:or
                                        [:enum :top :restore :preserve]
-                                       :map]]])                            ;; map form is post-v1 / host-extensible
+                                       :map]]                              ;; map form is post-v1 / host-extensible
+   [:sensitive       {:optional true} [:vector Path]]                      ;; projection-relative :rf/paths redacted at egress while the route is active (EP-0025). Per [012 §Route data classification](012-Routing.md#route-data-classification).
+   [:large           {:optional true} [:vector Path]]])                    ;; projection-relative :rf/paths kept off the wire at egress while active (EP-0025); sensitive wins at same path. Per [012 §Route data classification](012-Routing.md#route-data-classification).
 ```
 
 Per-host extension keys (`:myapp/...`, `:rf.tooling/...`) are tolerated — RouteMetadata composes with `:rf/registration-metadata`'s open shape.
