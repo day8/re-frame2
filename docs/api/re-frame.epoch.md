@@ -19,7 +19,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (epoch-history frame-id) → vector of epoch records
   ```
-- **Description**: Returns `[]` for an unknown / destroyed frame.
+- **Description**: Returns the frame's recorded `:rf/epoch-record` vector, oldest-first. Returns `[]` for an unknown / destroyed frame, or when recording is disabled (`:depth` 0).
 
 ```clojure
 ;; All recorded epochs for a frame, oldest-first; peek the latest.
@@ -50,7 +50,14 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (restore-epoch! frame-id epoch-id) → boolean
   ```
-- **Description**: Restore the frame's whole **frame-state** — both the app-db and runtime-db partitions — to the named epoch's `:frame-state-after`, reinstalled in one atomic write (so machine snapshots, the route slice, and other runtime-db material rewind alongside app-db, not just the application slice). Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
+- **Description**: Restore the frame's whole **frame-state** — both the app-db and runtime-db partitions — to the named epoch's `:frame-state-after`, reinstalled in one atomic write (so machine snapshots, the route slice, and other runtime-db material rewind alongside app-db, not just the application slice). Emits `:rf.epoch/restored` on success. Returns `true` on success, `false` on any failure. Each failure is a no-op on the frame-state and emits a structured error trace:
+  - `:rf.error/no-such-handler` (kind `:frame`) — frame not registered / destroyed
+  - `:rf.epoch/restore-during-drain` — called while a drain is in flight
+  - `:rf.epoch/restore-unknown-epoch` — epoch-id not in the frame's current history
+  - `:rf.epoch/restore-non-ok-record` — target epoch's `:outcome` is not `:ok` (halted-cascade records carry partial state and are not valid restore targets)
+  - `:rf.epoch/restore-schema-mismatch` — the recorded app-db no longer validates against the frame's registered app-schemas
+  - `:rf.epoch/restore-missing-handler` — a machine / route referenced from the recorded runtime-db is no longer registered
+  - `:rf.epoch/restore-version-mismatch` — machine snapshot version drift against the current definition
 
 ```clojure
 ;; Time-travel: rewind a frame's whole frame-state to a recorded epoch.
@@ -69,7 +76,7 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
   ```clojure
   (replace-app-db! frame-id new-db) → boolean
   ```
-- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the pipeline. Returns `true` on success.
+- **Description**: Pair-tool write surface (state injection). Replace the frame's `app-db` partition with `new-db`, bypassing the dispatch loop; the runtime-db partition is preserved unchanged. No-ops returning `false` (each emitting a structured trace) on `:rf.error/no-such-handler` (frame not registered), `:rf.epoch/replace-during-drain`, `:rf.epoch/replace-schema-mismatch` (`new-db` fails the frame's registered app-schema set), and `:rf.epoch/replace-history-disabled` (ring disabled at depth 0, so the synthetic undo-anchor cannot land). Returns `true` on success.
 
 ```clojure
 ;; State injection — direct app-db write (bypasses the pipeline).
@@ -125,9 +132,9 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (register-epoch-listener! key callback-fn)
+  (register-epoch-listener! id callback-fn) → id
   ```
-- **Description**: Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
+- **Description**: Process-global assembled-epoch listener. `callback-fn` is invoked once per committed record with the fully-assembled **raw** `:rf/epoch-record`, after it lands in the frame's ring buffer; listeners receive every record regardless of `:outcome`. `id` may be any comparable value; registering the same `id` twice replaces. Listener exceptions are caught and isolated (emitting `:rf.epoch.cb/listener-exception`) — one broken listener cannot block others. When a frame a callback has observed is destroyed, a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace is emitted for that callback. Returns the `id`.
 
 ```clojure
 ;; Observe each assembled epoch as frames settle.
@@ -141,7 +148,7 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (unregister-epoch-listener! key)
+  (unregister-epoch-listener! id) → nil
   ```
 - **Description**: The inverse.
 - **Example**: `(rf/unregister-epoch-listener! :my-app/epoch-watch)`
@@ -151,7 +158,7 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (clear-epoch-listeners!)
+  (clear-epoch-listeners!) → nil
   ```
 - **Description**: Drop every registered epoch listener. Test fixtures use this to reset the process-global listener registry between runs.
 
@@ -207,14 +214,14 @@ Tools that forward epoch records across a process boundary (Xray-MCP `watch-epoc
 - **Kind**: function (the `:epoch-history` configuration surface)
 - **Signature**:
   ```clojure
-  (configure! {:depth N :trace-events-keep N :redact-fn fn})
+  (configure! {:depth N :trace-events-keep N :redact-fn fn}) → nil
   ;; consumer-facing, routed through the core facade:
   (rf/configure! {:epoch-history {:depth N :trace-events-keep N :redact-fn fn}})
   ```
 - **Description**: Buffer-depth and redactor knobs for the epoch ring.
   - `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
-  - `:trace-events-keep` — non-negative integer; caps how many of the most-recent records per frame retain their raw `:trace-events` vector (older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections). Defaults to the `:depth` value (50) so trace + epoch evict atomically; pass a smaller value to bound dev-session heap.
-  - `:redact-fn` — `fn?` or `nil`; the advanced projection-side override, invoked once per record at the off-box egress boundary inside `projected-record`, **never at storage time** (the ring buffer and every listener receive the raw record, since epoch records are causal replay material). Passing `nil` clears any previously-installed fn.
+  - `:trace-events-keep` — non-negative integer; caps how many of the most-recent records per frame retain their raw `:trace-events` vector (older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections). Defaults to 50 (matching the default `:depth`) so trace + epoch evict atomically; pass a smaller value to bound dev-session heap.
+  - `:redact-fn` — `fn?` or `nil`; the advanced projection-side override, invoked once per record at the off-box egress boundary inside `projected-record`, **never at storage time** (the ring buffer and every listener receive the raw record, since epoch records are causal replay material). A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. Passing `nil` clears any previously-installed fn.
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and a malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the boundary. Apps usually set this through `rf/configure!` with the `:epoch-history` key; see [re-frame.core.md](re-frame.core.md).
 
@@ -247,7 +254,13 @@ Tools that forward epoch records across a process boundary (Xray-MCP `watch-epoc
   (settle! frame-id frame-state-before frame-state-after committed-at)
   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
   ```
-- **Description**: The hook the router calls once per **dequeued event** — at each event's run-to-completion boundary, NOT once per drain. It harvests that event's trace buffer, assembles the `:rf/epoch-record` (deriving the `:db-before` / `:db-after` app-db projections from the whole-frame-state snapshots), appends it to the per-frame ring buffer, emits `:rf.epoch/snapshotted` with an `:outcome` tag, and fans out to every registered listener. A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued therefore commits **two** records (one per event); a machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router (not an ambient assembly-time clock read), which keeps the record replayable. The 4-arity is the clean `:ok` settle (skipped when the captured buffer is empty); the 6-arity is the drain-boundary commit with an explicit outcome (`:ok` / `:halted-depth` / `:halted-destroy`). **Framework-internal** — the router invokes this; application and tool code never call it directly.
+- **Description**: The hook the router calls once per **dequeued event** — at each event's run-to-completion boundary, NOT once per drain. It harvests that event's trace buffer, assembles the `:rf/epoch-record` (deriving the `:db-before` / `:db-after` app-db projections from the whole-frame-state snapshots), appends it to the per-frame ring buffer, emits `:rf.epoch/snapshotted` with an `:outcome` tag plus its consumer-facing companion `:rf.epoch/outcome` (`:ok` / `:blocked` / `:error`), and fans out to every registered listener. A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued therefore commits **two** records (one per event); a machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router (not an ambient assembly-time clock read), which keeps the record replayable. The 4-arity is the clean `:ok` settle (skipped when the captured buffer is empty); the 6-arity is the drain-boundary commit with an explicit outcome (`:ok` / `:halted-depth` / `:halted-destroy`). **Framework-internal** — the router invokes this; application and tool code never call it directly.
+
+```clojure
+;; Framework-internal — the router invokes this through the :epoch/settle! late-bind hook.
+(settle! :app/main fs-before fs-after committed-at)                              ; clean :ok settle
+(settle! :app/main fs-before fs-after committed-at :halted-destroy halt-reason)  ; explicit-outcome commit
+```
 
 ## Trace events
 
@@ -255,15 +268,20 @@ Trace events emitted by the epoch-history machinery:
 
 | `:operation` | Tags |
 |---|---|
-| `:rf.epoch/snapshotted` | `:frame`, `:epoch-id`, `:event-id` |
-| `:rf.epoch/restored` | `:frame`, `:epoch-id` |
-| `:rf.epoch/db-replaced` | `:frame`, `:epoch-id` |
-| `:rf.epoch/restore-unknown-epoch` | `:frame`, `:epoch-id`, `:history-size` |
-| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:epoch-id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
-| `:rf.epoch/restore-missing-handler` | `:frame`, `:epoch-id`, `:missing` |
-| `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
-| `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
-| `:rf.epoch/restore-non-ok-record` | `:frame`, `:epoch-id`, `:outcome`, `:halt-reason` |
+| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` |
+| `:rf.epoch/outcome` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id`, `:outcome` (consumer-facing `:ok` / `:blocked` / `:error`) |
+| `:rf.epoch/restored` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/db-replaced` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/restore-unknown-epoch` | `:frame`, `:rf.epoch/id`, `:history-size` |
+| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:rf.epoch/id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
+| `:rf.epoch/restore-missing-handler` | `:frame`, `:rf.epoch/id`, `:missing` |
+| `:rf.epoch/restore-version-mismatch` | `:frame`, `:rf.epoch/id`, `:machine-id`, `:version-recorded`, `:version-current`, `:machine-type` (spawned actors only) |
+| `:rf.epoch/restore-during-drain` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/restore-non-ok-record` | `:frame`, `:rf.epoch/id`, `:outcome`, `:halt-reason` |
 | `:rf.epoch/replace-during-drain` | `:frame` |
 | `:rf.epoch/replace-schema-mismatch` | `:frame`, `:failing-paths` |
+| `:rf.epoch/replace-history-disabled` | `:frame` |
+| `:rf.epoch.cb/listener-exception` | `:frame`, `:cb-id`, `:rf.epoch/id`, `:message` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |
+| `:rf.warning/epoch-redact-fn-exception` | `:frame`, `:rf.epoch/id`, `:ex-msg` |
+| `:rf.warning/restore-quiesce-hook-exception` | `:frame`, `:hook`, `:exception` |

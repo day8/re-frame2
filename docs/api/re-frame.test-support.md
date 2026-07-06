@@ -64,7 +64,15 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   ```clojure
   (with-fresh-registrar body-fn) → any
   ```
-- **Description**: The composed helper — snapshot + body + restore. Most tests reach for this rather than the lower-level primitives.
+- **Description**: The composed helper — snapshot + body + restore. Captures the registrar before `body-fn`, runs it, restores the captured state in a `finally` — even if `body-fn` throws. Returns `body-fn`'s return value. Most tests reach for this rather than the lower-level primitives.
+- **Example**:
+  ```clojure
+  ;; As a clojure.test / cljs.test :each fixture:
+  (defn fixture [test-fn]
+    (ts/with-fresh-registrar test-fn))
+
+  (use-fixtures :each fixture)
+  ```
 
 ### `make-reset-runtime-fixture`
 
@@ -72,13 +80,17 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
 - **Signature**:
   ```clojure
   (make-reset-runtime-fixture)
-  (make-reset-runtime-fixture opts) → fixture-fn
+  (make-reset-runtime-fixture opts) → fixture-fn | {:before … :after …}
   ```
-- **Description**: Build a `clojure.test` fixture that resets the runtime between tests. Pair with `use-fixtures :each`.
+- **Description**: Build a `clojure.test` / `cljs.test` `:each` fixture that resets the per-process runtime around each test: reinstates the stable ns-load registrar and source-store baseline captured at fixture-build time (run-order independence inside a shared test bundle), snapshots the registrar, resets the frames registry, trace listeners, and per-artefact state (flows, schemas, machines, routing, resources, http, epoch — via late-bind hooks that no-op when an artefact is absent from the classpath), disposes then reinstalls the adapter, and restores everything in a `finally`. `opts` (all optional): `:adapter` — substrate adapter to install; also ensures the `:rf/default` frame (omitted: the fixture installs no adapter); `:init-fn` — zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body; `:clear-kinds` — collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out); `:clear-app-schemas?` — boolean; clear the schemas artefact's per-frame side-table for the test's duration; `:ambient-frame` — frame id bound as the body's ambient scope when an adapter is installed, default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames); `:async?` — boolean, default `false`; selects the return shape — `false` returns the synchronous fn-form fixture, `true` returns a `cljs.test` map-form fixture `{:before … :after …}`, required for suites with `(async done …)` tests. Pair with `use-fixtures :each`.
 - **Example**:
   ```clojure
   (use-fixtures :each
     (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+  ;; CLJS suite with (async done …) tests — map-form fixture:
+  (use-fixtures :each
+    (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
   ```
 
 ## Test-flavoured helpers
@@ -91,7 +103,7 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   (dispatch-sequence events)
   (dispatch-sequence events opts)
   ```
-- **Description**: "Run this list of events end-to-end against the current frame." `opts`: `:after-each (fn [db ev] ...)` for between-event assertions, `:frame` for non-default targets. Returns the final `app-db`.
+- **Description**: "Run this list of events end-to-end against the current frame." Each event is delivered synchronously and the queue drains to fixed point before the next, so observable state between events reflects committed effects. `opts`: `:after-each (fn [db ev] ...)` for between-event assertions (invoked after each event's drain settles), `:frame` for non-default targets. Frame resolution: `:frame` opt → `(current-frame)` → `:rf/default`. Returns the final `app-db`.
 - **Example**:
   ```clojure
   ;; Run a list of events end-to-end; returns the final app-db.
@@ -111,7 +123,14 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   (assert-path-equals path expected-val)
   (assert-path-equals path expected-val opts)
   ```
-- **Description**: "Assert `(get-in db path) == expected-val`." Mismatch fires a `clojure.test/is`-style failure via `do-report`. The fn-side counterpart to the `:rf.assert/path-equals` story event-family — same name root, different runner channel.
+- **Description**: "Assert `(get-in db path) == expected-val`" against the resolved frame's `app-db`. Mismatch fires a `clojure.test/is`-style failure via `do-report`. `opts`: `:frame` for non-default targets; frame resolution matches `dispatch-sequence` (`:frame` opt → `(current-frame)` → `:rf/default`). Returns `true` when the assertion passes, `false` otherwise — the failure has already been reported either way. The fn-side counterpart to the `:rf.assert/path-equals` story event-family — same name root, different runner channel.
+- **Example**:
+  ```clojure
+  (rf/dispatch-sync [:counter/inc])
+  (ts/assert-path-equals [:n] 1)
+  ;; against a non-default frame:
+  (ts/assert-path-equals [:cart :count] 2 {:frame :checkout})
+  ```
 
 ### `assert-db-equals`
 
@@ -121,7 +140,7 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   (assert-db-equals expected-db)
   (assert-db-equals expected-db opts)
   ```
-- **Description**: Full-db sync assertion. Mismatch fires a `clojure.test/is`-style failure. Companion to `assert-path-equals`; reach for it when the whole-db identity matters.
+- **Description**: Full-db sync assertion — `(= expected-db app-db)` against the resolved frame. Mismatch fires a `clojure.test/is`-style failure via `do-report`. `opts`: `:frame` for non-default targets; frame resolution matches `dispatch-sequence`. Returns `true` when the assertion passes, `false` otherwise. No `:rf.assert/*` event analog exists for the full-db form (the event family is path-keyed). Companion to `assert-path-equals`; reach for it when the whole-db identity matters.
 - **Example**:
   ```clojure
   (rf/dispatch-sync [:counter/init])
@@ -140,7 +159,7 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   (poll-until pred)
   (poll-until pred opts)
   ```
-- **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator) on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
+- **Description**: Bounded-deadline poll. JVM: synchronous — returns the truthy value, throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator) on timeout. CLJS: returns a `js/Promise` resolving with the truthy value or rejecting on timeout with the same error shape; a `pred` that itself returns a `js/Promise` is awaited and its resolved value drives the truthy check. The timeout error's data also carries `:elapsed-ms` and `:label`. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
 - **Example**:
   ```clojure
   ;; JVM — synchronous; returns the truthy value (throws on timeout).
@@ -162,7 +181,7 @@ The fixture primitives follow one pattern: "snapshot the registrar before the te
   (with-trace-recorder! [recs-sym] body+)
   (with-trace-recorder! [recs-sym opts] body+)
   ```
-- **Description**: Bracket `body` with a fresh trace-tooling listener that accumulates matching trace events into an atom bound to `recs-sym`. The listener is registered before `body` runs and unregistered in a `finally` on the way out — even if `body` throws. `opts` (optional map literal; keys evaluated at macroexpansion): `:pred` — a 1-arg `(fn [ev] truthy?)` filter, default accept every event; `:shape` — `:flat` (default — the atom holds a vector of events) or `:by-op` (the atom holds a map keyed by `(:operation ev)`); `:key` — listener key, default a freshly-gensym'd keyword unique to the expansion site so two brackets in one test do not collide. Returns the value of `body`'s final form. Reach it through the namespace alias — `ts/with-trace-recorder!` — like `re-frame.core`'s call-site macros (`rf/with-frame`).
+- **Description**: Bracket `body` with a fresh trace-tooling listener that accumulates matching trace events into an atom bound to `recs-sym`. The listener is registered before `body` runs and unregistered in a `finally` on the way out — even if `body` throws. `opts` (optional map literal; keys evaluated at macroexpansion): `:pred` — a 1-arg `(fn [ev] truthy?)` filter, default accept every event; `:shape` — `:flat` (default — the atom holds a vector of events) or `:by-op` (the atom holds a map keyed by `(:operation ev)`); `:key` — listener key, default a freshly-gensym'd keyword unique to the expansion site so two brackets in one test do not collide. Returns the value of `body`'s final form. JVM: resolves alias-qualified through the normal `(:require [re-frame.test-support :as ts])`. CLJS: the namespace carries no self-`:require-macros` (unlike `re-frame.core`), so CLJS test files must require the macro explicitly — `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
 - **Example**:
   ```clojure
   ;; Flat shape (default), default filter, simple read.

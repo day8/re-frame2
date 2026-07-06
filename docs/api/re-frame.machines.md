@@ -1,13 +1,13 @@
 # re-frame.machines
 
-State machines, per Spec 005. A machine in re-frame2 is registered with one macro (`reg-machine`) and *is* an event handler — the transition table is data (a map of `:states`, `:on`, `:entry`, `:exit`, `:after`) compiled into a `reg-event` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade. Because the machine is an event handler, the same trace bus, time-travel, and override surfaces that work for plain handlers work for machines — there is no parallel runtime to debug, no second store to inspect, no separate event log. The registration macros (`reg-machine` / `defmachine`) and the `machine-has-tag?` subscription sugar live on the `re-frame.core` facade; the engine, query, transition, and tooling surfaces live in this namespace, `re-frame.machines`, which is the `day8/re-frame2-machines` optional artefact.
+State machines, per Spec 005. A machine in re-frame2 is registered with one macro (`reg-machine`) and *is* an event handler — the transition table is data (a map of `:states`, `:on`, `:entry`, `:exit`, `:after`) compiled into a `reg-event` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade. Because the machine is an event handler, the same trace bus, time-travel, and override surfaces that work for plain handlers work for machines — there is no parallel runtime to debug, no second store to inspect, no separate event log. The registration macros (`reg-machine` / `defmachine`) and the `machine-has-tag?` / `sub-machine` subscription sugar live on the `re-frame.core` facade; the engine, query, transition, and tooling surfaces live in this namespace, `re-frame.machines`, which is the `day8/re-frame2-machines` optional artefact.
 
 ```clojure
-(:require [re-frame.core     :as rf]        ;; reg-machine / defmachine / machine-has-tag? — the facade macros + sub sugar
+(:require [re-frame.core     :as rf]        ;; reg-machine / defmachine / machine-has-tag? / sub-machine — the facade macros + sub sugar
           [re-frame.machines :as machines]) ;; engine, query, transition, tooling, runtime helpers
 ```
 
-> **Facade surface.** Only `reg-machine` / `defmachine` and the `machine-has-tag?` subscription sugar are `re-frame.core` facade exports — reach them as `rf/…`. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
+> **Facade surface.** Only `reg-machine` / `defmachine` and the `machine-has-tag?` / `sub-machine` subscription sugar are `re-frame.core` facade exports — reach them as `rf/…`. The plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers live in their owned namespace `re-frame.machines` — reach them as `re-frame.machines/<name>`, not `rf/<name>`. The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
 
 For the full treatment — the underlying model, the recognition kit, and the rationale behind the capability subset — see the [machines concept guide](../machines/concepts.md).
 
@@ -19,8 +19,9 @@ For the full treatment — the underlying model, the recognition kit, and the ra
 - **Signature**:
   ```clojure
   (reg-machine machine-id machine-spec)
+  (reg-machine machine-id opts machine-spec)
   ```
-- **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:source-coords` on each `:states`-tree map node (state-node / transition map) — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`. Reached on the `re-frame.core` facade as `rf/reg-machine`.
+- **Description**: The canonical macro. Walks the literal spec form at expansion time and co-locates per-element source on each `:guards` / `:actions` / `:on-spawn-actions` entry (`{:fn .. :source-coords .. :source-code ..}`) plus a reference-site `:source-coords` on each `:states`-tree map node (state-node / transition map) — Xray uses these to navigate from a snapshot back to the guard/action definition or the state-node. Top-level call-site coords land on `handler-meta`. The optional `opts` registration-metadata map sits in the middle slot: its `:schema` key validates the dispatched outer event vector at the `:where :event` boundary; any other keys ride onto the registration metadata. The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the registration home and must not appear in `opts`. Reached on the `re-frame.core` facade as `rf/reg-machine`.
 
 A minimal machine:
 
@@ -59,7 +60,7 @@ A minimal machine:
 (rf/dispatch [:session [:login {:user "alice" :pass "correct-horse"}]])
 ```
 
-The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription vector, or directly with `subscribe-once`.
+The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription vector (or the `rf/sub-machine` read sugar over it), or directly with `subscribe-once`.
 
 ### `defmachine`
 
@@ -90,8 +91,9 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Signature**:
   ```clojure
   (re-frame.machines/reg-machine* machine-id machine-spec)
+  (re-frame.machines/reg-machine* machine-id opts machine-spec)
   ```
-- **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data.
+- **Description**: Plain-fn surface beneath the macro. No source-coord walking. Use for code-gen pipelines, REPL workflows, or conformance harnesses that synthesise specs from data. The 3-arity takes the same middle-slot `opts` registration-metadata map as the macro (`:schema` validates the dispatched outer event vector at the `:where :event` boundary; the framework-owned `:rf/machine?` / `:rf/machine` keys must not appear in `opts`).
 - **Example**:
   ```clojure
   ;; Same effect as the macro, minus the source-coord walking.
@@ -126,7 +128,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```clojure
   (re-frame.machines/machine-transition definition snapshot event) → result/Result
   ```
-- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns a `re-frame.machines.result/Result` — a map carrying the new snapshot under `::result/snap` and the effects vector under `::result/fx` (or a *failure* value if an action / `:data`-fn threw). Discriminate with `result/ok?` / `result/fail?`; destructure `::result/snap` / `::result/fx`. JVM-runnable, no live frame needed — this is the primary surface for unit-testing machine behaviour.
+- **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns a `re-frame.machines.result/Result` — a map carrying the new snapshot under `::result/snap` and the effects vector under `::result/fx` (or a *failure* value if a guard / action / `:data`-fn threw). Discriminate with `result/ok?` / `result/fail?`; destructure `::result/snap` / `::result/fx`. JVM-runnable, no live frame needed — this is the primary surface for unit-testing machine behaviour.
 - **Worked example** — drive a transition and assert on the snapshot:
   ```clojure
   (require '[re-frame.machines :as machines]
@@ -147,13 +149,13 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Kind**: function (owned by `re-frame.machines` — not a `re-frame.core` facade export)
 - **Signature**:
   ```clojure
-  (re-frame.machines/machines) → seq of machine-ids
+  (re-frame.machines/machines) → vector of machine-ids
   ```
 - **Description**: "What machines have been registered?" Derived view over `(registrations :event)` filtered by `:rf/machine? true`.
 - **Example**:
   ```clojure
   ;; Every registered machine-id (the registry, not a frame's live snapshots).
-  (machines/machines)                              ;; → (:session :auth.login/flow …)
+  (machines/machines)                              ;; → [:session :auth.login/flow …]
   (contains? (set (machines/machines)) :session)
   ```
 
@@ -164,7 +166,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```clojure
   (re-frame.machines/machine-meta machine-id) → registration-metadata map
   ```
-- **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the transition table, doc, schemas, and the per-element source-coords. Equivalent to `(handler-meta :event machine-id)`.
+- **Description**: "What did `reg-machine` stamp at this machine's id?" Returns the registered machine's spec map — the transition table, doc, schemas, and the per-element source-coords — read from the `:rf/machine` slot of the `:event` registration metadata. Returns `nil` when `machine-id` does not name a registered machine.
 - **Example**:
   ```clojure
   ;; The registered spec back out — table, doc, schemas, source-coords.
@@ -204,6 +206,21 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
     [:button {:disabled busy?} "Sign in"])
   ```
 
+### `sub-machine`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (sub-machine machine-id) → reaction
+  (sub-machine machine-id opts) → reaction
+  ```
+- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. Returns a reaction whose value is the snapshot map `{:state :data :tags}`, or `nil` before the machine's first event. The 2-arity `opts` map carries the `{:frame target}` capability the underlying subscription vector accepts — `target` is a frame-id keyword or a live frame value. The `sub-` prefix is the subscription-family verb; it does not denote a child-machine relationship. The `[:rf/machine machine-id]` vector form remains the canonical registered sub. Reached on the `re-frame.core` facade as `rf/sub-machine`.
+- **Example**:
+  ```clojure
+  (let [{:keys [state]} @(rf/sub-machine :auth.login/flow)]
+    [:div "State: " (name state)])
+  ```
+
 ## Keyword surfaces
 
 The framework-registered subscription vectors and reserved effect tuples that address machines by keyword. These are unioned into every resolved image generation (a `:select-ns` image cannot reach them by namespace), so an image-loaded frame resolves them the same way a default frame does.
@@ -215,7 +232,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf/machine machine-id]
   ```
-- **Description**: The canonical machine read — subscribe to it the same way you subscribe to anything else. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The [machines concept guide](../machines/concepts.md#registering-and-running-it) walks through subscribing to a snapshot and chaining named projections off it.
+- **Description**: The canonical machine read — subscribe to it the same way you subscribe to anything else. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The `re-frame.core` `sub-machine` fn is read sugar over this vector. The [machines concept guide](../machines/concepts.md#registering-and-running-it) walks through subscribing to a snapshot and chaining named projections off it.
 - **Example**:
   ```clojure
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
@@ -242,23 +259,22 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf.machine/spawn spawn-spec]
   ```
-- **Description**: "Spawn a dynamic actor instance." `spawn-spec` carries `:machine-id` (the definition to instantiate), `:id-prefix`, `:data` (initial), `:on-spawn` (event dispatched with the gensym'd id), and `:start` (events to deliver immediately). Emitted from any event handler's `:fx` (including machine actions and the declarative `:spawn` desugar). Backed by [`spawn-fx`](#re-framemachinesspawn-fx).
+- **Description**: "Spawn a dynamic actor instance." `spawn-spec` carries exactly one of `:machine-id` (the registered machine type to instantiate) or `:definition` (an inline spec map), plus optional `:data` (overrides the type's initial `:data`), `:id-prefix` (actor ids are the deterministic `<prefix>#<n>` from a per-type counter — the prefix defaults to `:machine-id`; ids are never gensym'd), `:fixed-actor-id` (an explicit actor address; skips allocation), `:system-id` (binds the actor in the frame's `[:rf.runtime/machines :system-ids]` reverse index; a collision emits `:rf.error/system-id-collision` and rebinds last-write-wins), `:start` (a single event vector dispatched to the new actor as `[<spawned-id> <start>]`; when absent the runtime dispatches the synthetic `[<spawned-id> [:rf.machine.spawn/spawned]]`), and `:on-spawn` (an *advisory* callback `(fn [{:keys [data id]}] …)` — the return value is dropped; a non-nil return emits the dev-only `:rf.warning/on-spawn-return-ignored`). Declarative `:spawn` state nodes accept the same keys plus `:on-done` / `:on-error` / `:timeout` / `:on-timeout`; on the declarative path the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]`. Emitted from any event handler's `:fx` (including machine actions and the declarative `:spawn` desugar). Fails closed when `:machine-id` names an unregistered type and no `:definition` is supplied (`:rf.error/machine-spawn-unregistered-type`). Backed by [`spawn-fx`](#re-framemachinesspawn-fx).
 - **Example**:
   ```clojure
   (rf/reg-event :session/start-logger
     (fn [_ _]
       {:fx [[:rf.machine/spawn
              {:machine-id :machines/log-shipper
-              :id-prefix  :logger
+              :id-prefix  :logger          ;; actor id allocates as :logger#1, :logger#2, …
               :data       {:buffer []}
-              :on-spawn   [:session/logger-spawned]
-              :start      [[:logger/connect]]}]]}))
+              :system-id  :logger          ;; name the actor by role
+              :start      [:logger/connect]}]]}))
 
-  ;; The handler at :session/logger-spawned receives the gensym'd id:
-  ;; [:session/logger-spawned :logger.4f7c2a]
-  (rf/reg-event :session/logger-spawned
-    (fn [{:keys [db]} [_ logger-id]]
-      {:db (assoc-in db [:session :logger] logger-id)}))
+  ;; Address the actor by role — no id threading needed.
+  (rf/reg-event :session/flush-logs
+    (fn [_ _]
+      {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}))
   ```
 
 ### `[:rf.machine/destroy actor-id]`
@@ -268,12 +284,12 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf.machine/destroy actor-id]
   ```
-- **Description**: "Tear down this actor." Runs the actor's `:exit` action, dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db), and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. Backed by [`destroy-machine-fx`](#re-framemachinesdestroy-machine-fx).
+- **Description**: "Tear down this actor." Runs the actor's `:exit` cascade, cancels its armed `:after` timers, dissociates `[:rf.runtime/machines :snapshots <actor-id>]` (in runtime-db), releases its `:system-id` binding, and unregisters its event handler when one is registered (a spawned actor has no per-instance registration — its liveness is its snapshot's presence). Silent-idempotent: destroying an already-destroyed actor is a no-op. Symmetric counterpart to `:rf.machine/spawn`. Backed by [`destroy-machine-fx`](#re-framemachinesdestroy-machine-fx).
 - **Example**:
   ```clojure
   (rf/reg-event :session/stop-logger
-    (fn [{:keys [db]} _]
-      {:fx [[:rf.machine/destroy (get-in db [:session :logger])]]}))
+    (fn [_ _]
+      {:fx [[:rf.machine/destroy (machines/machine-by-system-id :logger)]]}))
   ```
 
 **Final states and `:on-done`.** Machines support **final states** — leaf states marked `:final?` that auto-destroy the machine on entry. The parent (if any) receives `:on-done` with the child's `:data` slot. No manual `:rf.machine/destroy` is needed: a spawn-shaped sub-process completes, the parent receives the result through `:on-done`, and the framework destroys the child.
@@ -293,7 +309,7 @@ See [Final states: when a machine is done](../machines/concepts.md#final-states-
   ```clojure
   [:rf.machine/dispatch-to-system [system-id event]]
   ```
-- **Description**: The action-side way one machine addresses its spawned child actor by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when the `system-id` is unbound. This is the canonical surface — a **machine action** can't read app-db and its `:on-spawn` return is dropped, so the fx form is the way an action sends a message to a named actor. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx); the call-site twin is the [`dispatch-to-system`](#re-framemachinesdispatch-to-system) fn.
+- **Description**: The action-side way one machine addresses its spawned child actor by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by allocated id. Resolves `system-id` through the emitting frame's `[:rf.runtime/machines :system-ids]` reverse index (in runtime-db) and dispatches `event` to the bound actor; no-op when the `system-id` is unbound. This is the canonical surface — a **machine action** can't read app-db and its `:on-spawn` return is dropped, so the fx form is the way an action sends a message to a named actor. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). Backed by [`dispatch-to-system-fx`](#re-framemachinesdispatch-to-system-fx); the call-site twin is the [`dispatch-to-system`](#re-framemachinesdispatch-to-system) fn.
 - **Example**:
   ```clojure
   {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
@@ -328,7 +344,7 @@ See [Final states: when a machine is done](../machines/concepts.md#final-states-
 
 ## Cross-machine messaging
 
-When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`; naming by `system-id` lets the parent address the child by *role* without threading that id. The canonical action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above); the helpers below are the direct-call twins.
+When a child actor spawns declaratively under a parent, the framework binds the child's allocated id into the parent's `:data` at `[:rf/spawned <invoke-id>]` (an `:on-spawn` callback cannot capture it — its return is dropped); naming by `:system-id` lets the parent address the child by *role* without threading that id. The canonical action-side surface is the [`[:rf.machine/dispatch-to-system [system-id event]]`](#rfmachinedispatch-to-system-system-id-event) fx tuple (above); the helpers below are the direct-call twins.
 
 ### `re-frame.machines/dispatch-to-system`
 
@@ -356,7 +372,7 @@ When a child actor spawns under a parent, the parent's `:data` often gets the ch
 
 ## Machine-tooling exports (JVM)
 
-The shipped machine-tooling exports live in `re-frame.machines` and are JVM-only (Xray + conformance consume them directly; no `re-frame.core` facade export). They render the machine *algebra view* that Xray / re-frame-pair navigate. There is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge — those exporters are owned by the separate post-v1 `day8/re-frame2-machines-viz` library, not the framework. (A possible future declarative `:child-machine` binding would be pure sugar over the v1 `:spawn` / `:destroy` cycle; not yet shipped — use the imperative cycle today.)
+The shipped machine-tooling exports are `re-frame.machines` aliases over `re-frame.machines.tooling`; the aliases are JVM-only (no `re-frame.core` facade export). CLJS tool consumers call `re-frame.machines.tooling/<name>` directly — the CLJS facade deliberately omits the tooling require so an app that attaches no tool DCEs the tooling body. They render the machine *algebra view* that Xray / re-frame-pair navigate. There is **no** framework-level `machine->xstate-json`, `machine->mermaid`, or Stately bridge — those exporters are owned by the separate post-v1 `day8/re-frame2-machines-viz` library, not the framework. (A possible future declarative `:child-machine` binding would be pure sugar over the v1 `:spawn` / `:destroy` cycle; not yet shipped — use the imperative cycle today.)
 
 ### `re-frame.machines/machine-algebra-view`
 
@@ -475,7 +491,7 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
   ```clojure
   (re-frame.machines/validate-machine! machine)
   ```
-- **Description**: Runs every registration-time check the machine grammar requires — history-state placement / closed key-set / at-most-one-per-compound / `:default-target` resolution, `:type :parallel` region shape, and top-level dispatch + guard/action ref resolution. Composed at the top of `make-machine-handler` so the registered handler fn's body is exclusively request processing. Throws the `:rf.error/machine-*` taxonomy (e.g. `-history-misplaced` / `-extra-keys` / `-duplicate` / `-bad-default-target`) on a grammar violation. The conformance corpus's `:reg-machine` Mode-B op pins the registration-error taxonomy against this leaf fn.
+- **Description**: Runs every registration-time check the machine grammar requires — history-state placement / closed key-set / at-most-one-per-compound / `:default-target` resolution, `:type :parallel` region shape, and top-level dispatch + guard/action ref resolution. Composed at the top of `make-machine-handler` so the registered handler fn's body is exclusively request processing. Throws the `:rf.error/machine-*` taxonomy on a grammar violation (e.g. `:rf.error/machine-history-misplaced` / `-history-extra-keys` / `-history-duplicate` / `-history-bad-default-target`, `:rf.error/machine-unknown-node-key`, `:rf.error/machine-unresolved-guard` / `-unresolved-action`). The conformance corpus's `:reg-machine` Mode-B op pins the registration-error taxonomy against this leaf fn.
 
 ### `re-frame.machines/validate-machine-data!`
 

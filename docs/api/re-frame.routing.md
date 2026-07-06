@@ -1,6 +1,6 @@
 # re-frame.routing
 
-Routes in re-frame2 are *data*. You register a route with a path and metadata — `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state: the current route lives in the frame's runtime-db partition under `[:rf.runtime/routing :current]` (read it via the `:rf/route` sub), navigation is just dispatching an event, and in-flight navigation is just an event sequence the cascade is mid-way through. Because routing is state, the router is debuggable with the same tools that debug everything else — time-travel works, the trace bus sees navigation, and tests dispatch `:rf.route/navigate` like any other event. This namespace is the public boot point and façade for the routing artefact: apps load it with `(:require [re-frame.routing])`, which wires every routing event, fx, and sub. The `reg-route` macro is published on the `re-frame.core` facade; the rest of the surface — URL helpers, registry introspection, scroll restoration, and the multi-frame URL-ownership resolver — lives here.
+Routes in re-frame2 are *data*. You register a route with a path and metadata — `:params`, `:query`, `:on-match`, `:on-error`, `:can-leave` — and the runtime turns URL changes into events the same way every other input source does. There's no parallel router state: the current route lives in the frame's runtime-db partition under `[:rf.runtime/routing :current]` (read it via the `:rf/route` sub), navigation is just dispatching an event, and in-flight navigation is just an event sequence the cascade is mid-way through. Because routing is state, the router is debuggable with the same tools that debug everything else — time-travel works, the trace bus sees navigation, and tests dispatch `:rf.route/navigate` like any other event. This namespace is the public boot point and façade for the routing artefact: apps load it with `(:require [re-frame.routing])`, which wires every routing event, fx, cofx, and sub. The `reg-route` macro is published on the `re-frame.core` facade; the rest of the surface — URL helpers, registry introspection, scroll restoration, URL strategies, the browser URL-listener boot seam, and the multi-frame URL-ownership resolver — lives here.
 
 ```clojure
 (:require [re-frame.routing :as routing])
@@ -12,12 +12,12 @@ Throughout, `rf` denotes the `re-frame.core` facade alias (`[re-frame.core :as r
 
 ### `reg-route`
 
-- **Kind**: macro
+- **Kind**: function (`re-frame.core` publishes the source-coord-capturing `reg-route` macro; this namespace's `reg-route` is the equivalent plain fn)
 - **Signature**:
   ```clojure
-  (reg-route id metadata path)
+  (reg-route id metadata path) → id
   ```
-- **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the path is the third positional arg (the URL shape); the metadata map carries the match events and the guards.
+- **Description**: Register a route as data. The id is a keyword you'll later dispatch against (`[:rf.route/navigate :route/cart]`); the path is the third positional arg (the URL shape); the metadata map carries the match events and the guards. Throws `:rf.error/route-bad-metadata` when `metadata` is not a map, when it carries `:path` (the pattern belongs in the third slot), or when it carries a bare (unqualified) key outside the reserved set below — namespaced keys (`:myapp/analytics-id`) always pass. Emits `:rf.warning/route-shadowed-by-equal-score` when an already-registered route has an equal structural rank, and the `:rf.route/registered` trace on first-time registration.
 
 #### A minimal route
 
@@ -48,7 +48,7 @@ The third positional arg is the URL shape — colon-prefixed segments capture in
 | `:sensitive` | Slice paths (projection-relative, e.g. `[:query :token]`) redacted at egress while the route is active. See [Routing → Keeping tokens off the wire](../routing/concepts.md#keeping-tokens-off-the-wire). |
 | `:large` | Slice paths kept off the wire at egress (a size marker ships instead of the value). |
 
-Two cross-feature bare keys are also accepted when their owning artefact is loaded: `:resources` (the resources artefact's route integration) and `:head` (SSR's head-metadata contract). In an app without the owning artefact they are rejected like any other unknown bare key.
+Two cross-feature bare keys are also accepted: `:head` (SSR's head-metadata contract) is enumerated in the accepted set unconditionally, and `:resources` (the resources artefact's route integration) is late-bound — the Resources artefact publishes it through the `:routing/extra-route-keys` hook, so in an app without that artefact `:resources` is rejected like any other unknown bare key.
 
 Canonical detail in [The metadata map, in full](../routing/concepts.md#the-metadata-map-in-full) in the routing concept guide.
 
@@ -79,14 +79,15 @@ The URL ↔ route mapping is a **prism**: `match-url` reads a URL to route data,
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (match-url url) → {:route-id :params :query :validation-failed?} or nil
+  (match-url url) → {:route-id :params :query :fragment :validation-failed?} or nil
   ```
-- **Description**: "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests.
+- **Description**: "What route does this URL match?" Pure — JVM-runnable; useful for server-side rendering and tests. Returns `nil` when no route matches, and fails closed to `nil` on malformed percent-encoding anywhere in the URL. When the route declares `:params` / `:query` schemas and the parsed values fail them, `:validation-failed?` is `true` and the explanation rides under `:validation-error`. Query keys the route declares (via `:query` / `:query-defaults` / `:query-retain`) come back as keyword keys in deterministic canonical order; undeclared keys stay strings.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
   (routing/match-url "/users/42")
-  ;; => {:route-id :user/show, :params {:id "42"}, :query {}, :fragment nil}
+  ;; => {:route-id :user/show, :params {:id "42"}, :query {},
+  ;;     :fragment nil, :validation-failed? false}
 
   ;; nil when no route matches:
   (routing/match-url "/no/such/path")  ;; => nil
@@ -99,8 +100,9 @@ The URL ↔ route mapping is a **prism**: `match-url` reads a URL to route data,
   ```clojure
   (route-url route-id path-params) → URL string
   (route-url route-id path-params query-params) → URL string
+  (route-url route-id path-params query-params fragment) → URL string
   ```
-- **Description**: "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable.
+- **Description**: "Render this route to a URL." The inverse of `match-url`. Pure; JVM-runnable. The 4-arity appends `#fragment` when `fragment` is a non-empty string (`nil` / `""` append nothing). Nil-valued query keys are silently elided; a nil required path param is an error. Query keys are emitted percent-encoded in deterministic canonical order. Throws `:rf.error/no-such-route` when `route-id` is not registered, `:rf.error/missing-route-param` when a required path segment's param is nil or absent, `:rf.error/route-url-validation` when `path-params` / `query-params` fail the route's `:params` / `:query` schemas, and `:rf.error/route-url-non-edn-value` for non-EDN param/query values or a non-string fragment.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
@@ -126,7 +128,7 @@ The URL ↔ route mapping is a **prism**: `match-url` reads a URL to route data,
   ```clojure
   (current-url) → app-relative URL string
   ```
-- **Description**: Read the current browser URL as an app-relative string (`pathname + search + hash`). CLJS-only — returns `"/"` when no `window.location` is available (SSR / Node). Public so apps that wire their own history listener can recover the same projection the framework's popstate listener uses.
+- **Description**: Read the current browser URL as an app-relative string (`pathname + search + hash`). Returns `"/"` when no `window.location` is available (JVM / SSR / Node). Public so apps that wire their own history listener can recover the same projection the framework's listener uses. This is the history strategy's `:decode`; a hash app's listener decodes through its own strategy and never calls this directly.
 
 ## Introspection and slice access
 
@@ -166,7 +168,7 @@ The read-side surface over the route registry and the live route slice — the s
 
 ### `route-slice-algebra-view`
 
-- **Kind**: function
+- **Kind**: function (JVM convenience alias; CLJS callers use `re-frame.routing.tooling/route-slice-algebra-view`)
 - **Signature**:
   ```clojure
   (route-slice-algebra-view frame-id) → route-fact-node or nil
@@ -338,6 +340,104 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
   ```
 - **Description**: Test-time helper. Drop the whole URL-ownership claim-order vector so a prior test's URL claim does not leak into the next. Wired into the shared reset-runtime fixture via the `:routing/reset-url-claims!` late-bind key.
 
+## URL strategies
+
+A `:url-strategy` is a frame-level config map declared on the URL-owning frame — `(rf/reg-frame :app {:url-bound? true :url-strategy routing/hash-url-strategy})`. It is consulted at exactly four egress/ingress points (the two history fxs, the `route-link` href render, the URL-listener install); `route-url`, `match-url`, and the navigation cascade stay pure and path-form. A strategy map carries `{:encode :decode :push! :replace! :install-listener!}`; the side-effecting keys (`:push!` / `:replace!` / `:install-listener!`) are present on CLJS only. SSR ignores strategies — the server emits path-form hrefs and takes the request URL via `:rf.route/handle-url-change`.
+
+### `history-url-strategy`
+
+- **Kind**: value
+- **Signature**:
+  ```clojure
+  history-url-strategy  ;; {:encode :decode :push! :replace! :install-listener!}
+  ```
+- **Description**: The default URL strategy: HTML5 History, path-form. `:encode` / `:decode` are identity over the app-relative URL (`:decode` reads `pathname + search + hash`); `:push!` / `:replace!` drive `pushState` / `replaceState`; `:install-listener!` wires `popstate`. A frame that declares no `:url-strategy` uses this.
+
+### `hash-url-strategy`
+
+- **Kind**: value
+- **Signature**:
+  ```clojure
+  hash-url-strategy  ;; {:encode :decode :push! :replace! :install-listener!}
+  ```
+- **Description**: The hash URL strategy: `#`-prefixed URLs (`#/active`) for no-server-rewrite static hosting and secretary-era v1 migrations. `route-url` still builds path-form `/active`; `:encode` maps it to `#/active` at the `route-link` href and the history fxs, `:decode` strips the leading `#` from `window.location.hash` (an empty hash decodes to `/`), and `:install-listener!` wires `hashchange`.
+- **Example**:
+  ```clojure
+  (rf/reg-frame :app {:url-bound?   true
+                      :url-strategy routing/hash-url-strategy})
+  ```
+
+## Browser URL listener
+
+The CLJS-only boot seam that replaces hand-rolled `popstate` / `hashchange` wiring. On the JVM these vars are not defined — SSR feeds the request URL via `:rf.route/handle-url-change`.
+
+### `install-url-listener!`
+
+- **Kind**: function (CLJS-only)
+- **Signature**:
+  ```clojure
+  (install-url-listener!) → nil
+  (install-url-listener! strategy) → nil
+  ```
+- **Description**: Install the URL-owning frame's browser URL-change listener (`popstate` for the history strategy, `hashchange` for the hash strategy), then sync the current URL into the owner's route slice. Each browser-driven change is decoded to a path-form URL by the strategy's `:decode` and dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)` resolved at fire time; when no frame declares `:url-bound? true` the dispatch is skipped. The 0-arity resolves the strategy from the current URL owner's `:url-strategy`; the 1-arity pins an explicit strategy map (for URL-owning frames registered asynchronously). Idempotent — re-installing tears down the prior listener.
+
+### `remove-url-listener!`
+
+- **Kind**: function (CLJS-only)
+- **Signature**:
+  ```clojure
+  (remove-url-listener!) → nil
+  ```
+- **Description**: Tear down the browser URL-change listener installed by `install-url-listener!` (whichever kind the strategy wired), via the teardown thunk it returned. No-op when none is installed.
+
+### `install-history-listener!`
+
+- **Kind**: function (CLJS-only)
+- **Signature**:
+  ```clojure
+  (install-history-listener!) → nil
+  (install-history-listener! strategy) → nil
+  ```
+- **Description**: Alias of [`install-url-listener!`](#install-url-listener), retained as the established boot-seam name for history-strategy apps. Behaviour is identical — the owner's `:url-strategy` decides the listener kind. New code should prefer `install-url-listener!`.
+
+### `remove-history-listener!`
+
+- **Kind**: function (CLJS-only)
+- **Signature**:
+  ```clojure
+  (remove-history-listener!) → nil
+  ```
+- **Description**: Alias of [`remove-url-listener!`](#remove-url-listener), retained as the established teardown-seam name.
+
+## Route links
+
+The `:route/link` registered view renders an `<a href=...>` from a route id and intercepts plain left-clicks into `:rf/url-requested` dispatches. The authoring surface is also published as `rf/route-link` on the `re-frame.core` facade.
+
+### `route-link`
+
+- **Kind**: component (CLJS-only; the registered `:route/link` view)
+- **Signature**:
+  ```clojure
+  [route-link {:to :route-id :params {...} :query {...} :fragment "..."
+               :on-click f & html-attrs}
+   & children]
+  ```
+- **Description**: The registered `:route/link` view. `:to` is the only required key; `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis, and every other props key passes through to the `<a>` element. A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: `preventDefault`, then dispatch `[:rf/url-requested {:url ... :to ...}]` targeted at the frame that rendered the link. Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser. A caller-supplied `:on-click` runs first; if it calls `preventDefault` the framework's interception is skipped. The rendered href is encoded through the rendering frame's `:url-strategy`. On the JVM the `:route/link` registration renders via [`route-link-render-ssr`](#route-link-render-ssr).
+- **Example**:
+  ```clojure
+  [rf/route-link {:to :user/show :params {:id 42} :class "nav-item"}
+   "Profile"]
+  ```
+
+### `route-link-render`
+
+- **Kind**: function (CLJS-only)
+- **Signature**:
+  ```clojure
+  (route-link-render props & children) → hiccup
+  ```
+- **Description**: The CLJS render fn behind `route-link`, exposed without the registry wrap so tests can call it directly. Same props contract and click rules as [`route-link`](#route-link). Must run inside a frame scope — raises `:rf.error/no-frame-context` when rendered outside one (the render-time frame is captured so the click dispatch targets it after the render scope has unwound).
+
 ## Server-side rendering
 
 ### `route-link-render-ssr`
@@ -347,11 +447,11 @@ At most one frame owns the browser URL at a time. A frame claims ownership by re
   ```clojure
   (route-link-render-ssr props & children) → hiccup
   ```
-- **Description**: The JVM render fn for the `:route/link` view. Renders the `<a href=...>` shell without the click-interception logic — server-side rendering has no DOM events to intercept, so the anchor is emitted as-is and clicks on the hydrated page run the CLJS render fn's on-click path. The authoring surface — the `route-link` view itself — is on the `re-frame.core` facade; see [re-frame.core.md](re-frame.core.md).
+- **Description**: The JVM render fn for the `:route/link` view. Renders the `<a href=...>` shell without the click-interception logic — server-side rendering has no DOM events to intercept, so the anchor is emitted as-is and clicks on the hydrated page run the CLJS render fn's on-click path. The href is emitted path-form regardless of `:url-strategy` (SSR ignores strategies); the hydrated CLJS render re-encodes it. The authoring surface is [`route-link`](#route-link), also published on the `re-frame.core` facade.
 
 ## Keyword surfaces
 
-The routing artefact registers a family of events, subscriptions, and effects addressed by keyword. Loading `re-frame.routing` wires them all.
+The routing artefact registers a family of events, subscriptions, effects, and coeffects addressed by keyword. Loading `re-frame.routing` wires them all. It also registers internal machinery — the `:rf.route.internal/*` runtime events, the recordable allocation cofx (`:rf.route/nav-allocation`, `:rf.route/pending-nav-allocation`), and the `:rf.route/commit-nav-counter` fx — which apps and tools never dispatch or declare; those are omitted from the tables below.
 
 ### Events
 
@@ -359,7 +459,7 @@ These are the standard events the runtime dispatches (or you dispatch) around ro
 
 | Event | Notes |
 |---|---|
-| `:rf.route/navigate` | Navigate to a registered route. Args: `{:to :route-id :params {...} :query {...}}`. |
+| `:rf.route/navigate` | Navigate to a registered route. Arities: `[:rf.route/navigate target]` / `[:rf.route/navigate target params]` / `[:rf.route/navigate target params opts]`. `target` is a route id, the reserved `:rf.route/self` (stay on the current route, reshape only the query), or a `{:url "..."}` map; `params` (2nd slot) are path params; `opts` (3rd slot) recognises `:query`, `:query-merge`, `:replace?`, `:scroll`, `:fragment`, `:bypass-guards?`. |
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
 | `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
@@ -391,13 +491,23 @@ The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :
 | `[:rf.nav/push-url url-string]` | URL string | `:client` | Push a new URL onto the browser history. |
 | `[:rf.nav/replace-url url-string]` | URL string | `:client` | Replace the current URL without adding a history entry. |
 | `[:rf.nav/scroll scroll-spec]` | scroll-spec map | `:client` | Restore or set scroll position. |
-| `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | universal | universal | Name an async-completion continuation by its canonical `:rf/reply-to` reply target and guard it with a navigation token. On match the target is completed with the `:status :ok` reply map; if the token has been superseded by a later navigation, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. |
+| `[:rf.nav/capture-scroll {:url url-string}]` | `{:url ...}` map | `:client` | Capture the current scroll position into the host-side per-frame scroll-position cache (keyed by `url`) before leaving a route. |
+| `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | see notes | universal | Name an async-completion continuation by its canonical `:rf/reply-to` reply target and guard it with a navigation token. On match the target is completed with the `:status :ok` reply map; if the token has been superseded by a later navigation, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. Optional args keys: `:route-id` (the captured route id, for the work-id), `:value` (rides the `:status :ok` reply map), `:completed-at`. |
 
 The nav-token wrapper is what makes "user navigates away mid-load" safe: the older load's reply carries the stale token, the runtime suppresses it, and you don't see the older page's data overwrite the newer page's state. Full semantics in [Routing → Loaders](../routing/concepts.md#loaders-declaring-a-pages-data) (the nav-token "going deeper").
 
+### Coeffects (`cofx`)
+
+Declared on a handler via `:rf.cofx/requires`; each value is delivered flat under the cofx key in the coeffects map. Both are universal (client and server).
+
+| Cofx | Delivers |
+|---|---|
+| `:rf.route/nav-token` | The current navigation epoch token, read from `[:rf.runtime/routing :current :nav-token]`. Declare `{:rf.cofx/requires [:rf.route/nav-token]}` on an `:on-match`-reached handler to capture the epoch live at scheduling time and thread it into an async continuation; `:rf.route/with-nav-token` validates it on receipt. |
+| `:rf.route/route-id` | The current route id, read from `[:rf.runtime/routing :current :route-id]`. The capture-side companion of `:rf.route/nav-token` — declare both (`{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`) so the route-loader work-id `[:rf.work/route route-id nav-token loader-id]` carries its complete attempt identity. |
+
 ## See also
 
-- [re-frame.core.md](re-frame.core.md) — the `re-frame.core` facade: the `reg-route` macro's brief row and the `route-link` view.
+- [re-frame.core.md](re-frame.core.md) — the `re-frame.core` facade: the `reg-route` macro's brief row, the `route-link` view, and the history-listener boot-seam aliases.
 - [re-frame.ssr.md](re-frame.ssr.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
 - [Routing guide](../routing/index.md) — the narrative side: a [tutorial](../routing/tutorial.md), [concepts](../routing/concepts.md) (nav-token semantics, `:can-leave` flows, query strings, multi-frame routing), and how-to recipes.
 - [Routing glossary](../routing/glossary.md) — the surface vocabulary (navigate, route, loader, route guard, not-found, url-bound?).

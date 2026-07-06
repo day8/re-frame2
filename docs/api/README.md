@@ -10,7 +10,7 @@ Start with [`re-frame.core`](re-frame.core.md) — it is what you require to mak
 |---|---|---|
 | [`re-frame.core`](re-frame.core.md) | core | The whole `rf/` facade — registration, dispatch/subscribe, views, effects & interceptors, frames, lifecycle & configure, instrumentation/listeners, registrar queries, and the feature-registration re-exports. |
 | [`re-frame.schemas`](re-frame.schemas.md) | `day8/re-frame2-schemas` | Schema introspection, validation entry points, validator-extension seams, classification walkers. |
-| [`re-frame.flows`](re-frame.flows.md) | core | Flow teardown + introspection (`reg-flow` is on the `rf/` facade). |
+| [`re-frame.flows`](re-frame.flows.md) | `day8/re-frame2-flows` | Flow teardown + introspection (`reg-flow` is on the `rf/` facade). |
 | [`re-frame.http`](re-frame.http.md) | `day8/re-frame2-http` | Managed-HTTP verb helpers and the `:rf.http/*` fx surface. |
 | [`re-frame.machines`](re-frame.machines.md) | `day8/re-frame2-machines` | The state-machine engine, query and transition surfaces, and the `:rf.machine/*` fx. |
 | [`re-frame.routing`](re-frame.routing.md) | `day8/re-frame2-routing` | Routing helpers and the `:rf.route/*` / `:rf.nav/*` surfaces. |
@@ -19,7 +19,7 @@ Start with [`re-frame.core`](re-frame.core.md) — it is what you require to mak
 | [`re-frame.ssr.ring`](re-frame.ssr.ring.md) | `day8/re-frame2-ssr-ring` | Ring host-adapter for SSR. |
 | [`re-frame.epoch`](re-frame.epoch.md) | `day8/re-frame2-epoch` | Time-travel — epoch history, restore, replace (re-exported through `rf/` via late-bind). |
 | [`re-frame.performance`](re-frame.performance.md) | core | Performance instrumentation. |
-| [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) | core | The inline default substrate adapter. |
+| [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) | `day8/re-frame2-reagent` | The default (Reagent) substrate adapter. |
 | [`re-frame.adapter.uix`](re-frame.adapter.uix.md) | `day8/re-frame2-uix` | UIx substrate adapter + hooks. |
 | [`re-frame.adapter.helix`](re-frame.adapter.helix.md) | `day8/re-frame2-helix` | Helix substrate adapter + hooks. |
 | [`re-frame.test-support`](re-frame.test-support.md) | core | Fixtures, `dispatch-sequence`, `poll-until`, the registrar snapshot/restore helpers. |
