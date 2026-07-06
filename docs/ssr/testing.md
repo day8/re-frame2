@@ -24,7 +24,7 @@ Here's the pleasant surprise: **your server tests are just JVM tests.** The whol
                           {:initial-events
                            [[:rf/set-db {:articles {"intro" {:title "Welcome"}}}]
                             [:rf.route/handle-url-change "/articles/intro"]]})]
-    (let [html (ssr/render-to-string [app-root] {:frame f})]
+    (let [html (ssr/render-to-string [app-root] {})]   ;; renders against the with-new-frame scope
       (is (clojure.string/includes? html "Welcome")))))
 ```
 

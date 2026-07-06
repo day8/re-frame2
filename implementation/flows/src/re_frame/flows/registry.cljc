@@ -160,8 +160,11 @@
   `frame/require-current-frame!`. Called under no scope and no explicit
   `:frame`, it raises `:rf.error/no-frame-context` rather than defaulting to
   `:rf/default`. The override is a frame TARGET (keyword id or frame value),
-  normalized to its frame-id via `frame/frame-target->id` — the same shape the
-  `reg-flow` / `clear-flow` `:frame` opt accepts."
+  normalized to its frame-id via `frame/frame-target->id`. NOTE: the READ
+  path (this fn, `flow-meta-at`) normalizes and so accepts a frame VALUE;
+  the `reg-flow` / `clear-flow` `:frame` opt is used RAW (no
+  `frame-target->id`), so those writes expect a frame-id keyword — a frame
+  value would not resolve there."
   [opts]
   (let [override (:frame opts)]
     (if (some? override)
@@ -922,8 +925,11 @@
   namespace-load time is not a reason to synthesise a default frame.
 
   Returns the flow's id per the `reg-*` return-value convention
-  ([Conventions §reg-* return-value convention])."
-  ([flow-id derive-fn] (reg-flow flow-id {} derive-fn))
+  ([Conventions §reg-* return-value convention]).
+
+  A single 3-slot arity only — like its required-metadata siblings
+  `reg-route` / `reg-resource`, there is no 2-arity: `:inputs` /
+  `:output-path` are mandatory, so a metadata slot is always required."
   ([flow-id metadata derive-fn]
    (let [[flow frame] (reconstruct-flow flow-id metadata derive-fn)]
    (validate-flow flow)

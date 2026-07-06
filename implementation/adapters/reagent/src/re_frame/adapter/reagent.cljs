@@ -72,7 +72,9 @@
   "Flush pending Reagent renders synchronously. Wraps React's act() —
   intended for test code only. Calls (act (fn [] (reagent.core/flush)));
   with `f`, runs `f` then the synchronous render drain inside act. Returns
-  nil. No-op when act() is unreachable in the current React build.
+  nil. When act() is unreachable in the current React build it degrades to
+  a plain synchronous flush (still runs `f` and drains the render queue),
+  so a `:node-test` runner with no real React render path still flushes.
 
   Per rf2-3yij Decision 6 / rf2-b6nm5: the canonical test-flush hook,
   surfaced identically (same name, same adapter-ns location, same

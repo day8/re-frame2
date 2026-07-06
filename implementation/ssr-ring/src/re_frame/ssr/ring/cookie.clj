@@ -137,9 +137,10 @@
 
 (defn cookie->set-cookie-header
   "Serialise one re-frame.ssr cookie map to a Set-Cookie header value
-  per RFC 6265 §4.1. Per Spec 011 §Cookie shape — the cookie's :name /
-  :value are required; everything else is an attribute appended after
-  semicolons. The :value is URL-encoded.
+  per RFC 6265 §4.1. Per Spec 011 §Cookie shape — the cookie's :name is
+  required; :value is optional (a missing :value serialises as an empty
+  string). Everything else is an attribute appended after semicolons. The
+  :value is URL-encoded.
 
   Public surface so tests, alt host adapters (Pedestal, HttpKit), and
   user code that needs a one-off serialisation can call it directly.

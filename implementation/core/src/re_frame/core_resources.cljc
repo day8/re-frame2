@@ -149,10 +149,11 @@
 (defwrapper mutations
   "Per Spec 016 §Deferred slices / EP-0003 §Mutations. Return mutation
   introspection for a frame target `{:frame …}` — the registered mutation
-  ids and the live per-frame mutation-instance table (keyed by instance id;
-  Xray groups instances under their registered mutation id). Without
-  `:frame` only the static registry is returned. Late-bound via
-  `:resources/mutations`."
+  ids and the live per-frame mutation-instance table (keyed on each
+  instance id's CEDN-1 byte `key-id` per rf2-8iciw8, not the raw instance
+  id; each instance carries its id under `:instance/id`. Xray groups
+  instances under their registered mutation id). Without `:frame` only the
+  static registry is returned. Late-bound via `:resources/mutations`."
   {:hook :resources/mutations :artefact resources-artefact :on-absent :throw
    :arglists '([] [opts])}
   ([]     :delegate)

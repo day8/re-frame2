@@ -30,10 +30,9 @@
   flow-id metadata derive-fn)` — the pure `:derive` fn is the THIRD slot,
   the middle slot is the reflection-config metadata map (`:inputs`,
   `:output-path`, `:doc`, `:schema`, EP-0025 classification keys, and the
-  `:frame` mounting key). The 2-arg `(reg-flow flow-id derive-fn)` recurses
-  with an empty metadata map (which then fails validation for the required
-  `:inputs` / `:output-path`)."
+  `:frame` mounting key). A single 3-slot arity only — `:inputs` /
+  `:output-path` are mandatory, so (like `reg-route` / `reg-resource`)
+  there is no 2-arity."
   {:hook :flows/reg-flow :artefact flows-artefact :on-absent :throw
-   :arglists '([flow-id metadata derive-fn] [flow-id derive-fn])}
-  ([flow-id derive-fn]          [flow-id {} derive-fn])
+   :arglists '([flow-id metadata derive-fn])}
   ([flow-id metadata derive-fn] :delegate))
