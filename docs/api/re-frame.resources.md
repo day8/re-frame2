@@ -52,13 +52,13 @@ The resource surfaces are on the `re-frame.core` facade (`reg-resource` / `reg-m
 |---|---|
 | `:params-schema` | Validates and canonicalizes params (the resource's identity). |
 | `:scope` | The scope **policy** — `:rf.scope/global`, a resolver, or `:rf.scope/from-caller`. **Required, fail-closed** — no policy is a loud `:rf.error/resource-missing-scope-policy`. There is no implicit default; a user-scoped read must say so. |
-| request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (rejected if present). |
+| request fn (3rd positional arg) | For `:transport :rf.http/managed`, returns a [managed-HTTP args map](re-frame.http.md). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the scoped key + generation (supplying one raises `:rf.error/resource-reserved-request-key`). |
 
 These three (`:params-schema`, `:scope`, request fn) are the registration gate — a `reg-resource` missing any of them throws. `:data-schema` is **not** part of the gate; it is optional — it validates successful data when present, but the registration gate does not enforce it.
 
 **Optional keys**: `:doc`, `:data-schema` (validates successful data when present / transport decode supports it — not enforced by the registration gate), `:transport` (initial scope: `:rf.http/managed`), `:stale-after-ms`, `:gc-after-ms`, `:poll-interval-ms` (the active-owner poll interval — see [Polling](#polling)), `:infinite` + the infinite-only keys (`:next-page-param`, `:prev-page-param`, `:page->items`, `:initial-page-param`, `:page-data-schema`, `:refetch` — see [Infinite resources](#infinite-resources)), `:tags`, `:sensitive?` / `:large?` / schema-based classification.
 
-**Rejected / unused in v1**: `:revalidate`, `:placeholder`, `:cache-key`, `:select`, transport extension protocols. (Interval polling is `:poll-interval-ms`; the `:infinite` load-more kind — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
+**Not in the v1 registration surface** (unused — the registration gate neither reads nor validates them): `:revalidate`, `:placeholder`, `:cache-key`, `:select`, transport extension protocols. (Interval polling is `:poll-interval-ms`; the `:infinite` load-more kind — see [Infinite resources](#infinite-resources).) The mutation-only keys (`:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`) are **not resource-registration keys** — they live on `reg-mutation`.
 
 #### Scope policy
 
@@ -68,9 +68,9 @@ These three (`:params-schema`, `:scope`, request fn) are the registration gate �
 |---|---|
 | `:rf.scope/global` | The resource is **explicitly** global — a claim that the same params produce the same data for every user/tenant/permission/locale/impersonation state. Auditable, not a convenience default. |
 | `<resolver>` | Derive the scope. A route-resource resolver is `(fn [route ctx] …)`; a sub-resolvable resolver is a pure data value or a fn-of-nothing. A reusable named resolver is registered with [`reg-resource-scope`](#reg-resource-scope) and referenced as `{:from-db <scope-id>}`. |
-| `:rf.scope/from-caller` | Scope required from the use site — every ensure / refetch / state call must supply `:scope` (or a route resolver must). |
+| `:rf.scope/from-caller` | Scope required from the use site — every ensure / refetch / state call must supply `:scope` (or a route resolver must); reaching the resource without one raises `:rf.error/resource-scope-required-from-caller`. |
 
-There is no `[:rf.scope/global]` fallthrough. Event resolution precedence: payload `:scope` → route resolver → spec resolver. Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`). See [Guide ch.27 §Scope](../resources/concepts.md).
+There is no `[:rf.scope/global]` fallthrough. Event resolution precedence: payload `:scope` → route resolver → spec resolver. A `{:from-db <id>}` reference that resolves `nil` at an event/route site raises `:rf.error/resource-scope-unresolved-reference`. Subscription resolution: payload `:scope` → sub-resolvable spec policy → loud `:rf.error/resource-sub-unresolved-scope` (never a silent global read or `:idle`). See [Guide ch.27 §Scope](../resources/concepts.md).
 
 ### `clear-resource`
 
@@ -123,15 +123,15 @@ A **mutation** is the causal-WRITE counterpart of a resource: a named write to r
 | Key | Notes |
 |---|---|
 | `:params-schema` | Validates and canonicalizes the write's params. |
-| request fn (3rd positional arg) | Returns a [managed-HTTP args map](re-frame.http.md) (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (rejected if present). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
+| request fn (3rd positional arg) | Returns a [managed-HTTP args map](re-frame.http.md) (the write). MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime supplies those from the instance + generation (supplying one raises `:rf.error/resource-reserved-request-key`). **Write retries are OPT-IN** and live in this returned args map's own `:retry` (see the note below) — never a `reg-mutation` spec key. |
 
-**Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:scope` (the cache scope the invalidation / patch / populate targets), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle`), `:transport`, `:doc`.
+**Optional keys**: `:invalidates` (`(fn [params result] → #{tag …})` — the tags made stale on success, composed with `:rf.resource/invalidate-tags`, scoped), `:patches` / `:populates` (controlled resource-entry transforms / seeds applied on success **before** invalidation, keyed by scoped key, via the same durable entry shape + structural sharing the read path uses), `:removes` (`(fn [params result] → [target …])` — controlled resource-entry removals applied on success, same map-form exact targets `{:resource :params :scope}`; a removed key's in-flight attempt is best-effort aborted), `:scope` (the cache scope the invalidation / patch / populate targets), `:invalidate-timing` (`:after-success` (default) | `:before-request` | `:after-failure` | `:after-settle` — a value outside the closed enum is rejected with `:rf.error/mutation-bad-spec`), `:transport`, `:doc`.
 
 > **`:retry` is NOT a `reg-mutation` spec key.** Write retries are opt-in and ride the [managed-HTTP args](re-frame.http.md) your `:request` fn returns — put `:retry {…}` in *that* map. The runtime passes the `:request` args through to the transport unchanged and does **not** read or enforce a spec-level `:retry`; there is no `reg-mutation`-level retry to arm. (Reads inherit the same discipline — see [Managed HTTP reference §Retry](../async/http.md#retry-transport-retry-as-data): re-issuing a non-idempotent write because a reply was merely slow is the double-write bug, so retry stays explicit and per-request.)
 
 > **Mutation `:scope` is not fail-closed.** Unlike a resource read — whose `:scope` is **required** and fails closed — a mutation's `:scope` is optional and resolves payload `:scope` → spec `:scope` → `:rf.scope/global`. The scope decides which cache scope the success-time invalidate / patch / populate targets, so it **MUST match the scope of the resources the write changes**: a write against user/tenant/locale-scoped entries that omits `:scope` invalidates the `[:rf.scope/global]` cache instead and silently misses the scoped entries (stale reads, no error). Pass `:scope` on `[:rf.mutation/execute …]` when the principal is known only at the call site; the `:rf.scope/from-caller` *policy* is a resource-read concept, not a mutation one.
 
-**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Guide ch.27 §Optimistic writes](../resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile)): `:optimistic` is a registration-level forward plan (the twin of `:patches`) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol.
+**Optimistic keys** (see [EP-0019](../EP/EP-0019-optimistic-mutation-rollback.md) and [Guide ch.27 §Optimistic writes](../resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile)): `:optimistic` is a registration-level forward plan (the twin of `:patches`, signature `(fn [params] → {target patch-fn})` — no `result`; the reply does not exist yet) applied **before** the server confirms; `:optimistic-tags` is its tag-addressed twin for cross-view consistency; `:on-conflict` (`:invalidate` default | `:force`) decides the contested-rollback policy. The **inverse is runtime-recorded** — the author supplies no `:rollback` registration key; the runtime snapshots each touched entry (with its `:revision`) on the instance row's `:patch-summary` `:rollback` slot and settles via the commit/rollback/reconcile protocol. An optimistic plan combined with `:invalidate-timing :before-request` is contradictory and rejected at registration with `:rf.error/mutation-optimistic-before-request`.
 
 ### `clear-mutation`
 
@@ -159,7 +159,7 @@ A resource-scope resolver is the **third resources kind** (alongside resources a
   (reg-resource-scope scope-id metadata resolve-fn)
   (reg-resource-scope scope-id resolve-fn)           ;; whole-db sugar (no metadata)
   ```
-- **Description**: Register a PURE named scope resolver under `scope-id` in the canonical 3-slot grammar: the `:resolve` fn is the value (third) slot, and `metadata` — the middle slot — carries the declared `:inputs {name [:db <rf-path>]}` (plus optional `:doc`). The resolver's first arg is ALWAYS the resolved inputs map (the one stable Name-over-place meaning). **Omitting `:inputs`** (the 2-arg sugar, or a `:doc`-only metadata) selects the whole-db form — the resolver reads the whole db as its first arg (the one deliberate, documented exception). The only shipped input source is `[:db <rf-path>]` (a concrete `:rf/path`); `[:runtime …]` (route-derived scope) is **reserved** and rejected loudly. The resolver fn MUST be pure (it MUST NOT fetch, dispatch, mutate state, or read ambient host state); the `ctx` arg is reserved and invoked as literal `nil` in this slice. A `nil` resolve result is **fail-closed**. A `:resolve` left inside the metadata map, or a non-fn value slot, is rejected loudly. Writes a `:resource-scope`-kind registrar entry carrying the canonical spec plus captured source coords; returns `scope-id`. Implementation ships in `day8/re-frame2-resources`; require `re-frame.resources` at boot — an app that omits the artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
+- **Description**: Register a PURE named scope resolver under `scope-id` in the canonical 3-slot grammar: the `:resolve` fn is the value (third) slot, and `metadata` — the middle slot — carries the declared `:inputs {name [:db <rf-path>]}` (plus optional `:doc`). The resolver's first arg is ALWAYS the resolved inputs map (the one stable Name-over-place meaning). **Omitting `:inputs`** (the 2-arg sugar, or a `:doc`-only metadata) selects the whole-db form — the resolver reads the whole db as its first arg (the one deliberate, documented exception). The only shipped input source is `[:db <rf-path>]` (a concrete `:rf/path`); `[:runtime …]` (route-derived scope) is **reserved** and rejected loudly with `:rf.error/resource-scope-source-reserved`. The resolver fn MUST be pure (it MUST NOT fetch, dispatch, mutate state, or read ambient host state); the `ctx` arg is reserved and invoked as literal `nil` in this slice. A `nil` resolve result is **fail-closed**. A non-map metadata, a malformed `:inputs` descriptor, a `:resolve` left inside the metadata map, or a non-fn value slot is rejected loudly with `:rf.error/invalid-resource-scope-spec`. Writes a `:resource-scope`-kind registrar entry carrying the canonical spec plus captured source coords; returns `scope-id`. Implementation ships in `day8/re-frame2-resources`; require `re-frame.resources` at boot — an app that omits the artefact sees the wrapper throw `:rf.error/resources-artefact-missing`.
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
@@ -203,6 +203,34 @@ A resource-scope resolver is the **third resources kind** (alongside resources a
        :fx [[:dispatch [:rf.resource/clear-scope {:scope old :cause :logout}]]]})))
 ```
 
+### `scope-resolver-meta`
+
+- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/scope-resolver-meta scope-id) → spec-map or nil
+  ```
+- **Description**: The registered resolver's canonical spec map (`:inputs`, `:resolve`, `:whole-db?`, `:doc`) for `scope-id`, or nil if none is registered. The introspection counterpart of `resource-meta` / `mutation-meta`. The whole-db sugar stores `:whole-db? true` with a synthetic `:inputs {:db [:db []]}`.
+
+```clojure
+(re-frame.resources/scope-resolver-meta :realworld/session)
+;; => {:inputs {:username [:db [:auth :user :username]]} :resolve #fn :whole-db? false :doc nil}
+```
+
+### `scope-resolver-ids`
+
+- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/scope-resolver-ids) → [scope-id …]
+  ```
+- **Description**: A vector of every registered resource-scope resolver id (the static resolver registry).
+
+```clojure
+(re-frame.resources/scope-resolver-ids)
+;; => [:realworld/session]
+```
+
 ## Revalidation listeners
 
 Active-stale revalidation is expressed as **resource events** (see [`[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`](#rfresourcewindow-focused--rfresourcenetwork-reconnected)), never subscription-driven fetching. On window focus / tab-return / network reconnect, the frame's active-owner **stale** entries are rescanned and refetched by policy — a stale entry with no active owner is left alone (revalidation creates no liveness). The host-listener install/remove fns below wire (and tear down) the `window` listeners that dispatch those events.
@@ -215,7 +243,7 @@ Active-stale revalidation is expressed as **resource events** (see [`[:rf.resour
   (install-revalidation-listeners! frame-id)   ;; → nil
   (remove-revalidation-listeners!  frame-id)   ;; → nil
   ```
-- **Description**: `install-revalidation-listeners!` wires three host `window` listeners for `frame-id` — `focus` and `visibilitychange`-to-visible → `[:rf.resource/window-focused]`, and `online` → `[:rf.resource/network-reconnected]` — each dispatched at `frame-id`. Idempotent (re-installing replaces, never stacks — hot-reload safe); CLJS-only (the JVM/SSR arm is a no-op). Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down (useful for test isolation and single-page hosts that rotate which frame owns revalidation); a no-op when none is installed.
+- **Description**: `install-revalidation-listeners!` wires three host listeners for `frame-id` — `focus` (on `window`) and `visibilitychange`-to-visible (on `document`, its only valid event target) → `[:rf.resource/window-focused]`, and `online` (on `window`) → `[:rf.resource/network-reconnected]` — each dispatched at `frame-id`. Idempotent (re-installing replaces, never stacks — hot-reload safe); CLJS-only (the JVM/SSR arm is a no-op). Listeners are recorded in a host side table and cancelled on frame destroy via the single `:resources/on-frame-destroyed!` hook. `remove-revalidation-listeners!` tears them down (useful for test isolation and single-page hosts that rotate which frame owns revalidation); a no-op when none is installed.
 
 ```clojure
 ;; at boot, after the frame is live: wire focus / visibility / online revalidation
@@ -285,6 +313,7 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 [:rf.resource/items          {:resource :feed/timeline :scope … :params …}]   ;; merged flat list — the headline read
 [:rf.resource/pages          {…}]   ;; raw page boundaries
 [:rf.resource/has-next-page? {…}]   [:rf.resource/fetching-next? {…}]
+[:rf.resource/has-prev-page? {…}]   ;; the bidirectional mirror (observable; the prepend event is deferred)
 [:rf.resource/page-count     {…}]   [:rf.resource/page-error     {…}]
 [:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf.resource/state)
 ```
@@ -319,7 +348,7 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```clojure
   (resource-state {:resource … :scope … :params … :frame …}) → entry or nil
   ```
-- **Description**: A resource instance's durable runtime entry for an explicit-frame target, resolving the scoped key the same way a subscription does. nil when no entry exists.
+- **Description**: A resource instance's durable runtime entry for an explicit-frame target, resolving the scoped key the same way a subscription does (a `{:from-db <id>}` scope resolves against the frame's app-db). nil when no entry exists. An absent / nil `:frame` raises `:rf.error/no-frame-context` (fail-closed — a nil pass-through would be indistinguishable from a genuinely absent entry); an explicit but unknown / destroyed `:frame` reads as nil.
 
 ```clojure
 ;; the live durable entry for one scoped key, at an explicit frame
@@ -345,6 +374,20 @@ These direct functions are the **tool/test projection lane** — not an app-read
 (rf/resources {:frame :rf/default}) ;; => {:resource-ids [...] :entries {<key-id> <entry>}}
 ```
 
+### `resource-ids`
+
+- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/resource-ids) → [resource-id …]
+  ```
+- **Description**: A vector of every registered resource id — the registry-side half of `resources` (which returns the same vector under `:resource-ids`).
+
+```clojure
+(re-frame.resources/resource-ids)
+;; => [:article/by-slug :feed/timeline]
+```
+
 ### `mutation-meta`
 
 - **Kind**: function (post-v1 lib)
@@ -352,7 +395,7 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```clojure
   (mutation-meta mutation-id) → spec-map or nil
   ```
-- **Description**: The registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
+- **Description**: The registered mutation's spec map (`:request`, `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`, `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`, `:transport`, `:doc`, source coords), or nil.
 
 ```clojure
 (rf/mutation-meta :article/save)
@@ -366,7 +409,7 @@ These direct functions are the **tool/test projection lane** — not an app-read
   ```clojure
   (mutation-state {:instance … :frame …}) → row or nil
   ```
-- **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. The frame is carried explicitly (see [EP-0002](../EP/EP-0002-frame-target-resolution.md)).
+- **Description**: A mutation **instance**'s durable runtime row (`{:status :result :error …}`) for an explicit-frame target, or nil. The frame is carried explicitly (see [EP-0002](../EP/EP-0002-frame-target-resolution.md)); an absent / nil `:frame` raises `:rf.error/no-frame-context` (fail-closed, symmetric with `resource-state`), and an explicit but unknown / destroyed `:frame` reads as nil.
 
 ```clojure
 ;; one mutation INSTANCE's runtime row, at an explicit frame
@@ -380,13 +423,27 @@ These direct functions are the **tool/test projection lane** — not an app-read
 - **Signature**:
   ```clojure
   (mutations)            → {:mutation-ids [...] :instances {}}
-  (mutations {:frame …}) → {:mutation-ids [...] :instances {<instance-id> <row>}}
+  (mutations {:frame …}) → {:mutation-ids [...] :instances {<instance-key-id> <row>}}
   ```
-- **Description**: Mutation introspection for a frame target — the registered mutation ids plus, with `:frame`, the live per-frame mutation-instance table (Xray groups instances under their registered mutation id).
+- **Description**: Mutation introspection for a frame target — the registered mutation ids plus, with `:frame`, the live per-frame mutation-instance table. The `:instances` map is keyed on the CEDN-1 byte `key-id` of each instance id (the same identity discipline as `resources` `:entries`); each row carries its kind-preserving `:instance/id` and `:mutation/id` (Xray groups instances under the registered mutation id).
 
 ```clojure
 (rf/mutations {:frame :rf/default})
-;; => {:mutation-ids [...] :instances {<instance-id> <row>}}
+;; => {:mutation-ids [...] :instances {<instance-key-id> <row>}}
+```
+
+### `mutation-ids`
+
+- **Kind**: function (post-v1 lib; `re-frame.resources` façade only — not on `re-frame.core`)
+- **Signature**:
+  ```clojure
+  (re-frame.resources/mutation-ids) → [mutation-id …]
+  ```
+- **Description**: A vector of every registered mutation id — the registry-side half of `mutations` (which returns the same vector under `:mutation-ids`).
+
+```clojure
+(re-frame.resources/mutation-ids)
+;; => [:article/save]
 ```
 
 Xray exposes the same shapes plus the tool accessors (`list-resources`, `list-resource-instances`, `get-resource-state`, `get-resource-history`, `list-resource-invalidations`), the route/resource graph, the work-ledger table, and the **scope audit surface** (the standing enumeration of every `:rf.scope/global` resource). Tool accessors prefer summaries over raw values; params/scopes get the same privacy/size elision as data.
@@ -397,13 +454,13 @@ The resource and mutation runtime is **caused** and **read** entirely through ke
 
 ### Resource events (map payloads)
 
-Resource events take a **map payload**, not a positional argument vector.
+Resource events take a **map payload**, not a positional argument vector. The resource-addressed events validate their target: an unregistered `:resource` raises `:rf.error/resource-not-registered`, params that fail `:params-schema` raise `:rf.error/resource-invalid-params`, and scope resolution is fail-closed (`:rf.error/resource-scope-required-from-caller` / `:rf.error/resource-scope-unresolved-reference` — see [Scope policy](#scope-policy)).
 
 #### `[:rf.resource/ensure {…}]`
 
 - **Kind**: event
-- **Payload**: `{:resource :scope :params :owner :cause}`
-- **Description**: Ensure the resource instance is loaded. `ensure` while the same scoped key is already in flight **joins** the existing work (attaches the owner, records the cause, emits a dedupe trace). `:owner` changes the active-owner set; `:cause` is recorded in trace/history.
+- **Payload**: `{:resource :scope :params :owner :cause :keep-previous?}`
+- **Description**: Ensure the resource instance is loaded. `ensure` while the same scoped key is already in flight **joins** the existing work (attaches the owner, records the cause, emits a dedupe trace); an `ensure` of an already-`:loaded` entry still fresh-by-policy is a fresh-skip (serves the cached value, attaches the owner, emits `:rf.resource/cache-hit` — no fetch). `:owner` changes the active-owner set; `:cause` is recorded in trace/history. `:keep-previous?` on a first-loading key records a projection pointer to the prior loaded sibling key so `:rf.resource/previous-data` can show old data while the new key loads (never inserted into the new entry).
 
 ```clojure
 [:rf.resource/ensure
@@ -418,7 +475,7 @@ Resource events take a **map payload**, not a positional argument vector.
 
 - **Kind**: event
 - **Payload**: `{:resource :scope :params :owner :cause}`
-- **Description**: Force a refresh. May force a new generation — a still-in-flight prior request is marked superseded, aborted when possible, otherwise suppressed by work-id + generation. A manual refresh is usually a `:cause`, not an `:owner`.
+- **Description**: Force a refresh. Always starts a new generation (even when a request is already in flight) — a still-in-flight prior request is marked superseded, aborted when possible, otherwise suppressed by work-id + generation. A manual refresh is usually a `:cause`, not an `:owner`.
 
 ```clojure
 ;; a "Refresh" button — a :cause, pointedly no :owner (the route keeps it alive)
@@ -431,8 +488,8 @@ Resource events take a **map payload**, not a positional argument vector.
 #### `[:rf.resource/invalidate-tags {…}]`
 
 - **Kind**: event
-- **Payload**: `{:scope :tags :cause}`
-- **Description**: Mark entries whose tags intersect `:tags` stale; refetch entries with active owners; leave inactive entries stale or GC-eligible. **Scoped by default** — a cross-scope invalidation must opt in explicitly and is visible in Xray. On a successful load an entry's tags are *replaced* with the new data's tags.
+- **Payload**: `{:scope :tags :cause :cross-scope?}`
+- **Description**: Mark entries whose tags intersect `:tags` stale; refetch entries with active owners; leave inactive entries stale or GC-eligible. **Scoped by default** — a scoped invalidation with no `:scope` raises `:rf.error/resource-invalidate-scope-required` (never a silent nil-scope match). A cross-scope invalidation opts in explicitly with `:cross-scope? true` (ignores the scope filter, visible in Xray) and MUST carry `:cause` — a cross-scope invalidation without one raises `:rf.error/resource-cross-scope-cause-required`. On a successful load an entry's tags are *replaced* with the new data's tags.
 
 ```clojure
 ;; after a write settles, stale the reads carrying these tags
@@ -500,16 +557,16 @@ Resource events take a **map payload**, not a positional argument vector.
 #### `[:rf.resource/window-focused]` / `[:rf.resource/network-reconnected]`
 
 - **Kind**: event (no payload)
-- **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected) — **never an owner** (it creates no liveness); generation + stale-suppression protect any late reply. Dispatch these directly only when driving revalidation yourself; ordinarily the host listeners ([Revalidation listeners](#revalidation-listeners)) dispatch them.
+- **Description**: Scan the frame's active-owner stale entries and refetch them by policy. The refetch carries cause `:focus` (window-focused) or `:reconnect` (network-reconnected) — **never an owner** (it creates no liveness); generation + stale-suppression protect any late reply. The host listeners ([Revalidation listeners](#revalidation-listeners)) dispatch these; user code MUST NOT dispatch them directly.
 
 ```clojure
-;; no payload — dispatch directly only when driving revalidation yourself
-;; (ordinarily the host listeners dispatch these for you — see Revalidation listeners)
+;; no payload — dispatched by the host listeners (see Revalidation listeners);
+;; user code MUST NOT dispatch these directly
 [:rf.resource/window-focused]
 [:rf.resource/network-reconnected]
 ```
 
-> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch; `:rf.resource.internal/poll-fired` is the poll-timer re-check tick — it refetches an active-owner entry by the interval.)
+> **Internal replies — do not dispatch.** `:rf.resource.internal/succeeded` / `…/failed` / `…/page-succeeded` / `…/page-failed` / `…/aborted` / `…/stale-fired` / `…/gc-fired` / `…/poll-fired` / `…/stale-suppressed` / `…/refetch-page` are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`). User code MUST NOT dispatch them; success/failure verify frame + work id + generation before writing (the mandatory stale-suppression boundary). (`:rf.resource.internal/stale-fired` is the stale-timer re-check tick — it arms the stale transition, not a fetch; `:rf.resource.internal/poll-fired` is the poll-timer re-check tick — it refetches an active-owner entry by the interval; `…/page-succeeded` / `…/page-failed` are the infinite-feed page replies; `…/refetch-page` is one leg of a multi-page refetch sweep.)
 
 ### Resource subscriptions (passive)
 
@@ -534,7 +591,9 @@ The `:rf.resource/state` view-model — facts plus **derived** booleans:
  :loading?      <bool>   ;; first load, no usable data
  :fetching?     <bool>   ;; refresh in flight, prior data visible
  :stale?        <bool>   ;; freshness — orthogonal to load status
- :has-data?     <bool>}
+ :has-data?     <bool>
+ :previous?     <bool>}  ;; :keep-previous? projection — when true, also
+                         ;; :previous-key + :previous-data (the prior key's data)
 ```
 
 Status invariants: `:loading` = first load, no usable data; `:fetching` = refresh in flight while prior data stays visible; `:error` = first load failed, no usable data; a failed *background* refresh stays `:loaded`, keeps prior `:data`, records `:refresh-error`. `:stale?` / `:loading?` / `:fetching?` / `:has-data?` are derived sub values, never stored. See [Guide ch.27 §Status](../resources/concepts.md).
@@ -546,8 +605,8 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
 #### `[:rf.mutation/execute {…}]`
 
 - **Kind**: event
-- **Payload**: `{:mutation :params :instance :scope :cause}`
-- **Description**: Run a mutation. `:instance` is the caller-supplied (or generated) **instance** id all runtime state is keyed by — two concurrent submissions keep distinct rows. On success the runtime patches/populates resource entries then invalidates tags (per `:invalidate-timing`). A superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) never overwrites a newer instance (work-id + generation suppression).
+- **Payload**: `{:mutation :params :instance :scope :cause :reply-to :optimistic?}`
+- **Description**: Run a mutation. `:instance` is the caller-supplied (or generated) **instance** id all runtime state is keyed by — two concurrent submissions keep distinct rows. On success the runtime patches/populates/removes resource entries then invalidates tags (per `:invalidate-timing`). `:reply-to` is an optional data-only completion continuation target dispatched when the write settles; `:optimistic? false` is the per-call opt-out that forces a registered optimistic plan to run pessimistically. An unregistered `:mutation` raises `:rf.error/mutation-not-registered`; params that fail `:params-schema` raise `:rf.error/mutation-invalid-params`. A superseded reply (a re-execute under the same instance, or an `:rf.mutation/clear`) never overwrites a newer instance (work-id + generation suppression).
 
 ```clojure
 [:rf.mutation/execute
@@ -561,8 +620,8 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
 #### `[:rf.mutation/clear {…}]`
 
 - **Kind**: event
-- **Payload**: `{:instance …}`
-- **Description**: The **causal** reset of a runtime mutation instance — clears its row and best-effort aborts in-flight work. Distinct from `clear-mutation` (which removes the *registration*).
+- **Payload**: `{:instance …}` (clear one instance) or `{:mutation …}` (clear every instance of a mutation id)
+- **Description**: The **causal** reset of runtime mutation-instance state — clears the addressed row(s) and best-effort aborts in-flight work (the work row settles `:cancelled`). Distinct from `clear-mutation` (which removes the *registration*).
 
 ```clojure
 ;; reset one runtime instance's row (e.g. in a completion continuation)
@@ -574,16 +633,19 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
 A `:rf.mutation/*` subscription is a pure passive read keyed by **instance** id — it never executes a write.
 
 ```clojure
-[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled?}
+[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :affected-keys
+                                                   ;;  :pending? :success? :error? :settled? :optimistic?}
 [:rf.mutation/status   {:instance :form/save-1}]
 [:rf.mutation/pending? {:instance :form/save-1}]
 [:rf.mutation/result   {:instance :form/save-1}]
 [:rf.mutation/error    {:instance :form/save-1}]
 ```
 
+`:optimistic?` (derived) is true while a live optimistic apply is showing (applied, not yet settled); `:affected-keys` carries the scoped resource keys the settle touched.
+
 A failure settles `:error` — there is **no `:refresh-error` analogue** (a write has no last-known-good to keep).
 
-> **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `stale-suppressed`, carrying the instance id) are framework-internal; user code MUST NOT dispatch them.
+> **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (`succeeded` / `failed`), and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `replied` / `stale-suppressed` plus the optimistic rows (`optimistic-applied` / `optimistic-reconciled` / `optimistic-rolled-back`), carrying the instance id — are framework-internal; user code MUST NOT dispatch them.
 
 ## Read sugar
 
@@ -627,7 +689,7 @@ A failure settles `:error` — there is **no `:refresh-error` analogue** (a writ
 
 ## Cache home
 
-Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`. Both are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](../resources/concepts.md).
+Resource cache lives **only** at `:rf.runtime/resources` inside the runtime-db partition (`:rf.db/runtime`); the frame work ledger at `:rf.runtime/work-ledger`; mutation instance rows at `:rf.runtime/mutations`. All three are reserved runtime-db keys, framework-owned, per-frame isolated, allocated lazily. App code reads through the subs and accessors and never hand-edits the slice. Cache *entries* (durable facts) and work-ledger *attempts* (in-flight records) are separate; host handles (AbortControllers, timers, promises) live in side tables and are never serialized. The correctness rule: **cancellation is opportunistic; stale-reply suppression (by work-id + generation) is mandatory.** See [Guide ch.27 §Cache home and the work ledger](../resources/concepts.md).
 
 ## Examples and cross-references
 

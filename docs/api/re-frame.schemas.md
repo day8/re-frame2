@@ -10,7 +10,7 @@ Most app code touches only **Registration** and **Introspection**. The remaining
 
 ## Registration
 
-The registration macros live in `re-frame.core` and route through the schemas artefact at registration time; consumers call them as `rf/reg-app-schema` / `rf/reg-app-schemas`. They are briefly rowed in [re-frame.core.md](re-frame.core.md); the full contract is here.
+The registration macros live in `re-frame.core` and route through the schemas artefact at registration time; consumers call them as `rf/reg-app-schema` / `rf/reg-app-schemas`. They are briefly rowed in [re-frame.core.md](re-frame.core.md); the full contract is here. `re-frame.schemas` also exports both names as plain functions for programmatic (HoF) registration — same contract, no call-site source-coord capture.
 
 ### `reg-app-schema`
 
@@ -20,7 +20,7 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   (reg-app-schema path {:schema schema})
   (reg-app-schema path {:schema schema :frame frame})
   ```
-- **Description**: "Attach this Malli schema to this `app-db` path." The schema rides the metadata map under `:schema`; the optional frame target rides `:frame` in the same map. **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector.
+- **Description**: "Attach this Malli schema to this `app-db` path." The schema rides the metadata map under `:schema`; the optional frame target (a frame-id keyword or a frame value) rides `:frame` in the same map. **Path is the registration id** — app-db schemas are path-keyed (the schemas-at-paths grain matches `get-in` / `assoc-in`) and live in the schemas artefact's per-frame side-table (app-db schemas are NOT a registrar kind). `(app-schema-at [:user])` looks up by the same path vector. `path` is a sequential `get-in` path of concrete segments (`[]` registers a whole-`app-db` root schema) and is normalized to its canonical vector form; returns the normalized path. Raises `:rf.error/app-schema-bad-metadata` (non-map metadata, or no `:schema` key), `:rf.error/app-schema-bad-path` (non-sequential path or non-concrete segment), `:rf.error/app-schema-runtime-path` (first segment reaches the runtime-db partition — `:rf.runtime/*`, `:rf.db/runtime`, or the legacy `:rf/runtime` root), `:rf.error/app-schemas-bad-arg` (a `:frame` target that does not resolve to a keyword frame id), and `:rf.error/no-frame-context` (no `:frame` and no established frame scope). Dev builds add two diagnostics: a re-registration that changes the schema at a path whose live `app-db` value fails the new schema emits an `:rf.schema/violation` warning trace, and registering an opaque compiled schema the per-slot walker cannot introspect warns once per process with `:rf.warning/schema-walker-opaque`.
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]
@@ -33,8 +33,9 @@ The registration macros live in `re-frame.core` and route through the schemas ar
 - **Signature**:
   ```clojure
   (reg-app-schemas {path-1 schema-1, path-2 schema-2, ...})
+  (reg-app-schemas {path-1 schema-1, ...} opts-or-frame-id)
   ```
-- **Description**: Bulk plural form. Feature-modular apps registering 5–20 paths against the same prefix reach for this. Each entry routes through the singular form and is stamped with this call's source coords. Returns the vector of paths registered.
+- **Description**: Bulk plural form. Feature-modular apps registering 5–20 paths against the same prefix reach for this. Each entry routes through the singular form and is stamped with this call's source coords. The optional second arg names the frame for every entry in the map — an opts map (`{:frame target}`), a bare frame-id keyword, or a frame value; one frame per call. Returns the vector of paths registered, in map-iteration order; `{}` is the documented empty no-op. A `nil` / non-map first arg raises `:rf.error/app-schemas-bad-batch`; every path in the batch is shape-checked before any store mutation, so a batch containing one invalid path (`:rf.error/app-schema-bad-path` / `:rf.error/app-schema-runtime-path`) registers nothing.
 - **Example**:
   ```clojure
   (rf/reg-app-schemas
@@ -49,7 +50,7 @@ See [re-frame.core.md](re-frame.core.md) for the `reg-*` return-value convention
 
 ## Introspection
 
-The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-schemas`). They are *not* re-exported from `re-frame.core` — the registration macros live in `re-frame.core` and route through the schemas artefact at registration time, but the read-side surface stays in its own namespace. Tools, 10x panels, and agents walk these to enumerate an app's schema surface.
+The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-schemas`). They are *not* re-exported from `re-frame.core` — the registration macros live in `re-frame.core` and route through the schemas artefact at registration time, but the read-side surface stays in its own namespace. Tools, 10x panels, and agents walk these to enumerate an app's schema surface. Every `opts-or-frame-id` argument below accepts an opts map (`{:frame target}`), a bare frame-id keyword, or a frame value (normalized to its frame id); a malformed argument raises `:rf.error/app-schemas-bad-arg`, and omitting the frame outside any frame scope raises `:rf.error/no-frame-context`.
 
 ### `app-schemas`
 
@@ -57,7 +58,7 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
 - **Signature**:
   ```clojure
   (app-schemas)
-  (app-schemas {:frame frame-id})
+  (app-schemas opts-or-frame-id)
   ```
 - **Description**: "Hand me every registered schema-at-path for this frame." Returns `{path schema}`. Tools and agents walk this to enumerate the app's schema surface.
 - **Example**:
@@ -76,7 +77,7 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
 - **Signature**:
   ```clojure
   (app-schema-at path)
-  (app-schema-at path {:frame frame-id})
+  (app-schema-at path opts-or-frame-id)
   ```
 - **Description**: "Schema for this exact path." Returns the schema value or `nil`.
 - **Example**:
@@ -96,7 +97,7 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
   (app-schema-meta-at path)
   (app-schema-meta-at path opts-or-frame-id)
   ```
-- **Description**: "Full registration-metadata map for this path." Returns `:path`, `:schema`, `:frame`, plus source-coords (`:ns` / `:line` / `:file`) and the rest of `:rf/registration-metadata`. Pair tools and 10x reach for this when they need the registration anchor for click-back-to-code. The lighter `app-schema-at` is the right call when only the schema value is needed.
+- **Description**: "Full registration-metadata map for this path." Returns `:path`, `:schema`, `:frame`, plus source-coords (`:ns` / `:line` / `:file`) and the rest of `:rf/registration-metadata`; `nil` when nothing is registered at the path. Pair tools and 10x reach for this when they need the registration anchor for click-back-to-code. The lighter `app-schema-at` is the right call when only the schema value is needed.
 - **Example**:
   ```clojure
   ;; the registration anchor — schema value plus source coords for click-back
@@ -111,9 +112,9 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
 - **Signature**:
   ```clojure
   (app-schemas-digest) → string
-  (app-schemas-digest {:frame frame-id}) → string
+  (app-schemas-digest opts-or-frame-id) → string
   ```
-- **Description**: "Single hash over the frame's whole schema surface." Used by SSR hydration compatibility checks and by tools that want to know "has the schema corpus changed?" without diffing schema-by-schema.
+- **Description**: "Single hash over the frame's whole schema surface." Returns the canonical wire form — `"sha256:"` followed by the first 16 lowercase hex chars; byte-deterministic across runtimes, and the empty schema set produces a stable digest. Used by SSR hydration compatibility checks and by tools that want to know "has the schema corpus changed?" without diffing schema-by-schema.
 - **Example**:
   ```clojure
   ;; one stable hash over the whole frame's schema surface
@@ -133,7 +134,7 @@ The introspection surfaces live in `re-frame.schemas` (artefact `day8/re-frame2-
 
 ## Validation entry points
 
-The four dev-time `validate-*!` functions are the locked validation sites the framework calls for you — pre-handler (event), pre-fx, post-commit (`app-db`), and post-recompute (subscription). They are public and manifested (tools and conformance tests call them directly), but ordinary app code does not: you register a `:schema` and the runtime invokes these. Every body lives inside an `interop/debug-enabled?` gate, so the whole surface is dead-code-eliminated in production builds (each fn then returns `true`).
+The four dev-time `validate-*!` functions are the locked validation sites the framework calls for you — pre-handler (event), pre-fx, post-commit (`app-db`), and post-recompute (subscription). They are public and manifested (tools and conformance tests call them directly), but ordinary app code does not: you register a `:schema` and the runtime invokes these. Every body lives inside an `interop/debug-enabled?` gate, so the whole surface is dead-code-eliminated in production builds (each fn then returns `true`). On every surface a structurally malformed registered schema — one that makes the registered validator throw — emits the distinct `:rf.error/malformed-schema` trace (structural locator slots only, no value-bearing slots) and returns `false` (fail closed), never a silent pass.
 
 ### `validate-app-schema!`
 
@@ -144,7 +145,7 @@ The four dev-time `validate-*!` functions are the locked validation sites the fr
   (validate-app-schema! db event-id)           ;; current frame, named handler
   (validate-app-schema! db event-id frame-id)  ;; explicit frame
   ```
-- **Description**: After a handler commits `:db`, walk every registered app-schema for the named frame and validate the post-commit `app-db`. Failures emit `:rf.error/schema-validation-failure` (one trace per failing entry) with the registered explainer's output attached, and the value-bearing slots redacted when the failing slot is `:sensitive?`. Only the named frame's schemas are walked. `event-id` (optional) names the handler whose commit prompted the failure — surfaced as `:failing-id`. Returns `true` when every registered schema conformed (also when no validator is registered, no schemas are registered for the frame, or the build elided validation) and `false` when at least one failed — the router consumes a `false` to roll the `:db` effect back to the pre-handler value. A hard no-op for every schema when `set-schema-validator!` has been called with `nil`.
+- **Description**: After a handler commits `:db`, walk every registered app-schema for the named frame and validate the post-commit `app-db`. Failures emit `:rf.error/schema-validation-failure` (one trace per failing entry) with the registered explainer's output attached, and the value-bearing slots redacted when the failing slot is `:sensitive?`. A malformed entry (the validator throws) emits `:rf.error/malformed-schema` for that entry, contributes `false`, and does not stop the frame's sibling schemas from validating. Only the named frame's schemas are walked. `event-id` (optional) names the handler whose commit prompted the failure — surfaced as `:failing-id`. Returns `true` when every registered schema conformed (also when no validator is registered, no schemas are registered for the frame, or the build elided validation) and `false` when at least one failed — the router consumes a `false` to roll the `:db` effect back to the pre-handler value. A hard no-op for every schema when `set-schema-validator!` has been called with `nil`.
 
 ### `validate-event!`
 
@@ -218,7 +219,7 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-validator! validate-fn)
   ```
-- **Description**: "Install the validator the framework uses at every dev-time schema-validation site." Swaps ONLY the validator; `nil` disables validation entirely. The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework. To install the validator/explainer/printer together, use `set-schema-fns!`.
+- **Description**: "Install the validator the framework uses at every dev-time schema-validation site." `validate-fn` is `(fn [schema value] truthy?)` — the `malli.core/validate` shape. Swaps ONLY the validator; `nil` disables validation entirely. Last-write-wins; returns the installed validator (may be `nil`). The default ships Malli's pair; this seam is for apps that want to swap to a different validator without forking the framework. To install the validator/explainer/printer together, use `set-schema-fns!`.
 - **Example**:
   ```clojure
   ;; install an app's own validator (same shape as malli.core/validate:
@@ -236,7 +237,7 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
   ```
-- **Description**: "Atomically install any subset of the validator / explainer / printer bundle from a single map." The honest bundle setter — named for what it sets, not just the validator. Each key is optional; an absent key leaves the existing registration in place, and a `nil` `:print` coerces to the default EDN canonicaliser. The one-call substitute-Malli boot pattern, so the three fns never drift mid-boot.
+- **Description**: "Atomically install any subset of the validator / explainer / printer bundle from a single map." The honest bundle setter — named for what it sets, not just the validator. Each key is optional; an absent key leaves the existing registration in place, and a `nil` `:print` coerces to the default EDN canonicaliser (`:validate` / `:explain` `nil` disable that fn). Last-write-wins per key; returns the installed bundle map `{:validate … :explain … :print …}` reflecting the live state of all three fns after the call. The one-call substitute-Malli boot pattern, so the three fns never drift mid-boot.
 - **Example**:
   ```clojure
   ;; install validator + explainer together (e.g. a clojure.spec or Zod port)
@@ -251,7 +252,7 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-explainer! explain-fn)
   ```
-- **Description**: "Install the explainer the framework uses to enrich `:rf.error/schema-validation-failure` traces' `:explain` key." Companion to `set-schema-validator!`.
+- **Description**: "Install the explainer the framework uses to enrich `:rf.error/schema-validation-failure` traces' `:explain` key." `explain-fn` is `(fn [schema value] explanation)` — the `malli.core/explain` shape; `nil` disables explanations (the failure trace omits `:explain`). Last-write-wins; returns the installed explainer (may be `nil`). Companion to `set-schema-validator!`.
 - **Example**:
   ```clojure
   ;; enrich :rf.error/schema-validation-failure traces with a custom explanation
@@ -265,7 +266,7 @@ The default validator ships Malli's `validate` / `explain` pair (plus an EDN can
   ```clojure
   (set-schema-printer! print-fn)
   ```
-- **Description**: "Install the schema-print companion the digest pipeline hashes." `(fn [schema-value] canonical-string)`. Must be pure and deterministic across runtimes. `nil` falls back to the default EDN canonicaliser, so the digest is never undefined. Parallel to the validator / explainer setters: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract.
+- **Description**: "Install the schema-print companion the digest pipeline hashes." `(fn [schema-value] canonical-string)`. Must be pure and deterministic across runtimes. `nil` falls back to the default EDN canonicaliser, so the digest is never undefined. Last-write-wins; returns the installed printer (the default when `nil` was passed). Parallel to the validator / explainer setters: non-Malli ports register their own serialiser so cross-runtime digest comparison reflects their port's contract.
 - **Example**:
   ```clojure
   ;; a non-Malli port registers its own canonical schema serialiser
@@ -310,7 +311,7 @@ The pure-data per-slot flag extractors and predicates. They walk a Malli **vecto
   ```clojure
   (extract-large-paths-from-schema schema base-path) → {path declaration}
   ```
-- **Description**: Walk a Malli schema EDN form at `base-path` and return a `{path declaration}` map for every `:large? true` slot found; each declaration carries `:source :schema`. The pure-data `:large?` extractor the owner-local size-elision consumers read directly (it does NOT feed the `app-db` egress registry — that is frame-owned).
+- **Description**: Walk a Malli schema EDN form at `base-path` and return a `{path declaration}` map for every `:large? true` slot found; each declaration carries `:source :schema`, plus `:hint` propagated verbatim when the slot props carry one. The pure-data `:large?` extractor the owner-local size-elision consumers read directly (it does NOT feed the `app-db` egress registry — that is frame-owned).
 - **Example**:
   ```clojure
   (schemas/extract-large-paths-from-schema

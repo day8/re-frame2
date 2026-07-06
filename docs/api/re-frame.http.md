@@ -14,13 +14,13 @@ The verb helpers live in `re-frame.http`; the `:rf.http/managed` fx is keyword-a
 
 - **Kind**: fx
 - **Args**: per [Managed HTTP — The request is a map](../async/http.md#the-request-is-a-map) and `:rf.fx/managed-args`
-- **Description**: The one fx-id. Args carry the request envelope, decode policy, accept fn, retry policy, timeout, success / failure target events, request-id (for abort), and optional abort-signal.
+- **Description**: The one fx-id. Args carry the request envelope (`:request` — `:url` required; a missing / nil / blank final URL raises `:rf.error/http-bad-request` at dispatch, after the `:before` chain runs), decode policy (`:decode`), accept fn (`:accept`), retry policy (`:retry {:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}` — `:on` must be a set drawn from the retryable subset `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`, else `:rf.error/http-bad-retry-on` at dispatch), per-attempt timeout (`:timeout-ms`, default 30000; explicit `nil` or `0` opts out), success / failure target events (`:on-success` / `:on-failure` — event vector or nil; any other value raises `:rf.error/http-bad-reply-target`), `:request-id` (for abort / supersede), optional `:abort-signal` (CLJS), and `:sensitive?` (see [Privacy and classification](#privacy-and-classification)).
 
 ### `[:rf.http/managed-abort request-id]`
 
 - **Kind**: fx
 - **Args**: request-id
-- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply fires with `{:rf/reply {:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}}`.
+- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply is the canonical `{:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}` envelope, delivered per [Reply addressing](#reply-addressing) — bare to an explicit `:on-failure`, under `:rf/reply` for co-located addressing.
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -56,17 +56,17 @@ Every reply is the one **canonical reply envelope** — a plain map keyed on a c
 ;; Success
 {:status :ok :value decoded-body …}
 
-;; Failure
+;; Failure — per-kind tags (:status / :status-text / :message / ...) ride
+;; flat on the failure map alongside :kind
 {:status :error
- :error  {:kind :rf.http/<category>
-          :tags {...}}}
+ :error  {:kind :rf.http/<category> ...}}
 
 ;; Abort / cancel
 {:status :cancelled :cancel/reason :user
  :error  {:kind :rf.http/aborted …}}
 ```
 
-Where that payload lands depends on how you addressed the reply. **`:on-success` / `:on-failure`** are pure routing sugar — both receive the **identical envelope** appended as the last event-vector arg; your `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure). **Default (co-located) addressing** — omit both targets — instead merges the same envelope under `:rf/reply` into the originating message and re-dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler, which reads it at `:rf/reply` and branches on `(:status reply)`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare envelope. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
+Where that payload lands depends on how you addressed the reply. **`:on-success` / `:on-failure`** are pure routing sugar — both receive the **identical envelope** appended as the last event-vector arg; your `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure). **Default (co-located) addressing** — omit both targets — instead merges the same envelope under `:rf/reply` into the originating message and re-dispatches `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler, which reads it at `:rf/reply` and branches on `(:status reply)`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare envelope. An explicit `:on-success nil` / `:on-failure nil` **silences** that side — no reply dispatch. Any other non-vector value for either key raises `:rf.error/http-bad-reply-target`. Both shapes detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
 
 ## Failure categories (closed set)
 
@@ -97,7 +97,7 @@ Call-site helpers for the common shapes. They're pure synthesis fns that produce
   (rf.http/get url)
   (rf.http/get url args)
   ```
-- **Description**: "Synthesise a GET fx vector." Pure; no side effect — drop the result into `:fx`.
+- **Description**: "Synthesise a GET fx vector." Pure; no side effect — drop the result into `:fx`. `args` merges top-level into the canonical args map (caller wins) except `:request`, which merges with `{:method :get :url url}` — the helper's `:method` and `:url` overwrite caller-supplied ones. Same merge contract for all seven helpers.
 
 ### `post`
 
@@ -202,12 +202,12 @@ The verb helpers live in `re-frame.http` — users `(:require [re-frame.http :as
          :on-failure [:cart/load-failed]
          :retry      {:on #{:rf.http/transport :rf.http/timeout}
                       :max-attempts 3
-                      :backoff-ms 100}})]}
+                      :backoff {:base-ms 100}}})]}
 ```
 
 ## Request-interceptor middleware
 
-Sometimes you want to inject behaviour into every request — adding an auth header, stamping a request ID, logging. Re-frame2's answer is a small middleware surface that mirrors the rest of the `reg-*` family. Both surfaces are re-exported on the `re-frame.core` façade.
+Sometimes you want to inject behaviour into every request — adding an auth header, stamping a request ID, logging. Re-frame2's answer is a small middleware surface that mirrors the rest of the `reg-*` family. The fn forms (`reg-http-interceptor`, `clear-http-interceptor`) are re-exported on the `re-frame.core` façade — a façade call with `day8/re-frame2-http` absent raises `:rf.error/http-artefact-missing`; the data-shaped `:rf.fx/*` siblings below are keyword-addressed.
 
 ### `reg-http-interceptor`
 
@@ -216,7 +216,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   ```clojure
   (reg-http-interceptor id interceptor-map)
   ```
-- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the explicit-frame *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
+- **Description**: Register an HTTP interceptor on a frame's `:rf.http/managed` middleware chain. `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` (request-side) and `:after (fn [ctx response] response')` (response-side), plus optional `:frame` (the explicit-frame *override*) and the standard `:rf/registration-metadata`. The target frame is the explicit `:frame`, else the carried scope it registers under (`with-frame` / an `:initial-events` step); registering under **no** scope raises `:rf.error/no-frame-context` — there is no `:rf/default` default. An invalid shape (non-keyword id, neither `:before` nor `:after`, a non-fn slot, a non-keyword `:frame`) raises `:rf.error/http-bad-interceptor`. Re-registering an existing id replaces the slot in place (position preserved); after a `clear-http-interceptor`, re-registering the same id appends to the end of the chain. Returns `id`. The `:before` chain runs in registration order; the `:after` chain runs in REVERSE registration order; `:after` sees the SAME ctx the `:before` chain produced (request-correlated handling).
 
 ### `clear-http-interceptor`
 
@@ -232,6 +232,28 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
   (rf/clear-http-interceptor :auth-header)
   ```
 
+### `[:rf.fx/reg-http-interceptor args-map]`
+
+- **Kind**: fx
+- **Args**: `{:id <kw> :before <fn>? :after <fn>? :frame <id>? ...}` — `:id` plus the same interceptor-map slots as the fn form, including `:rf/registration-metadata`
+- **Description**: Data-shaped sibling of `reg-http-interceptor` for callers that drive registration through the dispatch surface (EDN conformance fixtures, boot event handlers). The fx body splits `:id` off and passes the remaining map to the fn form; when the args omit `:frame`, the fx-context frame (the cascade envelope stamp) is threaded in. Registered at load of `re-frame.http.managed`; dev+prod.
+- **Example**:
+  ```clojure
+  {:fx [[:rf.fx/reg-http-interceptor
+         {:id     :auth/inject
+          :before (fn [ctx] (assoc-in ctx [:request :headers "Authorization"] token))}]]}
+  ```
+
+### `[:rf.fx/clear-http-interceptor args-map]`
+
+- **Kind**: fx
+- **Args**: `{:id <kw> :frame <id>?}`
+- **Description**: Data-shaped sibling of `clear-http-interceptor`. The args `:frame` wins, else the fx-context frame. Registered at load of `re-frame.http.managed`; dev+prod.
+- **Example**:
+  ```clojure
+  {:fx [[:rf.fx/clear-http-interceptor {:id :auth/inject}]]}
+  ```
+
 ```clojure
 (rf/reg-http-interceptor :auth/inject
   {:before (fn [{:keys [request] :as ctx}]
@@ -245,7 +267,7 @@ Sometimes you want to inject behaviour into every request — adding an auth hea
              (assoc resp :elapsed-ms (- (js/Date.now) (::started ctx))))})
 ```
 
-The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, `:cause`, and `:phase`. See [Managed HTTP — Interceptors](../async/http-going-further.md#interceptors-stamp-every-request-once).
+The `:before` runs before the request is dispatched to the platform's HTTP client; the `:after` runs after the response is built and BEFORE `:on-success` / `:on-failure` fire. If either throws, the corresponding side is not delivered (request: not dispatched; response: reply suppressed) and `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url`, and `:cause` (`:phase :after` is stamped on the response side; absent for `:before`). See [Managed HTTP — Interceptors](../async/http-going-further.md#interceptors-stamp-every-request-once).
 
 ## Testing: stubbed responses
 
@@ -254,7 +276,7 @@ Tests want to drive the pipeline without hitting the network. The test-support s
 ### `[:rf.http/managed-canned-success {:value v}]`
 
 - **Kind**: fx
-- **Description**: Synthesise the canonical success reply directly into `:fx`. Useful for "stub THIS request inline" patterns. Registered at load of `re-frame.http.test-support`.
+- **Description**: Synthesise the canonical success reply (`{:status :ok :value v}`) directly into `:fx`. Useful for "stub THIS request inline" patterns. `:value` defaults to `{:stubbed true}` when absent. Optional `:after-ms` — a positive value defers the reply via a `:dispatch-later` tick; absent / `0` / non-positive delivers immediately. Runs the frame's `:before` and `:after` interceptor chains around the synthesised reply, exactly like the real transport path; reply addressing (`:on-success` / default co-located) applies as for `:rf.http/managed`. Registered at load of `re-frame.http.test-support`.
 - **Example**:
   ```clojure
   (rf/reg-event :counter/retry-recover
@@ -268,7 +290,7 @@ Tests want to drive the pipeline without hitting the network. The test-support s
 ### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
 
 - **Kind**: fx
-- **Description**: Synthesise the canonical failure reply directly into `:fx`.
+- **Description**: Synthesise the canonical failure reply directly into `:fx`. `:kind` defaults to `:rf.http/transport`; `:tags` merge into the `:error` map. An `:rf.http/aborted` kind yields `:status :cancelled`; every other kind `:status :error`. Supports the same optional `:after-ms` deferral, interceptor-chain behaviour, and reply addressing (`:on-failure` / default co-located) as `:rf.http/managed-canned-success`. Registered at load of `re-frame.http.test-support`.
 - **Example**:
   ```clojure
   (rf/reg-event :flaky/load
@@ -286,7 +308,7 @@ Tests want to drive the pipeline without hitting the network. The test-support s
   ```clojure
   (with-managed-request-stubs route-map body+)
   ```
-- **Description**: Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` (success) or `{[<method> <url>] {:reply {:failure <failure-map>}}}` (failure). Inside the body, requests matching a stubbed route bypass the real client — the helper installs the `:rf.http/managed → :rf.http/managed-test-stub` override for the body, so plain `dispatch-sync` calls auto-route by method + URL with NO manual `:fx-overrides`.
+- **Description**: Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` (success) or `{[<method> <url>] {:reply {:failure <failure-map>}}}` (failure). Inside the body, requests matching a stubbed route bypass the real client — the helper registers a per-scope stub fx (a process-unique `:rf.http/managed-test-stub-<n>` id, so nested scopes compose) and installs the matching `:rf.http/managed` override for the body's dynamic extent, so plain `dispatch-sync` calls auto-route by method + URL with NO manual `:fx-overrides`; a per-call `:fx-overrides` still wins. Routes are matched against the post-`:before` request (the method + URL the pipeline would actually issue); a request with no matching route receives a synthesised `:rf.http/transport` failure reply. The façade macro requires `re-frame.http.test-support` in the require closure — without it the call raises `:rf.error/http-artefact-missing`.
 
 ### `with-managed-request-stubs*`
 
@@ -313,7 +335,7 @@ Tests want to drive the pipeline without hitting the network. The test-support s
   ```clojure
   (install-managed-request-stubs! route-map)
   ```
-- **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
+- **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx (the stable, documented `:fx-overrides` target) that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it. Nested installs snapshot the prior handler and restore it on uninstall (LIFO). Returns the stub fx-id. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
 - **Example**:
   ```clojure
   ;; Stubs that span several deftests — install once, route via :fx-overrides.
@@ -331,7 +353,7 @@ Tests want to drive the pipeline without hitting the network. The test-support s
   ```clojure
   (uninstall-managed-request-stubs!)
   ```
-- **Description**: Drop installed stubs; restore real-request routing. Idempotent. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
+- **Description**: Tear down the most recent install: restores the previously installed stub handler when installs were nested (LIFO), else clears the stub fx and restores real-request routing. Idempotent — a teardown without a matching install is a safe no-op. **Not a `re-frame.core` façade export** — call it through its home namespace `re-frame.http.test-support`.
 - **Example**:
   ```clojure
   (re-frame.http.test-support/uninstall-managed-request-stubs!)
@@ -359,7 +381,7 @@ HTTP is the canonical privacy surface in any app: passwords ride request bodies,
 |---|---|---|
 | **Built-in header denylist** | A closed, **immutable** set of always-sensitive header names (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, …). Redacted in every `:rf.http/*` trace's `:headers` slot regardless of any `:sensitive?` flag; case-insensitive. No frame can remove a name. | framework default |
 | **Built-in query-param denylist** | A closed, **immutable** set of always-sensitive query-param names (`api_key`, `access_token`, `token`, `secret`, `password`, `session`, `signature`, …). The **value** is redacted inline in `:url` slots (`?api_key=:rf/redacted&page=2`); name + position preserved. A hit also stamps `:sensitive? true` on the event — the name is the signal. | framework default |
-| **Managed-HTTP carriers** | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** (the transient-payload case); they **union** onto the built-in defaults. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
+| **Managed-HTTP carriers** | App-specific sensitive header / query-param names, declared on the **`:rf.http/managed` `reg-fx` registration** (the transient-payload case). `:headers` is a vector of names (vector-only — header names always **union** onto the built-ins). `:query-params` is a vector of names (union) OR an `{:include […] :except […]}` policy map — effective policy `(defaults − except) ∪ include`; `:except` subtracts a built-in query-param default for this app's own dev trace. Names are case-insensitive; a malformed block fails loud. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
 | **Per-request / per-call `:sensitive?`** | The coarse opt-in that redacts a single request's body / params / all URL param values wholesale. | the `:rf.http/managed` args map (`:sensitive?` at top level, or under `:request`) |
 
 ```clojure
@@ -376,6 +398,15 @@ HTTP is the canonical privacy surface in any app: passwords ride request bodies,
            {:request    {:method :post :url "/auth/login" :body creds}
             :sensitive? true}]]}))
 ```
+
+### `re-frame.http.managed/managed-handler`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (managed-handler frame-ctx args-map)
+  ```
+- **Description**: The `:rf.http/managed` fx handler body, re-exported so an app can RE-REGISTER `:rf.http/managed` to declare its `:carriers` block (as in the example above) without knowing the internal handler fn. Not called directly from app code — pass it to `reg-fx`.
 
 ### Response-body classification — on the `:decode` schema
 
@@ -405,10 +436,10 @@ The denylists and `:sensitive?` flag cover request carriers; the **response body
 
 | `:operation` | `:op-type` | When |
 |---|---|---|
-| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`. Carries `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms`. |
+| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`. Carries `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` (`nil` on the final exhaustion row). |
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:frame`, `:id`. |
-| `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot. |
-| `:rf.error/http-interceptor-failed` | `:error` | A request-interceptor `:before` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause`. The request is NOT dispatched. |
+| `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot. Carries `:frame`, `:id`. |
+| `:rf.error/http-interceptor-failed` | `:error` | An interceptor `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause` (plus `:phase :after` on the response side). Request side: the request is NOT dispatched; response side: the reply is suppressed. |
 
 ## See also
 
