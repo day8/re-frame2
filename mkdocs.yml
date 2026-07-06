@@ -214,24 +214,25 @@ nav:
       - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
       - "clj-new → deps-new template": migration/from-clj-new-template/README.md
     - "Glossary": core/glossary.md
-    - "API":
-      - api/README.md
-      - "re-frame.core": api/re-frame.core.md
-      - "re-frame.schemas": api/re-frame.schemas.md
-      - "re-frame.flows": api/re-frame.flows.md
-      - "re-frame.http": api/re-frame.http.md
-      - "re-frame.machines": api/re-frame.machines.md
-      - "re-frame.routing": api/re-frame.routing.md
-      - "re-frame.resources": api/re-frame.resources.md
-      - "re-frame.ssr": api/re-frame.ssr.md
-      - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
-      - "re-frame.epoch": api/re-frame.epoch.md
-      - "re-frame.performance": api/re-frame.performance.md
-      - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
-      - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
-      - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
-      - "re-frame.test-support": api/re-frame.test-support.md
-      - "re-frame.test-helpers": api/re-frame.test-helpers.md
+
+  - API:
+    - api/README.md
+    - "re-frame.core": api/re-frame.core.md
+    - "re-frame.schemas": api/re-frame.schemas.md
+    - "re-frame.flows": api/re-frame.flows.md
+    - "re-frame.http": api/re-frame.http.md
+    - "re-frame.machines": api/re-frame.machines.md
+    - "re-frame.routing": api/re-frame.routing.md
+    - "re-frame.resources": api/re-frame.resources.md
+    - "re-frame.ssr": api/re-frame.ssr.md
+    - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
+    - "re-frame.epoch": api/re-frame.epoch.md
+    - "re-frame.performance": api/re-frame.performance.md
+    - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
+    - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
+    - "re-frame.adapter.helix": api/re-frame.adapter.helix.md
+    - "re-frame.test-support": api/re-frame.test-support.md
+    - "re-frame.test-helpers": api/re-frame.test-helpers.md
 
   - Machines:
     - machines/index.md
