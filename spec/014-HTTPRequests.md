@@ -143,7 +143,7 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:request-id` | none | Stable `=`-comparable id for abort + correlation. Keywords / strings / vectors / uuids all work. See [§`:request-id` (internal)](#request-id-internal). | Superseded by a later request with the same id → in-flight request aborts with `:rf.http/aborted :reason :request-id-superseded` on the trace stream. |
 | `:abort-signal` | none | External `AbortController.signal` handle. **May be supplied together with `:request-id`** — both attach a cancellation source to the one managed request, and the once-only finalisation CAS guarantees exactly one terminal outcome (per [§`:abort-signal` (external)](#abort-signal-external)). CLJS-only; on the JVM the external signal is ignored, so only the `:request-id` path is portable there. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
-| `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :cause :too-many-keys` on overflow. |
+| `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
 
 Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-managed-request-stubs` family) live in the sibling `re-frame.http.test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
 
@@ -285,11 +285,11 @@ For handlers that issue multiple `:rf.http/managed` requests with different sche
 
 JSON object keys are decoded as Clojure keywords. On the JVM, keywords are interned and never garbage-collected — a compromised upstream returning N unique-key JSON per response would permanently burn N keyword slots per response. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) are the worst case.
 
-The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow throws `:rf.http/decode-failure` with `:cause :too-many-keys` and the configured `:limit`.
+The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow causes the decoder to throw `:rf.error/malformed-json`, which the transport classifies as `:rf.http/decode-failure` with `:reason :too-many-keys` and the configured `:limit`.
 
 | Args-map key | Default | Notes |
 |---|---|---|
-| `:rf.http/max-decoded-keys` | 10000 | Per-request cap on unique JSON object keys. Throws `:rf.http/decode-failure :cause :too-many-keys` on overflow. |
+| `:rf.http/max-decoded-keys` | 10000 | Per-request cap on unique JSON object keys. Throws `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
 
 The cap applies to both the Cheshire path and the pure-Clojure fallback reader. 10000 is generous — legitimate APIs typically expose tens to low-hundreds of distinct key names per response. Apps that knowingly consume larger-cardinality payloads can raise the cap per request:
 
