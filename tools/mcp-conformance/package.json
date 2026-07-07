@@ -22,6 +22,7 @@
     "test:call-coverage-ratchet": "node --test test/call-coverage-ratchet.test.cjs",
     "test:classification-ratchet": "node --test test/classification-ratchet.test.cjs",
     "test:hermetic-setup-timeout": "node --test test/hermetic-setup-timeout.test.cjs",
+    "test:inner-test-close-grading": "node --test test/inner-test-close-grading.test.cjs",
     "test:port-file-escape": "node --test test/port-file-escape.test.cjs",
     "test:unit": "node scripts/test-unit.cjs",
     "test": "node scripts/test-all.cjs"

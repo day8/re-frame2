@@ -352,6 +352,67 @@ function waitForChildExit(child, hasExited) {
   });
 }
 
+// Spawn one INNER_TESTS child and resolve once its stdio is fully drained
+// AND it has terminated. Lives at module scope, taking `spawnFn` as a
+// dependency, so the regression harness (`inner-test-close-grading.test.cjs`)
+// can drive the REAL grading logic against a fake child that reproduces the
+// write-then-exit race without spawning a real process.
+//
+// Grades on 'close', NOT 'exit' (rf2-6girz0). Node fires 'exit' as soon as
+// the child process itself terminates, which can race the stdio pipes
+// still draining into the `stdout`/`stderr` 'data' handlers below —
+// 'close' is the event Node guarantees fires only once stdout/stderr are
+// fully read. Every INNER_TESTS entry hits the worst case: its success
+// path is `console.log(sentinel)` immediately followed by
+// `process.exit(exitCode)` (write-then-exit, see `_runner.cjs`'s
+// `runWithWatchdog`), so a conformant, fully-passing child can have its
+// final sentinel-bearing stdout chunk arrive AFTER 'exit' fires — grading
+// on 'exit' would resolve with a truncated `stdoutText` and the caller's
+// sentinel check would then fail a gate that actually passed. 'close'
+// carries the same `(code, signal)` payload as 'exit', so this is a
+// like-for-like swap with no loss of signal-death detection.
+//
+// Resolves `{ code, stdoutText }` on a code-terminated exit (code
+// non-null); rejects on spawn error or signal-termination (code === null),
+// matching the pre-fix contract — only the event grading changed.
+function spawnAndGradeInnerTest({
+  spawnFn,
+  execPath,
+  testPath,
+  cwd,
+  env,
+  testFile,
+  onChunk,
+  log: logFn,
+}) {
+  return new Promise((resolve, reject) => {
+    let stdoutText = '';
+    const child = spawnFn(execPath, [testPath], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+    });
+    child.stdout.on('data', (d) => {
+      stdoutText += String(d);
+      onChunk(`[${testFile}:stdout] `, d);
+    });
+    child.stderr.on('data', (d) => onChunk(`[${testFile}:stderr] `, d, 'stderr'));
+    child.on('error', reject);
+    child.on('close', (code, signal) => {
+      // signal-terminated children report null exit codes; treat the
+      // signal as a non-zero status so the conformance gate fails loud
+      // rather than silently passing.
+      if (code === null) {
+        logFn(`${testFile} killed by ${signal}`);
+        reject(new Error(`${testFile} killed by ${signal}`));
+        return;
+      }
+      logFn(`${testFile} exited ${code}`);
+      resolve({ code, stdoutText });
+    });
+  });
+}
+
 // Build the idempotent async teardown. Lives at
 // module scope so the teardown regression harness
 // (`runner-cleanup.test.cjs`) can drive the REAL teardown logic against a
@@ -1159,34 +1220,17 @@ async function main() {
       log(`running ${testFile} - ${test.name}`);
       // Capture the inner test's stdout so we can assert it actually RAN
       // (printed its GREEN sentinel) — not merely exited 0 (a SKIP also
-      // exits 0).
-      let stdoutText = '';
-      const testStatus = await new Promise((resolve, reject) => {
-        const child = crossSpawn(process.execPath, [test.path], {
-          cwd: MCP_CONFORMANCE_ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: testEnv,
-        });
-        child.stdout.on('data', (d) => {
-          stdoutText += String(d);
-          recordChunk(`[${testFile}:stdout] `, d);
-        });
-        child.stderr.on('data', (d) => recordChunk(`[${testFile}:stderr] `, d, 'stderr'));
-        child.on('error', reject);
-        child.on('exit', (code, signal) => {
-          // signal-terminated children report null exit codes; treat
-          // the signal as a non-zero status so the conformance gate
-          // fails loud rather than silently passing.
-          if (code === null) {
-            log(`${testFile} killed by ${signal}`);
-            reject(new Error(
-              `${path.basename(test.path)} killed by ${signal}`,
-            ));
-            return;
-          }
-          log(`${testFile} exited ${code}`);
-          resolve(code);
-        });
+      // exits 0). Grading happens on 'close' — see
+      // `spawnAndGradeInnerTest` (rf2-6girz0).
+      const { code: testStatus, stdoutText } = await spawnAndGradeInnerTest({
+        spawnFn: crossSpawn,
+        execPath: process.execPath,
+        testPath: test.path,
+        cwd: MCP_CONFORMANCE_ROOT,
+        env: testEnv,
+        testFile,
+        onChunk: recordChunk,
+        log,
       });
       if (testStatus !== 0) {
         // Surface the inner test's exit code verbatim so CI sees a
@@ -1334,6 +1378,13 @@ if (require.main === module) {
 // slow-exiting fake child, proving the awaited browser-close + the
 // SIGTERM→exit→SIGKILL escalation are WAITED for (or hard-capped), never
 // fire-and-forgotten.
+//
+// `spawnAndGradeInnerTest` is exported for the close-vs-exit grading
+// regression harness (`inner-test-close-grading.test.cjs`, rf2-6girz0): it
+// drives the REAL grading logic against a fake `spawnFn` whose child emits
+// its sentinel-bearing stdout `data` AFTER `exit` but BEFORE `close`,
+// proving the harness reads the fully-drained stdout (via `close`) rather
+// than scoring a conformant, late-flushing child as failed.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1342,4 +1393,5 @@ module.exports = {
   makeCleanup,
   settledWithin,
   waitForChildExit,
+  spawnAndGradeInnerTest,
 };

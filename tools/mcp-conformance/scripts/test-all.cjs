@@ -58,6 +58,10 @@ const TESTS = [
     argv: ['--test', 'test/hermetic-setup-timeout.test.cjs'],
   },
   {
+    name: 'hermetic INNER_TESTS grading on close, not exit (rf2-6girz0)',
+    argv: ['--test', 'test/inner-test-close-grading.test.cjs'],
+  },
+  {
     name: 'hermetic port-file escape refusal (rf2-khav7l)',
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
