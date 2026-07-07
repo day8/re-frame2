@@ -450,11 +450,17 @@
   "Resolve `requested` (a build-id keyword) against the `running` vector of
   build-id keywords by exact-or-unique-suffix match. Returns
   the canonical running keyword on a hit, else `requested` unchanged (so a
-  no/ambiguous match falls through to the diagnostic ladder). Pure."
+  no/ambiguous match falls through to the diagnostic ladder). Pure.
+
+  The suffix rule (step 2 above) applies ONLY when `requested` is itself
+  bare (no namespace) — a namespaced request that isn't an exact match
+  falls straight through to `requested` unchanged, never redirected to a
+  same-bare-named build in a different namespace."
   [requested running]
   (cond
     (nil? requested) requested
     (some #(= requested %) running) requested
+    (some? (namespace requested)) requested
     :else
     (let [tail     (name requested)
           suffixed (filterv #(= tail (name %)) running)]
