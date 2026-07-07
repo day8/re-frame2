@@ -186,10 +186,16 @@
   (`retired-frame-keys` — `:sensitive` / `:large`):
   `:rf.error/bad-frame-classification`, thrown before frame registration
   mutates state, naming the offending key. No-op when `config` carries no
-  retired key (the common case)."
+  retired key (the common case).
+
+  Finds the offending key via `some` (rather than `doseq` over an
+  unconditional-`throw` body) so the throw sits outside any loop — a
+  `doseq`/`for` body that unconditionally throws expands with a `recur`
+  following the `throw` in its chunked- and unchunked-seq branches, which
+  the CLJS analyzer correctly flags as unreachable code (the `recur` can
+  never run once the `throw` fires)."
   [frame-id config]
-  (doseq [k retired-frame-keys
-          :when (contains? config k)]
+  (when-let [k (some #(when (contains? config %) %) retired-frame-keys)]
     (throw (classification-error
              frame-id
              (retired-frame-key-reason k)
