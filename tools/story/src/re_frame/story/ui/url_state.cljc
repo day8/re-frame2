@@ -484,6 +484,22 @@
        viewport / backgrounds nss directly). Tests can pass a no-op /
        capturing apply-fn.
 
+       `post-apply-fn` (optional, 3-arity) is a 0-arg side-effecting fn
+       run AFTER the `apply-fn` swap, inside the SAME hydration-guard
+       window (rf2-cmjly3 finding 8). `apply-parsed-to-state` is pure —
+       it installs the RAW parsed `:cell-overrides` and has no registrar
+       access, so it cannot run the declared-key stale-override
+       drop-and-report filter `re-frame.story.ui.share/hydrate-from-url!`
+       applies at mount (rf2-9jthx / rf2-76l69l). Without a
+       `post-apply-fn`, a Back/Forward pop to a URL whose override arg-key
+       was since renamed/removed installed it as a live orphan override
+       with no drop/report, unlike the mount path. Production wires this
+       to `share/hydrate-from-url!` so both hydration paths run the
+       identical filter; running it inside the guard (rather than as a
+       bare after-the-fact call) keeps it consistent with every other
+       hydration step in this ns — none of them provoke a reactive
+       pushState back onto history.
+
        rf2-fkmnh: the handler parses via `parse-current-url-or-empty`, so
        a back/forward to a URL with NO query params applies the all-nil
        parsed shape rather than no-op'ing. Because `apply-parsed-to-state`
@@ -494,19 +510,21 @@
 
        Idempotent: re-installing replaces the previous handler. Returns
        the wired handler so tests can introspect."
-       [shell-state-atom apply-fn]
-       (when-let [w (safe-window)]
-         (when-let [prev @popstate-handler-atom]
-           (try (.removeEventListener w "popstate" prev)
-                (catch :default _ nil)))
-         (let [h (fn [_]
-                   (when-let [parsed (parse-current-url-or-empty)]
-                     (with-hydration-guard
-                       (fn []
-                         (swap! shell-state-atom apply-fn parsed)))))]
-           (.addEventListener w "popstate" h)
-           (reset! popstate-handler-atom h)
-           h)))
+       ([shell-state-atom apply-fn] (install-popstate-listener! shell-state-atom apply-fn nil))
+       ([shell-state-atom apply-fn post-apply-fn]
+        (when-let [w (safe-window)]
+          (when-let [prev @popstate-handler-atom]
+            (try (.removeEventListener w "popstate" prev)
+                 (catch :default _ nil)))
+          (let [h (fn [_]
+                    (when-let [parsed (parse-current-url-or-empty)]
+                      (with-hydration-guard
+                        (fn []
+                          (swap! shell-state-atom apply-fn parsed)
+                          (when post-apply-fn (post-apply-fn))))))]
+            (.addEventListener w "popstate" h)
+            (reset! popstate-handler-atom h)
+            h))))
 
      (defn remove-popstate-listener! []
        (when-let [w (safe-window)]

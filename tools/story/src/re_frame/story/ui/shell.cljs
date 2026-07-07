@@ -577,7 +577,12 @@
 
   The selection-watcher's preallocate-frame branch fires on pass 1's swap
   (it sets `:selected-variant`), so deep-linked variants still preallocate
-  without pass 2 re-selecting."
+  without pass 2 re-selecting.
+
+  The popstate handler (below, `install-popstate-listener!`) runs the SAME
+  two passes for Back/Forward navigation — pass 1 as its `apply-fn`, pass 2
+  as its `post-apply-fn` — so a stale override survives no better via
+  history navigation than it would via a fresh mount (rf2-cmjly3 finding 8)."
   []
   (url-state/hydrate-from-url! state/shell-state-atom (url-state-apply-fn))
   (share/hydrate-from-url!))
@@ -955,9 +960,17 @@
            ;; rf2-ymnfx, so the live address bar is the only sharing
            ;; surface) and restored on popstate via apply-parsed-to-state
            ;; (rf2-j0hwf — closes the override round-trip on back/forward).
+           ;; rf2-cmjly3 finding 8: `apply-parsed-to-state` alone installs
+           ;; the RAW parsed overrides — it's pure/registrar-free, so it
+           ;; can't run the declared-key stale-override drop-and-report
+           ;; filter `share/hydrate-from-url!` runs on mount. Passing it as
+           ;; `post-apply-fn` re-runs that SAME filter after every popstate
+           ;; (inside the same hydration guard) so Back/Forward gets the
+           ;; identical drop/report treatment as mount hydration.
            (url-state/install-popstate-listener!
              state/shell-state-atom
-             (url-state-apply-fn))
+             (url-state-apply-fn)
+             share/hydrate-from-url!)
            (url-state/install-state-watcher! state/shell-state-atom)
            ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
            ;; listener once at shell mount. The listener short-circuits

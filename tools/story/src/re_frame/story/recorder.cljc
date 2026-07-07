@@ -945,6 +945,22 @@
   `:rf.assert/*` event still gets dropped, not redacted-and-recorded,
   because assertions are an authored not observed surface).
 
+  rf2-cmjly3 finding 13: that last guarantee held only in WORDS — the
+  redact branch called `record-event!` with the FIXED `redacted-event`
+  placeholder (`[:rf/redacted]`), so `append`'s internal
+  `recordable-event?` check ran against `[:rf/redacted]` (always
+  recordable — its ns `\"rf\"` matches none of `recordable-event?`'s
+  internal-namespace exclusions), never against the ORIGINAL id. A
+  sensitive `:rf.assert/*` / `:rf.story/*` event therefore recorded a
+  `[:rf/redacted]` row instead of being dropped, contradicting this very
+  docstring. `recordable-event?` is now tested on the ORIGINAL
+  `(:rf.event/v tags)` BEFORE the redact/pass fork, so a
+  sensitive-and-non-recordable event is dropped — same as the always-been-
+  correct non-sensitive path — on both the redact and pass branches alike,
+  and the suppressed-events counter (which the UI reads as 'count of
+  redacted rows actually recorded') no longer over-counts a row that was
+  never appended.
+
   This mirrors the always-on error path's enforcement — sensitive events
   are not warning-only at this consumer."
   [ev]
@@ -953,7 +969,8 @@
       (when (and (= op-type :rf.event)
                  (= operation :rf.event/dispatched)
                  (= (:frame tags) (recording-variant))
-                 (vector? (:rf.event/v tags)))
+                 (vector? (:rf.event/v tags))
+                 (recordable-event? (:rf.event/v tags)))
         (if (config/suppress-sensitive? ev (:frame tags))
           (do
             ;; Record-but-redact: append the redacted

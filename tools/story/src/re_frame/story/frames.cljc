@@ -631,40 +631,58 @@
       (seq lrg)  (assoc :large (vec lrg)))))
 
 (defn- apply-variant-classification!
-  "Apply a variant's durable app-db `:sensitive` / `:large` classification as
-  EP-0025 commit-plane classification effects into `variant-id`'s elision
-  registry (`:source :effect`), the SAME registry write a `reg-event` returning
-  those effects performs. Runs right after `make-frame` and BEFORE the
-  lifecycle / init events, so a classified path is already redacted in any
-  trace the variant's setup emits. No-op when the variant declares no app-db
-  classification.
+  "Apply a variant/plan's durable app-db `:sensitive` / `:large`
+  classification as EP-0025 commit-plane classification effects into
+  `subject-id`'s elision registry (`:source :effect`), the SAME registry
+  write a `reg-event` returning those effects performs. Runs right after
+  the frame exists (`make-frame` for `allocate!`, `rf/reg-frame` for
+  `allocate-inline!`) and BEFORE the lifecycle / init events, so a
+  classified path is already redacted in any trace the run's setup emits.
+  No-op when `v-body` declares no app-db classification. Shared by both
+  `allocate!` (a registered variant's own body) and `allocate-inline!`
+  (rf2-cmjly3 finding 12 — an inline plan's `[:world :sensitive]` /
+  `[:world :large]`, threaded through by the caller since an inline run
+  has no registered variant body for this fn to read).
 
-  EP-0025 fail-loud: the lowered effects are validated through the SAME pure
-  validator the router's FINAL-effects commit-plane boundary uses
+  EP-0025 fail-loud: the lowered effects are validated through the SAME
+  pure validator the router's FINAL-effects commit-plane boundary uses
   (`elision/classification-effect-defect`) BEFORE `apply-classification-effects`
   touches the registry. A malformed declaration (a non-vector `:app-db`, or a
   path that is not a valid concrete `:rf/path`) raises
   `:rf.error/classification-effect-shape` pre-commit — no partial registry
-  write — rather than crashing later inside `apply-classification-effects` /
-  `allocate!`. This mirrors the router's pre-commit abort
+  write — rather than crashing later inside `apply-classification-effects`.
+  This mirrors the router's pre-commit abort
   (`router/emit-classification-effect-shape!`) so the variant-declaration and
-  effect-return paths reject malformed classification identically."
-  [variant-id v-body]
+  effect-return paths reject malformed classification identically.
+
+  Called AFTER the frame is registered (both callers), not before: for
+  `allocate-inline!` this means a malformed declaration can leave an
+  orphan anonymous frame behind (`run-inline-plan`'s failure-path teardown
+  only fires once `allocate-inline!` has RETURNED normally). That was
+  deliberately chosen over validating pre-registration — doing so left the
+  throw with NO live frame for `record-error!`'s `::append-assertion`
+  dispatch to land in, so the malformed-classification failure was
+  silently swallowed as a vacuous `:status :pass` with zero assertions —
+  strictly worse than an orphaned dev-tool frame. It is also no NEW risk
+  class: every other throw site between `rf/reg-frame` and the
+  `allocated?` flip (`loaders/mount!` / `apply-frame-setup!`'s `:init`
+  events) already shares it."
+  [subject-id v-body]
   (let [effects (->classification-effects v-body)]
     (when (seq effects)
       (when-let [defect (elision/classification-effect-defect effects)]
         (rf-error/throw-error!
           :rf.error/classification-effect-shape
           'rf.story/apply-variant-classification!
-          (str "re-frame2-story: variant " variant-id
+          (str "re-frame2-story: " subject-id
                " declares a malformed `:sensitive` / `:large` classification — "
                (:reason defect)
                ". Each axis is a carrier-keyed map whose `:app-db` value is a "
                "vector of concrete `:rf/path`s "
                "(e.g. `:sensitive {:app-db [[:auth :token]]}`).")
           {:recovery :fix-the-variant-classification-shape
-           :extra    (assoc defect :variant-id variant-id)}))
-      (frame/swap-runtime-db! variant-id
+           :extra    (assoc defect :variant-id subject-id)}))
+      (frame/swap-runtime-db! subject-id
         (fn [rt] (elision/apply-classification-effects rt effects))))))
 
 (defn allocate!
@@ -816,27 +834,63 @@
   - `plan-fx-overrides` — the plan's `[:world :frame :fx-overrides]` lowered
     map (e.g. the managed-HTTP stub the compiler folded `:network` into);
   - `events-only?` — whether the plan drives no loaders / frame-setup, so
-    the lifecycle takes the `:pre-mount → :ready` fast-path.
+    the lifecycle takes the `:pre-mount → :ready` fast-path;
+  - `classification` (optional, 5-arity; rf2-cmjly3 finding 12) — the
+    plan's `(select-keys (:world plan) [:sensitive :large])` map (the
+    caller, `run-inline-phase-0!`, threads this from the compiled plan —
+    `plan.cljc`'s `context-keys` now carries `:sensitive`/`:large` through
+    to `[:world :sensitive]` / `[:world :large]`). An inline plan run has
+    no registered variant body for `apply-variant-classification!` to read
+    (the way `allocate!` does via `v-body`), so without this arg a
+    `:sensitive`/`:large` declaration on an inline plan map compiled +
+    ran with NO error and NO redaction — a value marked sensitive silently
+    rode into the wire trace unredacted. Defaults to nil (no
+    classification), which `apply-variant-classification!` already
+    no-ops on.
 
-  Registers the `:fx-override`-decorator stubs, drives the lifecycle by the
-  supplied shape, applies any `:frame-setup` decorators' `:init` events, and
-  returns the frame-id. The frame's effective `:fx-overrides` is the
-  decorator-stack's materialised stubs UNDER the plan's lowered map (the
-  plan map wins — it already merged the author/network overrides). Does NOT
-  register anything in the Story side-table."
-  [frame-id decorator-stack plan-fx-overrides events-only?]
-  (when config/enabled?
-    (install-canonical-frame-events!)
-    (let [fx-stack     (decorators/fx-overrides-map (:fx-override decorator-stack))
-          decor-fx     (register-fx-overrides! fx-stack)
-          fx-overrides (merge decor-fx plan-fx-overrides)
-          config-map   (inline-frame-config frame-id fx-overrides)]
-      (rf/reg-frame frame-id config-map)
-      (if events-only?
-        (loaders/mount-ready! frame-id)
-        (loaders/mount!       frame-id))
-      (apply-frame-setup! frame-id (:frame-setup decorator-stack))
-      frame-id)))
+  Registers the `:fx-override`-decorator stubs, applies the plan's
+  `:sensitive`/`:large` classification into the frame's elision registry
+  (mirrors `allocate!`'s `apply-variant-classification!` exactly — same
+  ordering: AFTER `rf/reg-frame`, BEFORE the lifecycle/init events run),
+  drives the lifecycle by the supplied shape, applies any `:frame-setup`
+  decorators' `:init` events, and returns the frame-id. The frame's
+  effective `:fx-overrides` is the decorator-stack's materialised stubs
+  UNDER the plan's lowered map (the plan map wins — it already merged the
+  author/network overrides). Does NOT register anything in the Story
+  side-table.
+
+  rf2-cmjly3 finding 12 follow-on: classification is validated AFTER
+  `rf/reg-frame` (NOT before), even though that means a malformed
+  declaration can leave an anonymous inline frame registered with nothing
+  to tear it down (`run-inline-plan`'s failure path only tears down once
+  `allocate-inline!` has RETURNED normally). That risk is accepted, not
+  overlooked: validating BEFORE `rf/reg-frame` was tried and reverted — it
+  left the frame-less throw with NO live frame for `record-error!`'s
+  `::append-assertion` dispatch to land in, so the malformed-classification
+  failure was silently swallowed (`:status :pass`, zero assertions — a
+  privacy-relevant defect reported as a vacuous green, strictly worse than
+  an orphaned dev-tool frame). Validating after `rf/reg-frame` — the SAME
+  position `allocate!` already uses for the registered path — keeps
+  fail-loud reporting correct and is no NEW risk class: every other
+  throw site between `rf/reg-frame` and the `allocated?` flip
+  (`loaders/mount!` / `apply-frame-setup!`'s `:init` events) already shares
+  it."
+  ([frame-id decorator-stack plan-fx-overrides events-only?]
+   (allocate-inline! frame-id decorator-stack plan-fx-overrides events-only? nil))
+  ([frame-id decorator-stack plan-fx-overrides events-only? classification]
+   (when config/enabled?
+     (install-canonical-frame-events!)
+     (let [fx-stack     (decorators/fx-overrides-map (:fx-override decorator-stack))
+           decor-fx     (register-fx-overrides! fx-stack)
+           fx-overrides (merge decor-fx plan-fx-overrides)
+           config-map   (inline-frame-config frame-id fx-overrides)]
+       (rf/reg-frame frame-id config-map)
+       (apply-variant-classification! frame-id classification)
+       (if events-only?
+         (loaders/mount-ready! frame-id)
+         (loaders/mount!       frame-id))
+       (apply-frame-setup! frame-id (:frame-setup decorator-stack))
+       frame-id))))
 
 (defn destroy-inline!
   "Tear down an inline-plan frame. The registry-free twin of

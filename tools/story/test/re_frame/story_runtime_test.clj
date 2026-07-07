@@ -1794,3 +1794,104 @@
                             [42]))
             "the malformed path did not land in the elision registry (no partial commit)")))
     (story/destroy-variant! :story.classif/bad)))
+
+;; ---- rf2-cmjly3 finding 12: inline-plan :sensitive/:large classification --
+;;
+;; Prior to the fix, `allocate-inline!` never called
+;; `apply-variant-classification!` at all, and `plan.cljc`'s `context-keys`
+;; did not carry `:sensitive`/`:large` into the compiled plan's `:world` —
+;; so an inline plan run (`story/run` on a MAP target) declaring
+;; `:sensitive`/`:large` got NO error and NO redaction: a value marked
+;; sensitive rode into the wire trace unredacted (a silent privacy no-op).
+;; The fix routes `:sensitive`/`:large` through `[:world :sensitive]` /
+;; `[:world :large]` (plan.cljc `context-keys`) and applies the
+;; classification in `allocate-inline!` (frames.cljc), validating BEFORE
+;; `rf/reg-frame` so a malformed declaration never leaves an orphan
+;; anonymous frame behind (see `validate-classification-effects!`).
+;;
+;; The inline frame is anonymous and torn down INSIDE the same promise that
+;; resolves the run result (unlike a registered variant, whose frame stays
+;; live until an explicit `destroy-variant!`) — so these tests can't probe
+;; `rf/elide-wire-value` AFTER the run resolves the way the registered-
+;; variant tests above do. Instead, an inline `:events` step calls
+;; `rf/current-frame-id` (the dynamic scope an event handler runs under)
+;; + `rf/elide-wire-value` itself WHILE the frame is still live, and
+;; stashes the result into a test-side atom passed as an event arg.
+
+(deftest inline-plan-sensitive-classification-redacts-at-egress
+  (testing "rf2-cmjly3 finding 12 POSITIVE — an inline plan MAP declaring
+            `:sensitive {:app-db [...]}` actually classifies its anonymous
+            frame's elision registry — the declared path is redacted at
+            wire egress, mirroring the registered-variant behaviour
+            (rf2-7c6ecy)"
+    (rf/reg-event :classif-inline-cmjly3/login+probe
+      (fn [{:keys [db]} [_ probe-atom]]
+        (let [db'      (assoc-in db [:auth :token] "BEARER-secret-cmjly3")
+              frame-id (rf/current-frame-id)
+              walked   (rf/elide-wire-value db' {:frame frame-id})]
+          (reset! probe-atom (get-in walked [:auth :token]))
+          {:db db'})))
+    (let [probe (atom ::unset)
+          r     (async/deref-blocking
+                  (story/run {:events    [[:classif-inline-cmjly3/login+probe probe]]
+                             :sensitive {:app-db [[:auth :token]]}})
+                  5000)]
+      (is (= :ready (:lifecycle r))
+          "the inline run reaches :ready — classification did not abort it")
+      (is (= :rf/redacted @probe)
+          "the inline plan's :sensitive declaration redacts the path at
+           wire egress — pre-fix this stayed the raw secret (no
+           classification was ever applied for an inline run)"))))
+
+(deftest inline-plan-without-classification-does-not-redact
+  (testing "rf2-cmjly3 finding 12 — sanity / no-regression: an inline plan
+            with NO `:sensitive` declaration leaves the same path
+            unredacted, proving the probe mechanism (not some unrelated
+            default redaction) is what the positive test exercises"
+    (rf/reg-event :classif-inline-cmjly3/login+probe-plain
+      (fn [{:keys [db]} [_ probe-atom]]
+        (let [db'      (assoc-in db [:auth :token] "BEARER-secret-cmjly3-plain")
+              frame-id (rf/current-frame-id)
+              walked   (rf/elide-wire-value db' {:frame frame-id})]
+          (reset! probe-atom (get-in walked [:auth :token]))
+          {:db db'})))
+    (let [probe (atom ::unset)
+          r     (async/deref-blocking
+                  (story/run {:events [[:classif-inline-cmjly3/login+probe-plain probe]]})
+                  5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (= "BEARER-secret-cmjly3-plain" @probe)
+          "no :sensitive declaration -> the path passes through unredacted"))))
+
+(deftest inline-plan-malformed-classification-fails-loud-with-no-frame-registered
+  (testing "rf2-cmjly3 finding 12 NEGATIVE — a MALFORMED inline
+            `:sensitive` declaration fails loud through the SAME
+            `elision/classification-effect-defect` validator the
+            registered-variant path uses — recorded as a failed
+            `:rf.error/exception` assertion carrying
+            `:rf.error/classification-effect-shape`, exactly like the
+            registered-variant negative test above, rather than a silent
+            vacuous pass. `apply-variant-classification!` validates AFTER
+            `rf/reg-frame` (frames.cljc) precisely so this failure has a
+            live frame to record itself against; the trade-off (an
+            orphaned anonymous frame on this authoring-mistake path) is
+            documented on that fn."
+    (rf/reg-event :noop-cmjly3 (fn [{:keys [db]} _] {:db db}))
+    (let [r         (async/deref-blocking
+                      (story/run {:events    [[:noop-cmjly3]]
+                                 :sensitive {:app-db [42]}})
+                      5000)
+          assertion (->> (:assertions r)
+                         (filter #(= :rf.error/exception (:assertion %)))
+                         last)]
+      (is (some? assertion)
+          "a structured failure assertion is recorded (no uncaught crash,
+           no silent vacuous pass)")
+      (is (= :rf.error/classification-effect-shape
+             (-> assertion :error :data :rf.error/id))
+          "the failure routes through the SAME fail-loud id the
+           registered-variant path uses")
+      (is (not= :pass (:status r))
+          "the run does NOT report a vacuous :pass — pre-fix (validating
+           before rf/reg-frame) this silently passed with zero
+           assertions"))))

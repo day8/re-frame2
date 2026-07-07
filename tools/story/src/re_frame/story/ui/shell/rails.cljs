@@ -86,9 +86,26 @@
 (defn splitter
   "Accessible mouse + keyboard separator between shell panes."
   [side]
-  (let [dragging? (r/atom false)]
+  (let [dragging?     (r/atom false)
+        ;; rf2-cmjly3 finding 6: holds `{:move fn :up fn}` for the
+        ;; document-level mousemove/mouseup listeners a drag installs, or
+        ;; nil between drags. Previously these were only removed from
+        ;; INSIDE the mouseup handler itself — if the splitter unmounted
+        ;; mid-drag (e.g. `narrow-viewport?` flips and `shell.cljs` drops
+        ;; `[rails/splitter :left]`), mouseup never fired, so the document
+        ;; listeners were never torn down and kept calling `set-width!`
+        ;; against this (by-then-stale) component's closure forever.
+        ;; `:component-will-unmount` below removes them from this atom
+        ;; instead, so an unmount mid-drag is covered too.
+        drag-handlers (atom nil)]
     (r/create-class
       {:display-name (str "rf-story-rail-splitter-" (name side))
+       :component-will-unmount
+       (fn [_this]
+         (when-let [{:keys [move up]} @drag-handlers]
+           (reset! drag-handlers nil)
+           (.removeEventListener js/document "mousemove" move)
+           (.removeEventListener js/document "mouseup" up)))
        :reagent-render
        (fn [side]
          (let [widths  (current-widths)
@@ -126,21 +143,19 @@
                   :on-mouse-down    (fn [e]
                                       (.preventDefault e)
                                       (let [start-x (.-clientX e)
-                                            start-w (get (current-widths) side)
-                                            move-fn (atom nil)
-                                            up-fn   (atom nil)]
+                                            start-w (get (current-widths) side)]
                                         (reset! dragging? true)
-                                        (reset! move-fn
-                                                (fn [move-e]
+                                        (letfn [(move-fn [move-e]
                                                   (let [dx (- (.-clientX move-e) start-x)]
                                                     (set-width!
                                                       side
-                                                      (+ start-w (if left? dx (- dx)))))))
-                                        (reset! up-fn
-                                                (fn [_]
+                                                      (+ start-w (if left? dx (- dx))))))
+                                                (up-fn [_]
                                                   (reset! dragging? false)
-                                                  (.removeEventListener js/document "mousemove" @move-fn)
-                                                  (.removeEventListener js/document "mouseup" @up-fn)))
-                                        (.addEventListener js/document "mousemove" @move-fn)
-                                        (.addEventListener js/document "mouseup" @up-fn)))}
+                                                  (reset! drag-handlers nil)
+                                                  (.removeEventListener js/document "mousemove" move-fn)
+                                                  (.removeEventListener js/document "mouseup" up-fn))]
+                                          (reset! drag-handlers {:move move-fn :up up-fn})
+                                          (.addEventListener js/document "mousemove" move-fn)
+                                          (.addEventListener js/document "mouseup" up-fn))))}
             [:span {:style (:splitter-grip styles)}]]))})))

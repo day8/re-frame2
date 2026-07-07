@@ -423,6 +423,69 @@
     (recorder/clear!)))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-cmjly3 finding 13 — recordable-event? must gate on the ORIGINAL id,
+;; not the [:rf/redacted] placeholder
+;;
+;; The redact branch used to call `record-event!` with the FIXED
+;; `redacted-event` placeholder (`[:rf/redacted]`), so `append`'s internal
+;; `recordable-event?` filter ran against `[:rf/redacted]` — always
+;; "recordable" (its ns "rf" matches none of `recordable-event?`'s
+;; internal-namespace exclusions) — never against the ORIGINAL event id. A
+;; sensitive `:rf.assert/*` / `:rf.story/*` event therefore recorded a
+;; `[:rf/redacted]` row instead of being dropped, contradicting the
+;; listener's own docstring ("a sensitive :rf.assert/* event still gets
+;; dropped, not redacted-and-recorded, because assertions are an authored
+;; not observed surface"). The fix tests `recordable-event?` on the
+;; ORIGINAL `(:rf.event/v tags)` BEFORE the redact/pass fork.
+;; ---------------------------------------------------------------------------
+
+(deftest recorder-listener-drops-sensitive-non-recordable-event-rf2-cmjly3
+  (testing "rf2-cmjly3 finding 13: a sensitive :rf.assert/* event is DROPPED
+            entirely — no [:rf/redacted] row, and the suppressed-events
+            counter (the UI's 'count of redacted rows actually shown' hint)
+            does not bump for a row that was never recorded"
+    (recorder/clear!)
+    (recorder/start-recording! :story.recorder/sens-drop 0)
+    (let [listen @#'recorder/trace-listener
+          ev     (sensitive-dispatch-event :story.recorder/sens-drop
+                                           [:rf.assert/path-equals [:n] 1])]
+      (listen ev)
+      (is (= [] (recorder/recorded-events))
+          "the sensitive :rf.assert/* event is dropped — pre-fix this
+           recorded a spurious [:rf/redacted] row")
+      (is (zero? (config/suppressed-count :story.recorder/sens-drop))
+          "no row recorded => no suppressed-count bump either"))
+    (recorder/clear!)))
+
+(deftest recorder-listener-drops-sensitive-non-recordable-story-internal-event-rf2-cmjly3
+  (testing "rf2-cmjly3 finding 13 — the same drop applies to a sensitive
+            :rf.story/* internal-helper event, the OTHER non-recordable
+            namespace class"
+    (recorder/clear!)
+    (recorder/start-recording! :story.recorder/sens-drop-story 0)
+    (let [listen @#'recorder/trace-listener
+          ev     (sensitive-dispatch-event :story.recorder/sens-drop-story
+                                           [:rf.story/lifecycle-tick])]
+      (listen ev)
+      (is (= [] (recorder/recorded-events)))
+      (is (zero? (config/suppressed-count :story.recorder/sens-drop-story))))
+    (recorder/clear!)))
+
+(deftest recorder-listener-still-redacts-sensitive-recordable-event-rf2-cmjly3
+  (testing "rf2-cmjly3 finding 13 — no regression: an ORDINARY sensitive
+            user event (a recordable id) still record-but-redacts exactly
+            as before the fix"
+    (recorder/clear!)
+    (recorder/start-recording! :story.recorder/sens-redact 0)
+    (let [listen @#'recorder/trace-listener
+          ev     (sensitive-dispatch-event :story.recorder/sens-redact
+                                           [:auth/login {:password "x"}])]
+      (listen ev)
+      (is (= [[:rf/redacted]] (recorder/recorded-events)))
+      (is (pos? (config/suppressed-count :story.recorder/sens-redact))))
+    (recorder/clear!)))
+
+;; ---------------------------------------------------------------------------
 ;; Retroactive scrub on egress-profile narrowing (rf2-lqmje / EP-0015 rf2-3t26eh)
 ;; ---------------------------------------------------------------------------
 ;;

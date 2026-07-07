@@ -226,11 +226,24 @@
   dedicated `merge-key` deep-merge over the inherited → composed → child
   chain (the single source of truth for `arg-map` / `argtypes`), never read
   off `ctx`. Listing them here only buys a redundant deep-merge per compile
-  and misleads a reader into thinking `ctx` is the arg source."
+  and misleads a reader into thinking `ctx` is the arg source.
+
+  `:sensitive` / `:large` (rf2-cmjly3 finding 12) carry the EP-0025 durable
+  app-db classification (`{:app-db [[path]…]}`) — a plain map, so they
+  merge exactly like every other context key (a child re-declaring the axis
+  replaces the parent's `:app-db` vector; a child that omits it inherits the
+  parent's verbatim). This is what lets `[:world :sensitive]` / `[:world
+  :large]` reach `allocate-inline!` (below in `frames.cljc`) for an inline
+  plan run, which has no registered variant body to read the classification
+  off. It does NOT change `allocate!`'s REGISTERED-variant path — that reads
+  the classification straight off the raw (un-merged) variant body via
+  `apply-variant-classification!`, entirely independent of the plan
+  compiler, and is unaffected by this key's presence here."
   [:sub-overrides :db-seed :network :fx-overrides :interceptor-overrides
    :decorators :loaders :loaders-teardown :loaders-complete-when
    :modes :substrates :platforms :viewport :background :xray
-   :dispatch-console? :component :doc :args->events])
+   :dispatch-console? :component :doc :args->events
+   :sensitive :large])
 
 (defn- pick-setup
   "Return the raw setup vector for a body — the first of `setup-keys`
@@ -1574,7 +1587,17 @@
                        (contains? ctx :viewport)    (assoc :viewport (:viewport ctx))
                        (contains? ctx :background)  (assoc :background (:background ctx))
                        (contains? ctx :xray)        (assoc :xray (:xray ctx))
-                       (contains? ctx :component)   (assoc :component (:component ctx)))
+                       (contains? ctx :component)   (assoc :component (:component ctx))
+                       ;; rf2-cmjly3 finding 12: the EP-0025 durable app-db
+                       ;; classification, carried through `:extends` like
+                       ;; every other context key. Read by
+                       ;; `run-inline-phase-0!` (`runtime.cljc`) and threaded
+                       ;; into `allocate-inline!` (`frames.cljc`) so an inline
+                       ;; plan's `:sensitive` / `:large` declaration is
+                       ;; actually applied to the elision registry instead of
+                       ;; being silently discarded.
+                       (contains? ctx :sensitive)   (assoc :sensitive (:sensitive ctx))
+                       (contains? ctx :large)       (assoc :large (:large ctx)))
         resolved-conflicts (vec (mapcat :resolved (vals strict-res)))
         explain      {:source-chain (mapv :variant/id chain)
                       :parent-chain (mapv :variant/id (butlast chain))
