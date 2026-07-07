@@ -967,6 +967,7 @@
     (rf/reg-event :foo!  (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:wizard :foo] v)}))
     (rf/reg-event :leave (fn [_ _]
                               {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
     (rf/dispatch-sync [:init])
     (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "no flow yet — :result is unset")
@@ -979,12 +980,22 @@
     (rf/dispatch-sync [:foo! 5])
     (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow ran on this drain with 5 + 4 = 9")
-    ;; Now clear via fx.
+    ;; Now clear via fx. The registry removal is immediate (never deferred),
+    ;; but `:fx` walks AFTER :leave's own flow transform / `:db` install
+    ;; (rf2-2qd9wp / Spec 013 §Sequencing — the same one-event lag
+    ;; `:rf.fx/reg-flow` already documents in
+    ;; `fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround`): the
+    ;; app-db vacate is recorded as an abandoned path and dissoc'd from the
+    ;; pending `:db` on the NEXT drain, not this one.
     (rf/dispatch-sync [:leave])
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed))
-        "registry slot removed")
+        "registry slot removed immediately")
+    (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
+        ":result is UNCHANGED on :leave's own drain — the vacate lags one event, mirroring :rf.fx/reg-flow's lag")
+    ;; Drive one more drain to apply the deferred vacate.
+    (rf/dispatch-sync [:touch])
     (is (not (contains? (get (rf/app-db-value :rf/default) :wizard) :result))
-        ":rf.fx/clear-flow dissoc-in'd the output path")))
+        ":rf.fx/clear-flow's dissoc-in lands on the NEXT drain")))
 
 (deftest fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround
   ;; Pin the LEAST-OBVIOUS flow behaviour as an explicit contract: a flow
