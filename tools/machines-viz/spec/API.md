@@ -1999,8 +1999,10 @@ the second `#accessibility_1`) and
   has the same overview the sighted user has.
 
 The chart's in-place alt-view (for screen-reader navigation of the
-live chart itself, not the export) is a **v1.1 commitment**, per
-[`000-Vision.md` §v1.1 candidates](./000-Vision.md#v11-candidates-not-committed)
+live chart itself, not the export) is a **COMMITMENT, re-anchored to
+first external alpha** (or earlier if the first external consumer
+needs assistive-tech access to chart topology), per
+[`000-Vision.md` §Committed with a trigger](./000-Vision.md#committed-with-a-trigger)
 and Xray 003 §Accessibility. v1.0 ships without it; the embedding
 host's transition-history ribbon + machine picker carry the
 accessible surface in the meantime.
