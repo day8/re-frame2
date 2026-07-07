@@ -362,6 +362,25 @@
              "use the 3-tuple [id metadata body].")
         {:recovery :use-an-id-body-or-id-metadata-body-tuple
          :extra    {:image image-id :section section :entry entry}}))
+    ;; FAIL-LOUD on a non-MAP metadata slot in the 3-tuple form. The metadata
+    ;; slot of `[id metadata body]` is a Spec 001 registration metadata MAP
+    ;; (EP-0026 §Inline Registration Grammar). An unvalidated non-map slot
+    ;; otherwise either crashes raw at the `(seq metadata)` guard below (a
+    ;; non-seqable such as a number) or is silently accepted and passed on as
+    ;; junk `:metadata` to the lowering hook (a seqable non-map such as a
+    ;; string or vector) — both defeat the canonical `:rf.error/invalid-image`
+    ;; shape every sibling defect on this path gets.
+    (when (and has-meta (not (map? metadata)))
+      (error/throw-error!
+        :rf.error/invalid-image
+        'rf/image
+        (str "rf/image: inline " section " entry " (pr-str entry)
+             " has a non-map metadata slot — the middle slot of a 3-tuple "
+             "[id metadata body] MUST be a registration metadata MAP (EP-0026). "
+             "Got " (pr-str metadata) " (" (pr-str (type metadata)) "). For a "
+             "registration with no metadata use the 2-tuple [id body].")
+        {:recovery :use-an-id-body-or-id-metadata-body-tuple
+         :extra    {:image image-id :section section :entry entry}}))
     (cond-> {:kind                 kind
              :id                   id
              :impl                 body
