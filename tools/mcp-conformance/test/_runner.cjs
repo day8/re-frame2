@@ -567,6 +567,24 @@ function assertClassificationRatchet(tools, expected) {
     );
   }
 
+  // 0b. `closed-world` entries must be a subset of `classifications` (now
+  // known exact-equal to the live tool-set per check 0 above). Unlike a
+  // stale `classifications` row, a dangling `closed-world` entry naming a
+  // renamed/removed tool is NEVER visited by the per-tool loop below (it
+  // only iterates live `tools`), so without this check it survives a
+  // rename undetected — silently tolerated instead of tripping RED.
+  const staleClosedWorld = Array.from(closedWorld).filter(
+    (n) => !Object.prototype.hasOwnProperty.call(table, n),
+  );
+  if (staleClosedWorld.length > 0) {
+    throw new Error(
+      'classification ratchet (rf2-yi451): the fixture `closed-world` list ' +
+        'names a tool absent from `classifications` (dangling row — the ' +
+        'tool was renamed or removed; update or delete the row): ' +
+        JSON.stringify(staleClosedWorld),
+    );
+  }
+
   for (const t of tools) {
     const a = t.annotations || {};
     const posture = table[t.name];
@@ -838,6 +856,47 @@ function structured(resp) {
   return decodeDedupEnvelope((resp && resp.structuredContent) || {});
 }
 
+// Universal isError <-> :ok? cross-check. The spec contract
+// (spec/003-Tool-Catalogue.md §381) is universal: EVERY `:ok? false`
+// structuredContent MUST carry `isError === true`, and every `:ok? true`
+// MUST carry a falsy isError. This cross-check pins the contract for an
+// ARBITRARY structured envelope at the SDK boundary — a single gate
+// covering every tool, rather than tool-specific + outcome-specific
+// checks — catching any tool that decouples its isError flag from its
+// `:ok?` slot (the class the pair-mcp read-dom/read-ui envelope
+// belonged to, rf2-87h71e / rf2-q7cavs).
+//
+// Reads `:ok?` through `structured()` — the shared dedup-decoder —
+// rather than the raw wire `resp.structuredContent`. A dedup-eligible
+// tool ships its structured payload wrapped in
+// `{:rf.mcp/dedup-table {...}}`; reading the raw field finds no
+// top-level `:ok?` slot at all, so this cross-check would silently no-op
+// on exactly the envelopes a real MCP client (which always expands the
+// dedup table before reading semantic slots) would grade (rf2-6i2yi4
+// finding 1). Tolerates an envelope with no `:ok?` slot (a non-`:ok?`-
+// shaped result is out of scope — there is nothing to cross-check).
+function assertIsErrorMatchesOk(label, resp) {
+  const sc = structured(resp);
+  if (sc === undefined || sc === null || typeof sc !== 'object') return;
+  if (!Object.prototype.hasOwnProperty.call(sc, 'ok?')) return;
+  const ok = sc['ok?'];
+  if (ok === false && resp.isError !== true) {
+    throw new Error(
+      label + ' carries :ok? false but isError is not true (' +
+        JSON.stringify(resp.isError) + ') — violates the universal ' +
+        'spec/003 §381 contract (every :ok? false is isError:true). ' +
+        'A failure that is not flagged isError is cache-eligible and ' +
+        'can mask a later success (rf2-87h71e / rf2-q7cavs).',
+    );
+  }
+  if (ok === true && resp.isError === true) {
+    throw new Error(
+      label + ' carries :ok? true but isError is true — a success ' +
+        'envelope must not be flagged a fault (rf2-87h71e converse).',
+    );
+  }
+}
+
 module.exports = {
   runWithWatchdog,
   connectServer,
@@ -851,4 +910,5 @@ module.exports = {
   responseText,
   track,
   structured,
+  assertIsErrorMatchesOk,
 };

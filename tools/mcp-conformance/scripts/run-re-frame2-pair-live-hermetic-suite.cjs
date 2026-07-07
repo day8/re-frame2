@@ -510,6 +510,54 @@ function isContainmentEscape(e) {
     e.message.includes('symlink-escape accident-gating'));
 }
 
+// Wipe one stale nREPL port-file candidate before boot. A symlink-ESCAPE
+// refusal is FATAL (rf2-khav7l — never continue and later trust a file
+// we refused to clean). A BENIGN unlink failure (EACCES / EBUSY — a
+// Windows file lock from a not-yet-reaped prior shadow-cljs process, a
+// permission quirk) is tolerated ONLY when the file is actually gone
+// afterward. `readPortFile()` (the `waitUntil('nREPL port file', ...)`
+// poll in `main`) has NO staleness/liveness gate: it trusts the first
+// candidate that parses to a finite integer, so a stale file surviving a
+// failed unlink would be trusted on the very first poll — before THIS
+// run's shadow-cljs has any chance to rebind and rewrite it. Best case
+// that wastes the whole boot timeout; worst case it connects to a
+// stale/zombie runtime from a prior run (state bleed between runs).
+// Re-stat after a benign failure: if the file is genuinely gone (the
+// unlink raced a concurrent removal), proceed as before; if it is still
+// there, fail LOUD now instead of silently deferring the risk to the
+// read side (rf2-6i2yi4). `unlink`/`statExists`/`logFn` are injectable
+// so the call-site regression test can drive this against a fake
+// benign-failing unlink without needing a real Windows file lock.
+function wipeStalePortFileCandidate(
+  p,
+  fixtureDir,
+  { unlink = safeUnlinkInside, statExists = exists, logFn = log } = {},
+) {
+  try {
+    const removed = unlink(p, fixtureDir);
+    if (removed) logFn(`removed stale port file ${p}`);
+  } catch (e) {
+    if (isContainmentEscape(e)) {
+      throw new Error(
+        `stale nREPL port candidate ${p} escapes FIXTURE_DIR ` +
+          `(${e.message}); aborting — the runner must not continue and ` +
+          'later trust a port file it refused to clean (rf2-khav7l).',
+      );
+    }
+    if (statExists(p)) {
+      throw new Error(
+        `could not remove stale nREPL port file ${p} (${e.message}), and ` +
+          're-stat confirms it is STILL on disk — refusing to continue: ' +
+          'the poll loop below has no staleness gate and would trust this ' +
+          'file on its very first check, before shadow-cljs rebinds ' +
+          '(rf2-6i2yi4 stale port-file trust). The file may be held by a ' +
+          'lingering prior process — remove it manually and re-run.',
+      );
+    }
+    logFn(`could not remove stale port file ${p} (${e.message}), but it is gone now; continuing`);
+  }
+}
+
 // `candidates` + `fixtureDir` are parameterised (defaulting to the
 // module constants) so the call-site regression test can drive
 // this exact function against a temp fixture with a symlinked
@@ -962,28 +1010,14 @@ async function main() {
   // FIXTURE_DIR can't be coerced into deleting a file outside the
   // fixture tree.
   //
-  // A symlink-ESCAPE refusal on a load-bearing stale
-  // port candidate is FATAL — we do NOT log-and-continue and then later
-  // read that same escaped file as the live nREPL source. A BENIGN unlink
-  // failure (EACCES / EBUSY — a Windows file lock, a permission quirk)
-  // is tolerated: it doesn't widen trust, and the read path
-  // re-checks containment regardless. `isContainmentEscape` discriminates
-  // the two so a transient lock doesn't abort the whole run while a real
-  // escape does.
+  // A symlink-ESCAPE refusal on a load-bearing stale port candidate is
+  // FATAL (rf2-khav7l). A BENIGN unlink failure (EACCES / EBUSY) is
+  // tolerated only when the file is confirmed gone afterward — see
+  // `wipeStalePortFileCandidate`'s docstring for why a surviving stale
+  // file must fail loud here rather than being silently trusted by the
+  // staleness-blind `readPortFile()` poll below (rf2-6i2yi4).
   for (const p of NREPL_PORT_FILE_CANDIDATES) {
-    try {
-      const removed = safeUnlinkInside(p, FIXTURE_DIR);
-      if (removed) log(`removed stale port file ${p}`);
-    } catch (e) {
-      if (isContainmentEscape(e)) {
-        throw new Error(
-          `stale nREPL port candidate ${p} escapes FIXTURE_DIR ` +
-            `(${e.message}); aborting — the runner must not continue and ` +
-            'later trust a port file it refused to clean (rf2-khav7l).',
-        );
-      }
-      log(`could not remove stale port file ${p} (${e.message}); continuing`);
-    }
+    wipeStalePortFileCandidate(p, FIXTURE_DIR);
   }
   try {
     const removed = safeUnlinkInside(FIXTURE_BUNDLE_PATH, FIXTURE_DIR);
@@ -1385,6 +1419,14 @@ if (require.main === module) {
 // its sentinel-bearing stdout `data` AFTER `exit` but BEFORE `close`,
 // proving the harness reads the fully-drained stdout (via `close`) rather
 // than scoring a conformant, late-flushing child as failed.
+//
+// `wipeStalePortFileCandidate` is exported for the stale-port-file-trust
+// regression harness (`stale-port-file-trust.test.cjs`, rf2-6i2yi4): it
+// drives the REAL wipe logic with an injected `unlink` that fails
+// benignly (mimicking a Windows EBUSY lock) while an injected `statExists`
+// still reports the file present, proving the runner now fails LOUD
+// instead of logging-and-continuing into a poll loop that would have
+// trusted the surviving stale file.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1394,4 +1436,5 @@ module.exports = {
   settledWithin,
   waitForChildExit,
   spawnAndGradeInnerTest,
+  wipeStalePortFileCandidate,
 };

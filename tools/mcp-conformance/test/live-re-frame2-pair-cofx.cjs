@@ -87,6 +87,7 @@
 const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog, responseText } = require('./_runner.cjs');
+const { includesToken } = require('../lib/token-match.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -240,11 +241,13 @@ runWithWatchdog(
         );
       }
       const text = responseText(resp);
-      if (!text.includes(m.reason)) {
+      if (!includesToken(text, m.reason)) {
         throw new Error(
           'dispatch [:counter/stamp] with ' + m.why + ' MUST carry the ' +
-            'documented structured error ' + m.reason + ' (EP-0017 cofx ' +
-            'contract); got: ' + text.slice(0, 300),
+            'documented structured error ' + m.reason + ' as an exact token ' +
+            '(EP-0017 cofx contract), not merely as a substring of a longer ' +
+            'reason (e.g. :invalid-cofx-time-ms satisfying a :invalid-cofx ' +
+            'check); got: ' + text.slice(0, 300),
         );
       }
       // The malformed-cofx refusal is reachable here ONLY because we have a

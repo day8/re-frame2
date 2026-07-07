@@ -24,6 +24,9 @@
     "test:hermetic-setup-timeout": "node --test test/hermetic-setup-timeout.test.cjs",
     "test:inner-test-close-grading": "node --test test/inner-test-close-grading.test.cjs",
     "test:port-file-escape": "node --test test/port-file-escape.test.cjs",
+    "test:stale-port-file-trust": "node --test test/stale-port-file-trust.test.cjs",
+    "test:token-match": "node --test test/token-match.test.cjs",
+    "test:is-error-matches-ok": "node --test test/is-error-matches-ok.test.cjs",
     "test:unit": "node scripts/test-unit.cjs",
     "test": "node scripts/test-all.cjs"
   },

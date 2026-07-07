@@ -207,6 +207,7 @@ function resolveTrustedExe(name, opts) {
   const exts = pathExtensionsFor(platform, env);
   const tried = []; // for diagnostic error message
   const rejectedInsideWorkspace = [];
+  const rejectedUnverifiable = [];
 
   for (const dir of dirs) {
     for (const ext of exts) {
@@ -222,7 +223,21 @@ function resolveTrustedExe(name, opts) {
       // Realpath through any symlink — what we trust is the *target*,
       // not the link. A PATH entry pointing at a workspace-internal
       // tool via a symlink is the exact accident the audit flagged.
-      const real = realpathSyncOrNull(candidate) || candidate;
+      const real = realpathSyncOrNull(candidate);
+      if (real === null) {
+        // A realpath failure means the symlink TARGET could not be
+        // verified. The prior behaviour (`realpathSyncOrNull(candidate)
+        // || candidate`) silently fell back to the raw, UNRESOLVED
+        // candidate and returned it as trusted — defeating this
+        // module's whole purpose. Known real-world trigger: on
+        // Windows, `fs.realpathSync` is known to throw on certain
+        // reparse points (App-Execution-Alias stubs under
+        // `%LOCALAPPDATA%\Microsoft\WindowsApps`, a common default PATH
+        // entry) that `fs.statSync` above sees as an ordinary file.
+        // Treat the candidate as rejected and keep searching instead.
+        rejectedUnverifiable.push(candidate);
+        continue;
+      }
       if (isPathInside(real, workspaceRootReal)) {
         rejectedInsideWorkspace.push({ candidate, real });
         continue;
@@ -231,15 +246,24 @@ function resolveTrustedExe(name, opts) {
     }
   }
 
-  if (rejectedInsideWorkspace.length > 0) {
-    const list = rejectedInsideWorkspace
+  if (rejectedInsideWorkspace.length > 0 || rejectedUnverifiable.length > 0) {
+    const insideList = rejectedInsideWorkspace
       .map((r) => `  ${r.candidate} -> ${r.real}`)
       .join('\n');
+    const unverifiableList = rejectedUnverifiable
+      .map((c) => `  ${c} -> <realpath failed; target unverifiable>`)
+      .join('\n');
     throw new Error(
-      `resolveTrustedExe: every candidate for "${name}" resolved inside ` +
-        `the workspace (${workspaceRootReal}). Refusing to execute ` +
-        `workspace-relative binaries via PATH (rf2-33vvc accident-gating).\n` +
-        `Rejected candidates:\n${list}\n` +
+      `resolveTrustedExe: no candidate for "${name}" could be trusted. ` +
+        `Refusing to execute a workspace-relative or unverifiable binary ` +
+        `via PATH (rf2-33vvc accident-gating; rf2-6i2yi4 realpath-failure ` +
+        `hardening).\n` +
+        (rejectedInsideWorkspace.length > 0
+          ? `Rejected — resolved inside the workspace (${workspaceRootReal}):\n${insideList}\n`
+          : '') +
+        (rejectedUnverifiable.length > 0
+          ? `Rejected — realpath could not verify the symlink target:\n${unverifiableList}\n`
+          : '') +
         `Install ${name} system-wide or adjust PATH so a host binary ` +
         `appears first.`,
     );

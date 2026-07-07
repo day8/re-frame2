@@ -242,6 +242,102 @@ test('resolveTrustedExe: follows symlinks and rejects when target is inside work
   }
 });
 
+// A realpath FAILURE (as opposed to a clean resolution) used to fall
+// back to the raw, unresolved candidate path
+// (`realpathSyncOrNull(candidate) || candidate`) — trusting exactly the
+// path this module exists to verify. On Windows, `fs.realpathSync` is
+// known to throw on certain reparse points (App-Execution-Alias stubs
+// under `%LOCALAPPDATA%\Microsoft\WindowsApps`) that `fs.statSync` sees
+// as an ordinary file — so this isn't a hypothetical failure mode. These
+// two tests monkeypatch `fs.realpathSync` (restored in `finally`) to
+// simulate that failure on a specific candidate, independent of the
+// actual host OS/filesystem (rf2-6i2yi4 finding 6).
+
+test('resolveTrustedExe: a realpath failure on a candidate is rejected (not trusted unresolved) — falls through to the next candidate', () => {
+  const workspace = freshTmpDir('realpath-fail-workspace');
+  const unverifiableDir = freshTmpDir('realpath-fail-unverifiable');
+  const trustedDir = freshTmpDir('realpath-fail-trusted');
+  const realRealpathSync = fs.realpathSync;
+  try {
+    // First PATH dir: a candidate that EXISTS (passes statSync) but
+    // whose realpath will be made to throw.
+    const unverifiableExe = path.join(unverifiableDir, 'mytool');
+    fs.writeFileSync(unverifiableExe, '#!/bin/sh\necho unverifiable\n', { mode: 0o755 });
+    // Second PATH dir: a genuine, verifiable, outside-workspace binary.
+    const trustedExeFile = path.join(trustedDir, 'mytool');
+    fs.writeFileSync(trustedExeFile, '#!/bin/sh\necho trusted\n', { mode: 0o755 });
+    const trustedExeReal = realRealpathSync(trustedExeFile);
+
+    fs.realpathSync = function patchedRealpathSync(p, ...rest) {
+      if (path.resolve(p) === path.resolve(unverifiableExe)) {
+        const e = new Error('simulated realpath failure (e.g. reparse point)');
+        e.code = 'UNKNOWN';
+        throw e;
+      }
+      return realRealpathSync.call(fs, p, ...rest);
+    };
+
+    const env = { PATH: [unverifiableDir, trustedDir].join(path.delimiter) };
+    const resolved = resolveTrustedExe('mytool', {
+      workspaceRoot: workspace,
+      env,
+      platform: 'linux',
+    });
+    assert.equal(
+      resolved,
+      trustedExeReal,
+      'must skip the unverifiable candidate (NOT return its raw unresolved ' +
+        'path) and resolve the next, verifiable candidate',
+    );
+    assert.notEqual(
+      resolved,
+      unverifiableExe,
+      'must never return the raw, unresolved candidate path',
+    );
+  } finally {
+    fs.realpathSync = realRealpathSync;
+    rmrf(workspace);
+    rmrf(unverifiableDir);
+    rmrf(trustedDir);
+  }
+});
+
+test('resolveTrustedExe: throws (does not silently trust an unresolved candidate) when every candidate is realpath-unverifiable', () => {
+  const workspace = freshTmpDir('realpath-fail-only-workspace');
+  const outsideDir = freshTmpDir('realpath-fail-only-outside');
+  const realRealpathSync = fs.realpathSync;
+  try {
+    const exe = path.join(outsideDir, 'mytool');
+    fs.writeFileSync(exe, '#!/bin/sh\necho x\n', { mode: 0o755 });
+
+    fs.realpathSync = function patchedRealpathSync(p, ...rest) {
+      if (path.resolve(p) === path.resolve(exe)) {
+        throw new Error('simulated realpath failure');
+      }
+      return realRealpathSync.call(fs, p, ...rest);
+    };
+
+    assert.throws(
+      () =>
+        resolveTrustedExe('mytool', {
+          workspaceRoot: workspace,
+          env: { PATH: outsideDir },
+          platform: 'linux',
+        }),
+      (err) => {
+        assert.match(err.message, /unverifiable/i);
+        return true;
+      },
+      'must throw rather than falling back to the raw unresolved candidate ' +
+        '(the pre-fix behaviour)',
+    );
+  } finally {
+    fs.realpathSync = realRealpathSync;
+    rmrf(workspace);
+    rmrf(outsideDir);
+  }
+});
+
 // ---------------------------------------------------------------------
 // safeUnlinkInside
 // ---------------------------------------------------------------------

@@ -66,8 +66,20 @@ const TESTS = [
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
   {
+    name: 'hermetic stale port-file wipe fails loud on a surviving stale file (rf2-6i2yi4)',
+    argv: ['--test', 'test/stale-port-file-trust.test.cjs'],
+  },
+  {
     name: 'dedup-envelope decoder — cyclic-cache throws + acyclic happy path (rf2-87h71e)',
     argv: ['--test', 'test/dedup-envelope.test.cjs'],
+  },
+  {
+    name: 'exact-token match — anchors :invalid-cofx vs :invalid-cofx-time-ms (rf2-6i2yi4)',
+    argv: ['--test', 'test/token-match.test.cjs'],
+  },
+  {
+    name: 'universal isError <-> :ok? cross-check reads through the dedup decoder (rf2-6i2yi4)',
+    argv: ['--test', 'test/is-error-matches-ok.test.cjs'],
   },
   {
     name: 'callTool coverage ratchet unit tests (rf2-ke5n56)',
@@ -120,23 +132,39 @@ function banner(line) {
   process.stdout.write('\n' + sep + '\n' + line + '\n' + sep + '\n');
 }
 
+// The shared pre-flight skip helper (`_runner.cjs` `runWithWatchdog.skip`)
+// prints a `SKIP <reason>` line and exits 0 BEFORE running any real
+// assertions. That exit-0 is indistinguishable from a real pass by
+// status code alone — the six live-re-frame2-pair-* rows all SKIP this
+// way when `$SHADOW_CLJS_NREPL_PORT` is unset, which is the normal state
+// of a local `npm test` run. Detect the banner in the child's captured
+// stdout so the summary can tell "skipped" apart from "actually ran and
+// passed" instead of collapsing both into a bare exit-0 OK.
+const SKIP_BANNER = /^SKIP /m;
+
 function main() {
   const results = [];
   let firstFailure = null;
 
   for (const test of TESTS) {
     banner('▶ ' + test.name + '\n  ' + test.argv.join(' '));
-    // `process.execPath` is always absolute; `spawnSync` inherits stdio
-    // so the child's stdout/stderr stream through verbatim. `shell: false`
-    // keeps the accident-gating from the lib/exec-safety.cjs preamble: no
-    // shell-interpolation of test names.
+    // `process.execPath` is always absolute. stdout is piped (not
+    // inherited) so we can inspect it for the SKIP banner; it is written
+    // to our own stdout immediately after the child exits, so nothing is
+    // lost — only the live-interleaving with stderr is (stderr stays
+    // `inherit`, unaffected). `shell: false` keeps the accident-gating
+    // from the lib/exec-safety.cjs preamble: no shell-interpolation of
+    // test names.
     const child = spawnSync(process.execPath, test.argv, {
       cwd: ROOT,
-      stdio: 'inherit',
+      stdio: ['inherit', 'pipe', 'inherit'],
       env: process.env,
     });
+    const stdoutText = child.stdout ? child.stdout.toString('utf8') : '';
+    process.stdout.write(stdoutText);
     const status = child.status === null ? 'signal:' + child.signal : child.status;
-    results.push({ name: test.name, status });
+    const skipped = child.status === 0 && SKIP_BANNER.test(stdoutText);
+    results.push({ name: test.name, status, skipped });
     if (child.status !== 0 && firstFailure === null) {
       firstFailure = { test: test.name, status: child.status, signal: child.signal };
       break;
@@ -144,8 +172,10 @@ function main() {
   }
 
   banner('mcp-conformance summary');
+  let skipCount = 0;
   for (const r of results) {
-    const tick = r.status === 0 ? 'OK  ' : 'FAIL';
+    const tick = r.status !== 0 ? 'FAIL' : r.skipped ? 'SKIP' : 'OK  ';
+    if (r.skipped) skipCount++;
     process.stdout.write(`  [${tick}] ${r.name} (exit=${r.status})\n`);
   }
 
@@ -160,7 +190,15 @@ function main() {
     process.exit(firstFailure.status === null ? 1 : firstFailure.status);
   }
 
-  process.stdout.write('\nALL CONFORMANCE TESTS GREEN\n');
+  if (skipCount > 0) {
+    process.stdout.write(
+      `\nALL CONFORMANCE TESTS GREEN (${skipCount} SKIPPED — see [SKIP] rows ` +
+        'above; the live-re-frame2-pair-* gates require a running server on ' +
+        '$SHADOW_CLJS_NREPL_PORT and are not exercised by this run)\n',
+    );
+  } else {
+    process.stdout.write('\nALL CONFORMANCE TESTS GREEN\n');
+  }
   process.exit(0);
 }
 

@@ -36,6 +36,7 @@ const {
   assertClassificationRatchet,
   assertCallCoverageRatchet,
   track,
+  assertIsErrorMatchesOk,
 } = require('./_runner.cjs');
 
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
@@ -279,41 +280,13 @@ runWithWatchdog(
       },
     ];
 
-    // Universal isError <-> :ok? cross-check. The spec contract
-    // (spec/003-Tool-Catalogue.md §381) is universal: EVERY `:ok? false`
-    // structuredContent MUST carry `isError === true`, and every
-    // `:ok? true` MUST carry a falsy isError. This cross-check pins the
-    // contract for an ARBITRARY structured envelope at the SDK boundary —
-    // a single gate covering every tool, rather than tool-specific +
-    // outcome-specific checks — catching any tool that decouples its
-    // isError flag from its `:ok?` slot (the class the pair-mcp
-    // read-dom/read-ui envelope belongs to).
-    //
-    // Reads `:ok?` from the namespace-faithful structuredContent slot
-    // (`qualify-keywords` renders `:ok?` as the JS key "ok?"). Tolerates
-    // an envelope with no `:ok?` slot (a non-`:ok?`-shaped result is out
-    // of scope — there is nothing to cross-check).
-    function assertIsErrorMatchesOk(label, resp) {
-      const sc = resp.structuredContent;
-      if (sc === undefined || sc === null || typeof sc !== 'object') return;
-      if (!Object.prototype.hasOwnProperty.call(sc, 'ok?')) return;
-      const ok = sc['ok?'];
-      if (ok === false && resp.isError !== true) {
-        throw new Error(
-          label + ' carries :ok? false but isError is not true (' +
-            JSON.stringify(resp.isError) + ') — violates the universal ' +
-            'spec/003 §381 contract (every :ok? false is isError:true). ' +
-            'A failure that is not flagged isError is cache-eligible and ' +
-            'can mask a later success (rf2-87h71e / rf2-q7cavs).',
-        );
-      }
-      if (ok === true && resp.isError === true) {
-        throw new Error(
-          label + ' carries :ok? true but isError is true — a success ' +
-            'envelope must not be flagged a fault (rf2-87h71e converse).',
-        );
-      }
-    }
+    // Universal isError <-> :ok? cross-check (spec/003-Tool-Catalogue.md
+    // §381): EVERY `:ok? false` structuredContent MUST carry
+    // `isError === true`, and every `:ok? true` MUST carry a falsy
+    // isError. `assertIsErrorMatchesOk` lives in `_runner.cjs` (routed
+    // through the shared `structured()` dedup-decoder, not the raw wire
+    // `resp.structuredContent` — see its docstring there for the
+    // dedup-envelope rationale, rf2-6i2yi4 finding 1).
 
     // Call one tool and assert the shared degraded envelope. Returns the
     // SDK response so the structuredContent dual-slot check below can
