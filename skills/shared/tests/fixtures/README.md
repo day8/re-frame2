@@ -86,7 +86,7 @@ the eval machinery itself hasn't rotted.
 5. Compare the response against the fixture's §Expected behaviour
    list. Any §Anti-expectation that fires is a regression.
 
-A passing run: all six expectations of Fixture 01 fire correctly, no
+A passing run: every expectation of Fixture 01 fires correctly, no
 anti-expectation fires; same for 02 and 03's two sub-scenarios. To make
 that verdict reproducible rather than eyeball-only, capture the run as a
 transcript and score it with [`../evals/score-behavioral-eval.clj`](../evals/score-behavioral-eval.clj)
