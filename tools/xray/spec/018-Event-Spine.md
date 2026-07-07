@@ -1147,6 +1147,20 @@ The scoping + filtering happens at the data layer (`:rf.xray/filtered-event-bund
 
 The spine carries `:mode`; the L2 event list reads it for LIVE-tracking + sticky-on-older + the head-row pulse cue. (The dedicated Mode pill widget that earlier drafts placed in the ribbon was dropped — the spine cue in L2 is the only mode surface.)
 
+**Every head-aware mode selector must agree on what "head" means
+(rf2-pqt7cb).** `focus-event-bundle-reducer`'s LIVE/RETRO pivot is `(=
+dispatch-id head-id)` — so every event handler that resolves `head-id`
+before calling it must use the SAME head definition the user actually
+sees in L2. With the `show-ungrouped?` opt-in (§6 above) ON, the
+user-visible head can be the `:ungrouped` bucket itself; `head-id` MUST
+be computed via `spine/focusable-head-id`'s 2-arity (threading
+`show-ungrouped?`), never the 1-arity (which hard-codes `false`).
+`:rf.xray/focus-event` and `:rf.xray/select-dispatch-id` both resolve a
+head-id this way — a caller that dropped the flag would silently pick
+a DIFFERENT head-id than its sibling for the identical buffer, mis-
+selecting LIVE vs RETRO and (in LIVE's case) letting the spine
+auto-advance away from a selection the caller meant to pin.
+
 ---
 
 ## §7 Filter system
@@ -1450,27 +1464,47 @@ reducer so the App-db diff renders the diff body for the picked frame
 on the next render-frame, and the Views panel's `:has-event-bundle?`
 guard does not flip to `false` between picks.
 
-**Cross-frame L2-row click re-seed (rf2-q8hvw).** With the picker
-**untouched** the view scope is nil, so the L2 list spans EVERY frame's
-cascades (`matcher/filter-event-bundles-by-view-scope` is a no-op on a nil
-scope). Clicking a row for a cascade that settled in a NON-head frame
-must therefore resolve its settling epoch against THAT frame's ring —
-but `:rf.xray/epoch-history` is keyed on `:rf.xray/target-frame`, which
-is re-seeded only by the PICKER (`set-frame`) and the
-`:rf.xray/epoch-recorded` listener (which appends only when the
-recording frame IS the current target). So the two COMMITTED focus
-handlers that resolve an epoch-id from the slot —
-`:rf.xray/focus-event`, `:rf.xray/focus-epoch` — first call
-`spine/reseed-epoch-history-for-frame`, which re-keys
-`:rf.xray/target-frame` + `:rf.xray/epoch-history` onto the clicked
-cascade's frame (resolved via `rf/epoch-history`) BEFORE the epoch-id
-lookup runs. The re-seed is a no-op when the clicked frame already
-equals `:target-frame` (a same-frame click), and a no-op when the
-frame is unknown (nil). This makes the line above — "click-on-row
-picker-less navigation also rebinds" — true for a cross-frame click,
-not just a same-frame one: pre-fix the clicked cascade's epoch
-resolved to nil and the epoch-keyed panels (App-DB diff, Views'
-focused-cascade-pair, Machine Inspector) rendered empty/stale.
+**Cross-frame L2-row click re-seed (rf2-q8hvw, rf2-o1c3r).** With the
+picker **untouched** the view scope is nil, so the L2 list spans EVERY
+frame's cascades (`matcher/filter-event-bundles-by-view-scope` is a
+no-op on a nil scope). Clicking a row for a cascade that settled in a
+NON-head frame must therefore resolve its settling epoch against THAT
+frame's ring — but `:rf.xray/epoch-history` is keyed on
+`:rf.xray/target-frame`, which is re-seeded only by the PICKER
+(`set-frame`) and the `:rf.xray/epoch-recorded` listener (which
+appends only when the recording frame IS the current target). So the
+COMMITTED focus handlers that resolve an epoch-id from the slot —
+`:rf.xray/focus-event`, `:rf.xray/focus-epoch`, `:rf.xray/select-
+dispatch-id` — first call `spine/reseed-epoch-history-for-frame`,
+which re-keys `:rf.xray/target-frame` + `:rf.xray/epoch-history` onto
+the clicked cascade's frame (resolved via `rf/epoch-history`) BEFORE
+the epoch-id lookup runs. The re-seed is a no-op when the clicked
+frame already equals `:target-frame` (a same-frame click), and a
+no-op when the frame is unknown (nil). This makes the line above —
+"click-on-row picker-less navigation also rebinds" — true for a
+cross-frame click, not just a same-frame one: pre-fix the clicked
+cascade's epoch resolved to nil and the epoch-keyed panels (App-DB
+diff, Views' focused-cascade-pair, Machine Inspector) rendered
+empty/stale.
+
+**Cross-frame STEP re-seed (rf2-j5xjvt).** The `j`/`k` step handlers
+(`:rf.xray/focus-event-prev`/`-next`) walk the SAME whole-buffer,
+picker-agnostic cascade list, so a single step can land on a row that
+settled in a different frame than the current `:target-frame` — the
+step is a "picker-less navigation" exactly like a click. But the step
+handlers don't know which frame they're landing on until AFTER the
+walk resolves, whereas the click handlers already have the clicked
+row's frame from the dispatch args. `spine/step-target-frame` closes
+that gap: a pure, side-effect-free helper that runs the same
+current-position + step-target resolution `focus-step-reducer`
+performs internally, returning just the landing row's `:frame`. The
+event handler calls it FIRST, reseeds `:epoch-history` onto that frame
+via `reseed-epoch-history-for-frame` (mirroring the click handlers'
+order), THEN calls `focus-step-reducer` with the now-correct ring.
+Pre-fix, a cross-frame step resolved `:epoch-id` against whatever ring
+happened to be current — nil whenever the stepped row's frame
+disagreed with `:target-frame`, even though that frame's ring
+genuinely held the settling epoch.
 
 **`:rf.xray/preview-event` resolves WITHOUT committing the re-key
 (rf2-uo0rc.5).** A preview is a transient hover, not a commit, so it
@@ -1493,13 +1527,16 @@ Test gates: `spine_cljs_test.cljs` pins the `:target-frame` +
 `:epoch-history` writes on both arities of `set-frame-reducer`, the
 `reseed-epoch-history-for-frame` no-op / re-key cases, and the
 end-to-end cross-frame `:rf.xray/focus-event` / `:rf.xray/focus-epoch`
-resolution (multi-frame, picker untouched); the
-`app_db_diff_cljs_test.cljs` + `views_subs_cljs_test.cljs` regression
-suites pin the panel render bodies post-reseed. For the preview path
-(rf2-uo0rc.5) `spine_cljs_test.cljs` additionally pins that
-preview-clear RESTORES the committed `:dispatch-id` / `:epoch-id` (RETRO
-hover-then-leave) and that the `:rf.xray/preview-event` handler does
-NOT persist a cross-frame `:target-frame` / `:epoch-history` re-key.
+/ `:rf.xray/select-dispatch-id` resolution (multi-frame, picker
+untouched), plus the rf2-j5xjvt cross-frame STEP case (`focus-event-
+prev` landing on a different-frame row re-seeds before resolving) and
+its same-frame no-op sibling; the `app_db_diff_cljs_test.cljs` +
+`views_subs_cljs_test.cljs` regression suites pin the panel render
+bodies post-reseed. For the preview path (rf2-uo0rc.5)
+`spine_cljs_test.cljs` additionally pins that preview-clear RESTORES
+the committed `:dispatch-id` / `:epoch-id` (RETRO hover-then-leave) and
+that the `:rf.xray/preview-event` handler does NOT persist a
+cross-frame `:target-frame` / `:epoch-history` re-key.
 
 **Frame-strict cascade lookup (rf2-bz7flo).** Dispatch ids are unique
 only WITHIN a frame (Spec 002 §Frame isolation + rf2-g6ih4); the

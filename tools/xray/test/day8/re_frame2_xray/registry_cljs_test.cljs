@@ -1441,6 +1441,71 @@
       (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
       (is (nil? (:dispatch-id @(rf/subscribe [:rf.xray/focus])))))))
 
+;; ---- rf2-pqt7cb — select-dispatch-id head-id must thread show-ungrouped? --
+;;
+;; `:rf.xray/select-dispatch-id`'s head-id computation must match the
+;; sibling `:rf.xray/focus-event` handler's — both feed the same
+;; `focus-event-bundle-reducer`, whose LIVE/RETRO mode selection is
+;; `(= dispatch-id head-id)`. Pre-fix `select-dispatch-id` called
+;; `focusable-head-id` with the 1-arg form (hard-codes `show-ungrouped?
+;; false`), so with the opt-in ON it could compute a DIFFERENT head-id
+;; than `focus-event` for the identical buffer — diverging LIVE/RETRO.
+;;
+;; Repro: show-ungrouped? on, buffer [routed-a routed-b ungrouped]. The
+;; :ungrouped bucket sorts last (highest raw :id) so it's the user-
+;; visible head under the opt-in. Selecting routed-b (a non-head row)
+;; must pin RETRO on BOTH handlers.
+
+(defn- seed-buffer-with-ungrouped-head!
+  "Seed Xray's trace buffer with two routed dispatches plus one event
+  carrying NO `:rf.trace/dispatch-id` tag — `group-by-event` buckets it
+  under the synthetic `:ungrouped` id (registry-time emits / REPL evals
+  / frame lifecycle outside a drain). The ungrouped event's `:id` is
+  the highest, so it sorts last — the user-visible head once
+  `show-ungrouped?` reveals the bucket."
+  []
+  (trace-collector/seed-trace-for-test!
+    {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+     :tags {:rf.trace/dispatch-id :routed-a
+            :frame :rf/default
+            :rf.event/v [:cart/routed-a]}})
+  (trace-collector/seed-trace-for-test!
+    {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+     :tags {:rf.trace/dispatch-id :routed-b
+            :frame :rf/default
+            :rf.event/v [:cart/routed-b]}})
+  (trace-collector/seed-trace-for-test!
+    ;; No :rf.trace/dispatch-id tag → :ungrouped bucket.
+    {:id 3 :op-type :rf.event :operation :registry-time/emit
+     :tags {:frame :rf/default}}))
+
+(deftest select-dispatch-id-mode-matches-focus-event-with-show-ungrouped-rf2-pqt7cb
+  (testing "rf2-pqt7cb — with show-ungrouped? on, selecting a non-head
+            (per the full, :ungrouped-inclusive contract) row via
+            :rf.xray/select-dispatch-id must pin RETRO, matching what
+            :rf.xray/focus-event computes for the identical buffer +
+            dispatch-id. Pre-fix select-dispatch-id excluded :ungrouped
+            from its own head-id computation, so it picked :routed-b
+            itself as head and wrongly stayed LIVE — the spine would
+            then auto-advance away from the pinned selection on the
+            next trace, breaking the programmatic pin."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-update :general :show-ungrouped? true])
+      (seed-buffer-with-ungrouped-head!)
+      (rf/dispatch-sync [:rf.xray/select-dispatch-id :routed-b :rf/default])
+      (let [select-mode (:mode @(rf/subscribe [:rf.xray/focus]))]
+        (is (= :retro select-mode)
+            "select-dispatch-id must pin RETRO — :ungrouped (not
+             :routed-b) is the show-ungrouped? head")
+        ;; Parity check: focus-event on the identical dispatch-id/buffer
+        ;; must compute the SAME mode (the divergence rf2-pqt7cb named).
+        (rf/dispatch-sync [:rf.xray/clear-selected-dispatch-id])
+        (rf/dispatch-sync [:rf.xray/focus-event :routed-b :rf/default])
+        (is (= select-mode (:mode @(rf/subscribe [:rf.xray/focus])))
+            "select-dispatch-id and focus-event must agree on LIVE/
+             RETRO mode for the identical buffer + dispatch-id")))))
+
 (deftest event-select-epoch-passive-scrub
   (testing ":rf.xray/select-epoch pins the spine focus epoch (passive
             scrub) — rf2-uy7nz: the single source of truth is

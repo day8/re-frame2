@@ -183,10 +183,11 @@
   populated, and the user sees blank inputs even though the host has
   been dispatching events.
 
-  `ensure-xray-frame!` is idempotent (sentinel-guarded hooks +
-  reg-frame's surgical-update-on-re-register semantics per Spec 002
-  §reg-frame) so multiple panel mounts collapse to one seed pass +
-  zero re-registrations across shadow-cljs reloads."
+  `ensure-xray-frame!` is idempotent (a `seeded-frame-ids` run-once
+  guard on the hook fan-out per rf2-n4p5it + reg-frame's surgical-
+  update-on-re-register semantics per Spec 002 §reg-frame) so multiple
+  panel mounts collapse to one seed pass + zero re-registrations
+  across shadow-cljs reloads."
   []
   (registry/register-xray-handlers!)
   (mount/ensure-xray-frame!))

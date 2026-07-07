@@ -477,13 +477,24 @@
     ;; epoch-id nil → the epoch-keyed panels strand on an empty/stale
     ;; state. The cross-frame ring is resolved via `rf/epoch-history` at
     ;; dispatch time; the re-seed is a no-op when the frame is unchanged.
+    ;;
+    ;; rf2-pqt7cb — the head-id computation threads `show-ungrouped?`
+    ;; (the same live setting `:rf.xray/focus-event` reads via
+    ;; `db->show-ungrouped?`). Without it, `focusable-head-id`'s 1-arg
+    ;; form hard-codes `show-ungrouped? false`, so with the opt-in ON
+    ;; this handler can pick a DIFFERENT head-id than `:rf.xray/focus-
+    ;; event` does for the identical buffer — `focus-event-bundle-
+    ;; reducer`'s LIVE/RETRO mode selection (`(= dispatch-id head-id)`)
+    ;; then diverges between the two handlers for the same selected row.
     (rf/reg-event :rf.xray/select-dispatch-id
       (fn [{:keys [db]} [_ dispatch-id frame-id]]
-        {:db (let [db       (spine/reseed-epoch-history-for-frame
-                         db frame-id (rf/epoch-history frame-id))
-              history  (get db :epoch-history [])
-              epoch-id (spine/epoch-id-for-event-bundle history dispatch-id)
-              head-id  (spine/focusable-head-id (spine/db->event-bundles db))]
+        {:db (let [db              (spine/reseed-epoch-history-for-frame
+                                 db frame-id (rf/epoch-history frame-id))
+              history         (get db :epoch-history [])
+              epoch-id        (spine/epoch-id-for-event-bundle history dispatch-id)
+              show-ungrouped? (spine/db->show-ungrouped? db)
+              head-id         (spine/focusable-head-id (spine/db->event-bundles db)
+                                                        show-ungrouped?)]
           (spine/focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
     ;; Programmatic clear of the focused event-bundle. Resets the spine

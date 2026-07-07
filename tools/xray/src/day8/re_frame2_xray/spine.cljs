@@ -584,6 +584,52 @@
                           :previewing? false)
        frame-id   (assoc-in [:focus :frame] frame-id)))))
 
+(defn step-target-frame
+  "Pure helper: resolve the `:frame` a spine step (`:rf.xray/focus-
+  event-prev` / `-next`, `delta` -1/+1) would land on, WITHOUT
+  resolving `:epoch-id` or writing to db. Mirrors the current-position
+  + step-target resolution `focus-step-reducer` performs internally
+  (`compose-focus` for the current row, `step-event-bundle` for the
+  stepped row) so the two stay in lockstep.
+
+  ## rf2-j5xjvt — reseed-before-resolve for the step path
+
+  The click handlers (`:rf.xray/focus-event`, `:rf.xray/select-
+  dispatch-id`, `:rf.xray/focus-epoch`) all call `reseed-epoch-
+  history-for-frame` for the clicked row's frame BEFORE resolving its
+  settling `:epoch-id`, because `:epoch-history` is a SINGLE per-frame
+  ring keyed on `:target-frame` (rf2-q8hvw). The step handlers
+  (`focus-event-prev` / `-next`) didn't have an equivalent — they
+  don't know which frame the step lands on until AFTER `focus-step-
+  reducer`'s internal walk runs, by which point the reducer has
+  already tried to resolve `:epoch-id` against whatever ring the
+  caller happened to pass in. A stepped row landing in a frame other
+  than the current `:target-frame` therefore resolved `:epoch-id` to
+  nil even though that frame's ring genuinely holds a settling epoch
+  for it.
+
+  This helper lets the event handler learn the target frame FIRST (a
+  pure, side-effect-free query) so it can reseed `:epoch-history` for
+  that frame — exactly as the click handlers do — before calling
+  `focus-step-reducer`, which then resolves `:epoch-id` against the
+  now-correct ring. Returns nil when there is no row to step to
+  (empty `event-bundles`); the caller's reseed is then a no-op via
+  `reseed-epoch-history-for-frame`'s own nil-frame branch, and
+  `focus-step-reducer` itself performs the real boundary no-op check.
+
+  Pure data; JVM-runnable."
+  [db event-bundles delta show-ungrouped?]
+  (let [slot-frame    (get-in db [:focus :frame])
+        focusable*    (focusable-event-bundles event-bundles show-ungrouped?)
+        focusable     (if slot-frame
+                        (filterv #(= slot-frame (:frame %)) focusable*)
+                        focusable*)
+        current       (compose-focus (get db :focus) event-bundles show-ungrouped?)
+        current-id    (:dispatch-id current)
+        current-frame (:frame current)
+        stepped       (step-event-bundle focusable current-frame current-id delta)]
+    (:frame stepped)))
+
 (defn focus-step-reducer
   "Pure reducer for `:rf.xray/focus-event-prev` / `-next`. Steps
   the `:dispatch-id` through the event-bundle vector by `delta` (-1 or
@@ -613,7 +659,21 @@
   resolves to nil. Production callers in `install!` go through the
   4-arg arity. rf2-r9lyy — the 5-arg arity threads
   `show-ungrouped?` so the step walk includes the `:ungrouped`
-  bucket when the user has opted in."
+  bucket when the user has opted in.
+
+  ## rf2-j5xjvt — caller reseeds `:epoch-history` before calling this
+
+  This reducer resolves `:epoch-id` against WHATEVER `epoch-history`
+  the caller passes in — it does not itself know or re-key the ring.
+  Production callers (`:rf.xray/focus-event-prev` / `-next` in
+  `install!`) call `step-target-frame` first to learn which frame the
+  step lands on, reseed `:epoch-history` onto that frame via
+  `reseed-epoch-history-for-frame`, THEN call this reducer with the
+  reseeded ring — mirroring the reseed-before-resolve order the click
+  handlers (`:rf.xray/focus-event`, `:rf.xray/select-dispatch-id`)
+  already follow. Without that reseed, a step landing in a frame other
+  than the current `:target-frame` resolves `:epoch-id` to nil even
+  when the target frame's ring holds a genuine settling epoch."
   ([db event-bundles delta]
    (focus-step-reducer db event-bundles [] delta false))
   ([db event-bundles epoch-history delta]
@@ -1025,15 +1085,31 @@
             epoch-id       (epoch-id-for-event-bundle (db->epoch-history db) dispatch-id)]
         (focus-event-bundle-reducer db dispatch-id frame-id epoch-id head-id))}))
 
+  ;; rf2-j5xjvt — a step landing in a frame other than the current
+  ;; `:target-frame` must reseed `:epoch-history` onto THAT frame
+  ;; before `focus-step-reducer` resolves `:epoch-id`, exactly as the
+  ;; click handlers reseed before resolving (rf2-q8hvw). `step-target-
+  ;; frame` learns the landing frame first (a pure query); the reseed
+  ;; is then a no-op when the step stays within the current frame.
   (rf/reg-event :rf.xray/focus-event-prev
     (fn [{:keys [db]} _event]
-      {:db (focus-step-reducer db (db->event-bundles db) (db->epoch-history db) -1
-                          (db->show-ungrouped? db))}))
+      (let [event-bundles   (db->event-bundles db)
+            show-ungrouped? (db->show-ungrouped? db)
+            target-frame    (step-target-frame db event-bundles -1 show-ungrouped?)
+            db              (reseed-epoch-history-for-frame
+                              db target-frame (rf/epoch-history target-frame))]
+        {:db (focus-step-reducer db event-bundles (db->epoch-history db) -1
+                            show-ungrouped?)})))
 
   (rf/reg-event :rf.xray/focus-event-next
     (fn [{:keys [db]} _event]
-      {:db (focus-step-reducer db (db->event-bundles db) (db->epoch-history db) +1
-                          (db->show-ungrouped? db))}))
+      (let [event-bundles   (db->event-bundles db)
+            show-ungrouped? (db->show-ungrouped? db)
+            target-frame    (step-target-frame db event-bundles +1 show-ungrouped?)
+            db              (reseed-epoch-history-for-frame
+                              db target-frame (rf/epoch-history target-frame))]
+        {:db (focus-step-reducer db event-bundles (db->epoch-history db) +1
+                            show-ungrouped?)})))
 
   (rf/reg-event :rf.xray/focus-epoch
     ;; Per rf2-5qp4g — focus the spine by epoch-id (the primary key
