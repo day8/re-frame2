@@ -281,8 +281,10 @@
 (def SubstrateSet
   "Subset of the recognised substrate ids. The framework supplies the
   closed set; Story validates membership. `:reagent-slim` is reserved
-  for future use — it is not yet on the canonical substrate enum (the
-  renderer hasn't shipped). See spec/000-Vision."
+  for addition at reagent-slim GA / first published artefact — the
+  same trigger that gates Story's own UI-shell migration (see
+  spec/Principles.md §Reagent for the v1 UI shell). Not yet on the
+  canonical substrate enum. See spec/000-Vision."
   [:set [:enum :reagent :uix :helix]])
 
 (def PlatformSet

@@ -137,6 +137,21 @@
       (is (= 1 (count (unknown-opt-warnings recorded)))
           "build-envelope is the single chokepoint — both dispatch paths funnel through it"))))
 
+(deftest no-warning-for-initial-events-step-index
+  (testing ":initial-events setup dispatches carry :step-index (a build-envelope-read internal opt) — no false unknown-opt warning"
+    (rf/reg-event :seed/set (fn [{:keys [db]} [_ v]] {:db (assoc db :seed v)}))
+    (let [recorded (record-traces! ::init-step)]
+      ;; `reg-frame` with `:initial-events` runs each setup step through
+      ;; `frame.cljc`'s `run-setup-events!`, which stamps `:step-index` into the
+      ;; dispatch opts. `build-envelope` READS `:step-index` (carrying it onto
+      ;; the dispatched trace as `:rf.frame/init-step-index`), so the key belongs
+      ;; in `known-dispatch-opts` and must NOT trip the unknown-dispatch-opt
+      ;; warning. Before the fix, each of the two setup steps emitted one false
+      ;; `:silently ignored` warning.
+      (rf/reg-frame :seeded/frame {:initial-events [[:seed/set 1] [:seed/set 2]]})
+      (is (empty? (unknown-opt-warnings recorded))
+          ":step-index is an honoured build-envelope opt, not an unknown key"))))
+
 (deftest known-set-matches-build-envelope-reads
   (testing "the published known-opts set documents exactly the keys build-envelope honours"
     ;; A guard against drift: if build-envelope grows/drops an opt the
@@ -150,5 +165,5 @@
     ;; so build-envelope no longer reads a realm dimension.)
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
              :source-detail :origin :rf.cofx :rf.cofx/mint-policy
-             :rf.trace/call-site :rf.machine/internal?}
+             :rf.trace/call-site :rf.machine/internal? :step-index}
            diag/known-dispatch-opts))))

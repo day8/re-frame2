@@ -293,9 +293,20 @@
         (set! (.-cljsRenderFn c) inner)
         (apply inner args))
 
-      ;; Compile-time-tagged Form-1: skip the classification cond.
+      ;; Compile-time-tagged Form-1: skip the full classification cond, but keep
+      ;; the runtime fn? fallback. `classify-form-body` tags a body Form-1
+      ;; whenever its LAST form is not a literal `(fn …)` — which includes the
+      ;; idiomatic stateful Form-2 shape `(let [s (r/atom 0)] (fn [] …))` (last
+      ;; form is a `let`). Such a body returns the inner render CLOSURE, so
+      ;; without this fn? check `wrap-render` would return a function as hiccup
+      ;; and React errors ("Functions are not valid as a React child"). Treat a
+      ;; returned fn as Form-2 — cache and recall — exactly as the :else path.
       (= :reagent2/form-1 (form-tag render-fn))
-      (apply render-fn args)
+      (let [out (apply render-fn args)]
+        (if (fn? out)
+          (do (set! (.-cljsRenderFn c) out)
+              (apply out args))
+          out))
 
       :else
       (let [out (apply render-fn args)]

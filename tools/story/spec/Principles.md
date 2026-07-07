@@ -84,7 +84,11 @@ short version is:
 - Reagent is stable; reagent-slim is still landing.
 - Dogfood-neutrality — the UI exercises the same primitives stories
   exercise.
-- Cheap to revisit at Stage 8 once reagent-slim hits GA.
+- Cheap to revisit at Stage 8 once reagent-slim hits GA / first
+  published artefact — the same trigger gating the Story
+  substrate-enum addition (see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
+  §inline-substrate-failures) and the template's fourth substrate
+  choice.
 
 ## re-com-scoped surface
 
@@ -114,16 +118,24 @@ the convention from `tools/machines-viz/` vs.
 
 ## Embed, don't reimplement
 
-For the epoch panel (Xray — the structural successor to
-re-frame-10x, per
+For the epoch panel and the chart visualisation alike (Xray — the
+structural successor to re-frame-10x, per
 [`tools/xray/spec/DESIGN-RATIONALE.md`](../../xray/spec/DESIGN-RATIONALE.md)
-Lock #1), the chart visualisation (machines-viz, future), and any
-other peer artefact: **embed via `reg-story-panel`; don't
-reimplement.** The [`003-Render-Shell.md`](003-Render-Shell.md)
-§Panel registration contract — five rules — is the embed protocol.
+Lock #1) and any other peer artefact: **embed, don't reimplement.**
+The canonical Story-Xray mount surface is the per-panel embed — Story
+hosts one `panels/mount-<panel>!` fn at a time per
+[`003-Render-Shell.md`](003-Render-Shell.md) §Mount lifecycle
+(rf2-v1ach); the `[Machines]` chip mounts
+`panels/mount-machine-inspector!`, which is how machines-viz's
+`MachineChart` reaches Story — there is no separate Story-side
+machines-viz panel or `reg-story-panel` adapter for it. Stage-6
+author-registered panels (a11y, schema-validation, layout-debug) use
+`reg-story-panel` itself per §Panel registration contract — five
+rules — the embed protocol for chrome that isn't Xray.
 
-This keeps the maintenance surface bounded: Xray's UX evolves in
-Xray, not in Story; machines-viz evolves in its own jar.
+This keeps the maintenance surface bounded: Xray's UX (and the
+machine chart it embeds) evolves in Xray / machines-viz, not in
+Story.
 
 ## Record, don't throw
 

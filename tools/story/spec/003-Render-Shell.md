@@ -36,7 +36,10 @@ dispatch console, etc.) renders using **Reagent** at v1, sourced from
   self-hosting bias.
 - **reagent-slim is still landing.** The slim rewrite is in active
   implementation. Story should not block on it; once reagent-slim is
-  GA Story can migrate (Stage 8 may revisit).
+  GA / first published artefact Story can migrate (Stage 8 may
+  revisit) — the same trigger gating the substrate-enum addition (see
+  [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures)
+  and the template's fourth substrate choice.
 - **The UI shell is itself one app's worth of views; substrate
   switches are cheap if done early.** Reagent's API surface is the
   most well-trodden; reducing risk during the initial Stage 4

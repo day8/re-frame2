@@ -305,10 +305,14 @@
              {:resource-id resource-id})))
   ;; `:poll-interval-ms` is OPTIONAL (EP-0020 §Polling). When present it MUST
   ;; be a number of milliseconds — a non-positive / absent value means NO
-  ;; polling (the disarm rule `timers/schedule!` already applies to a
-  ;; non-positive stale/GC delay), parallel to `:stale-after-ms` /
-  ;; `:gc-after-ms`. A non-numeric value (a string, keyword, etc.) is a typo
-  ;; in a freshness-policy key — fail-closed loudly at the authoring boundary
+  ;; polling (the disarm rule `timers/schedule!` applies to a non-positive
+  ;; delay), parallel to `:stale-after-ms` (still infinite-by-default,
+  ;; Spec 016 §Freshness clock contract). `:gc-after-ms` is NO LONGER
+  ;; parallel here (rf2-bbpu11): absent now normalizes to a finite default
+  ;; and any other non-positive/non-`:never` value is a loud registration
+  ;; error — see `normalize-gc-after-ms` below. A non-numeric
+  ;; `:poll-interval-ms` (a string, keyword, etc.) is a typo in a
+  ;; freshness-policy key — fail-closed loudly at the authoring boundary
   ;; rather than silently never poll.
   (when (and (contains? spec :poll-interval-ms)
              (some? (:poll-interval-ms spec))
@@ -347,6 +351,69 @@
                   "`:rf/path` vectors (e.g. {:sensitive [[:data :ssn]]}).")
              {:resource-id resource-id :axis axis :value (get spec axis)})))
   nil)
+
+;; ---- :gc-after-ms normalization (rf2-bbpu11 Option A) --------------------
+
+(def default-gc-after-ms
+  "The framework default for an ABSENT `:gc-after-ms` policy (rf2-bbpu11
+  Option A, ruled 2026-07-07): 300000ms (5 minutes). An owner-free cache
+  entry is the memory half of the same leak-boundary story `:scope` polices
+  on the identity half; leaving retention unbounded-by-default was the
+  defect (Run-2 design review, long-run-ops finding 3) — the corpus's own
+  revealed preference is a unanimous ~300000 in every in-tree registration,
+  and it matches TanStack Query's finite `gcTime` default (`:stale-after-ms`
+  deliberately keeps its own infinite default — see Spec 016 §Freshness
+  clock contract; the two knobs are philosophically distinct). Per Spec 016
+  §Resource registration spec / §Stale and GC scheduling."
+  300000)
+
+(defn- normalize-gc-after-ms
+  "Normalize a `reg-resource` spec's `:gc-after-ms` declaration AT
+  REGISTRATION (rf2-bbpu11 Option A) so every other reader (the trace
+  emitted below, `registry/resource-meta`, the raw `positive-or-nil` read
+  sites in events.cljc / timers.cljc / mutation_events.cljc) sees one of
+  exactly three normalized shapes, never today's silent 'any non-number
+  becomes nil':
+
+    - ABSENT (the key is not in `spec`) -> `default-gc-after-ms` (300000ms) —
+      an owner-free entry now GCs by default instead of lingering forever.
+    - `:never` -> itself, unchanged. The EXPLICIT, auditable, greppable
+      opt-out for intentional unowned-entry pinning. `positive-or-nil`
+      already treats any non-number as 'arms no timer', so `:never` disarms
+      GC through the SAME mechanism an accidental bad value would have —
+      the difference is auditability: the stored spec (and the
+      `:rf.resource/registered` trace) now shows the caller's INTENT, not
+      an indistinguishable nil.
+    - a positive number -> itself, the caller's explicit policy, unchanged.
+
+  Anything else — an explicit `nil`, zero, a negative number, a string, any
+  keyword other than `:never` — is a typo in a freshness-policy key and
+  fails loudly (`:rf.error/resource-bad-spec`) rather than silently
+  reproducing the old infinite-by-default behaviour this bead closes.
+  Mirrors the `:poll-interval-ms` typo guard above, but stricter: GC's
+  silent-open failure mode (an unrecorded unbounded cache) is exactly the
+  defect being fixed, so an ambiguous value is never treated as an implicit
+  opt-out. Per Spec 016 §Resource registration spec."
+  [resource-id spec]
+  (let [present? (contains? spec :gc-after-ms)
+        v        (:gc-after-ms spec)]
+    (cond
+      (not present?)             default-gc-after-ms
+      (= v :never)               :never
+      (and (number? v) (pos? v)) v
+      :else
+      (throw (registration-error
+               :rf.error/resource-bad-spec
+               'rf/reg-resource
+               (str "resource " resource-id " declares a :gc-after-ms that is "
+                    "neither absent, :never, nor a positive number of "
+                    "milliseconds (got " (pr-str v) "). Absent defaults to "
+                    default-gc-after-ms "ms (5min, rf2-bbpu11); :never is the "
+                    "explicit, auditable opt-out for intentional "
+                    "unowned-entry pinning; otherwise declare a positive "
+                    "number of milliseconds. Per Spec 016 §Resource "
+                    "registration spec.")
+               {:resource-id resource-id :gc-after-ms v})))))
 
 ;; ---- reg-resource / clear-resource ---------------------------------------
 
@@ -414,7 +481,16 @@
                   "Move the fetch fn out of the metadata map into the value "
                   "slot.")
              {:resource-id resource-id :value (:request metadata)})))
-  (let [resource-spec (assoc metadata :request request-fn)]
+  (let [resource-spec (-> metadata
+                          (assoc :request request-fn)
+                          ;; rf2-bbpu11 — normalize :gc-after-ms BEFORE
+                          ;; validation/storage so every downstream reader
+                          ;; (the trace below, `resource-meta`, the raw
+                          ;; `positive-or-nil` read sites) sees the
+                          ;; normalized absent->300000 / :never / positive-
+                          ;; number shape, never a raw absent/typo value.
+                          (assoc :gc-after-ms
+                                 (normalize-gc-after-ms resource-id metadata)))]
   (validate-resource-spec! resource-id resource-spec)
   (let [previous (registrar/lookup resource-kind resource-id)]
     (registrar/register!
