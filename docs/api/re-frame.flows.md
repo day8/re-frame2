@@ -13,7 +13,7 @@ Outputs are always written to `app-db`.
 (:require [re-frame.flows :as flows])
 ```
 
-See [Flows: derived values your handlers can read](../core/concepts/flows.md) for the conceptual companion.
+See [Flows: derived values your handlers can read](../core/flows.md) for the conceptual companion.
 
 > **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). `clear-flow`, the introspection accessors, and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
 
