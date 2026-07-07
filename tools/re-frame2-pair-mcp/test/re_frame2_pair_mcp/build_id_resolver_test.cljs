@@ -77,6 +77,21 @@
          (probe/match-running-build :typo [:examples/machine-epochs]))
       "no match returns the requested id so the diagnostic ladder fires"))
 
+(deftest match-running-build-namespaced-request-never-redirected
+  ;; The suffix rule (rule 2) is documented as applying ONLY to a BARE
+  ;; (no-namespace) requested id. A fully-namespaced request that doesn't
+  ;; exactly match must fall through UNCHANGED — never redirected by
+  ;; bare-name suffix match to a same-named build in a different
+  ;; namespace, even when that other build is the sole suffix match.
+  (is (= :examples/step-deck
+         (probe/match-running-build :examples/step-deck [:other/step-deck]))
+      "a namespaced request with no exact match falls through unchanged, NOT redirected to :other/step-deck")
+  ;; The bare-name suffix-match behaviour keeps working for a genuinely
+  ;; bare request against the very same running set.
+  (is (= :other/step-deck
+         (probe/match-running-build :step-deck [:other/step-deck]))
+      "a genuinely bare request still suffix-matches the unique running build"))
+
 ;; ---------------------------------------------------------------------------
 ;; canonicalize-build! — the async resolver + alias caching.
 ;; ---------------------------------------------------------------------------
