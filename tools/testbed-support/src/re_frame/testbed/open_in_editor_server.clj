@@ -194,6 +194,21 @@
        "process.stderr.write('launch-editor: '+(msg||'no editor found')+'\\n');"
        "process.exit(1);});"))
 
+(defn ^:private build-file-spec
+  "Build the `<abs-path>[:<line>][:<column>]` argv token `launch-editor`
+  parses itself. `line` and `column` are appended INDEPENDENTLY of one
+  another — a request carrying `column` with no `line` still appends the
+  column, consistent with the client (`open-endpoint/build-url` sends
+  `&line=`/`&column=` via independent `cond->` clauses) and the
+  `editor://` URI composer (`editor-uri.cljc` defaults each of
+  `coord-line`/`coord-column` independently). Nesting `column` inside
+  `(when line ...)` (the prior shape here) silently dropped a
+  column-without-line request."
+  [abs-path line column]
+  (cond-> abs-path
+    line   (str ":" line)
+    column (str ":" column)))
+
 (defn launch!
   "Shell out to node + launch-editor for `abs-path` at `line`/`column`,
   with an optional launch-editor `command` hint. Returns a map
@@ -203,9 +218,7 @@
   `{:ok false :message …}` so the endpoint can answer cleanly and the
   client falls back to the editor:// URI."
   [abs-path line column command]
-  (let [file-spec (str abs-path
-                       (when line (str ":" line
-                                       (when column (str ":" column)))))
+  (let [file-spec (build-file-spec abs-path line column)
         args (cond-> ["node" "-e" launch-shim file-spec]
                command (conj command))]
     (try
@@ -361,6 +374,34 @@
       origin
       "null")))
 
+(defn ^:private escape-json-string
+  "Escape `s` for embedding in a JSON string literal: backslash and
+  double-quote, plus `\\n`/`\\r`/`\\t` and every other C0 control
+  character (`U+0000`-`U+001F`) as `\\uXXXX`. Single-pass (each char
+  handled once) so there is no double-escaping ordering hazard between
+  the backslash/quote rules.
+
+  Load-bearing: the 200 response echoes the url-decoded `:file` verbatim
+  and the 422 response echoes trimmed `node` stderr (which can be a
+  multi-line stack trace), so a `file=...%0A...` request or a multi-line
+  launch failure message can carry a raw control character. Escaping only
+  backslash/doublequote (the prior behaviour) let such a value emit a
+  literal newline/tab/CR into the body — syntactically INVALID JSON
+  despite the `application/json` header."
+  [^String s]
+  (let [sb (StringBuilder. (.length s))]
+    (doseq [c s]
+      (case c
+        \\        (.append sb "\\\\")
+        \"        (.append sb "\\\"")
+        \newline  (.append sb "\\n")
+        \return   (.append sb "\\r")
+        \tab      (.append sb "\\t")
+        (if (< (int c) 0x20)
+          (.append sb (format "\\u%04x" (int c)))
+          (.append sb c))))
+    (.toString sb)))
+
 (defn ^:private json-resp
   [status allow-origin-val m]
   {:status  status
@@ -380,9 +421,7 @@
                                     (boolean? v) (str v)
                                     (number? v)  (str v)
                                     (nil? v)     "null"
-                                    :else (str "\"" (-> (str v)
-                                                        (str/replace "\\" "\\\\")
-                                                        (str/replace "\"" "\\\"")) "\"")))))
+                                    :else (str "\"" (escape-json-string (str v)) "\"")))))
                  "}")})
 
 ;; ---- the Ring handler ----------------------------------------------------

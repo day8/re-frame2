@@ -16,6 +16,7 @@
   decoding `%20` / `%2B`."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [re-frame.testbed.open-in-editor-server :as oies])
   (:import [java.net URL URLClassLoader]
            [java.io File]))
@@ -304,3 +305,139 @@
     (is (nil? (#'oies/origin-host "null")))
     (is (nil? (#'oies/origin-host nil)))
     (is (nil? (#'oies/origin-host "")))))
+
+;; ---- json-resp: control-char escaping (rf2-2loouf finding 5) -------------
+;;
+;; The hand-rolled encoder previously escaped only `\` and `"`. Both the
+;; 200 response (echoes the url-decoded `:file` verbatim) and the 422
+;; response (echoes trimmed `node` stderr, which can be a multi-line stack
+;; trace) can carry a raw control character — a `file=...%0A...` request or
+;; a multi-line launch-failure message. A real JSON reader (`clojure.edn`
+;; cannot parse JSON, so this test hand-rolls a minimal JSON-string reader
+;; over the escaped body) must round-trip the exact original value.
+
+(defn ^:private read-json-string-literal
+  "Minimal JSON-string-literal reader: given `s` positioned so `s`'s first
+  char is the opening `\"`, decode the escaped literal and return
+  `[decoded-value chars-consumed]`. Only used to independently verify
+  `json-resp`'s output is valid JSON (no reliance on the encoder under
+  test, or on a JSON library dependency this JVM-only tool artefact does
+  not otherwise carry)."
+  [^String s]
+  (let [n (.length s)]
+    (loop [i (inc 0) sb (StringBuilder.)]
+      (when (>= i n)
+        (throw (ex-info "unterminated JSON string" {:s s})))
+      (let [c (.charAt s i)]
+        (cond
+          (= c \") [(.toString sb) (inc i)]
+          (= c \\) (let [e (.charAt s (inc i))]
+                     (case e
+                       \" (recur (+ i 2) (.append sb \"))
+                       \\ (recur (+ i 2) (.append sb \\))
+                       \n (recur (+ i 2) (.append sb \newline))
+                       \r (recur (+ i 2) (.append sb \return))
+                       \t (recur (+ i 2) (.append sb \tab))
+                       \u (let [hex (.substring s (+ i 2) (+ i 6))]
+                            (recur (+ i 6)
+                                   (.append sb (char (Integer/parseInt hex 16)))))
+                       (throw (ex-info "bad escape" {:esc e}))))
+          :else (recur (inc i) (.append sb c)))))))
+
+(defn ^:private json-body->file-value
+  "Pull the decoded `\"file\"` string value out of a `json-resp` body by
+  locating the `\"file\":\"` key and decoding the quoted literal that
+  follows with `read-json-string-literal`. Throws if the body around it is
+  not well-formed JSON (a bare unescaped control char inside the literal
+  makes this parse fail exactly as a real JSON.parse would)."
+  [^String body key-prefix]
+  (let [idx (.indexOf body ^String key-prefix)]
+    (when (neg? idx)
+      (throw (ex-info "key not found in body" {:body body :key key-prefix})))
+    (first (read-json-string-literal (.substring body (+ idx (.length key-prefix) -1))))))
+
+(deftest json-resp-escapes-embedded-control-chars
+  (testing "a 200 response whose `:file` carries a raw newline (as a
+            url-decoded `file=...%0A...` request would produce) is escaped
+            to a `\\n` sequence, not a literal newline byte — the body
+            parses as valid JSON and round-trips the original value"
+    (let [calls (atom [])
+          file  "day8/re_frame2_xray/core.cljs\ninjected-line\ttabbed"]
+      (with-launch-spy calls
+        (with-redefs [oies/resolve-file (constantly file)]
+          (let [resp (oies/handle
+                       (req {:method :post
+                             :host   "localhost:8031"
+                             :origin nil
+                             :file   "day8%2Fre_frame2_xray%2Fcore.cljs%0Ainjected-line%09tabbed"}))]
+            (is (= 200 (:status resp)))
+            (is (not (str/includes? (:body resp) "\n"))
+                "no raw newline byte reaches the wire — it must be escaped")
+            (is (not (str/includes? (:body resp) "\t"))
+                "no raw tab byte reaches the wire — it must be escaped")
+            (is (= file (json-body->file-value (:body resp) "\"file\":\""))
+                "the escaped value round-trips to the exact original string
+                 through a real JSON-string decode"))))))
+  (testing "a 422 response whose launch error carries a raw CR + control
+            char (as a multi-line node stderr trace would) is likewise
+            valid, round-tripping JSON"
+    (let [calls (atom [])
+          msg   (str "launch-editor: boom\r\nat frame " (char 0x01) "end")]
+      (with-redefs [oies/launch! (fn [& args#]
+                                   (swap! calls conj (vec args#))
+                                   {:ok false :message msg})]
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :origin nil
+                           :file   "fake_ns/core.cljs"}))]
+          (is (= 422 (:status resp)))
+          (is (not (str/includes? (:body resp) "\r")))
+          (is (= msg (json-body->file-value (:body resp) "\"error\":\"")))))))
+  (testing "the plain ASCII fast path is unaffected — no spurious escaping"
+    (is (= "\"plain/path.cljs\""
+           (str "\"" (#'oies/escape-json-string "plain/path.cljs") "\"")))))
+
+;; ---- launch!: column-without-line (rf2-2loouf finding 6) -----------------
+;;
+;; `column` used to be nested inside `(when line ...)`, so a request
+;; carrying `column` with no `line` silently dropped the column instead of
+;; appending it — inconsistent with the client (`open-endpoint/build-url`
+;; appends `line`/`column` via independent `cond->` clauses) and the
+;; `editor://` URI composer (`editor-uri.cljc` defaults each independently).
+;; `build-file-spec` is the extracted unit under test — the pure argv-token
+;; builder `launch!` delegates to before shelling out to `node`.
+
+(deftest build-file-spec-appends-column-without-line
+  (testing "column with no line is still appended (not silently dropped)"
+    (is (= "/abs/core.cljs:7" (#'oies/build-file-spec "/abs/core.cljs" nil 7))
+        "the prior `(when line ...)` nesting dropped column here"))
+  (testing "line with no column is unaffected (baseline)"
+    (is (= "/abs/core.cljs:3" (#'oies/build-file-spec "/abs/core.cljs" 3 nil))))
+  (testing "both line and column present"
+    (is (= "/abs/core.cljs:3:7" (#'oies/build-file-spec "/abs/core.cljs" 3 7))))
+  (testing "neither present: bare path"
+    (is (= "/abs/core.cljs" (#'oies/build-file-spec "/abs/core.cljs" nil nil)))))
+
+(deftest launch-passes-column-without-line-through-to-file-spec
+  (testing "end-to-end through the endpoint: a request with `column` and no
+            `line` reaches `launch!` with `line` nil / `column` 7 — parsing
+            never drops it — and folding those exact values through
+            `build-file-spec` (the function `launch!` delegates to) yields
+            the column-bearing spec, not a bare path"
+    (let [calls (atom [])]
+      (with-redefs [oies/launch! (fn [& args] (swap! calls conj (vec args))
+                                   {:ok true})]
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=fake_ns/core.cljs&column=7"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 200 (:status resp)))
+          (is (= 1 (count @calls)))
+          (let [[abs-path line column _cmd] (first @calls)]
+            (is (nil? line) "no line param was sent")
+            (is (= 7 column) "column parsed through, not dropped upstream")
+            (is (= (str abs-path ":7") (#'oies/build-file-spec abs-path line column))
+                "build-file-spec appends the column even with line nil —
+                 the finding-6 regression, now fixed")))))))
