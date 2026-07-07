@@ -103,7 +103,16 @@
             ;; the framework `egress-value` walker on top. Decoupled from
             ;; the optional resources artefact (reads via the registrar +
             ;; runtime-db slice; Xray never :requires re-frame.resources).
-            [day8.re-frame2-xray.panels.resources-helpers :as resources-helpers]))
+            [day8.re-frame2-xray.panels.resources-helpers :as resources-helpers]
+            ;; rf2-ku6j74: `get-handlers`' unnarrowed sweep must walk the
+            ;; framework's own closed kind-set, not a hand-maintained
+            ;; shadow list that drifted from it. `re-frame.registrar` is the
+            ;; same core artefact `re-frame.core` already pulls in, so
+            ;; requiring it directly here (rather than duplicating its
+            ;; kinds) is bundle-isolation-safe — mirrors the established
+            ;; `tools/story` pattern of reading `re-frame.registrar/kinds`
+            ;; straight off the framework.
+            [re-frame.registrar :as registrar]))
 
 ;; ---------------------------------------------------------------------------
 ;; Session sentinel
@@ -1238,8 +1247,12 @@
 (defn get-issues
   "Tool: `get-issues`. Recent errors / warnings / schema violations /
   hydration mismatches — projection over the trace buffer filtered to
-  the issue-tier `:op-type`s (`:error`, `:warning`,
-  `:rf.schema/violation`, `:rf.hydration/mismatch`).
+  the issue-tier `:op-type`s (`:error`, `:warning`). Per Spec 009's
+  `:op-type` vocabulary those two severity values are how EVERY issue
+  surfaces on the wire — schema violations and hydration mismatches
+  ride `:op-type :warning`/`:error` with their own identity carried in
+  `:operation` (`:rf.schema/violation`, `:rf.ssr/hydration-mismatch`),
+  never as a bare `:op-type` value (rf2-wd1pgb).
 
   Per rf2-g1b2m / rf2-8uwce trace rings are per-frame; iterate every
   registered frame and merge — issues fired across multiple frames
@@ -1259,9 +1272,12 @@
   ([] (get-issues {}))
   ([opts]
    (let [{:keys [include-sensitive? include-large?]} opts
-         issue-op-types #{:error :warning
-                          :rf.schema/violation
-                          :rf.hydration/mismatch}
+         ;; rf2-wd1pgb: `:op-type` is Spec 009's small closed severity/kind
+         ;; vocabulary — schema violations and hydration mismatches are
+         ;; never its VALUE (they ride under `:operation` instead), so
+         ;; including them here was dead weight that could never match.
+         ;; The issue tier is exactly the two severity op-types.
+         issue-op-types #{:error :warning}
          ;; Per-frame ring: merge across frames so cross-frame issues
          ;; (e.g. an error landing in :stories while :rf/default is
          ;; the operating frame) still surface here.
@@ -1287,9 +1303,16 @@
 (def ^:private registrar-kinds
   "The canonical registrar kinds the framework's `registrar/valid-kind?`
   recognises. Used by `get-handlers` when the caller doesn't narrow via
-  `:kind` — we walk each one with `rf/registrations`. Centralised so a
-  new kind landing in Spec 002 is one edit here."
-  [:event :sub :fx :cofx :machine :flow :reg-machine :frame :view])
+  `:kind` — we walk each one with `rf/registrations`. Derived straight
+  from `re-frame.registrar/kinds` (the framework's own closed set:
+  `:event` `:sub` `:fx` `:cofx` `:interceptor` `:view` `:frame` `:route`
+  `:head` `:error-projector` `:flow` `:resource` `:mutation`
+  `:resource-scope`) rather than a hand-duplicated literal, so a new
+  kind landing in `re-frame.registrar` can never drift out of the
+  unnarrowed sweep. `:machine`/`:reg-machine` are DELIBERATELY absent —
+  machines are not a registrar kind (`get-machine-list` surfaces those,
+  reading `re-frame.machines`, not the registrar)."
+  (vec registrar/kinds))
 
 (defn get-handlers
   "Tool: `get-handlers`. Registered handlers' metadata — routes
@@ -1315,7 +1338,10 @@
 
   Returns `{:ok? true :handlers <vec> :count <n>}`. Optional `:kind`
   arg narrows to a single registrar kind (`:event`, `:sub`, `:fx`,
-  `:cofx`, `:machine`, `:flow`, `:frame`, `:view`, `:reg-machine`).
+  `:cofx`, `:interceptor`, `:view`, `:frame`, `:route`, `:head`,
+  `:error-projector`, `:flow`, `:resource`, `:mutation`,
+  `:resource-scope` — the framework's closed `re-frame.registrar/kinds`
+  set; machines are NOT a registrar kind, see `get-machine-list`).
   Optional `:frame` picks the frame whose classification applies."
   ([] (get-handlers {}))
   ([{:keys [kind include-sensitive? include-large? frame] :as _opts}]

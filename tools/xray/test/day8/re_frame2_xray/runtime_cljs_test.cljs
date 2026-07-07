@@ -693,6 +693,31 @@
       (is (= (inc (:count default)) (:count opted))
           "exactly the suppressed sensitive issue is the delta"))))
 
+(deftest get-issues-filters-on-severity-op-type-only
+  (testing "rf2-wd1pgb — `get-issues` filters on the SEVERITY `:op-type`
+            vocabulary only (`:error` / `:warning`). Per Spec 009's
+            closed `:op-type` vocabulary, `:rf.schema/violation` and
+            `:rf.hydration/mismatch` are `:operation` values (the real
+            hydration operation is `:rf.ssr/hydration-mismatch`), never
+            `:op-type` values — a real schema-violation/hydration-
+            mismatch event always rides `:op-type :warning`/`:error`
+            already, so those two dead set members could never match
+            genuine traffic. Left in, they were a latent hole: an event
+            emitted with either as its bare, malformed `:op-type` would
+            have been silently ADMITTED into the Issues ribbon instead
+            of falling on the floor with every other non-issue-tier
+            event."
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (emit-plain-into-ring! :rf.schema/violation   :rf.schema/violation)
+    (emit-plain-into-ring! :rf.hydration/mismatch :rf.hydration/mismatch)
+    (emit-plain-into-ring! :warning               :rf.warning/plain)
+    (let [result   (runtime/get-issues)
+          op-types (into #{} (map :op-type) (:issues result))]
+      (is (= #{:warning} op-types)
+          "only the genuine severity op-type surfaces — the two dead
+           set members never match, admitting nothing")
+      (is (= 1 (:count result))))))
+
 ;; ---------------------------------------------------------------------------
 ;; (11) egress-value / egress-record — the single named safe-egress fn
 ;;      (rf2-rcogp: THE SAFE PATH IS THE SHORT PATH).
@@ -1107,6 +1132,38 @@
           "the registered handler appears in the projection")
       (is (= :rf/redacted (get-in rec [:meta :auth :password]))
           ":meta routes through egress-value — the sensitive slot is redacted"))))
+
+(deftest get-handlers-unnarrowed-sweep-matches-registrar-kinds
+  (testing "rf2-ku6j74 — the unnarrowed `get-handlers` sweep (no
+            `:kind` opt) walks the framework's ACTUAL closed
+            `re-frame.registrar/kinds` set, not a hand-duplicated
+            literal that had drifted from it: `:route` / `:resource` /
+            `:mutation` / `:resource-scope` / `:interceptor` / `:head`
+            / `:error-projector` were previously OMITTED, while the
+            phantom `:machine` / `:reg-machine` (machines are not a
+            registrar kind — `get-machine-list` surfaces those,
+            reading `re-frame.machines`) were INCLUDED and always
+            walked to nothing."
+    (let [swept (set @#'runtime/registrar-kinds)]
+      (is (= registrar/kinds swept)
+          "the unnarrowed sweep is exactly the registrar's closed kind-set")
+      (is (not (contains? swept :machine))
+          "machines are not a registrar kind")
+      (is (not (contains? swept :reg-machine))
+          "machines are not a registrar kind")
+      (doseq [k [:route :resource :mutation :resource-scope
+                 :interceptor :head :error-projector]]
+        (is (contains? swept k)
+            (str k " was previously omitted from the unnarrowed sweep")))))
+  (testing "a handler registered under a previously-omitted kind
+            (`:route`) IS returned by an unnarrowed `get-handlers`
+            call — the regression a stale literal would silently miss"
+    (registrar/register! :route :test/handler-kinds-route
+                         {:handler-fn (fn [_] nil)})
+    (let [result (runtime/get-handlers)
+          ids    (into #{} (map :id) (:handlers result))]
+      (is (contains? ids :test/handler-kinds-route)
+          "the :route registration surfaces in the unnarrowed sweep"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (14) get-source-coord routes :source-coord through egress-value — the

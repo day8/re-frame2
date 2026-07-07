@@ -603,7 +603,7 @@ reloads. Default `480`. Ignored in `:popout` (window owns size) and
 
 | Value | Meaning |
 |---|---|
-| Map | Deep-merge over `default-settings` (per-section). Persists immediately to the localStorage key `re-frame2.xray.settings.v1` so the next page load reads the host-supplied posture. |
+| Map | Deep-merge over `default-settings`, section by section AND recursively within each section (rf2-8j3gyt — a partial nested override, e.g. `{:general {:event-list-col-widths {:source 100}}}`, keeps its untouched sibling keys at their default rather than dropping them). Seeds the live settings map immediately. Persists to the localStorage key `re-frame2.xray.settings.v1` ONLY when that slot is still empty (a genuinely fresh install) — see the merge-order reconciliation below (rf2-rr2yw3). |
 | (absent) | Leave the live settings map untouched. |
 
 The popup's per-knob event surface (`:rf.xray/settings-update`) is
@@ -611,6 +611,25 @@ the normal write path; this key is the bulk-set escape hatch for
 hosts that want to ship their own factory defaults (corporate fork
 with light theme, embedded host that prefers `:fullscreen` panel
 position, etc.).
+
+> **Merge-order reconciliation (rf2-rr2yw3).** An earlier revision of
+> this section said `:rf.xray/settings` "persists immediately … so the
+> next page load reads the host-supplied posture" unconditionally —
+> which, for a host that calls `configure!` on every boot (the
+> documented pattern), silently overwrote a user's already-persisted
+> Settings-popup mutations on the very next reload, contradicting
+> the "`configure!` vs `init!` vs persisted Settings — ownership rule"
+> section further below in this same document, whose `hardcoded
+> defaults < configure! overrides < persisted Settings overrides`
+> order is authoritative. The rule here is now singular: `configure!`
+> ALWAYS seeds the live map (so a host's posture is visible even with
+> no storage-backed load ever running — tests, harnesses), but only
+> PERSISTS it when localStorage is still empty. `load-settings-from-
+> storage!` (run later, per the documented boot order) deep-merges
+> whatever IS in localStorage over `default-settings` seeded with the
+> `configure!` map, so a returning user's persisted values always win
+> for the keys they've touched, while a fresh key the host newly
+> configures still lands for everyone else.
 
 Default-defining shape, per-knob rationale and the localStorage key
 are normatively documented in
@@ -807,6 +826,15 @@ hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
    passed to that wiring (test harnesses, Story testbeds, and
    embedding hosts that need to inject a specific shape at mount
    time without round-tripping through atoms).
+
+**Implementation (rf2-rr2yw3).** For the `:rf.xray/settings` bulk-config
+key specifically (`config.cljc`), step 2 is realised by seeding
+`configured-settings-seed` (rather than unconditionally overwriting the
+live settings atom AND the localStorage payload — the earlier
+behaviour, which broke this exact order), and step 3 by
+`load-settings-from-storage!` deep-merging the persisted payload OVER
+`(merge-known-sections default-settings @configured-settings-seed)`.
+See `:rf.xray/settings` above for the full reconciliation.
 
 **Consequence.** A key like `:theme` legally appears on all three
 surfaces — that is by design, not by accident. The host's

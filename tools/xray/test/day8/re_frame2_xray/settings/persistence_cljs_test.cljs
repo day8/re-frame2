@@ -172,3 +172,57 @@
   (is (= false (config/get-setting :general :auto-open-on-error?)))
   ;; rf2-3f2di B2 — the theme default is now `:light`.
   (is (= :light (config/get-setting :theme nil))))
+
+;; ---- configure! vs persisted Settings merge order (rf2-rr2yw3) --------
+;;
+;; Per spec/015-Configuration.md §`configure!` vs `init!` vs persisted
+;; Settings: `hardcoded defaults < configure! overrides < persisted
+;; Settings overrides`. The documented boot order is host `configure!`
+;; THEN the preload's `load-settings-from-storage!`. Before the fix,
+;; `configure! {:rf.xray/settings ...}` unconditionally `reset!`ed AND
+;; persisted the bulk-config map, so a host calling `configure!` on
+;; EVERY boot (the documented pattern) permanently overwrote whatever
+;; the user had mutated via the Settings popup on the previous session
+;; — the very next `load-settings-from-storage!` call read back
+;; exactly what `configure!` had just clobbered localStorage with.
+
+(deftest configure-settings-does-not-clobber-persisted-user-mutation
+  (testing "rf2-rr2yw3 — a host that calls `configure!
+            {:rf.xray/settings ...}` on every boot must not permanently
+            overwrite a user's ALREADY-persisted Settings-popup
+            mutation. Reproduces the full two-boot sequence in the
+            documented order: configure! → user popup edit (persists)
+            → [reload] → configure! again → load-settings-from-
+            storage!."
+    ;; Boot 1: host configures a default; user tweaks the setting via
+    ;; the popup, which persists through `update-setting!`.
+    (config/configure! {:rf.xray/settings {:general {:text-size 15}}})
+    (config/update-setting! :general :text-size 20)
+    (is (= 20 (config/get-setting :general :text-size))
+        "precondition: the user's popup edit is live")
+    ;; Boot 2 (page reload): the host calls `configure!` again with the
+    ;; SAME default, then the preload runs
+    ;; `load-settings-from-storage!` — the documented order.
+    (config/configure! {:rf.xray/settings {:general {:text-size 15}}})
+    (config/load-settings-from-storage!)
+    (is (= 20 (config/get-setting :general :text-size))
+        "the user's persisted 20 survives a second `configure!` call —
+         configure!'s 15 does NOT clobber it")))
+
+(deftest configure-settings-fresh-install-still-seeds-storage
+  (testing "rf2-rr2yw3 — on a genuinely fresh install (no persisted
+            payload yet) `configure!`'s posture STILL persists
+            immediately, so it survives a reload even with no further
+            `configure!` call in that later session (spec/015 §606's
+            original 'persists immediately' guarantee, now scoped to
+            the empty-storage case only)"
+    (config/configure! {:rf.xray/settings {:general {:text-size 17}}})
+    (is (some? (storage-payload))
+        "a fresh install's configure! call still writes through")
+    ;; Reset the in-memory atom only (simulate a reload with no host
+    ;; configure! call this time) and reload from storage.
+    (reset! config/settings config/default-settings)
+    (config/load-settings-from-storage!)
+    (is (= 17 (config/get-setting :general :text-size))
+        "the host's posture survives the reload via the fresh-install
+         persist, with no second configure! call needed")))

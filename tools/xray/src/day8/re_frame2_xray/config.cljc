@@ -1103,10 +1103,35 @@
    :diff      {:highlight-fn-ref-changes? false}
    :buffer    {:events-retained 50}})
 
+(defn- deep-merge-maps
+  "Recursive merge: when both `a` and `b` are maps, merge entry-by-entry
+  with `deep-merge-maps` on overlapping keys; otherwise `b` (when
+  non-nil) replaces `a`. Nested maps recurse to ANY depth — vectors /
+  sets / scalars replace wholesale, not merge element-wise.
+
+  `(deep-merge-maps a nil)` → `a` (a src section absent a key leaves
+  the default's value at that key intact, at every depth — this is
+  the property `merge` lacks and `merge-known-sections` needs, per
+  rf2-8j3gyt / spec/015-Configuration.md §606)."
+  [a b]
+  (cond
+    (and (map? a) (map? b))
+    (reduce-kv (fn [m k v] (assoc m k (deep-merge-maps (get m k) v))) a b)
+
+    (nil? b) a
+    :else b))
+
 (defn- merge-known-sections
   "Deep-merge `src` (a persisted / bulk-config settings map) over
-  `default-settings`, section by section, returning the reconstructed
-  settings map. Pure; CLJC; JVM-testable.
+  `base` (defaults to `default-settings` in the 1-arg arity), section
+  by section, returning the reconstructed settings map. Pure; CLJC;
+  JVM-testable.
+
+  The 2-arg arity lets callers compose more than one merge layer
+  (rf2-rr2yw3 — `load-settings-from-storage!` merges the persisted
+  payload over `(merge-known-sections default-settings configure!-
+  seed)` rather than over bare defaults, realising the `defaults <
+  configure! < persisted` order in one composable step).
 
   ONE source of truth for the known-section list. Both persistence
   paths — `load-settings-from-storage!` (src = the localStorage
@@ -1117,20 +1142,26 @@
   placement keys) is honoured by both paths from a single edit — the
   forgot-the-other-half bug family is structurally removed.
 
-  Per-section semantics preserved exactly:
-  - `:general` / `:diff` / `:buffer` — `merge` the src's nested map
-    over the default's, so unknown nested keys in `src` survive but
-    a section absent from `src` keeps its full default.
+  Per-section semantics preserved exactly, now genuinely DEEP (rf2-8j3gyt
+  — the prior body called `merge`, which is one level only, and silently
+  truncated nested sub-maps like `:general`'s `:event-list-col-widths`
+  on any partial-nested `src`):
+  - `:general` / `:diff` / `:buffer` — `deep-merge-maps` the src's
+    nested map over the base's, recursing into every nested sub-map
+    (e.g. `:general`'s `:event-list-col-widths`) so a partial nested
+    override keeps its sibling keys at their base value rather than
+    dropping them.
   - `:theme` — a flat keyword, not a nested map; take the src's value
-    or fall back to the default.
+    or fall back to the base's.
   Any unknown TOP-LEVEL section in `src` falls on the floor — the
   reconstruction only knows the sections enumerated here."
-  [src]
-  (-> default-settings
-      (update :general merge (:general src))
-      (assoc  :theme  (or (:theme src) (:theme default-settings)))
-      (update :diff    merge (:diff src))
-      (update :buffer  merge (:buffer src))))
+  ([src] (merge-known-sections default-settings src))
+  ([base src]
+   (-> base
+       (update :general deep-merge-maps (:general src))
+       (assoc  :theme  (or (:theme src) (:theme base)))
+       (update :diff    deep-merge-maps (:diff src))
+       (update :buffer  deep-merge-maps (:buffer src)))))
 
 (defn clamp-panel-width-px
   "Pure helper: clamp `px` to the resize handle's [min, viewport×0.9]
@@ -1241,6 +1272,23 @@
   settings
   (atom default-settings))
 
+(defonce
+  ^{:doc "Atom holding the raw `:rf.xray/settings` map from the most
+         recent `configure!` call, or nil. This is a SEED, not the live
+         settings map — `load-settings-from-storage!` deep-merges
+         whatever localStorage carries OVER
+         `(merge-known-sections default-settings @configured-settings-
+         seed)`, realising the documented `hardcoded defaults <
+         configure! overrides < persisted Settings overrides` merge
+         order (spec/015-Configuration.md §`configure!` vs `init!` vs
+         persisted Settings). `configure!` also applies the seed to
+         the live atom immediately for a synchronous read, but — per
+         rf2-rr2yw3 — does not unconditionally persist it, so a host
+         that calls `configure!` on every boot can no longer clobber a
+         user's already-persisted Settings-popup mutations."}
+  configured-settings-seed
+  (atom nil))
+
 (defn get-settings
   "Return the current full settings map. Mostly useful for tests +
   for the bulk persistence write. UI consumers read individual slots
@@ -1339,22 +1387,34 @@
 #?(:cljs
    (defn load-settings-from-storage!
      "Read the persisted settings map out of localStorage (if any) and
-     deep-merge over the in-memory defaults. Idempotent — safe to call
-     more than once. Failures (no window, no localStorage, malformed
-     payload) degrade silently to the defaults the atom already holds.
-     Called from the preload's side-effect block on CLJS startup.
+     deep-merge it OVER `(merge-known-sections default-settings
+     @configured-settings-seed)` — the documented `hardcoded defaults <
+     configure! overrides < persisted Settings overrides` merge order
+     (rf2-rr2yw3 / spec/015-Configuration.md §`configure!` vs `init!`
+     vs persisted Settings). A host's `configure!` call sets the
+     boot-time default for any key the user hasn't already persisted a
+     value for; a value the user HAS persisted (any prior Settings-
+     popup edit) always wins over what the host configures on a later
+     boot. Idempotent — safe to call more than once. Failures (no
+     window, no localStorage, malformed payload) degrade silently to
+     the defaults+configure! base. Called from the preload's
+     side-effect block on CLJS startup, AFTER any host `configure!`
+     call per the documented boot order.
 
      Unknown top-level keys in the persisted payload are silently
      dropped — the per-section merge below only knows about known
      slots, so any unknown top-level key falls on the floor without
      throwing."
      []
-     (try
-       (when-let [raw (storage-get settings-storage-key)]
-         (let [parsed (cljs.reader/read-string raw)]
-           (when (map? parsed)
-             (reset! settings (merge-known-sections parsed)))))
-       (catch :default _ nil))
+     (let [base (merge-known-sections default-settings @configured-settings-seed)]
+       (try
+         (if-let [raw (storage-get settings-storage-key)]
+           (let [parsed (cljs.reader/read-string raw)]
+             (reset! settings (if (map? parsed)
+                                 (merge-known-sections base parsed)
+                                 base)))
+           (reset! settings base))
+         (catch :default _ (reset! settings base))))
      nil))
 
 (defn update-setting!
@@ -1385,12 +1445,16 @@
         nil)))
 
 (defn reset-settings!
-  "Reset the in-memory settings map to `default-settings` and clear
-  the localStorage payload. CLJS-only on the storage side; the JVM
-  target just resets the atom. Useful from test fixtures + from a
+  "Reset the in-memory settings map to `default-settings`, clear the
+  localStorage payload, AND clear the `configure!` settings seed
+  (rf2-rr2yw3 — otherwise a prior test's/host's `configure!` call
+  would silently leak into a later `load-settings-from-storage!` call
+  via `configured-settings-seed`). CLJS-only on the storage side; the
+  JVM target just resets the atoms. Useful from test fixtures + from a
   future 'reset to defaults' affordance in the popup."
   []
   (reset! settings default-settings)
+  (reset! configured-settings-seed nil)
   #?(:cljs
      (try
        (storage-remove! settings-storage-key)
@@ -1529,8 +1593,15 @@
        toggle. Revealing is an explicit operator act flipping THIS tool's
        grain to `:rf.egress/local-raw`, not a future-event switch shared
        across every tool.
-    `{:rf.xray/settings <map>}` — bulk-replace the Settings popup
-       state map. Shape mirrors `default-settings`. The
+    `{:rf.xray/settings <map>}` — host-supplied Settings-popup
+       DEFAULTS. Shape mirrors `default-settings`; deep-merges (per
+       nested section, recursively) over the compiled-in defaults.
+       Sets the boot-time posture for any key the user hasn't already
+       persisted a value for — a value the user HAS persisted (any
+       prior Settings-popup edit) always wins on a later boot, per the
+       `hardcoded defaults < configure! overrides < persisted Settings
+       overrides` order (rf2-rr2yw3 / spec/015-Configuration.md
+       §`configure!` vs `init!` vs persisted Settings). The
        popup's event surface (`:rf.xray/settings-update`) is the
        normal per-knob write path; this key is the bulk-set escape
        hatch (e.g. host wants to ship its own default theme).
@@ -1611,11 +1682,30 @@
   ;; symbol (`day8.re-frame2-xray.config/settings`) to disambiguate.
   ;; Unknown sections in the bulk-config map are silently dropped — the
   ;; per-section merge here only knows about known slots.
+  ;;
+  ;; rf2-rr2yw3: this used to unconditionally `reset!` + persist,
+  ;; which — for a host that calls `configure!` on every boot (the
+  ;; documented pattern) — permanently clobbered a user's already-
+  ;; persisted Settings-popup mutations, violating the documented
+  ;; `defaults < configure! < persisted` merge order. Now: the raw map
+  ;; seeds `configured-settings-seed` (which `load-settings-from-
+  ;; storage!`, run later per the documented boot order, deep-merges
+  ;; the persisted payload OVER), and ALSO applies immediately to the
+  ;; live atom so a synchronous read right after `configure!` sees the
+  ;; host's posture even when no storage-backed load ever runs (tests;
+  ;; hosts that skip the preload). The write is now GUARDED on the
+  ;; storage slot being genuinely empty — a fresh install still
+  ;; persists the host's posture (so it survives a reload even absent
+  ;; another `configure!` call), but a returning user's real payload is
+  ;; never overwritten.
   (when (contains? opts :rf.xray/settings)
     (when (map? settings-opt)
+      (reset! configured-settings-seed settings-opt)
       (reset! day8.re-frame2-xray.config/settings
               (merge-known-sections settings-opt))
-      #?(:cljs (write-storage!))))
+      #?(:cljs
+         (when-not (storage-get settings-storage-key)
+           (write-storage!)))))
   ;; Filter seed + storage key. Storage key sets BEFORE seed so a host
   ;; that overrides both in one call gets the seed persisted under the
   ;; right key.
