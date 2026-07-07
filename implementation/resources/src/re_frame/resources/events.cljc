@@ -2251,7 +2251,13 @@
       ;; route rather than surfacing a spurious error). NO :error /
       ;; :refresh-error write. The host handle is cleared.
       aborted?
-      (let [entry' (entry-abort-settled entry)
+      (let [entry'    (entry-abort-settled entry)
+            ;; rf2-kz5op1 — mirrors `first-load-error?` in the sibling :else
+            ;; (failure) branch below: a FIRST-load abort has no usable data,
+            ;; so `entry-abort-settled` settles it to a non-error stable
+            ;; `:idle` (never `:loaded`, which only a REFRESH abort reaches).
+            first-load-abort? (= :idle (:status entry'))
+            spec      (registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record
@@ -2260,13 +2266,43 @@
                          ;; terminal outcome carries the reply token's causal
                          ;; `:completed-at`.
                          :cancelled {:reason :aborted :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :success))]
+                       (route/drain-blocking resource-key entry' :success))
+            ;; rf2-kz5op1 — a FIRST-LOAD abort settle MUST arm the GC timer
+            ;; (and the stale timer, if declared), mirroring rf2-ar9pcx's
+            ;; :error-settle fix. GC timers are otherwise armed only on a
+            ;; SUCCESSFUL settle (`succeeded-handler`) or a first-load
+            ;; `:error` settle; before this fix a first-load ABORT went to
+            ;; `:idle` with `:current-work nil` and emitted NO
+            ;; `:rf.resource/schedule-timers` — so an owner-free `:idle` entry
+            ;; from a cancelled first load was never reaped (the same
+            ;; unbounded per-frame cache leak, via the non-error settle
+            ;; sibling). A REFRESH abort (entry returns to `:loaded`, prior
+            ;; data kept) is NOT re-armed here — its stale/GC timers were
+            ;; armed on the prior success and this settle makes no freshness
+            ;; change; re-arming would double-arm (symmetric with the
+            ;; background-refresh-failure guard). No poll timer: an aborted
+            ;; entry is GC fodder, never a poll target (symmetric with the
+            ;; owner-free / no-owner gate the success + release-owner paths
+            ;; already enforce). Per Spec 016 §Stale and GC scheduling /
+            ;; §Cancellation is opportunistic.
+            stale-delay-ms (when first-load-abort?
+                             (state/positive-or-nil (:stale-after-ms spec)))
+            gc-delay-ms    (when first-load-abort?
+                             (state/positive-or-nil (:gc-after-ms spec)))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-abort-requested
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        {:rf.db/runtime rdb'})
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  nil
+                        :server?        (state/server-frame? frame-id)}]])))
 
       :else
       (let [entry' (state/entry-failed entry {:error error})
