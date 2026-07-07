@@ -278,6 +278,42 @@
 ;; the (now-transposed) handles — the renderer's documented no-route
 ;; fallback.
 
+(defn- node-parent-map
+  "rf2-olie1s — `{child-id parent-id}` for every parsed node that carries a
+  `:parent-id` (i.e. every node that is NOT root-level). Pure: parsed
+  `:nodes` → map.
+
+  Shared by every consumer that needs 'what container does this node sit
+  DIRECTLY inside': `region-descendant-ids` (direct region membership),
+  `region-touch?`'s ancestor walk (`ancestor-chain`, transitive region
+  membership at any nesting depth), and the back-edge same-parent filter
+  (`same-parent?`, the coordinate-frame guard)."
+  [nodes]
+  (into {}
+        (keep (fn [n]
+                (when-let [p (:parent-id n)]
+                  [(:id n) p])))
+        nodes))
+
+(defn- ancestor-chain
+  "rf2-olie1s — a node's full ancestor chain: `id` itself plus every
+  ancestor reached by walking `:parent-id` transitively out to the root.
+  Pure: a `node-parent` map (from `node-parent-map`) + a node id → set of
+  ids.
+
+  A one-hop `:parent-id` lookup only sees a node's DIRECT container. Spec
+  005 allows a compound state to nest inside a parallel region, so a leaf
+  two (or more) levels deep sits behind an intermediate compound id, not the
+  region id, on a one-hop test — `region-touch?`'s bug. The full transitive
+  closure is the only correct answer to 'is this node contained, at any
+  depth, inside X'."
+  [node-parent id]
+  (loop [acc #{id} cur id]
+    (let [p (get node-parent cur)]
+      (if (and p (not (acc p)))
+        (recur (conj acc p) p)
+        acc))))
+
 (defn region-descendant-ids
   "rf2-lamdfl — for each region CONTAINER id, the set of its DIRECT child
   node-ids (region states + their synthetic event-nodes). Pure: parsed graph
@@ -290,9 +326,7 @@
   interior transpose moves the whole region body, not just the state boxes."
   [{:keys [nodes edges]}]
   (let [region-ids   (into #{} (comp (filter :region?) (map :id)) nodes)
-        node-parent  (into {} (keep (fn [n]
-                                      (when-let [p (:parent-id n)] [(:id n) p]))
-                                    nodes))
+        node-parent  (node-parent-map nodes)
         ;; state-id → its region container parent (only states whose parent
         ;; is a region container)
         state->region (into {} (filter (fn [[_ p]] (contains? region-ids p)))
@@ -529,18 +563,25 @@
           ;; cross-region): the transpose invalidates ELK's absolute bend-
           ;; points; the renderer falls back to the clean bezier through the
           ;; transposed handles.
-          node-parent   (into {} (keep (fn [n]
-                                         (when-let [p (:parent-id n)]
-                                           [(:id n) p]))
-                                       nodes))
+          ;;
+          ;; rf2-olie1s — a one-hop `:parent-id` test misses an edge whose
+          ;; endpoint is a leaf inside a compound state NESTED inside a
+          ;; region (Spec 005 allows arbitrary nesting depth): the leaf's
+          ;; DIRECT parent is the nested compound's own id, not the region
+          ;; id, so a one-hop test never sees it — its absolute ELK edge-
+          ;; points then survive the transpose untouched even though the
+          ;; compound container was just repositioned. Walk the FULL
+          ;; ancestor chain (`ancestor-chain`, transitive closure over
+          ;; `:parent-id`) so any depth of nesting inside a region is caught
+          ;; (this also subsumes the old direct-region-id checks — `id` is
+          ;; always its own first link in the chain).
+          node-parent   (node-parent-map nodes)
           region-touch?
           (fn [e]
-            (let [sp (get node-parent (:source e))
-                  tp (get node-parent (:target e))]
-              (or (contains? region-ids sp)
-                  (contains? region-ids tp)
-                  (contains? region-ids (:source e))
-                  (contains? region-ids (:target e)))))
+            (let [s-chain (ancestor-chain node-parent (:source e))
+                  t-chain (ancestor-chain node-parent (:target e))]
+              (boolean (or (some region-ids s-chain)
+                           (some region-ids t-chain)))))
           stale-edge-ids
           (into #{}
                 (comp (filter region-touch?)
@@ -583,12 +624,18 @@
   64)
 
 (defn- node-center
-  "Absolute centre `{:x :y}` of a positioned node. `positions` holds parent-
-  relative coords for nested nodes; the back-edge geometry compares nodes on
-  the SAME spine (siblings under one container), so a consistent frame
-  cancels — we use the recorded position directly (callers pass the absolute
-  map for top-level spines, the common back-edge case: door/gate/brew back-
-  edges are all top-level)."
+  "Centre `{:x :y}` of a positioned node, in WHATEVER frame `positions`
+  records it — root-relative for a top-level node, parent-relative for a
+  nested one (`elk-result->positions`). Valid ONLY when the caller compares
+  two nodes sharing that same frame, i.e. the SAME immediate container (both
+  root-level, or both children of the same parent) — never compare across
+  containers.
+
+  rf2-olie1s — `reroute-back-edges` enforces that constraint by restricting
+  back-edge CANDIDATES to same-parent edges (`same-parent?`) before either
+  `back-edge?` or `back-edge-detour` ever calls this; a nested-vs-root or
+  cross-container pair would otherwise mix frames and produce a nonsensical
+  geometric comparison (mis-detected sunk status, a garbage detour)."
   [positions id]
   (when-let [{:keys [x y width height]} (get positions id)]
     {:x (+ x (/ (or width projection/state-node-min-width) 2))
@@ -681,18 +728,47 @@
                         {:x (:x tc) :y detour-y})
                       tc]}))))
 
+(defn- same-parent?
+  "rf2-olie1s — do this edge's source and target sit DIRECTLY inside the
+  same container — the same `:parent-id`, or both root-level (no
+  `:parent-id` at all)? Pure: a `node-parent` map (from `node-parent-map`) +
+  a parsed edge → bool.
+
+  `node-center` reads a node's position as a single consistent frame — true
+  only for same-container siblings. `elk-result->positions` records PARENT-
+  RELATIVE coords for a nested node, so a nested-vs-root or cross-container
+  pair would compare positions recorded in DIFFERENT frames (mis-detected
+  sunk status, a garbage detour written into `:edge-points`). Restricting
+  back-edge candidates to same-parent pairs before `back-edge?` ever runs
+  keeps every comparison inside the single frame `node-center` is valid
+  for."
+  [node-parent edge]
+  (= (get node-parent (:source edge)) (get node-parent (:target edge))))
+
 (defn reroute-back-edges
   "rf2-gnrkke — the back-edge return-route detour pass (§4.3.1 close). Pure:
   `{:positions :edge-points :edge-labels}` + parsed graph + resolved
   direction → the same shape with every sunk back-edge's event-node lifted to
   mid-height and its `__in`/`__out` segments rerouted as a side-detour.
 
+  rf2-olie1s — candidates are restricted to SAME-PARENT edges (`same-
+  parent?`: source + target share one `:parent-id`, or both are root-level)
+  before `back-edge?` ever runs. A nested-vs-root or cross-hierarchy edge
+  would otherwise have its endpoints compared in DIFFERENT coordinate
+  frames (`elk-result->positions` records parent-relative coords for nested
+  nodes) — mis-detecting sunk status and writing a nonsensical detour.
+  Excluding those candidates up front means a nested/cross-hierarchy
+  back-edge is simply left untouched (its ELK route stands) rather than
+  corrupted.
+
   No back-edge ⇒ the layout is returned unchanged (a non-cyclic / already-
   compact machine is untouched). Only back-edges whose event-node SANK
   (`back-edge?`) are rerouted, so a back-edge ELK already placed compactly
   keeps its route."
   [{:keys [positions edge-points] :as layout} parsed direction]
-  (let [back-edges (filter #(back-edge? % positions direction) (:edges parsed))]
+  (let [node-parent (node-parent-map (:nodes parsed))
+        candidates  (filter #(same-parent? node-parent %) (:edges parsed))
+        back-edges  (filter #(back-edge? % positions direction) candidates)]
     (if (empty? back-edges)
       layout
       (reduce

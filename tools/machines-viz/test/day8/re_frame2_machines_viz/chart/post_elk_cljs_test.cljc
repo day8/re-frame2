@@ -22,7 +22,12 @@
   Positions are built PROGRAMMATICALLY from the parsed graph (via the public
   `layout/node-id` + `projection/event-node-id`) so the tests pin BEHAVIOUR,
   not a particular id-string scheme — a stub layout result keyed off the
-  real ids the live ELK pass would produce."
+  real ids the live ELK pass would produce.
+
+  Also covers rf2-olie1s: `region-touch?`'s transitive-ancestor-walk (a
+  nested-compound-in-region edge is region-touched, not just a one-hop
+  region child) and `reroute-back-edges`' same-parent candidate filter (a
+  cross-hierarchy/nested-vs-root back-edge is excluded, never mis-detected)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -92,6 +97,49 @@
              :video {:initial :hidden
                      :states  {:hidden {:on {:show :shown}}
                                :shown  {:on {:hide :hidden}}}}}})
+
+(def nested-compound-in-region-machine
+  "rf2-olie1s — a parallel machine whose `:audio` region nests a COMPOUND
+  state (`:playing`, with its own `:low`/`:high` substates) so `:low`/`:high`
+  sit TWO hops from the region container: their DIRECT `:parent-id` is
+  `:playing`'s own (region-scoped) id, NOT the region container id. Exercises
+  `region-touch?`'s transitive-ancestor-walk fix — an edge between the two
+  nested leaves must still have its stale ELK route cleared when the region
+  transposes/re-stacks, even though neither leaf's direct parent is the
+  region."
+  {:type    :parallel
+   :regions {:audio {:initial :muted
+                     :states  {:muted   {:on {:unmute :playing}}
+                               :playing {:initial :low
+                                         :states  {:low  {:on {:raise :high}}
+                                                   :high {:on {:lower :low}}}
+                                         :on {:mute :muted}}}}
+             :video {:initial :hidden
+                     :states  {:hidden {:on {:show :shown}}
+                               :shown  {:on {:hide :hidden}}}}}})
+
+(def nested-back-edge-machine
+  "rf2-olie1s — a compound (non-parallel) machine whose nested leaf `:step2`
+  (inside the `:working` compound) transitions back to `:idle`, a TOP-LEVEL
+  sibling of `:working` — a genuine back-edge shape, but one whose source
+  (`:working__step2`, parented to `:working`) and target (`:idle`, parented
+  to the machine's synthetic root-container) carry DIFFERENT `:parent-id`.
+  The target is an explicit vector-path (`[:idle]`) because a bare keyword
+  target from inside a nested compound resolves SIBLING-relative (Spec 005 /
+  `resolve-target-path`) — `:reset :idle` would land on `:working/:idle`,
+  not the top-level state.
+
+  Exercises `reroute-back-edges`' same-parent filter: this cross-hierarchy
+  candidate must be EXCLUDED from back-edge detection/reroute, because its
+  endpoints' positions are recorded in different coordinate frames
+  (`:working`-relative for `:step2`, root-container-relative for `:idle`) —
+  comparing them geometrically is meaningless even when it happens to look
+  'sunk'."
+  {:initial :idle
+   :states  {:idle    {:on {:start :working}}
+             :working {:initial :step1
+                       :states  {:step1 {:on {:next :step2}}
+                                 :step2 {:on {:reset [:idle]}}}}}})
 
 ;; ---- helpers -----------------------------------------------------------
 
@@ -472,6 +520,34 @@
       (is (not (contains? (:edge-points out) (str (:id an-edge) "__in"))))
       (is (not (contains? (:edge-points out) (str (:id an-edge) "__out")))))))
 
+(deftest transpose-clears-nested-compound-region-edge-routes
+  ;; rf2-olie1s — region-touch? must walk the FULL ancestor chain, not just
+  ;; one :parent-id hop. :low/:high sit inside :playing, a compound state
+  ;; nested INSIDE the :audio region — their DIRECT :parent-id is
+  ;; :playing's own id, not the region id, so a one-hop region-touch? test
+  ;; misses this edge entirely and its stale absolute ELK route would
+  ;; survive the transpose untouched even though :playing (and the region)
+  ;; were just repositioned.
+  (let [parsed (layout/project-definition nested-compound-in-region-machine)
+        low->high (first (filter
+                            (fn [e]
+                              (and (= (:source e)
+                                      (layout/region-scoped-id :audio [:playing :low]))
+                                   (= (:target e)
+                                      (layout/region-scoped-id :audio [:playing :high]))))
+                            (:edges parsed)))
+        seeded {:positions (:positions (col-positions parsed))
+                :edge-points {(str (:id low->high) "__in")  [{:x 1 :y 1} {:x 2 :y 2}]
+                              (str (:id low->high) "__out") [{:x 3 :y 3} {:x 4 :y 4}]}
+                :edge-labels {}}
+        out (post-elk/transpose-parallel-regions seeded parsed)]
+    (testing "sanity: the fixture parses the nested-compound low->high edge"
+      (is (some? low->high)))
+
+    (testing "the low->high edge (two hops from the region) IS region-touched"
+      (is (not (contains? (:edge-points out) (str (:id low->high) "__in"))))
+      (is (not (contains? (:edge-points out) (str (:id low->high) "__out")))))))
+
 ;; ====================================================================
 ;; Step 3 — back-edge return-route detour (rf2-gnrkke)
 ;; ====================================================================
@@ -636,6 +712,44 @@
         stub   (col-positions parsed)]
     (testing "a machine with no sunk back-edge is returned unchanged"
       (is (= stub (post-elk/reroute-back-edges stub parsed :tb))))))
+
+(deftest reroute-back-edges-excludes-cross-hierarchy-candidates
+  ;; rf2-olie1s — node-center's centre read is only valid within one
+  ;; coordinate frame (same :parent-id). :step2 (parented to :working) and
+  ;; :idle (parented to the synthetic root-container, a DIFFERENT parent)
+  ;; sit in DIFFERENT frames; a bare geometric comparison of their positions
+  ;; can look "sunk" even though the comparison is meaningless.
+  ;; reroute-back-edges must exclude this candidate rather than mis-detect +
+  ;; reroute it.
+  (let [parsed (layout/project-definition nested-back-edge-machine)
+        back-e (first (filter (fn [e]
+                                (and (= (:source e) (layout/node-id [:working :step2]))
+                                     (= (:target e) (layout/node-id [:idle]))))
+                              (:edges parsed)))
+        ev-id  (projection/event-node-id back-e)
+        ;; hand-built positions: :idle at the top (y 0), :step2 lower
+        ;; (y 200), and the reset event-node sunk BELOW both (y 300) — the
+        ;; naive geometric signature back-edge? flags as sunk, even though
+        ;; :idle and :step2/the event are recorded relative to DIFFERENT
+        ;; parents (different frames; the raw comparison is bogus).
+        positions {(layout/node-id [:idle])          {:x 200 :y 0   :width 120 :height 50}
+                   (layout/node-id [:working :step1]) {:x 200 :y 100 :width 120 :height 50}
+                   (layout/node-id [:working :step2]) {:x 200 :y 200 :width 120 :height 50}
+                   ev-id                              {:x 200 :y 300 :width 96  :height 34}}
+        stub {:positions positions :edge-points {} :edge-labels {}}
+        out  (post-elk/reroute-back-edges stub parsed :tb)]
+    (testing "sanity: the fixture parses the cross-hierarchy back-edge"
+      (is (some? back-e)))
+
+    (testing "sanity: the naive geometric check WOULD flag this cross-hierarchy edge as sunk"
+      (is (true? (post-elk/back-edge? back-e positions :tb))))
+
+    (testing "reroute-back-edges excludes it — the event-node position is UNTOUCHED"
+      (is (= (get positions ev-id) (get-in out [:positions ev-id]))))
+
+    (testing "reroute-back-edges excludes it — no detour routes are written"
+      (is (not (contains? (:edge-points out) (str (:id back-e) "__in"))))
+      (is (not (contains? (:edge-points out) (str (:id back-e) "__out")))))))
 
 ;; ====================================================================
 ;; Composing pass
