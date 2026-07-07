@@ -201,7 +201,7 @@ So far our resource has stayed fresh forever, refetching only when something for
     {:request {:method :get :url (str "/api/articles/" slug)} :decode :json}))
 ```
 
-`:stale-after-ms` is the freshness window — after it elapses, the next *ensure* refetches; absent, the entry stays fresh until explicitly invalidated. `:gc-after-ms` is the lifetime once the entry goes *owner-free* — absent, it lingers unowned until something re-leases or removes it. And `:tags` *label what this data is about*: a tag is a vector like `[:article slug]`, read as "this entry holds article `slug`." Those labels are how a later write says "I changed article `slug`" and refreshes exactly the reads that showed it — the machinery the "Writes invalidate by tag" section builds on.
+`:stale-after-ms` is the freshness window — after it elapses, the next *ensure* refetches; absent, the entry stays fresh until explicitly invalidated. `:gc-after-ms` is the lifetime once the entry goes *owner-free* — absent, it defaults to `300000` (5 minutes); `:gc-after-ms :never` is the explicit opt-out for a resource that genuinely wants an owner-free entry pinned indefinitely. And `:tags` *label what this data is about*: a tag is a vector like `[:article slug]`, read as "this entry holds article `slug`." Those labels are how a later write says "I changed article `slug`" and refreshes exactly the reads that showed it — the machinery the "Writes invalidate by tag" section builds on.
 
 The full **registration metadata** is small and worth knowing in one glance. These are the keys `reg-resource`'s middle slot accepts:
 
@@ -211,7 +211,7 @@ The full **registration metadata** is small and worth knowing in one glance. The
 | `:scope` | **yes** | The scope *policy* — `:rf.scope/global`, a `{:from-db <id>}` resolver reference, or `:rf.scope/from-caller`. Missing it is `:rf.error/resource-missing-scope-policy`. |
 | `:tags` | no | `(fn [params data] -> #{tag …})` naming the facts the data carries, so a write can invalidate exactly the reads it broke. A tag is a *vector* (`[:article slug]`). |
 | `:stale-after-ms` | no | Freshness window. After this, the next *ensure* refetches. Absent ⇒ fresh until explicitly invalidated. |
-| `:gc-after-ms` | no | Lifetime after the entry goes owner-free. Absent ⇒ the entry lingers unowned until something re-leases or removes it. |
+| `:gc-after-ms` | no | Lifetime after the entry goes owner-free. Absent ⇒ `300000` (5 min). `:never` ⇒ an explicit, auditable opt-out that lingers the entry unowned indefinitely. |
 | `:poll-interval-ms` | no | Re-read on a clock while actively owned and the tab is visible (see [Polling](#polling-keep-this-fresh-every-n-ms)). |
 | `:data-schema` | no | Validates *successful* data where the transport decode supports it. Validation only — it does **not** drive egress classification. |
 | `:sensitive` / `:large` | no | Projection-relative path-vectors (`[[:data :ssn] [:params :account-id]]`) marking which slots redact / summarise at every egress boundary (SSR, tools, trace) — the framework's [data classification](../core/glossary.md#data-classification) applied to a cache entry. The coarse whole-entry `:sensitive?` / `:large?` booleans are the degenerate root-prop case. |

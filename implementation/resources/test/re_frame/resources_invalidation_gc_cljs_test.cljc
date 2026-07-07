@@ -541,15 +541,39 @@
         (is (= 60000 (:stale-delay-ms args)))
         (is (= 300000 (:gc-delay-ms args)))))))
 
-(deftest no-policy-arms-no-timers
+(deftest no-explicit-policy-arms-default-gc-timer
+  ;; rf2-bbpu11 (Option A) — absent :gc-after-ms no longer means "arm
+  ;; nothing"; it normalizes AT REGISTRATION to the framework's finite
+  ;; default (300000ms), so a settle DOES arm a GC timer even though this
+  ;; resource declares no explicit policy. :stale-after-ms is unaffected by
+  ;; this bead — it keeps its own independent absent-default (never
+  ;; time-stale) — so :stale-delay-ms stays nil.
   (rf/reg-resource :np/article (article-spec) article-spec-request) ;; no :stale-after-ms / :gc-after-ms
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :np/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :np/article scope "w" [:lease :np 1])
     (succeed! k {:title "W"})
-    (testing "a resource declaring no stale / GC policy arms NO timers (no
-              schedule-timers fx)"
+    (testing "a resource declaring no explicit GC policy still arms the
+              DEFAULT GC timer (no more silent infinite lingering); stale
+              stays unarmed (its own absent-default is never-time-stale)"
+      (is (= 1 (count @scheduled-timers)))
+      (let [args (first @scheduled-timers)]
+        (is (= k (:resource/key args)))
+        (is (nil? (:stale-delay-ms args)))
+        (is (= 300000 (:gc-delay-ms args)))))))
+
+(deftest gc-after-ms-never-arms-no-gc-timer
+  ;; rf2-bbpu11 — the explicit, auditable opt-out: a resource that declares
+  ;; :gc-after-ms :never arms NO GC timer at all (the owner-free entry
+  ;; lingers indefinitely, by declared intent rather than by omission).
+  (rf/reg-resource :npn/article (article-spec {:gc-after-ms :never}) article-spec-request)
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :npn/article {:slug "w"})]
+    (reset! scheduled-timers [])
+    (ensure! :npn/article scope "w" [:lease :npn 1])
+    (succeed! k {:title "W"})
+    (testing ":gc-after-ms :never arms no timer at all (no schedule-timers fx)"
       (is (= [] @scheduled-timers)))))
 
 (deftest timer-side-table-is-host-side-not-frame-state

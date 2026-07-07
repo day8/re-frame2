@@ -532,9 +532,11 @@
         (is (= 60000 (:stale-delay-ms args)))
         (is (= 300000 (:gc-delay-ms args)))))))
 
-(deftest success-populate-no-policy-arms-no-timers
-  ;; rf2-h4cv5e — a populate of a resource declaring NO stale / GC policy arms
-  ;; NO timers (no schedule-timers fx) — exactly as the read path.
+(deftest success-populate-no-explicit-policy-arms-default-gc-timer
+  ;; rf2-bbpu11 (Option A) — a populate of a resource declaring NO explicit
+  ;; :gc-after-ms still arms the framework's DEFAULT GC timer (absent
+  ;; normalizes to 300000 at registration, exactly as the read path); stale
+  ;; stays unarmed (its own absent-default is never-time-stale, unaffected).
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -548,8 +550,12 @@
     (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pnp1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-    (testing "no policy → no schedule-timers fx"
-      (is (= [] @scheduled-timers)))))
+    (testing "no explicit GC policy still arms the DEFAULT GC timer"
+      (is (= 1 (count @scheduled-timers)))
+      (let [args (first @scheduled-timers)]
+        (is (= rkey (:resource/key args)))
+        (is (nil? (:stale-delay-ms args)))
+        (is (= 300000 (:gc-delay-ms args)))))))
 
 ;; ===========================================================================
 ;; 5. Failure settles :error

@@ -12,18 +12,30 @@
 ;; fired GC (:rf.resource.internal/gc-fired) re-checks and removes it
 ;; (:rf.resource/gc-fired). After removal the public state sub projects the
 ;; documented :idle empty-state (the entry is gone; a sub NEVER re-fetches).
+;;
+;; rf2-bbpu11 (Option A, ruled 2026-07-07) — default-arming row: a SECOND
+;; resource (`:res/no-gc-policy`) declares NO `:gc-after-ms` at all. Absent
+;; normalizes AT REGISTRATION to the framework's finite default (300000ms) —
+;; a settle now arms a REAL GC timer (`:rf.resource/schedule-timers` routed
+;; with `:gc-delay-ms 300000`) instead of silently arming nothing. `:stale-
+;; delay-ms` / `:poll-delay-ms` stay nil (this resource declares neither).
 
 {:fixture/id           :resources/lease-release-gc
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/lease-gc}
- :fixture/doc          "ensure :res/article (owner [:lease :gc 1], gc-after 60s) → :loaded; release-owner drops the lease (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state."
+ :fixture/doc          "ensure :res/article (owner [:lease :gc 1], gc-after 60s) → :loaded; release-owner drops the lease (owner-free + idle → GC-eligible); the fired GC re-check removes the entry. Traces: :rf.resource/owner-released then :rf.resource/gc-fired. The state sub then projects the :idle empty-state. A second resource (:res/no-gc-policy, no :gc-after-ms declared) proves the rf2-bbpu11 default-arming rule: its settle routes schedule-timers with the framework's default :gc-delay-ms 300000."
 
  :fixture/registry
  {:resource
   {:res/article {:scope         :rf.scope/global
                  :params-schema [:map [:slug :string]]
                  :gc-after-ms   60000
-                 :url-template  "/api/articles/"}}
+                 :url-template  "/api/articles/"}
+   ;; rf2-bbpu11 — no :gc-after-ms declared at all; absent normalizes at
+   ;; registration to the framework's finite default (300000ms).
+   :res/no-gc-policy {:scope         :rf.scope/global
+                       :params-schema [:map [:slug :string]]
+                       :url-template  "/api/articles/"}}
   ;; No-op the managed-HTTP fx; the reply is driven directly below. The
   ;; advisory schedule-timers / cancel-timers fx (armed by the :gc-after-ms
   ;; policy) are the resources façade's own host-timer fx — inert on the JVM.
@@ -50,7 +62,23 @@
 
   ;; Step 4: the GC timer fires → re-checks (owner-free + idle) → reaps the
   ;; entry. (The internal gc-fired event is what the armed timer dispatches.)
-  [:rf.resource.internal/gc-fired {:resource/key [:rf.scope/global :res/article {:slug "w"}]}]]
+  [:rf.resource.internal/gc-fired {:resource/key [:rf.scope/global :res/article {:slug "w"}]}]
+
+  ;; Step 5: rf2-bbpu11 default-arming row — a SECOND resource declaring NO
+  ;; :gc-after-ms. The frame-wide generation allocator is monotone (shared
+  ;; across every resource in the frame, not per resource-id), so this
+  ;; frame's SECOND ensure mints generation 2.
+  [:rf.resource/ensure {:resource :res/no-gc-policy :scope :rf.scope/global
+                        :params {:slug "d"} :owner [:lease :gc 2] :cause :view-mount}]
+
+  ;; Step 6: the reply settles :loaded — the :effects-routed expectation below
+  ;; is the proof: schedule-timers carries the DEFAULT :gc-delay-ms (300000),
+  ;; not nil, even though this resource never declared the key.
+  [:rf.resource.internal/succeeded
+   {:resource/key [:rf.scope/global :res/no-gc-policy {:slug "d"}]
+    :work/id      [:rf.work/resource [:rf.scope/global :res/no-gc-policy {:slug "d"}] 2]
+    :generation   2
+    :data         {:title "Defaulted"}}]]
 
  :fixture/expect
  {;; After GC the entry is gone; the passive state sub projects the documented
@@ -58,11 +86,29 @@
   :sub-values
   {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :idle :data nil :error nil :refresh-error nil
-    :loading? false :fetching? false :stale? false :has-data? false :previous? false}}
+    :loading? false :fetching? false :stale? false :has-data? false :previous? false}
+   ;; rf2-bbpu11 — the default-GC'd resource is still :loaded (nothing fired
+   ;; its GC timer in this fixture; only its ARMING is under test here).
+   [:rf.resource/state {:resource :res/no-gc-policy :scope :rf.scope/global :params {:slug "d"}}]
+   {:status :loaded :data {:title "Defaulted"} :error nil :refresh-error nil
+    :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
 
   :trace-emissions
   [;; The owner lease was released (owner-free liveness change).
    {:operation :rf.resource/owner-released
     :tags      {:owner [:lease :gc 1]}}
    ;; The fired GC re-check reaped the owner-free + idle entry.
-   {:operation :rf.resource/gc-fired}]}}
+   {:operation :rf.resource/gc-fired}]
+
+  ;; rf2-bbpu11 default-arming row: the settle of the NO-:gc-after-ms
+  ;; resource routes :rf.resource/schedule-timers carrying the framework's
+  ;; finite default (300000), not nil — the corpus-level proof that "no
+  ;; policy declared" no longer means "arms nothing".
+  :effects-routed
+  [{:fx-id :rf.resource/schedule-timers
+    :args  {:frame-id       :rf/default
+            :resource/key   [:rf.scope/global :res/no-gc-policy {:slug "d"}]
+            :stale-delay-ms nil
+            :gc-delay-ms    300000
+            :poll-delay-ms  nil
+            :server?        false}}]}}
