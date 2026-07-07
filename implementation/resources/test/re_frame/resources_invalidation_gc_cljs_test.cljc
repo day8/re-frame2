@@ -135,6 +135,18 @@
                         :generation (:generation e)
                         :error {:kind :rf.http/server-error :reason reason}}])))
 
+(defn- abort!
+  "Feed an internal FAILED reply carrying an `:rf.http/aborted` envelope (an
+  intentional cancellation, not a failure — rf2-z70ujl) for a scoped key,
+  reading the LIVE entry's current work-id + generation. `failed-handler`
+  branches this into the ABORT / cancellation settle, never `:error`."
+  [scoped-key]
+  (let [e (entry scoped-key)]
+    (rf/dispatch-sync [:rf.resource.internal/failed
+                       {:resource/key scoped-key :work/id (:current-work e)
+                        :generation (:generation e)
+                        :error {:kind :rf.http/aborted :reason :user}}])))
+
 (defn- last-schedule-for [scoped-key]
   (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
@@ -655,6 +667,67 @@
       (is (= :error (:status (entry k))) "still :error, idle (no current-work)")
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "GC reaped the owner-free errored entry"))))
+
+(deftest first-load-abort-arms-gc-and-is-collected-after-release
+  ;; rf2-kz5op1 — a FIRST load that is ABORTED (an intentional cancellation,
+  ;; NOT a failure — rf2-z70ujl) settles a non-error stable `:idle` with
+  ;; `:current-work nil` (no usable data). The `:error` settle twin
+  ;; (rf2-ar9pcx) already arms a GC timer for this shape; BEFORE this fix the
+  ;; abort sibling did not, so an owner-free `:idle` entry from a cancelled
+  ;; first load was NEVER reaped — the same unbounded per-frame cache leak,
+  ;; via the different non-error settle path. The abort settle MUST now ALSO
+  ;; arm a GC timer (mirroring the :error twin), and once owner-free the fired
+  ;; GC re-check collects it.
+  (rf/reg-resource :gca/article (article-spec {:gc-after-ms 5000}) article-spec-request)
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gca/article {:slug "w"})]
+    (reset! scheduled-timers [])
+    (ensure! :gca/article scope "w" [:lease :gca 1])
+    (abort! k)   ;; first-load aborted → :idle (no usable data)
+    (testing "rf2-kz5op1 / Spec 016 §Cancellation is opportunistic / §Stale and
+              GC scheduling — a first-load ABORT settle arms the GC timer (so
+              the owner-free idle entry can be reaped) — it was never armed
+              before this fix"
+      (let [e (entry k)]
+        (is (= :idle (:status e)) "first-load abort settled :idle (no usable data)")
+        (is (nil? (:current-work e)) "no in-flight work after the abort settle"))
+      (let [args (last-schedule-for k)]
+        (is (some? args) "schedule-timers emitted on the abort settle")
+        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
+        (is (nil? (:poll-delay-ms args)) "no poll timer for an aborted entry")))
+    (testing "the owner releases → owner-free + idle; the fired GC re-check
+              collects the aborted entry (no longer leaked)"
+      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gca 1]}])
+      (is (empty? (:active-owners (entry k))) "entry now owner-free")
+      (is (= :idle (:status (entry k))) "still :idle, no current-work")
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+      (is (nil? (entry k)) "GC reaped the owner-free aborted entry"))))
+
+(deftest background-refresh-abort-does-not-rearm-gc
+  ;; rf2-kz5op1 guard — a BACKGROUND-refresh abort (the entry keeps prior data
+  ;; and returns to `:loaded`, not `:idle`) is NOT a first-load abort: its
+  ;; stale/GC timers were armed on the prior success, and `entry-abort-settled`
+  ;; makes no freshness change, so the refresh-abort settle re-arms NOTHING (no
+  ;; double-arm) — mirrors `background-refresh-failure-does-not-rearm-gc`.
+  (rf/reg-resource :gcra/article (article-spec {:gc-after-ms 5000}) article-spec-request)
+  (let [scope {:user "u"}
+        k     (state/scoped-resource-key scope :gcra/article {:slug "w"})]
+    (ensure! :gcra/article scope "w" [:route :r 1])
+    (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
+    ;; a background refetch that is then aborted (entry keeps data, returns to
+    ;; :loaded)
+    (rf/dispatch-sync [:rf.resource/refetch {:resource :gcra/article :scope scope
+                                             :params {:slug "w"}}])
+    (reset! scheduled-timers [])
+    (abort! k)                       ;; background refresh abort
+    (testing "rf2-kz5op1 — a background-refresh abort (status :loaded, data
+              kept) re-arms NO timer (the GC was already armed on the prior
+              success — no double-arm from the abort path)"
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "background refresh abort kept :loaded")
+        (is (= {:title "W"} (:data e)) "prior data kept"))
+      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
+          "no schedule-timers re-armed on the background-refresh abort"))))
 
 (deftest background-refresh-failure-does-not-rearm-gc
   ;; rf2-ar9pcx guard — a BACKGROUND-refresh failure (the entry keeps prior data
