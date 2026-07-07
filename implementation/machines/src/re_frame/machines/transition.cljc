@@ -702,9 +702,10 @@
 (defn- normalise-candidates
   "Normalise a transition-table value into a vector of candidate
   transition maps. The single source of truth for the value-form grammar
-  shared by `:on`, `:after` (and, by extension, any future slot whose
-  value is a transition spec — `:always` already carries the explicit
-  candidate-vector form). Per Spec 005 §Transitions §Multiple-candidate
+  shared by `:on`, `:after`, AND `:always` (rf2-0k0f3x) — `pick-always-
+  transition` routes the raw `:always` slot value through this SAME
+  normaliser, so the three slots' value-form grammar can never drift
+  apart. Per Spec 005 §Transitions §Multiple-candidate
   transitions and §Delayed `:after` transitions, the value may be:
 
     a keyword              -> treat as {:target <kw>}        (sibling target)
@@ -736,7 +737,8 @@
 
   `bad-value-id` names the error category to throw for an unrecognised
   value form so each caller surfaces its own slot-specific taxonomy
-  (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`).
+  (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`,
+  `:always` → `machine-bad-always`).
 
   Discriminates on `grammar/transition-value-form` — the SHARED form
   recogniser the registration target validator (`validation/candidate-
@@ -759,8 +761,8 @@
                                     "state keyword, a target vector path, a candidate map "
                                     "(`{:target … :guard … :action …}`), a vector of "
                                     "candidate maps, or nil (a forbidden / internal no-op). "
-                                    "Fix the offending `:on` / `:after` / `:on-done` / "
-                                    ":on-error` clause on the machine registration.")
+                                    "Fix the offending `:on` / `:after` / `:always` / "
+                                    ":on-done` / :on-error` clause on the machine registration.")
                                {:value v
                                 :slot  bad-value-id}))))
 
@@ -3488,27 +3490,43 @@
 (defn- pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
   an `:always` whose guard passes (the deepest-wins rule named in
-  `path-walk/walk-path-leaf-to-root`). Returns
-  `{:transition t :decl-path p}` or nil."
+  `path-walk/walk-path-leaf-to-root`). The raw `:always` slot value is
+  normalised through `normalise-candidates` — the SAME shared candidate
+  grammar `:on` / `:after` use (rf2-0k0f3x) — so a bare keyword (sibling
+  target), a vector-target (absolute path), a single transition map, and
+  a guarded candidate-vector all resolve identically whichever of the
+  three slots carries them. A malformed value (`:always 42`) throws the
+  categorised `:rf.error/machine-bad-always` (via `normalise-candidates`'s
+  `:other` arm) rather than reaching an `assoc` on a non-map candidate.
+
+  An ABSENT `:always` — the key is missing, OR present with an explicit
+  nil value — normalises to NO candidates. This is the one deliberate
+  divergence from `:on` / `:after`'s nil-handling: their PRESENT-with-nil
+  value is the meaningful forbidden-transition / internal no-op form
+  (it BLOCKS an ancestor's inherited transition for that event); `:always`
+  has no ancestor-blocking use for an unconditional, unguarded, targetless
+  microstep that would otherwise fire every settle. Both branches already
+  read `(:always n)` as nil (a state-node map can't distinguish 'no key'
+  from 'key present, value nil' without `contains?`), so this preserves
+  today's behaviour for both cases.
+
+  Returns `{:transition t :decl-path p}` or nil."
   [machine path snapshot]
   (path-walk/walk-path-leaf-to-root
     machine path
     (fn [prefix n]
       (let [raw-always (:always n)
-            always     (cond
-                         (nil? raw-always)    []
-                         (vector? raw-always) raw-always
-                         :else                [raw-always])
-            [idx hit]  (some (fn [[i t]]
-                               (when (evaluate-guard machine (:guard t) snapshot nil)
-                                 [i t]))
-                             (map-indexed vector always))]
+            candidates (if (nil? raw-always)
+                         []
+                         (normalise-candidates raw-always :rf.error/machine-bad-always))
+            [idx hit]  (select-passing-candidate-indexed machine candidates snapshot nil)]
         (when hit
           ;; Stamp the `:always` spec-path discriminator
           ;; (decl-path prefix + the matched candidate index for the
-          ;; vector form; index-free for the single-map form, matching the
-          ;; macro's bare-`:always` keying) so the Xray cascade row
-          ;; addresses the exact inline-source slot.
+          ;; vector form; index-free for the keyword / single-map /
+          ;; vector-target forms, matching the macro's bare-`:always`
+          ;; keying) so the Xray cascade row addresses the exact
+          ;; inline-source slot.
           {:transition (assoc hit
                               :decl-path prefix
                               :rf/transition-slot

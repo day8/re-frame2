@@ -396,6 +396,39 @@
       (is (some? thrown) "guard-less self-target SHOULD throw")
       (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))))))
 
+(deftest always-self-loop-bare-keyword-target-rejected
+  (testing "a BARE-KEYWORD :always (the :on / :after keyword-target shorthand,
+            rf2-0k0f3x) whose target names its own declaring state is rejected
+            at registration — desugaring runs BEFORE the self-loop check, so
+            {:always :itself} cannot slip past `always-self-loop?` (which
+            keys off :target and previously never saw one, since the
+            un-desugared bare keyword has no :target key)"
+    (let [m {:initial :checking
+             :states  {:checking {:always :checking}}}
+          thrown (registration-throws? :rf.always-self-loop/bare-kw m)]
+      (is (some? thrown) "bare-keyword :always self-target SHOULD throw at registration")
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown)))
+          "error category names the self-loop contract")
+      (is (= :checking (:state (ex-data thrown)))
+          "ex-data carries the declaring state-keyword"))))
+
+(deftest always-self-loop-bare-vector-target-rejected
+  (testing "a BARE VECTOR-TARGET :always (the absolute-path sugar
+            `{:target <vec>}` — distinct from a vector OF candidate maps,
+            rf2-0k0f3x) whose target is its own declaring state's absolute
+            path is rejected at registration. Pre-fix, the ad hoc
+            `(vector? a)` branch mistook ANY vector value (including this
+            bare absolute-path sugar) for an already-desugared vector of
+            entries, so this shape never reached `always-self-loop?` at all"
+    (let [m {:initial :outer
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:always [:outer :inner]}}}}}
+          thrown (registration-throws? :rf.always-self-loop/bare-vec m)]
+      (is (some? thrown) "bare vector-target :always self-target SHOULD throw")
+      (is (= :rf.error/machine-always-self-loop (:rf.error/id (ex-data thrown))))
+      (is (= :inner (:state (ex-data thrown)))
+          "ex-data names the declaring leaf state"))))
+
 (deftest always-internal-no-target-permitted
   (testing "an internal :always (no :target, just :action) is the canonical
             action-microstep pattern and is NOT a self-loop (control)"

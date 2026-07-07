@@ -340,6 +340,26 @@
       (is (= "not-a-transition-value" (:value (ex-data e)))
           "ex-data carries the offending transition value"))))
 
+(deftest malformed-always-value-throws-bad-always
+  (testing "a state's :always value that is an unrecognised form (a number)
+   throws the CATEGORISED :rf.error/machine-bad-always out of the macrostep
+   that lands on it — NOT a raw uncategorised platform throw (an `assoc` on
+   a non-map candidate, rf2-0k0f3x). `:b`'s malformed :always is evaluated
+   as soon as the transition from :a lands there (§Eventless :always fires
+   after any transition that lands in this state)"
+    (let [spec {:id      :probe/bad-always
+                :initial :a
+                :data    {}
+                :states  {:a {:on {:go {:target :b}}}
+                          :b {:always 42}}}
+          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+                    nil
+                    (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? e) "a malformed :always value throws")
+      (is (= :rf.error/machine-bad-always (:rf.error/id (ex-data e))))
+      (is (= 42 (:value (ex-data e)))
+          "ex-data carries the offending transition value"))))
+
 (deftest transition-throws-carry-canonical-spec009-shape
   (testing "every transition runtime throw exposes a human message (not a bare
    keyword) carrying the [:rf.error/<id>] token, plus :reason / :where /
@@ -353,7 +373,10 @@
                :states {:a {:on {:go {:target :b :action :nope}}} :b {}}}]
              ["malformed :on value"
               {:id :probe/s3 :initial :a :data {}
-               :states {:a {:on {:go 99}} :b {}}}]]]
+               :states {:a {:on {:go 99}} :b {}}}]
+             ["malformed :always value"
+              {:id :probe/s4 :initial :a :data {}
+               :states {:a {:on {:go {:target :b}}} :b {:always 99}}}]]]
       (let [e   (try (machines/machine-transition spec {:state :a :data {}} [:go])
                      nil
                      (catch clojure.lang.ExceptionInfo ex ex))

@@ -830,15 +830,30 @@
              {:state state-key}))))
 
 (defn- always-entries
-  "Normalise a state-node's `:always` slot to a vector of entry maps.
-  `:always` admits a single entry map or a vector of entry maps; absent
-  yields the empty vector."
+  "Normalise a state-node's `:always` slot to a vector of entry maps,
+  through the SAME shared candidate grammar `:on` / `:after` resolve
+  (`grammar/transition-value-form` — rf2-0k0f3x): a bare keyword desugars
+  to `{:target <kw>}`, a vector-target to `{:target <vec>}`, a single map
+  is the one-element case, and a guarded candidate-vector passes through
+  unchanged. Mirrors `transition/normalise-candidates`'s arms minus the
+  throw (a malformed value is caught elsewhere — the runtime normaliser
+  throws `:rf.error/machine-bad-always` at the first macrostep; this
+  validation-side walker just needs SOME vector to iterate, so an
+  unrecognised shape degrades to the empty vector rather than choking a
+  registration-time walk that isn't the throw's designated surface).
+  Absent `:always` — the key is missing, OR present with an explicit nil
+  value — yields the empty vector (no ancestor-blocking use case for
+  `:always`, unlike `:on` / `:after`'s nil-is-forbidden-transition form)."
   [state-node]
   (let [a (:always state-node)]
-    (cond
-      (nil? a)    []
-      (vector? a) a
-      :else       [a])))
+    (if (nil? a)
+      []
+      (case (grammar/transition-value-form a)
+        :keyword          [{:target a}]
+        :candidate-vector a
+        :vec-target       [{:target a}]
+        :map              [a]
+        :other            []))))
 
 (defn- always-self-loop?
   "True iff an `:always` entry's `:target` resolves to its own declaring
