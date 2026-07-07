@@ -63,8 +63,8 @@
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
             ;; Requiring it is what wires up the machine vocabulary: the
-            ;; late-bind hook behind `rf/make-machine-handler`, the
-            ;; `:rf.machine/spawn` / `:rf.machine/destroy` fx, and the
+            ;; late-bind hook behind `re-frame.machines/make-machine-handler`,
+            ;; the `:rf.machine/spawn` / `:rf.machine/destroy` fx, and the
             ;; `:rf/machine` / `:rf/machine-has-tag?` subs you'll see used
             ;; below. Skip the require and they simply aren't there.
             [re-frame.machines]

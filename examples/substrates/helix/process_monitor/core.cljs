@@ -76,6 +76,13 @@
 ;; below): mount arms it via `:process-monitor/initialise`, unmount retires it
 ;; via `:process-monitor/stop`. Re-mount and it re-arms cleanly. Unmount and no
 ;; chain is left dispatching into a frame nobody is looking at.
+;;
+;; This is the ONE arming site. The `frame-provider` call in `run` (see MOUNT,
+;; below) deliberately carries no `:initial-events` — if it also dispatched
+;; `:process-monitor/initialise`, boot would arm two overlapping chains (the
+;; generation guard above would mask it, quietly dropping the older one, but
+;; that's two full `:process-monitor/initialise` runs for no reason). One
+;; site owns arming; the other stays out of it.
 
 (rf/reg-event :process-monitor/initialise
   (fn [{:keys [db]} _event]
@@ -333,10 +340,11 @@
 (defonce react-root (atom nil))
 
 ;; The frame this app runs under. The `frame-provider` in `run` is the single
-;; place it's set up — it creates the frame, seeds app-db, and threads the
-;; frame into React context. Everything downstream (`use-subscribe`, the
-;; `(rf/capture-frame)` capture in `monitor`) finds this frame through that
-;; context.
+;; place it's set up — it creates the frame and threads it into React context.
+;; Everything downstream (`use-subscribe`, the `(rf/capture-frame)` capture in
+;; `monitor`) finds this frame through that context. It carries no
+;; `:initial-events`: db-seeding and loop-arming are both `monitor`'s job (see
+;; the EVENTS block above for why that's the one arming site).
 (def app-frame :rf/default)
 
 (defn run []
@@ -346,12 +354,12 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; `frame-provider` creates the app frame on first mount and runs
-    ;; `:initial-events` once to seed app-db. A hot reload reuses the existing
-    ;; frame and skips the re-seed, so your running clock and accumulated logs
-    ;; survive the reload — a small mercy while iterating. From here on the
-    ;; `monitor` component owns the loop (see its `use-effect`).
+    ;; `frame-provider` creates the app frame on first mount; a hot reload
+    ;; reuses the existing frame. From here on the `monitor` component owns
+    ;; both the seed and the loop (see its `use-effect`) — mount dispatches
+    ;; `:process-monitor/initialise`, which seeds app-db AND arms the tick
+    ;; chain in one step, so your running clock and accumulated logs survive
+    ;; a reload that doesn't remount `monitor`.
     (.render @react-root
-             ($ helix-adapter/frame-provider {:id app-frame
-                                              :initial-events [[:process-monitor/initialise]]}
+             ($ helix-adapter/frame-provider {:id app-frame}
                 ($ monitor)))))

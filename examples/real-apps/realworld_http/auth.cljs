@@ -118,11 +118,14 @@
 (rf/reg-event :auth/post-login-redirect
   {:doc "Drop the freshly-signed-in user back where they were headed before
          the auth guard sent them to login (`[:auth :return-to]`, stashed in
-         routing.cljs), or home if there's no such crumb. The auth machine's
-         `:store-session` action dispatches this — a machine action can't see
-         or emit `:db`, so the redirect rides as an ordinary event. It reads
-         and clears the slot in the same step, so a later ordinary login can't
-         get bounced to a stale target left lying around."}
+         routing.cljs), or home if there's no such crumb. Dispatched only by
+         the `:store-session` action (the interactive `:submitting → :authed`
+         transition) — never by `:restore-session`, since cold-boot restore
+         must keep you where you are, not force a navigation. A machine
+         action can't see or emit `:db`, so the redirect rides as an ordinary
+         event. It reads and clears the slot in the same step, so a later
+         ordinary login can't get bounced to a stale target left lying
+         around."}
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
@@ -198,15 +201,33 @@
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      ;; A machine action can't touch `:db`, so the post-login bounce-back is
-      ;; farmed out to an ordinary event (`:auth/post-login-redirect`): it
-      ;; reads the guard-stashed `:return-to` slot, sends you there (or home),
-      ;; and clears it. routing.cljs is where that slot gets set.
+      ;; Interactive login / register success. A machine action can't touch
+      ;; `:db`, so the post-login bounce-back is farmed out to an ordinary
+      ;; event (`:auth/post-login-redirect`): it reads the guard-stashed
+      ;; `:return-to` slot, sends you there (or home), and clears it.
+      ;; routing.cljs is where that slot gets set. This bounce is right only
+      ;; for an interactive submit — the user just clicked Sign-in and
+      ;; expects to land somewhere. Restore (below) does NOT navigate.
       (let [user (:user value)]
         {:data {:error nil}
          :fx [[:dispatch [:auth/store-session user]]
               [:auth.session/persist {:token (:token user)}]
               [:dispatch [:auth/post-login-redirect]]]}))
+
+    :restore-session
+    (fn [{[_ {:keys [value]}] :event}]
+      ;; Session-restore success (cold boot with a saved JWT): store the
+      ;; session, but do NOT navigate. Someone cold-booting on a deep link
+      ;; (e.g. `/article/some-slug`) needs to stay put — restore re-hydrates
+      ;; the session and nothing more; it must never yank them home. Only an
+      ;; interactive login/register bounces (`:store-session`). The token is
+      ;; already in app-db and localStorage from `:auth/initialise`; we
+      ;; re-persist it defensively, just in case the server rotated it on
+      ;; `GET /user`.
+      (let [user (:user value)]
+        {:data {:error nil}
+         :fx [[:dispatch [:auth/store-session user]]
+              [:auth.session/persist {:token (:token user)}]]}))
 
     :record-error
     (fn [{[_ {:keys [error]}] :event}]
@@ -230,7 +251,7 @@
           :auth/failure {:target :error  :action :record-error}}}
 
     :restoring
-    {:on {:auth/success        {:target :authed :action :store-session}
+    {:on {:auth/success        {:target :authed :action :restore-session}
           :auth/restore-failed {:target :idle   :action :clear-session}}}
 
     :authed

@@ -58,9 +58,12 @@
          auth-guarded, so there's always a user here. Doing the seed on route
          entry rather than in the view's render is exactly what keeps the form a
          pure Form-1: a re-render never re-runs the load, so edits you've got in
-         flight survive."}
+         flight survive. Seeds `:touched` alongside `:draft` — the FormSlice
+         schema (schema.cljs) requires both, so a slice with only `:draft`
+         would fail its own schema until the first field edit."}
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:settings-form :draft] (draft-from-user (get-in db [:auth :user])))}))
+    {:db (assoc-in db [:settings-form] {:draft   (draft-from-user (get-in db [:auth :user]))
+                                        :touched #{}})}))
 
 (rf/reg-event :settings/edit-field
   {:schema [:cat [:= :settings/edit-field] :keyword :string]}

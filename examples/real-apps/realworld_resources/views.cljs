@@ -103,13 +103,17 @@
 
 (rf/reg-event :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
-    (if (nil? (get-in db [:auth :user]))
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+    (if-let [username (get-in db [:auth :user :username])]
+      ;; The mutation's `:invalidates` has no `:db` of its own to read, so the
+      ;; acting user's username rides along as an ordinary param — sourced
+      ;; here, where `:db` IS in scope — so the mutation can stale THIS
+      ;; user's own Favorited-Articles tab (`[:favorited-articles username]`).
       {:fx [[:dispatch [:rf.mutation/execute
                         {:mutation (if favorited? :realworld/unfavorite :realworld/favorite)
-                         :params   {:slug slug}
+                         :params   {:slug slug :username username}
                          :instance [:favorite slug]
-                         :cause    [:click :ui/favorite slug]}]]]})))
+                         :cause    [:click :ui/favorite slug]}]]]}
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]})))
 
 (rf/reg-event :ui/follow
   (fn [{:keys [db]} [_ username following?]]

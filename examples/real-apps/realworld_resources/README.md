@@ -51,7 +51,7 @@ Every write is a `reg-mutation` — most in `mutations.cljs`, with the editor's 
 
 | Mutation | Write | What it does to the cache |
 |---|---|---|
-| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | **Optimistic** (see below). Commits the detail from the reply, then invalidates the public article tags **and** the session feed. |
+| `:realworld/favorite` / `:realworld/unfavorite` | POST/DELETE `/articles/:slug/favorite` | **Optimistic** (see below). Commits the detail from the reply, then invalidates the public article tags, the session feed, **and** the acting user's own Favorited-Articles cache (`[:favorited-articles username]`, threaded in via the mutation's `:params` — `:invalidates` has no `:db` of its own to source it from). |
 | `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | populates the profile banner from the reply; invalidates `[:profile username]` |
 | `:realworld/post-comment` | POST `/articles/:slug/comments` | invalidates `[:comments slug]`, so the mounted page's comments refetch |
 | `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | invalidates `[:comments slug]` |
