@@ -34,7 +34,7 @@ The whole flow is one transition table, registered with `reg-machine` under the 
 
 - **The form's draft is application state, not view state.** This is the Pattern-Forms *machine + slice* split. The **slice** at `[:auth :login-form]` owns the **draft**, projected via subscriptions and changed via the standard form events (`initialise-form` / `edit-field` / `submit-form` / `reset-form`). The **machine** owns submit/auth status. On submit, the draft is read out of the slice and dispatched *into* the machine — the one point it is checked against `Credentials`. The slice, events, and subscriptions are identical across the Reagent, UIx, and Helix variants; only the view syntax differs.
 
-- **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`. Views ask the question by tag — `@(rf/machine-has-tag? :auth.login/flow :auth/busy)` to disable inputs while a request is in flight — instead of listing exact state names. *Ask, don't tell*: add a second busy state later, and the views don't change.
+- **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`. Views ask the question by tag — `@(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])` to disable inputs while a request is in flight — instead of listing exact state names. *Ask, don't tell*: add a second busy state later, and the views don't change.
 
 - **Open maps everywhere.** Every shape on the wire is an open map.
 

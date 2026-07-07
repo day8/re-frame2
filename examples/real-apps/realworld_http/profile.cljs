@@ -452,7 +452,7 @@
           profile-loaded []
   (let [profile      @(subscribe [:profile/data])
         own?         @(subscribe [:profile/own-profile?])
-        on-favs?     @(rf/machine-has-tag? :ui/profile :tab/favorites)
+        on-favs?     @(rf/subscribe [:rf/machine-has-tag? :ui/profile :tab/favorites])
         articles*    @(subscribe [:profile/current-articles])
         current-page @(subscribe [:profile/current-page])
         page-count   @(subscribe [:profile/page-count])]

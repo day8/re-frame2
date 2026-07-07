@@ -57,7 +57,7 @@ Triggers are sent to machines by normal events, dispatched the normal way, so yo
 And the state of a machine is **read** like an ordinary subscription — you get back a [snapshot](glossary.md#snapshot), `{:state … :data …}`:
 
 ```clojure
-@(rf/sub-machine :auth-login)   ;; => {:state :submitting :data {}}
+@(rf/subscribe [:rf/machine :auth-login])   ;; => {:state :submitting :data {}}
 ```
 
 The snapshot moves, and the views that read it follow.

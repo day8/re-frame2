@@ -20,7 +20,7 @@
      is read like any other derived state: through a subscription on the
      machine id.
    - State tags — `:auth/busy`, `:auth/authenticated`, `:auth/locked`.
-     Views ask a question — `(rf/machine-has-tag? :auth.login/flow ...)` —
+     Views ask a question — `@(rf/subscribe [:rf/machine-has-tag? :auth.login/flow ...])` —
      rather than memorising exact state names
      (docs/machines/glossary.md#state-tag). The terminal `:locked-out`
      state becomes a non-interactive panel, not a form that's enabled but
@@ -313,7 +313,7 @@
 
       :submitting
       ;; The `:auth/busy` tag is the "ask, don't tell" trick in action. The
-      ;; view asks (rf/machine-has-tag? :auth.login/flow :auth/busy) to
+      ;; view asks @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy]) to
       ;; disable inputs and relabel the button — it never asks "are we
       ;; exactly :submitting?". The reward comes later: add a second busy
       ;; state, tag it :auth/busy too, and the view needs zero changes.
@@ -477,7 +477,7 @@
 
 ;; These subs pull the handy bits out of the machine snapshot so views
 ;; don't have to. You'll notice there's no "in :submitting?" or "in
-;; :authed?" sub here — those questions are asked with `rf/machine-has-tag?`
+;; :authed?" sub here — those questions are asked with the `[:rf/machine-has-tag? …]` sub
 ;; in the views instead, which keeps the views from caring about exact state
 ;; names (docs/machines/glossary.md#state-tag).
 
@@ -549,7 +549,7 @@
 (rf/reg-view ^{:doc "The login form view: email + password + submit button + error display."}
           login-form []
   (let [draft @(subscribe [:auth.login/draft])
-        busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+        busy? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
         err   @(subscribe [:auth.login/error])]
     [:form.login-form
      {:data-testid "login-form"
@@ -588,8 +588,8 @@
 ;; form the rest of the time.
 (rf/reg-view ^{:doc "Picks what to show by login state: welcome / locked panel / the form."}
           login-banner []
-  (let [authed? @(rf/machine-has-tag? :auth.login/flow :auth/authenticated)
-        locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]
+  (let [authed? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/authenticated])
+        locked? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/locked])]
     [:div.banner {:data-testid "login-banner"}
      (cond
        authed? [:span "Welcome!"]

@@ -48,7 +48,7 @@ Two rules:
 At every transition the runtime walks the machine's active states, unions their tag sets, and stamps the result onto the [snapshot](glossary.md#snapshot) at `:tags`. The snapshot gains one optional slot:
 
 ```clojure
-@(rf/sub-machine :todos/loader)
+@(rf/subscribe [:rf/machine :todos/loader])
 ;; => {:state :retrying :data {…} :tags #{:data/in-flight}}
 ```
 
@@ -68,14 +68,14 @@ The framework ships one **derived subscription** for the containment question �
 ;; The query vector …
 @(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])   ;; => true | false
 ;; … and its sugar, re-exported on the re-frame.core facade:
-@(rf/machine-has-tag? :todos/loader :data/in-flight)                   ;; => true | false
+@(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])                   ;; => true | false
 ```
 
 In a view that's all you need to render on intent:
 
 ```clojure
 (reg-view spinner-or-list []
-  (if @(rf/machine-has-tag? :todos/loader :data/in-flight)
+  (if @(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])
     [spinner]
     [todo-list]))
 ```
@@ -85,7 +85,7 @@ Because the sub is **derived directly off the snapshot's `:tags` slot** — it r
 Need the whole set rather than one bit? That's the ordinary snapshot read:
 
 ```clojure
-(:tags @(rf/sub-machine :todos/loader))   ;; => #{:data/in-flight}
+(:tags @(rf/subscribe [:rf/machine :todos/loader]))   ;; => #{:data/in-flight}
 ```
 
 !!! note "Reading tags inside an event handler"
@@ -152,7 +152,7 @@ And the controls disable themselves the same ask-don't-tell way — they ask for
 
 ```clojure
 (reg-view new-todo-form []
-  (let [read-only? @(rf/machine-has-tag? :ui/nine-states :mode/read-only)]
+  (let [read-only? @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])]
     [:button {:disabled read-only?} "Add"]))
 ```
 

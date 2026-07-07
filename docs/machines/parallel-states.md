@@ -74,7 +74,7 @@ Three things to read off that snapshot:
 - **`:data`** is **shared** — one map, seen and written by every region. There is no per-region `:data` slot, on the region body or in the snapshot.
 - **`:tags`** is the **union** of every active state's tags across every region (covered [below](#tags-compose-across-regions)).
 
-You read the `:state` map through one ordinary subscription — `@(rf/sub-machine :ui/nine-states)`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/subscriptions.md).
+You read the `:state` map through one ordinary subscription — `@(rf/subscribe [:rf/machine :ui/nine-states])`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/subscriptions.md).
 
 ## Each region has its own `:initial`
 
@@ -83,7 +83,7 @@ Every region declares its own `:initial`, just like a flat machine — a region 
 So immediately after the machine above starts, before any event:
 
 ```clojure
-@(rf/sub-machine :ui/nine-states)
+@(rf/subscribe [:rf/machine :ui/nine-states])
 ;; => {:state {:data :nothing :form :neutral :mode :active}
 ;;     :data  {:items [] :error nil :archived-at nil}
 ;;     :tags  #{:data/nothing :form/neutral :mode/active}}
@@ -260,7 +260,7 @@ Each region's state-node keys are **scoped to that region**:
 
 A parallel machine's `:tags` is the **union of every active state's tags across every active region** — walk each region's active configuration (root → leaf for compound regions), union the tags, then union across regions. So in the nine-states machine at boot, `:data`'s `:nothing` contributes `#{:data/nothing}`, `:form`'s `:neutral` contributes `#{:form/neutral}`, `:mode`'s `:active` contributes `#{:mode/active}`, and the snapshot's `:tags` is `#{:data/nothing :form/neutral :mode/active}`.
 
-The framework [`machine-has-tag?`](../api/re-frame.machines.md) sub works unchanged — it asks "does the union contain this tag?", and the answer is yes iff *any* active state in *any* region declared it. That's what lets a view disable itself with `@(rf/machine-has-tag? :ui/nine-states :mode/read-only)` without caring which region (or which state of it) carries the read-only intent — *ask, don't tell* ([state tag](glossary.md#state-tag)).
+The framework [`machine-has-tag?`](../api/re-frame.machines.md) sub works unchanged — it asks "does the union contain this tag?", and the answer is yes iff *any* active state in *any* region declared it. That's what lets a view disable itself with `@(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])` without caring which region (or which state of it) carries the read-only intent — *ask, don't tell* ([state tag](glossary.md#state-tag)).
 
 The composed tag union also delivers the headline payoff: **collapsing N live axes down to one render decision**. Several tags are live at once, but the page draws one thing, so a plain-data priority table picks the winner and the root view branches with a single `case`. Three regions, nine states, one branch site. That pattern — the priority table, the selector sub, the one-`case` root view — is worked in [Tags → Collapsing many states into one render decision](tags.md#collapsing-many-states-into-one-render-decision).
 

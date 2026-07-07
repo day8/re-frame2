@@ -84,13 +84,13 @@ Navigate to an article page with [Xray](../core/glossary.md#xray) (the dev inspe
 
 ## Read it from a view
 
-A view reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show — and `resources/sub-resource` is the named sugar that reads it:
+A view reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show:
 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view article-page [slug]
-  (let [state @(resources/sub-resource {:resource :realworld/article
-                                        :params   {:slug slug}})]
+  (let [state @(rf/subscribe [:rf.resource/state {:resource :realworld/article
+                                                  :params   {:slug slug}}])]
     (cond
       (:loading? state)                              [article-skeleton]
       (and (:error state) (not (:has-data? state)))  [article-error (:error state)]
@@ -431,12 +431,12 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
   :reply-to [:favorite/replied slug]}]  ;; optional continuation (below)
 ```
 
-A view reads the instance's progress through `:rf.mutation/state` (or the narrower `:rf.mutation/pending?` / `:result` / `:error`); `resources/sub-mutation` is the named sugar for the whole-instance view-model:
+A view reads the instance's progress through `:rf.mutation/state` (or the narrower `:rf.mutation/pending?` / `:result` / `:error`) — the whole-instance view-model:
 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view favorite-button [slug]
-  (let [m @(resources/sub-mutation [:favorite slug])]
+  (let [m @(rf/subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
     [:button {:disabled (:pending? m)
               :on-click #(dispatch [:rf.mutation/execute
                                     {:mutation :realworld/favorite

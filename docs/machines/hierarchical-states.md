@@ -104,7 +104,7 @@ A flat machine's snapshot `:state` is a single keyword (`:disconnected`). For a
 active leaf:
 
 ```clojure
-@(rf/sub-machine :ws/connection)
+@(rf/subscribe [:rf/machine :ws/connection])
 ;; flat-ish state:   {:state :disconnected         :data {…} :tags #{}}
 ;; compound state:   {:state [:active :connected]  :data {…} :tags #{:ws/connected}}
 ```
@@ -118,7 +118,7 @@ The practical upshot: **views ask about tags, not paths.** Don't unfold the
 `:state` vector in a view to discover "are we connected?" — ask the tag:
 
 ```clojure
-(when @(rf/machine-has-tag? :ws/connection :ws/connected)
+(when @(rf/subscribe [:rf/machine-has-tag? :ws/connection :ws/connected])
   [send-box])
 ```
 

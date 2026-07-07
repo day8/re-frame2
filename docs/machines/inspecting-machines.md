@@ -23,7 +23,7 @@ Four surfaces, building from "read the value" to "prove the logic":
 The canonical window onto a machine is the framework-registered subscription `[:rf/machine machine-id]`. It returns the [snapshot](glossary.md#snapshot) — the whole `{:state :data :tags}` value — and you subscribe to it exactly like anything else:
 
 ```clojure
-(let [{:keys [state data tags]} @(rf/sub-machine :auth.login/flow)]
+(let [{:keys [state data tags]} @(rf/subscribe [:rf/machine :auth.login/flow])]
   [:div
    [:p "state: " (name state)]            ;; the discrete FSM keyword, e.g. :submitting
    [:p "attempts: " (:attempts data)]     ;; :data — the machine's private memory
@@ -42,7 +42,7 @@ The canonical window onto a machine is the framework-registered subscription `[:
     A machine bootstraps itself on the first event addressed to it, so `[:rf/machine id]` reads `nil` before then. A view that renders pre-bootstrap should fall back to the definition's `:initial`:
 
     ```clojure
-    (or @(rf/sub-machine :turnstile/flow)
+    (or @(rf/subscribe [:rf/machine :turnstile/flow])
         {:state (:initial turnstile) :data (:data turnstile)})
     ```
 
@@ -64,12 +64,10 @@ A sub that reads a machine this way is an ordinary derivation node — it does n
 
 ### Ask by tag, not by state name
 
-Once a machine has several "loading-ish" states, views stop asking *which exact state?* and start asking a predicate — *is it busy?* That's what [state tags](glossary.md#state-tag) are for. The framework ships a derived predicate sub, and `rf/machine-has-tag?` is sugar over it:
+Once a machine has several "loading-ish" states, views stop asking *which exact state?* and start asking a predicate — *is it busy?* That's what [state tags](glossary.md#state-tag) are for. The framework ships a derived predicate sub you read like any other:
 
 ```clojure
-;; both equivalent — the sugar form reads best in a view
 (when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy]) [spinner])
-(when @(rf/machine-has-tag? :auth.login/flow :auth/busy)                  [spinner])
 ```
 
 This sub re-renders only when *this* tag's membership bit flips, so adding a fifth busy state later is one `:tags` entry on the new node — zero view changes.

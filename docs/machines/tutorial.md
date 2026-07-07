@@ -50,10 +50,10 @@ And that means, to drive this machine, we dispatch events. The event id is that 
 (rf/dispatch [:auth.login/flow [:auth.login/submit]])
 ```
 
-And when a view needs to know what state the machine is in, it reads the machine's [snapshot](glossary.md#snapshot) — its live `{:state … :data …}` value — through a specialised subscription, `rf/sub-machine`:
+And when a view needs to know what state the machine is in, it reads the machine's [snapshot](glossary.md#snapshot) — its live `{:state … :data …}` value — through the framework subscription `[:rf/machine machine-id]`:
 
 ```clojure
-@(rf/sub-machine :auth.login/flow)
+@(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
 ;;    (nil before the very first event — the machine starts itself on its first dispatch)
 ```
@@ -92,10 +92,10 @@ You name the guard once in `:guards`, then point at it by id — `:guard :form-v
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
-@(rf/sub-machine :auth.login/flow)     ;; => {:state :idle …}        (guard said no)
+@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :idle …}        (guard said no)
 
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "secret"}]])
-@(rf/sub-machine :auth.login/flow)     ;; => {:state :submitting …}
+@(rf/subscribe [:rf/machine :auth.login/flow])     ;; => {:state :submitting …}
 ```
 
 **Notice:** the guard read the credentials from `:event`, not [app-db](../core/app-db.md) — a machine callback sees only its own `:data` and the event that woke it. [Concepts → Strict encapsulation](concepts.md#strict-encapsulation--a-machine-sees-only-its-own-data) explains why that boundary matters.
@@ -161,7 +161,7 @@ The `:auth.login/failure` arrow is now a **list of candidates** — the runtime 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
 (rf/dispatch [:auth.login/flow [:auth.login/failure {:failure {:message "nope"}}]])
-@(rf/sub-machine :auth.login/flow)
+@(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :error-shown :data {:attempts 1 :error "nope"}}
 ```
 
@@ -230,7 +230,7 @@ A view reads the snapshot and shows the right thing for each state. Inside `reg-
 (rf/reg-view login-view []
   (let [state @(subscribe [:auth.login/state])
         error @(subscribe [:auth.login/error])
-        busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)]
+        busy? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])]
     (case state
       :idle        [:button {:disabled busy?} "Sign in"]
       :submitting  [:p "Signing in…"]

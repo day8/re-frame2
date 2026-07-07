@@ -1555,34 +1555,18 @@
 ;; public home: reach them through `re-frame.machines` (which already
 ;; publishes them). The `reg-machine` / `defmachine` REGISTRATION MACROS stay
 ;; on the façade (above; per-element source-coord stamping, no owned-ns macro
-;; form). The `machine-has-tag?` subscription sugar stays on the façade —
-;; it has no classified owned-namespace peer (64-example adoption, rf2-gkt25a).
+;; form). The `machine-has-tag?` and `sub-machine` subscription-sugar fns
+;; were REMOVED (rf2-il99l3, reversing rf2-2cmcas): a runtime-db framework
+;; read is a subscription VECTOR — `(subscribe [:rf/machine-has-tag?
+;; machine-id tag])` / `(subscribe [:rf/machine machine-id])` — one read
+;; grammar, the same spelling `:<-` chained inputs and the machine-selector
+;; recognizer already require (a sugar fn can never ride inside a `:<-`
+;; vector, so it could only ever duplicate the vector, never replace it).
 ;; The `dispatch-to-system` FN is DEMOTED off the façade (rf2-gkt25a /
 ;; rf2-80mmlf — exactly one in-repo caller): the canonical action-side
 ;; messaging surface is the reserved `[:rf.machine/dispatch-to-system
 ;; [system-id event]]` fx tuple; the direct-call FN now lives in
-;; `re-frame.machines` as an implementation-tier helper. The `sub-machine`
-;; snapshot read sugar layers OVER the canonical `[:rf/machine machine-id]`
-;; subscription vector (which remains the registered sub) — a plain fn over
-;; `subscribe`, mirroring `machine-has-tag?`, with an `opts` passthrough for
-;; the `{:frame …}` capability.
-
-(def ^{:doc "Subscribe to a machine's `:fsm/tags` containment-bit for
-  `tag`. Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`
-  — returns a reaction whose value is `true` iff the current snapshot's
-  `:tags` set contains `tag`. Per Spec 005 §State tags."}
-  machine-has-tag?               rf-machines/machine-has-tag?)
-
-(def ^{:doc "Subscribe to a machine's snapshot. Sugar over
-  `(subscribe [:rf/machine machine-id])` — returns a reaction over the
-  snapshot map `{:state :data :tags}` (nil before the machine's first
-  event). The 2-arity `opts` map carries the `{:frame <target>}`
-  capability the underlying subscription vector accepts. The
-  `[:rf/machine machine-id]` vector form remains the canonical registered
-  sub; this is ergonomic read sugar over it. Per Spec 005 §Subscribing to
-  machines via the :rf/machine sub."
-       :arglists '([machine-id] [machine-id opts])}
-  sub-machine                    rf-machines/sub-machine)
+;; `re-frame.machines` as an implementation-tier helper.
 
 ;; ---- resource helpers (Spec 016) ------------------------------------------
 ;;

@@ -116,58 +116,12 @@
 ;; Subs
 (def route-sub-fn               routing-subs/route-sub-fn)
 
-;; Named reactive-read sugar over the canonical `[:rf/route]` subscription
-;; vector. Defined + exported HERE on the `re-frame.routing` façade (NOT
-;; `re-frame.core`) so a non-routing app's production-elision bundle carries
-;; no route keyword strings — the routing bundle-isolation invariant. The
-;; `[:rf/route]` vector form remains the registered sub; this layers over it.
-(defn sub-route
-  "Subscribe to the current route slice. Sugar over `(subscribe [:rf/route])`.
-  Returns a reaction over the slice
-  `{:route-id :params :query :transition :error :fragment :nav-token}`
-  (nil before the first navigation). The route is a per-frame singleton, so
-  the primary form is zero-arity.
-
-  The 1-arity `opts` map carries the same `{:frame <target>}` capability the
-  underlying subscription vector accepts — `<target>` is a frame-id keyword
-  or a live frame object — so a read can target an explicit frame (e.g. a
-  non-default url-bound frame) from outside an established scope. Without
-  `:frame` the read resolves the ambient frame through the carried scope/hold
-  chain, exactly like the bare `(subscribe [:rf/route])`.
-
-  The `[:rf/route]` vector form remains the canonical registered sub; this is
-  ergonomic read sugar over it. Per Spec 012 §Subscriptions."
-  ([] (subs/subscribe [:rf/route]))
-  ([opts]
-   (if-let [frame (:frame opts)]
-     (subs/subscribe frame [:rf/route])
-     (subs/subscribe [:rf/route]))))
-
-(defn sub-pending-navigation
-  "Subscribe to the pending-navigation slot. Sugar over
-  `(subscribe [:rf/pending-navigation])`. Returns a reaction over the
-  pending-navigation map `{:requested-url :requested-by-event
-  :rejecting-route :rejecting-guard …}`, or nil in the steady state (no
-  navigation pending) — the slot is non-nil only while a `:can-leave` guard
-  holds a blocked navigation awaiting `:rf.route/continue` /
-  `:rf.route/cancel`. The slot is a per-frame singleton, so the primary
-  form is zero-arity.
-
-  The 1-arity `opts` map carries the same `{:frame <target>}` capability the
-  underlying subscription vector accepts — `<target>` is a frame-id keyword
-  or a live frame object — so a read can target an explicit frame (e.g. a
-  non-default url-bound frame) from outside an established scope. Without
-  `:frame` the read resolves the ambient frame through the carried scope/hold
-  chain, exactly like the bare `(subscribe [:rf/pending-navigation])`.
-
-  The `[:rf/pending-navigation]` vector form remains the canonical registered
-  sub; this is ergonomic read sugar over it. Per Spec 012 §Navigation
-  blocking — pending-nav protocol."
-  ([] (subs/subscribe [:rf/pending-navigation]))
-  ([opts]
-   (if-let [frame (:frame opts)]
-     (subs/subscribe frame [:rf/pending-navigation])
-     (subs/subscribe [:rf/pending-navigation]))))
+;; The `sub-route` / `sub-pending-navigation` reactive-read sugar fns that
+;; once lived here were REMOVED (rf2-il99l3, reversing rf2-2cmcas). The route
+;; and pending-navigation reads are subscription VECTORS —
+;; `(subscribe [:rf/route])` / `(subscribe [:rf/pending-navigation])` — one
+;; read grammar; `subscribe`'s own frame-first arity carries the `{:frame …}`
+;; target for a non-default url-bound frame.
 
 ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
 ;; registered routes (`route-algebra-view`, static) and a frame's live route

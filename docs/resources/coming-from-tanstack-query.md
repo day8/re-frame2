@@ -51,7 +51,7 @@ re-frame2 splits those into three lanes that never blur:
 
 - **Register** — `(rf/reg-resource …)` at boot. Teaches the runtime *how* to fetch. Fetches nothing.
 - **Cause** — a route entry, an event, or a [machine](../machines/glossary.md#machine) dispatches `[:rf.resource/ensure …]`. This is what makes a fetch happen.
-- **Project** — `@(subscribe [:rf.resource/state …])` in a [view](../core/glossary.md#view) — or the named `@(resources/sub-resource …)` sugar that expands to exactly that, the read an author writes today. Passive. Reads the cache; never triggers a fetch.
+- **Project** — `@(subscribe [:rf.resource/state …])` in a [view](../core/glossary.md#view), the read an author writes today. Passive. Reads the cache; never triggers a fetch.
 
 The cost: you write a cause that `useQuery` gave you for free. The payoff: the view is now a pure function of the cache. The *same* view renders on the server, in a unit test, or after a cache hit — with **no network call hiding in the render**. That's also why "I registered the resource but my view is a permanent skeleton" almost always means *you forgot the cause*, not the read. A subscription that finds no entry reads `:idle` and stays there until something causes the fetch. (TanStack's `enabled: false` is this same idea — a read that doesn't fetch — except here it's the default shape rather than a flag.)
 
@@ -207,7 +207,7 @@ re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in te
 | **Commands** (causal event vectors, dispatched) | *Cause* work — they are not reads | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.resource/invalidate-tags …]`, `[:rf.resource/release-owner …]`, `[:rf.resource/clear-scope …]`, `[:rf.resource/remove …]`, `[:rf.resource/load-more …]`, `[:rf.mutation/execute …]` | routes, events, machines |
 | **Reads** (passive subscription vectors) | Project runtime state — the only lane a view touches | `[:rf.resource/state …]`, `[:rf.resource/data …]`, `[:rf.resource/items …]`, `[:rf.resource/infinite-state …]`, `[:rf.mutation/state …]`, and the narrower single-fact subs | views, via `subscribe` |
 
-The two whole-view-model reads also carry an additive named sugar — `@(resources/sub-resource query)` for `[:rf.resource/state …]` and `@(resources/sub-mutation instance-id)` for `[:rf.mutation/state …]` — each expanding to exactly the subscription above; in a view that's the form you'd reach for now. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads have no sugar — they stay vectors.
+The two whole-view-model reads are `@(rf/subscribe [:rf.resource/state query])` and `@(rf/subscribe [:rf.mutation/state {:instance instance-id}])`; in a view that's the form you'd reach for. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads are read the same way — every framework read is a subscription vector, one grammar.
 
 !!! note "The whole `rf/` resource surface is the optional Resources artefact"
 

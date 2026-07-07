@@ -190,14 +190,14 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
 
 ## Step 4 — read the read, and handle every state it can be in
 
-The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a [subscription](../../core/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale). There's a named read for it — `resources/sub-resource` — that takes the same `{:resource … :params …}` query and returns the same map; it's the form the views below use.
+The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a [subscription](../../core/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale). It takes the `{:resource … :params …}` query and returns that map; it's the read the views below use.
 
 Here's the rewritten home page. Read the resource, branch on its state:
 
 ```clojure
 ;; src/conduit/articles.cljs  (views; the subs and seed are gone)
 (reg-view home-page []
-  (let [state    @(resources/sub-resource {:resource :conduit/articles :params {}})
+  (let [state    @(rf/subscribe [:rf.resource/state {:resource :conduit/articles :params {}}])
         articles (:articles (:data state))]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"]]]
@@ -296,7 +296,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
 ```clojure
 (reg-view article-page []
   (let [{:keys [slug]} @(subscribe [:rf.route/params])
-        state          @(resources/sub-resource {:resource :conduit/article :params {:slug slug}})
+        state          @(rf/subscribe [:rf.resource/state {:resource :conduit/article :params {:slug slug}}])
         article        (:article (:data state))]
     (cond
       (and (:error state) (not (:has-data? state)))

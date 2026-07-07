@@ -81,11 +81,11 @@ What happens next depends on whether anything is still *using* that entry. A rea
 
 You have a write that knows what it breaks. Now fire it from a view and watch its progress.
 
-One thing about the code below: the read uses the `resources/sub-mutation` sugar over the `[:rf.mutation/state {:instance …}]` [subscription](../../core/glossary.md#subscription), and the write fires with the bare [dispatch](../../core/glossary.md#dispatch), not the fully-qualified `rf/dispatch`. That's because `reg-view` injects `subscribe` / `dispatch` as [frame](../../core/glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you, and the sugar resolves that same ambient frame on the read side.
+One thing about the code below: the read uses the `[:rf.mutation/state {:instance …}]` [subscription](../../core/glossary.md#subscription), and the write fires with the bare [dispatch](../../core/glossary.md#dispatch), not the fully-qualified `rf/dispatch`. That's because `reg-view` injects `subscribe` / `dispatch` as [frame](../../core/glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you, and the injected `subscribe` resolves that same ambient frame on the read side.
 
 ```cljs-rf2
 (rf/reg-view article-editor [article]
-  (let [save @(resources/sub-mutation [:article-save (:slug article)])]
+  (let [save @(rf/subscribe [:rf.mutation/state {:instance [:article-save (:slug article}])])]
     [:<>
      [editor-fields article]
      [:button {:disabled (:pending? save)
@@ -98,7 +98,7 @@ One thing about the code below: the read uses the `resources/sub-mutation` sugar
      (when (:error? save) [save-error (:error save)])]))
 ```
 
-A quick tour of what that view is doing. The `resources/sub-mutation` read — sugar over the `[:rf.mutation/state {:instance …}]` subscription — is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
+A quick tour of what that view is doing. The `[:rf.mutation/state {:instance …}]` read is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
 
 Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches [app-db](../../core/glossary.md#app-db) — your app's single state map. It doesn't have to, because the registration in §2 already declared which reads this write breaks. That absence is the payoff of doing the work once, at registration.
 
@@ -123,7 +123,7 @@ The execute event takes a map payload with these keys:
 If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
 
 ```clojure
-[:rf.mutation/state    {:instance [:article-save slug]}]   ;; the whole view-model (what resources/sub-mutation reads)
+[:rf.mutation/state    {:instance [:article-save slug]}]   ;; the whole view-model
 [:rf.mutation/status   {:instance [:article-save slug]}]   ;; :idle | :pending | :success | :error
 [:rf.mutation/pending? {:instance [:article-save slug]}]   ;; boolean
 [:rf.mutation/result   {:instance [:article-save slug]}]   ;; the decoded reply value, or nil

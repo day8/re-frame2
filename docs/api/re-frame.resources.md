@@ -737,45 +737,25 @@ A failure settles `:error` — there is no `:refresh-error` analogue (a write ha
 
 > **Internal replies — do not dispatch.** The `:rf.mutation.internal/*` replies (`succeeded` / `failed`), and the `:rf.mutation/*` trace family — `started` / `succeeded` / `failed` / `cleared` / `replied` / `stale-suppressed` plus the optimistic rows (`optimistic-applied` / `optimistic-reconciled` / `optimistic-rolled-back`), carrying the instance id — are framework-internal; user code MUST NOT dispatch them.
 
-## Read sugar
+## Reading resource and mutation state
 
-`sub-resource` and `sub-mutation` are named reactive-read fns — thin sugar over the `[:rf.resource/state …]` / `[:rf.mutation/state …]` subscription vectors above. They live on the `re-frame.resources` façade, not `re-frame.core`, so a non-resources app's production bundle carries no resource/mutation keyword strings. The vector forms remain the canonical registered subs; these layer over them.
-
-### `sub-resource`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/sub-resource query)        ;; → reaction over the :rf.resource/state view-model
-  (re-frame.resources/sub-resource query opts)   ;; opts {:frame <id-or-frame>}
-  ```
-- **Description**: Sugar over `[:rf.resource/state query]`. `query` is the same `{:resource :params :scope}` map the vector takes, passed through unchanged — identical fail-closed scope resolution (`:rf.error/resource-sub-unresolved-scope`). The 2-arity `opts` carries `{:frame …}` to read from an explicit frame. A sub never fetches.
+Resource and mutation state are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). `subscribe`'s frame-first arity carries the `{:frame <target>}` capability to read from an explicit frame. A sub never fetches.
 
 ```clojure
-(require '[re-frame.resources :as resources])
-
-;; a view reads passively — never fetches
-@(resources/sub-resource {:resource :article :params {:slug "hello"}})
+;; a view reads a resource passively — never fetches
+@(rf/subscribe [:rf.resource/state {:resource :article :params {:slug "hello"}}])
 ;; => {:status :loading}  …then  {:status :loaded :data {…}}
 ```
 
-### `sub-mutation`
-
-- **Kind**: function (post-v1 lib)
-- **Signature**:
-  ```clojure
-  (re-frame.resources/sub-mutation instance)        ;; → reaction over the :rf.mutation/state view-model
-  (re-frame.resources/sub-mutation instance opts)   ;; opts {:frame <id-or-frame>}
-  ```
-- **Description**: Sugar over `[:rf.mutation/state {:instance instance}]` — the `{:instance …}` wrapping lives inside the sugar, so you pass just the instance id. The 2-arity `opts` carries `{:frame …}`. Idle empty-state until the instance's first `:rf.mutation/execute`.
+`query` is the `{:resource :params :scope}` map — identical fail-closed scope resolution (`:rf.error/resource-sub-unresolved-scope`).
 
 ```clojure
-(require '[re-frame.resources :as resources])
-
 ;; a form reads its own submission's state, keyed by instance
-@(resources/sub-mutation :form/save-1)
+@(rf/subscribe [:rf.mutation/state {:instance :form/save-1}])
 ;; => {:status :idle …}  …then  {:pending? true …}  …then  {:success? true …}
 ```
+
+Idle empty-state until the instance's first `:rf.mutation/execute`.
 
 ## Cache home
 

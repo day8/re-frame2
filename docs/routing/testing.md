@@ -88,12 +88,12 @@ The `:can-leave` flow is deliberately testable without a browser: the guard is a
                             [:editor/typed "draft text"]]})]
     ;; try to leave: the navigation parks, the slice doesn't move
     (rf/dispatch-sync [:rf.route/navigate :app/home])
-    (is (some? @(routing/sub-pending-navigation)))
+    (is (some? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
 
     ;; the user chooses: continue releases the parked navigation
     (rf/dispatch-sync [:rf.route/continue])
-    (is (nil? @(routing/sub-pending-navigation)))
+    (is (nil? @(rf/subscribe [:rf/pending-navigation])))
     (is (= :app/home @(rf/subscribe [:rf.route/id])))))
 ```
 

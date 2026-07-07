@@ -23,7 +23,7 @@
    The view never matches on state names. Each state carries tags, and the
    view asks tag-shaped questions — `:ws/connected?`, `:ws/reconnecting?`
    (the per-tag subs below, each chaining off the framework
-   `rf/machine-has-tag?` sub). It doesn't care which leaf carries the
+   `:rf/machine-has-tag?` sub). It doesn't care which leaf carries the
    `:connected` intent, only that the tag is present. Ask, don't tell.
    See docs/machines/glossary.md#state-tag.
 

@@ -491,7 +491,7 @@
                   an inline refresh indicator rides along on top."}
           articles-some []
   (let [articles    @(subscribe [:articles.home/active-articles])
-        refreshing? @(rf/machine-has-tag? :realworld/articles-home :data/refreshing)]
+        refreshing? @(rf/subscribe [:rf/machine-has-tag? :realworld/articles-home :data/refreshing])]
     [:<>
      (when refreshing? [:div.refresh-indicator "Refreshing…"])
      (for [article articles]
@@ -505,9 +505,9 @@
           home-page []
   (let [authed?      @(subscribe [:auth/authenticated?])
         selected-tag @(subscribe [:home/selected-tag])
-        on-user-feed? @(rf/machine-has-tag? :realworld/articles-home :feed/user-feed)
-        on-global?    @(rf/machine-has-tag? :realworld/articles-home :feed/global)
-        tag-filtered? @(rf/machine-has-tag? :realworld/articles-home :filter/tagged)
+        on-user-feed? @(rf/subscribe [:rf/machine-has-tag? :realworld/articles-home :feed/user-feed])
+        on-global?    @(rf/subscribe [:rf/machine-has-tag? :realworld/articles-home :feed/global])
+        tag-filtered? @(rf/subscribe [:rf/machine-has-tag? :realworld/articles-home :filter/tagged])
         tags          @(subscribe [:tags/data])
         render-mode   @(subscribe [:articles.home/render])
         current-page  @(subscribe [:articles.home/current-page])

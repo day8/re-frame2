@@ -110,7 +110,7 @@
     :submitting
     ;; The :auth/busy tag is how the view knows to dim the inputs and re-label
     ;; the button while the request is in flight — it asks
-    ;; (rf/machine-has-tag? :auth.login/flow :auth/busy) rather than checking for
+    ;; @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy]) rather than checking for
     ;; this exact state by name. Ask what's true, not where you are.
     ;; See docs/machines/glossary.md#state-tag.
     {:tags  #{:auth/busy}
@@ -230,7 +230,7 @@
 ;; the whole {:state … :data …} value. The two named subs below chain off it to
 ;; pluck out the handy pieces: the current state, and the last error. For the
 ;; "busy? locked?" questions the view skips the snapshot and asks the machine for
-;; a tag directly with `rf/machine-has-tag?` — reading the `:tags` set keeps it
+;; a tag directly with the `[:rf/machine-has-tag? …]` sub — reading the `:tags` set keeps it
 ;; from hard-coding individual state keywords (docs/machines/glossary.md#state-tag).
 
 (rf/reg-sub :auth.login/draft

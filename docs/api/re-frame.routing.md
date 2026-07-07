@@ -220,49 +220,19 @@ The read-side surface over the route registry and the live route slice: static "
   ```
 - **Description**: The layer-1 sub fn behind `:rf/route` — reads the route slice from `[:rf.runtime/routing :current]`. Exposed publicly so external callers (smoke tests, tooling) read the slice without re-deriving the path.
 
-### `sub-route`
+### Reading the route and the pending-nav slot
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (re-frame.routing/sub-route)        ;; → reaction over the route slice, or nil
-  (re-frame.routing/sub-route opts)   ;; opts {:frame <id-or-frame>}
-  ```
-- **Description**: Named read sugar over `[:rf/route]`. Returns a reaction over the route slice `{:route-id :params :query :fragment :transition :error :nav-token}`, or `nil` before the first navigation.
-
-  - Zero-arity is the primary form (the route is a per-frame singleton).
-  - The 1-arity `opts` carries `{:frame …}` to target an explicit (e.g. non-default url-bound) frame.
-  - The vector form remains the canonical registered sub.
-
-  Lives on `re-frame.routing` (not `re-frame.core`) so a non-routing app's production bundle carries no route keyword strings.
+The route slice and the pending-navigation slot are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). Both are per-frame singletons, so no id argument is needed; `subscribe`'s frame-first arity carries the `{:frame <target>}` capability to read an explicit (e.g. non-default url-bound) frame.
 
 ```clojure
-(require '[re-frame.routing :as routing])
-
-(:route-id @(routing/sub-route))   ;; the active route id, or nil pre-navigation
-```
-
-### `sub-pending-navigation`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (re-frame.routing/sub-pending-navigation)        ;; → reaction over the pending-nav map, or nil
-  (re-frame.routing/sub-pending-navigation opts)   ;; opts {:frame <id-or-frame>}
-  ```
-- **Description**: Named read sugar over `[:rf/pending-navigation]`. Returns a reaction over the pending-navigation map `{:requested-url :requested-by-event :rejecting-route :rejecting-guard …}`, or `nil` in the steady state. The slot is non-nil only while a `:can-leave` guard holds a blocked navigation awaiting `:rf.route/continue` / `:rf.route/cancel`.
-
-  - Zero-arity is the primary form (the slot is a per-frame singleton).
-  - The 1-arity `opts` carries `{:frame …}` to target an explicit (e.g. non-default url-bound) frame.
-  - The vector form remains the canonical registered sub.
-
-```clojure
-(require '[re-frame.routing :as routing])
+(:route-id @(rf/subscribe [:rf/route]))   ;; the active route id, or nil pre-navigation
 
 ;; show an "unsaved changes?" prompt only while a navigation is blocked
-(when-let [pending @(routing/sub-pending-navigation)]
+(when-let [pending @(rf/subscribe [:rf/pending-navigation])]
   [confirm-leave-dialog pending])
 ```
+
+The `:rf.route/*` granular subs (`:rf.route/id`, `:rf.route/params`, …) chain off `[:rf/route]`.
 
 ## Scroll restoration
 
@@ -547,7 +517,7 @@ The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :
 
 | Sub | Returns |
 |---|---|
-| `:rf/route` | The full `:rf/route` slice `{:route-id :params :query :fragment :transition :error :nav-token}`. Named read sugar: [`sub-route`](#sub-route). |
+| `:rf/route` | The full `:rf/route` slice `{:route-id :params :query :fragment :transition :error :nav-token}`. Read with `@(rf/subscribe [:rf/route])`. |
 | `:rf.route/id` | Current route id (the slice's `:route-id`) |
 | `:rf.route/params` | Current path params |
 | `:rf.route/query` | Current query params |
@@ -555,7 +525,7 @@ The full `:rf/route` slice is `{:route-id :params :query :fragment :transition :
 | `:rf.route/error` | Current error map (when `:transition = :error`) |
 | `:rf.route/fragment` | Current URL fragment (string or `nil`) |
 | `:rf.route/chain` | Vector of route ids from parent-most to current (per `:parent` links) |
-| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise. Named read sugar: [`sub-pending-navigation`](#sub-pending-navigation). |
+| `:rf/pending-navigation` | The pending-nav slot (per `:rf/pending-navigation` schema) when a navigation is blocked; `nil` otherwise. Read with `@(rf/subscribe [:rf/pending-navigation])`. |
 
 ### Effects (`fx`)
 
