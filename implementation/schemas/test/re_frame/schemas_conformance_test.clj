@@ -598,7 +598,7 @@
                 (let [[frame-id qv] (resolve-sub query-v)]
                   {:query    query-v
                    :expected expected-val
-                   :actual   (rf/subscribe-once frame-id qv)})))
+                   :actual   (rf/subscribe-once qv {:frame frame-id})})))
             trace-failures (check-trace-emissions @traces
                                                   (:trace-emissions expect))]
         (trace/clear-listeners!)

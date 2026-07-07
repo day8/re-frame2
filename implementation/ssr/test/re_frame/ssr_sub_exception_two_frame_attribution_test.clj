@@ -129,8 +129,8 @@
         ;; the Ring handler (get-response-then-render). It proves the core
         ;; attribution layer, NOT the wire. The wire fail-closed contract
         ;; lives in `ring-rendertime-sub-failclosed-test`.
-        (rf/subscribe-once fa [:throwing-sub])
-        (rf/subscribe-once fb [:clean-sub])
+        (rf/subscribe-once [:throwing-sub] {:frame fa})
+        (rf/subscribe-once [:clean-sub] {:frame fb})
 
         (is (= 500 (:status (ssr/get-response fa)))
             "frame-a's sub-exception fails closed to 500 on frame-a's
@@ -157,8 +157,8 @@
     (let [fa (make-server-frame frame-a)
           fb (make-server-frame frame-b)]
       (with-redefs [interop/debug-enabled? false]
-        (rf/subscribe-once fb [:throwing-sub])
-        (rf/subscribe-once fa [:clean-sub])
+        (rf/subscribe-once [:throwing-sub] {:frame fb})
+        (rf/subscribe-once [:clean-sub] {:frame fa})
         (is (= 500 (:status (ssr/get-response fb)))
             "frame-b (the emitting frame) fails closed to 500")
         (is (= 200 (:status (ssr/get-response fa)))
@@ -182,7 +182,7 @@
     (let [project-error ssr/project-error
           fa            (make-server-frame frame-a)]
       (with-redefs [interop/debug-enabled? false]
-        (rf/subscribe-once fa [:throwing-sub])
+        (rf/subscribe-once [:throwing-sub] {:frame fa})
         (let [resp (ssr/get-response fa)]
           (is (= 500 (:status resp))
               "sub-exception fails closed to 500 under production hardening")

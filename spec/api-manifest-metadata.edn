@@ -438,13 +438,15 @@
   ;; is an INTERNAL no-`:id` record helper; it is not facade-exported. Status
   ;; `EP-0023` -> `EP-0024`.
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "EP-0024"}
-  ;; EP-0024 (rf2-tu2vr7): the single public accessor from a frame VALUE (the
-  ;; lifecycle token `make-frame` returns) to its frame id (EP-0024 Open Issue #2
-  ;; — "provide one accessor frame value → id; do not expose the representation").
-  ;; A frame-id keyword passes through unchanged. Tier `:advanced` (a frame-value
-  ;; helper, not a front-porch primitive); owned by 002 (Frames — the frame
-  ;; identity normative home).
-  ["re-frame.core" "frame-value->id"]     {:tier :advanced    :owner "002" :status "EP-0024"}
+  ;; API-shrink #1 (rf2-csbbwu): `frame-value->id` (EP-0024 rf2-tu2vr7's public
+  ;; accessor from a frame VALUE to its frame id) is DELETED from the facade —
+  ;; `frame-provider`'s `:frame` is normalized to accept a frame value
+  ;; alongside a keyword id, so every public surface (`dispatch` /
+  ;; `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` / …)
+  ;; now accepts a frame value or its id interchangeably; there is no longer a
+  ;; public need to unwrap a value to its id. The internal normalization
+  ;; primitive (`re-frame.frame/frame-value->id`) survives for the
+  ;; framework's own call sites.
   ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
   ;; dedicated `reload-images!` verb is RETIRED — image hot-reload is folded
   ;; into re-`make-frame`-ing an `:id`-bearing frame with a new `:images`
@@ -596,22 +598,22 @@
   ["re-frame.core" "with-frame"]          {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "with-new-frame"]      {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "capture-frame"]       {:tier :front-porch :owner "002" :status "v1"}
-  ;; EP-0024 Open Issue #8 (rf2-5vla7c): the carry/targeting helpers below are
+  ;; EP-0024 Open Issue #8 (rf2-5vla7c): `make-capture-frame` below is
   ;; RETIERED off the app-facing facade to `:implementation`. `capture-frame`
-  ;; (above) stays the ONE public carry primitive; these survive exported from
+  ;; (above) stays the ONE public carry primitive; it survives exported from
   ;; `re-frame.core` ONLY for cross-namespace / test reach (NOT a supported
-  ;; app/tool surface — an app MUST NOT depend on them), the same rationale as
-  ;; `->interceptor`. None carries an API.md var-row. Grounded by the 0-caller
-  ;; backbone in ai/findings/API-review/codex/frame-targeting-and-lifecycle.md.
+  ;; app/tool surface — an app MUST NOT depend on it), the same rationale as
+  ;; `->interceptor`. No API.md var-row. Grounded by the 0-caller backbone in
+  ;; ai/findings/API-review/codex/frame-targeting-and-lifecycle.md.
   ;;   - `make-capture-frame` — the lower-level `capture-frame` constructor;
   ;;     `capture-frame` is the public face. Exported so the `reg-view` macro's
   ;;     emitted body can reference `re-frame.core/make-capture-frame`.
-  ;;   - `frame-bound-fn` / `frame-bound-fn*` — frame-rebinding closures whose
-  ;;     real use cases `capture-frame` (or an explicit `{:frame …}` opt) now
-  ;;     expresses. Retained for implementation/test reach only.
+  ;; API-shrink #1 (rf2-csbbwu): `frame-bound-fn` (macro) / `frame-bound-fn*`
+  ;; (fn) are DELETED from `re-frame.core` entirely (not just retiered) —
+  ;; `capture-frame` (or an explicit `{:frame …}` opt) is the ONE public carry
+  ;; primitive. The frame-rebinding closure semantics survive internally as
+  ;; `re-frame.frame/bind-fn` (a different namespace, not on this facade).
   ["re-frame.core" "make-capture-frame"]  {:tier :implementation :owner "002" :status "EP-0024 (internal capture-frame constructor)"}
-  ["re-frame.core" "frame-bound-fn"]      {:tier :implementation :owner "002" :status "EP-0024 (internal carry helper)"}
-  ["re-frame.core" "frame-bound-fn*"]     {:tier :implementation :owner "002" :status "EP-0024 (internal carry helper)"}
   ["re-frame.core" "view"]                {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"}
   ;; Interceptor authoring (spec/API.md §Interceptors). EP-0022 Slice C

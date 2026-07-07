@@ -51,7 +51,7 @@
     (rf/dispatch-sync [::seed 1])
 
     ;; Materialise a real sub-cache slot (ref-count 1).
-    (let [r (subs/subscribe :rf/default [::n])]
+    (let [r (subs/subscribe [::n] {:frame :rf/default})]
       (is (= 1 @r) "sub reads the seeded value")
       (is (contains? (sub-cache-keys) [::n]) "subscribe materialised a cache slot")
       (is (= 1 (entry-ref-count [::n])) "slot ref-count = 1"))
@@ -66,7 +66,7 @@
     ;; Reinstall, mutate app-db, re-subscribe — must reflect the NEW value.
     (substrate-adapter/install-adapter! test-react/adapter)
     (rf/dispatch-sync [::seed 99])
-    (let [r2 (subs/subscribe :rf/default [::n])]
+    (let [r2 (subs/subscribe [::n] {:frame :rf/default})]
       (is (= 99 @r2)
           "re-subscribe recomputed from the current app-db, not a stale slot")
       (is (= 1 (entry-ref-count [::n]))
@@ -86,8 +86,8 @@
       ;; arity.
       (rf/dispatch-sync* [::seed 1] {:frame :rf/default})
       (rf/dispatch-sync* [::seed 2] {:frame other})
-      (subs/subscribe :rf/default [::n])
-      (subs/subscribe other [::n])
+      (subs/subscribe [::n] {:frame :rf/default})
+      (subs/subscribe [::n] {:frame other})
       (is (contains? (set (keys @(:sub-cache (frame/frame :rf/default)))) [::n])
           ":rf/default carries a slot")
       (is (contains? (set (keys @(:sub-cache (frame/frame other)))) [::n])

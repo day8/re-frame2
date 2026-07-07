@@ -695,7 +695,7 @@
 
 (deftest stale-carried-scope-frame-fails-closed
   ;; The carried scope (`*current-frame*`) can outlive the frame it names —
-  ;; e.g. a `frame-bound-fn` closure fires after the frame was destroyed.
+  ;; e.g. a captured async callback fires after the frame was destroyed.
   ;; A stale scope id that no longer resolves to a live frame must fail
   ;; closed exactly like an explicit unknown `:frame` opt (the same
   ;; `frame/frame` liveness check governs both resolution tiers).

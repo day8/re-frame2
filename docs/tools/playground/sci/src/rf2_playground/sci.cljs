@@ -91,9 +91,9 @@
 ;; cell dispatch resolves `:rf/default` regardless of dynamic scope. An explicit
 ;; `:frame` in a cell's opts still wins — `dispatch!`/`dispatch-sync!` give the
 ;; passed opt precedence over the carried scope. `subscribe` defaults to its
-;; 2-arity `(frame-id query-v)` named-frame form for the deferred / non-render
-;; case (the render-time `subscribe` is already scoped by the `frame-bound-fn*`
-;; binding in `frame-bind-component`).
+;; `{:frame app-frame}` opts form for the deferred / non-render case (the
+;; render-time `subscribe` is already scoped by the `with-frame` binding
+;; `frame-bind-component` re-establishes on every call).
 (defn- playground-dispatch
   ([event]      (rf/dispatch* event {:frame app-frame}))
   ([event opts] (rf/dispatch* event (merge {:frame app-frame} opts))))
@@ -103,8 +103,8 @@
   ([event opts] (rf/dispatch-sync* event (merge {:frame app-frame} opts))))
 
 (defn- playground-subscribe
-  ([query-v]          (rf/subscribe* app-frame query-v))
-  ([frame-id query-v] (rf/subscribe* frame-id query-v)))
+  ([query-v]      (rf/subscribe* query-v {:frame app-frame}))
+  ([query-v opts] (rf/subscribe* query-v (merge {:frame app-frame} opts))))
 
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
@@ -153,7 +153,7 @@
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
 ;; reg-cofx, ...), plus init!, configure, clear-event,
-;; current-frame-id, capture-frame, frame-bound-fn*, app-db-value, etc.
+;; current-frame-id, capture-frame, app-db-value, etc.
 ;; The macro-only public names (dispatch/dispatch-sync/subscribe) have no
 ;; same-named runtime var so they are NOT in the copy; we add them below.
 ;; (`inject-cofx` was removed from the public facade in EP-0017 / rf2-w9xyx1
@@ -257,16 +257,20 @@
 
   So we re-establish the frame via the DYNAMIC-VAR tier instead: when the
   cell value is a component-invocation vector `[f & args]` whose head `f`
-  is a fn, wrap that head with `frame-bound-fn*` capturing `app-frame`. The
-  wrapped fn re-binds `*current-frame*` on EVERY invocation — including each
-  React render — so the plain-fn's `subscribe`/`dispatch` resolve to
-  `:rf/default` regardless of the (reg-view-only) context tier. A non-fn
-  head (e.g. a plain `[:div …]` hiccup tag) needs no scope and rides
-  through untouched."
+  is a fn, wrap that head in a fn that re-binds `*current-frame*` to
+  `app-frame` on every call via `with-frame` (API-shrink #1, rf2-csbbwu
+  removed the public `frame-bound-fn*` — `capture-frame` / `with-frame`
+  are the public carry/scope primitives; this is the 3-line idiom that
+  composes them for an arbitrary already-held fn). The wrapped fn re-binds
+  `*current-frame*` on EVERY invocation — including each React render —
+  so the plain-fn's `subscribe`/`dispatch` resolve to `:rf/default`
+  regardless of the (reg-view-only) context tier. A non-fn head (e.g. a
+  plain `[:div …]` hiccup tag) needs no scope and rides through untouched."
   [component]
   (if (and (vector? component)
            (fn? (first component)))
-    (assoc component 0 (rf/frame-bound-fn* app-frame (first component)))
+    (let [f (first component)]
+      (assoc component 0 (fn [& args] (rf/with-frame app-frame (apply f args)))))
     component))
 
 (defn ^:export renderLast

@@ -43,7 +43,7 @@
     ;; Populate app-db.
     (rf/dispatch-sync [:seed 42] {:frame :tenant})
     ;; Pin a sub in the cache.
-    (let [pinned         (rf/subscribe :tenant [:n])
+    (let [pinned         (rf/subscribe [:n] {:frame :tenant})
           orig-record    (frame/frame :tenant)
           orig-app-db    (:app-db orig-record)
           orig-sub-cache (:sub-cache orig-record)
@@ -242,8 +242,8 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:answer 7}}))
     (rf/reg-sub :answer (fn [db _] (:answer db)))
     (rf/dispatch-sync [:seed] {:frame :live})
-    (let [r1            (rf/subscribe :live [:answer])
-          r2            (rf/subscribe :live [:answer])
+    (let [r1            (rf/subscribe [:answer] {:frame :live})
+          r2            (rf/subscribe [:answer] {:frame :live})
           dispose-fired (atom 0)]
       ;; Pin the cache entry and attach an on-dispose hook so we can
       ;; observe destroy clearing it.
@@ -266,7 +266,7 @@
       ;; Post-destroy subscribe returns nil with :replaced-with-default.
       (let [t-after (atom [])]
         (rf/register-listener! :trace ::post (fn [ev] (swap! t-after conj ev)))
-        (let [r3 (rf/subscribe :live [:answer])]
+        (let [r3 (rf/subscribe [:answer] {:frame :live})]
           (is (nil? r3)
               "subscribe against a destroyed frame returns nil"))
         (rf/unregister-listener! :trace ::post)
@@ -1096,7 +1096,7 @@
     (rf/reg-event :throwy/seed (fn [{:keys [db]} _] {:db {:n 42}}))
     (rf/reg-sub :throwy/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:throwy/seed] {:frame :throwy/worker})
-    (let [pinned         (rf/subscribe :throwy/worker [:throwy/n])
+    (let [pinned         (rf/subscribe [:throwy/n] {:frame :throwy/worker})
           dispose-fired  (atom 0)
           traces         (atom [])]
       (is (= 42 @pinned) "sub reads the seeded value before destroy")

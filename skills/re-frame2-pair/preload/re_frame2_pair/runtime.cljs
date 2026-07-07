@@ -1103,8 +1103,8 @@
    fine for one-shot probes, not for repeated polling outside a
    reactive context.
 
-   Threads the resolved operating frame through `(rf/subscribe
-   frame-id query-v)` so a prior `select-frame!` (or an explicit
+   Threads the resolved operating frame through `(rf/subscribe query-v
+   {:frame frame-id})` so a prior `select-frame!` (or an explicit
    `frame-id` arg) actually steers the read. Returns
    `{:ok? false :reason :ambiguous-frame}` if no frame can be
    resolved — read ops shouldn't silently fall back to `:rf/default`
@@ -1117,7 +1117,7 @@
 
      :else
      (try
-       @(rf/subscribe frame-id query-v)
+       @(rf/subscribe query-v {:frame frame-id})
        (catch :default e
          {:ok? false :reason :sub-error :message (.-message e) :frame frame-id})))))
 
@@ -1178,7 +1178,7 @@
            {:ok?     true
             :query-v query-v
             :frame   frame-id
-            :value   @(rf/subscribe frame-id query-v)}
+            :value   @(rf/subscribe query-v {:frame frame-id})}
            (catch :default e
              {:ok?     false
               :reason  :sub-error
@@ -3812,7 +3812,7 @@
 
       (contains? signal :sub)
       (when frame-id
-        (-> @(rf/subscribe frame-id (vec (:sub signal)))
+        (-> @(rf/subscribe (vec (:sub signal)) {:frame frame-id})
             (maybe-elide-sample frame-id elide-opts)))
 
       (contains? signal :dom)

@@ -188,17 +188,17 @@
      "B · :where :event (handler skipped)"]
     [:button {:data-testid "violate-cofx"
               ;; :rf.error/cofx-value-invalid THROWS (halting hard error).
-              ;; Use the sync fn-form (frame-first) so the throw is
-              ;; synchronous at the click boundary and can be caught here —
-              ;; the demo then surfaces the error via the trace / error-emit
-              ;; stream (which fires BEFORE the throw) without an uncaught
-              ;; exception escaping to window.onerror. The handler never ran,
-              ;; so :cofx-count stays at 0. (The other buttons use async
+              ;; Use the sync fn-form so the throw is synchronous at the
+              ;; click boundary and can be caught here — the demo then
+              ;; surfaces the error via the trace / error-emit stream (which
+              ;; fires BEFORE the throw) without an uncaught exception
+              ;; escaping to window.onerror. The handler never ran, so
+              ;; :cofx-count stays at 0. (The other buttons use async
               ;; dispatch; this one must be sync to catch the throw at its
               ;; call site.)
               :on-click (fn []
                           (try
-                            (rf/dispatch-sync* :rf/default [::violate-cofx])
+                            (rf/dispatch-sync* [::violate-cofx] {:frame :rf/default})
                             (catch :default _ nil)))}
      "C · :rf.error/cofx-value-invalid (throws — run halts)"]
     [:button {:data-testid "violate-fx-args"

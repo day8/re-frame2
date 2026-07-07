@@ -178,8 +178,8 @@
     :fn   'assert-sub-chain}
    {:test 'runtime-with-frame
     :fn   'assert-with-frame-binds-current-frame}
-   {:test 'runtime-bound-fn
-    :fn   'assert-bound-fn-captures-frame}
+   {:test 'runtime-capture-frame
+    :fn   'assert-capture-frame-survives-scope-unwind}
    {:test 'runtime-multi-frame-isolation
     :fn   'assert-multi-frame-state-isolation}
    {:test 'runtime-reactive-sub

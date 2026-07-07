@@ -257,16 +257,16 @@
 
 ;; ---- subscribe-once {:frame} opts-map call-shape (rf2-bfadc6) -------------
 ;;
-;; Per rf2-bfadc6 (Mike ruled OPTION A): `subscribe-once` gains the public
+;; Per rf2-bfadc6 (Mike ruled OPTION A): `subscribe-once` has the public
 ;; `{:frame}` opts-map call-shape `(subscribe-once query-v {:frame f})`,
-;; parallel to `subscribe` (EP-0024). The 2-arity is SHAPE-DISCRIMINATED on
-;; the first arg: a query-vector first ⇒ the public opts form; a frame target
-;; first ⇒ the internal frame-first form. This closes the misbinding footgun
-;; EP-0024 closed for `subscribe`: an author who learned
+;; parallel to `subscribe` (EP-0024). API-shrink #1 (rf2-csbbwu) DELETED the
+;; frame-first positional form entirely — every sig is `[query-v]` /
+;; `[query-v opts]`, no `vector?` shape-discrimination. This closes the
+;; misbinding footgun EP-0024 closed for `subscribe`: an author who learned
 ;; `(subscribe [:x] {:frame f})` writes the SAME shape here and the runtime
 ;; binds `f` as the frame (not `[:x]` as a frame-id and `{:frame f}` as a
 ;; query-v). `unsubscribe` deliberately does NOT gain this form (guard test
-;; below).
+;; below) — it stays frame-first-only.
 
 (defn- frame-cache-keys
   "The set of query-vectors currently cached in frame `frame-id`."
@@ -295,25 +295,26 @@
       (is (not (contains? (frame-cache-keys :bfadc6/right) [:v]))
           "opts-map subscribe-once disposes its slot in-tick (right)"))))
 
-(deftest subscribe-once-opts-map-and-frame-first-agree
-  (testing "the NEW opts-map form and the RETAINED frame-first positional form
-            resolve the SAME value for the same target (rf2-bfadc6) — the
-            frame-first form is not broken by the shape-discrimination"
+(deftest subscribe-once-former-frame-first-no-longer-resolves
+  (testing "the DELETED frame-first positional form — (subscribe-once
+            frame-id query-v) — no longer targets the named frame
+            (API-shrink #1, rf2-csbbwu). `frame-id` (a keyword) is now read
+            as `query-v` and `query-v` (a vector) as `opts`; `(:frame opts)`
+            on a vector is nil, so it falls to the 1-arity ambient path,
+            where `(first query-v)` on the keyword throws — it fails LOUDLY
+            rather than silently misrouting."
     (rf/reg-frame :bfadc6/f {:doc "frame f"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :the-value] {:frame :bfadc6/f})
     (binding [frame/*current-frame* nil]
-      ;; Frame-first positional form (internal plumbing) — a keyword first.
-      (is (= :the-value (rf/subscribe-once :bfadc6/f [:v]))
-          "frame-first (subscribe-once frame-id query-v) still resolves")
-      ;; Public opts-map form — a query-vector first.
+      ;; Public opts-map form still resolves.
       (is (= :the-value (rf/subscribe-once [:v] {:frame :bfadc6/f}))
-          "opts-map (subscribe-once query-v {:frame f}) resolves the same value")
-      ;; And they agree.
-      (is (= (rf/subscribe-once :bfadc6/f [:v])
-             (rf/subscribe-once [:v] {:frame :bfadc6/f}))
-          "both call-shapes are value-identical for the same target"))))
+          "opts-map (subscribe-once query-v {:frame f}) resolves the value")
+      ;; The former frame-first shape now throws rather than resolving.
+      (is (thrown? IllegalArgumentException
+                   (rf/subscribe-once :bfadc6/f [:v]))
+          "the deleted frame-first shape fails loudly, never silently"))))
 
 (deftest subscribe-once-opts-map-with-empty-opts-uses-ambient
   (testing "(subscribe-once query-v {}) with no :frame key falls through to the
@@ -340,7 +341,7 @@
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :v-value] {:frame :bfadc6/u})
     ;; Take out a real, live subscription against frame :bfadc6/u.
-    (rf/subscribe :bfadc6/u [:v])
+    (rf/subscribe [:v] {:frame :bfadc6/u})
     (is (contains? (frame-cache-keys :bfadc6/u) [:v])
         "the entry is cached under frame :bfadc6/u")
     ;; If unsubscribe HAD an opts-map form, this would decrement/dispose the
@@ -958,7 +959,7 @@
     ;; the object map. Seed app-db so the read resolves.
     (let [frame-obj (make-n-frame {:seed-db {:n 7}})]
       ;; Subscribe via the OBJECT target → keyed by the runnable-id.
-      (let [r (rf/subscribe frame-obj [:n])]
+      (let [r (rf/subscribe [:n] {:frame frame-obj})]
         (is (= 7 @r) "object-target subscribe reads the frame's seeded app-db")
         (is (contains? (object-cache-keys frame-obj) [:n])
             "the entry is cached in the frame's runnable record"))
@@ -978,7 +979,7 @@
       (let [frame-obj (make-n-frame {:id :ts3fuk/a :seed-db {:n 1}})
             rid       (frame/frame-target->id frame-obj)]
         (is (= :ts3fuk/a rid) "an :id-bearing object's runnable-id IS the public id")
-        (rf/subscribe rid [:n])
+        (rf/subscribe [:n] {:frame rid})
         (is (contains? (object-cache-keys frame-obj) [:n]))
         ;; Differently-spelled teardown target (the object, not the keyword).
         (rf/unsubscribe frame-obj [:n])
@@ -988,7 +989,7 @@
     (testing "subscribe by OBJECT, unsubscribe by the equivalent runnable-id KEYWORD"
       (let [frame-obj (make-n-frame {:id :ts3fuk/b :seed-db {:n 2}})
             rid       (frame/frame-target->id frame-obj)]
-        (rf/subscribe frame-obj [:n])
+        (rf/subscribe [:n] {:frame frame-obj})
         (is (contains? (object-cache-keys frame-obj) [:n]))
         ;; Differently-spelled teardown target (the keyword, not the object).
         (rf/unsubscribe rid [:n])
@@ -1002,7 +1003,7 @@
             symmetrically, so the one-shot read's slot is disposed in-tick
             instead of leaking (rf2-ts3fuk)"
     (let [frame-obj (make-n-frame {:seed-db {:n 9}})]
-      (is (= 9 (rf/subscribe-once frame-obj [:n]))
+      (is (= 9 (rf/subscribe-once [:n] {:frame frame-obj}))
           "object-target subscribe-once returns the seeded value")
       (is (not (contains? (object-cache-keys frame-obj) [:n]))
           "no orphaned entry — subscribe-once's object-target teardown evicted it")

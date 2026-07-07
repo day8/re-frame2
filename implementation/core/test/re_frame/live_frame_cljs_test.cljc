@@ -56,6 +56,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core        :as rf]
             [re-frame.events      :as events]
+            [re-frame.frame       :as frame-ns]
             [re-frame.image       :as image]
             [re-frame.image-assembly :as asm]
             [re-frame.live-frame  :as lf]
@@ -263,7 +264,7 @@
             NOT identical? to the originally-returned value)"
     (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
           frame (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
-      (is (= :counter/main (rf/frame-value->id (lf/live-frame :counter/main)))
+      (is (= :counter/main (frame-ns/frame-value->id (lf/live-frame :counter/main)))
           "live-frame lookup reconstructs a value routing to the same id")
       (is (= :counter/main (:rf.frame/id frame)))
       (is (contains? (lf/live-frame-ids) :counter/main)))))
@@ -309,7 +310,7 @@
       (let [again (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
         (is (lf/frame-object? again)
             "re-making the same id returns a frame value (no throw)")
-        (is (= :counter/main (rf/frame-value->id again))
+        (is (= :counter/main (frame-ns/frame-value->id again))
             "the re-made frame value routes to the same id")
         (is (some? (lf/frame-generation :counter/main))
             "the record is still image-loaded after the replacement")
@@ -356,11 +357,11 @@
           frame (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? frame))
       (is (nil? (:rf.frame/id frame)) "a no-id frame value carries no public :rf.frame/id")
-      (is (= "rf.frame" (namespace (rf/frame-value->id frame)))
+      (is (= "rf.frame" (namespace (frame-ns/frame-value->id frame)))
           "the record is keyed by a private :rf.frame/<gensym> runnable-id")
       (is (not-any? public-frame-id? (lf/live-frame-ids))
           "a no-id frame contributes NO public frame id")
-      (is (not (contains? (lf/live-frame-ids) (rf/frame-value->id frame)))
+      (is (not (contains? (lf/live-frame-ids) (frame-ns/frame-value->id frame)))
           "the private gensym id is excluded from live-frame-ids (no-id frames
            bypass enumeration/auto-reprojection — EP-0024)"))))
 
@@ -373,7 +374,7 @@
           b   (lf/make-frame {:images [img]} counter-pool)]
       (is (lf/frame-object? a))
       (is (lf/frame-object? b))
-      (is (not= (rf/frame-value->id a) (rf/frame-value->id b))
+      (is (not= (frame-ns/frame-value->id a) (frame-ns/frame-value->id b))
           "each make-frame yields a distinct record (distinct runnable-ids)")
       (is (not-any? public-frame-id? (lf/live-frame-ids))
           "neither no-id frame contributes a public frame id"))))

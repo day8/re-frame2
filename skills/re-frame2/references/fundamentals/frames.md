@@ -36,7 +36,7 @@ Together they compose a **frame-state** value: `{:rf.db/app <app-db> :rf.db/runt
 
 > **Where any value lives — the four storage classes.** The two durable partitions plus the per-frame sub-cache are the **storage classes** re-frame2 names for any declared value: `:app-db` (user-owned durable, the `:db` partition), `:runtime-db` (framework-owned durable, the `:rf.db/runtime` partition), `:ephemeral` (sub-cache / reaction value — recomputable, never written to durable frame state), `:host-transient` (handles *outside* frame state — an `AbortController`, a timer — cleared at a lifecycle boundary, never the only copy of a fact). You don't declare it — it falls out of *which* `reg-*` form you reach for (a sub is `:ephemeral`, a flow materialises to `:app-db`, a resource caches in `:runtime-db`) — but it's the vocabulary inspection tools and `SKILL-REDIRECT.md` → *Derivations and processes (the algebra)* use. A *remote* fact still has a **local** storage class (`:runtime-db` cache entry) — "remote" is its *authority*, never where it's stored.
 
-A frame is a mutable runtime boundary, and public code targets it by one of two identity forms. **Mounted / app code** addresses a frame by a **registered keyword id** (`reg-frame`); **anonymous tests / harnesses / per-mount lifetimes** target the **live frame value** returned from `make-frame` (a lifecycle token — read its id with `frame-value->id`). Prefer an id when other code must address the frame by name; prefer the direct value when the creator owns the lifecycle. `dispatch` / `subscribe` / `destroy-frame!` accept either form.
+A frame is a mutable runtime boundary, and public code targets it by one of two identity forms. **Mounted / app code** addresses a frame by a **registered keyword id** (`reg-frame`); **anonymous tests / harnesses / per-mount lifetimes** target the **live frame value** returned from `make-frame` (a lifecycle token). Prefer an id when other code must address the frame by name; prefer the direct value when the creator owns the lifecycle. `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept either form directly — there is no separate value→id accessor to reach for.
 
 ## Canonical signatures
 
@@ -46,8 +46,8 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 
 ;; Per-instance frame. The ONE constructor (EP-0024) — accepts image-selection
 ;; opts AND record-config opts in one call; returns the live frame VALUE
-;; (a lifecycle token; read its id with (rf/frame-value->id f)). dispatch /
-;; subscribe / destroy-frame! accept the value OR its id.
+;; (a lifecycle token). dispatch / subscribe / destroy-frame! accept the
+;; value OR its id directly — no separate accessor needed.
 (rf/make-frame opts)            ;; e.g. {:id :todo :images [todo-image] :initial-events [[:rf/set-db {}] [...]]}
 
 ;; Destroy / reset.
@@ -101,7 +101,7 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 
 `(rf/capture-frame)` captures `(current-frame-id)`; `(rf/capture-frame :frame-id)` locks to an explicit id. It returns `{:frame :dispatch :dispatch-sync :subscribe}` — a **frame api**, not a container. Read the frame's app-db value via `(rf/app-db-value (:frame frame-api))`, never off the frame api itself. A per-call `:frame` opt cannot override the captured frame; the frame api is locked to one frame.
 
-`capture-frame` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). `frame-bound-fn` / `frame-bound-fn*` are not app API.
+`capture-frame` is the **one public carry primitive** — every async / callback / tooling boundary captures it (or routes with an explicit `{:frame …}` opt). There is no second app-facing carry surface.
 
 ## Canonical mini-example
 
@@ -117,7 +117,7 @@ Per-test isolated frame (the shape tests and harnesses use):
   (assert (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))))
 ```
 
-Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Under EP-0024 `make-frame` returns the live frame **value** (a lifecycle token); holding it and passing it directly (`{:frame f}`, `(rf/app-db-value f)`) is the sanctioned tests-and-harness pattern — `dispatch` / `subscribe` / `app-db-value` accept the value or its id, and you read the id with `(rf/frame-value->id f)`. The frame is born in the test scope and dies with it (`with-new-frame` destroys it on block exit), with no entry in the named frame registry. That is the right shape for tests and harnesses — reach for an `:id`-registered frame only when mounted code must address it by id (route public ops by id elsewhere).
+Each test gets its own frame with its own app-db and its own fx-override map — concurrent tests can run with no cross-contamination. Under EP-0024 `make-frame` returns the live frame **value** (a lifecycle token); holding it and passing it directly (`{:frame f}`, `(rf/app-db-value f)`) is the sanctioned tests-and-harness pattern — `dispatch` / `subscribe` / `app-db-value` all accept the value or its id interchangeably, with no separate accessor to unwrap it. The frame is born in the test scope and dies with it (`with-new-frame` destroys it on block exit), with no entry in the named frame registry. That is the right shape for tests and harnesses — reach for an `:id`-registered frame only when mounted code must address it by id (route public ops by id elsewhere).
 
 And establishing the app frame at boot (the runtime infers no frame, so you register it explicitly and scope it at the root):
 

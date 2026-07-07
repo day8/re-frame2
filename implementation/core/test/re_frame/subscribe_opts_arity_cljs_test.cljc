@@ -1,22 +1,24 @@
 (ns re-frame.subscribe-opts-arity-cljs-test
-  "Conformance for the PUBLIC `subscribe` opts-map `{:frame}` arity — the
-  reconciliation that mirrors the `dispatch*` / EP-0024 frame-opt work.
+  "Conformance for the PUBLIC `subscribe` opts-map `{:frame}` arity.
 
-  The spec teaches the public frame-targeted read as `(subscribe query-v
+  The spec teaches the ONE public frame-targeted read as `(subscribe query-v
   {:frame target})` (002-Frames §Frame-targeted dispatch and subscribe;
   008-Testing §Reading machine snapshots; API.md §Dispatch and subscribe).
-  The frame-FIRST `(subscribe frame-id query-v)` form is INTERNAL plumbing
-  retained for implementation / test / tooling reach (002-Frames §`subscribe*`
-  + the frame-first operation arities are internal). Before this reconciliation
-  `(subscribe [:x] {:frame f})` misbound the OPTS map as the `query-v` and the
-  query-vector as the frame-id.
+  API-shrink #1 (rf2-csbbwu) DELETED the frame-FIRST `(subscribe frame-id
+  query-v)` runtime shape-discrimination entirely — every sig is `[query-v]`
+  / `[query-v opts]`, no `vector?` punning on the first arg. Before the
+  EP-0024/rf2-bfadc6 reconciliation `(subscribe [:x] {:frame f})` misbound
+  the OPTS map as the `query-v` and the query-vector as the frame-id; this
+  suite now pins that the DELETED frame-first shape fails loudly rather than
+  silently misrouting.
 
   This suite pins, end-to-end through the public `rf/subscribe` macro:
 
-    1. the opts form targets the named frame, value-equal to the frame-first
-       form on the same frame;
+    1. the opts form targets the named frame;
     2. the ambient 1-arity still resolves the carried `with-frame` scope;
-    3. the internal frame-first 2-arity still resolves a named frame;
+    3. a former frame-first call — `(subscribe frame-id query-v)` — no
+       longer resolves the named frame; it fails loudly (never a silent
+       misroute to the wrong frame);
     4. an opts map WITHOUT `:frame` falls to ambient (the `:frame` opt is the
        only frame-targeting key);
     5. malformed (non-map) opts fall to ambient and fail-loud
@@ -57,14 +59,10 @@
          (:rf.error/id (ex-data e)))))
 
 (deftest opts-map-frame-targets-the-named-frame
-  (testing "(subscribe query-v {:frame f}) reads f's app-db — and is value-equal
-            to the internal frame-first (subscribe f query-v) on the same frame"
+  (testing "(subscribe query-v {:frame f}) reads f's app-db"
     (setup!)
     (is (= :A @(rf/subscribe [:soa/val] {:frame :soa/t1})))
-    (is (= :B @(rf/subscribe [:soa/val] {:frame :soa/t2})))
-    (is (= @(rf/subscribe :soa/t1 [:soa/val])             ;; frame-first (internal)
-           @(rf/subscribe [:soa/val] {:frame :soa/t1}))   ;; opts-map (public)
-        "the public opts form is value-equal to the frame-first form")))
+    (is (= :B @(rf/subscribe [:soa/val] {:frame :soa/t2})))))
 
 (deftest ambient-1-arity-resolves-the-carried-scope
   (testing "(subscribe query-v) still resolves the ambient frame via with-frame"
@@ -72,12 +70,23 @@
     (is (= :A (rf/with-frame :soa/t1 @(rf/subscribe [:soa/val]))))
     (is (= :B (rf/with-frame :soa/t2 @(rf/subscribe [:soa/val]))))))
 
-(deftest internal-frame-first-2-arity-still-works
-  (testing "(subscribe frame-id query-v) — the internal frame-first plumbing —
-            still resolves the named frame with no scope established"
+(deftest former-frame-first-call-no-longer-resolves-a-named-frame
+  (testing "(subscribe frame-id query-v) — the DELETED frame-first shape
+            (API-shrink #1, rf2-csbbwu) — no longer targets the named frame.
+            `frame-id` (a keyword) is now read as `query-v` and `query-v` (a
+            vector) as `opts`; `(:frame opts)` on a vector is nil, so it falls
+            to the 1-arity ambient path, where `(first query-v)` on the
+            keyword throws. It fails LOUDLY rather than silently misrouting
+            to the wrong frame or reading a stale value."
     (setup!)
-    (is (= :A @(rf/subscribe :soa/t1 [:soa/val])))
-    (is (= :B @(rf/subscribe :soa/t2 [:soa/val])))))
+    (is (thrown? #?(:clj Throwable :cljs :default)
+                 @(rf/subscribe :soa/t1 [:soa/val]))
+        "no ambient scope: throws rather than resolving :soa/t1")
+    (is (thrown? #?(:clj Throwable :cljs :default)
+                 (rf/with-frame :soa/t2
+                   @(rf/subscribe :soa/t1 [:soa/val])))
+        "even under an unrelated ambient scope: throws rather than silently
+         reading :soa/t2 (the ambient frame) or :soa/t1 (the intended one)")))
 
 (deftest opts-without-frame-falls-to-ambient
   (testing "an opts map WITHOUT :frame resolves the AMBIENT frame (the :frame opt

@@ -1804,7 +1804,7 @@
                 (let [[frame-id qv] (resolve-sub query-v)]
                   {:query    query-v
                    :expected expected-val
-                   :actual   (rf/subscribe-once frame-id qv)})))
+                   :actual   (rf/subscribe-once qv {:frame frame-id})})))
             ;; EP-0017 (rf2-d8mvke.3): NEGATIVE app-db path assertions —
             ;; mirror of the JVM runner. A sentinel `get-in` distinguishes
             ;; absent from present-with-nil.

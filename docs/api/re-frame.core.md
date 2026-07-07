@@ -240,9 +240,8 @@ These are the two verbs that drive the pipeline.
   ```clojure
   (dispatch* event)
   (dispatch* event opts)
-  (dispatch* frame event)
   ```
-- **Description**: Fn variant of `dispatch`; skips call-site stamping, so it composes through `map` / `comp` / `partial`. The 2-arity is shape-discriminated on the first arg: an event vector selects the event-first form; a frame target (a frame-id keyword or a live frame value — never a vector) selects the frame-first form, lowered to `{:frame frame}`. Returns `nil`.
+- **Description**: Fn variant of `dispatch`; skips call-site stamping, so it composes through `map` / `comp` / `partial`. `opts` may carry `:frame` (a frame-id keyword or a live frame value). Returns `nil`.
 - **Example**:
   ```clojure
   ;; A plain fn value — pass it through a HoF where the dispatch macro can't sit.
@@ -270,9 +269,8 @@ These are the two verbs that drive the pipeline.
   ```clojure
   (dispatch-sync* event)
   (dispatch-sync* event opts)
-  (dispatch-sync* frame event)
   ```
-- **Description**: Fn variant of `dispatch-sync`. Mirrors `dispatch*`'s forms — the 2-arity is shape-discriminated on the first arg (event vector ⇒ event-first; frame target ⇒ frame-first, lowered to `{:frame frame}`).
+- **Description**: Fn variant of `dispatch-sync`. Mirrors `dispatch*`'s forms — `opts` may carry `:frame` (a frame-id keyword or a live frame value).
 - **Example**:
   ```clojure
   ;; Fn-form — drive a sequence of events synchronously from runner / test code.
@@ -289,8 +287,8 @@ These are the two verbs that drive the pipeline.
   (subscribe query-v opts)
   ```
 - **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Valid inside views, inside other subs, and (via the cofx wrapper) inside event handlers.
-  - Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; the frame **id** is the public routing address.
-  - The frame-first `(subscribe frame-id query-v)` arity and the `subscribe*` fn form are internal, not app-facing.
+  - Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; `:other` may be a frame-id keyword or a live frame value.
+  - The `subscribe*` fn form is internal, not app-facing.
 - **Example**:
   ```clojure
   [:span @(rf/subscribe [:counter/value])]
@@ -302,7 +300,7 @@ These are the two verbs that drive the pipeline.
 - **Signature**:
   ```clojure
   (subscribe* query-v)
-  (subscribe* frame-id query-v)
+  (subscribe* query-v opts)
   ```
 - **Description**: **Not an app-facing surface.** The runtime-callable fn form of the `subscribe` macro; the macro's expansion reaches it fully-qualified across a namespace boundary. The public read shapes are `subscribe`, `subscribe-once`, or the `:subscribe` op from a `capture-frame`.
 
@@ -674,7 +672,7 @@ A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Mos
   - `opts` must be a map — a non-map (including `nil`) raises `:rf.error/make-frame-bad-opts`; a non-vector `:images` raises `:rf.error/make-frame-bad-images`.
   - Image-selection opts: `:images` (always a vector); `:id` (optional — registers the frame in the one process-local live-frame registry; a duplicate live id is **idempotent replacement** that preserves durable state on re-mount); `:adapter`.
   - Frame-configuration opts (same call): `:initial-events` (a vector of event vectors dispatched into the new frame at creation), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`.
-  - **Route by id, not by value:** read the id via `rf/frame-value->id` and pass the id to `dispatch` / `subscribe` / providers / tools.
+  - **Pass the value directly — no accessor needed:** `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept the frame value OR its id interchangeably (API-shrink #1, rf2-csbbwu — there is no separate value→id accessor to reach for).
   - Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!`, or use the UI-owned `rf/frame-provider` boundary.
   - See the [Frames concept guide](../core/frames.md) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 - **Example**:
@@ -728,15 +726,6 @@ There is no dedicated "reset" function — `reset-frame!` was retired (rf2-lxwpo
   (current-frame-id) → keyword
   ```
 - **Description**: Return the active frame id the in-effect scope carries — the dynamic `*current-frame*` stamp or a React-context `frame-provider` scope (CLJS only). The context **reader** form; frame-scoped, requires a scope. There is **no `:rf/default` floor** — called under no established scope it raises `:rf.error/no-frame-context` (EP-0002).
-
-### `frame-value->id`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (frame-value->id frame-value-or-id) → keyword
-  ```
-- **Description**: The single public accessor from a frame **value** to its frame id (EP-0024). Returns the frame id a frame value routes to (its `:rf.frame/id` when created with one, else its private runnable id). Passing a frame-id keyword returns it unchanged, so callers can always pass a value or an id. Pure. The frame value's representation is not an app-facing contract — route by the id this returns.
 
 ### `frame-generation`
 
@@ -802,24 +791,6 @@ There is no dedicated "reload" function — `reload-images!` was folded into re-
   ```
 - **Description**: A PURE diff between two sealed image generations. Replaces the report the retired `reload-images!` verb used to return — read `frame-generation` before/after a re-`make-frame` reload and diff the two.
   - Returns `{:added #{[kind id] …} :changed #{…} :removed #{…} :retained #{…}}`.
-
-### `frame-bound-fn`
-
-- **Kind**: macro (internal carry helper, EP-0024)
-- **Signature**:
-  ```clojure
-  (frame-bound-fn fn-form)
-  ```
-- **Description**: **INTERNAL — not app API.** A carry helper that binds a fn to the captured frame. Author async / tooling paths with `capture-frame` (or an explicit `{:frame …}` opt).
-
-### `frame-bound-fn*`
-
-- **Kind**: function (internal carry helper, EP-0024)
-- **Signature**:
-  ```clojure
-  (frame-bound-fn* f)
-  ```
-- **Description**: **INTERNAL — not app API.** The fn form behind `frame-bound-fn` (captures only when a real scope exists at capture time). Use `capture-frame` instead.
 
 ## Lifecycle and configure
 

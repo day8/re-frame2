@@ -1,10 +1,12 @@
 (ns re-frame.capture-frame-test
   "Design-pinning tests for the frame-affordance redesign (rf2-kkut0.1):
-  `capture-frame` (the keystone OPERATION BUNDLE), `frame-bound-fn` /
-  `frame-bound-fn*`, `current-frame-id`, `app-db-value`, and the absence of
-  the removed public names (`bound-fn`, `dispatcher`, `subscriber`,
-  `get-frame-db`, `current-frame`). Per Spec 002 §capture-frame and
-  `re-frame.core.cljc`.
+  `capture-frame` (the keystone OPERATION BUNDLE, and per API-shrink #1
+  rf2-csbbwu the ONE public HOLD primitive), `re-frame.frame/bind-fn` (the
+  INTERNAL relocated `frame-bound-fn*` dynamic-rebinding primitive),
+  `current-frame-id`, `app-db-value`, and the absence of the removed public
+  names (`bound-fn`, `dispatcher`, `subscriber`, `get-frame-db`,
+  `current-frame`, `frame-bound-fn`, `frame-bound-fn*`, `frame-value->id`).
+  Per Spec 002 §capture-frame and `re-frame.core.cljc`.
 
   `capture-frame` exists to support async callbacks where the dynamic-var
   frame binding has already unwound: it captures the frame at CREATION
@@ -137,59 +139,54 @@
       (is (true? (:touched? (rf/app-db-value :rf/default)))
           "the explicit handle routes to the named frame"))))
 
-;; ---- frame-bound-fn (macro) + frame-bound-fn* (fn, both arities) ---------
+;; ---- re-frame.frame/bind-fn — the INTERNAL relocated frame-bound-fn* -----
+;;
+;; API-shrink #1 (rf2-csbbwu) DELETES the public `frame-bound-fn` macro /
+;; `frame-bound-fn*` fn from the facade — `capture-frame` (above) is the
+;; ONE public HOLD primitive. Its genuinely-different dynamic-rebinding
+;; semantics (re-establish `*current-frame*` around an ARBITRARY already-
+;; held fn, not a pre-bound op bundle) survive internally as
+;; `re-frame.frame/bind-fn` — the Codex caveat this suite pins.
 
-(deftest frame-bound-fn-macro-captures-frame
-  (testing "(frame-bound-fn [args] body) captures the current frame and
-            re-establishes it inside the body after the scope unwinds"
-    (rf/reg-frame :fbf/A {:doc "macro capture target"})
+(deftest bind-fn-rebinds-frame-after-scope-unwinds
+  (testing "(frame/bind-fn frame-id f) wraps f so *current-frame* is
+            re-established on each call, even after the surrounding
+            with-frame scope has unwound"
+    (rf/reg-frame :fbf/A {:doc "bind-fn capture target"})
     (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (rf/with-frame :fbf/A
-               (rf/frame-bound-fn [] (rf/dispatch [:fbf/inc])))]
+               (frame/bind-fn :fbf/A (fn [] (rf/dispatch [:fbf/inc]))))]
       (is (nil? frame/*current-frame*) "the with-frame scope has unwound")
       (cb)
       (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/A)))
-                               {:label "frame-bound-fn macro drains to :fbf/A"})
+                               {:label "bind-fn drains to :fbf/A"})
       (is (= 1 (:n (rf/app-db-value :fbf/A)))
-          "the macro re-established :fbf/A inside the body"))))
+          "bind-fn re-established :fbf/A inside the body"))))
 
-(deftest frame-bound-fn*-one-arity-captures-frame
-  (testing "(frame-bound-fn* f) captures the current frame at wrap time"
-    (rf/reg-frame :fbf/B {:doc "*-1-arity target"})
-    (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [cb (rf/with-frame :fbf/B
-               (rf/frame-bound-fn* (fn [] (rf/dispatch [:fbf/inc]))))]
-      (cb)
-      (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/B)))
-                               {:label "frame-bound-fn* 1-arity drains to :fbf/B"})
-      (is (= 1 (:n (rf/app-db-value :fbf/B)))
-          "frame-bound-fn* captured :fbf/B at wrap time"))))
-
-(deftest frame-bound-fn*-two-arity-explicit-frame
-  (testing "(frame-bound-fn* frame-id f) binds an explicit frame, no
+(deftest bind-fn-binds-explicit-frame-with-no-surrounding-scope
+  (testing "(frame/bind-fn frame-id f) binds an explicit frame — no
             surrounding with-frame needed"
-    (rf/reg-frame :fbf/C {:doc "*-2-arity explicit target"})
+    (rf/reg-frame :fbf/C {:doc "bind-fn explicit target"})
     (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [cb (rf/frame-bound-fn* :fbf/C (fn [] (rf/dispatch [:fbf/inc])))]
+    (let [cb (frame/bind-fn :fbf/C (fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "no with-frame scope was ever entered")
       (cb)
       (test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/C)))
-                               {:label "frame-bound-fn* 2-arity drains to :fbf/C"})
+                               {:label "bind-fn drains to :fbf/C"})
       (is (= 1 (:n (rf/app-db-value :fbf/C)))
           "the explicit frame-id was re-established inside the body"))))
 
-(deftest frame-bound-fn*-one-arity-outside-scope-raises
-  (testing "(frame-bound-fn* f) wrapped outside any scope raises
-            :rf.error/no-frame-context at WRAP time — it does not capture
-            :rf/default (rf2-jue6sp / EP-0002)"
-    (is (nil? frame/*current-frame*) "no with-frame scope established")
-    (let [e (try (rf/frame-bound-fn* (fn [] :unreached)) nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "no-arg frame-bound-fn* outside any scope must throw at wrap time")
-      (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
-          ":rf.error/id is the carried-invariant absence error")
-      (is (= :frame-bound-fn* (:operation (ex-data e)))
-          ":operation attributes the failure to frame-bound-fn*"))))
+(deftest bind-fn-rebinds-around-an-arbitrary-fn-body
+  (testing "bind-fn re-establishes the dynamic binding around an ARBITRARY
+            already-held fn (e.g. one that itself calls current-frame-id) —
+            the genuinely-different semantics from capture-frame's pre-bound
+            op bundle that the Codex caveat required to survive internally"
+    (rf/reg-frame :fbf/D {:doc "bind-fn current-frame-id probe"})
+    (let [captured (rf/with-frame :fbf/D
+                     (frame/bind-fn :fbf/D rf/current-frame-id))]
+      (is (nil? frame/*current-frame*) "scope has unwound")
+      (is (= :fbf/D (captured))
+          "the wrapped arbitrary fn (current-frame-id) reads :fbf/D"))))
 
 ;; ---- renamed reads -------------------------------------------------------
 
@@ -236,6 +233,7 @@
     ;; visible again). The contract is that re-frame.core no longer
     ;; INTERNS its own Var under these names.
     (let [interned (ns-interns 're-frame.core)]
-      (doseq [sym '[bound-fn dispatcher subscriber get-frame-db current-frame]]
+      (doseq [sym '[bound-fn dispatcher subscriber get-frame-db current-frame
+                    frame-bound-fn frame-bound-fn* frame-value->id]]
         (is (nil? (get interned sym))
             (str "re-frame.core/" sym " must be removed (DELETE, not deprecate)"))))))

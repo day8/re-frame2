@@ -623,7 +623,7 @@
               (for [[query-v expected-val] (or (:sub-values expect) {})]
                 {:query    query-v
                  :expected expected-val
-                 :actual   (rf/subscribe-once :rf/default query-v)}))
+                 :actual   (rf/subscribe-once query-v {:frame :rf/default})}))
             ;; `:expect-trace-stream` filters to `:op-type :flow` and
             ;; matches order-preserving subset. Mirrors the core runner's
             ;; `:trace-emissions` matcher with the op-type pre-filter.

@@ -1188,15 +1188,17 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def BadFrameProviderArgTags
   ;; `:rf.error/bad-frame-provider-arg` — a public `frame-provider`'s `:frame`
-  ;; was non-nil but not a keyword (rf2-9kpigo). A bad public provider
-  ;; argument, distinct from absence (`:rf.error/no-frame-context`) and from a
-  ;; disturbed reader-side read (`:rf.error/frame-context-corrupted`). The
-  ;; error is itself frameless (no usable `:frame` — the supplied target is the
-  ;; invalid value). `:where` is the validating provider call site (a symbol).
+  ;; was non-nil but neither a keyword nor a live frame value (rf2-9kpigo;
+  ;; normalized to accept a frame value too by API-shrink #1, rf2-csbbwu). A
+  ;; bad public provider argument, distinct from absence
+  ;; (`:rf.error/no-frame-context`) and from a disturbed reader-side read
+  ;; (`:rf.error/frame-context-corrupted`). The error is itself frameless (no
+  ;; usable `:frame` — the supplied target is the invalid value). `:where` is
+  ;; the validating provider call site (a symbol).
   ;; Per the 009 error catalogue row and [002 §Frame target resolution].
   [:map
    [:category :keyword]                              ;; [:= :rf.error/bad-frame-provider-arg] in a closed schema
-   [:received :any]                                  ;; the offending non-keyword value
+   [:received :any]                                  ;; the offending value (neither keyword nor frame value)
    [:where    {:optional true} :any]                 ;; the validating provider call site (symbol)
    [:recovery {:optional true} :keyword]             ;; :supply-keyword-frame
    [:reason   {:optional true} :string]])

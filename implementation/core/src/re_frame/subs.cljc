@@ -617,7 +617,7 @@
 ;; (`clear-sub-cache!`) is reached through `re-frame.core`'s defalias
 ;; pointing at `re-frame.subs.cache/*` directly (no facade re-export).
 
-(declare subscribe unsubscribe)
+(declare subscribe subscribe-in-frame unsubscribe)
 
 ;; The memo wrappers (`make-layer-1-memoised-body`,
 ;; `make-layer-n-single-input-memoised-body`, `make-layer-n-memoised-body`) and
@@ -880,7 +880,7 @@
         inputs        (cond
                         container-fn [(container-fn frame-id)]
                         input-error? []
-                        :else        (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
+                        :else        (mapv (fn [input-q] (subscribe-in-frame frame-id input-q)) input-qs))
         parametric?   (= :parametric input-kind)
         memoised-body (cond
                         input-error?
@@ -1092,43 +1092,18 @@
                v*       (maybe-validate-sub-override! v query-v sub-meta frame-id)]
            (adapter/make-derived-value [] (constantly v*)))))))
 
-(defn subscribe
-  "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
-  build-and-cache on miss; reuse on hit. The 1-arity ambient form
-  resolves the active frame through the carried-invariant scope/hold
-  chain via `frame/require-current-frame!` (EP-0002): a `with-frame` /
-  frame-provider scope (the `:adapter/current-frame` late-bind hook)
-  or a captured `*current-frame*` stamp. There is NO
-  `:rf/default` floor — a subscribe issued under no established scope
-  raises `:rf.error/no-frame-context` rather than silently reading the
-  wrong frame. Pass the public opts form `(subscribe query-v {:frame
-  target})` to read a named frame from outside any scope (async callbacks,
-  tools, tests, SSR); `target` is a frame-id keyword or a live frame object.
-
-  Per Spec 006 §Plain-fn-under-non-default-frame warning:
-  the 1-arity form runs the plain-fn detection check — if the
-  surrounding React-context Provider names a non-default frame and the
-  rendering component is NOT reg-view-wrapped (so its subscribe call
-  has fallen through to :rf/default), `:rf.warning/plain-fn-under-
-  non-default-frame-once` fires once per (component-id, frame-id)
-  pair. The check is late-bound through re-frame.views (CLJS-only) so
-  the JVM build never loads it; production (`:advanced` +
-  `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
-
-  The explicit-frame form `(subscribe query-v {:frame target})`
-  **deliberately skips** the plain-fn detection check. Naming an
-  explicit frame IS the opt-out — the caller has told the runtime
-  exactly which frame to target, so a fall-through-to-`:rf/default`
-  diagnostic doesn't apply. Use the opts form from a plain
-  Reagent fn body when you want to subscribe against a known frame
-  without triggering the warning surface.
-
-  The 2-arity is SHAPE-DISCRIMINATED on the first arg, mirroring
-  `dispatch*`: a query-vector first ⇒ the public `(subscribe query-v opts)`
-  form (`opts` may carry `{:frame target}`; ambient when absent); a frame
-  target first ⇒ the INTERNAL frame-first `(subscribe frame-id query-v)`
-  plumbing, retired from the taught app grammar by EP-0024 but retained for
-  implementation / test / tooling reach.
+(defn- subscribe-in-frame
+  "INTERNAL worker for `subscribe` (and the layer-2+ recursive input
+  resolution inside `compute-and-cache!`). `target` may be a frame-id
+  KEYWORD or a live frame VALUE (`rf/make-frame`'s return value);
+  normalized here to its runnable-id ADDRESS via `frame/frame-target->id`
+  so the sub-cache lookup (`(frame/frame frame-id)`), the override seam,
+  and the error payloads all key the backing record unchanged — a keyword
+  passes through. The generation-resolution seam (`frame-resolution-target`)
+  then re-resolves the frame's image from this id via the live-frame
+  registry — so a value target builds against its OWN image, byte-identical
+  to the keyword form. Mirrors the dispatch-side normalization in
+  `re-frame.router/build-envelope`.
 
   Per Spec 006 §The sub-override subscribe seam (CLJS /
   dev-only): when a Story render wraps the variant view in the
@@ -1139,56 +1114,9 @@
   `interop/debug-enabled?` so it DCEs in production, and the override
   feeds ONLY the derefed reaction the view sees — never app-db, never
   `compute-sub` — so `:rf.assert/sub-equals` stays unsatisfiable by an
-  override.
-
-  This is the runtime-callable fn form. The macro form
-  `re-frame.core/subscribe` captures `(meta &form)` and delegates here
-  through `re-frame.core/subscribe*`, wrapping the call in
-  `trace/with-call-site` so any error emitted inside the synchronous
-  miss path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`)
-  carries the invocation coord."
-  ([query-v]
-   ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
-   ;; read. The 1-arity ambient form resolves the frame through the
-   ;; scope/hold chain via `require-current-frame!`: a `with-frame` /
-   ;; frame-provider scope (`resolve-current-frame`) or a captured
-   ;; `*current-frame*` stamp. There is NO `:rf/default` floor — a
-   ;; subscribe issued under no established scope (no with-frame, no
-   ;; enclosing provider, no carried stamp) raises the always-on
-   ;; `:rf.error/no-frame-context` (with capture-site ancestry) rather
-   ;; than silently reading the wrong frame's app-db. The `extra` threads
-   ;; the sub-id into the error payload's `:event-id` slot so a frameless
-   ;; subscribe's error is attributed to the query it carried.
-   (subscribe (frame/require-current-frame!
-                :subscribe
-                {:where    're-frame.subs/subscribe
-                 :event-id (first query-v)})
-              query-v))
-  ([a b]
-   ;; EP-0024: the 2-arity is SHAPE-DISCRIMINATED on the first arg, exactly as
-   ;; `dispatch*-impl` separates `(event-vec opts)` from frame-first. A QUERY-
-   ;; VECTOR first ⇒ the PUBLIC `(subscribe query-v opts)` form; `opts` may carry
-   ;; `{:frame target}` (ambient when absent). Lower it to the frame-first
-   ;; internal arity — `(:frame opts)` is a keyword/object, never a vector, so
-   ;; the recursive call lands in the frame-first branch below. A frame target
-   ;; first (never a vector) ⇒ the INTERNAL frame-first `(subscribe frame-id
-   ;; query-v)` plumbing, retired from the taught app grammar by EP-0024 but kept
-   ;; for implementation / test / tooling reach.
-   (if (vector? a)
-     (if-some [target (:frame b)]
-       (subscribe target a)
-       (subscribe a))
-     ;; INTERNAL frame-first. The target `a` may be a frame-id KEYWORD or a live
-     ;; frame OBJECT (`rf/make-frame`'s return value). Normalize an object to its
-     ;; runnable-id ADDRESS so the sub-cache lookup (`(frame/frame frame-id)`),
-     ;; the override seam, and the error payloads all key the backing record
-     ;; unchanged; a keyword passes through. The generation-resolution seam
-     ;; (`frame-resolution-target`) then re-resolves the frame's image from this
-     ;; id via the live-frame registry — so an object target builds against its
-     ;; OWN image, byte-identical to the keyword form. Mirrors the dispatch-side
-     ;; normalization in `re-frame.router/build-envelope`.
-     (let [frame-id (frame/frame-target->id a)
-           query-v  b]
+  override."
+  [target query-v]
+   (let [frame-id (frame/frame-target->id target)]
    ;; (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`
    ;; can carry the view's OWN read-set (`:deref-subs`). No-op outside a
@@ -1332,7 +1260,82 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v)))))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + shape-discrim if
+             (compute-and-cache! frame-id query-v)))))))))) ;; close fn + call-with-frame-resolution + normalize-target let + subscribe-in-frame
+
+(defn subscribe
+  "Per Spec 006 §Lookup algorithm. Returns the reaction for query-v;
+  build-and-cache on miss; reuse on hit. The 1-arity ambient form
+  resolves the active frame through the carried-invariant scope/hold
+  chain via `frame/require-current-frame!` (EP-0002): a `with-frame` /
+  frame-provider scope (the `:adapter/current-frame` late-bind hook)
+  or a captured `*current-frame*` stamp. There is NO
+  `:rf/default` floor — a subscribe issued under no established scope
+  raises `:rf.error/no-frame-context` rather than silently reading the
+  wrong frame. Pass the public opts form `(subscribe query-v {:frame
+  target})` to read a named frame from outside any scope (async callbacks,
+  tools, tests, SSR); `target` is a frame-id keyword or a live frame value.
+
+  Per Spec 006 §Plain-fn-under-non-default-frame warning:
+  the 1-arity form runs the plain-fn detection check — if the
+  surrounding React-context Provider names a non-default frame and the
+  rendering component is NOT reg-view-wrapped (so its subscribe call
+  has fallen through to :rf/default), `:rf.warning/plain-fn-under-
+  non-default-frame-once` fires once per (component-id, frame-id)
+  pair. The check is late-bound through re-frame.views (CLJS-only) so
+  the JVM build never loads it; production (`:advanced` +
+  `goog.DEBUG=false`) elides via `interop/debug-enabled?`.
+
+  The explicit-frame form `(subscribe query-v {:frame target})`
+  **deliberately skips** the plain-fn detection check. Naming an
+  explicit frame IS the opt-out — the caller has told the runtime
+  exactly which frame to target, so a fall-through-to-`:rf/default`
+  diagnostic doesn't apply. Use the opts form from a plain
+  Reagent fn body when you want to subscribe against a known frame
+  without triggering the warning surface.
+
+  This is the runtime-callable fn form. The macro form
+  `re-frame.core/subscribe` captures `(meta &form)` and delegates here
+  through `re-frame.core/subscribe*`, wrapping the call in
+  `trace/with-call-site` so any error emitted inside the synchronous
+  miss path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`)
+  carries the invocation coord."
+  ([query-v]
+   ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
+   ;; read. The 1-arity ambient form resolves the frame through the
+   ;; scope/hold chain via `require-current-frame!`: a `with-frame` /
+   ;; frame-provider scope (`resolve-current-frame`) or a captured
+   ;; `*current-frame*` stamp. There is NO `:rf/default` floor — a
+   ;; subscribe issued under no established scope (no with-frame, no
+   ;; enclosing provider, no carried stamp) raises the always-on
+   ;; `:rf.error/no-frame-context` (with capture-site ancestry) rather
+   ;; than silently reading the wrong frame's app-db. The `extra` threads
+   ;; the sub-id into the error payload's `:event-id` slot so a frameless
+   ;; subscribe's error is attributed to the query it carried.
+   (subscribe-in-frame (frame/require-current-frame!
+                         :subscribe
+                         {:where    're-frame.subs/subscribe
+                          :event-id (first query-v)})
+                       query-v))
+  ([query-v opts]
+   ;; API-shrink #1 (rf2-csbbwu): the 2-arity is `[query-v opts]` ONLY — no
+   ;; `vector?` shape-discrimination on the first arg, no internal frame-first
+   ;; reach. `opts` may carry `{:frame target}` (a frame-id keyword or a live
+   ;; frame value) — the explicit OVERRIDE intent; ambient (the carried
+   ;; scope/hold stamp) when absent.
+   (if-some [target (:frame opts)]
+     (subscribe-in-frame target query-v)
+     (subscribe query-v))))
+
+(defn- subscribe-once-in-frame
+  "INTERNAL worker for `subscribe-once`. `target` may be a frame-id
+  keyword or a live frame value; `subscribe-in-frame` / `unsubscribe` each
+  normalize it to its runnable-id ADDRESS, so subscribe-then-unsubscribe
+  here target the same frame for every supported spelling."
+  [target query-v]
+  (let [reaction (subscribe-in-frame target query-v)
+        v        (when reaction @reaction)]
+    (unsubscribe target query-v)
+    v))
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then
@@ -1360,47 +1363,22 @@
   under no established scope raises `:rf.error/no-frame-context`, never a
   `:rf/default` floor. Pass the public opts form `(subscribe-once query-v
   {:frame target})` to read a named frame from outside any scope; `target`
-  is a frame-id keyword or a live frame object.
-
-  Per rf2-bfadc6: the 2-arity is SHAPE-DISCRIMINATED on the first arg,
-  mirroring `subscribe`: a query-vector first ⇒ the public
-  `(subscribe-once query-v opts)` form (`opts` may carry `{:frame target}`;
-  ambient when absent); a frame target first ⇒ the INTERNAL frame-first
-  `(subscribe-once frame-id query-v)` plumbing, retired from the taught app
-  grammar but retained for implementation / test / tooling reach. This
-  closes the misbinding footgun EP-0024 closed for `subscribe`: an author
-  who learned `(subscribe [:x] {:frame f})` writes the same shape here and
-  the runtime binds the frame correctly instead of reading `[:x]` as a
-  frame-id and `{:frame f}` as a query-v."
+  is a frame-id keyword or a live frame value."
   ([query-v]
-   (subscribe-once (frame/require-current-frame!
-                     :subscribe-once
-                     {:where    're-frame.subs/subscribe-once
-                      :event-id (first query-v)})
-                   query-v))
-  ([a b]
-   ;; rf2-bfadc6: the 2-arity is SHAPE-DISCRIMINATED on the first arg,
-   ;; exactly as `subscribe`. A QUERY-VECTOR first ⇒ the PUBLIC
-   ;; `(subscribe-once query-v opts)` form; `opts` may carry `{:frame target}`
-   ;; (ambient when absent). Lower it to the frame-first internal arity —
-   ;; `(:frame opts)` is a keyword/object, never a vector, so the recursive
-   ;; call lands in the frame-first branch below. A frame target first (never
-   ;; a vector) ⇒ the INTERNAL frame-first `(subscribe-once frame-id query-v)`
-   ;; plumbing, retired from the taught app grammar but kept for
-   ;; implementation / test / tooling reach.
-   (if (vector? a)
-     (if-some [target (:frame b)]
-       (subscribe-once target a)
-       (subscribe-once a))
-     ;; INTERNAL frame-first. `subscribe` / `unsubscribe` each normalize a
-     ;; frame OBJECT target to its runnable-id ADDRESS, so subscribe-then-
-     ;; unsubscribe here target the same frame for every supported spelling.
-     (let [frame-id a
-           query-v  b
-           reaction (subscribe frame-id query-v)
-           v        (when reaction @reaction)]
-       (unsubscribe frame-id query-v)
-       v))))
+   (subscribe-once-in-frame
+     (frame/require-current-frame!
+       :subscribe-once
+       {:where    're-frame.subs/subscribe-once
+        :event-id (first query-v)})
+     query-v))
+  ([query-v opts]
+   ;; API-shrink #1 (rf2-csbbwu): `[query-v opts]` ONLY — no `vector?`
+   ;; shape-discrimination, no internal frame-first reach. `opts` may carry
+   ;; `{:frame target}` (a frame-id keyword or a live frame value); ambient
+   ;; when absent.
+   (if-some [target (:frame opts)]
+     (subscribe-once-in-frame target query-v)
+     (subscribe-once query-v))))
 
 (defn- frame-state-value?
   "True when `v` is a frame-state projection map carrying at least one

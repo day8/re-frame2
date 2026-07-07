@@ -348,7 +348,7 @@
     ;; sub-runs-projection).
     (rf/reg-event :read-big
                      (fn [_ _]
-                       (let [_v (rf/subscribe-once :test/main [:big])]
+                       (let [_v (rf/subscribe-once [:big] {:frame :test/main})]
                          {})))
     (rf/dispatch-sync [:seed]     {:frame :test/main})
     (rf/dispatch-sync [:read-big] {:frame :test/main})

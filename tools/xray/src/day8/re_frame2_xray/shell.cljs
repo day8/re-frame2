@@ -2615,7 +2615,7 @@
   ;; doesn't reach this call site, hence the explicit frame arg). Per
   ;; rf2-lnluk the explicit frame is the instance `frame-id`, not a
   ;; `:rf/xray` literal — N shells stay isolated.
-  (let [current-positioning @(rf/subscribe frame-id [:rf.xray/modal-positioning])]
+  (let [current-positioning @(rf/subscribe [:rf.xray/modal-positioning] {:frame frame-id})]
     (when (not= current-positioning modal-positioning)
       (rf/dispatch-sync [:rf.xray/set-modal-positioning modal-positioning]
                         {:frame frame-id})))
@@ -2629,7 +2629,7 @@
   ;; as the modal-positioning read above — `shell-view` sits outside
   ;; its own frame-provider; rf2-lnluk threads the instance frame, not
   ;; a `:rf/xray` literal).
-  (let [lens-mode @(rf/subscribe frame-id [:rf.xray/mode])]
+  (let [lens-mode @(rf/subscribe [:rf.xray/mode] {:frame frame-id})]
    ;; rf2-uu3lp — the outer `<div>` IS the shell-view's root so the
    ;; source-coord walk has a DOM node to annotate (Spec 006
    ;; §Source-coord annotation; would otherwise warn-once because the

@@ -159,8 +159,8 @@
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [traces (atom [])]
       (rf/register-listener! :trace ::missing (fn [ev] (swap! traces conj ev)))
-      (is (nil? (rf/subscribe :missing/frame [:n])) "subscribe returns nil")
-      (is (nil? (rf/subscribe-once :missing/frame [:n]))
+      (is (nil? (rf/subscribe [:n] {:frame :missing/frame})) "subscribe returns nil")
+      (is (nil? (rf/subscribe-once [:n] {:frame :missing/frame}))
           "subscribe-once returns nil")
       (rf/unregister-listener! :trace ::missing)
       (is (some (fn [ev]
@@ -189,7 +189,7 @@
       (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
       (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
       ;; And :rf/default is unaffected.
-      (is (nil? (rf/subscribe-once :rf/default [:n]))))))
+      (is (nil? (rf/subscribe-once [:n] {:frame :rf/default}))))))
 
 (deftest dispatch-sync-in-handler-errors
   (testing "calling dispatch-sync from inside a handler raises a structured error"
@@ -455,8 +455,8 @@
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-count :<- [:items] (fn [items _] (count items)))
     (rf/dispatch-sync [:seed])
-    (is (= [1 2 3 4 5] (rf/subscribe-once :rf/default [:items])))
-    (is (= 5           (rf/subscribe-once :rf/default [:item-count])))))
+    (is (= [1 2 3 4 5] (rf/subscribe-once [:items] {:frame :rf/default})))
+    (is (= 5           (rf/subscribe-once [:item-count] {:frame :rf/default})))))
 
 ;; ---- machine ---------------------------------------------------------------
 ;;

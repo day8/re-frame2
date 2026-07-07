@@ -105,7 +105,7 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.spine :as spine]
             [re-frame.trace.tooling :as trace-tooling])
-  (:require-macros [re-frame.core :refer [with-frame with-new-frame frame-bound-fn]]))
+  (:require-macros [re-frame.core :refer [with-frame with-new-frame]]))
 
 ;; ===========================================================================
 ;; helpers
@@ -233,7 +233,7 @@
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid})
-      (let [r-a (rf/subscribe fid [:n])]
+      (let [r-a (rf/subscribe [:n] {:frame fid})]
         (is (= 7 @r-a) "precondition: subscription is live and deref-able")
         (let [cache          (:sub-cache (frame/frame fid))
               entries-before @cache]
@@ -269,8 +269,8 @@
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid-a})
       (rf/dispatch-sync [:seed] {:frame fid-b})
-      (let [r-a (rf/subscribe fid-a [:n])
-            r-b (rf/subscribe fid-b [:n])]
+      (let [r-a (rf/subscribe [:n] {:frame fid-a})
+            r-b (rf/subscribe [:n] {:frame fid-b})]
         (is (= 1 @r-a))
         (is (= 1 @r-b))
         ;; Inject a poison entry into fid-a's sub-cache whose dispose
@@ -1249,15 +1249,15 @@
       (subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/intro")] {:frame f})
-      (is (= article (rf/subscribe-once f [id-sub]))
+      (is (= article (rf/subscribe-once [id-sub] {:frame f}))
           ":rf.route/id sub resolves under the adapter")
-      (is (= {:id "intro"} (rf/subscribe-once f [params-sub]))
+      (is (= {:id "intro"} (rf/subscribe-once [params-sub] {:frame f}))
           ":rf.route/params sub resolves under the adapter")
       (is (true? (:article-loaded? (rf/app-db-value f)))
           ":on-match dispatched and ran")
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/welcome")] {:frame f})
-      (is (= {:id "welcome"} (rf/subscribe-once f [params-sub]))
+      (is (= {:id "welcome"} (rf/subscribe-once [params-sub] {:frame f}))
           "new params land in the slice on subsequent navigation")
       (is (some? (get-in (rf/runtime-db-value f) [:rf.runtime/routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
@@ -1283,21 +1283,21 @@
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles")] {:frame left})
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles/intro")] {:frame right})
 
-        (let [left-route  (rf/subscribe-once left  [route-sub])
-              right-route (rf/subscribe-once right [route-sub])]
+        (let [left-route  (rf/subscribe-once [route-sub] {:frame left})
+              right-route (rf/subscribe-once [route-sub] {:frame right})]
           (is (= articles (:route-id left-route)) "left frame's :rf/route is the collection route")
           (is (= article  (:route-id right-route)) "right frame's :rf/route is the article route")
           (is (= {} (:params left-route)) "left frame has no :params (collection route)")
           (is (= {:id "intro"} (:params right-route)) "right frame has the article id"))
 
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/")] {:frame left})
-        (is (= home (:route-id (rf/subscribe-once left [route-sub])))
+        (is (= home (:route-id (rf/subscribe-once [route-sub] {:frame left})))
             "left re-navigated to home")
-        (is (= article (:route-id (rf/subscribe-once right [route-sub])))
+        (is (= article (:route-id (rf/subscribe-once [route-sub] {:frame right})))
             "right is unaffected by left's navigation")))))
 
 ;; ===========================================================================
-;; headless runtime slice (dispatch / subs / with-frame / frame-bound-fn /
+;; headless runtime slice (dispatch / subs / with-frame / capture-frame /
 ;; isolation / hot-reload / machines / error paths) — port of `*_runtime`
 ;; ===========================================================================
 
@@ -1337,16 +1337,20 @@
     (testing "outside any binding the dynamic var falls back to :rf/default"
       (is (= :rf/default (rf/current-frame-id))))))
 
-(defn assert-bound-fn-captures-frame
-  "frame-bound-fn captures the current frame and re-binds it inside the body."
+(defn assert-capture-frame-survives-scope-unwind
+  "capture-frame — the ONE public HOLD primitive (API-shrink #1, rf2-csbbwu
+  removed frame-bound-fn/frame-bound-fn* from the facade) — captures the
+  current frame at creation time; its ops still target that frame after
+  the surrounding with-frame lexical scope has unwound."
   [{:keys [name]}]
-  (testing (str name " — frame-bound-fn captures the current frame")
+  (testing (str name " — capture-frame survives scope unwind")
     (rf/reg-frame :side {:doc "side frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
+    (let [handle (with-frame :side (rf/capture-frame))]
       (is (= :rf/default (rf/current-frame-id)))
-      (is (= :side (captured))))))
+      (is (= :side (:frame handle)))
+      (is (= 99 (:n (rf/app-db-value (:frame handle))))))))
 
 (defn assert-multi-frame-state-isolation
   "Two frames carry independent app-db state, share the handler registry."
@@ -1361,9 +1365,9 @@
     (rf/dispatch-sync [:counter/init 100] {:frame :right})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (is (= 12  (rf/subscribe-once :left  [:count])))
-    (is (= 100 (rf/subscribe-once :right [:count])))
-    (is (nil?  (rf/subscribe-once :rf/default [:count])))))
+    (is (= 12  (rf/subscribe-once [:count] {:frame :left})))
+    (is (= 100 (rf/subscribe-once [:count] {:frame :right})))
+    (is (nil?  (rf/subscribe-once [:count] {:frame :rf/default})))))
 
 (defn assert-reactive-sub-tracks-changes
   "A subscription's deref reflects post-event state. The React adapters'
@@ -1779,7 +1783,7 @@
       (rf/reg-event seed-id (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-id] {:frame fid})
       (rf/reg-sub app-id (fn [db _] (swap! runs inc) (:n db)))
-      (let [r (rf/subscribe fid [app-id])]
+      (let [r (rf/subscribe [app-id] {:frame fid})]
         ;; Prime + install the watch baseline (production's
         ;; useSyncExternalStore / Reagent reaction reads getSnapshot at
         ;; subscribe; deref establishes the memoised value here).
@@ -1817,7 +1821,7 @@
       ;; A framework runtime-db sub reads the runtime-db projection directly.
       (subs/reg-runtime-sub rt-sub
         (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
-      (let [r (rf/subscribe fid [rt-sub])]
+      (let [r (rf/subscribe [rt-sub] {:frame fid})]
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
         (let [after-prime @runs]
           ;; App-only commit: replaces app-db, leaves runtime-db `=`.
@@ -1857,8 +1861,8 @@
       (rf/reg-sub app-sub (fn [db _] (swap! app-runs inc) (:n db)))
       (subs/reg-runtime-sub rt-sub
         (fn [runtime-db _] (swap! rt-runs inc) (get-in runtime-db [:rf.runtime/machines :m])))
-      (let [ra (rf/subscribe fid [app-sub])
-            rr (rf/subscribe fid [rt-sub])]
+      (let [ra (rf/subscribe [app-sub] {:frame fid})
+            rr (rf/subscribe [rt-sub] {:frame fid})]
         (is (= 1 @ra) "precondition: app sub primed")
         (is (= 1 @rr) "precondition: runtime-db sub primed")
         (let [app-baseline @app-runs
@@ -2531,7 +2535,7 @@
   `:rf/default` floor. It now FAILS LOUDLY with
   `:rf.error/no-frame-context`, replacing the retired
   `:rf.warning/dispatch-from-async-callback-fell-through-to-default`. The
-  fix is to capture a `capture-frame` / `frame-bound-fn` at render time
+  fix is to capture a `capture-frame` handle at render time
   (covered by `assert-dfc-dispatch-later-survives-the-timer` et al.).
   ASYNC: caller supplies `done`."
   [{:keys [substrate-kw name]} done]
@@ -3168,9 +3172,8 @@
 ;; the EXPLICIT 2-arg path. Two correctness breaks followed (Spec 006 §734
 ;; / §1058; EP-0002):
 ;;
-;;   1. A surrounding `frame-provider` beat a `with-frame` /
-;;      `frame-bound-fn` dynamic scope — INVERTING the tier order
-;;      (dynamic-var MUST win over React-context).
+;;   1. A surrounding `frame-provider` beat a `with-frame` dynamic scope —
+;;      INVERTING the tier order (dynamic-var MUST win over React-context).
 ;;   2. With no provider, `use-context` returns the no-provider sentinel
 ;;      (`:rf.frame/no-provider`), NOT nil. The explicit path subscribed
 ;;      against that sentinel as a literal frame — surfacing a bad/
@@ -3513,29 +3516,26 @@
             cache             (:sub-cache (frame/frame stable-deps-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
-        ;; Spies preserve the multi-arity shape of subs/subscribe and
+        ;; Spies preserve the multi-arity shape of subs/subscribe
+        ;; (`[query-v]` and `[query-v opts]`, API-shrink #1 rf2-csbbwu) and
         ;; subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
         ;; spine call sites that bind the arity-2 invoke-slot resolve.
         ;; A bare `[& args]` variadic spy compiles only the variadic
         ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not a
         ;; function` at the spine's subs/subscribe call.
         ;;
-        ;; Both fns' 1-arity bodies recur into the 2-arity through the
-        ;; Var (canonical-leaf is 2-arity per rf2-cmfln — there is no
-        ;; 3-arity since the grace-period was retired). Without
-        ;; bypassing, a single logical 1-arity call would trip the spy
-        ;; twice (once on entry, once on the recursive 2-arity tail).
-        ;; Each spy 1-arity therefore resolves the current frame itself
-        ;; and dispatches to the 2-arity REAL directly, mirroring the
-        ;; canonical body without routing back through the Var.
+        ;; `real-subscribe` / `real-unsubscribe` are captured direct fn
+        ;; VALUES (not Var-qualified calls), so each spy invokes the real
+        ;; implementation without recursing back through the redefined Var —
+        ;; each logical call trips the spy exactly once.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (swap! subscribe-calls inc)
-                         (real-subscribe (frame/resolve-current-frame) query-v))
-                        ([frame-id query-v]
+                         (real-subscribe query-v {:frame (frame/resolve-current-frame)}))
+                        ([query-v opts]
                          (swap! subscribe-calls inc)
-                         (real-subscribe frame-id query-v)))
+                         (real-subscribe query-v opts)))
                       subs/unsubscribe
                       (fn spy-unsubscribe
                         ([query-v]
@@ -3644,17 +3644,17 @@
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
         ;; Spies mirror the rf2-mwft2 stable-deps-key bypass: preserve the
-        ;; 1-/2-arity shape and dispatch straight to the canonical 2-arity
-        ;; REAL so a single logical call is not double-counted through the
-        ;; Var recur.
+        ;; 1-/2-arity shape and dispatch straight to the canonical REAL fn
+        ;; VALUE (not Var-qualified) so a single logical call is not
+        ;; double-counted.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (swap! subscribe-calls inc)
-                         (real-subscribe (frame/resolve-current-frame) query-v))
-                        ([frame-id query-v]
+                         (real-subscribe query-v {:frame (frame/resolve-current-frame)}))
+                        ([query-v opts]
                          (swap! subscribe-calls inc)
-                         (real-subscribe frame-id query-v)))
+                         (real-subscribe query-v opts)))
                       subs/unsubscribe
                       (fn spy-unsubscribe
                         ([query-v]
@@ -4048,15 +4048,15 @@
             mount-node       (make-mount-node!)
             root             (react-dom-client/createRoot mount-node)]
         ;; Preserve subs/subscribe's 1-/2-arity shape (the spine binds the
-        ;; arity-2 invoke slot); both bodies route to the canonical 2-arity
-        ;; REAL directly (no Var recur double-trip — same discipline as the
+        ;; arity-2 invoke slot); both bodies route to the canonical REAL fn
+        ;; VALUE directly (no Var recur double-trip — same discipline as the
         ;; rf2-mwft2 spy) and wrap the returned reaction.
         (with-redefs [subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
-                         (wrap (real-subscribe (frame/resolve-current-frame) query-v)))
-                        ([frame-id query-v]
-                         (wrap (real-subscribe frame-id query-v))))]
+                         (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                        ([query-v opts]
+                         (wrap (real-subscribe query-v opts))))]
           (try
             (act-fn (fn [] (.render root (probe-refcount-element))))
             ;; The committed reaction is the one the cache holds (ref-count 1).

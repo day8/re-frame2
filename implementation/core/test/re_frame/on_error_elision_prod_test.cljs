@@ -227,7 +227,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (is (nil? (rf/subscribe-once :gone/frame [:any-sub])))
+      (is (nil? (rf/subscribe-once [:any-sub] {:frame :gone/frame})))
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
@@ -262,7 +262,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (is (nil? (rf/subscribe-once :rf/default [:no/such-sub-here])))
+      (is (nil? (rf/subscribe-once [:no/such-sub-here] {:frame :rf/default})))
       (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/no-such-sub under prod")
         (is (= :no/such-sub-here (:event-id r)))

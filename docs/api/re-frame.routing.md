@@ -222,7 +222,7 @@ The read-side surface over the route registry and the live route slice: static "
 
 ### Reading the route and the pending-nav slot
 
-The route slice and the pending-navigation slot are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). Both are per-frame singletons, so no id argument is needed; `subscribe`'s frame-first arity carries the `{:frame <target>}` capability to read an explicit (e.g. non-default url-bound) frame.
+The route slice and the pending-navigation slot are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). Both are per-frame singletons, so no id argument is needed; `subscribe`'s `{:frame <target>}` opts form reads an explicit (e.g. non-default url-bound) frame.
 
 ```clojure
 (:route-id @(rf/subscribe [:rf/route]))   ;; the active route id, or nil pre-navigation

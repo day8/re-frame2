@@ -69,6 +69,7 @@
             [re-frame.source-store   :as ss]
             [re-frame.registrar      :as registrar]
             [re-frame.live-frame     :as lf]
+            [re-frame.frame          :as frame]
             [re-frame.interop        :as interop]
             [re-frame.core           :as rf]
             [re-frame.std-interceptors    :as std]
@@ -466,7 +467,7 @@
       (let [db-before (rf/app-db-value :counter/main)
             f2        (lf/make-frame {:id :counter/main :images [img]} pool)]
         (is (lf/frame-object? f2) "re-make returns a frame value, no throw")
-        (is (= :counter/main (rf/frame-value->id f1) (rf/frame-value->id f2))
+        (is (= :counter/main (frame/frame-value->id f1) (frame/frame-value->id f2))
             "both values route to the same id")
         (is (= db-before (rf/app-db-value :counter/main))
             "durable app-db is preserved across the idempotent re-make"))
@@ -764,7 +765,8 @@
 (deftest s8-make-frame-is-the-one-constructor
   (testing "EP-0024 §One constructor (rf2-tu2vr7): rf/make-frame is the ONE
             public constructor — it returns the frame VALUE, not a gensym keyword
-            id, and the value routes to its id through rf/frame-value->id. Built
+            id, and every public surface accepts the value directly (API-shrink
+            #1, rf2-csbbwu — no facade accessor needed to unwrap it). Built
             against an explicit descriptor pool (the 2-arity) so the pin does not
             project the live store."
     (let [pool    [(reg-desc "examples.counter" :event :counter/inc ::inc)]
@@ -774,8 +776,8 @@
           "rf/make-frame returns the frame VALUE")
       (is (not (keyword? created))
           "it is NOT a bare keyword id (the value is the lifecycle token)")
-      (is (= :counter/one (rf/frame-value->id created))
-          "the single accessor reads the id from the value")
+      (is (= :counter/one (frame/frame-value->id created))
+          "the internal normalization primitive reads the id from the value")
       (rf/destroy-frame! created))
     (testing "EP-0024 reverses the rf2-32siq3.45 option-(b) fail-loud redirect:
               a record-config key is HONOURED in the same call (option-(a)), not

@@ -92,7 +92,7 @@
                     ;; (both the schedule path and the re-arm path read it).
                     subs/subscribe   (fn
                                        ([_query-v] delay-reaction)
-                                       ([_frame-id _query-v] delay-reaction))
+                                       ([_query-v _opts] delay-reaction))
                     subs/unsubscribe (fn ([_] nil) ([_ _] nil))
                     ;; Capture the host-clock thunk instead of arming a real
                     ;; wall-clock timer; return an opaque sentinel handle.
@@ -149,7 +149,7 @@
       (rf/reg-machine :reap/sub2 m)
       (with-redefs [subs/subscribe   (fn
                                        ([_query-v] delay-reaction)
-                                       ([_frame-id _query-v] delay-reaction))
+                                       ([_query-v _opts] delay-reaction))
                     subs/unsubscribe (fn ([_] nil) ([_ _] nil))
                     interop/schedule-after! (fn [_thunk _ms]
                                               (swap! arm-count inc)

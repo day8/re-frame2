@@ -74,10 +74,10 @@
 
 ;; A one-shot read of an `:rf.xray/*` sub, in the :rf/xray frame (where the
 ;; panel's mode / override / target-frame slots live). `subscribe-once`'s
-;; 2-arity form is `(frame-id query-v)` — the named-frame read from outside
-;; any ambient scope.
+;; opts-map form is `(query-v {:frame frame-id})` — the named-frame read
+;; from outside any ambient scope.
 (defn- read-xray [q-v]
-  (rf/subscribe-once :rf/xray q-v))
+  (rf/subscribe-once q-v {:frame :rf/xray}))
 
 ;; ---- host-app registrations (the composer's subject) --------------------
 

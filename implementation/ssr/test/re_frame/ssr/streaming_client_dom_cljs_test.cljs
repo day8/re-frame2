@@ -238,9 +238,9 @@
               ;; (b) delta merged — a SUBSCRIPTION reads the speculative
               ;; value, with NO __rf_payload / :rf/hydrate.
               (is (= {:title "Revenue" :value 42375}
-                     @(rf/subscribe fid [:sct/card :revenue]))
+                     @(rf/subscribe [:sct/card :revenue] {:frame fid}))
                   "subscription reads the revenue delta — progressive hydration BEFORE the final payload")
-              (is (nil? @(rf/subscribe fid [:sct/card :signups]))
+              (is (nil? @(rf/subscribe [:sct/card :signups] {:frame fid}))
                   "the un-resolved card's state is not present yet")
               (finally (stop!))))
           (finally (remove-root! host)))))))
@@ -273,9 +273,9 @@
                                           :signups {:value 318}}}))
           (let [stop! (streaming-client/install! {:frame fid :root host})]
             (try
-              (is (= 42375 (:value @(rf/subscribe fid [:sct/card :revenue])))
+              (is (= 42375 (:value @(rf/subscribe [:sct/card :revenue] {:frame fid})))
                   "revenue card survives the second chunk's :cards replacement")
-              (is (= 318 (:value @(rf/subscribe fid [:sct/card :signups])))
+              (is (= 318 (:value @(rf/subscribe [:sct/card :signups] {:frame fid})))
                   "signups card applied")
               (is (= 0 (card-count host "skeleton")) "no fallbacks remain — both swapped")
               (finally (stop!))))
@@ -351,7 +351,7 @@
                 (is (= {} (frame/frame-app-db-value fid))
                     (str (pr-str bad-delta)
                          ": app-db must stay unchanged (malformed delta NOT merged)"))
-                (is (nil? @(rf/subscribe fid [:sct/card :revenue]))
+                (is (nil? @(rf/subscribe [:sct/card :revenue] {:frame fid}))
                     (str (pr-str bad-delta) ": subscription reads no speculative state"))
                 ;; The script is consumed regardless of delta validity.
                 (is (zero? (count (array-seq (.querySelectorAll host (str "[" wire/attr-suspense-hydrate "]")))))
@@ -398,7 +398,7 @@
           (let [stop! (streaming-client/install! {:frame fid :root host})]
             (try
               (is (= 1 (card-count host "resolved-empty")) "empty-delta chunk still swaps")
-              (is (= 5 (:value @(rf/subscribe fid [:sct/card :full]))) "valid delta merged")
+              (is (= 5 (:value @(rf/subscribe [:sct/card :full] {:frame fid}))) "valid delta merged")
               (is (not-any? #(= :rf.ssr/suspense-boundary-failed (:operation %)) @captured)
                   (str "valid + empty deltas must NOT emit the malformed diagnostic; saw: "
                        (pr-str (mapv :operation @captured))))
@@ -443,7 +443,7 @@
                 ;; swapped (the sweep ran before completion-detection).
                 (is (= 1 (card-count host "resolved-x"))
                     (str "chunk swapped despite CSS-special payload-id " (pr-str pid)))
-                (is (= 1 (:value @(rf/subscribe fid [:sct/card :x])))
+                (is (= 1 (:value @(rf/subscribe [:sct/card :x] {:frame fid})))
                     "delta merged")
                 (finally (stop!))))
             (finally (remove-root! host))))))))
@@ -505,9 +505,9 @@
                   "inner resolved content is live — the nested boundary recovered")
               (is (= 0 (card-count host "inner-skel"))
                   "the inner skeleton fallback was replaced, not stranded")
-              (is (= 7 (:value @(rf/subscribe fid [:sct/card :outer])))
+              (is (= 7 (:value @(rf/subscribe [:sct/card :outer] {:frame fid})))
                   "outer delta merged")
-              (is (= 99 (:value @(rf/subscribe fid [:sct/card :inner])))
+              (is (= 99 (:value @(rf/subscribe [:sct/card :inner] {:frame fid})))
                   "inner delta merged — progressive hydration of the nested boundary")
               (finally (stop!))))
           (finally (remove-root! host)))))))
@@ -616,7 +616,7 @@
               (is (= 1 (card-count host "resolved-dupe"))
                   "the single resolved chunk is placed exactly once")
               ;; delta still merged (placement bug must not regress hydration).
-              (is (= 7 (:value @(rf/subscribe fid [:sct/card :dupe])))
+              (is (= 7 (:value @(rf/subscribe [:sct/card :dupe] {:frame fid})))
                   "the resolved chunk's delta merged")
               (finally (stop!))))
           (finally (remove-root! host)))))))
@@ -696,7 +696,7 @@
               (is (false? (boolean (showing-fallback? host :card.late)))
                   "late card swapped by the observer-driven sweep")
               (is (= 1 (card-count host "resolved-late")) "resolved content live in the DOM")
-              (is (= 7 (:value @(rf/subscribe fid [:sct/card :late])))
+              (is (= 7 (:value @(rf/subscribe [:sct/card :late] {:frame fid})))
                   "delta merged by the observer-driven sweep")
               (stop!)
               (remove-root! host)

@@ -683,8 +683,7 @@
       (rf/register-listener! :trace ::sr-frame (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:probe/sub-break] {:frame :test/sub-frame})
       ;; Subscribe within the named frame so the reaction recomputes there.
-      ;; subscribe-once takes the frame-id FIRST (2-arity), not an opts map.
-      (is (nil? (rf/subscribe-once :test/sub-frame [:probe/items]))
+      (is (nil? (rf/subscribe-once [:probe/items] {:frame :test/sub-frame}))
           "malformed sub yields nil per :replaced-with-default recovery")
       (rf/unregister-listener! :trace ::sr-frame)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))

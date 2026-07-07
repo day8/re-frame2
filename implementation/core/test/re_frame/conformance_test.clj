@@ -2170,7 +2170,7 @@
                 (let [[frame-id qv] (resolve-sub query-v)]
                   {:query    query-v
                    :expected expected-val
-                   :actual   (rf/subscribe-once frame-id qv)})))
+                   :actual   (rf/subscribe-once qv {:frame frame-id})})))
             ;; EP-0017 (rf2-d8mvke.3): NEGATIVE app-db path assertions. Each
             ;; path's tip key must be ABSENT from the final app-db. Uses a
             ;; sentinel `get-in` so a present-with-nil leaf is NOT mistaken

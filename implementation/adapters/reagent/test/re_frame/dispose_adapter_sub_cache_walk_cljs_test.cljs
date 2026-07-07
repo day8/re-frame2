@@ -97,8 +97,8 @@
     (rf/dispatch-sync [:seed 2] {:frame :walk/b})
 
     ;; Materialise + deref so the sub cache holds live Reactions.
-    (let [r-a (rf/subscribe :walk/a [:n])
-          r-b (rf/subscribe :walk/b [:n])]
+    (let [r-a (rf/subscribe [:n] {:frame :walk/a})
+          r-b (rf/subscribe [:n] {:frame :walk/b})]
       (is (= 1 @r-a))
       (is (= 2 @r-b))
 
@@ -151,8 +151,8 @@
     (rf/dispatch-sync [:seed] {:frame :walk/a})
     (rf/dispatch-sync [:seed] {:frame :walk/b})
 
-    (let [r-a (rf/subscribe :walk/a [:n])
-          r-b (rf/subscribe :walk/b [:n])]
+    (let [r-a (rf/subscribe [:n] {:frame :walk/a})
+          r-b (rf/subscribe [:n] {:frame :walk/b})]
       (is (= 1 @r-a))
       (is (= 1 @r-b))
 

@@ -254,7 +254,7 @@
       ;; `rf/dispatch-sync*` (and `subs/subscribe` below) which carry the
       ;; target frame directly.
       (rf/dispatch-sync* [::seed 1] {:frame :rf/default})
-      (let [r (subs/subscribe :rf/default [::n])]
+      (let [r (subs/subscribe [::n] {:frame :rf/default})]
         (is (= 1 @r) "sub reads the seeded value")
         (is (contains? (default-sub-cache-keys) [::n])
             "subscribe materialised a cache slot on the frame")
@@ -277,7 +277,7 @@
       ;; reaction and the isolation guarantee would be broken.
       (substrate-adapter/install-adapter! test-react/adapter)
       (rf/dispatch-sync* [::seed 99] {:frame :rf/default})
-      (let [r2 (subs/subscribe :rf/default [::n])]
+      (let [r2 (subs/subscribe [::n] {:frame :rf/default})]
         (is (= 99 @r2)
             "re-subscribe after reinstall recomputed from the CURRENT app-db")
         (is (= 1 (default-entry-ref-count [::n]))

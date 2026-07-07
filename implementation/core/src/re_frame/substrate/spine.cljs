@@ -1726,7 +1726,7 @@
                             ;; immediately so the render retains no ref-count. An
                             ;; abandoned render leaks nothing; a committed render's
                             ;; durable ref is taken later in `subscribe-fn`.
-                            (let [r (subs/subscribe stable-frame-kw stable-query-v)]
+                            (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})]
                               (subs/unsubscribe stable-frame-kw stable-query-v)
                               r))
                           #js [stable-key])
@@ -1786,7 +1786,7 @@
                     ;; the ONLY place a lasting +1 is acquired. The returned
                     ;; reaction is the live cached one and `=` (often identical)
                     ;; to the render-phase handle `reaction`.
-                    (let [committed (subs/subscribe stable-frame-kw stable-query-v)]
+                    (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
                       ;; rf2-sqhjtu: publish the durable committed reaction so
                       ;; `get-snap` derefs THIS live handle (source watches +
                       ;; current sub body) rather than the disposed render-phase
@@ -1836,7 +1836,7 @@
           ;; frame through the SAME carried-invariant chain `subs/subscribe`'s
           ;; own 1-arity uses (Spec 006 §Frame resolution (1-arg form), :734,
           ;; :1058; EP-0002): dynamic-var tier (`frame/*current-frame*`, set by
-          ;; `with-frame` / `frame-bound-fn`) FIRST, the React-context tier
+          ;; `with-frame` / `bind-fn`) FIRST, the React-context tier
           ;; (the surrounding `frame-provider`) SECOND, and **nil → a loud
           ;; `:rf.error/no-frame-context`** with NO `:rf/default` floor.
           ;;
@@ -1847,7 +1847,7 @@
           ;;      (React-context tier ONLY — it never consults the dynamic
           ;;      var). Passing its result straight into the 2-arg EXPLICIT
           ;;      path let a surrounding provider beat a `with-frame` /
-          ;;      `frame-bound-fn` dynamic scope — inverting the spec's tier
+          ;;      `bind-fn` dynamic scope — inverting the spec's tier
           ;;      precedence (dynamic-var MUST win).
           ;;   2. With no enclosing provider, `use-context` returns the
           ;;      no-provider sentinel (`:rf.frame/no-provider`), NOT nil. The

@@ -4976,8 +4976,8 @@
   stay independent), not the `:rf/xray` singleton."
   [{:keys [rows disposed-rows step-number violations]}]
   (let [frame         (rf/current-frame-id)
-        mode          @(rf/subscribe frame
-                                     [:rf.xray.epoch/subs-filter-mode])
+        mode          @(rf/subscribe [:rf.xray.epoch/subs-filter-mode]
+                                     {:frame frame})
         visible-rows  (case mode
                         :all       rows
                         :unchanged (filterv (complement :changed?) rows)

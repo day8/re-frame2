@@ -281,11 +281,11 @@
           ;; (B) FAIL-CLOSED — the existing client state survives the
           ;;     malformed payload (the rejection the always-on record reports
           ;;     is real, not a phantom emit on an applied hydration).
-          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+          (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
               (str (pr-str bad-payload) ": :title unchanged (fail closed)"))
-          (is (= 1 (rf/subscribe-once client-frame [:count]))
+          (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
               (str (pr-str bad-payload) ": :count unchanged (fail closed)"))
-          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+          (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-payload)
                    ": no hydration metadata stashed (rejected, not applied)")))))))
 

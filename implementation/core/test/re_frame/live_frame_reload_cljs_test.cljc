@@ -14,7 +14,7 @@
       `frame/set-generation!` (reached through `reg-frame`'s surgical-update
       path); app-db / durable state continue, the id keeps naming the same
       live context, and the returned frame VALUE names that id (compare by
-      `rf/frame-value->id`, not `identical?`);
+      `frame/frame-value->id`, not `identical?`);
     * resolution AFTER reload uses the NEW image (the swapped generation resolves
       the new descriptor; the old is gone / changed);
     * the added/changed/removed/retained `[kind id]` diff is a READ
@@ -154,7 +154,7 @@
       (testing "the reloaded handle is a frame VALUE naming the SAME id (the id
                 keeps naming the same live context)"
         (is (lf/frame-object? reloaded))
-        (is (= :counter/main (rf/frame-value->id reloaded))))
+        (is (= :counter/main (frame/frame-value->id reloaded))))
       (testing "durable frame memory continues: the app-db seeded at creation
                 survives the reload (only the generation moved, the record was
                 NOT torn down and recreated)"
@@ -182,9 +182,9 @@
                 same live context, now on the new generation — EP-0024:
                 live-frame reconstructs a fresh value from the record, so compare
                 by id)"
-        (is (= :counter/main (rf/frame-value->id (lf/live-frame :counter/main))))
-        (is (= (rf/frame-value->id reloaded)
-               (rf/frame-value->id (lf/live-frame :counter/main))))
+        (is (= :counter/main (frame/frame-value->id (lf/live-frame :counter/main))))
+        (is (= (frame/frame-value->id reloaded)
+               (frame/frame-value->id (lf/live-frame :counter/main))))
         (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
                                        (lf/frame-generation (lf/live-frame :counter/main))
                                        :event :counter/inc))))))))

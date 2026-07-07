@@ -17,10 +17,9 @@
     - The [:rf.runtime/ssr :hydration] metadata lands in THAT frame's app-db only
       (Spec 011 §Frames are per-request + Spec 002 §What lives in
       a frame).
-    - `rf/subscribe-once fid query-v` resolves against the explicit
-      frame's signal-graph cache (re-frame.subs/subscribe-once
-      2-arg form — already exists at
-      `implementation/core/src/re_frame/subs.cljc:365`).
+    - `rf/subscribe-once query-v {:frame fid}` resolves against the
+      explicit frame's signal-graph cache (re-frame.subs/subscribe-once
+      opts-map form — see `implementation/core/src/re_frame/subs.cljc`).
     - Per-frame dispatches (`[::inc]` against `:counter/a` then
       against `:counter/b`) mutate their own frame only — no cross-
       frame bleed.
@@ -114,11 +113,11 @@
             slice on that frame's app-db ONLY. Per-frame subs
             (subscribe-once 2-arg form) read the post-drain state."
     (bootstrap-and-hydrate!)
-    (is (= 10 (rf/subscribe-once frame-a [:n]))
+    (is (= 10 (rf/subscribe-once [:n] {:frame frame-a}))
         ":counter/a's app-db carries :n 10 from its payload slice")
-    (is (= 99 (rf/subscribe-once frame-b [:n]))
+    (is (= 99 (rf/subscribe-once [:n] {:frame frame-b}))
         ":counter/b's app-db carries :n 99 from its payload slice")
-    (is (= 2 (count (rf/subscribe-once frame-log [:entries])))
+    (is (= 2 (count (rf/subscribe-once [:entries] {:frame frame-log})))
         ":log's app-db carries the 2 seeded entries from its payload slice")))
 
 ;; ===========================================================================
@@ -131,11 +130,11 @@
             block on that frame's app-db (not on the surrounding
             default frame, not on a global atom)."
     (bootstrap-and-hydrate!)
-    (is (some? (rf/subscribe-once frame-a [:hydration]))
+    (is (some? (rf/subscribe-once [:hydration] {:frame frame-a}))
         ":counter/a carries [:rf.runtime/ssr :hydration] metadata")
-    (is (some? (rf/subscribe-once frame-b [:hydration]))
+    (is (some? (rf/subscribe-once [:hydration] {:frame frame-b}))
         ":counter/b carries [:rf.runtime/ssr :hydration] metadata")
-    (is (some? (rf/subscribe-once frame-log [:hydration]))
+    (is (some? (rf/subscribe-once [:hydration] {:frame frame-log}))
         ":log carries [:rf.runtime/ssr :hydration] metadata")
     ;; And the metadata didn't bleed onto the default frame
     ;; (which was never hydrated).
@@ -153,39 +152,39 @@
             frame bleed (the runtime writes to one frame's app-db
             per dispatch, never to siblings)."
     (bootstrap-and-hydrate!)
-    (is (= "aaaa1111" (:server-hash (rf/subscribe-once frame-a [:hydration])))
+    (is (= "aaaa1111" (:server-hash (rf/subscribe-once [:hydration] {:frame frame-a})))
         ":counter/a's :server-hash = 'aaaa1111'")
-    (is (= "bbbb2222" (:server-hash (rf/subscribe-once frame-b [:hydration])))
+    (is (= "bbbb2222" (:server-hash (rf/subscribe-once [:hydration] {:frame frame-b})))
         ":counter/b's :server-hash = 'bbbb2222'")
-    (is (= "cccc3333" (:server-hash (rf/subscribe-once frame-log [:hydration])))
+    (is (= "cccc3333" (:server-hash (rf/subscribe-once [:hydration] {:frame frame-log})))
         ":log's :server-hash = 'cccc3333'")
-    (let [hashes #{(:server-hash (rf/subscribe-once frame-a [:hydration]))
-                   (:server-hash (rf/subscribe-once frame-b [:hydration]))
-                   (:server-hash (rf/subscribe-once frame-log [:hydration]))}]
+    (let [hashes #{(:server-hash (rf/subscribe-once [:hydration] {:frame frame-a}))
+                   (:server-hash (rf/subscribe-once [:hydration] {:frame frame-b}))
+                   (:server-hash (rf/subscribe-once [:hydration] {:frame frame-log}))}]
       (is (= 3 (count hashes))
           (str "three frames hold three distinct server-hashes; saw: "
                (pr-str hashes))))))
 
 ;; ===========================================================================
-;; spec.cjs §(3) → cross-frame readout via subscribe-once frame-id
+;; spec.cjs §(3) → cross-frame readout via subscribe-once {:frame fid}
 ;; ===========================================================================
 
 (deftest multi-frame-subscribe-once-resolves-against-explicit-frame-id
   (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertions
             #6-#7. The testbed's `hydration-summary` view called
-            `rf/subscribe-once frame-id [:hydration]` against three
+            `rf/subscribe-once [:hydration] {:frame frame-id}` against three
             different frames — same query-v, different frame-id —
             and each call resolved the matching frame's server-hash.
-            This locks the subscribe-once 2-arg form's contract: the
+            This locks the subscribe-once opts-map form's contract: the
             explicit frame-id selects the signal-graph cache to
             resolve against (the prereq verified by rf2-2mtl3 — see
             `re-frame.subs/subscribe-once` at
-            implementation/core/src/re_frame/subs.cljc:365)."
+            implementation/core/src/re_frame/subs.cljc)."
     (bootstrap-and-hydrate!)
     ;; SAME query-v `[:hydration]`, THREE different frame-ids.
-    (let [hyd-a (rf/subscribe-once frame-a   [:hydration])
-          hyd-b (rf/subscribe-once frame-b   [:hydration])
-          hyd-l (rf/subscribe-once frame-log [:hydration])]
+    (let [hyd-a (rf/subscribe-once [:hydration] {:frame frame-a})
+          hyd-b (rf/subscribe-once [:hydration] {:frame frame-b})
+          hyd-l (rf/subscribe-once [:hydration] {:frame frame-log})]
       (is (= "aaaa1111" (:server-hash hyd-a))
           "subscribe-once :counter/a → that frame's server-hash")
       (is (= "bbbb2222" (:server-hash hyd-b))
@@ -214,15 +213,15 @@
     (bootstrap-and-hydrate!)
     ;; Single dispatch against :counter/a → A bumps, B doesn't.
     (rf/dispatch-sync [::inc] {:frame frame-a})
-    (is (= 11 (rf/subscribe-once frame-a [:n]))
+    (is (= 11 (rf/subscribe-once [:n] {:frame frame-a}))
         ":counter/a's :n 10 → 11 (single ::inc)")
-    (is (= 99 (rf/subscribe-once frame-b [:n]))
+    (is (= 99 (rf/subscribe-once [:n] {:frame frame-b}))
         ":counter/b's :n untouched (still 99) — no cross-frame bleed")
 
     ;; Two dispatches against :counter/b → B reaches 101, A untouched.
     (rf/dispatch-sync [::inc] {:frame frame-b})
     (rf/dispatch-sync [::inc] {:frame frame-b})
-    (is (= 101 (rf/subscribe-once frame-b [:n]))
+    (is (= 101 (rf/subscribe-once [:n] {:frame frame-b}))
         ":counter/b's :n 99 → 100 → 101 (two ::inc)")
-    (is (= 11 (rf/subscribe-once frame-a [:n]))
+    (is (= 11 (rf/subscribe-once [:n] {:frame frame-a}))
         ":counter/a's :n untouched (still 11) — no cross-frame bleed")))

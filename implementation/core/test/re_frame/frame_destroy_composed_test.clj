@@ -229,8 +229,8 @@
     (rf/reg-sub :composed/b (fn [db _] (:b db)))
     (rf/dispatch-sync [:composed/seed] {:frame :composed/sub-throw})
 
-    (let [r1 (rf/subscribe :composed/sub-throw [:composed/a])
-          r2 (rf/subscribe :composed/sub-throw [:composed/b])
+    (let [r1 (rf/subscribe [:composed/a] {:frame :composed/sub-throw})
+          r2 (rf/subscribe [:composed/b] {:frame :composed/sub-throw})
           throwing-disposed (atom 0)
           surviving-disposed (atom 0)]
       ;; r1's dispose throws; r2's dispose must still fire.
@@ -288,8 +288,8 @@
                                (when (= :rf.sub/dispose (:operation ev))
                                  (swap! disposes conj ev))))
       (try
-        (rf/subscribe :composed/dispose-emit [:composed/da])
-        (rf/subscribe :composed/dispose-emit [:composed/db])
+        (rf/subscribe [:composed/da] {:frame :composed/dispose-emit})
+        (rf/subscribe [:composed/db] {:frame :composed/dispose-emit})
         (is (= 2 (count @(:sub-cache (frame/frame :composed/dispose-emit))))
             "both subscriptions are cached before destroy")
 
@@ -346,7 +346,7 @@
                                (when (= :rf.sub/dispose (:operation ev))
                                  (swap! disposes conj ev))))
       (try
-        (let [r     (rf/subscribe :composed/layered-destroy [:composed/layered-sum])
+        (let [r     (rf/subscribe [:composed/layered-sum] {:frame :composed/layered-destroy})
               cache (:sub-cache (frame/frame :composed/layered-destroy))]
           (is (= 5 @r))
           (is (= 3 (count @cache))
@@ -540,7 +540,7 @@
 
     ;; --- sub-cache: pin a subscription ------------------------------------
     (rf/reg-sub :composed/leak-rect (fn [db _] (:rect db)))
-    (let [_pinned (rf/subscribe :composed/leak-audit [:composed/leak-rect])
+    (let [_pinned (rf/subscribe [:composed/leak-rect] {:frame :composed/leak-audit})
           cache  (:sub-cache (frame/frame :composed/leak-audit))]
       (is (pos? (count @cache))
           "precondition: sub-cache pinned at least one entry"))

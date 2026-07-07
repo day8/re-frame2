@@ -136,7 +136,7 @@
     (vector? delay-key)
     ;; subscribe to keep the reaction live; caller will add-watch for
     ;; change-detection then unsubscribe on cancellation.
-    (let [reaction (subs/subscribe frame-id delay-key)
+    (let [reaction (subs/subscribe delay-key {:frame frame-id})
           v        (when reaction
                      (try @reaction
                           (catch #?(:clj Throwable :cljs :default) e

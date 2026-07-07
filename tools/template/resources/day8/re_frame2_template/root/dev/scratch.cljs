@@ -35,10 +35,10 @@
     @(rf/subscribe [:counter/value]))
 
   ;; A single one-off form can name the frame inline instead of opening a
-  ;; `with-frame` block — `dispatch` takes a `:frame` opt and `subscribe`
-  ;; takes a leading frame-id:
+  ;; `with-frame` block — both `dispatch` and `subscribe` take a trailing
+  ;; `:frame` opt:
   (rf/dispatch [:counter/increment] {:frame :rf/default})
-  @(rf/subscribe :rf/default [:counter/value])
+  @(rf/subscribe [:counter/value] {:frame :rf/default})
 
   ;; --- Experiment in a throw-away frame -----------------------------------
   ;;

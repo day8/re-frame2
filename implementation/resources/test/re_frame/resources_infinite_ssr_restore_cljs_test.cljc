@@ -309,18 +309,18 @@
       (frame/replace-runtime-db! fid reconciled)
       (let [q {:resource :feed/timeline :scope :rf.scope/global :params {:filter :recent}}]
         (testing "the durable feed reads through the live subs intact post-restore"
-          (is (= expected-items @(rf/subscribe fid [:rf.resource/items q]))
+          (is (= expected-items @(rf/subscribe [:rf.resource/items q] {:frame fid}))
               "the merged :items reads intact through the live sub")
-          (is (= expected-pages @(rf/subscribe fid [:rf.resource/pages q]))
+          (is (= expected-pages @(rf/subscribe [:rf.resource/pages q] {:frame fid}))
               "the ordered page vector reads intact (no page loss)")
-          (is (= 3 @(rf/subscribe fid [:rf.resource/page-count q])))
-          (is (true? @(rf/subscribe fid [:rf.resource/has-next-page? q]))
+          (is (= 3 @(rf/subscribe [:rf.resource/page-count q] {:frame fid})))
+          (is (true? @(rf/subscribe [:rf.resource/has-next-page? q] {:frame fid}))
               "has-next-page? TRUE — a 4th page exists (cursor survived)")
-          (is (nil? @(rf/subscribe fid [:rf.resource/page-error q]))))
+          (is (nil? @(rf/subscribe [:rf.resource/page-error q] {:frame fid}))))
         (testing ":fetching-next? is FALSE — no phantom load-more dangles post-restore"
-          (is (false? @(rf/subscribe fid [:rf.resource/fetching-next? q]))
+          (is (false? @(rf/subscribe [:rf.resource/fetching-next? q] {:frame fid}))
               "the in-flight load-more was settled — fetching-next? resolves false")
-          (let [vm @(rf/subscribe fid [:rf.resource/infinite-state q])]
+          (let [vm @(rf/subscribe [:rf.resource/infinite-state q] {:frame fid})]
             (is (false? (:fetching-next? vm)) "the combined view-model agrees")
             (is (false? (:fetching? vm)) "no whole-feed refresh dangles either")
             (is (= :loaded (:status vm)) "the feed settled :loaded")

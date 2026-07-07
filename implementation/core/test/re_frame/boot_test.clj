@@ -319,7 +319,7 @@
     (rf/reg-frame :tenant-a {:doc "tenant-a"})
     (binding [frame/*current-frame* :rf/default]
       (rf/dispatch-sync [:seed 7]))
-    (is (= 7 (rf/subscribe-once :rf/default [:n]))
+    (is (= 7 (rf/subscribe-once [:n] {:frame :rf/default}))
         "before swap: the seeded value is visible via the layer-1 sub")
     (let [registrar-before @registrar/kind->id->metadata]
       ;; Build a distinct second adapter — same shape as plain-atom but a
@@ -365,7 +365,7 @@
             (rf/dispatch-sync [:seed 99]))
           (is (> @replace-calls replace-pre)
               "adapter B's :replace-container! was invoked by dispatch-sync (proves event commit routes through B, not the disposed A)"))
-        (is (= 99 (rf/subscribe-once :rf/default [:n]))
+        (is (= 99 (rf/subscribe-once [:n] {:frame :rf/default}))
             "registered :seed event + :n sub still work end-to-end under adapter B")))))
 
 ;; ---- substrate delegation: uniform no-adapter-installed throw (rf2-zdfi1) -

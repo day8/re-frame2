@@ -131,7 +131,7 @@
   (let [id (when (sequential? query-v) (first query-v))]
     (assoc (validate-registered :sub id @sub-registry) :query-v query-v)))
 
-;; Stand-in for `@(rf/subscribe frame-id query-v)`.
+;; Stand-in for `@(rf/subscribe query-v {:frame frame-id})`.
 (defn subscribe-deref [fid query-v]
   (let [v (get @sub-values [fid query-v])]
     (if (= ::throw v)

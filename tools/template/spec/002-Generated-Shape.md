@@ -63,9 +63,9 @@ evaluated at the REPL with no established scope raises
 frame-scoped REPL example the scaffold emits must therefore name a frame:
 the live-app forms pin `:rf/default` (the id `core.cljs` registers and
 renders under) with `rf/with-frame`, or carry an explicit frame inline
-(`{:frame :rf/default}` opts for `dispatch` / `dispatch-sync`, the
-2-arity `(rf/subscribe :rf/default [query])` for `subscribe`); the
-throw-away experiment creates its own frame with `rf/with-new-frame`
+(`{:frame :rf/default}` opts for `dispatch` / `dispatch-sync` /
+`subscribe`); the throw-away experiment creates its own frame with
+`rf/with-new-frame`
 (eval-bind-run-destroy) so the live frame is untouched. The emission test
 (`template_emission_test.clj` §scratch.cljs frame-context audit) rejects
 any frame-scoped scratch call that is neither inside a frame-scope form

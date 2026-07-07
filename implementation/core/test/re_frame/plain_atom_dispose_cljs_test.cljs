@@ -52,7 +52,7 @@
     ;; `subs/subscribe` so the test drives the reactive cache path
     ;; directly (the macro `rf/subscribe` resolves a render-time frame
     ;; context that headless node tests do not establish).
-    (let [r (subs/subscribe :rf/default [:sum])]
+    (let [r (subs/subscribe [:sum] {:frame :rf/default})]
       (is (= 5 @r))
       (is (= 1 (entry-ref-count [:sum])) "parent ref-count = 1")
       (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
@@ -82,8 +82,8 @@
     (rf/reg-sub :ac :<- [:a] :<- [:c] (fn [[a c] _] (+ a c)))
     (rf/dispatch-sync [:init])
 
-    (subs/subscribe :rf/default [:ab])
-    (subs/subscribe :rf/default [:ac])
+    (subs/subscribe [:ab] {:frame :rf/default})
+    (subs/subscribe [:ac] {:frame :rf/default})
     (is (= 2 (entry-ref-count [:a])) "shared input :a has ref-count 2")
     (is (= 1 (entry-ref-count [:b])))
     (is (= 1 (entry-ref-count [:c])))
@@ -111,7 +111,7 @@
     (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
     (rf/dispatch-sync [:init])
 
-    (let [r (subs/subscribe :rf/default [:a*4])]
+    (let [r (subs/subscribe [:a*4] {:frame :rf/default})]
       (is (= 8 @r))
       (is (= 1 (entry-ref-count [:a*4])))
       (is (= 1 (entry-ref-count [:a*2])))

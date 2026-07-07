@@ -276,7 +276,7 @@
         ;; event it was carrying.
         ;; EP-0023: the explicit `:frame` opt may be a frame-id
         ;; KEYWORD or a live frame OBJECT (`rf/make-frame`'s return value —
-        ;; `(rf/dispatch-sync frame [...])`). Normalize an object to its
+        ;; `(rf/dispatch-sync [...] {:frame frame})`). Normalize an object to its
         ;; runnable-id ADDRESS via `frame/frame-target->id` so the envelope
         ;; carries a keyword `:frame` and every bare-`frame-id`-keyed cascade
         ;; operation downstream (the router queue/drain, `frame-state-value`,
