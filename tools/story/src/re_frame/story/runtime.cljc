@@ -592,7 +592,7 @@
   so a registered variant and an INLINE plan assemble the
   same result through one path."
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script
-           plan runner-selection]} start-ms]
+           plan runner-selection epoch-baseline]} start-ms]
   (let [app-db   (rf/app-db-value variant-id)
         ;; Read the epoch tape through the
         ;; late-bound `re-frame.core/epoch-history` facade (mirroring
@@ -602,13 +602,36 @@
         ;; the production classpath; the facade degrades to `[]` there
         ;; (per `re-frame.core/epoch-history`'s contract) while the
         ;; `:test`-alias epoch dep makes it the live tape under the gate.
-        tape     (vec (rf/epoch-history variant-id))
+        ;;
+        ;; rf2-xj0bj0: a same-id re-run resets the frame's app-db /
+        ;; runtime-db IN PLACE (`ensure-fresh-frame!` / `frames/reset-
+        ;; state!`) but never touches the epoch ring (dropping it is
+        ;; `destroy-frame!`'s job, and a destroy here would orphan the
+        ;; canvas's live mounted-view reactions) — so `epoch-history`
+        ;; still carries every PRIOR run's records too. `epoch-baseline`
+        ;; is the ring length `run-phase-0!` stamped at THIS run's start;
+        ;; dropping that many entries scopes the projected tape to just
+        ;; this run, so a second identical run projects IDENTICAL
+        ;; evidence rather than inheriting the first run's stale
+        ;; violations / warnings / narrative. Absent on the inline-plan
+        ;; path (a fresh anonymous frame every time) — `(or … 0)` is then
+        ;; a no-op, matching the pre-fix whole-tape read.
+        tape     (vec (drop (or epoch-baseline 0) (rf/epoch-history variant-id)))
         ;; The runner-recorded per-dispatch-step settle boundaries light
         ;; up the EXACT narrative attribution
         ;; (`evidence/spans-from-stamps`). The
         ;; stamp is a `:rf.story/*` key the determinism projection strips, so
         ;; the run-hash is unaffected (the `:epoch-tape` slot stays raw).
-        attribution (runner-events/settle-boundaries variant-id)
+        ;;
+        ;; rf2-xj0bj0: the runner stamps each boundary as an ABSOLUTE
+        ;; `rf/epoch-history` length (position in the WHOLE, unsliced
+        ;; ring) — `evidence/project-evidence` zips these positionally
+        ;; against `tape`. Since `tape` above is now `epoch-baseline`-
+        ;; relative (sliced), the boundaries must be shifted onto the SAME
+        ;; zero-point or every span attribution after the first run would
+        ;; be off by `epoch-baseline` positions.
+        attribution (some->> (runner-events/settle-boundaries variant-id)
+                              (mapv #(- % (or epoch-baseline 0))))
         ;; Project the tape ONCE here so the post-run evidence
         ;; validation (`requirements-unmet` → `validate-run-evidence`) reads
         ;; the SAME projected slots `result/run-result` derives the result
@@ -816,13 +839,24 @@
 
   The `:loaders-complete-when` vector form reads the epoch
   tape (`assertions/dispatched-events`, the SSOT) rather than a side-table
-  accumulator, so there is no accumulator to seed here."
+  accumulator, so there is no accumulator to seed here.
+
+  rf2-xj0bj0: `ensure-fresh-frame!` resets an EXISTING frame's app-db /
+  runtime-db IN PLACE (`frames/reset-state!`) rather than destroy!+
+  allocate! (to preserve the canvas's live mounted-view reactions) — so a
+  same-id re-run's epoch ring is NEVER cleared (only `destroy-frame!`
+  drops it). Stamp the CURRENT epoch-history length as `:epoch-baseline`
+  so `record-result-map` can slice the projected tape to just THIS run's
+  records, not the whole frame's accumulated history — otherwise a second
+  `run-variant` on the same id would project evidence
+  (`:schema-violations` / `:warnings` / `:effects` / `:narrative`)
+  polluted with the FIRST run's stale records."
   [{:keys [variant-id decorator-stack] :as ctx}]
   (ensure-fresh-frame! variant-id)
   (frames/allocate! variant-id decorator-stack)
   (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
-  ctx)
+  (assoc ctx :epoch-baseline (count (rf/epoch-history variant-id))))
 
 (defn- db-seed-violations
   "Validate the seeded `db` against the frame's REGISTERED app-db schemas
@@ -1319,7 +1353,16 @@
   (registry-free), then clear the per-frame `pending-exceptions` slot +
   install the play-runner privacy egress listener — the same ordering
   `run-phase-0!` uses so loader-phase events are captured (no
-  side-table to seed)."
+  side-table to seed).
+
+  Also stamps `:epoch-baseline` (rf2-xj0bj0), mirroring `run-phase-0!`, so
+  `record-result-map` slices the SAME way on both paths. An inline plan
+  mints a brand-new anonymous frame id every run (never reused), so this
+  is always 0 in practice — but computing it here (rather than leaving it
+  absent) keeps the inline path symmetric with the registered path for
+  whatever the frame's own allocation records before the loaders/setup/
+  script phases run, so an inline plan and an equivalent registered
+  variant project the same-shaped tape (and therefore the same run-hash)."
   [{:keys [variant-id plan decorator-stack] :as ctx}]
   (frames/allocate-inline! variant-id
                            decorator-stack
@@ -1327,7 +1370,7 @@
                            (inline-events-only? plan decorator-stack))
   (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
-  ctx)
+  (assoc ctx :epoch-baseline (count (rf/epoch-history variant-id))))
 
 (defn run-inline-plan
   "Execute an inline plan MAP (spec/017 §Inline plan) and

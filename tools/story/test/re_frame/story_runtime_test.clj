@@ -1446,6 +1446,36 @@
            the first run's leftover state (which would give 2)"))
     (story/destroy-variant! :story.fresh/v)))
 
+(deftest run-variant-twice-epoch-tape-does-not-bleed
+  (testing "rf2-xj0bj0 — a second run-variant on the same id projects
+            evidence from ITS OWN epoch records only. The reset-in-place
+            path (frames/reset-state!, the fresh-run boundary) resets
+            app-db/runtime-db but never touches the epoch ring (only
+            destroy-frame! drops it) — so a naive whole-frame
+            epoch-history read would inherit the FIRST run's records too,
+            producing a tape roughly twice as long on the second run and
+            polluting the projected evidence."
+    (rf/reg-event :test/inc-counter3
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
+    (story/reg-variant :story.fresh3/v
+      {:events [[:test/inc-counter3]]})
+    (let [r1 (async/deref-blocking (story/run-variant :story.fresh3/v) 5000)
+          r2 (async/deref-blocking (story/run-variant :story.fresh3/v) 5000)]
+      (is (= 1 (:counter (:app-db r1))))
+      (is (= 1 (:counter (:app-db r2))))
+      (is (pos? (count (:epoch-tape r1)))
+          "sanity: the epoch surface is live for this test (a non-empty
+           tape) — otherwise the assertion below would pass vacuously")
+      (is (= (count (:epoch-tape r1)) (count (:epoch-tape r2)))
+          "identical scripts against a fresh frame produce a SAME-SIZED
+           epoch tape on both runs — the second run's tape is scoped to
+           its OWN records, not the first run's tape plus its own (which
+           would be roughly double-length before the fix)")
+      (is (= (:schema-violations r1) (:schema-violations r2))
+          "identical re-runs project IDENTICAL evidence — no stale
+           violation/warning carries over from the first run"))
+    (story/destroy-variant! :story.fresh3/v)))
+
 (deftest run-variant-twice-reruns-loaders
   (testing "a LOADER variant reruns its loaders on the second run-variant —
             the prior :ready frame is destroyed, so run-loaders! does not

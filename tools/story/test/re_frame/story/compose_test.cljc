@@ -80,6 +80,104 @@
              (:script p))))))
 
 ;; ===========================================================================
+;; rf2-k23efg — composed-fragment :script must be EXECUTED, not just
+;; reported. The runtime drives `[:world :scripts]` (the named-play set),
+;; NEVER the reported top-level `:script` slot — before the fix,
+;; `compose-script` folded only into the latter, so a composed fragment's
+;; script never actually ran (plan/explain looked right; nothing happened).
+;; ===========================================================================
+
+(deftest fragment-script-composes-into-executed-scripts
+  (testing "a composed fragment's :script appends into the EXECUTED
+            [:world :scripts] primary play, not just the reported
+            top-level :script"
+    (let [fragments {:fragment.checkout/ready-to-submit
+                     {:script [[:dispatch [:checkout/open]]]}}
+          variants  {:story.checkout/submits
+                     {:compose [:fragment.checkout/ready-to-submit]
+                      :script  [[:dispatch [:checkout/submit]]]}}
+          p (compose-plan :story.checkout/submits
+                          {:variants variants :fragments fragments})
+          scripts (get-in p [:world :scripts])]
+      (is (= 1 (count scripts)) "one primary auto-run play")
+      (is (true? (:auto-run? (first scripts))))
+      (is (= [[:dispatch [:checkout/open]] [:dispatch [:checkout/submit]]]
+             (:script (first scripts)))
+          "the executed play's script carries the composed fragment's
+           script FIRST, then the variant's own — matching the reported
+           top-level :script exactly")
+      (is (= (:script (first scripts)) (:script p))
+          "[:world :scripts]'s primary play and the reported top-level
+           :script never diverge"))))
+
+(deftest fragment-script-with-no-variant-script-still-executes
+  (testing "a variant that composes a fragment's :script but authors NO
+            script of its own still gets an executed primary play (not
+            an empty [:world :scripts])"
+    (let [fragments {:fragment/only-script
+                     {:script [[:dispatch [:seed-only]]]}}
+          variants  {:story.x/no-own-script
+                     {:compose [:fragment/only-script]}}
+          p (compose-plan :story.x/no-own-script
+                          {:variants variants :fragments fragments})
+          scripts (get-in p [:world :scripts])]
+      (is (= 1 (count scripts)))
+      (is (true? (:auto-run? (first scripts))))
+      (is (= [[:dispatch [:seed-only]]] (:script (first scripts)))))))
+
+;; ===========================================================================
+;; rf2-2g7ebs — composed-fragment :loaders / :loaders-teardown / :decorators
+;;
+;; `ctx` (the per-field `:extends`-chain merge) never read frag-layers for
+;; these three slots before the fix — silently dropped from every composed
+;; variant even though the Fragment schema permits them.
+;; ===========================================================================
+
+(deftest fragment-loaders-compose-and-append
+  (testing "a composed fragment's :loaders append BEFORE the variant's own"
+    (let [fragments {:fragment/socket {:loaders [[:socket/open]]}}
+          variants  {:story.x/v {:compose [:fragment/socket]
+                                 :loaders [[:socket/subscribe]]}}
+          p (compose-plan :story.x/v
+                          {:variants variants :fragments fragments})]
+      (is (= [[:socket/open] [:socket/subscribe]]
+             (get-in p [:world :loaders]))))))
+
+(deftest fragment-loaders-teardown-composes-and-appends
+  (testing "a composed fragment's :loaders-teardown appends BEFORE the
+            variant's own"
+    (let [fragments {:fragment/socket {:loaders-teardown [[:socket/close]]}}
+          variants  {:story.x/v {:compose          [:fragment/socket]
+                                 :loaders-teardown [[:socket/unsubscribe]]}}
+          p (compose-plan :story.x/v
+                          {:variants variants :fragments fragments})]
+      (is (= [[:socket/close] [:socket/unsubscribe]]
+             (get-in p [:world :loaders-teardown]))))))
+
+(deftest fragment-loaders-alone-still-fold-in
+  (testing "a fragment's :loaders fold in even when the variant declares
+            none of its own"
+    (let [fragments {:fragment/socket {:loaders [[:socket/open]]}}
+          variants  {:story.x/v {:compose [:fragment/socket]}}
+          p (compose-plan :story.x/v
+                          {:variants variants :fragments fragments})]
+      (is (= [[:socket/open]] (get-in p [:world :loaders]))))))
+
+(deftest fragment-decorators-compose-in-globals-story-fragment-variant-order
+  (testing "a composed fragment's :decorators fold into [:world :decorators]
+            BETWEEN the ambient (globals) layer and the variant chain's own
+            decorators (globals -> story -> fragment -> variant)"
+    (let [fragments {:fragment/themed {:decorators [:decorator/fragment-theme]}}
+          variants  {:story.x/v {:compose    [:fragment/themed]
+                                 :decorators [:decorator/variant-theme]}}
+          p (plan/variant-plan :story.x/v
+              {:lookup            variants
+               :fragment-lookup   fragments
+               :global-decorators [:decorator/global]})]
+      (is (= [:decorator/global :decorator/fragment-theme :decorator/variant-theme]
+             (get-in p [:world :decorators]))))))
+
+;; ===========================================================================
 ;; Check composition + identity preservation
 ;; ===========================================================================
 
