@@ -640,6 +640,43 @@
     (is (trace/frame-trace-disabled? :tool/b)
         "the surviving tool frame's flag is untouched")))
 
+;; rf2-yl4c0s: `tagged-frame-trace-disabled?` read ONLY `[:tags :frame]` —
+;; but `push-to-ring!` resolves the destination frame THREE ways (`:frame`
+;; under `tags`, a top-level `:frame` on the built envelope, and the
+;; late-bound `:frame/current-frame-id` hook reading the ambient
+;; `*current-frame*`). An emit whose caller doesn't stamp a `:frame` tag —
+;; relying instead on the ambient `with-frame` / `*current-frame*` scope
+;; (the sub-recompute / view-render shape `push-to-ring!`'s docstring
+;; names) — ESCAPED suppression under a disabled tool frame. These two
+;; tests call `trace/emit!` directly with tags that carry NO `:frame` key,
+;; so only the current-frame-hook resolution path is exercised.
+
+(deftest untagged-emit-suppressed-when-current-frame-is-tool-disabled
+  (testing "an un-tagged emit (no :frame key in tags), resolved via the
+            ambient *current-frame* scope, is suppressed when that frame
+            is trace-disabled — not just a tagged emit"
+    (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
+    (let [seen (atom [])]
+      (rf/register-listener! :trace ::untagged (fn [ev] (swap! seen conj ev)))
+      (rf/with-frame :tool/inspector
+        (trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
+      (is (= [] @seen)
+          "the un-tagged emit never reached the listener — suppressed via the current-frame-hook path")
+      (rf/unregister-listener! :trace ::untagged))))
+
+(deftest untagged-emit-not-suppressed-under-a-plain-app-frame
+  (testing "control: the SAME un-tagged emit under a non-disabled app
+            frame's ambient scope IS delivered — proves the suppression
+            above is frame-specific, not some other global gate"
+    (rf/reg-frame :app/plain {:doc "ordinary application frame"})
+    (let [seen (atom [])]
+      (rf/register-listener! :trace ::untagged-control (fn [ev] (swap! seen conj ev)))
+      (rf/with-frame :app/plain
+        (trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
+      (is (seq @seen)
+          "an app frame's ambient scope does not suppress the emit")
+      (rf/unregister-listener! :trace ::untagged-control))))
+
 ;; ---- 6. B4 hot-reload dedup-by-shape ------------------------------------
 
 (deftest hot-reload-unchanged-handler-emits-zero-traces
