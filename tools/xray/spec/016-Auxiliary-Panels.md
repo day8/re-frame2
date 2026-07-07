@@ -667,6 +667,16 @@ nil and `(add-watch nil …)` would throw; the frame-presence guard
 makes the early call safe and the watcher lands on first frame
 registration. Detached on flip-off.
 
+**Baseline seeding (rf2-8i1tg3).** The edge-detector's baseline count
+MUST be seeded from the reaction's value AT INSTALL TIME, before
+`add-watch` — a reaction is already live the instant `subscribe`
+returns (e.g. a re-install after a focus-nav that already landed on an
+issue-carrying epoch), so `add-watch` only fires on the NEXT change.
+Leaving the baseline at its cold-start default of zero misclassifies
+that pre-existing non-empty state as the empty→non-empty edge on the
+first subsequent change, spuriously auto-opening Xray for an epoch the
+watcher never actually saw transition.
+
 ### Bulk configure! escape hatch
 
 `(xray-config/configure! {:rf.xray/settings <map>})` bulk-replaces the

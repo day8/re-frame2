@@ -503,3 +503,44 @@
     (when-let [html (html-root)]
       (is (= "12px" (.getPropertyValue (.-style html) "--rf-xray-font-size"))
           "<html> --rf-xray-font-size carries the persisted compact value"))))
+
+;; ---- Keybindings tab "Handle keys?" reactive dual-write (rf2-8i1tg3) ----
+;;
+;; Was: the Keybindings tab's master toggle read `config/keybinding-
+;; attach-enabled?` directly (a bare atom) and wrote via `config/set-
+;; keybinding-enabled!` — no dispatch, no app-db mirror, unlike every
+;; other toggle in this popup. The controlled checkbox's `:checked`
+;; never re-fired reactively off a change. The fix routes the toggle
+;; through `:rf.xray/keybinding-enabled-update` (flips the atom AND
+;; mirrors app-db) + a new `:rf.xray/keybinding-enabled?` sub the
+;; checkbox reads.
+
+(deftest keybinding-enabled-update-flips-atom-and-mirrors-app-db
+  (testing "rf2-8i1tg3 — dispatching :rf.xray/keybinding-enabled-update
+            flips the canonical config atom AND the app-db mirror the
+            new sub reads, in one atomic step"
+    (setup!)
+    (rf/with-frame :rf/xray
+      (is (true? @(rf/subscribe [:rf.xray/keybinding-enabled?]))
+          "default (never configured) reads true")
+      (rf/dispatch-sync [:rf.xray/keybinding-enabled-update false])
+      (is (false? (config/keybinding-attach-enabled?))
+          "the canonical atom flipped")
+      (is (false? @(rf/subscribe [:rf.xray/keybinding-enabled?]))
+          "the reactive sub mirror flipped in the SAME dispatch — no
+           stale controlled-checkbox read")
+      (rf/dispatch-sync [:rf.xray/keybinding-enabled-update true])
+      (is (true? (config/keybinding-attach-enabled?)))
+      (is (true? @(rf/subscribe [:rf.xray/keybinding-enabled?]))))))
+
+(deftest keybinding-enabled-sub-falls-back-to-atom-pre-first-dispatch
+  (testing "rf2-8i1tg3 — before any :rf.xray/keybinding-enabled-update
+            dispatch, the sub falls back to the live config atom
+            (mirrors every other `:rf.xray/setting`-style sub's pre-
+            first-open fallback) rather than a hardcoded default"
+    (setup!)
+    (config/set-keybinding-enabled! false)
+    (rf/with-frame :rf/xray
+      (is (false? @(rf/subscribe [:rf.xray/keybinding-enabled?]))
+          "sub reads the atom directly when app-db has never mirrored it"))
+    (config/set-keybinding-enabled! true)))

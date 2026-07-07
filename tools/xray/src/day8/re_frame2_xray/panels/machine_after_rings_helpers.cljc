@@ -529,3 +529,42 @@
   [timers scrubber-position]
   (and (= :present scrubber-position)
        (some (fn [t] (= :armed (:status t))) (or timers []))))
+
+;; ---- retro now-ms anchor (rf2-8i1tg3 · xray/003 §M.2) --------------------
+
+(defn focused-cascade-time-ms
+  "Pull the focused event-bundle's dispatched wall-clock time (ms) off
+  the `:rf.xray/focused-event-bundle-detail` composite value — the SAME
+  `[:dispatched :time]` slot the L2 event list's timestamp column reads
+  (`shell/event-bundle-dispatched-time-ms`). Returns nil when there is
+  no selected event-bundle, or its `:dispatched :time` is not a number
+  (defence — a synthetic/legacy event-bundle that omits the field must
+  not freeze the ring at a bogus anchor)."
+  [focused-event-bundle-detail]
+  (let [t (get-in focused-event-bundle-detail
+                  [:selected-event-bundle :dispatched :time])]
+    (when (number? t) t)))
+
+(defn resolve-now-ms
+  "Resolve the `now-ms` anchor `timers->ring-specs` should project
+  against.
+
+  - `:present` `scrubber-position` (LIVE mode): `live-now-ms` — the
+    rAF-bumped wall clock, so rings sweep in real time.
+  - Any other `scrubber-position` (RETRO mode): per xray/003 §M.2 'the
+    ring is static at the elapsed-fraction the timer had reached at
+    the focused-cascade's timestamp' — `focused-cascade-ms`. Falls
+    back to `live-now-ms` when the focused cascade carries no
+    timestamp (defence — a nil anchor would blank every fraction
+    calc rather than freeze it).
+
+  Before rf2-8i1tg3 the view fed `live-now-ms` into `timers->ring-
+  specs` UNCONDITIONALLY — `scrubber-position` gated only whether the
+  rAF loop kept ticking, so leaving LIVE mode simply stopped the clock
+  wherever it last was instead of anchoring to the focused cascade the
+  spec promises. Pure fn — the view supplies both candidate
+  timestamps; kept testable without a DOM/subscribe harness."
+  [scrubber-position live-now-ms focused-cascade-ms]
+  (if (= :present scrubber-position)
+    live-now-ms
+    (or focused-cascade-ms live-now-ms)))

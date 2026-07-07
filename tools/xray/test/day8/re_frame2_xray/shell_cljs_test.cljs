@@ -1474,8 +1474,9 @@
     (let [scroll-calls (atom 0)
           stub-el      #js {:scrollIntoView (fn [_opts]
                                               (swap! scroll-calls inc))}
-          ;; Reset the module-level atom so this test is hermetic.
+          ;; Reset the module-level atoms so this test is hermetic.
           _            (reset! @#'shell/last-scrolled-focus-id ::reset-marker)
+          _            (reset! @#'shell/focused-row-ref-cache nil)
           ref-fn       (#'shell/focused-row-ref 42 true)]
       (is (fn? ref-fn) "ref-fn is a function when auto-track? is true")
       ;; First call → scroll.
@@ -1498,6 +1499,31 @@
             callback."
     (is (nil? (#'shell/focused-row-ref 42 false))
         "auto-track? false → nil ref")))
+
+(deftest focused-row-ref-is-referentially-stable-across-rerenders
+  (testing "rf2-8i1tg3 — `event-row` is a plain fn re-invoked on every
+            parent re-render (not a stateful component), so calling
+            `focused-row-ref` repeatedly for the SAME still-focused row
+            simulates every re-render while focus doesn't change. React
+            treats a CHANGED callback-ref as detach-then-reattach on the
+            very next commit — a fresh closure per call would fire the
+            ref with `nil` (resetting the dedup atom) immediately before
+            re-attaching, permanently defeating the not= guard in
+            `focused-row-ref-scrolls-on-focus-change-only` above. The
+            fix memoizes on `id`: the SAME `[id auto-track?]` must
+            return the IDENTICAL fn object so React sees no ref change
+            and never detaches/reattaches for a row that stays focused."
+    (reset! @#'shell/focused-row-ref-cache nil)
+    (let [ref-fn-1 (#'shell/focused-row-ref 7 true)
+          ref-fn-2 (#'shell/focused-row-ref 7 true)]
+      (is (identical? ref-fn-1 ref-fn-2)
+          "repeat calls for the same still-focused id return the SAME fn object"))
+    ;; A genuine focus change (new id) MUST still produce a new closure
+    ;; — otherwise the cache would never invalidate.
+    (let [ref-fn-a (#'shell/focused-row-ref 1 true)
+          ref-fn-b (#'shell/focused-row-ref 2 true)]
+      (is (not (identical? ref-fn-a ref-fn-b))
+          "a different focus id produces a fresh fn object"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4a) Ribbon nav button enable/disable state — rf2-htik0 Bug 1

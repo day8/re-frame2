@@ -412,6 +412,11 @@
    :rf.xray/settings-active-tab
    :rf.xray/settings-clear-confirm-open?
    :rf.xray/settings-open?
+   ;; rf2-8i1tg3 — Keybindings tab "Handle keys?" master toggle sub.
+   ;; NOT part of `:rf.xray/setting` — the underlying atom
+   ;; (`config/keybinding-enabled?`) is a bare process-global
+   ;; `configure!` slot, not a persisted `:settings` key.
+   :rf.xray/keybinding-enabled?
    :rf.xray/show-me-when-this-changed-result
    :rf.xray/show-tool-frames?
    ;; rf2-r9lyy — opt-in surface for the :ungrouped pseudo-event-bundle bucket.
@@ -737,6 +742,11 @@
    :rf.xray/settings-select-tab
    :rf.xray/settings-toggle
    :rf.xray/settings-update
+   ;; rf2-8i1tg3 — Keybindings tab "Handle keys?" master toggle's
+   ;; reactive dual-write event (flips the `config/keybinding-enabled?`
+   ;; atom AND mirrors app-db so the checkbox's `:rf.xray/keybinding-
+   ;; enabled?` sub re-fires immediately, matching every other toggle).
+   :rf.xray/keybinding-enabled-update
    ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) + its
    ;; per-cascade structured export (rf2-0us27) events are removed with
    ;; the Machine panel's Share button (the modal's sole UI entry point).

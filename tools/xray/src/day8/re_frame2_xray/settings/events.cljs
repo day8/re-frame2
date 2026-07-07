@@ -12,6 +12,7 @@
       :rf.xray/settings-clear-buffer        (rf2-ttnst — Buffer tab)
       :rf.xray/settings-confirm-clear-buffer (rf2-ttnst — open confirm)
       :rf.xray/settings-cancel-clear-buffer  (rf2-ttnst — close confirm)
+      :rf.xray/keybinding-enabled-update on? (rf2-8i1tg3 — Keybindings tab)
 
   ## Open / close flag
 
@@ -198,5 +199,22 @@
     (fn [{:keys [db]} _event]
       (try (trace-collector/retroactive-scrub!) (catch :default _ nil))
       {:db (assoc db :settings-clear-confirm-open? false)}))
+
+  ;; rf2-8i1tg3 — Keybindings tab "Handle keys?" master toggle. Unlike
+  ;; every `:rf.xray/settings-update` slot, `:rf.xray/keybinding-
+  ;; enabled?` is a bare process-global `configure!` flag
+  ;; (`config/keybinding-enabled?`), not a persisted `:settings` slot —
+  ;; so it gets its own tiny dual-write event rather than routing
+  ;; through `settings-update` (which validates `[section key]` against
+  ;; `default-settings` and would reject an unknown path). Same shape
+  ;; as every other toggle: flip the canonical atom AND mirror app-db
+  ;; so the checkbox's `:rf.xray/keybinding-enabled?` sub re-fires
+  ;; immediately — without the mirror the controlled checkbox's
+  ;; `:checked` read a non-reactive atom directly and never re-rendered
+  ;; on change.
+  (rf/reg-event :rf.xray/keybinding-enabled-update
+    (fn [{:keys [db]} [_ on?]]
+      (config/set-keybinding-enabled! on?)
+      {:db (assoc db :keybinding-enabled? (boolean on?))}))
 
   nil)

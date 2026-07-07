@@ -37,7 +37,6 @@
   `rf/dispatch`, never a literal), so N isolated instances each route
   to their own frame."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.theme.modal-chrome :as modal-chrome]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
@@ -741,7 +740,13 @@
 ;; The 'Handle keys?' master toggle aliases the
 ;; `:rf.xray/keybinding-enabled?` config slot (rf2-4eyik) — flipping
 ;; it false disables the global listener until next page-load. The
-;; effect is global; the popup is just the surface.
+;; effect is global; the popup is just the surface. Like every other
+;; toggle in this popup it routes through the reactive dual-write
+;; pattern (rf2-8i1tg3): `:rf.xray/keybinding-enabled-update` flips
+;; the canonical `config.cljc` atom AND mirrors into app-db, and the
+;; checkbox reads the mirror via `:rf.xray/keybinding-enabled?` — a
+;; plain atom read would leave the controlled checkbox's `:checked`
+;; non-reactive (no re-render on change; the box can visually revert).
 
 (def ^:private keybinding-rows
   "Static catalogue. Group key carries a section label; rows are
@@ -779,16 +784,19 @@
    :font-size        (:body type-scale)
    :align-items      "center"})
 
-(defn- keybindings-section []
-  ;; The Handle-keys? master toggle reads the
-  ;; `:rf.xray/keybinding-enabled?` atom directly — it's process
-  ;; global, not under `:settings`. The dispatch flips the atom via
-  ;; the setter. NB: the underlying setter only suppresses ATTACH;
-  ;; a host that pre-attached the listener needs to also call
-  ;; `keybinding/detach!` for the change to land immediately.
-  (let [keys-on? (try
-                   (config/keybinding-attach-enabled?)
-                   (catch :default _ true))]
+(defn- keybindings-section [dispatch]
+  ;; The Handle-keys? master toggle is process global, not under
+  ;; `:settings` — `config/keybinding-enabled?` is a bare `configure!`
+  ;; slot, not a persisted settings key (see config.cljc §*keybinding-
+  ;; enabled?*). Per rf2-8i1tg3 it still routes through the same
+  ;; reactive dual-write shape every other toggle in this popup uses:
+  ;; the sub reads app-db's mirror (falling back to the atom pre-first-
+  ;; dispatch), the event flips the atom AND mirrors app-db so the
+  ;; controlled checkbox re-renders immediately. NB: the underlying
+  ;; setter only suppresses ATTACH; a host that pre-attached the
+  ;; listener needs to also call `keybinding/detach!` for the change
+  ;; to land immediately.
+  (let [keys-on? @(rf/subscribe [:rf.xray/keybinding-enabled?])]
     [:div {:data-testid "rf-xray-settings-section-keybindings"}
      [:h2 {:style (section-heading-style)} "Keybindings"]
 
@@ -803,7 +811,7 @@
                 :checked     (boolean keys-on?)
                 :on-change   (fn [^js e]
                                (let [on? (boolean (.. e -target -checked))]
-                                 (config/set-keybinding-enabled! on?)))}]
+                                 (dispatch [:rf.xray/keybinding-enabled-update on?])))}]
        "Handle keys?"]
       [:p {:style (hint-style)}
        "Master switch for Xray's global keydown listener. Off → "
@@ -1163,6 +1171,6 @@
        (case active-tab
          :general     (general-section dispatch)
          :diff        (diff-section dispatch)
-         :keybindings (keybindings-section)
+         :keybindings (keybindings-section dispatch)
          :buffer      (buffer-section dispatch)
          (general-section dispatch))])))

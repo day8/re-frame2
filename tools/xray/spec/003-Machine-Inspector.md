@@ -756,6 +756,35 @@ active leaf); a SIBLING state's same-event edge remains excluded (its
 lives once in `trace_state.cljs`, shared by both the fired-edge and the
 guard-blocked matchers.
 
+### `:always`-microstep fired-edge highlight (rf2-8i1tg3)
+
+`commit-or-finalize` (`lifecycle_fx/registration.cljc`) emits exactly ONE
+`:rf.machine/transition` per macrostep, whose `:after` is the FINAL settled
+state once every `:always` iteration the event triggered has ALSO run —
+not the state the dispatched event's OWN transition landed in. When
+`:microsteps > 0`, matching `(from, :after, event)` against the declared
+edges therefore looks for an edge that does not exist (the direct target,
+followed by N eventless hops, collapsed into one before/after pair):
+`single-transition-fired-ids` returned `#{}` and a `:microsteps > 0`
+transition lit no fired edge at all, even though the machine demonstrably
+moved through every hop.
+
+**Fix — direct target + per-microstep matching, not the settled `:after`.**
+`extract-fired-edge-ids` reads the trace's structured `:cascade` for its
+`:kind :microstep` entries (one per `:always` iteration, each carrying its
+own `:from` / `:to`). `direct-event-target` resolves the dispatched event's
+OWN target as the FIRST microstep's `:from` (the state before the
+`:always` loop took over) — falling back to the plain `to-path-from-trace`
+`:after` when there were no microsteps, so the fix is a no-op on the
+common `:microsteps 0` case. That direct target lights the dispatched
+event's own edge via the existing `single-transition-fired-ids` match.
+Additionally, each `:always` microstep's own hop is matched with `event*`
+`:always` (the eventless-edge marker `chart.layout/project-definition`
+mints for every `:always` candidate — rf2-oy49f1), so a multi-hop
+`:always` cascade highlights the FULL path the macrostep walked, not just
+its entry edge. Scoped to single-active (flat/compound) machines; parallel
+`:always` microsteps are a separate, not-yet-covered case.
+
 ### Parallel multi-region fired-edge highlight (rf2-8ncxrf)
 
 A `:type :parallel` machine's snapshot `:state` is a **region-map** —
@@ -1866,6 +1895,16 @@ this. Nobody does.**
 **v1 ships:** no rings (transition-history ribbon only). **Future:** the
 full countdown-ring system + retro-replay (Phase 2 per
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §6).
+
+> **Shipped (rf2-7hwwe, parent rf2-2tkza).** The countdown-ring system
+> above landed — `panels/machine-after-rings.cljs` + `panels/machine-
+> after-rings-helpers.cljc`. The retro-mode anchor (freeze at the
+> elapsed-fraction reached at the focused-cascade's timestamp) was
+> itself bugged until rf2-8i1tg3: the view fed the live wall clock into
+> the ring projection unconditionally, so leaving `:present` mode froze
+> the ring wherever the live clock last sat rather than at the focused
+> cascade. `machine-after-rings-helpers/resolve-now-ms` now branches on
+> `scrubber-position` to supply the correct anchor.
 
 ### M.3 — Cancellation cascade ambiguity
 

@@ -293,6 +293,55 @@
       (is (nil? (do (on-hover "idle") (on-leave "idle") nil))
           "known node-id hover + leave run cleanly"))))
 
+;; ---- (5b) retro now-ms anchor (rf2-8i1tg3 · xray/003 §M.2) -------------
+;;
+;; "Retro mode (scrubber-driven): the ring is static at the elapsed-
+;; fraction the timer had reached at the focused-cascade's timestamp."
+;; Before this fix the view fed the LIVE `now-ms` into the ring
+;; projection regardless of `machine-scrubber-position` — the scrubber
+;; only gated whether the rAF loop kept ticking, so leaving `:present`
+;; froze the ring wherever the live clock last sat instead of anchoring
+;; to the cascade the operator is looking at.
+
+(defn- dispatch-trace-ev
+  "Minimal :rf.event/dispatched trace event so the L2 projector builds
+  ONE focusable event-bundle carrying a real `:dispatched :time` —
+  mirrors the equivalent helper in `shell_cljs_test`."
+  [id event-vec time-ms]
+  {:id        id
+   :time      time-ms
+   :op-type   :rf.event
+   :operation :rf.event/dispatched
+   :tags      {:rf.event/v          event-vec
+               :frame               :rf/default
+               :rf.trace/dispatch-id id}})
+
+(deftest overlay-retro-mode-anchors-tick-to-focused-cascade-timestamp
+  (testing "rf2-8i1tg3 — scrubber-position leaving :present anchors the
+            ring's :tick to the FOCUSED CASCADE's dispatched time, not
+            the stale live clock"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (pin-now-ms! 9999)
+      (push-scheduled! 1000 :auth/login :idle 5000 0)
+      ;; Focus defaults to the head event-bundle when nothing has
+      ;; explicitly focused yet — seeding ONE dispatched event gives
+      ;; the composite a known, non-live anchor timestamp.
+      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:some/event] 4242))
+      (rf/dispatch-sync [:rf.xray/set-scrubber-position 3])
+      (let [props (-> (after-rings/AfterRingsOverlay) delegated-props)]
+        (is (= 4242 (:tick props))
+            "RETRO tick anchors to the focused cascade's dispatched
+             time (4242) — NOT the pinned live now-ms (9999), which is
+             the exact rf2-8i1tg3 regression"))
+      (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
+      (let [props (-> (after-rings/AfterRingsOverlay) delegated-props)]
+        (is (= 9999 (:tick props))
+            "returning to :present restores the live clock as the tick
+             anchor")))))
+
 ;; ---- (6) frame isolation ----------------------------------------------
 
 (deftest now-ms-lives-on-xray-frame

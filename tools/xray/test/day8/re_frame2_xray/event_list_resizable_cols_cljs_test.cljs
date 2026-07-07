@@ -199,40 +199,59 @@
   (is (false? (shell/col-divider-dragging?))
       "simulate-up! tore down the capture"))
 
-(deftest drag-right-widens-source-col
+;; rf2-8i1tg3 — the drag delta is INVERTED relative to the naive
+;; "drag right widens" intuition. `event id` (flex 1 1 auto) is the
+;; row's sole elastic column, far to the LEFT of every divider; it
+;; silently absorbs whatever a resizable column gives up or takes. If
+;; dragging right GREW `col-id` (the pre-fix behaviour — see the two
+;; tests this replaced), `event id` would shrink by the same amount,
+;; and the divider itself — sitting at `event id`'s trailing edge,
+;; transitively — would move LEFT while the pointer moved RIGHT: a
+;; 2×dx-per-frame divergence, the exact "handle recedes from the
+;; cursor" bug. Shrinking `col-id` on a rightward drag makes the
+;; divider's rendered position track the pointer 1:1 (and matches
+;; standard split-pane semantics: dragging the boundary TOWARD a
+;; column shrinks it).
+
+(deftest drag-right-narrows-col-and-tracks-cursor
   (setup!)
   (let [dispatches (atom [])]
     (with-redefs [rf/dispatch* (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-start-drag! (stub-event 1000) :source 52)
-      ;; Divider sits to the RIGHT of `event id` and sizes `source`.
-      ;; Dragging RIGHT (pageX 1080 > 1000) widens by +80 → 132.
+      ;; Divider sits to the LEFT of `source`. Dragging RIGHT
+      ;; (pageX 1080 > 1000, dx +80) NARROWS source by 80 → -28,
+      ;; which clamps to the 40px floor at write-time (`set-event-
+      ;; list-col-width` applies the clamp; this test only asserts
+      ;; the DISPATCHED delta, not the clamped persisted value —
+      ;; see `set-event-list-col-width-clamps-to-floor` below).
       (shell/col-divider-simulate-move! 1080)
       (shell/col-divider-simulate-up!))
     (let [width-events (filter #(= :rf.xray/set-event-list-col-width (first %))
                                @dispatches)]
       (is (seq width-events)
           "set-event-list-col-width was dispatched at least once")
-      (is (some #(= [:rf.xray/set-event-list-col-width :source 132] %)
+      (is (some #(= [:rf.xray/set-event-list-col-width :source -28] %)
                 width-events)
-          "drag right by 80px dispatched 132 (start 52 + 80 delta)"))))
+          "drag right by 80px dispatched 52 - 80 = -28 (pre-clamp delta) — the divider's OWN position tracks the pointer because `event id` absorbs the +80 this column gives up"))))
 
-(deftest drag-left-narrows-col
+(deftest drag-left-widens-col-and-tracks-cursor
   (setup!)
   (let [dispatches (atom [])]
     (with-redefs [rf/dispatch* (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-start-drag! (stub-event 1000) :timestamp 200)
-      ;; Drag LEFT by 50px (pageX 950 < 1000) → dx = -50, new = 150.
+      ;; Drag LEFT by 50px (pageX 950 < 1000, dx -50) WIDENS timestamp:
+      ;; 200 - (-50) = 250.
       (shell/col-divider-simulate-move! 950)
       (shell/col-divider-simulate-up!))
     (let [width-events (filter #(= :rf.xray/set-event-list-col-width (first %))
                                @dispatches)]
-      (is (some #(= [:rf.xray/set-event-list-col-width :timestamp 150] %)
+      (is (some #(= [:rf.xray/set-event-list-col-width :timestamp 250] %)
                 width-events)
-          "drag left narrows: 200 - 50 = 150"))))
+          "drag left widens: 200 - (-50) = 250"))))
 
 (deftest drag-cancel-tears-down-state
   (setup!)
