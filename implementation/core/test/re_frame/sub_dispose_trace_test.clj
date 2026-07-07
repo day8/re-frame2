@@ -278,6 +278,46 @@
         (finally
           (rf/unregister-listener! :trace ::cache-clear))))))
 
+(deftest clear-sub-cache-emits-exactly-one-dispose-per-slot-for-layered-sub
+  (testing "clear-sub-cache! on a layered (:<- two inputs) sub: every cached
+            slot (the sum + both inputs) gets EXACTLY ONE :rf.sub/dispose,
+            reasoned :cache-clear — no double-emit from the on-dispose
+            ref-count cascade racing the cache-clear walk (rf2-awhtpc)"
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
+    (rf/reg-sub :sub/ca (fn [db _] (:a db)))
+    (rf/reg-sub :sub/cb (fn [db _] (:b db)))
+    (rf/reg-sub :sub/csum
+      :<- [:sub/ca]
+      :<- [:sub/cb]
+      (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+    (let [acc (collect-traces! ::cache-clear-layered)]
+      (try
+        (let [r     (rf/subscribe [:sub/csum])
+              cache (:sub-cache (frame/frame :rf/default))]
+          (is (= 5 @r))
+          (is (= 3 (count @cache))
+              "precondition: sum + both inputs are cached before clear"))
+        (subs-cache/clear-sub-cache!)
+        (let [disposes (dispose-events @acc)
+              by-query (group-by #(-> % :tags :rf.sub/query-v) disposes)]
+          (is (= 3 (count disposes))
+              "exactly THREE :rf.sub/dispose emits — sum + both inputs, no
+               cascade double-emit")
+          (is (= #{[:sub/csum] [:sub/ca] [:sub/cb]} (set (keys by-query)))
+              "every cached query-vector (sum + both inputs) surfaced exactly
+               once")
+          (doseq [[q q-evs] by-query]
+            (is (= 1 (count q-evs))
+                (str q " must fire exactly one :rf.sub/dispose, not a "
+                     "duplicate from the ref-count cascade")))
+          (is (every? #(= :cache-clear (-> % :tags :rf.sub/reason)) disposes)
+              "every emit is reasoned :cache-clear — the cascade found the
+               already-cleared cache and never re-emitted :no-more-derefers
+               for an input"))
+        (finally
+          (rf/unregister-listener! :trace ::cache-clear-layered))))))
+
 ;; ---- emit-shape pin ------------------------------------------------------
 ;;
 ;; The exact tag-map shape downstream consumers (Xray Epoch panel

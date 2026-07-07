@@ -309,6 +309,72 @@
           (rf/unregister-listener! :trace ::dispose-emit))))))
 
 ;; ---------------------------------------------------------------------------
+;; 3b-2. Frame-destroy on a layered (:<- ) sub emits exactly one
+;; :rf.sub/dispose PER cached slot — no cascade re-emit (rf2-awhtpc)
+;;
+;; dispose-all-for-frame-destroy! used to walk the cache and call
+;; interop/dispose! per slot WITHOUT first evicting the whole cache atom.
+;; A layer-2+ sub's on-dispose callback releases its `:<-` input refs via
+;; unsubscribe! — if an input's slot was still present in the
+;; not-yet-cleared cache, dropping its ref-count to 0 fired a SECOND
+;; :rf.sub/dispose (reason :no-more-derefers) for that input, racing the
+;; walk's own :frame-destroy emit for the same slot; which one landed
+;; first (and thus which reason "won") depended on hash-map iteration
+;; order over the cache. The fix pre-clears the whole cache atom before
+;; any dispose! call, so the cascade always finds nothing left to evict.
+;; ---------------------------------------------------------------------------
+
+(deftest destroy-emits-exactly-one-dispose-per-slot-for-layered-sub
+  (testing "a layer-2 sub (:<- two inputs) held live at frame-destroy: every
+            cached slot (the sum + its two inputs) gets EXACTLY ONE
+            :rf.sub/dispose, reasoned :frame-destroy — no double-emit from
+            the on-dispose ref-count cascade racing the frame-destroy walk
+            (rf2-awhtpc)"
+    (rf/reg-frame :composed/layered-destroy {:doc "layered destroy"})
+    (rf/reg-event :composed/seed-layered (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
+    (rf/reg-sub :composed/layered-a (fn [db _] (:a db)))
+    (rf/reg-sub :composed/layered-b (fn [db _] (:b db)))
+    (rf/reg-sub :composed/layered-sum
+      :<- [:composed/layered-a]
+      :<- [:composed/layered-b]
+      (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:composed/seed-layered] {:frame :composed/layered-destroy})
+
+    (let [disposes (atom [])]
+      (rf/register-listener! :trace ::layered-destroy
+                             (fn [ev]
+                               (when (= :rf.sub/dispose (:operation ev))
+                                 (swap! disposes conj ev))))
+      (try
+        (let [r     (rf/subscribe :composed/layered-destroy [:composed/layered-sum])
+              cache (:sub-cache (frame/frame :composed/layered-destroy))]
+          (is (= 5 @r))
+          (is (= 3 (count @cache))
+              "precondition: sum + both inputs are cached before destroy"))
+
+        (is (nil? (frame/destroy-frame! :composed/layered-destroy)))
+
+        (let [evs      @disposes
+              by-query (group-by #(-> % :tags :rf.sub/query-v) evs)]
+          (is (= 3 (count evs))
+              "exactly THREE :rf.sub/dispose emits — one per cached slot, no
+               double-emit from the input-release cascade")
+          (is (= #{[:composed/layered-sum] [:composed/layered-a] [:composed/layered-b]}
+                 (set (keys by-query)))
+              "every cached query-vector (sum + both inputs) surfaced exactly
+               once")
+          (doseq [[q q-evs] by-query]
+            (is (= 1 (count q-evs))
+                (str q " must fire exactly one :rf.sub/dispose, not a "
+                     "duplicate from the ref-count cascade")))
+          (is (every? #(= :frame-destroy (-> % :tags :rf.sub/reason)) evs)
+              "every emit is reasoned :frame-destroy — the cascade found the
+               already-cleared cache and never re-emitted :no-more-derefers
+               for an input"))
+        (finally
+          (rf/unregister-listener! :trace ::layered-destroy))))))
+
+;; ---------------------------------------------------------------------------
 ;; 3c. Throwing cleanup hook emits a diagnostic, not silence (rf2-x3m8c f3)
 ;;
 ;; safe-call-hook! keeps best-effort teardown (the throw is swallowed and
