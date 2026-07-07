@@ -39,6 +39,8 @@ re-frame2-pair is a clean port: same vocabulary (read / write / trace / watch / 
 - [re-frame2 Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) — the canonical surface contract this skill consumes.
 - [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — the skills-corpus pointer at the Tool-Pair surface enumeration (and the "supersedes re-frame-10x" claim) that sibling skills cite when routing an upstream finding. This README carries the fullest surface list; the shared leaf points back here for it.
 
+> **Distribution caveat — link from a clone; bring `skills/shared/` along.** The skill references sibling `../shared/` leaves in normal operation, and a `package.json` `files` allow-list cannot reach a parent directory — `npm pack` (and any plugin bundle) does **not** ship `skills/shared/`. The supported install is a link from a full re-frame2 monorepo clone (link, never copy); a tarball / plugin / vendored install must copy `skills/shared/` alongside the skill or the shared references break.
+
 ## Which technical stack?
 
 Designed for web apps built from the following stack:
