@@ -12,41 +12,45 @@
   registration, route resources, event-side ensure, subscriptions,
   invalidation descriptors, populate/patch/remove targets, and `clear-scope`.
 
-  ## The `{:inputs … :resolve …}` grammar (the ONE canonical form)
+  ## The `{:inputs …}` metadata + resolver-fn grammar (the ONE canonical form)
 
       (rf/reg-resource-scope :realworld/session
-        {:inputs  {:username [:db [:auth :user :username]]}
-         :resolve (fn [{:keys [username]} _ctx]
-                    (when username [:rf.scope/session {:username username}]))})
+        {:inputs {:username [:db [:auth :user :username]]}}
+        (fn [{:keys [username]} _ctx]
+          (when username [:rf.scope/session {:username username}])))
 
-  - `:inputs` — a map `{name source-descriptor}`. The ONLY shipped source
-    descriptor is `[:db <rf-path>]`, where `<rf-path>` is an EP-0012
+  The 3-slot shape is `(scope-id metadata resolve-fn)`: the resolver is the
+  THIRD (value) slot, not a `:resolve` key inside the metadata map.
+
+  - `:inputs` (metadata) — a map `{name source-descriptor}`. The ONLY shipped
+    source descriptor is `[:db <rf-path>]`, where `<rf-path>` is an EP-0012
     concrete `:rf/path` (the path algebra in `re-frame.path`). `[:runtime
     <path>]` is RESERVED, not shipped — declaring one is a loud
     registration error (route-derived scope un-defers only when an in-repo
     consumer carries a principal in a path segment and needs named-resolver
     scope at a non-route site, per Spec 016 §Route-derived scope is
     reserved).
-  - `:resolve` — `(fn [inputs ctx] -> scope | nil)`. PURE. **The first arg is
-    ALWAYS the resolved input map** — this is the one stable, Name-over-place
-    meaning across every registration (rf2-wvh95f F3). It derives a scope from
-    that map; it MUST NOT fetch, dispatch, mutate state, read ambient host
-    state, or perform transport work. The `ctx` arg is RESERVED and is invoked
-    as literal `nil` in this slice — a resolver MUST derive scope from its
-    declared `:inputs`, not from `ctx`. A `nil` result is FAIL-CLOSED at every
-    scope-requiring site (never an implicit global read).
+  - The resolver (the third, value slot) — `(fn [inputs ctx] -> scope | nil)`.
+    PURE. **The first arg is ALWAYS the resolved input map** — this is the one
+    stable, Name-over-place meaning across every registration (rf2-wvh95f F3).
+    It derives a scope from that map; it MUST NOT fetch, dispatch, mutate
+    state, read ambient host state, or perform transport work. The `ctx` arg
+    is RESERVED and is invoked as literal `nil` in this slice — a resolver
+    MUST derive scope from its declared `:inputs`, not from `ctx`. A `nil`
+    result is FAIL-CLOSED at every scope-requiring site (never an implicit
+    global read).
 
   ### Reading the whole db — name it as an input (no first-arg meaning-shift)
 
   When a resolver genuinely needs the whole db, declare it as an explicit
-  named input and read it off the inputs map — the `:resolve` first arg STAYS
+  named input and read it off the inputs map — the resolver's first arg STAYS
   the inputs map:
 
       (rf/reg-resource-scope :realworld/session
-        {:inputs  {:db [:db []]}
-         :resolve (fn [{:keys [db]} _ctx]
-                    (when-let [u (get-in db [:auth :user :username])]
-                      [:rf.scope/session {:username u}]))})
+        {:inputs {:db [:db []]}}
+        (fn [{:keys [db]} _ctx]
+          (when-let [u (get-in db [:auth :user :username])]
+            [:rf.scope/session {:username u}])))
 
   ## Whole-db function sugar — the ONE documented explicit alternative
 
@@ -57,7 +61,7 @@
   This bare-fn form is the SINGLE explicit alternative to the canonical
   inputs-map grammar (rf2-wvh95f F3). It is NOT a peer and it carries a
   DELIBERATE, documented first-arg meaning-shift: in this form ALONE the
-  `:resolve` first arg is the **whole db**, not the inputs map. Prefer the
+  resolver's first arg is the **whole db**, not the inputs map. Prefer the
   canonical inputs-map grammar (above) — including for the whole-db case via
   the explicit `{:inputs {:db [:db []]} …}` declaration — so a resolver author
   reads ONE stable first-arg meaning everywhere; reach for the bare-fn sugar
@@ -125,7 +129,8 @@
   rejected fail-closed at registration until an in-repo consumer carrying a
   principal in a path segment needs named-resolver scope at a non-route site
   (sub / event ensure / invalidation / `clear-scope`). Per Spec 016 §The
-  `{:inputs … :resolve …}` grammar / §Route-derived scope is reserved."
+  `{:inputs …}` metadata + resolver-fn grammar / §Route-derived scope is
+  reserved."
   #{:db})
 
 (def reserved-input-sources
@@ -243,8 +248,9 @@
 (defn- canonical-spec
   "Normalize the 3-slot `(reg-resource-scope scope-id metadata resolve-fn)`
   registration into the canonical STORED spec map. Per Spec 016 §The
-  `{:inputs … :resolve …}` grammar + §Whole-db function sugar (rf2-wvh95f F3,
-  brought into the canonical 3-slot registration grammar by rf2-bqstzr).
+  `{:inputs …}` metadata + resolver-fn grammar + §Whole-db function sugar
+  (rf2-wvh95f F3, brought into the canonical 3-slot registration grammar by
+  rf2-bqstzr).
 
   The `:resolve` fn is the THIRD slot (the resolver HANDLER); the middle
   `metadata` slot carries the reflection-config keys (`:inputs`, `:doc`). This
