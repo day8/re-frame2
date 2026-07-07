@@ -16,7 +16,7 @@ Anywhere a migration prompt or post-migration audit mentions "error category", "
 
 ## Namespace prefixes (the closed set)
 
-The catalogue uses **six stable prefixes** (per [Spec 009 §Error namespace convention](../../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes) — the spec's heading and prose say "five", but its table enumerates the six below):
+The catalogue uses **six stable prefixes** (per [Spec 009 §Error namespace convention](../../../spec/009-Instrumentation.md#error-namespace-convention--six-prefix-shapes)):
 
 | Prefix | Meaning |
 |---|---|

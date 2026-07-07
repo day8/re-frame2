@@ -345,7 +345,7 @@ the nested-sub-row renderer in the Views tab.
 
 ## Issues ribbon
 
-Spec: [`000-Vision.md` L94](./000-Vision.md), [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-namespace-convention--five-prefix-shapes).
+Spec: [`000-Vision.md` L94](./000-Vision.md), [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-namespace-convention--six-prefix-shapes).
 
 Unified feed across errors, warnings, schema violations, hydration
 mismatches. Filter axes: `:severities`, `:prefixes`, `:since-ms`. Each
