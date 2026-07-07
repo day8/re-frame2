@@ -176,33 +176,16 @@ User-supplied keys win on conflict with preset expansion.
 - **Wrapping a plain Reagent fn in a `frame-provider` doesn't bind the frame** (§The merged `frame-provider` in views) — use `reg-view`, or capture a `capture-frame`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
-## Images, frames, and the event stream (EP-0023 — the multi-frame public model)
+## Images — the registration-set half (EP-0023)
 
-The mental model: **`image -> frame -> event stream`**, like a VM. An **image** is the *selected registration set* a frame runs (instruction set); a **frame** is the *isolated execution context* (its memory + the one image generation it resolves against); the **event stream** is the ordered events a frame processes over its life (the program). Events are instructions, the six-domino cascade is the ISA, your `reg-*` forms supply the instruction meanings, the image is the loaded instruction set, the frame is the VM executing the stream.
-
-The everyday rule that falls out:
+The multi-frame public model is **`image -> frame -> event stream`**: an **image** is the selected registration set a frame runs, the frame is the isolated execution context, the event stream is the program. The everyday rule:
 
 ```text
 same behaviour, different memory  -> same image, different frames
 different behaviour               -> different images
 ```
 
-You almost certainly do not need to name an image. The two facts an author should hold:
-
-- **The ordinary `reg-*` path is unchanged — the default image is implicit.** `reg-*` writes to the process-wide registration source; a frame created with no explicit `:images` resolves against the *default image* projected over that source. A single-frame app never spells `image` or `make-frame` `:images`; the zero-ceremony path stays zero-ceremony. The image concept becomes visible only when the default process-wide registration set stops being the right boundary.
-- **Registration ids are scoped to an image; frame ids are process-local.** Two images may both contain `:counter/inc`; two live frames may **not** both register as `:counter/main`. That split is the heart of the multi-frame story: a docs page can reuse teaching-friendly registration ids across examples, while each mounted example still needs a distinct frame id. (An anonymous `make-frame` value — created with no `:id` — is born and dies in a test/harness scope without claiming a name in the frame registry.)
-
-**When you reach for explicit images:** two unrelated surfaces on one page (a todo surface beside a counter, each with its own local ids), a tool surface beside the thing it inspects (so their ids never collide), progressive doc examples that reuse one teaching vocabulary, library packaging, and isolated test/story frames. Each case is "different instruction set, isolated memory" — so each gets its own image, and each live instance gets its own frame.
-
-> **The landed public surface.** `rf/image` is exported on `re-frame.core` today: `(rf/image {:select-ns {:include [<ns-glob> …]}})` returns an **inert image value** — pure data, no registrar, no side effect. `:select-ns :include` selects already-loaded registrations by their *source* namespace (`:rf.provenance/ns`), not by the registration-id namespace; the glob grammar is `*` (one segment) / `**` (zero or more), case-sensitive, whole-namespace match, and a pattern that matches **zero** descriptors fails image assembly loud; the optional `:exclude` leg subtracts. Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …) round out the spec map — `:id` / `:select-ns` / `:registrations` are the only three public keys (EP-0026). Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs; composition resolves by **image order** (the later image wins; read what it shadowed via `rf/frame-shadows`), and reload swaps that generation while preserving frame memory. There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud.
->
-> **Constructing image-loaded frames.** `make-frame` takes `:images` (a vector of `rf/image` values) alongside its record-config opts (§Canonical signatures); `reload-images!` swaps a live frame's image generation in place, preserving memory. Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (§The merged `frame-provider` in views).
-
-### Frame isolation is the whole isolation story
-
-You target a **frame** — a process-local frame id in mounted code, or a direct frame value from `make-frame` in tests/harnesses (EP-0024). The frame determines the image generation used for registration resolution; image assembly plus frame isolation are everything. There is **no public realm / app / module composition vocabulary**: a single-product SPA targets its one frame; a multi-frame app reaches for explicit `rf/image` values, not a container address. There is no `rf/migration-map` / `rf/migration-explain` data surface — those names do not exist.
-
-Frame ids are **process-local and unique** — two live frames may not both claim `:counter/main` (registration ids, by contrast, are image-scoped and may repeat across images — see above). A frame id already live elsewhere surfaces as a loud error rather than a silent collision; the fix is distinct frame ids, or a direct frame value kept in local scope.
+A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped (may repeat across images); frame ids are process-local and unique. When the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames), reach for explicit `rf/image` values — the `rf/image` grammar, image-order composition (`rf/frame-shadows`), `reload-images!`, and the frame-isolation-is-everything rule live in [`images.md`](images.md).
 
 ## Deeper material
 

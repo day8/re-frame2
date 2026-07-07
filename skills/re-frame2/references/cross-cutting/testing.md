@@ -63,7 +63,7 @@ A suite with `(async done …)` tests cannot use the fn-form fixture: `cljs.test
 
 ### Behaviour isolation in tests — image, not a global install
 
-A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeffect supplier, a narrower route table) wants a different **image**, not a process-global registrar mutation. Those are image changes — they produce another image generation rather than mutating shared state under the running frame. The shape (the one EP-0024 `make-frame` constructor over `:images` — returns the live frame value; see `fundamentals/frames.md`):
+A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeffect supplier, a narrower route table) wants a different **image**, not a process-global registrar mutation. Those are image changes — they produce another image generation rather than mutating shared state under the running frame. The shape (the one EP-0024 `make-frame` constructor over `:images` — returns the live frame value; see [`fundamentals/images.md`](../fundamentals/images.md)):
 
 ```clojure
 (deftest cart-add-isolated
@@ -72,12 +72,12 @@ A test that needs a *different instruction set* (a fake HTTP fx, a swapped coeff
                                                                "shop.test-doubles.**"]}})]
                  :initial-events [[:rf/set-db {:cart/items []}]]})]
     (rf/dispatch-sync [:cart/add "SKU-1"] {:frame frame})
-    (is (= ["SKU-1"] @(rf/subscribe frame [:cart/items])))))
+    (is (= ["SKU-1"] @(rf/subscribe [:cart/items] {:frame frame})))))
 ```
 
 - **The frame is a local frame value** (no `:id`) — born in the test, discarded with it, never claiming a public frame id. `make-frame` returns the frame value (the lifecycle token); a test passes it (or its id, via `rf/frame-value->id`) to `dispatch-sync` / `subscribe`. That is the direct-frame-value test pattern (EP-0024).
 - **Override behaviour through a later image**, not a global install: compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones — image order decides, the later image wins), then read `rf/frame-shadows` to assert exactly what it overrode. A swap is data the test states rather than last-writer-wins on a shared table. There is no `:replace` / `:replace-standard` declared-winner key — image order is the only mechanism.
-- For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (the public composition model is `image → frame → event stream`; see [`fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story)).
+- For an ordinary single-frame test, keep it on `make-reset-runtime-fixture` + `with-new-frame`. A frame created with no `:images` resolves against the shared registrar; pass `:images [...]` to isolate behaviour. **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame** — there is no realm / app / module install surface (see [`fundamentals/images.md` §Frame isolation is the whole isolation story](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story)).
 
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 

@@ -92,7 +92,7 @@ skills/re-frame2/
 ├── package.json                 (npm metadata)
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
-│   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, event-state-cycle, project-structure)
+│   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, images, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
 │   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)

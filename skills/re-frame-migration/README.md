@@ -62,7 +62,8 @@ skills/re-frame-migration/
 │   ├── inventory-and-plan.md      # Phase 0a: inventory add-ons + features, scan source, per-item plan
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
 │   ├── xray-replaces-10x.md       # Devtools swap: re-frame-10x → Xray (preload, host, keybindings, parity)
-│   ├── breaking-changes.md        # Rule index keyed to v1 trigger surfaces
+│   ├── breaking-changes.md        # v1→v2 rule index keyed to v1 trigger surfaces
+│   ├── pre-rename-upgrades.md     # v2-pre-rename-only rule index (never loaded on a v1→v2 migration)
 │   ├── async-flow-to-machines.md  # O-16: async-flow-fx async sequences → reg-machine state machines
 │   ├── http-fx-to-managed-http.md # O-17: http-fx / :http-xhrio → :rf.http/managed
 │   ├── sequencing.md              # Recommended rule order
