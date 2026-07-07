@@ -745,7 +745,7 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
      (fn [db _] (:ws/messages db)))
    ```
 
-3. **Body manages reaction lifecycle** (explicit `r/track!` / `r/dispose!`, `:on-mount` / `:on-dispose` hooks). Convert to a state machine (per [005-StateMachines.md](../../spec/005-StateMachines.md)). Machine states have entry / exit / data; `reg-sub-raw` lifecycle becomes machine state lifecycle. The machine snapshot lives in the **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (not in app-db) and is read via `sub-machine`.
+3. **Body manages reaction lifecycle** (explicit `r/track!` / `r/dispose!`, `:on-mount` / `:on-dispose` hooks). Convert to a state machine (per [005-StateMachines.md](../../spec/005-StateMachines.md)). Machine states have entry / exit / data; `reg-sub-raw` lifecycle becomes machine state lifecycle. The machine snapshot lives in the **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (not in app-db) and is read via the `[:rf/machine <id>]` subscription vector.
 
 4. **Body performs side effects** (writes to `app-db`, fires `dispatch`, mutates external state). This was always an anti-pattern. Move the side effect into an event handler and have the sub read the resulting `app-db` state. Flag as a code-quality finding alongside the rewrite.
 
@@ -1342,11 +1342,11 @@ CLJS apps additionally require `re-frame.schemas.malli` somewhere in their boot 
 
 **Type A** (mechanical, dep-only).
 
-As the second per-feature artefact split (Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `sub-machine`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
+As the second per-feature artefact split (Strategy B), Spec 005's state-machine surface — `reg-machine`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, the framework-shipped `:rf/machine` reg-sub, the `:rf.machine/spawn` and `:rf.machine/destroy` actor-lifecycle fxs, the in-snapshot `:rf/spawn-counter` allocator (per-machine-id, lives inside each machine's snapshot for pure-functional allocation), and the `re-frame.machines` namespace — ships as a separate Maven artefact `day8/re-frame2-machines`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the machine-transition engine, or the `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` trace strings; an app that doesn't register any machines builds an `:advanced` bundle clean of every machine-related symbol.
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, `re-frame.core/machine-meta`, or `re-frame.core/sub-machine`.
+- Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, or `re-frame.core/machine-meta`.
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (e.g. `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
@@ -1361,7 +1361,7 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 
 Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/machine-transition` (or relies on the `:rf/machine` framework sub registration) MUST `(:require [re-frame.machines])` so the namespace's load-time hook registrations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment the call resolves and the wrapper raises `:rf.error/machines-artefact-missing` with a clear "add the machines artefact" message.
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/make-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)`, `(rf/sub-machine ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
+**Public API** (in `re-frame.core`) is unchanged — `(rf/reg-machine ...)`, `(rf/make-machine-handler ...)`, `(rf/machine-transition ...)`, `(rf/machines)`, `(rf/machine-meta ...)` still work, the wrappers in core late-bind through the hook table to the machines artefact's implementations. The read-only queries (`machines`, `machine-meta`) return safe defaults when the machines artefact is absent (`[]` / `nil` respectively); the active surfaces throw `:rf.error/machines-artefact-missing`.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split.
 
@@ -1601,7 +1601,7 @@ The runtime now tracks each declarative-`:spawn` spawn-id at the reserved runtim
 
 - Machine specs that declared `:spawn` WITHOUT an `:on-spawn` callback — these were silently leaking the spawned actor on state-exit (the runtime had no id to destroy). Pre-alpha these were broken by definition; the runtime-owned spawn-id tracking makes them correct without user-side rewrite.
 - Machine specs that hand-coded an `:exit` action equivalent to the auto-destroy desugar (e.g. `:exit (fn [{:keys [data]}] {:fx [[:rf.machine/destroy (:pending data)]]})`) — these continue to work unchanged (the keyword form of the destroy fx is preserved).
-- User-supplied `:exit` action bodies that peek at the child's last snapshot before the auto-destroy fires — read it from the **runtime-db** partition at `[:rf.runtime/machines :snapshots (:pending data)]` (via `sub-machine` / the `:rf.db/runtime` cofx, not an app-db `(get-in db …)` read — snapshots no longer live in app-db). The composition rule ([§Composition with explicit `:entry` / `:exit`](../../spec/005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
+- User-supplied `:exit` action bodies that peek at the child's last snapshot before the auto-destroy fires — read it from the **runtime-db** partition at `[:rf.runtime/machines :snapshots (:pending data)]` (via the `[:rf/machine <id>]` subscription vector / the `:rf.db/runtime` cofx, not an app-db `(get-in db …)` read — snapshots no longer live in app-db). The composition rule ([§Composition with explicit `:entry` / `:exit`](../../spec/005-StateMachines.md#composition-with-explicit-entry--exit)) is unchanged: the user's `:exit` action runs BEFORE the auto-destroy, so the snapshot is still readable through the parent's recorded id.
 
 **What to do.** Type B because the rewrite depends on intent: a `:spawn` without `:on-spawn` was silently broken pre-fix (the actor leaked); it now works correctly under the runtime-owned spawn-id registry. The agent flags hit sites for human review rather than silently rewriting, since the v1 prose contract on `:on-spawn` was "required for from-action spawns" — code that depended on the leak being silent (e.g. tests asserting `[:rf.runtime/machines :snapshots]` has a stale entry after exit) needs explicit triage.
 
@@ -1939,7 +1939,7 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 
 ### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
 
-Pre-release framing: state-machine state nodes may now declare `:tags <set-of-keywords>` (Nine States Stage 1). The runtime maintains a derived union at `[:rf.runtime/machines :snapshots <id> :tags]` (in runtime-db) recomputed on every transition; the framework sub `:rf/machine-has-tag?` plus the `(rf/machine-has-tag? id tag)` sugar answer the predicate question.
+Pre-release framing: state-machine state nodes may now declare `:tags <set-of-keywords>` (Nine States Stage 1). The runtime maintains a derived union at `[:rf.runtime/machines :snapshots <id> :tags]` (in runtime-db) recomputed on every transition; the framework sub `:rf/machine-has-tag?` (`[:rf/machine-has-tag? id tag]`) answers the predicate question.
 
 **Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's new `:tags` key is `{:optional true}`; machines that don't declare `:tags` produce snapshots without the slot, byte-identical to pre-tag snapshots. Existing views, subs, and traces don't care.
 
@@ -1969,13 +1969,13 @@ Pre-release framing: state-machine declarations may now declare `:type :parallel
 
 Pre-release framing: the snapshot's `:state` slot has a new third arm (Nine States Stage 2) — `[:map-of :keyword [:or :keyword [:vector :keyword]]]` — used by parallel-region machines (`:type :parallel` per [M-48](#m-48-parallel-regions-shipped--type-parallel-machines-with-map-shaped-state-additive)). Flat and compound machines continue to produce keyword / vector `:state` values; the third arm only appears when the machine is parallel.
 
-**Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `(rf/sub-machine id)` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
+**Direction.** Additive at the framework layer. User code that **never** pattern-matches on a machine's `:state` shape pays nothing — `@(rf/subscribe [:rf/machine id])` returns the full snapshot value and consumers compose on it as data. User code that DOES pattern-match — usually views that destructure `:state` into a state-keyword expecting a flat machine — must widen the match iff the machine in question is or becomes a parallel-region machine. The framework's own readers (`:rf/machine`, `(machines)`, `(machine-meta id)`, trace consumers, Tool-Pair, SSR hydration) treat snapshots as opaque values and require no change.
 
 **What to do — three cases:**
 
 - **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
 - **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf/machine-has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
-- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/sub-machine :ui/foo)))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/sub-machine :ui/foo) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/machine-has-tag? :ui/foo :data/loading)`).
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/subscribe [:rf/machine :ui/foo])))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/subscribe [:rf/machine :ui/foo]) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/subscribe [:rf/machine-has-tag? :ui/foo :data/loading])`).
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 
