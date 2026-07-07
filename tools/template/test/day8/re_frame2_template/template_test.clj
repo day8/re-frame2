@@ -1173,7 +1173,12 @@
             (is (.contains core-text "server-init-events")
                 "core.cljc exposes server-init-events for the Ring host")
             (is (.contains core-text "register-schema!")
-                "core.cljc exposes register-schema! for per-frame schema attach"))
+                "core.cljc exposes register-schema! for per-frame schema attach")
+            (is (.contains core-text ":ssr/register-schema")
+                "core.cljc's server-init-events attaches the whole-app-db schema
+                 via an ambient :initial-events step, so it lands on the SAME
+                 per-request frame ssr-handler constructs, not a
+                 different/default one (rf2-hbobni)"))
 
           ;; -- server.clj carries the Ring host wiring --
           (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
