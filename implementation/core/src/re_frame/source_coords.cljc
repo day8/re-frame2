@@ -714,14 +714,21 @@
   co-located coord — an inline-fn / keyword value at the same slot is
   skipped (there is no map to hang `:source-coords` on; a tool reads the
   enclosing map's coord). Inlines to the equivalent
-  `(when (and (map? form) ...) (assoc! acc path c))` so the imperative-
-  mutation shape `walk-states-tree` relies on for macro-expansion-time
-  performance is preserved.
+  `(when (and (map? form) ...) (vswap! acc assoc! path c))` so the
+  imperative-mutation shape `walk-states-tree` relies on for
+  macro-expansion-time performance is preserved.
 
-  Lexical-capture contract: callers must have `acc` (a transient map),
-  `ns-sym` (a symbol), and `file` (a string or nil) in scope. The macro
-  is private to this namespace and used only inside `walk-states-tree`
-  and `walk-machine-spec`, both of which bind those three locals.
+  Lexical-capture contract: callers must have `acc` (a VOLATILE holding a
+  transient map), `ns-sym` (a symbol), and `file` (a string or nil) in
+  scope. The macro is private to this namespace and used only inside
+  `walk-states-tree` and `walk-machine-spec`, both of which bind those
+  three locals.
+
+  `acc` is a `volatile!` around the transient, NOT a bare transient: a
+  transient array-map promotes to a transient hash-map on its 9th distinct
+  key and RETURNS A NEW OBJECT, so `assoc!`'s return value cannot be
+  discarded (in-place mutation is not guaranteed). `vswap!` captures the
+  (possibly promoted) return, so stamps past the 8th are not lost.
 
   Hides the repetitive shape behind a single two-arg call at every
   reference-site stamp."
@@ -729,7 +736,7 @@
   `(let [form# ~form]
      (when (map? form#)
        (when-let [c# (form-coords form# ~'ns-sym ~'file)]
-         (assoc! ~'acc ~path c#)))))
+         (vswap! ~'acc assoc! ~path c#)))))
 
 (defn- walk-states-tree
   "Recursively walk the literal `:states` map. `path` accumulates the
@@ -741,15 +748,19 @@
   so there is no node to co-locate `:source-coords` onto (a tool resolving
   such a slot reads the enclosing map's coord). Per rf2-vqja2.
 
-  Note on style: this walker is mutation-heavy (transient `acc` threaded
-  through nested `reduce-kv` / `doseq` with `assoc!` via the `stamp-map!`
-  macro) rather than the more functional shape of a visitor that returns
-  collected entries. The imperative shape is deliberate — this code runs
-  at macro-expansion time and gets called on every `reg-machine` form.
-  Transients avoid the per-state allocation cost of building intermediate
-  persistent maps during expansion. The result is materialised once at
-  the edge in `walk-machine-spec`. Refactoring to a fully declarative
-  visitor is feasible but would need to be benchmarked against current
+  Note on style: this walker is mutation-heavy (`acc` is a `volatile!`
+  around a transient, mutated via `vswap! acc assoc!` through nested
+  `reduce-kv` / `doseq`, stamped via the `stamp-map!` macro) rather than
+  the more functional shape of a visitor that returns collected entries.
+  The imperative shape is deliberate — this code runs at macro-expansion
+  time and gets called on every `reg-machine` form. Transients avoid the
+  per-state allocation cost of building intermediate persistent maps
+  during expansion. The `volatile!` wrapper is load-bearing: a bare
+  transient's `assoc!` return cannot be discarded (array-map→hash-map
+  promotion at the 9th key returns a NEW object), so the accumulator is
+  threaded through the volatile. The result is materialised once at the
+  edge in `walk-machine-spec`. Refactoring to a fully declarative visitor
+  is feasible but would need to be benchmarked against current
   compile-time numbers before adoption."
   [states-form path acc ns-sym file]
   (when (map? states-form)
@@ -837,10 +848,14 @@
   [spec-form ns-sym file]
   (if-not (map? spec-form)
     {}
-    (let [acc (transient {})]
+    ;; `acc` is a VOLATILE around the transient (not a bare transient): a
+    ;; transient array-map promotes to a hash-map on its 9th key and returns a
+    ;; NEW object, so `stamp-map!` threads the return via `vswap!` rather than
+    ;; relying on in-place mutation (which capped the index at 8 entries).
+    (let [acc (volatile! (transient {}))]
       ;; Reference-site stamping of MAP nodes under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
-      (persistent! acc))))
+      (persistent! @acc))))
 
 ;; ---- inline-fn source-code co-location (rf2-se70xj) -----------------------
 ;;
@@ -916,8 +931,10 @@
    so the same `:on` / `:always` / `:after` / nested-`:states` shapes are
    covered, but collects fn-literal SOURCE rather than map-node coords.
 
-   `path` accumulates the spec-path from the spec's root. The mutable `acc`
-   transient is threaded through. Compile-time / JVM-only."
+   `path` accumulates the spec-path from the spec's root. `acc` is a
+   `volatile!` around a transient, mutated via `vswap! acc assoc!` (the
+   volatile threads the transient's possibly-promoted return so stamps past
+   the 8th key are not lost). Compile-time / JVM-only."
   [states-form path acc]
   (if-not (map? states-form)
     acc
@@ -927,7 +944,7 @@
           (when (map? node)
             ;; State-node inline `:entry` / `:exit`.
             (when-let [src (node-inline-source node)]
-              (assoc! acc node-path src))
+              (vswap! acc assoc! node-path src))
             ;; :on transitions — each transition MAP's inline `:guard` /
             ;; `:action`. Single-map and vector-of-candidates forms.
             (when-let [on-map (:on node)]
@@ -938,12 +955,12 @@
                       (cond
                         (map? t)
                         (when-let [src (node-inline-source t)]
-                          (assoc! acc tp src))
+                          (vswap! acc assoc! tp src))
                         (vector? t)
                         (doseq [[i tx] (map-indexed vector t)
                                 :when (map? tx)]
                           (when-let [src (node-inline-source tx)]
-                            (assoc! acc (conj tp i) src)))))
+                            (vswap! acc assoc! (conj tp i) src)))))
                     nil)
                   nil on-map)))
             ;; :always — single transition MAP or a vector of candidate maps
@@ -958,12 +975,12 @@
               (cond
                 (map? always)
                 (when-let [src (node-inline-source always)]
-                  (assoc! acc (conj node-path :always) src))
+                  (vswap! acc assoc! (conj node-path :always) src))
                 (vector? always)
                 (doseq [[i tx] (map-indexed vector always)
                         :when (map? tx)]
                   (when-let [src (node-inline-source tx)]
-                    (assoc! acc (conj node-path :always i) src)))))
+                    (vswap! acc assoc! (conj node-path :always i) src)))))
             ;; :after — map of delay → target-or-transition map.
             (when-let [after (:after node)]
               (when (map? after)
@@ -971,7 +988,7 @@
                   (fn [_ delay t]
                     (when (map? t)
                       (when-let [src (node-inline-source t)]
-                        (assoc! acc (conj node-path :after delay) src)))
+                        (vswap! acc assoc! (conj node-path :after delay) src)))
                     nil)
                   nil after)))
             ;; Recurse into nested :states.
@@ -1009,9 +1026,12 @@
   [spec-form]
   (if-not (map? spec-form)
     {}
-    (let [acc (transient {})]
+    ;; VOLATILE around the transient — `vswap! acc assoc!` threads the transient's
+    ;; (possibly promoted) return so stamps past the 8th key are not lost. See
+    ;; `walk-machine-spec` for the array-map-promotion rationale.
+    (let [acc (volatile! (transient {}))]
       (walk-states-inline-source (:states spec-form) [:states] acc)
-      (persistent! acc))))
+      (persistent! @acc))))
 
    )) ;; end #?(:clj (do ...)) for the inline-source walk
 
