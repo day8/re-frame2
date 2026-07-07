@@ -180,10 +180,24 @@
   populated (the target is `:rf.route/not-found`-shaped but the gate
   still evaluates `:can-leave` on the CURRENT route — leaving a page for
   a dead link is still a leave). A `:can-enter` guard on a matched target
-  reads its own route from the registry via `route-id`."
+  reads its own route from the registry via `route-id`.
+
+  rf2-dqlfty: this runs on EVERY nav-guard evaluation — even when the
+  route declares no `:can-leave` / `:can-enter` at all, `maybe-block-
+  navigation` calls `pending-target` unconditionally before checking
+  whether a guard is declared. A raw `match-url` call here, left
+  unhandled, would let any unexpected throw escape the guard phase and
+  crash the event drain (rf2-6t1xb) for `:rf.route/navigate`,
+  `:rf/url-requested`, `:rf.route/transitioned`, and
+  `:rf.route/handle-url-change` alike. `match-url-fail-closed` catches
+  ANY throw and yields a nil match instead, so a hostile/throwing URL
+  degrades to the same `:rf.route/not-found`-shaped target as a bare
+  miss — exactly the fail-closed discipline `url-change-fx` and
+  `:rf.route/navigate`'s `{:url ...}` target-form already apply at the
+  commit phase."
   [requested-url]
-  (let [{:keys [route-id params query fragment]}
-        (registry/match-url requested-url)]
+  (let [{:keys [match]} (registry/match-url-fail-closed requested-url)
+        {:keys [route-id params query fragment]} match]
     {:route-id route-id
      :params   params
      :query    query
