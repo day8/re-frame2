@@ -538,3 +538,54 @@
              {:file "panel_gallery/event_detail_stories.cljs"
               :line 115
               :column 3})))))
+
+;; ---- merge-known-sections deep-merge (rf2-8j3gyt) -----------------------
+;;
+;; `merge-known-sections` is private; JVM tests reach it via `#'`
+;; var-quote — Clojure Vars are directly invokable, the same idiom the
+;; CLJS persistence test uses for `#'config/storage-get`.
+
+(deftest merge-known-sections-deep-merges-nested-event-list-col-widths
+  (testing "rf2-8j3gyt — a partial nested override under `:general`
+            (`:event-list-col-widths`) must merge PER-KEY, not replace
+            the whole nested sub-map — the prior shallow `merge`
+            dropped the untouched sibling widths on any partial
+            nested `src`"
+    (let [merged (#'config/merge-known-sections
+                  {:general {:event-list-col-widths {:source 100}}})]
+      (is (= {:source 100 :timestamp 76 :duration 60}
+             (get-in merged [:general :event-list-col-widths]))
+          "the untouched :timestamp / :duration siblings survive a
+           partial nested override"))))
+
+(deftest merge-known-sections-two-arg-arity-composes-layers
+  (testing "rf2-rr2yw3 — the 2-arg arity merges `src` over an explicit
+            `base` (not always `default-settings`), letting
+            `load-settings-from-storage!` compose the `hardcoded
+            defaults < configure! overrides < persisted Settings
+            overrides` merge order in one step"
+    (let [seeded (#'config/merge-known-sections
+                  config/default-settings {:general {:text-size 20}})
+          final  (#'config/merge-known-sections
+                  seeded {:general {:text-size 30}})]
+      (is (= 30 (get-in final [:general :text-size]))
+          "the later (persisted, in the real call chain) layer wins")
+      (is (= :right-rail (get-in final [:general :panel-position]))
+          "an untouched sibling in :general still carries the base's value"))))
+
+;; ---- :rf.xray/settings seeds `configured-settings-seed` (rf2-rr2yw3) ----
+
+(deftest configure-settings-seeds-configured-settings-seed
+  (testing "rf2-rr2yw3 — `configure! {:rf.xray/settings ...}` captures
+            the raw map into `configured-settings-seed` rather than
+            unconditionally resetting + persisting the live settings
+            atom — the seed `load-settings-from-storage!` deep-merges
+            the persisted payload OVER, so a host that calls
+            `configure!` on every boot can no longer clobber a user's
+            already-persisted Settings-popup mutations"
+    (config/reset-settings!)
+    (config/configure! {:rf.xray/settings {:theme :dark}})
+    (is (= {:theme :dark} @config/configured-settings-seed))
+    (config/reset-settings!)
+    (is (nil? @config/configured-settings-seed)
+        "reset-settings! clears the seed too — no cross-test leakage")))
