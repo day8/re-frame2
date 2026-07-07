@@ -264,3 +264,52 @@
     (is (= (mapv :section-path sections-a)
            (mapv :section-path sections-b))
         "input order doesn't alter section order — the sort makes it stable")))
+
+(deftest sections-are-sorted-ascending-by-final-section-path
+  ;; rf2-8y5pen: the initial sort keys patches by their FULL path, but
+  ;; coalescing (`group-by-ancestor`) and singleton-promotion both
+  ;; NARROW a cluster's prefix to a shorter common-ancestor path —
+  ;; changing its sort key. `pr-str` of a vector closes with `]` (char
+  ;; 93) but separates elements with a space (char 32), so an
+  ;; ancestor's `pr-str` is ALWAYS greater than its own descendants':
+  ;; `(pr-str [:cart])` > `(pr-str [:cart-items])` even though
+  ;; `:cart` < `:cart-items` as keywords. A walk-order-only sort (never
+  ;; re-deriving order post-coalescing) can therefore emit sections
+  ;; out of the documented ascending order. This test asserts the
+  ;; FINAL output is always ascending by `(pr-str :section-path)` —
+  ;; the §Ordering contract in `spec/section-grouping.md` — not merely
+  ;; stable across input-order permutations (the older test above).
+  (testing "bead repro: [:cart] (narrowed ancestor) vs [:cart-summary] (untouched sibling)"
+    ;; {:cart {:qty 1} :cart-summary old} -> {:cart {:qty 5} :cart-summary new}.
+    ;; [:cart :qty] promotes (singleton, depth > 1) to the [:cart]
+    ;; ancestor; [:cart-summary] is an untouched top-level singleton.
+    ;; Sorted by full path pre-coalescing, [:cart ...] < [:cart-summary]
+    ;; (matching keyword order) — the walk-order-only bug preserved
+    ;; that ordering into the output. But post-promotion the KEYS
+    ;; being compared are [:cart] vs [:cart-summary], and
+    ;; `(pr-str [:cart])` = "[:cart]" > `(pr-str [:cart-summary])` =
+    ;; "[:cart-summary]" because `]` (93) > `-` (45) at the
+    ;; first point of difference right after the shared "[:cart"
+    ;; prefix. The contract requires [:cart-summary] first.
+    (let [patches  [[[:cart :qty] :assoc 5]
+                    [[:cart-summary] :assoc :new]]
+          sections (sg/group-patches-into-sections patches)
+          paths    (mapv :section-path sections)]
+      (is (= [:cart] (:section-path (first (filter #(= [:cart] (:section-path %)) sections))))
+          "sanity: [:cart :qty] promotes to the [:cart] ancestor")
+      (is (= [[:cart-summary] [:cart]] paths)
+          "ancestor [:cart] sorts AFTER [:cart-summary] by pr-str, even though it was
+           walked first — the contract order, not the walk order")))
+  (testing "general property: output section-paths are ascending by pr-str, regardless of input order"
+    (let [patches [[[:cart :qty] :assoc 5]
+                   [[:cart-summary] :assoc :new]
+                   [[:a :b :c] :assoc 1]
+                   [[:ab] :assoc 2]
+                   [[:flash] :assoc "Saved"]]]
+      (doseq [ordering (list patches
+                             (vec (reverse patches))
+                             (shuffle patches))]
+        (let [sections (sg/group-patches-into-sections ordering)
+              paths    (mapv (comp pr-str :section-path) sections)]
+          (is (= (sort paths) paths)
+              (str "sections must be ascending by (pr-str :section-path); got " paths)))))))
