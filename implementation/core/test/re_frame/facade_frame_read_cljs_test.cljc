@@ -319,6 +319,29 @@
     (is (= :rf.error/registrar-query-needs-frame
            (err-id #(rf/registrations {:realm nil :kind :event}))))))
 
+(deftest handler-meta-non-map-single-arg-fails-loud
+  (testing "rf2-wa38hs: handler-meta's 1-arg arity is MAP-ONLY — unlike
+            registrations / handler-ids, whose 1-arg arity ALSO serves the
+            default-source-store keyword read, handler-meta's positional read
+            needs `id` too and lives on the separate (kind id) arity. So a
+            bare non-map single arg here (the common mistake of omitting
+            `id`, e.g. `(handler-meta :event)`) is never a valid default-store
+            read. Before the fix this crashed: `(contains? arg :frame)` threw
+            on CLJ (`contains?` doesn't support a keyword), and on CLJS
+            `contains?` returned false but the shared assert helper's
+            `(keys arg)` then threw a raw, unclear error. Both must now raise
+            the SAME catalogued :rf.error/registrar-query-needs-frame — the
+            identical error a map-without-:frame produces — rather than crash
+            or mis-error, on EITHER runtime."
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta :event))))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta "not-a-keyword"))))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta nil))))
+    (is (= :rf.error/registrar-query-needs-frame
+           (err-id #(rf/handler-meta [:event :ff/inc]))))))
+
 ;; ===========================================================================
 ;; 5. NO REGRESSION — the existing keyword arity stays byte-identical
 ;; ===========================================================================

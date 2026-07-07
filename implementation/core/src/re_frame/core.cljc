@@ -1766,13 +1766,17 @@
 (defn- assert-registrar-query-has-frame!
   "Fail loud (`:rf.error/registrar-query-needs-frame`) when a map-shaped
   registrar query (`rf/registrations` / `rf/handler-meta` / `rf/handler-ids`)
-  carries NO `:frame`. Post-EP-0023 (rf2-10nggz) the public read grammar has
-  exactly two shapes per trio member: the POSITIONAL-KEYWORD arity is the
-  unframed default source-store read, and a MAP is ALWAYS a frame-targeted read
-  resolved through a live frame's sealed image generation. There is no realm
-  coordinate — the retired pre-EP-0023 `:realm` map arity (and the
-  absence-as-default `{:kind …}` spelling it implied) is GONE — so a registrar
-  query map without `:frame` is an error, not a default-realm read. Never
+  carries NO `:frame` — OR when `arg` is not a map at all (e.g. a bare keyword
+  reaching a map-only single-arg arity, per `rf/handler-meta`'s rf2-wa38hs
+  guard). Post-EP-0023 (rf2-10nggz) the public read grammar has exactly two
+  shapes per trio member: the POSITIONAL-KEYWORD arity is the unframed default
+  source-store read, and a MAP is ALWAYS a frame-targeted read resolved through
+  a live frame's sealed image generation. There is no realm coordinate — the
+  retired pre-EP-0023 `:realm` map arity (and the absence-as-default
+  `{:kind …}` spelling it implied) is GONE — so a registrar query map without
+  `:frame` is an error, not a default-realm read. `arg` may be ANY value here
+  (not necessarily a map), so `:received-keys` is computed defensively —
+  `(keys arg)` on a non-map throws — rather than assumed map-shaped. Never
   returns normally."
   [arg where-sym]
   (error/throw-error!
@@ -1786,7 +1790,7 @@
          "coordinate in the public read grammar. Pass {:frame f :kind k …} for a "
          "frame-targeted read, or the bare kind for the default source store.")
     {:recovery :pass-a-frame-or-use-the-keyword-arity
-     :extra    {:received-keys (vec (keys arg))}}))
+     :extra    {:received-keys (if (map? arg) (vec (keys arg)) arg)}}))
 
 (defn frame-generation
   "Return the SEALED, resolved image GENERATION a live frame is running — the
@@ -1996,9 +2000,19 @@
 
   The map-shaped form is unambiguous against the `(kind id)` arity (a `kind`
   is a keyword, never a map) — the byte-identical default source-store path is
-  unchanged for every existing keyword caller."
+  unchanged for every existing keyword caller.
+
+  This 1-arg arity is the map-only form — unlike `registrations` / `handler-
+  ids` (whose 1-arg arity ALSO serves the default-source-store keyword read),
+  `handler-meta`'s positional read needs `id` too and so lives on the separate
+  `([kind id] …)` arity below. A single non-map arg here (e.g. a bare `(handler-
+  meta :event)` missing `id`) is therefore never a valid default-store read; the
+  `map?` guard (rf2-wa38hs) routes it to the SAME catalogued
+  `:rf.error/registrar-query-needs-frame` as a map without `:frame`, rather than
+  crashing on `(contains? arg :frame)` (CLJ) or mis-erroring inside the shared
+  assert helper (CLJS)."
   ([arg]
-   (if (contains? arg :frame)
+   (if (and (map? arg) (contains? arg :frame))
      (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
            {:keys [kind id]} arg]
        (live-frame/call-with-frame-resolution
