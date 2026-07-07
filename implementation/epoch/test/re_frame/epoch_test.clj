@@ -2661,7 +2661,8 @@
 (deftest reset-app-db!-resets-app-db-only-preserving-runtime-db
   (testing "reset-app-db! resets the app-db partition to {} while live
             runtime-db (machines / routes) survives (EP-0001 rf2-tfepxu,
-            Mike ruling #10 — the app-db sibling of whole-frame reset-frame!)"
+            Mike ruling #10 — the app-db sibling of a full frame reset,
+            destroy-frame! + reg-frame)"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})

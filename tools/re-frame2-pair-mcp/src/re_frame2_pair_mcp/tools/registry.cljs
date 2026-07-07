@@ -282,8 +282,9 @@
     :handler    (ignoring-extra #(describe-image/describe-image-tool %1 %2))
     ;; Pure read of a frame's resolved image generation — a
     ;; function of the frame's sealed generation, cacheable like the other
-    ;; read tools. The generation is inert until reload-images!, so the
-    ;; precheck-hash cache opt-in is safe.
+    ;; read tools. The generation is inert until a re-`make-frame` reload
+    ;; (rf2-lxwpob folded the dedicated `reload-images!` verb into
+    ;; re-construction), so the precheck-hash cache opt-in is safe.
     :cacheable? true
     :descriptor data/describe-image}
    {:name       "set-operating-frame"

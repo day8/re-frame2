@@ -3,8 +3,8 @@
   CONFORMANCE suite (rf2-32siq3.15). The whole EP-0023 implementation is merged;
   this suite asserts the FULL public contract end-to-end, exercising the public
   surfaces (`rf/image` / `image-assembly/assemble` / `live-frame/make-frame` /
-  `reload-images!` / `reproject-live-frames!` / the migration diagnostics) the
-  way a consumer reaches them, NOT each merged slice's internals.
+  re-`make-frame` reload / `reproject-live-frames!` / the migration diagnostics)
+  the way a consumer reaches them, NOT each merged slice's internals.
 
   > image -> frame -> event stream
 
@@ -37,9 +37,8 @@
     6. Generation cache + invalidation (§Image — \"MUST cache resolved
        generations\") — cache hit for identical inputs; invalidation on
        `reg-*` / `clear-kind!` (the .34 fix) and on a standard-registry change.
-    7. Hot reload (§Hot Reload) — `reload-images!` / `reproject-live-frames!`
-       re-resolve every live frame; no frame left stale; reload of an unknown
-       frame errors cleanly.
+    7. Hot reload (§Hot Reload) — re-`make-frame` / `reproject-live-frames!`
+       re-resolve every live frame; no frame left stale.
     8. The one frame constructor (EP-0024 §One constructor) — `rf/make-frame`
        is the SINGLE public constructor, returning the frame VALUE (not a bare
        id keyword), with `:initial-events` setup events running AFTER the
@@ -622,13 +621,16 @@
 ;; (EP-0023 §Hot Reload)
 ;; ===========================================================================
 ;;
-;; reload-images! swaps a frame's whole image composition while preserving frame
-;; identity; reproject-live-frames! re-resolves every live frame against the
-;; current source store; reload of an unknown frame errors cleanly.
+;; Re-`make-frame`-ing an `:id`-bearing frame with a new `:images` vector swaps
+;; the frame's whole image composition while preserving frame identity
+;; (rf2-lxwpob folded the dedicated `reload-images!` verb into re-construction);
+;; reproject-live-frames! re-resolves every live frame against the current
+;; source store.
 
 (deftest s7-reload-images-swaps-the-generation-and-reports-the-diff
-  (testing "EP-0023 §Hot Reload: reload-images! re-resolves the frame's whole
-            :images composition into a fresh generation and reports the
+  (testing "EP-0023 §Hot Reload: re-`make-frame`-ing re-resolves the frame's
+            whole :images composition into a fresh generation; generation-diff
+            over the before/after generations reports the
             added/changed/removed/retained diff; it is composition-REPLACING"
     (let [v1-pool [(reg-desc "counter.v1" :event :counter/inc ::v1-inc)]
           v2-pool [(reg-desc "counter.v2" :event :counter/inc ::v2-inc)
@@ -636,13 +638,13 @@
           frame   (lf/make-frame {:id :counter/main
                                   :images [(rf/image {:select-ns {:include ["counter.v1"]}})]}
                                  v1-pool)
-          report  (lf/reload-images! :counter/main
-                                     {:images [(rf/image {:select-ns {:include ["counter.v2"]}})]}
-                                     v2-pool)
-          reloaded (:rf.frame/frame report)
-          diff     (:rf.reload/diff report)]
-      (is (= ::v2-inc (:handler-fn (asm/resolve-descriptor (lf/frame-generation reloaded)
-                                                           :event :counter/inc)))
+          before   (lf/frame-generation frame)
+          reloaded (lf/make-frame {:id :counter/main
+                                   :images [(rf/image {:select-ns {:include ["counter.v2"]}})]}
+                                  v2-pool)
+          after    (lf/frame-generation reloaded)
+          diff     (lf/generation-diff before after)]
+      (is (= ::v2-inc (:handler-fn (asm/resolve-descriptor after :event :counter/inc)))
           "the frame now runs the v2 image")
       (is (contains? (:added diff) [:event :counter/reset]) "the new event is :added")
       (is (contains? (:changed diff) [:event :counter/inc]) "the redefined event is :changed")
@@ -660,8 +662,8 @@
           img   (rf/image {:select-ns {:include ["counter.v1"]}})
           left  (lf/make-frame {:id :counter/left  :images [img]} pool)
           right (lf/make-frame {:id :counter/right :images [img]} pool)]
-      (lf/reload-images! :counter/left
-                         {:images [(rf/image {:select-ns {:include ["counter.v2"]}})]} v2)
+      (lf/make-frame {:id :counter/left
+                      :images [(rf/image {:select-ns {:include ["counter.v2"]}})]} v2)
       (is (= ::v1 (:handler-fn (asm/resolve-descriptor
                                  (lf/frame-generation (lf/live-frame :counter/right))
                                  :event :counter/inc)))
@@ -746,14 +748,11 @@
             (reset! registrar/kind->id->metadata reg-before)
             (asm/clear-generation-cache!)))))))
 
-(deftest s7-reload-of-unknown-frame-errors-cleanly
-  (testing "EP-0023 §Public API: reload-images! targeting an id that names no
-            live frame fails :rf.error/reload-no-such-frame (clean error, not a
-            nil-resolution crash)"
-    (is (= :rf.error/reload-no-such-frame
-           (err-id #(lf/reload-images! :no/such-frame
-                                       {:images [(rf/image {:select-ns {:include ["x.y"]}})]}
-                                       [(reg-desc "x.y" :event :a ::a)]))))))
+;; The former `s7-reload-of-unknown-frame-errors-cleanly` case (pinning
+;; `:rf.error/reload-no-such-frame` for a target naming no live frame) tested a
+;; capability retired with `reload-images!` (rf2-lxwpob): re-`make-frame`-ing an
+;; unknown `:id` simply CREATES a fresh frame under that id — there is no
+;; separate "unknown target" failure mode once reload is just re-construction.
 
 ;; ===========================================================================
 ;; SECTION 8 — The one frame constructor (EP-0024 §One constructor)

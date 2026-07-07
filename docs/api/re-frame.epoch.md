@@ -96,7 +96,7 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
   ```clojure
   (reset-app-db! frame-id) → boolean
   ```
-- **Description**: Resets the frame's `app-db` partition to `{}`, bypassing the dispatch loop, preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`. A thin wrapper over `replace-app-db!` with the empty map, sharing its synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on any failure.
+- **Description**: Resets the frame's `app-db` partition to `{}`, bypassing the dispatch loop, preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of a full frame reset (`destroy-frame!` + `reg-frame`). A thin wrapper over `replace-app-db!` with the empty map, sharing its synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on any failure.
 
 ```clojure
 ;; Clear the application slice, keeping machines / routes alive.

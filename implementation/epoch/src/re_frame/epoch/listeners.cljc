@@ -373,9 +373,9 @@
                       :cb-id  cb-id})))
     (state/drop-frame-observation! frame-id)
     ;; Drop the per-frame ring buffer; epoch-history returns [] from
-    ;; here on. (`reset-frame! :app/main` calls destroy-frame! followed
-    ;; by reg-frame, so the ring buffer for the new same-keyed frame
-    ;; starts empty per Spec 002 §reset-frame!.)
+    ;; here on. (A full reset composes destroy-frame! then reg-frame
+    ;; (no dedicated verb, rf2-lxwpob), so the ring buffer for the new
+    ;; same-keyed frame starts empty per Spec 002 §Resetting a frame.)
     (state/drop-frame-history! frame-id)
     ;; Per rf2-zzper: also drop any in-flight capture buffer. A
     ;; mid-drain destroy that surfaces a halted record above leaves
@@ -391,7 +391,7 @@
     (state/drop-last-settled-epoch! frame-id)
     ;; Per rf2-vh1k3 + rf2-dq2b7: forget every render-key's mount-epoch
     ;; anchor AND read-set for the destroyed frame so a re-registration
-    ;; of a same-keyed frame (`reset-frame! :app/main`) re-mints both
-    ;; from scratch. Both signals share the single `mount-attribution`
-    ;; atom; one wipe replaces the former two.
+    ;; of a same-keyed frame (e.g. a destroy-frame! + re-reg-frame reset
+    ;; of :app/main) re-mints both from scratch. Both signals share the
+    ;; single `mount-attribution` atom; one wipe replaces the former two.
     (state/drop-frame-mount-attribution! frame-id)))

@@ -3001,9 +3001,10 @@ async function runMachineEpochs(page, state) {
     'switch-and-return: traffic frame intact (:amber/:walk) after returning to door',
   );
 
-  // RESTART door: resets its machine frame (reset-frame! = destroy +
-  // re-reg-frame with the SAME :initial-events, so the ring clears and the
-  // machine RE-ARCS FROM BOOT). The signal-bearing proof a REAL replay ran —
+  // RESTART door: resets its machine frame (destroy-frame! +
+  // re-reg-frame with the SAME :initial-events — no dedicated reset verb,
+  // rf2-lxwpob — so the ring clears and the machine RE-ARCS FROM BOOT). The
+  // signal-bearing proof a REAL replay ran —
   // not a no-op — is the machine DATA being reset to its :initial value: the
   // accumulated `:opened-count` (>0 above, asserted as the baseline) must
   // snap back to 0, the value door's :initial :data declares. The :state is

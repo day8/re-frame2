@@ -445,25 +445,15 @@
   ;; helper, not a front-porch primitive); owned by 002 (Frames — the frame
   ;; identity normative home).
   ["re-frame.core" "frame-value->id"]     {:tier :advanced    :owner "002" :status "EP-0024"}
-  ;; EP-0023 collapse slice 2 (rf2-32siq3.32): `reload-images!` is the public
-  ;; `rf/reload-images!` — the frame-targeted, composition-REPLACING image hot
-  ;; reload that swaps a frame's whole `:images` composition while PRESERVING
-  ;; FRAME MEMORY (app-db / runtime-db / caches / lifecycle continue; only
-  ;; `:rf.frame/generation` moves — EP-0023 §Hot Reload / §Public API).
-  ;; CLASSIFICATION (EP-0015 facade-export diff-time rule): a NEW, deliberate
-  ;; public hot-reload constructor-sibling. Tier `:advanced`, not `:front-porch`
-  ;; — same posture as its siblings `image` / `make-frame`: ordinary apps reach
-  ;; hot reload through the implicit `reg-*` re-eval + source-store reprojection
-  ;; path (`reproject-live-frames!`, an internal hook), so an EXPLICIT
-  ;; composition-replacing reload is the advanced surface for the cases that name
-  ;; their images (multiple surfaces on one page, docs/story/test image
-  ;; overrides). Owned by 002 (Frames — EP-0023's frame/image normative home, the
-  ;; sibling of `image` / `make-frame`). Status `EP-0023` (proposal-stage; the
-  ;; row exists ahead of the spec/API.md projection, which EP-0023 graduates
-  ;; separately — same posture as `image`). NON-BREAKING addition: it is a new
-  ;; name, no existing surface changes; the `rf/make-frame` repoint onto the
-  ;; OBJECT constructor is the later caller-migration slice, NOT this one.
-  ["re-frame.core" "reload-images!"]      {:tier :advanced    :owner "002" :status "EP-0023"}
+  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
+  ;; dedicated `reload-images!` verb is RETIRED — image hot-reload is folded
+  ;; into re-`make-frame`-ing an `:id`-bearing frame with a new `:images`
+  ;; vector (EP-0023 §Hot Reload; the surgical-update path already swaps the
+  ;; generation while preserving frame memory). The facade name survives ONLY
+  ;; as a `^:no-doc` throwing stub (`:rf.error/reload-images-removed`) and so
+  ;; carries NO manifest row (the manifest generator drops `^:no-doc` vars).
+  ;; Its replacement read, `generation-diff`, is classified alongside its
+  ;; siblings `frame-generation` / `frame-shadows` below.
   ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
   ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
   ;; registration-set value a frame resolves against (EP-0023 §Image, §Public
@@ -569,7 +559,12 @@
   ;; `re-frame.flows/clear-flow` (already classified below).
   ["re-frame.core" "clear-http-interceptor"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
   ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"}
-  ["re-frame.core" "reset-frame!"]        {:tier :advanced :owner "002" :status "v1"}
+  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07): the
+  ;; dedicated `reset-frame!` verb is DELETED — a full replace is reproducible
+  ;; by composition (`destroy-frame!` + `reg-frame`/`make-frame` with the
+  ;; caller's own config). The facade name survives ONLY as a `^:no-doc`
+  ;; throwing stub (`:rf.error/reset-frame-removed`) and so carries NO
+  ;; manifest row (the manifest generator drops `^:no-doc` vars).
   ["re-frame.core" "clear-sub-cache!"]    {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ;; Dispatch & subscribe (spec/API.md §Dispatch and subscribe).
   ["re-frame.core" "dispatch"]            {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
@@ -716,7 +711,7 @@
   ;; no retained internal substrate. The public model is
   ;; `image -> frame -> event stream`; frame resolution routes directly through
   ;; the process registrar. See `re-frame.core` `rf/image` /
-  ;; `make-frame` / `reload-images!` rows and EP-0023 §Backwards Compatibility.
+  ;; `make-frame` rows and EP-0023 §Backwards Compatibility.
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
@@ -734,8 +729,8 @@
   ;; forbids from consuming `re-frame.live-frame` / `re-frame.image-assembly`
   ;; internals (Pair MCP `describe-image`, Xray; EP-0023 Use-Case 7 / the
   ;; `:rf.provenance/ns` contract). Tier `:tooling` (a READ, not a constructor/
-  ;; mutator — UNLIKE `make-frame` / `image` / `reload-images!` which are
-  ;; `:advanced`); owner 002 (Frames — EP-0023's frame/image normative home,
+  ;; mutator — UNLIKE `make-frame` / `image` which are `:advanced`); owner 002
+  ;; (Frames — EP-0023's frame/image normative home,
   ;; matching the registrar query family). Status `EP-0023` (proposal-stage; the
   ;; row exists ahead of the spec/API.md projection EP-0023 graduates separately).
   ["re-frame.core" "frame-generation"]     {:tier :tooling :owner "002" :status "EP-0023"}
@@ -752,11 +747,19 @@
   ;; `re-frame.core` façade, not an internal-only reach. Tier `:tooling` (a READ,
   ;; not a constructor/mutator — the SAME classification as its sibling
   ;; `frame-generation`, which it reads a single key off; UNLIKE `make-frame` /
-  ;; `image` / `reload-images!` which are `:advanced`). Owner 002 (Frames —
+  ;; `image` which are `:advanced`). Owner 002 (Frames —
   ;; EP-0023/EP-0026's frame/image normative home, matching the registrar query
   ;; family). Status `EP-0026` (proposal-stage; the row exists ahead of the
   ;; spec/API.md projection EP-0026 graduates separately under rf2-o2vfrc).
   ["re-frame.core" "frame-shadows"]        {:tier :tooling :owner "002" :status "EP-0026"}
+  ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07):
+  ;; `generation-diff` is the pure two-generation comparator that REPLACES the
+  ;; retired `reload-images!` verb's report-returning role — a caller reads
+  ;; `frame-generation` before/after a re-`make-frame` reload and diffs the two
+  ;; values. Tier `:tooling` (a READ, the same classification as its siblings
+  ;; `frame-generation` / `frame-shadows`). Owner 002 (Frames — EP-0023's
+  ;; frame/image normative home).
+  ["re-frame.core" "generation-diff"]      {:tier :tooling :owner "002" :status "EP-0023"}
   ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
   ;; (`machines`, `machine-meta`, `machine-by-system-id`, `machine-transition`,
   ;; `make-machine-handler`) are no longer façade exports — reach them through

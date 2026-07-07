@@ -47,7 +47,7 @@
       validation, framework-standard registrations, image-order layering (the
       later image wins, EP-0026 §Layered Resolution), and resolved-generation
       caching.
-    * `make-frame` / `reload-images!` frame loading.
+    * `make-frame` frame loading (re-construction folds image hot-reload in).
 
   ## The selector contract (input shape from the source store)
 
