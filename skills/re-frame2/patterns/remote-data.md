@@ -131,7 +131,7 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
                :on   {:fetch-started {:target :loading  :action :bump-attempt}}}}})
 ```
 
-The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `@(rf/machine-has-tag? :realworld/tags :tags/loading)` / `@(rf/machine-has-tag? :realworld/tags :tags/in-flight)` (the sub returns a reaction — deref it, or an underef'd call reads truthy).
+The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `@(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/loading])` / `@(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/in-flight])`.
 
 ## When to choose each form
 
