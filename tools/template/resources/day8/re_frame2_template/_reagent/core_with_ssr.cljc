@@ -21,8 +21,10 @@
    - `:counter/initialise` / `:counter/increment` — the shared events.
    - `:counter/value` — the shared subscription.
    - `counter-app` — the shared root view (`reg-view`).
-   - SERVER ENTRY: `server-init-events` / `root-view` — the vectors the
-     Ring host-adapter (see server.clj) hands to `ssr-handler`.
+   - SERVER ENTRY: `register-schema!` / `:ssr/register-schema` /
+     `server-init-events` / `root-view` — the per-request schema-attach
+     step and the vectors the Ring host-adapter (see server.clj) hands
+     to `ssr-handler`.
    - CLIENT ENTRY: `run`, which boots through `ssr/hydrate!` — READ the
      embedded payload, HYDRATE (dispatch the framework-owned `:rf/hydrate`
      event), VERIFY the render hash — then mounts on top of the seeded
@@ -118,31 +120,67 @@
 ;; SERVER ENTRY POINT
 ;; ============================================================================
 ;;
-;; server.clj wires these two into `re-frame.ssr.ring/ssr-handler`, which
-;; owns the per-request lifecycle (frame create -> drain -> response read
-;; -> render -> frame destroy). The handler dispatches `server-init-events`
-;; into a fresh per-request `:server` frame, drains to fixed point, then
-;; renders `root-view`. The schema is registered per-request by
-;; `register-schema!` (server.clj calls it from `:on-error`-free happy
-;; path via the handler's construction; here we expose the pieces).
+;; server.clj wires `server-init-events` + `root-view` into
+;; `re-frame.ssr.ring/ssr-handler`, which owns the per-request lifecycle
+;; (frame create -> drain -> response read -> render -> frame destroy) —
+;; and gensyms the per-request frame id INTERNALLY. server.clj (and this
+;; namespace) never see that id, so the schema can't be attached with an
+;; explicit `{:frame frame-id}` call the way the CLIENT does below (where
+;; `app-frame` is a known symbol).
+;;
+;; Instead `:ssr/register-schema` rides as the FIRST `:initial-events`
+;; step (see `server-init-events`): its handler body runs with
+;; `frame/*current-frame*` bound to the very frame `ssr-handler` is
+;; constructing for THIS request — the binding covers "the duration of
+;; the handler chain" per Spec 002 §Dispatch resolution chain — so a
+;; no-`:frame`-override `register-schema!` call resolves that ambient
+;; frame. This is the scope path `schemas.cljc`'s `resolve-frame` names
+;; as valid ("a frame `:initial-events` step"). It runs BEFORE
+;; `:rf/server-init` so the counter seed commit that follows has a
+;; schema to validate against.
+
+;; A JVM-side helper attaching the whole-app-db schema. Two forms:
+;;   (register-schema!)          — the AMBIENT frame (a carried-invariant
+;;                                 scope). `:ssr/register-schema` below
+;;                                 uses this form — the server never sees
+;;                                 its own per-request frame id.
+;;   (register-schema! frame-id) — an EXPLICIT frame. The CLIENT's `init`
+;;                                 (below) uses this form, since
+;;                                 `app-frame` IS a known symbol.
+;; reg-app-schema is frame-local, so either form must run under a live
+;; frame scope — never at ns-load.
+(defn register-schema!
+  ([] (rf/reg-app-schema [] {:schema CounterDb}))
+  ([frame-id] (rf/reg-app-schema [] {:schema CounterDb :frame frame-id})))
+
+;; The schema-attach step — dispatched FIRST by `server-init-events`
+;; (below), never by the client (`:platforms #{:server}`; the client
+;; calls `register-schema!` directly from `init` instead). Returns `{}`
+;; — no `:db` effect — so THIS step's own commit is never itself subject
+;; to app-db schema validation (app-db schemas validate only when a
+;; `:db` effect lands, Mike ruling #11); it exists purely to attach the
+;; schema before the step that actually seeds the counter.
+(rf/reg-event :ssr/register-schema
+  {:doc       "Per-request schema attach — registers the whole-app-db
+                schema against the frame ssr-handler is constructing for
+                this request (the ambient `:initial-events` scope)."
+   :platforms #{:server}}
+  (fn [_cofx _event]
+    (register-schema!)
+    {}))
 
 (def server-init-events
   "The `:initial-events` vector the Ring SSR handler dispatches into each
-   per-request server frame."
-  [[:rf/server-init]])
+   per-request server frame. `:ssr/register-schema` runs FIRST so the
+   whole-app-db schema is live before `:rf/server-init`'s seed commits —
+   see the comment above for why the schema can't be attached any other
+   way on this path."
+  [[:ssr/register-schema]
+   [:rf/server-init]])
 
 (def root-view
   "The root view id the SSR handler renders after the drain settles."
   [:app/root])
-
-;; A JVM-side helper the SSR test (and server.clj) call to attach the
-;; whole-app-db schema to a frame. reg-app-schema is frame-local, so this
-;; must run under a live frame scope — never at ns-load.
-(defn register-schema!
-  "Attach the whole-app-db schema to `frame-id`. Call once per frame,
-   under a live frame scope."
-  [frame-id]
-  (rf/reg-app-schema [] {:schema CounterDb :frame frame-id}))
 
 ;; ============================================================================
 ;; CLIENT ENTRY POINT
@@ -184,7 +222,9 @@
      (rf/reg-frame app-frame {:doc      "{{name}} SSR client app-frame"
                               :platform :client})
      ;; Register the schema against the client frame — the mirror of the
-     ;; per-request registration on the server.
+     ;; server's `:ssr/register-schema` step, using the explicit-frame
+     ;; arity since `app-frame` (unlike the server's per-request id) is a
+     ;; known symbol.
      (register-schema! app-frame)
      ;; One call, all three steps — READ, HYDRATE, VERIFY — against the
      ;; same `app-frame` the mount below uses. `:render-tree-fn` must hash
