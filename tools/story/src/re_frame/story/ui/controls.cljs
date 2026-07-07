@@ -365,9 +365,23 @@
 (defn- on-change-at-path
   "Write `value` through to `[:cell-overrides variant-id & path]` via
   the shell-state atom. `path` is `[arg-key & sub-path]` where the
-  sub-path may be empty for top-level scalars."
+  sub-path may be empty for top-level scalars.
+
+  Threads the arg-key's current 'saved' value (active-modes applied,
+  cell-overrides excluded — the SAME baseline `args-editor` resolves for
+  its diff-from-saved affordance) as `set-cell-override`'s vivification
+  seed (rf2-mzfh9c). Without it, editing ONE entry of a not-yet-
+  overridden `:vector`/`:set` arg would have no way to know its sibling
+  entries and would silently drop them; the seed is read fresh on every
+  write (cheap — a registry-backed deep-merge, no validation) rather than
+  threaded through the render tree, so this stays a one-line change at
+  the single choke point every widget's on-change already funnels
+  through."
   [variant-id path value]
-  (state/swap-state! state/set-cell-override variant-id (vec path) value))
+  (let [shell (state/get-state)
+        base  (get (args/resolve-args variant-id {:active-modes (:active-modes shell)})
+                   (first path))]
+    (state/swap-state! state/set-cell-override variant-id (vec path) value base)))
 
 (declare arg-widget*)
 

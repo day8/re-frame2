@@ -638,10 +638,24 @@
         (mark-rendered-if-ready!))
       :component-will-unmount
       (fn [_this]
-        (reset! canvas-last-run-key nil)
-        ;; Clear the first-rendered sentinel on unmount so a
-        ;; re-mount sees the skeleton for the appropriate loader window.
-        (reset-first-rendered!))
+        ;; rf2-j8hklm: scope the first-rendered reset to THIS instance's
+        ;; own variant — `canvas-last-run-key` (a `run-key` map, or nil)
+        ;; still names the variant this mounted instance was running.
+        ;; Reading it BEFORE resetting, then clearing only that variant's
+        ;; sentinel, stops an unmount from re-arming the loading skeleton
+        ;; for every OTHER already-rendered variant. The prior 0-arg
+        ;; `reset-first-rendered!` wiped the GLOBAL sentinel set on every
+        ;; unmount — harmless while canvas only ever unmounted on a
+        ;; genuine variant switch, but a real defect once a stable-tree-
+        ;; position remount (fixed alongside this) is no longer the only
+        ;; path here; a legitimate unmount (e.g. leaving Story for a
+        ;; workspace pane) must not blank the skeleton state for variants
+        ;; it never touched.
+        (let [unmounting-variant (:variant-id @canvas-last-run-key)]
+          (reset! canvas-last-run-key nil)
+          (if unmounting-variant
+            (reset-first-rendered! unmounting-variant)
+            (reset-first-rendered!))))
      :reagent-render
      (fn []
        (let [shell      @state/shell-state-atom

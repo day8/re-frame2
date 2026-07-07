@@ -252,10 +252,17 @@ Share semantics:
   the one slot whose default is itself the omission token — `build-params`
   emits `substrate=` only for a non-default substrate — so an omitted param
   carries the SAME default-restore meaning as the other URL-owned slots and is
-  validated against the live substrate registry. A no-query popstate
+  validated against the live substrate registry. Mode-tab gets the SAME
+  treatment but is per-variant rather than global (rf2-gchydo): when the URL
+  keeps the focused variant but omits `mode-tab=`, the stale
+  `[:active-mode-tab <focused-variant>]` entry is cleared (dissoc'd, not
+  merely left unset) so the reader's `:dev` default applies — the same fix
+  the encode side already assumed (mode-tab changes are pushState'd, per
+  `url-relevant-slots-changed?`), so Back/Back past a tab switch reverts the
+  rendered tab, not just the address bar. A no-query popstate
   (back/forward to a bare URL) likewise clears the URL-owned selection / modes
-  / framing / filter / substrate rather than no-op'ing. So a share link like
-  `?variant=story.counter/loaded` restores
+  / framing / filter / substrate / mode-tab rather than no-op'ing. So a share
+  link like `?variant=story.counter/loaded` restores
   the DEFAULT view for the recipient instead of keeping their prior
   localStorage-seeded chrome — the address bar is the source of truth for the
   full share surface. The intentional localStorage fallback survives ONLY for

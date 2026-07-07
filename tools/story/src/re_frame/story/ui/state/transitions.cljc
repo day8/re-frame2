@@ -129,19 +129,78 @@
 
 ;; ---- cell overrides ------------------------------------------------------
 
+(defn- vivify-for-key
+  "Coerce `v` into a collection `next-key` can address into (rf2-mzfh9c).
+  An integer `next-key` means the nested Malli walker is addressing a
+  `:vector`/`:set`/`:tuple` repeater ENTRY, so `v` needs to be indexable:
+  `nil` (no override established yet) becomes `[]`; a `set` becomes a
+  STABLE vector via the same `(sort-by str …)` projection
+  `ui/controls.cljs`'s `vector-coerce` uses for rendering, so index `i`
+  addresses the exact entry the panel is currently showing at row `i`.
+  A non-integer `next-key` means a `:map` group, so `nil` becomes `{}`.
+  Anything already the right shape (a vector already, a map already)
+  passes through unchanged — this is a VIVIFY step, not a re-normalise."
+  [v next-key]
+  (if (int? next-key)
+    (cond
+      (nil? v) []
+      (set? v) (vec (sort-by str v))
+      :else    v)
+    (if (nil? v) {} v)))
+
+(defn- assoc-in-kind-aware
+  "Like `assoc-in`, but vivifies a MISSING or wrong-shaped intermediate
+  value into the collection kind the NEXT path segment actually needs
+  (`vivify-for-key`) instead of letting plain `assoc-in` mint an
+  int-keyed MAP for a missing vector/set, or throwing when it tries to
+  `assoc` a set by index (rf2-mzfh9c). When `coll` (or any intermediate
+  value walked along `path`) was a `set`, the walked result at that
+  level is coerced BACK into a set before returning — the vector
+  projection `vivify-for-key` uses is an addressing convenience, not a
+  change of the arg's declared collection kind."
+  [coll path value]
+  (if (empty? path)
+    value
+    (let [[k & more] path
+          was-set?   (set? coll)
+          coll'      (vivify-for-key coll k)
+          updated    (assoc coll' k (assoc-in-kind-aware (get coll' k) more value))]
+      (if was-set? (set updated) updated))))
+
 (defn set-cell-override
   "Set a single arg override for `variant-id`. `path` is a vector
   `[arg-key & sub-path]` — the first element is the top-level arg-key,
-  the remaining elements address into the nested value via `assoc-in`
-  semantics. Used by the nested Malli walker.
+  the remaining elements address into the nested value. Used by the
+  nested Malli walker.
+
+  A non-empty `sub-path` walks `assoc-in-kind-aware` against the
+  ARG-KEY's current override (or `base` when no override exists yet)
+  rather than raw `assoc-in` against `state` — the collection at
+  `[:cell-overrides variant-id arg-key]` may be absent (no override
+  established yet) or, for a `:set`-kind repeater, a real `set`; plain
+  `assoc-in` would either mint an int-keyed MAP for the absent case or
+  throw trying to `assoc` a set by index (rf2-mzfh9c). `base` — typically
+  the arg's current resolved value (the SAME 'saved' value the controls
+  panel already computes for its diff-from-saved affordance,
+  active-modes applied, cell-overrides excluded) — seeds the walk so an
+  edit to ONE entry of a not-yet-overridden `:vector`/`:set` preserves
+  every sibling entry instead of silently truncating to a singleton.
 
   An empty path is a no-op (caller error; the state is returned
   unchanged). For top-level scalar overrides use `set-cell-override-
   scalar`, a thin wrapper that wraps the arg-key in a singleton vector."
-  [state variant-id path value]
-  (if (seq path)
-    (assoc-in state (into [:cell-overrides variant-id] path) value)
-    state))
+  ([state variant-id path value] (set-cell-override state variant-id path value nil))
+  ([state variant-id path value base]
+   (if (seq path)
+     (let [top-key  (first path)
+           sub-path (vec (rest path))]
+       (if (empty? sub-path)
+         (assoc-in state [:cell-overrides variant-id top-key] value)
+         (assoc-in state [:cell-overrides variant-id top-key]
+                   (assoc-in-kind-aware
+                     (get-in state [:cell-overrides variant-id top-key] base)
+                     sub-path value))))
+     state)))
 
 (defn set-cell-override-scalar
   "Set a top-level arg override for `variant-id`. Thin wrapper around

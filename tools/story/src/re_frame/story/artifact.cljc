@@ -81,6 +81,7 @@
   (:require [re-frame.core                        :as rf]
             [re-frame.story.play.evidence         :as evidence]
             [re-frame.story.play.runner           :as runner]
+            [re-frame.story.play.runner-events    :as runner-events]
             [re-frame.story.play.settled-boundary :as boundary]
             ;; The raw HTTP stub pair lives in `re-frame.http.test-support`
             ;; (reached through its home namespace, not the `re-frame.core`
@@ -273,14 +274,6 @@
             (uninstall))))
       (thunk))))
 
-(defn- epoch-count
-  "The current epoch-history length for `frame-id` — the append-only tape
-  cursor a replay settle boundary snapshots. Tolerant: 0 when
-  the frame has no history / the epoch dep is absent (facade → `[]`)."
-  [frame-id]
-  (try (count (rf/epoch-history frame-id))
-       (catch #?(:clj Throwable :cljs :default) _ 0)))
-
 (defn- step-dispatch-opts
   "Build the per-call dispatch opts a replayed `[:dispatch …]` step carries
   (EP-0017 §6 / Tool-Pair §Replay). Replay is UNCONDITIONALLY
@@ -307,16 +300,19 @@
   per dispatch step), in program order — `{:status :settled :boundary …}`
   on success, a `cannot-run-refusal` / `{:status :error …}` otherwise.
 
-  The returned vector carries an `:attribution` metadata slot:
-  the epoch-history LENGTH snapshotted at the start of each dispatch step's
-  settle, in dispatch-step order. `replay-result` reads it (via
-  `(:attribution (meta outcomes))`) and hands it to `project-evidence` so
-  the replay narrative is attributed EXACTLY (`evidence/spans-from-stamps`)
-  rather than via the EVEN heuristic. The metadata leaves the documented
-  return VALUE (the outcomes vector) unchanged. The boundaries are
-  positional — the Nth element is the Nth dispatch step's settle boundary —
-  so they zip directly onto the dispatch steps of the `:event-program` the
-  narrative spans.
+  The returned vector carries an `:attribution` metadata slot: the
+  last-committed `:epoch-id` (`runner-events/last-epoch-id` — a genuine
+  monotonic identity, NOT a ring-length snapshot; rf2-96qsjr) at the start
+  of each dispatch step's settle, in dispatch-step order. `replay-result`
+  reads it (via `(:attribution (meta outcomes))`) and hands it to
+  `project-evidence` so the replay narrative is attributed EXACTLY
+  (`evidence/spans-from-stamps`) rather than via the EVEN heuristic. The
+  metadata leaves the documented return VALUE (the outcomes vector)
+  unchanged. The boundaries are positional with respect to DISPATCH-STEP
+  ORDER — the Nth element is the Nth dispatch step's settle boundary — so
+  they zip directly onto the dispatch steps of the `:event-program` the
+  narrative spans, regardless of how much of the `epoch-history` ring
+  (default depth 50) survives eviction by the time the tape is read.
 
   This is the IMPURE seam — it dispatches into a live frame. The caller
   owns frame allocation + teardown + the epoch-tape read; `replay-run-
@@ -336,10 +332,14 @@
                                     (when-let [evec (runner/step-event step)]
                                       (let [required (boundary/step-required-boundary step)
                                             dispatch-opts (step-dispatch-opts step)]
-                                        ;; Snapshot the tape cursor BEFORE the
-                                        ;; settle — this dispatch step owns the
-                                        ;; records committed from here forward.
-                                        (vswap! boundaries conj (epoch-count frame-id))
+                                        ;; Snapshot the last-committed
+                                        ;; `:epoch-id` BEFORE the settle — this
+                                        ;; dispatch step owns every record
+                                        ;; whose OWN id is greater (rf2-96qsjr:
+                                        ;; an identity, not a ring-length
+                                        ;; snapshot, so it stays correct
+                                        ;; whatever the ring evicts).
+                                        (vswap! boundaries conj (runner-events/last-epoch-id frame-id))
                                         (boundary/dispatch-and-settle!
                                           frame-id evec replay-hooks required step
                                           dispatch-opts)))))

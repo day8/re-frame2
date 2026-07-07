@@ -879,6 +879,63 @@
          (is (= 3 (count (re/settle-boundaries :story.vkdam/rerun)))
              "the public driver reset its boundaries — no stale accumulation")))))
 
+;; ---- rf2-96qsjr: narrative attribution survives epoch-ring eviction ------
+;;
+;; End-to-end sibling of the pure `evidence-test` stamp-tape gates: a REAL
+;; run, through the orchestrator (`story/run-variant`), whose dispatch-step
+;; count exceeds a small configured epoch-history ring depth. Proves the
+;; producer (`runner-events/last-epoch-id`) and the consumer
+;; (`runtime/record-result-map` + `evidence/stamp-tape`) agree end-to-end —
+;; not just that the pure fns compose correctly in isolation.
+
+#?(:clj
+   (deftest narrative-attribution-survives-epoch-ring-eviction
+     (testing "rf2-96qsjr: five dispatch steps against a depth-3 epoch-
+              history ring still attribute each SURVIVING epoch to its
+              correct originating script step — the boundary bookkeeping
+              records the framework's genuine monotonic :epoch-id (never
+              plateaus), so ring eviction can only ever drop beats, never
+              misattribute a surviving one"
+       (try
+         (epoch/configure! {:depth 3})
+         (rf/reg-event :re-eviction/set
+           (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
+         (story/reg-variant :story.runner/eviction
+           {:events []
+            :play-script {:script [[:dispatch-sync [:re-eviction/set 1]]
+                                   [:dispatch-sync [:re-eviction/set 2]]
+                                   [:dispatch-sync [:re-eviction/set 3]]
+                                   [:dispatch-sync [:re-eviction/set 4]]
+                                   [:dispatch-sync [:re-eviction/set 5]]]}})
+         (let [result    (async/deref-blocking (story/run-variant :story.runner/eviction) 5000)
+               narrative (:narrative result)
+               span-for  (fn [want]
+                           (some #(when (= [:dispatch-sync [:re-eviction/set want]] (:step %)) %)
+                                 narrative))]
+           (is (= 5 (:n (:app-db result)))
+               "sanity: the run itself executed every step (the LAST
+                :set wins on app-db) — attribution below is what's under
+                test, not whether the run happened")
+           (is (= [] (mapv :trigger-event (:epochs (span-for 1))))
+               "step 0's own epoch (n=1) was evicted by the depth-3 ring
+                — no beats, but critically NOT a later step's epoch
+                misattributed here")
+           (is (= [] (mapv :trigger-event (:epochs (span-for 2))))
+               "step 1's own epoch (n=2) was likewise evicted")
+           (is (= [[:re-eviction/set 3]] (mapv :trigger-event (:epochs (span-for 3))))
+               "step 2's surviving epoch is attributed to step 2 — NOT
+                step 0, which is where the old ring-length-snapshot
+                boundary scheme (plateaued at the ring depth) would have
+                shifted it")
+           (is (= [[:re-eviction/set 4]] (mapv :trigger-event (:epochs (span-for 4))))
+               "step 3's surviving epoch is attributed to step 3")
+           (is (= [[:re-eviction/set 5]] (mapv :trigger-event (:epochs (span-for 5))))
+               "step 4's surviving epoch is attributed to step 4"))
+         (finally
+           ;; `:depth` is a process-global epoch-history knob — restore
+           ;; the framework default so it doesn't leak into sibling tests.
+           (epoch/configure! {:depth 50}))))))
+
 #?(:clj
    (deftest bare-vector-with-unknown-event-still-dispatches
      (testing "a bare event vector with no registered handler still dispatches; the play status does not fail because dispatch is a no-assertion step"

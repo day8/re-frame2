@@ -89,15 +89,31 @@
 
 (defonce
   ^{:doc "frame-id → vector of per-dispatch-step settle boundaries
-         (rf2-rkd14). Each element is the epoch-history LENGTH at the
-         moment a dispatch-opening step's settle began, recorded in
+         (rf2-rkd14). Each element is the `:epoch-id` of the
+         most-recently-committed epoch at the moment a dispatch-opening
+         step's settle BEGAN (0 when none has committed yet), recorded in
          dispatch-step execution order. The evidence projection
          (`runtime/record-result-map`) reads this through
          `settle-boundaries` and hands it to
          `evidence/project-evidence` as `:attribution`, lighting up the
          EXACT narrative attribution (`spans-from-stamps`) instead of the
-         EVEN heuristic. Plain atom on both runtimes — it is read once at
-         result-build time, not a reactive UI input."}
+         EVEN heuristic.
+
+         rf2-96qsjr: boundaries are the framework's genuine, globally-
+         monotonic `:epoch-id` — NOT an `epoch-history` ring-LENGTH
+         snapshot. A length snapshot plateaus at the configured ring
+         depth (default 50) once the ring fills, so two boundaries
+         recorded after that point are numerically IDENTICAL — a long
+         run (a big `:script`, a heavy cascade, or multi-play accumulation
+         across ALL auto-plays) silently collapses distinct dispatch
+         steps onto the same cursor and misattributes their epochs. An
+         `:epoch-id` never plateaus and never depends on how much of the
+         ring survives eviction — `stamp-tape` compares it directly
+         against each SURVIVING record's own `:epoch-id`, so eviction can
+         only ever drop beats, never misattribute them.
+
+         Plain atom on both runtimes — it is read once at result-build
+         time, not a reactive UI input."}
   step-boundaries
   (atom {}))
 
@@ -124,31 +140,48 @@
   [frame-id]
   (get @step-boundaries frame-id))
 
-(defn- epoch-count
-  "The current epoch-history length for `frame-id` (the append-only tape
-  cursor the settle boundary snapshots). Tolerant — 0 when the frame has
-  no history / the epoch dep is absent (the facade degrades to `[]`)."
+(defn last-epoch-id
+  "The `:epoch-id` of the most-recently-committed epoch for `frame-id`, or
+  `0` if none has committed yet. `0` is never a real epoch-id — the
+  framework counter is 1-based (`re-frame.epoch.state/next-epoch-id`) — so
+  it composes as a safe exclusive lower bound with plain `<` comparisons.
+
+  rf2-96qsjr: this is a genuine, globally-monotonic IDENTITY, not a
+  ring-length/count snapshot. `rf/epoch-history` is a bounded per-frame
+  ring (default depth 50); a count of its current length PLATEAUS once
+  the ring is full (`(count (rf/epoch-history frame-id))` stops growing
+  even though epochs keep committing), so a boundary bookkeeper built on
+  it silently loses the ability to tell dispatch steps apart on a long
+  run. `:epoch-id` keeps incrementing regardless of ring occupancy and
+  survives eviction unchanged — a record that is still IN the ring always
+  carries the same `:epoch-id` it was assigned at commit time, so
+  comparing against it stays correct however much of the ring has been
+  evicted since. Public — `runtime.cljc` reads this too (`:epoch-baseline`
+  uses the same identity so the tape-scoping and the boundary bookkeeping
+  agree on what a run's epochs look like). Tolerant — 0 when the frame
+  has no history / the epoch dep is absent (the facade degrades to `[]`)."
   [frame-id]
-  (try (count (rf/epoch-history frame-id))
+  (try (or (:epoch-id (last (rf/epoch-history frame-id))) 0)
        (catch #?(:clj Throwable :cljs :default) _ 0)))
 
 (defn- record-settle-boundary!
-  "Snapshot the epoch-history length at the START of a dispatch-opening
-  `step`'s settle. No-op for non-dispatch steps (assert / wait / unknown)
-  — those commit no span of their own; their epochs roll into
+  "Snapshot the last-committed `:epoch-id` at the START of a dispatch-
+  opening `step`'s settle. No-op for non-dispatch steps (assert / wait /
+  unknown) — those commit no span of their own; their epochs roll into
   the preceding dispatch span (the narrative's forward-attribution model).
   The boundaries accumulate in dispatch-step execution order, which — for
   both the single-play and multi-play (sequential) runner — is exactly the
   order the dispatch steps appear in the concatenated executed-script the
   narrative spans. For multi-play this holds ONLY because the sequencer
   clears once up front and drives each play with `:clear-boundaries? false`:
-  the boundaries from play K+1 (absolute epoch-history
-  lengths) tail play K's, so the full vector zips positionally against the
-  concatenated script. A per-play clear would drop every earlier play's
-  boundaries, leaving only the last play's to be mis-zipped."
+  the boundaries from play K+1 (epoch-ids, which only ever increase) tail
+  play K's, so the full vector zips against the concatenated script in
+  dispatch order — an ordering fact, independent of ring occupancy. A
+  per-play clear would drop every earlier play's boundaries, leaving only
+  the last play's to be mis-zipped."
   [frame-id step]
   (when (evidence/dispatch-step? step)
-    (swap! step-boundaries update frame-id (fnil conj []) (epoch-count frame-id)))
+    (swap! step-boundaries update frame-id (fnil conj []) (last-epoch-id frame-id)))
   nil)
 
 (defn current-state-for-play
@@ -1293,22 +1326,22 @@
      ;; public entry that resets run-state and then writes boundaries via
      ;; `run-loop!`/`record-settle-boundary!`. Owning the reset alongside the
      ;; write keeps the attribution windowed onto THIS run's epoch tape. The
-     ;; leading-nil-span semantics hold: the boundaries snapshot the ABSOLUTE
-     ;; epoch-history length, so any setup epochs already on the tape precede
-     ;; the first boundary (in the orchestrator path setup runs in phase-2,
-     ;; before phase-4 drives `run!`).
+     ;; leading-nil-span semantics hold: the boundaries snapshot the last-
+     ;; committed `:epoch-id`, so any setup epochs already on the tape carry
+     ;; an id at or before the first boundary (in the orchestrator path
+     ;; setup runs in phase-2, before phase-4 drives `run!`).
      ;;
      ;; A MULTI-PLAY sequencer (`run-plays-sequentially!`, the orchestrator
      ;; `runtime/run-phase-4!`) passes `:clear-boundaries? false` for the
      ;; 2nd…Nth play so the boundaries ACCUMULATE across the whole auto-run
      ;; sequence. The narrative spans the CONCATENATED script
-     ;; (`(mapcat :script auto-plays)`), and the epoch tape is append-only
-     ;; across the run (no per-play reset), so each play's absolute boundaries
-     ;; tail the previous play's — keeping the positional zip in `stamp-tape`
-     ;; aligned. Clearing per-play would drop every earlier play's boundaries,
-     ;; leaving only the LAST play's absolute boundaries to be mis-zipped
-     ;; against the concatenated script's leading dispatch steps — a
-     ;; false-green evidence-provenance failure.
+     ;; (`(mapcat :script auto-plays)`), and `:epoch-id` only ever increases
+     ;; across the run (rf2-96qsjr — true regardless of ring eviction), so
+     ;; each play's boundaries tail the previous play's — keeping the
+     ;; dispatch-order zip in `stamp-tape` aligned. Clearing per-play would
+     ;; drop every earlier play's boundaries, leaving only the LAST play's
+     ;; to be mis-zipped against the concatenated script's leading dispatch
+     ;; steps — a false-green evidence-provenance failure.
      (when clear-boundaries?
        (clear-step-boundaries! variant-id))
      (set-state! variant-id pk started)
@@ -1389,11 +1422,12 @@
   Clears the per-dispatch-step settle boundaries ONCE up front, then
   drives each play with `:clear-boundaries? false` so the boundaries
   ACCUMULATE across the sequence. The evidence narrative spans the
-  CONCATENATED play scripts, and the epoch tape is append-only across
-  the run, so each play's absolute boundaries must tail the previous
-  play's for the positional `stamp-tape` zip to stay aligned. Letting each
-  `run!` clear would leave only the last play's boundaries, mis-attributing
-  later-play effects to earlier-play steps."
+  CONCATENATED play scripts, and `:epoch-id` only ever increases across
+  the run (rf2-96qsjr — independent of ring eviction), so each play's
+  boundaries tail the previous play's for `stamp-tape`'s dispatch-order
+  zip to stay aligned. Letting each `run!` clear would leave only the
+  last play's boundaries, mis-attributing later-play effects to
+  earlier-play steps."
   [variant-id plays done-cb]
   (let [acc (atom [])]
     (clear-step-boundaries! variant-id)
