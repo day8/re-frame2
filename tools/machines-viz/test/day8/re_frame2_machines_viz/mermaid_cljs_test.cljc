@@ -629,6 +629,58 @@
       (is (not (str/includes? out "fetch__ "))
           "no degenerate region-scoped empty-path target leaks into the diagram"))))
 
+;; ---- REGION's OWN top-level :on-done (rf2-f8fgz5) -----------------------
+;;
+;; Spec 005 §Parallel `:on-done`: "A compound region reaching its own
+;; :final? child raises a region-local done.state.<region-compound> that
+;; the region's :on-done takes … exactly the compound case, scoped to one
+;; region". Pre-fix `render-region-block` destructured only `{:keys
+;; [initial states on]}` — never `:on-done` — so this shape vanished from
+;; Mermaid with zero trace while SCXML preserved it (empirically verified:
+;; `scxml/spec->scxml` on the identical shape emits `<transition
+;; event="done.state.a" target="b" .../>`, `b` being the SIBLING region's
+;; own qualified id), breaking the G9 cross-emitter parity invariant.
+
+(deftest emit-region-on-done-target-bearing-renders-sibling-region-edge
+  (testing "rf2-f8fgz5 — a region's own top-level :on-done with a KEYWORD
+            target renders a `<region> --> <sibling-region> : ✓ done`
+            edge, matching SCXML's `done.state.<region> -> <sibling>`
+            transition"
+    (let [m   {:type    :parallel
+               :regions {:a {:initial :a1
+                             :on-done :b
+                             :states  {:a1 {:on {:go :a2}}
+                                       :a2 {:final? true}}}
+                         :b {:initial :b1
+                             :states  {:b1 {:on {:go :b2}}
+                                       :b2 {:final? true}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "a --> b : ✓ done")
+          "region :a's on-done advances to sibling region :b on completion")
+      (is (not (str/includes? out "note right of a\n"))
+          "a target-bearing region on-done does NOT also render a note"))))
+
+(deftest emit-region-on-done-action-only-renders-note-on-region-root
+  (testing "rf2-f8fgz5 — a region's own top-level :on-done that is
+            ACTION-ONLY (no target) has no sibling-region arrow to draw,
+            so it surfaces as a note on the region's OWN container (the
+            region root) — matching SCXML's target-less
+            `<transition event=\"done.state.<region>\">` + action comment"
+    (let [m   {:type    :parallel
+               :regions {:a {:initial :a1
+                             :on-done {:action :log}
+                             :states  {:a1 {:on {:go :a2}}
+                                       :a2 {:final? true}}}
+                         :b {:initial :b1
+                             :states  {:b1 {:on {:go :b2}}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of a")
+          "the region's own action-only on-done surfaces as a note on the region root")
+      (is (str/includes? out "on-done: ✓ done / log")
+          "the note carries the completion + its action")
+      (is (not (str/includes? out "a --> b"))
+          "no phantom completion arrow for an action-only region on-done"))))
+
 ;; ---- internal (action-only) :on / :after / :always notes (rf2-mnp93.4) --
 ;;
 ;; An INTERNAL transition candidate (a map omitting `:target` — Spec 005

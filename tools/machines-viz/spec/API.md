@@ -156,7 +156,17 @@ elkjs lays the states out inside
 each region's bounding box via `elk.hierarchyHandling
 INCLUDE_CHILDREN`. The chart root surfaces `data-region-count`; region
 containers are excluded from `data-node-count` + the aria-label state
-count (they are zone chrome, not states).
+count (they are zone chrome, not states). The SAME exclusion applies to
+every other synthetic/non-occupiable node: the root-container frame
+(`:root-container?`), the machine-root anchor chip (`:machine-root?` —
+minted for a machine-level `:on` fallback), the parallel-root anchor chip
+(`:parallel-root?` — minted for a parallel-root `:on`/`:after`/`:on-done`),
+and `:type :history` pseudo-states (`:history?` — Spec 005 §History
+states; never occupiable). `data-node-count` + the aria-label state count
+reflect ONLY real, occupiable states (rf2-3lrl2q — pre-fix only
+`:region?`/`:root-container?` were excluded, so any machine using one of
+these common default-path features over-reported its state count by +1
+per anchor/marker).
 
 ### Container sizing — `:style {:width :height}` from ELK (rf2-a64bi)
 
