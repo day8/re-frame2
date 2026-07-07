@@ -200,7 +200,11 @@
            ;; read-ui variants (re-frame2 view plane) — the SAME guard now
            ;; covers them, since read-ui rides the same eval-form plumbing.
            ["read-ui view-id"         (#'read-ui/read-ui-form :my.app/counter nil nil 2000 nil)]
-           ["read-ui point+frame"     (#'read-ui/read-ui-form nil {:x 12 :y 34} nil 100 ":stories")]
+           ;; `frame` rides pre-coerced (a keyword or nil) — read-ui-form
+           ;; does no coercion of its own, matching read-dom-form's
+           ;; contract; the caller (read-ui-tool) coerces via
+           ;; `args/->frame-keyword` before calling in (rf2-pvh95w).
+           ["read-ui point+frame"     (#'read-ui/read-ui-form nil {:x 12 :y 34} nil 100 :stories)]
            ["read-ui selector"        (#'read-ui/read-ui-form nil nil "#save" 2000 nil)]]]
     (let [suspects (unresolved-alias-suspects form)]
       (is (empty? suspects)

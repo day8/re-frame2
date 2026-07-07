@@ -16,23 +16,55 @@
 
   Once `runtime-preloaded?` resolves to true for a `(conn, build-id)`
   pair, the result is cached on the conn-atom (`:probed-builds`)
-  for the lifetime of the socket. Subsequent `ensure-runtime!`
+  for the lifetime of the socket. Subsequent `runtime-preloaded?`
   calls for the same build short-circuit without an nREPL round-trip.
   The cache is cleared by `nrepl/close!` (operator-initiated teardown)
   and is reborn empty whenever `server.cljs/ensure-connection!` builds a
   fresh conn for a new shadow port. It is deliberately PRESERVED across a
   transient same-port socket reopen — the `__re_frame2_pair_runtime`
   marker lives in the browser CLJS heap, which a JVM-side socket hiccup
-  doesn't destroy, so re-probing would be wasteful. (A full page reload
-  DOES destroy the marker, but it leaves the JVM nREPL socket UP, so it
-  doesn't trigger a reconnect-reset. Negative probes aren't cached, and
-  the diagnostic ladder surfaces a genuinely-dead marker on the next
-  eval against the build.)
+  doesn't destroy, so re-probing would be wasteful.
 
   Negative results are NOT cached: a missing preload usually surfaces
   on the very first call, and re-probing on each subsequent call
   lets a freshly-added preload land without a server restart (e.g.
   the user edits `shadow-cljs.edn` and shadow-cljs hot-reloads).
+
+  ## Re-validating a cached positive (rf2-dk6bv5)
+
+  A cached positive marker is scoped to the nREPL SOCKET, which stays
+  open independently of the browser tab's own WebSocket. If the tab
+  later closes / crashes / navigates away, `:probed-builds` stays stuck
+  at true for the rest of the socket's life — the marker cache alone
+  cannot see that the browser side is gone. Left unchecked, every later
+  `ensure-runtime!` call would trust the stale cache, skip straight to
+  evaluating the real form, get a blank result back, and the caller would
+  read that blank as a legitimate `nil` — `{:ok? true :value nil}`,
+  indistinguishable from a form that genuinely returns nil, with the
+  `diagnose-preload-failure!` ladder unreachable (it only runs when the
+  marker probe itself returns false).
+
+  `ensure-runtime!` and `resolve-and-preflight!` therefore route through
+  `confirmed-live?`, not the raw marker cache: a cache hit (or a fresh
+  positive probe) is followed by ONE cheap JVM-side liveness read —
+  `freshness/jvm-build-freshness`'s `:runtime-count` (shadow's build-worker
+  `:runtimes` map — a DIFFERENT round-trip from the browser marker
+  eval, so the marker-cache's own round-trip savings are untouched). Every
+  `ensure-runtime!` call re-validates this way; only a DEFINITIVE
+  `:runtime-count 0` (not `nil` — an unreadable JVM half must never
+  false-positive a live runtime as gone) invalidates the stale cache entry
+  and falls through to the full diagnostic ladder, which then reports the
+  precise reason (almost always `:no-runtime-connected`) instead of a
+  misleading `:ok? true`.
+
+  This was picked over the two alternatives noted in the bead: a TTL
+  reopens the same footgun for the length of the window (and adds a
+  clock dependency to a synchronous cache check); a browser-side teardown
+  signal needs a live WebSocket at the exact moment of teardown, which is
+  precisely the mechanism that's failing. A cheap, JVM-side, every-call
+  re-check trades a small constant cost (already paid by `discover-app`'s
+  freshness token, reusing the same primitive) for closing the hole
+  outright.
 
   ## Build resolution + fail-loud preflight
 
@@ -56,6 +88,7 @@
   (:require [cljs.reader]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
@@ -175,6 +208,18 @@
   (when (and (some? conn) (satisfies? IDeref conn))
     (swap! conn update :probed-builds (fnil conj #{}) build-id)))
 
+(defn- unmark-conn-probed!
+  "Drop a previously-recorded positive probe for `build-id` from the
+  conn-atom's cache (rf2-dk6bv5). Called when `confirmed-live?`'s
+  liveness re-check proves a cached positive is now stale — the browser
+  tab closed/crashed/navigated away sometime after the marker was
+  cached. The next `runtime-preloaded?` call for this build must re-probe
+  from scratch rather than keep trusting the stale entry. Defensive
+  against a non-atom `conn` (test stubs)."
+  [conn build-id]
+  (when (and (some? conn) (satisfies? IDeref conn))
+    (swap! conn update :probed-builds disj build-id)))
+
 (defn runtime-preloaded?
   "Probe `js/globalThis.__re_frame2_pair_runtime` — the load-time
   marker set by the preloaded `re-frame2-pair.runtime` namespace.
@@ -195,6 +240,52 @@
                    (when ok? (mark-conn-probed! conn build-id))
                    ok?)))
         (.catch (fn [_] false)))))
+
+;; ---------------------------------------------------------------------------
+;; Liveness re-validation (rf2-dk6bv5) — see the ns docstring's
+;; "Re-validating a cached positive" section for the full rationale.
+;; ---------------------------------------------------------------------------
+
+(defn- browser-disconnected?
+  "True iff the JVM-side freshness half reports a DEFINITIVE zero
+  connected REPL runtimes for the build. `nil` (the JVM half is
+  unreadable — old shadow, a socket hiccup, or, in a unit test, a conn
+  with no live `:socket` at all) is INCONCLUSIVE and must never be
+  treated as disconnected — only a confirmed `0` is proof the browser
+  tab is gone."
+  [jvm-half]
+  (= 0 (:runtime-count jvm-half)))
+
+(defn confirmed-live?
+  "The re-validated liveness check every eval-path guard uses in place
+  of a bare `runtime-preloaded?` call (rf2-dk6bv5). Resolves to true only
+  when BOTH hold:
+
+    1. the marker probe (`runtime-preloaded?`, itself cache-accelerated)
+       says the preload landed;
+    2. a cheap JVM-side liveness read — `freshness/jvm-build-freshness`'s
+       `:runtime-count` (shadow's build-worker `:runtimes` map) — does
+       NOT show a definitive zero connected runtimes.
+
+  This is a DIFFERENT round-trip from the browser marker eval (JVM-side,
+  no browser eval at all), so it re-validates on EVERY call — including
+  a cache hit — without disturbing the marker cache's own round-trip
+  savings. When the JVM half proves the browser has disconnected since
+  the marker was cached, the stale cache entry is dropped
+  (`unmark-conn-probed!`) so the next call re-probes from scratch, and
+  this call resolves false — routing the caller to the full diagnostic
+  ladder instead of a misleading `{:ok? true}`."
+  [conn build-id]
+  (-> (runtime-preloaded? conn build-id)
+      (.then (fn [ok?]
+               (if-not ok?
+                 false
+                 (-> (freshness/jvm-build-freshness conn build-id)
+                     (.then (fn [jvm-half]
+                              (if (browser-disconnected? jvm-half)
+                                (do (unmark-conn-probed! conn build-id)
+                                    false)
+                                true)))))))))
 
 ;; Forward declare for diagnose-preload-failure! — running-builds is
 ;; defined below alongside resolve-build! and friends; the ladder uses
@@ -306,14 +397,19 @@
   (nrepl/cljs-eval-value conn build-id (ef/emit (ef/rt-call 'health))))
 
 (defn ensure-runtime!
-  "Confirm the re-frame2-pair runtime is preloaded. Resolves to nil on success,
-  rejects with a structured error otherwise. Tools that need the
-  runtime call this first.
+  "Confirm the re-frame2-pair runtime is preloaded AND still actually
+  connected. Resolves to nil on success, rejects with a structured error
+  otherwise. Tools that need the runtime call this first.
 
-  After the first positive probe per `(conn, build-id)`, this resolves
-  synchronously from cache — no nREPL round-trip per tool call.
+  Routes through `confirmed-live?`, not the bare marker probe (rf2-dk6bv5):
+  a cached-positive marker still pays one cheap JVM-side liveness
+  re-check on every call (a different round-trip from the browser marker
+  eval — the marker cache's own round-trip savings are untouched), so a
+  browser tab that closed/crashed/navigated away AFTER the marker was
+  cached is caught here instead of silently trusted forever.
 
-  On a failed probe the diagnostic ladder
+  On a failed probe (bare marker absent, or the liveness re-check proved
+  the browser has since disconnected) the diagnostic ladder
   (`diagnose-preload-failure!`) inspects the failure mode and rejects
   with one of four specific reasons — `:nrepl-unreachable`,
   `:build-not-running`, `:no-runtime-connected`, or
@@ -321,9 +417,9 @@
   The blanket `:runtime-not-preloaded` reason is reserved as the
   degradation fallback if the ladder itself errors."
   [conn build-id]
-  (-> (runtime-preloaded? conn build-id)
-      (.then (fn [ok?]
-               (if ok?
+  (-> (confirmed-live? conn build-id)
+      (.then (fn [live?]
+               (if live?
                  nil
                  (-> (diagnose-preload-failure! conn build-id)
                      (.then (fn [diag]
@@ -599,15 +695,19 @@
       error lacked.)
 
   NEVER resolves for a runtime-absent build, so the caller can never
-  emit `:ok? true :value nil` for an eval that didn't actually run."
+  emit `:ok? true :value nil` for an eval that didn't actually run —
+  including the rf2-dk6bv5 case where the marker cache is stale (the
+  browser tab closed/crashed/navigated away since it was cached):
+  `confirmed-live?` re-validates via a cheap JVM-side liveness read on
+  EVERY call, not just the raw marker probe."
   [conn build explicit?]
   (-> (resolve-build! conn build explicit?)
       (.then
         (fn [build-id]
-          (-> (runtime-preloaded? conn build-id)
+          (-> (confirmed-live? conn build-id)
               (.then
-                (fn [ok?]
-                  (if ok?
+                (fn [live?]
+                  (if live?
                     build-id
                     ;; Resolved a concrete build but its runtime sentinel
                     ;; is absent — enrich with the running-build list so
