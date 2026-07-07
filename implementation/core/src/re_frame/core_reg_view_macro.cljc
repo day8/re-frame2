@@ -1,8 +1,8 @@
 (ns re-frame.core-reg-view-macro
   "Helpers for the view-registration and frame-scope lexical macros —
-  `reg-view`, `reg-machine`, `with-frame`, `frame-bound-fn`, `with-fx-
+  `reg-view`, `reg-machine`, `with-frame`, `with-new-frame`, `with-fx-
   overrides`, `with-managed-request-stubs`. Per Spec 004 §reg-view,
-  Spec 005 §Source-coord stamping, Spec 002 §with-frame / §frame-bound-fn /
+  Spec 005 §Source-coord stamping, Spec 002 §with-frame /
   §`:fx-overrides`, Spec 014 §Testing.
 
   Carved out of `re-frame.core` so the public namespace stays a thin
@@ -290,11 +290,7 @@
          {:recovery :fix-registration
           :extra    {:got bindings}}))))
 
-#?(:clj
-   (defn expand-frame-bound-fn
-     [argv body]
-     (let [frame-sym (gensym "frame__")]
-       `(let [~frame-sym (re-frame.core/current-frame-id)]
-          (fn ~argv
-            (binding [re-frame.frame/*current-frame* ~frame-sym]
-              ~@body))))))
+;; `expand-frame-bound-fn` (the `frame-bound-fn` macro's expansion helper) is
+;; REMOVED — API-shrink #1, rf2-csbbwu deleted `frame-bound-fn` from the
+;; facade. Its dynamic-rebinding semantics survive internally as
+;; `re-frame.frame/bind-fn`.

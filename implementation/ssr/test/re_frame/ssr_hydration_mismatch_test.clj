@@ -101,7 +101,7 @@
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
 
-      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+      (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           "post-hydrate :hydrated? reads true even though the baked
            hash will mismatch the (future) client render")
       (is (= "deadbeef"
@@ -246,7 +246,7 @@
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
 
-      (is (= 0 (rf/subscribe-once client-frame [:count]))
+      (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
           "seeded :count post-hydrate matches the payload's :rf/app-db
            (= 0 on this surface — the payload didn't seed a higher
            value)")
@@ -258,7 +258,7 @@
         (fn [] (ssr/verify-hydration! client-frame "0badf00d")))
 
       (rf/dispatch-sync [::inc] {:frame client-frame})
-      (is (= 1 (rf/subscribe-once client-frame [:count]))
+      (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
           "post-mismatch ::inc dispatches through the live event-
            handler → db-update → sub-recompute pipeline; the
            warn-and-replace recovery is degraded-but-running, not

@@ -170,7 +170,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
 
     (let [routing-rt (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing])
-          pending    (rf/subscribe-once :rf/default [:rf/pending-navigation])]
+          pending    (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})]
       (is (some? pending) ":pending-navigation is subscribable (stays in runtime-db)")
       (is (= "pn-1" (:id pending)) "the pending-nav id is minted from the host counter")
       (is (= :can-leave (:reason pending)) "the pending-nav slot carries the block reason")

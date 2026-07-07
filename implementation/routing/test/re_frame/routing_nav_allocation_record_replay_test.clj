@@ -57,10 +57,10 @@
   (rf/dispatch-sync [:rf.route/transitioned "/editor"]))
 
 (defn- pending-id []
-  (:id (rf/subscribe-once :rf/default [:rf/pending-navigation])))
+  (:id (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})))
 
 (defn- blocked? []
-  (some? (rf/subscribe-once :rf/default [:rf/pending-navigation])))
+  (some? (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})))
 
 ;; ===========================================================================
 ;; The allocation-cofx SHAPE (rf2-vcop6y step 3): two RECORDABLE,

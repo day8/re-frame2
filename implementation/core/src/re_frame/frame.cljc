@@ -83,25 +83,27 @@
 ;; runtime-db, event queue and drain state, subscription cache, ... a reference
 ;; to the resolved image generation it is running").
 ;;
-;; The PUBLIC target a dispatch / subscribe / destroy / app-db read addresses is
-;; a frame — usually a frame id KEYWORD (the public routing address), sometimes
-;; a frame VALUE the lifecycle APIs return (EP-0024 Operation target grammar —
-;; "the API teaches one routing address: the frame id"; internal normalization
-;; also accepts a frame value for tests/tools). Every runnable subsystem
-;; resolves per-frame state through a frame-id ADDRESS keyed into `frames` (the
-;; ONE registry — the universal chokepoint: the router queue/drain,
-;; `commit-frame-transition!`, the sub-cache, cofx, elision, …). So a frame
-;; VALUE target is normalized to its id at the public entry, and every
-;; bare-`frame-id`-keyed operation downstream is identical.
+;; The PUBLIC target a dispatch / subscribe / destroy / app-db read / provider
+;; addresses is a frame — a frame id KEYWORD OR a frame VALUE the lifecycle
+;; APIs return, ACCEPTED INTERCHANGEABLY EVERYWHERE (API-shrink #1, rf2-csbbwu
+;; — the API commits to ONE frame-target grammar; EP-0024 Operation target
+;; grammar). Every runnable subsystem resolves per-frame state through a
+;; frame-id ADDRESS keyed into `frames` (the ONE registry — the universal
+;; chokepoint: the router queue/drain, `commit-frame-transition!`, the
+;; sub-cache, cofx, elision, …). So a frame VALUE target is normalized to its
+;; id at the public entry, and every bare-`frame-id`-keyed operation
+;; downstream is identical.
 ;;
 ;; The frame VALUE is the live lifecycle token `make-frame` returns. Its
 ;; representation is NOT an app-facing data contract: it carries the
 ;; `:rf.frame/object` marker (so a value target is discriminated structurally
 ;; from a keyword id) and `:rf.frame/runnable-id` (= the frame id its record is
 ;; keyed by in the one `frames` registry). The resolved image generation is NOT
-;; embedded on the value — it lives on the record (the `:generation` slot), read
-;; by id. `frame-value->id` is the single public accessor from a frame value to
-;; its id (EP-0024 Open Issue #2 — representation hidden).
+;; embedded on the value — it lives on the record (the `:generation` slot),
+;; read by id. `frame-value->id` normalizes a frame value to its id
+;; (EP-0024 Open Issue #2 — representation hidden); it is an INTERNAL
+;; primitive — every public surface accepts the value directly, so there is
+;; no facade accessor to reach for.
 
 (def ^:const object-marker
   "Reserved frame-value marker key. A `true` value at this key on a map means
@@ -128,12 +130,13 @@
   (boolean (and (map? x) (get x object-marker))))
 
 (defn frame-value->id
-  "The single public accessor from a frame VALUE to its frame id (EP-0024 Open
-  Issue #2 — \"provide one accessor frame value → id; do not expose the
-  representation\"). Returns the frame id a frame value routes to (its
-  `:rf.frame/id` when created with one, else its private `:rf.frame/<gensym>`
-  runnable id). Passing a frame-id keyword returns it unchanged, so callers can
-  always pass a value or an id to this accessor. Pure."
+  "INTERNAL normalization primitive (API-shrink #1, rf2-csbbwu removed the
+  public `rf/frame-value->id` facade accessor — every public surface accepts
+  a frame value directly, so there is no app-facing need to unwrap one).
+  Returns the frame id a frame value routes to (its `:rf.frame/id` when
+  created with one, else its private `:rf.frame/<gensym>` runnable id).
+  Passing a frame-id keyword returns it unchanged, so callers can always
+  pass a value or an id. Pure."
   [frame-value]
   (if (frame-value? frame-value)
     (get frame-value runnable-id-key)
@@ -146,8 +149,9 @@
   `:rf.frame/runnable-id`; any other target (a keyword id, or a nil / malformed
   value) is returned UNCHANGED — so every keyword-target caller is
   byte-identical. The internal normalization seam dispatch / subscribe / destroy
-  / app-db-read funnel a frame value through before keying `frames`; the public
-  API teaches the frame id, the value is accepted for tests/tools. Pure — the
+  / app-db-read / frame-provider funnel a frame value through before keying
+  `frames`; the value is accepted EVERYWHERE a keyword id is (API-shrink #1,
+  rf2-csbbwu). Pure — the
   same normalization as `frame-value->id`."
   [target]
   (frame-value->id target))
@@ -281,8 +285,8 @@
   `:rf/default` (per Spec 002 §Frame target resolution — the carried
   invariant, EP-0002). The two scope tiers it observes:
 
-    1. `*current-frame*` (dynamic var) — set by `with-frame` /
-       `frame-bound-fn` / the router's per-handler binding.
+    1. `*current-frame*` (dynamic var) — set by `with-frame` / `bind-fn`
+       (INTERNAL) / the router's per-handler binding.
     2. The closest enclosing frame-provider via React context (CLJS).
 
   On CLJS this consults the `:adapter/current-frame` late-bind hook so
@@ -409,10 +413,11 @@
 ;; ---- :rf.error/bad-frame-provider-arg — a bad explicit target -------------
 ;;
 ;; Distinct from `:rf.error/no-frame-context`. A public
-;; `frame-provider` whose `:frame` is non-nil but NOT a keyword has carried
-;; an explicit-but-malformed target — `{:frame "app"}`, `{:frame 7}`,
-;; `{:frame ['x]}`. Frame ids are keywords (Spec 002 §Frame identity is a
-;; value; `frame-provider` is "keyword in"), so a non-keyword `:frame` is a
+;; `frame-provider` whose `:frame` is non-nil but NEITHER a keyword NOR a
+;; live frame value has carried an explicit-but-malformed target —
+;; `{:frame "app"}`, `{:frame 7}`, `{:frame ['x]}`. `frame-provider` accepts
+;; a frame TARGET — a frame-id keyword OR a live frame value (`make-frame`'s
+;; return token), API-shrink #1 rf2-csbbwu — so anything else is a
 ;; CONFIGURATION ERROR at the provider boundary, not an absence.
 ;;
 ;; This is reported as its OWN category so the three states stay distinct:
@@ -431,15 +436,15 @@
 
 (defn bad-frame-provider-arg-payload
   "Build the canonical `:rf.error/bad-frame-provider-arg` payload for a
-  public `frame-provider` call whose `:frame` is non-nil but not a keyword.
-  `received` is the offending value; `extra` (optional) merges call-site
-  detail (`:where`)."
+  public `frame-provider` call whose `:frame` is non-nil but neither a
+  keyword nor a live frame value. `received` is the offending value;
+  `extra` (optional) merges call-site detail (`:where`)."
   ([received] (bad-frame-provider-arg-payload received nil))
   ([received extra]
    (merge {:rf.error/id :rf.error/bad-frame-provider-arg
            :received    received
            :recovery    :supply-keyword-frame
-           :reason      "frame-provider :frame must be a keyword frame id (e.g. :todo); a non-keyword value is a bad public provider argument, not a carried frame."}
+           :reason      "frame-provider :frame must be a frame id keyword (e.g. :todo) or a live frame value (make-frame's return token); anything else is a bad public provider argument, not a carried frame."}
           extra)))
 
 (defn emit-bad-frame-provider-arg!
@@ -461,10 +466,13 @@
   payload)
 
 (defn require-keyword-frame-provider-arg!
-  "Validate a public `frame-provider`'s `:frame` arg. Returns
-  `frame-kw` unchanged when it is a keyword. A nil value routes to the
+  "Validate a public `frame-provider`'s `:frame` arg — accepts a frame-id
+  KEYWORD or a live frame VALUE (`make-frame`'s return token), normalizing
+  either to the frame id via `frame-value->id` (API-shrink #1, rf2-csbbwu —
+  `frame-provider` teaches the same one frame-target grammar as `dispatch`
+  / `subscribe` / `destroy-frame!`). A nil value routes to the
   `:rf.error/no-frame-context` path (absence — the provider
-  establishes no usable scope). A non-nil non-keyword value emits + throws
+  establishes no usable scope). Any other non-nil value emits + throws
   the distinct `:rf.error/bad-frame-provider-arg` so the bad explicit
   target fails loudly at the provider rather than being silently coerced to
   a registered keyword frame by the lower-level context reader.
@@ -473,17 +481,18 @@
   branch threads `where` + a `:supply-frame` recovery into the
   no-frame-context payload, matching each provider surface's nil
   handling."
-  [frame-kw where]
+  [frame-target where]
   (cond
-    (keyword? frame-kw) frame-kw
-    (nil? frame-kw)
+    (keyword? frame-target) frame-target
+    (frame-value? frame-target) (frame-value->id frame-target)
+    (nil? frame-target)
     (let [payload (no-frame-context-payload
                     :frame-provider
                     {:where where :recovery :supply-frame})]
       (emit-no-frame-context! payload)
       (throw (error/ex-info-from-data payload)))
     :else
-    (let [payload (bad-frame-provider-arg-payload frame-kw {:where where})]
+    (let [payload (bad-frame-provider-arg-payload frame-target {:where where})]
       (emit-bad-frame-provider-arg! payload)
       (throw (error/ex-info-from-data payload)))))
 
@@ -544,6 +553,30 @@
        (let [payload (no-frame-context-payload operation extra)]
          (emit-no-frame-context! payload)
          (throw (error/ex-info-from-data payload))))))
+
+;; ---- bind-fn — INTERNAL dynamic-rebinding carry primitive ------------------
+;;
+;; API-shrink #1 (rf2-csbbwu): the public `frame-bound-fn` / `frame-bound-fn*`
+;; are REMOVED from the facade — `re-frame.core/capture-frame` is the ONE
+;; public HOLD primitive. `bind-fn`'s semantics are genuinely DIFFERENT from
+;; `capture-frame`'s pre-bound `{:dispatch :dispatch-sync :subscribe}` op
+;; bundle: it re-establishes `*current-frame*` around an ARBITRARY
+;; already-held fn (including one that itself calls `current-frame-id` or
+;; other frame-scoped readers), so it survives here for the framework's own
+;; internal / test / tooling reach.
+
+(defn bind-fn
+  "INTERNAL. Wrap `f` so `*current-frame*` is re-established to `frame` for
+  the duration of each call to the returned fn — i.e. re-run `f` UNDER an
+  explicit frame binding rather than through `capture-frame`'s op bundle.
+  The returned fn dispatches / reads into `frame` even when invoked after
+  the caller's own dynamic / React-context scope has unwound (the async-
+  boundary case `with-frame` / a frame-provider cannot cover). NOT an
+  app-facing surface."
+  [frame f]
+  (fn [& args]
+    (binding [*current-frame* frame]
+      (apply f args))))
 
 ;; ---- lookup ---------------------------------------------------------------
 

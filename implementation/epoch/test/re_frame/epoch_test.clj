@@ -1516,7 +1516,7 @@
     (rf/reg-event :read-sub
       (fn [_ _]
         ;; Read both subs to exercise layer-1 and layer-2.
-        (let [_v (rf/subscribe-once :test/main [:n*2])]
+        (let [_v (rf/subscribe-once [:n*2] {:frame :test/main})]
           {})))
 
     (rf/dispatch-sync [:seed]      {:frame :test/main})
@@ -2437,16 +2437,16 @@
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=3
 
-    (is (= 3 (rf/subscribe-once :test/main [:n])))
-    (is (= 6 (rf/subscribe-once :test/main [:n*2])))
+    (is (= 3 (rf/subscribe-once [:n] {:frame :test/main})))
+    (is (= 6 (rf/subscribe-once [:n*2] {:frame :test/main})))
 
     (let [history (rf/epoch-history :test/main)
           ;; Pick the epoch where :n landed at 1 (second :inc dispatch).
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
       (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
-      (is (= 1 (rf/subscribe-once :test/main [:n]))
+      (is (= 1 (rf/subscribe-once [:n] {:frame :test/main}))
           "layer-1 sub now sees the restored value (no manual invalidation)")
-      (is (= 2 (rf/subscribe-once :test/main [:n*2]))
+      (is (= 2 (rf/subscribe-once [:n*2] {:frame :test/main}))
           "layer-2 sub recomputes against the restored input"))))
 
 (deftest restore-rewinds-pinned-reaction
@@ -2464,7 +2464,7 @@
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=1
     (rf/dispatch-sync [:inc]  {:frame :test/main})  ;; n=2
 
-    (let [pinned  (rf/subscribe :test/main [:n])
+    (let [pinned  (rf/subscribe [:n] {:frame :test/main})
           _       (is (= 2 @pinned) "pinned reaction sees current value")
           history (rf/epoch-history :test/main)
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
@@ -2494,9 +2494,9 @@
           ;; The epoch where A's n landed at 1 (first :inc).
           a-target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) a-history)]
       (is (true? (rf/restore-epoch! :frame/a (:epoch-id a-target))))
-      (is (= 1   (rf/subscribe-once :frame/a [:n]))
+      (is (= 1   (rf/subscribe-once [:n] {:frame :frame/a}))
           "frame A's sub sees the rewound value")
-      (is (= 101 (rf/subscribe-once :frame/b [:n]))
+      (is (= 101 (rf/subscribe-once [:n] {:frame :frame/b}))
           "frame B's sub is unchanged by the cross-frame restore")
       (is (= 101 (:n (rf/app-db-value :frame/b)))
           "frame B's app-db is unchanged"))))
@@ -2520,7 +2520,7 @@
           target-eid (:epoch-id target)]
       (is (true? (rf/restore-epoch! :test/main target-eid)) "first restore ok")
       (let [db-after-1 (rf/app-db-value :test/main)
-            sub-1      (rf/subscribe-once :test/main [:n])]
+            sub-1      (rf/subscribe-once [:n] {:frame :test/main})]
         (is (= {:n 1} db-after-1))
         (is (= 1     sub-1))
 
@@ -2528,7 +2528,7 @@
         (is (true? (rf/restore-epoch! :test/main target-eid)) "second restore ok")
         (is (= db-after-1 (rf/app-db-value :test/main))
             "app-db unchanged across the second restore")
-        (is (= sub-1 (rf/subscribe-once :test/main [:n]))
+        (is (= sub-1 (rf/subscribe-once [:n] {:frame :test/main}))
             "sub value unchanged across the second restore")))))
 
 (deftest restore-rewinds-flow-output-in-app-db
@@ -2954,13 +2954,13 @@
     (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
-    (is (= 0 (rf/subscribe-once :test/main [:n])))
-    (is (= 0 (rf/subscribe-once :test/main [:n*2])))
+    (is (= 0 (rf/subscribe-once [:n] {:frame :test/main})))
+    (is (= 0 (rf/subscribe-once [:n*2] {:frame :test/main})))
 
     (rf/replace-app-db! :test/main {:n 21})
-    (is (= 21 (rf/subscribe-once :test/main [:n]))
+    (is (= 21 (rf/subscribe-once [:n] {:frame :test/main}))
         "layer-1 sub returns the post-reset value")
-    (is (= 42 (rf/subscribe-once :test/main [:n*2]))
+    (is (= 42 (rf/subscribe-once [:n*2] {:frame :test/main}))
         "derived sub re-computes against the post-reset value")))
 
 (deftest replace-app-db!-raises-when-epoch-artefact-missing

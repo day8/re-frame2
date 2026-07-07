@@ -170,18 +170,20 @@
       (is (= 1 (:n (rf/app-db-value :app/main)))
           "the held dispatch ran against the captured frame despite no scope"))))
 
-(deftest frame-bound-fn-after-unwind-works
-  (testing "a frame-bound-fn* wrapper re-establishes the captured scope so
-            an inner bare dispatch resolves the captured frame after unwind"
+(deftest bind-fn-after-unwind-works
+  (testing "re-frame.frame/bind-fn (the internal relocated frame-bound-fn*
+            dynamic-rebinding primitive, API-shrink #1 rf2-csbbwu) re-
+            establishes the captured scope so an inner bare dispatch
+            resolves the captured frame after unwind"
     (rf/reg-frame :app/main {:doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [bound (rf/with-frame :app/main
-                  (rf/frame-bound-fn* (fn [] (rf/dispatch-sync [:app/inc]))))]
+                  (frame/bind-fn :app/main (fn [] (rf/dispatch-sync [:app/inc]))))]
       (binding [frame/*current-frame* nil]
         (bound))
       (is (= 1 (:n (rf/app-db-value :app/main)))
-          "the frame-bound-fn* re-bound the captured frame for the inner dispatch"))))
+          "bind-fn re-bound the captured frame for the inner dispatch"))))
 
 ;; ---- explicit {:frame :rf/default} works only if registered ---------------
 

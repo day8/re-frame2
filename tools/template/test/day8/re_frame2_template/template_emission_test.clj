@@ -563,13 +563,12 @@
 ;; closes that gap: every frame-scoped call in scratch.cljs must EITHER
 ;;   (a) sit lexically inside a `with-frame` / `with-new-frame` body (which
 ;;       pins / creates a frame for the duration), OR
-;;   (b) carry an explicit frame target inline:
-;;         - `dispatch` / `dispatch-sync`: a `:frame` key in the opts map
-;;           (the trailing map arg), e.g.
-;;           `(rf/dispatch [:e] {:frame :rf/default})`.
-;;         - `subscribe`: the 2-arity `(rf/subscribe <frame-id> [query])`
-;;           form, whose first arg is a keyword/symbol frame-id rather
-;;           than the query vector.
+;;   (b) carry an explicit frame target inline: a `:frame` key in the
+;;       trailing opts map, e.g. `(rf/dispatch [:e] {:frame :rf/default})`
+;;       / `(rf/subscribe [query] {:frame :rf/default})` — the ONE
+;;       frame-targeting shape for `dispatch` / `dispatch-sync` /
+;;       `subscribe` alike (API-shrink #1, rf2-csbbwu deleted the
+;;       frame-first positional form).
 
 (def ^:private frame-scoped-call-names
   "Bare names (alias-stripped) of the frame-scoped REPL ops scratch.cljs
@@ -591,30 +590,24 @@
        (contains? frame-scoped-call-names (name (first form)))))
 
 (defn- dispatch-has-explicit-frame?
-  "True when a `dispatch` / `dispatch-sync` call carries `:frame` in its
-  trailing opts map — `(rf/dispatch [:e] {:frame :rf/default})`."
+  "True when a `dispatch` / `dispatch-sync` / `subscribe` call carries
+  `:frame` in its trailing opts map — `(rf/dispatch [:e] {:frame
+  :rf/default})` / `(rf/subscribe [q] {:frame :rf/default})`."
   [form]
   (let [opts (last form)]
     (and (> (count form) 2)
          (map? opts)
          (contains? opts :frame))))
 
-(defn- subscribe-has-explicit-frame?
-  "True when a `subscribe` call uses the 2-arity `(rf/subscribe <frame-id>
-  [query])` form — its first arg is a keyword/symbol frame-id, not the
-  query vector."
-  [form]
-  (let [first-arg (second form)]
-    (and (= 3 (count form))
-         (or (keyword? first-arg) (symbol? first-arg)))))
-
 (defn- call-carries-explicit-frame?
   "Does this frame-scoped call name its frame inline (so it does not need a
-  surrounding `with-frame` / `with-new-frame` scope)?"
+  surrounding `with-frame` / `with-new-frame` scope)? `dispatch` /
+  `dispatch-sync` / `subscribe` all share the ONE shape: a `:frame` key in
+  the trailing opts map (API-shrink #1, rf2-csbbwu deleted the frame-first
+  positional form)."
   [form]
   (case (name (first form))
-    ("dispatch" "dispatch-sync") (dispatch-has-explicit-frame? form)
-    "subscribe"                  (subscribe-has-explicit-frame? form)
+    ("dispatch" "dispatch-sync" "subscribe") (dispatch-has-explicit-frame? form)
     false))
 
 (defn- frameless-scoped-calls
@@ -674,8 +667,7 @@
                ":rf.error/no-frame-context on first eval. Put it inside a "
                "(with-frame :rf/default …) / (with-new-frame [f …] …) body, "
                "or give it an explicit frame: {:frame :rf/default} opts for "
-               "dispatch / dispatch-sync, or the 2-arity "
-               "(subscribe <frame-id> [query]) form for subscribe.")))))
+               "dispatch / dispatch-sync / subscribe alike.")))))
 
 ;; --- Xray layout-host contract audit ---------------------------------------
 ;;

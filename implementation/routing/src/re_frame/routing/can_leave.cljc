@@ -127,7 +127,7 @@
       ;; 012:1196 unimplementable fragment-check hole for `:can-leave` and
       ;; gives `:can-enter` the destination to branch on.
       (let [query-with-target (conj (vec query) target)
-            v (subscribe-once frame query-with-target)]
+            v (subscribe-once query-with-target {:frame frame})]
         (cond
           (true?  v) true
           (false? v) false

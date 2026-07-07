@@ -97,7 +97,7 @@ chain, and no `:rf/default` floor: absence is `:rf.error/no-frame-context`.
 | Intent | Surfaces | What it is |
 |---|---|---|
 | **scope** | `with-frame` / `with-new-frame`, `frame-provider`, the router's per-handler binding | a frame established for a **synchronous** region — a render subtree, a lexical block, a handler invocation. Ambient *inside* the region. (`with-frame` scopes to an *existing* frame; `frame-provider` and `with-new-frame` *own* a lifetime — they create the frame whose scope they then establish, and destroy it on exit — per [§Scope, carry, and ownership](#the-multi-frame-surface--choose-by-intent) and [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md).) |
-| **hold** | `capture-frame`, `frame-bound-fn` / `frame-bound-fn*`, the dispatch envelope threaded through a run, a captured frame stamp on any deferred callback | the frame **reified as a value** and carried across boundaries — async hops, tool sessions, fx closures. |
+| **hold** | `capture-frame`, the dispatch envelope threaded through a run, a captured frame stamp on any deferred callback | the frame **reified as a value** and carried across boundaries — async hops, tool sessions, fx closures. |
 | **override** | the per-call `{:frame …}` opt | the frame named **explicitly at the call site**. Always wins; the right shape for callbacks, tools, tests, SSR. |
 
 At a boundary the three collapse to the only distinction that matters:
@@ -269,10 +269,10 @@ second, softer fallback.
 ```
 
 Frame-scoped operations that resolve ambiently — `rf/dispatch`,
-`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/capture-frame`, the internal
-no-arg `frame-bound-fn*`, and the context-defaulting read/clear helpers — call the
-*require* helper and fail outside context. The no-arg *hold*-capture forms
-(`capture-frame`, `frame-bound-fn*`) capture **only** when a real scope exists at
+`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/capture-frame`,
+and the context-defaulting read/clear helpers — call the
+*require* helper and fail outside context. The no-arg *hold*-capture form
+(`capture-frame`) captures **only** when a real scope exists at
 capture time; capturing outside any scope is `:rf.error/no-frame-context`, never a
 captured default. The full migration of each call site — router envelope
 construction, the subscription/read surfaces, the React-context default, the
@@ -811,7 +811,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 ```clojure
 (rf/make-frame {:images [counter-image]}) → <frame value>   ;; the live frame VALUE (representation hidden)
-(rf/frame-value->id frame)                   → :rf.frame/…   ;; read the id via the one accessor
+(rf/dispatch [:counter/inc] {:frame frame})                  ;; pass the value directly — no accessor needed
 (rf/destroy-frame! frame)                                    ;; the value (or its id) destroys it
 
 (rf/reg-frame :counter {:initial-events [[:counter/init]]})  ;; the front-porch named path is unchanged
@@ -827,7 +827,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 
 `opts` is a **map** — a non-map `opts` (`nil`, a keyword, a vector, …) is rejected at the public boundary with `:rf.error/make-frame-bad-opts` (the all-defaults frame is `(make-frame {})`, never `(make-frame nil)`). The opts map accepts **image-selection** keys — `:images` (a **non-empty** vector — the assembled registration set the frame resolves against; `:images []` is an error and **omitting `:images` resolves the default image** over the whole source store, see [§Image resolution and composition](#image-resolution-and-composition)), `:id` (optional — registers the frame in the one live-frame registry; duplicate-id is **idempotent replacement**, not a blanket fail-loud — see [§Duplicate id](#duplicate-id--idempotent-replacement)), and `:adapter` — **and** the **record-config** keys `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, `:interceptors`, `:drain-depth`, in the same call. (There is no `:capabilities` image-selection key — image-declared host capabilities are not supported ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md)); a `:capabilities` key is not special-cased and flows through as ordinary record-config.) A second arity `(make-frame opts descriptors)` resolves `:images` against an explicit descriptor pool instead of the live source store (tests / harnesses / a pre-snapshotted store). A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
 
-**The frame value's representation is hidden; route by id.** `make-frame` returns the value, but the public routing address is the frame **id** — read it from the value via the one accessor (`rf/frame-value->id`) and pass the id to `dispatch` / `subscribe` / providers / tools. Internal normalization may accept a frame value where it is useful for tests or tools, but the API teaches one routing address: the frame id (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)).
+**The frame value's representation is hidden; pass it directly.** `make-frame` returns the value; `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept the value OR its id interchangeably (API-shrink #1, rf2-csbbwu — the API commits to ONE frame-target grammar, so there is no separate value→id accessor to reach for). A frame's id is still its public routing address in the registry sense (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)) — but callers holding a value never need to unwrap it.
 
 > **Single constructor.** `make-frame` is one constructor honouring both image-selection and record-config key families. The advanced `re-frame.frame/make-frame` is internal or absent. There is no `:rf.error/make-frame-record-only-key` redirect.
 
@@ -841,8 +841,8 @@ Tests use the direct-constructor pattern as their fixture lifecycle:
 (deftest auth-flow
   (let [f (rf/make-frame {:images [auth-image] :initial-events [[:rf/set-db {:auth/state :idle}]]})]
     (try
-      (rf/dispatch-sync [:auth/login-pressed] {:frame (rf/frame-value->id f)})
-      (is (= :validating (get-in (rf/app-db-value (rf/frame-value->id f)) [:auth :state])))
+      (rf/dispatch-sync [:auth/login-pressed] {:frame f})
+      (is (= :validating (get-in (rf/app-db-value f) [:auth :state])))
       (finally
         (rf/destroy-frame! f)))))
 ```
@@ -936,7 +936,7 @@ intents of [§Frame target resolution](#frame-target-resolution--the-carried-inv
 `:rf/default` fallback rung; absence is `:rf.error/no-frame-context`.
 
 1. **override** — explicit `:frame` in the dispatch opts map. `(dispatch [:foo] {:frame :todo})` always wins; the opts map's keys flow straight into the dispatch envelope.
-2. **hold** — a carried stamp. `reg-view`-injected `dispatch` carries the frame captured from React context at render (internally `(fn [event] (dispatch event {:frame <captured>}))`); a `capture-frame` / `frame-bound-fn*` op carries the frame captured at creation; a child dispatch inherits `:frame` from the parent envelope threaded through the queue.
+2. **hold** — a carried stamp. `reg-view`-injected `dispatch` carries the frame captured from React context at render (internally `(fn [event] (dispatch event {:frame <captured>}))`); a `capture-frame` op carries the frame captured at creation; a child dispatch inherits `:frame` from the parent envelope threaded through the queue.
 3. **scope** — an established synchronous region. Inside `(with-frame :todo …)` a dynamic var carries the frame, so a bare `(rf/dispatch [:foo])` in the body resolves to `:todo`. **The router establishes the same scope around every running handler** (per [§Dispatches issued from inside a handler body](#dispatches-issued-from-inside-a-handler-body) below), so a synchronous `(rf/dispatch [:foo])` from inside a handler running on `:todo` resolves to `:todo`.
 4. **absent** — none of the above. `(rf/dispatch [:foo])` with no carried stamp and no established scope fails with `:rf.error/no-frame-context` (per [§The error and its ladder](#the-error-and-its-ladder)). The runtime does not synthesise a frame.
 
@@ -1266,9 +1266,9 @@ The frame affordances are organised by **what you are trying to do**, not by mec
 - **Scope** — establish context for an **existing** frame (no lifecycle): `with-frame` (pin to an existing frame in a lexical/non-React region; synchronous, evaporates at an async hop) and `frame-provider {:frame …}` (scope an *existing* frame into a React subtree — the scope-into-React counterpart `with-frame` cannot serve because a dynamic var cannot cross React's render boundary; fails loud if the frame is absent).
 - **Ensure** — create-if-absent + reuse-if-present (no re-seed), no teardown: `frame-provider {:id …}` (the merged provider's ENSURE shape — ensures a named frame for as long as the subtree is mounted; durable state and `:initial-events` survive a remount; **no destroy-on-unmount**).
 - **Own** — create + destroy a frame lifetime (explicit teardown): `make-frame` + `destroy-frame!`, `with-new-frame` (create + bind + destroy on block exit), or `make-frame` + `destroy-frame!` inside a `create-class` for a view that owns a frame's lifetime. (Teardown is always explicit; there is no owned `frame-provider` destroy-on-unmount.)
-- **Hold (carry a frame's ops as a value, across async):** `capture-frame` (the public carry primitive). The robust carrier — the **primary** model for async and tooling. (`frame-bound-fn` / `frame-bound-fn*` are internal namespaces — `capture-frame` is the public carry surface; see [§frame-bound-fn](#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference).)
+- **Hold (carry a frame's ops as a value, across async):** `capture-frame` — the ONE public carry primitive (API-shrink #1, rf2-csbbwu removed `frame-bound-fn` / `frame-bound-fn*` from the facade entirely; see [§capture-frame is the ONE carry primitive](#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference)).
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
-- **Reads:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `frame-value->id` (value → id accessor), `snapshot-of`, `frame-ids`, `frame-meta`.
+- **Reads:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `snapshot-of`, `frame-ids`, `frame-meta`.
 
 **`scope` vs `ensure` vs `own` vs `carry` are separate jobs, one spelling each:**
 
@@ -1307,43 +1307,33 @@ Ambient *scope* lookup (dynamic var → React context) does **not** survive asyn
     [:div "streaming…"]))
 ```
 
-### `frame-bound-fn` / `frame-bound-fn*` — frame-capturing closures (CLJS reference)
+### `capture-frame` is the ONE carry primitive — no `frame-bound-fn` (CLJS reference)
 
-> **Internal carry helpers.** `capture-frame` is the **one public carry primitive**. `frame-bound-fn`, `frame-bound-fn*`, the lower-level `make-capture-frame`, the frame-first operation arities, and `subscribe*` are **internal namespaces** — the mechanism below is used by implementation code, not app-facing carry API. Author async and tooling paths with `capture-frame` or an explicit `{:frame …}` opt.
+> **API-shrink #1 (rf2-csbbwu) DELETED `frame-bound-fn` (macro) and `frame-bound-fn*` (fn) from the facade.** `capture-frame` is the **ONE** public carry primitive — there is no second app-facing carry surface. `make-capture-frame`, the frame-first operation arities, and `subscribe*` remain internal implementation namespaces, not app API.
 
-Sometimes the value you must carry across the boundary isn't a dispatch/subscribe op but an arbitrary fn that itself re-establishes the frame for its body — an async result handler set up inside `r/with-let`, an interval handle, a fn that calls `current-frame-id` internally. `frame-bound-fn` (the macro, `fn`-syntax) and `frame-bound-fn*` (the `*`-twin fn, for wrapping an existing fn value) cover this internally:
+`capture-frame`'s op bundle (`:dispatch` / `:dispatch-sync` / `:subscribe`) covers the common case. Occasionally the value you must carry across a boundary isn't a dispatch/subscribe op but an ARBITRARY fn that itself re-establishes the frame for its body — an async result handler set up inside `r/with-let`, an interval handle, a fn that calls `current-frame-id` internally. That is not a distinct public affordance: compose it directly from `with-frame` + `current-frame-id`, both already public:
 
 ```clojure
-;; Macro form — convenient `(fn ...)` syntax built in.
-(rf/frame-bound-fn [msg]
-  (rf/dispatch [:incoming msg]))          ;; closure carries the captured frame
-
-;; *-twin fn form — wrap an existing fn (or one returned by another helper / lib).
-(rf/frame-bound-fn*
-  (fn [msg] (rf/dispatch [:incoming msg])))
-
-;; *-twin fn form with explicit frame-id — no surrounding `with-frame` / provider
-;; needed at wrap time. Useful at module top level, in install! routines.
-(rf/frame-bound-fn* :rf/xray
-  (fn [_e mode] (rf/dispatch [:set-mode mode])))
+;; Wrap an arbitrary fn `f` so it re-establishes the current frame on every call.
+(let [frame (rf/current-frame-id)]
+  (fn [& args]
+    (rf/with-frame frame (apply f args))))
 ```
 
-Both produce a fn that, when called, runs in a `binding [*current-frame* <captured-frame>]` block — `*current-frame*` is the dynamic-binding tier of the resolution chain (above), so plain `dispatch`/`subscribe` inside the wrapped body pick up the right frame regardless of when the call fires. For the common dispatch / subscribe case prefer `capture-frame`; reach for `frame-bound-fn` / `frame-bound-fn*` when you need to re-establish the dynamic binding around an arbitrary fn body.
+This three-line idiom is exactly what the retired `frame-bound-fn*` did internally — it is not a missing capability, just no longer a dedicated named export. The framework's own internal / test / tooling reach uses `re-frame.frame/bind-fn` (an internal fn, NOT on the facade) for the identical mechanism.
 
-The dynamic var (`*current-frame*`) is the primary mechanism for `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, and the router's per-handler binding: these constructs use the dynamic-binding tier as their definition, so synchronous dispatches inside their bodies pick up the right frame without an explicit `:frame` opt at the call site.
+The dynamic var (`*current-frame*`) is the primary mechanism for `with-frame` and the router's per-handler binding: these constructs use the dynamic-binding tier as their definition, so synchronous dispatches inside their bodies pick up the right frame without an explicit `:frame` opt at the call site.
 
 #### React click-handler routing — the canonical pattern
 
-A React onClick / onKeyDown / onChange callback is built during render but fires LATER, on a fresh JS turn after React has popped its render commit. Whatever mechanism a view uses to know "the surrounding frame is `:rf/xray`" must survive that boundary. Four routing patterns satisfy the contract — each captures the frame at a synchronous moment when it's still resolvable, so the click-time dispatch carries the right frame regardless of when React invokes it:
+A React onClick / onKeyDown / onChange callback is built during render but fires LATER, on a fresh JS turn after React has popped its render commit. Whatever mechanism a view uses to know "the surrounding frame is `:rf/xray`" must survive that boundary. Two routing patterns satisfy the contract — each captures the frame at a synchronous moment when it's still resolvable, so the click-time dispatch carries the right frame regardless of when React invokes it:
 
 | Pattern | Where the frame is captured | Best for |
 |---|---|---|
 | `(rf/capture-frame)` / `(rf/capture-frame frame-id)` | creation time | the common case — `:dispatch` / `:subscribe` ops handed to a callback or async library |
-| `(frame-bound-fn* frame-id f)` — internal tier; prefer `capture-frame` in app code | wrap-time, explicit frame-id | framework-internal utilities; wrapping a fn whose body re-establishes the frame |
-| `(frame-bound-fn [args] body)` — internal tier | lex-binding moment | `(fn ...)` syntax and frame-capture in one form, inside framework code |
 | `(rf/dispatch [...] {:frame :id})` | dispatch call time, explicit envelope | one-off dispatches where wrapping the whole callback would be heavier than threading a single opt |
 
-All four feed `:frame` into the dispatch envelope synchronously (during the capture window). The router queue carries `:frame` on the envelope through the microtask boundary — the drain reads frame off the envelope, never re-resolves the dynamic var at drain time — so the dispatch is routed correctly even after React has popped its render and unwound the binding.
+Both feed `:frame` into the dispatch envelope synchronously (during the capture window). The router queue carries `:frame` on the envelope through the microtask boundary — the drain reads frame off the envelope, never re-resolves the dynamic var at drain time — so the dispatch is routed correctly even after React has popped its render and unwound the binding.
 
 What does NOT survive: a raw `(rf/dispatch [...])` from inside a React click handler where the frame is not explicitly captured at the call site. The dynamic var is gone, the React-context tier reads through `current-component` which is nil outside render, so the resolution returns nil and the dispatch raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` fall-through to silently absorb it). The "I'm running under a `frame-provider`" knowledge is render-only — converting it to closure-bound state is the wrap step every robust callback takes, and the loud error is what forces it.
 
@@ -1363,17 +1353,17 @@ Example (Xray's HANDLER `:db` view-mode toggle, the bead's bug-class instance):
 
 Without a captured handle, every dispatch site needs `{:frame :rf/xray}` opt explicitly — verbose at every callsite, and brittle in any case where `*current-frame*` is genuinely lost across an async boundary that fires after the surrounding `with-frame` / `frame-provider` has unwound. The handle captures the frame at creation time and locks its ops to it: the callback ALWAYS dispatches in the captured frame, regardless of how many dispatches happen inside it or how deep the async / call chain goes.
 
-> **See also**: [006 §Lazy-seq deref tracking (Reagent adapter)](006-ReactiveSubstrate.md#lazy-seq-deref-tracking-reagent-adapter) for an adjacent but DIFFERENT bug class — "view doesn't update on click" that looks superficially like "frame lost across React onClick" but is actually a Reagent reactive-tracking failure. Reach for `capture-frame` / `frame-bound-fn` when you have a genuine async-boundary case (timer, promise, websocket); reach for `doall` / `mapv` when a `(for …)` in a `reg-view` body holds the deref. The two failure modes are not interchangeable.
+> **See also**: [006 §Lazy-seq deref tracking (Reagent adapter)](006-ReactiveSubstrate.md#lazy-seq-deref-tracking-reagent-adapter) for an adjacent but DIFFERENT bug class — "view doesn't update on click" that looks superficially like "frame lost across React onClick" but is actually a Reagent reactive-tracking failure. Reach for `capture-frame` when you have a genuine async-boundary case (timer, promise, websocket); reach for `doall` / `mapv` when a `(for …)` in a `reg-view` body holds the deref. The two failure modes are not interchangeable.
 
 #### Other async callbacks (timers, promises, websocket messages)
 
-For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks, and **raw `window.addEventListener` handlers** (e.g. a drag flow that registers `pointermove` / `pointerup` on `window` during an `:on-pointer-down`, so the move/up handlers fire OUTSIDE the React tree after render has unwound) — the same `capture-frame` / `frame-bound-fn` pattern applies. Capture the frame at render time (inside the `reg-view` body, via the injected `dispatch` / `subscribe` or `(rf/capture-frame)`) and thread the captured ops into the listener — never a bare global `rf/dispatch` and never a hardcoded `{:frame :id}` literal (a literal silently locks every instance to one frame). Alternative affordances:
+For non-React async callbacks — `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks, and **raw `window.addEventListener` handlers** (e.g. a drag flow that registers `pointermove` / `pointerup` on `window` during an `:on-pointer-down`, so the move/up handlers fire OUTSIDE the React tree after render has unwound) — the same `capture-frame` pattern applies. Capture the frame at render time (inside the `reg-view` body, via the injected `dispatch` / `subscribe` or `(rf/capture-frame)`) and thread the captured ops into the listener — never a bare global `rf/dispatch` and never a hardcoded `{:frame :id}` literal (a literal silently locks every instance to one frame). Alternative affordances:
 
 - **`(rf/capture-frame)`** — captures the frame at creation and returns `{:frame :dispatch :dispatch-sync :subscribe}`. Build inside a render body or under `with-frame`, store the handle, invoke its ops from any later async context.
 - **`:fx [[:dispatch ...]]`** — the canonical pattern for handler-emitted dispatches; the fx-walker threads the frame through automatically.
 - **`:fx [[:dispatch-later ...]]`** — closure-captured frame, survives the timer.
 
-All five (`capture-frame`, `frame-bound-fn`, `frame-bound-fn*`, `:dispatch`, `:dispatch-later`) share the same shape: render/handler-time capture of the frame as a closure value, which then rides through to call time. The bare-dispatch-from-an-async-callback case is the *only* one where the scope has unwound with no carried stamp — and under [§Frame target resolution](#frame-target-resolution--the-carried-invariant) it **fails loudly** with `:rf.error/no-frame-context` rather than falling through to a default. There is no `:rf/default` fall-through and no tolerated-but-warned outcome.
+All three (`capture-frame`, `:dispatch`, `:dispatch-later`) share the same shape: render/handler-time capture of the frame as a closure value, which then rides through to call time. The bare-dispatch-from-an-async-callback case is the *only* one where the scope has unwound with no carried stamp — and under [§Frame target resolution](#frame-target-resolution--the-carried-invariant) it **fails loudly** with `:rf.error/no-frame-context` rather than falling through to a default. There is no `:rf/default` fall-through and no tolerated-but-warned outcome.
 
 ### Subscriptions composing across the signal graph
 
@@ -1469,13 +1459,13 @@ A closure over `(:frame m)` keeps each call site terse:
 - **Read `(:frame m)` once** at handler entry; pass it into closures.
 - **Pass `:frame` explicitly** in callbacks — `(rf/dispatch ev {:frame frame})` — or capture a frame-locked dispatch op via `(:dispatch (rf/capture-frame))` inside the binary handler body (where `*current-frame*` is bound to `(:frame m)`). Don't rely on plain `dispatch` in callbacks; the binding is gone.
 
-`(rf/capture-frame)` (capture-at-creation, used in fx and views) and `frame-bound-fn` (the macro form, used in view callbacks) are the same idea applied at different boundaries: capture the frame at definition time, re-establish it when the closure fires.
+`(rf/capture-frame)` — used in fx and views alike — captures the frame at definition time and re-establishes it when the closure fires, regardless of which boundary (fx handler, view callback) it is built in.
 
 ### The merged config-shaped `frame-provider` (CLJS reference)
 
 > **The merged config-shaped `frame-provider`.** `rf/frame-provider` is **ONE config-shaped** component with two shapes dispatched on the prop map; there is **no owned destroy-on-unmount**:
 >
-> - **`rf/frame-provider {:frame existing-id}`** — **SCOPE-only.** Provides an **already-created** frame id through React context and creates / refreshes / destroys nothing. **Fails loud when the frame is absent** (`:rf.error/frame-provider-frame-absent`) — the guardrail Story + Xray rely on. `:frame` must be a keyword; a missing `:frame` is `:rf.error/no-frame-context`, a non-keyword `:frame` is `:rf.error/bad-frame-provider-arg`.
+> - **`rf/frame-provider {:frame existing-id}`** — **SCOPE-only.** Provides an **already-created** frame through React context and creates / refreshes / destroys nothing. **Fails loud when the frame is absent** (`:rf.error/frame-provider-frame-absent`) — the guardrail Story + Xray rely on. `:frame` accepts a frame-id keyword OR a live frame value (API-shrink #1, rf2-csbbwu); a missing `:frame` is `:rf.error/no-frame-context`, anything else is `:rf.error/bad-frame-provider-arg`.
 > - **`rf/frame-provider {:id the-id …}`** — **ENSURE.** Creates the frame if absent (via `make-frame`), **reuses it WITHOUT re-seeding if present**, and provides its id to descendants. There is **NO destroy-on-unmount**. It takes the **same constructor opts as `make-frame`** (`:id` / `:images` / `:initial-events` / `:url-bound?` / record-config). `:id` is required and must be a keyword (a missing/non-keyword `:id` → `:rf.error/ensure-frame-provider-missing-id`).
 >
 > The shape is selected by the presence of `:frame` vs `:id`. `with-frame` binds a dynamic var, which **cannot cross React's render boundary**, so scope-into-React uses a React-context component; `with-frame` is for lexical / non-React ambient scoping.
@@ -1495,7 +1485,7 @@ A closure over `(:frame m)` keeps each call site terse:
  [panel-b]]
 ```
 
-The SCOPE-only shape is the **scope-into-React** counterpart to `rf/with-frame`. `with-frame` binds a dynamic var, so it serves a lexical / non-React region but **cannot cross React's render boundary** (a descendant component renders after the `with-frame` form has returned, so the dynamic binding is already gone). `rf/frame-provider {:frame …}` carries the scope down through React context, which descendant renders read. `:frame` must be a keyword frame id (EP-0002 carried invariant): a missing `:frame` is `:rf.error/no-frame-context` (no `:rf/default` floor), a non-nil non-keyword `:frame` is the distinct `:rf.error/bad-frame-provider-arg`.
+The SCOPE-only shape is the **scope-into-React** counterpart to `rf/with-frame`. `with-frame` binds a dynamic var, so it serves a lexical / non-React region but **cannot cross React's render boundary** (a descendant component renders after the `with-frame` form has returned, so the dynamic binding is already gone). `rf/frame-provider {:frame …}` carries the scope down through React context, which descendant renders read. `:frame` accepts a frame-id keyword or a live frame value — the same one frame-target grammar every public surface teaches (EP-0002 carried invariant, API-shrink #1 rf2-csbbwu): a missing `:frame` is `:rf.error/no-frame-context` (no `:rf/default` floor), anything else is the distinct `:rf.error/bad-frame-provider-arg`.
 
 **ENSURE shape.** Ensure a named frame exists for as long as the subtree is mounted — create it the first time, reuse it on every subsequent mount/remount without re-running its setup. This is the answer for comparison pages, Story canvases, embedded widgets, and hot-reload-safe view-driven frame lifetimes:
 
@@ -1545,7 +1535,10 @@ Implementation skeleton (Reagent flavour — dispatch on shape; ENSURE creates-o
     ;; remount reuses the live frame (durable state preserved, :initial-events
     ;; NOT replayed). `:r>` bypasses Reagent's `convert-prop-value`, preserving
     ;; namespaced frame keywords (`:tenant/admin`) the way `(name kw)` would strip.
-    (let [id (rf/frame-value->id (rf/make-frame props))]
+    ;; `make-frame` returns the frame VALUE; `frame/frame-value->id` (an
+    ;; INTERNAL normalization primitive, not on the public facade — API-shrink
+    ;; #1 rf2-csbbwu) resolves it to the id the provider stores in context.
+    (let [id (frame/frame-value->id (rf/make-frame props))]
       (into [:r> (.-Provider frame-context) #js {:value id}] children))))
 ```
 
@@ -1608,7 +1601,7 @@ Use case: per-test fixtures, devcard widgets, REPL sessions where you want a gua
 
 #### Async work outliving `with-frame` / `with-new-frame`
 
-For async closures that fire after the body returns, capture the frame explicitly via `capture-frame` / `frame-bound-fn` (above) — the body's dynamic binding has unwound by then. `with-new-frame`'s `destroy-frame!` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
+For async closures that fire after the body returns, capture the frame explicitly via `capture-frame` (above) — the body's dynamic binding has unwound by then. `with-new-frame`'s `destroy-frame!` runs immediately on body exit; an outstanding async callback that fires after that will hit a destroyed frame.
 
 ### `dispatch-sync`
 
@@ -2478,7 +2471,8 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 
 | Decision | Pointer |
 |---|---|
-| Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation read via **one id accessor**; **scope vs ensure vs own vs carry** are separate jobs — `with-frame` (lexical) / `frame-provider {:frame …}` (into a React subtree) scope to an *existing* frame (no lifecycle; **amended** — fails loud if absent), `frame-provider {:id …}` is the per-adapter **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount** — **amended**, owned destroy-on-unmount retired), explicit `make-frame` + `destroy-frame!` owns teardown, `capture-frame` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `frame-bound-fn`/`frame-bound-fn*`/`make-capture-frame`/`subscribe*`/frame-first arities retiered to internal; **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§What `frame-provider` is](#the-merged-config-shaped-frame-provider-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
+| Unified frame identity & lifecycle (EP-0024, accepted 2026-06-18) — **one live frame value backed by one registry** (it owns the id, both partitions, runtime subsystems, queue/drain, caches, lifecycle hooks, and the **resolved image generation** — no second backing-record registry); the **frame id is the public routing address** (`{:frame id}` / `with-frame`), the frame value is a lifecycle token with a hidden representation; **scope vs ensure vs own vs carry** are separate jobs — `with-frame` (lexical) / `frame-provider {:frame …}` (into a React subtree) scope to an *existing* frame (no lifecycle; **amended** — fails loud if absent), `frame-provider {:id …}` is the per-adapter **ENSURE** boundary (create-if-absent / reuse-no-reseed / provide id / **no destroy-on-unmount** — **amended**, owned destroy-on-unmount retired), explicit `make-frame` + `destroy-frame!` owns teardown, `capture-frame` carries across async; **one `make-frame`** over image-selection + record-config opts (the old two-constructor split + `:rf.error/make-frame-record-only-key` redirect are gone); **duplicate-id is idempotent replacement** (behaviour change from blanket fail-loud — preserves durable state on re-mount, irreconcilable conflicts still fail loud); `make-capture-frame`/`subscribe*`/frame-first arities retiered to internal at the time; **one teardown ownership path** | [§Per-instance frames — `make-frame`](#per-instance-frames--make-frame-the-ep-0023-object-constructor), [§What `frame-provider` is](#the-merged-config-shaped-frame-provider-cljs-reference), [§Destroy](#destroy), [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md) |
+| API-shrink #1 — frame-targeting collapsed to exactly THREE intents (rf2-csbbwu) — scope (ambient) / override (`{:frame …}`) / hold (`capture-frame`, the ONE public carry primitive); the frame-FIRST positional runtime shape-discrimination EP-0024 had retained as internal plumbing (`dispatch*`/`dispatch-sync*`/`subscribe`/`subscribe-once`'s `vector?`-punned 2-arity) is DELETED entirely — every sig is `[payload]` / `[payload opts]`; `frame-bound-fn` (macro) / `frame-bound-fn*` (fn) are DELETED from the facade (the dynamic-rebinding semantics survive internally as `re-frame.frame/bind-fn`); `frame-provider`'s `:frame` is NORMALIZED to accept a frame value (not just a keyword id), so `frame-value->id` is DELETED from the facade — every public surface accepts a frame value or its id interchangeably | [§`capture-frame` is the ONE carry primitive](#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference), [§The multi-frame surface](#the-multi-frame-surface--choose-by-intent), [§The merged config-shaped `frame-provider`](#the-merged-config-shaped-frame-provider-cljs-reference) |
 | Frame target resolution — the carried invariant (EP-0002) — frame identity is **carried, not found**: it travels with every causal token as one canonical **frame stamp**, read via the **scope / hold / override** triad (no ambient priority-list, no `:rf/default` floor); absence is `:rf.error/no-frame-context` (emitted always-on, with capture-site ancestry); `hold` is the primary async-safe carrier, `scope` is sync sugar; `:rf/default` is an ordinary id the runtime never infers; **strict embedded core vs tiered interactive discovery** (Tool-Pair keeps tier-3 unique resolution) reconciled into one **absent → ambiguous → unselected** ladder; rationale leads with **replay determinism** | [§Frame target resolution](#frame-target-resolution--the-carried-invariant), [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md), [Tool-Pair](Tool-Pair.md) |
 | Two-partition frame contract (EP-0001, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); a full reset (`destroy-frame!` + `reg-frame`) resets the whole frame; accessors `app-db-value`/`runtime-db-value`/`frame-state-value`, mutators `replace-app-db!`/`replace-runtime-db!`/`replace-frame-state!` | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |

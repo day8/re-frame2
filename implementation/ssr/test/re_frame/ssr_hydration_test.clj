@@ -140,11 +140,11 @@
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
 
-      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+      (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           ":hydrated? reads true once hydration metadata lands at [:rf.runtime/ssr :hydration]")
-      (is (= 7 (rf/subscribe-once client-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
           "seeded :count from payload's :rf/app-db wins")
-      (is (= "seeded" (rf/subscribe-once client-frame [:title]))
+      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame}))
           "seeded :title from payload's :rf/app-db wins")
       ;; Lock the [:rf.runtime/ssr :hydration] metadata shape (the
       ;; testbed's view doesn't read these slots, but downstream tooling
@@ -177,13 +177,13 @@
 
       ;; ::inc — bumps the seeded :count 7 → 8
       (rf/dispatch-sync [::inc] {:frame client-frame})
-      (is (= 8 (rf/subscribe-once client-frame [:count]))
+      (is (= 8 (rf/subscribe-once [:count] {:frame client-frame}))
           "post-hydrate ::inc bumps the seeded :count via the live
            event-handler → db-update → sub-recompute pipeline")
 
       ;; ::set-title — overwrites the seeded :title slot
       (rf/dispatch-sync [::set-title "hydrated"] {:frame client-frame})
-      (is (= "hydrated" (rf/subscribe-once client-frame [:title]))
+      (is (= "hydrated" (rf/subscribe-once [:title] {:frame client-frame}))
           "post-hydrate ::set-title overwrites the seeded :title"))))
 
 ;; ===========================================================================
@@ -206,7 +206,7 @@
                                        :platform :client})
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-      (let [resp (rf/subscribe-once client-frame [:server-resp])]
+      (let [resp (rf/subscribe-once [:server-resp] {:frame client-frame})]
         (is (= 200 (:status resp))
             "status round-trips verbatim")
         (is (= "text/html; charset=utf-8"
@@ -296,7 +296,7 @@
                              skipped-checks))))
       ;; Sanity: the handler still landed the app-db swap + metadata —
       ;; the gate skipped only the check-fx dispatches, not the rest.
-      (is (= 7 (rf/subscribe-once server-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame server-frame}))
           ":rf/app-db still applied on the server-side run"))))
 
 (deftest hydration-on-client-platform-still-dispatches-check-fxs
@@ -395,13 +395,13 @@
                        (fn []
                          (rf/dispatch-sync [:rf/hydrate bad-payload]
                                            {:frame client-frame})))]
-          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+          (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT replace the client :title (fail closed)"))
-          (is (= 1 (rf/subscribe-once client-frame [:count]))
+          (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT replace the client :count (fail closed)"))
-          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+          (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT stash hydration metadata (rejected, not applied)"))
           (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
@@ -422,8 +422,8 @@
                          (fn []
                            (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 7 :title "seeded"}}]
                                              {:frame client-frame})))]
-      (is (= 7 (rf/subscribe-once client-frame [:count])) "server slice installed")
-      (is (= "seeded" (rf/subscribe-once client-frame [:title])))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "server slice installed")
+      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame})))
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "no malformed diagnostic on a well-formed payload"))
     ;; (b) map payload with no app-db slice → existing client data survives.
@@ -433,7 +433,7 @@
                      (fn []
                        (rf/dispatch-sync [:rf/hydrate {:rf/version 1}]
                                          {:frame client-frame})))]
-        (is (= "kept" (rf/subscribe-once client-frame [:title]))
+        (is (= "kept" (rf/subscribe-once [:title] {:frame client-frame}))
             "no-slice payload preserves the existing client slice")
         (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
             "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
@@ -493,19 +493,19 @@
                                            {:frame client-frame})))]
           ;; app-db partition unchanged — the valid :rf/app-db slice must
           ;; NOT land because the runtime-db slice made the payload malformed.
-          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+          (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
               (str (pr-str bad-rt)
                    " runtime-db slice must NOT let the app-db slice replace :title"))
-          (is (= 1 (rf/subscribe-once client-frame [:count]))
+          (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
               (str (pr-str bad-rt)
                    " runtime-db slice must NOT let the app-db slice replace :count"))
           ;; runtime-db partition unchanged — seeded machine snapshot survives.
           (is (= {:m {:value :idle}}
-                 (rf/subscribe-once client-frame [:machine-snapshots]))
+                 (rf/subscribe-once [:machine-snapshots] {:frame client-frame}))
               (str (pr-str bad-rt)
                    " must leave the runtime-db partition (machine snapshot) unchanged"))
           ;; no hydration metadata stashed (rejected, not applied).
-          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+          (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-rt)
                    " must NOT stash hydration metadata (rejected, not applied)"))
           ;; the malformed diagnostic fires.
@@ -536,8 +536,8 @@
           traces  (capture-traces!
                     (fn []
                       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})))]
-      (is (= 7 (rf/subscribe-once client-frame [:count])) "app-db slice installed")
-      (is (= {:route-id :home} (rf/subscribe-once client-frame [:route-current]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
+      (is (= {:route-id :home} (rf/subscribe-once [:route-current] {:frame client-frame}))
           "the runtime-db route slice rode the payload and installed")
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "no malformed diagnostic on a well-formed two-partition payload"))
@@ -547,7 +547,7 @@
                    (fn []
                      (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}]
                                        {:frame client-frame})))]
-      (is (= 3 (rf/subscribe-once client-frame [:count])) "app-db slice installed")
+      (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))
 
@@ -585,13 +585,13 @@
                        (rf/dispatch-sync
                          [:rf/hydrate {:app-db {:count 99 :title "legacy"}}]
                          {:frame client-frame})))]
-        (is (= 1 (rf/subscribe-once client-frame [:count]))
+        (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
             "the plain :app-db key did NOT replace :count (alias stays dead —
              the 99 from {:app-db {…}} must not land)")
-        (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+        (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
             "the plain :app-db key did NOT replace :title (alias stays dead —
              \"legacy\" must not land)")
-        (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+        (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the :rf/render-hash / :rf/version
              keys are absent, so the no-slice payload installs no metadata")
         (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
@@ -648,11 +648,11 @@
       (is (= payload returned)
           "hydrate! returns the applied payload so the caller can branch
            on `was this server-rendered?`")
-      (is (= 7 (rf/subscribe-once client-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
           "post-hydrate :count sub reflects the server-built payload slice")
-      (is (= "seeded" (rf/subscribe-once client-frame [:title]))
+      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame}))
           "post-hydrate :title sub reflects the server-built payload slice")
-      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+      (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           ":hydrated? true once hydration metadata lands")
       ;; The allowlist policy used to build the payload dropped the
       ;; server-only key — the round-trip carries only the permitted slice.
@@ -670,9 +670,9 @@
           returned     (ssr/hydrate! {:frame client-frame :payload nil})]
       (is (nil? returned)
           "nil payload → hydrate! returns nil (client-only first load)")
-      (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+      (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           "no hydration metadata stashed — :rf/hydrate was never dispatched")
-      (is (= 0 (rf/subscribe-once client-frame [:count]))
+      (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
           "app-db is the empty default; the :count sub's fallback applies"))))
 
 (deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
@@ -735,7 +735,7 @@
           (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
                (pr-str (mapv :operation traces))))
       ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
-      (is (= 7 (rf/subscribe-once client-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
           ":rf/hydrate still applied the seeded slice"))))
 
 ;; ===========================================================================
@@ -785,7 +785,7 @@
       (is (= other-frame (:payload-frame-id (ex-data ex)))
           "the error carries the payload's (server) frame-id")
       ;; The conflict halts BEFORE :rf/hydrate dispatches — app-db untouched.
-      (is (= 0 (rf/subscribe-once client-frame [:count]))
+      (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
           "the mismatch is surfaced before the app-db replace; no slice landed"))))
 
 (deftest boot-hydrate-absent-payload-frame-id-no-conflict
@@ -799,7 +799,7 @@
           payload      {:rf/version 1 :rf/app-db {:count 7 :title "seeded"}}
           returned     (ssr/hydrate! {:frame client-frame :payload payload})]
       (is (= payload returned) "hydration proceeded (no frame-id to conflict)")
-      (is (= 7 (rf/subscribe-once client-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
           "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
 
 ;; ===========================================================================
@@ -834,13 +834,13 @@
                         (rf/dispatch-sync [:rf/hydrate payload]
                                           {:frame client-frame})))]
         ;; app-db partition untouched (fail closed).
-        (is (= 1 (rf/subscribe-once client-frame [:count]))
+        (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
             "app-db :count survives — the wrong-frame slice was NOT installed")
-        (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+        (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
             "app-db :title survives — the wrong-frame slice was NOT installed")
         ;; runtime-db partition untouched (no hydration metadata, no machine
         ;; snapshots from the rejected payload).
-        (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+        (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the runtime-db partition is left unchanged")
         (is (nil? (get-in (rf/runtime-db-value client-frame)
                           [:rf.runtime/machines :snapshots]))
@@ -942,11 +942,11 @@
                         :rf/app-db      {:count 7 :title "seeded"}
                         :rf/render-hash "deadbeef"}]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-      (is (= 7 (rf/subscribe-once client-frame [:count]))
+      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
           "matching frame-id → the server slice installed")
-      (is (= "seeded" (rf/subscribe-once client-frame [:title]))
+      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame}))
           "matching frame-id → :title seeded from the payload")
-      (is (true? (rf/subscribe-once client-frame [:hydrated?]))
+      (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           "hydration metadata stashed — the hydrate proceeded"))))
 
 (deftest direct-dispatch-absent-frame-id-hydrates-normally
@@ -960,9 +960,9 @@
           ;; Deliberately NO :rf/frame-id key.
           payload      {:rf/app-db {:count 5 :title "no-frame-id"}}]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-      (is (= 5 (rf/subscribe-once client-frame [:count]))
+      (is (= 5 (rf/subscribe-once [:count] {:frame client-frame}))
           "absent frame-id → the slice installed (no conflict)")
-      (is (= "no-frame-id" (rf/subscribe-once client-frame [:title]))
+      (is (= "no-frame-id" (rf/subscribe-once [:title] {:frame client-frame}))
           "absent frame-id → :title seeded"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed

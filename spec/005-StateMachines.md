@@ -3970,7 +3970,7 @@ For the common top-level read — a view or handler that wants the whole snapsho
 `sub-machine` returns a reaction over the snapshot map `{:state :data :tags}` — it *is* `(subscribe [:rf/machine machine-id])`, with nothing added to the read path. Two arities:
 
 - `(sub-machine machine-id)` — the primary form; resolves the ambient frame through the carried scope/hold chain, exactly like the bare subscription.
-- `(sub-machine machine-id opts)` — the `opts` map carries `{:frame <target>}` (a frame-id keyword or a live frame object), lowered to `subscribe`'s frame-first 2-arity, so a read can target an explicit frame from outside an established scope (async callbacks, tools, tests).
+- `(sub-machine machine-id opts)` — the `opts` map carries `{:frame <target>}` (a frame-id keyword or a live frame value), lowered to `subscribe`'s `{:frame …}` opts form, so a read can target an explicit frame from outside an established scope (async callbacks, tools, tests).
 
 **The vector form stays canonical.** `[:rf/machine <machine-id>]` remains the registered sub; `sub-machine` is ergonomic read sugar that *coexists* with it. The literal vector is what `:<-` chained inputs (per [§Granularity is via derived subs](#granularity-is-via-derived-subs)) and the machine-selector recognizer continue to use — there is no sugar form inside a sub's `:<-` vector. `sub-machine` is for the top-level read in a view or handler body.
 

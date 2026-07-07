@@ -2710,14 +2710,16 @@ The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not app
 
 **Type A** (mechanical, closed rename table). The frame-affordance surface was redesigned so the affordance is chosen by **intent**: a one-shot operation bundle (`capture-frame`), an explicit async-boundary wrapper (`frame-bound-fn*`), the macro that owns the fn-syntax (`frame-bound-fn`), the instance-safety id primitive (`current-frame-id`), and the value accessor (`app-db-value`). The old names are **removed** — stale call sites raise unresolved-symbol.
 
-| Old (v2-pre-rename) | New | Note |
-|---|---|---|
-| `(rf/bound-fn [a] body)` | `(rf/frame-bound-fn [a] body)` | The macro now owns the fn-syntax. The old `bound-fn` shadowed `clojure.core/bound-fn` and is removed. |
-| `(rf/frame-bound-fn f)` / `(rf/frame-bound-fn id f)` | `(rf/frame-bound-fn* f)` / `(rf/frame-bound-fn* id f)` | The fn becomes the `*`-twin (matching `dispatch` / `dispatch*`); `frame-bound-fn` is now the macro. |
-| `(rf/dispatcher)` | `(:dispatch (rf/capture-frame))` | Or the injected `dispatch` inside a `reg-view`. `dispatcher` is replaced by the `capture-frame` operation bundle. |
-| `(rf/subscriber)` | `(:subscribe (rf/capture-frame))` | Or the injected `subscribe` inside a `reg-view`. |
-| `(rf/current-frame)` | `(rf/current-frame-id)` | Returns an id — kept public as an instance-safety primitive. |
-| `(rf/get-frame-db id)` | `(rf/app-db-value id)` | Returns a VALUE, not a container. (`app-db-container` is the container accessor; reach for it only when a container is genuinely wanted.) |
+> **Amendment (API-shrink #1, rf2-csbbwu).** `frame-bound-fn` (macro) and `frame-bound-fn*` (fn) — the second row below — are now **themselves removed** from the facade; `capture-frame` is the ONE public carry primitive. A caller migrating straight from v1 should land directly on `capture-frame` for the dispatch/subscribe case, or compose the 3-line `with-frame` + `current-frame-id` idiom for an arbitrary already-held fn (see [Spec 002 §`capture-frame` is the ONE carry primitive](../../spec/002-Frames.md#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference)) — do not target `frame-bound-fn` as an intermediate stop.
+
+| Old (v1) | v2-pre-rename | Current (removed further — see amendment) | Note |
+|---|---|---|---|
+| `(rf/bound-fn [a] body)` | `(rf/frame-bound-fn [a] body)` | **removed** — use `capture-frame`, or the `with-frame` + `current-frame-id` idiom | The old `bound-fn` shadowed `clojure.core/bound-fn` and is removed. |
+| `(rf/frame-bound-fn f)` / `(rf/frame-bound-fn id f)` | `(rf/frame-bound-fn* f)` / `(rf/frame-bound-fn* id f)` | **removed** — use `capture-frame`, or the `with-frame` + `current-frame-id` idiom | The fn became the `*`-twin (matching `dispatch` / `dispatch*`); now deleted entirely. |
+| `(rf/dispatcher)` | `(:dispatch (rf/capture-frame))` | unchanged | Or the injected `dispatch` inside a `reg-view`. `dispatcher` is replaced by the `capture-frame` operation bundle. |
+| `(rf/subscriber)` | `(:subscribe (rf/capture-frame))` | unchanged | Or the injected `subscribe` inside a `reg-view`. |
+| `(rf/current-frame)` | `(rf/current-frame-id)` | unchanged | Returns an id — kept public as an instance-safety primitive. |
+| `(rf/get-frame-db id)` | `(rf/app-db-value id)` | unchanged | Returns a VALUE, not a container. (`app-db-container` is the container accessor; reach for it only when a container is genuinely wanted.) |
 
 `dispatcher` / `subscriber` are subsumed by the `capture-frame` **operation bundle** `{:frame :dispatch :dispatch-sync :subscribe}` — capture it once at a stable point (render time, or fx-handler entry with `(rf/capture-frame (:frame m))`) and reach the operations off the bundle.
 
@@ -2738,7 +2740,7 @@ The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not app
 
 **Mechanical sweep.** Apply the closed rename table above. The only judgement step is the `dispatcher` / `subscriber` → `capture-frame` rewrite: prefer the injected `dispatch` / `subscribe` lexical bindings when the call site is inside a `reg-view` body (per [M-22](#m-22-reg-view-is-now-a-defn-shape-macro--keyword-shape-calls-must-rewrite)); otherwise capture the handle once via `(rf/capture-frame)` (or `(rf/capture-frame frame-id)` to lock an explicit frame) and destructure the operations. Per pre-alpha posture old names are **removed** — stale call sites raise unresolved-symbol. v2-pre-rename codebases only — v1 had no frame substrate.
 
-**Cross-references.** [Spec 002 §`capture-frame`](../../spec/002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference) and [§`frame-bound-fn` / `frame-bound-fn*`](../../spec/002-Frames.md#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference); [Spec 004 §Affordance for plain fns](../../spec/004-Views.md#affordance-for-plain-fns-rfcapture-frame) for plain-fn capture; [API.md](../../spec/API.md).
+**Cross-references.** [Spec 002 §`capture-frame`](../../spec/002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference) and [§`capture-frame` is the ONE carry primitive — no `frame-bound-fn`](../../spec/002-Frames.md#capture-frame-is-the-one-carry-primitive--no-frame-bound-fn-cljs-reference); [Spec 004 §Affordance for plain fns](../../spec/004-Views.md#affordance-for-plain-fns-rfcapture-frame) for plain-fn capture; [API.md](../../spec/API.md).
 
 ---
 

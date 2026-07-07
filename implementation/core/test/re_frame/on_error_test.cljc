@@ -237,7 +237,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (is (nil? (rf/subscribe-once :gone/frame [:any-sub]))
+      (is (nil? (rf/subscribe-once [:any-sub] {:frame :gone/frame}))
           "subscribe-once against an unknown frame returns nil (recovers)")
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
@@ -261,7 +261,7 @@
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/dispatch [:x] {:frame :doomed/frame})))
-      (is (nil? (rf/subscribe-once :doomed/frame [:y])))
+      (is (nil? (rf/subscribe-once [:y] {:frame :doomed/frame})))
       (is (= 2 (count @seen)) "both dispatch and subscribe emitted")
       (is (every? #(= :rf.error/frame-destroyed (:error %)) @seen))
       (is (every? #(= :doomed/frame (:frame %)) @seen)))))
@@ -289,7 +289,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (is (nil? (rf/subscribe-once :rf/default [:no/such-sub-here]))
+      (is (nil? (rf/subscribe-once [:no/such-sub-here] {:frame :rf/default}))
           "subscribe-once to an unregistered sub recovers to nil")
       (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/no-such-sub")
@@ -577,7 +577,7 @@
                   (fn [_in _q] :unreachable))
       ;; Reactive subscribe path → `compute-and-cache!` runs the input-fn,
       ;; catches the throw, emits :rf.error/sub-input-fn-exception, recovers nil.
-      (is (nil? (rf/subscribe-once :rf/default [:bxud9v/input-throws]))
+      (is (nil? (rf/subscribe-once [:bxud9v/input-throws] {:frame :rf/default}))
           "subscribe recovers to nil on an input-fn throw")
       (let [r (some (fn [x] (when (= :rf.error/sub-input-fn-exception (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/sub-input-fn-exception")
@@ -604,7 +604,7 @@
       ;; Layer-1 sub whose body throws on the reactive run.
       (rf/reg-sub :bxud9v/body-throws
                   (fn [_db _q] (throw (ex-info "body-boom" {}))))
-      (is (nil? (rf/subscribe-once :rf/default [:bxud9v/body-throws]))
+      (is (nil? (rf/subscribe-once [:bxud9v/body-throws] {:frame :rf/default}))
           "reactive subscribe recovers to nil on a body throw")
       (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
         (is (some? r) "listener received :rf.error/sub-exception")
@@ -631,7 +631,7 @@
       ;; no-such-handler on :rf/default.
       (rf/dispatch-sync [:no/handler-here2])
       ;; no-such-sub on :rf/default.
-      (rf/subscribe-once :rf/default [:no/such-sub-here2])
+      (rf/subscribe-once [:no/such-sub-here2] {:frame :rf/default})
       ;; frame-destroyed via dispatch into an unknown frame.
       (rf/dispatch [:x] {:frame :gone/frame2})
       ;; compute-sub sub-exception.

@@ -153,8 +153,8 @@
     ;; Pin the cache slot in each frame by holding a reaction reference;
     ;; subscribe-once would auto-unsubscribe and the slot would be evicted
     ;; by ref-counting, masking the cache-cross-frame contract.
-    (let [pin-left  (rf/subscribe :left  [:answer])
-          pin-right (rf/subscribe :right [:answer])
+    (let [pin-left  (rf/subscribe [:answer] {:frame :left})
+          pin-right (rf/subscribe [:answer] {:frame :right})
           left-cache  (:sub-cache (frame/frame :left))
           right-cache (:sub-cache (frame/frame :right))]
       (is (= 3 @pin-left)  "left frame's :answer reads :n=3 under v1")
@@ -172,9 +172,9 @@
       (is (not (contains? @right-cache [:answer]))
           "right frame's [:answer] cache slot was evicted")
       ;; Next subscribe in each frame builds a fresh reaction with the v2 body.
-      (is (= 300 (rf/subscribe-once :left  [:answer]))
+      (is (= 300 (rf/subscribe-once [:answer] {:frame :left}))
           "left frame's next subscribe uses v2 (3 * 100)")
-      (is (= 500 (rf/subscribe-once :right [:answer]))
+      (is (= 500 (rf/subscribe-once [:answer] {:frame :right}))
           "right frame's next subscribe uses v2 (5 * 100)"))))
 
 ;; ---- (2b) :sub re-register evicts the transitive :<- dependent closure ----
@@ -197,7 +197,7 @@
     ;; Pin the DOWNSTREAM reaction so ref-counting cannot evict it; this is
     ;; the slot that, pre-fix, survives the re-registration with a stale
     ;; input reaction. Subscribing [:sum] also subscribes [:a] (its input).
-    (let [pin-sum (rf/subscribe :rf/default [:sum])
+    (let [pin-sum (rf/subscribe [:sum] {:frame :rf/default})
           cache   (:sub-cache (frame/frame :rf/default))]
       (is (= 10 @pin-sum) ":sum reads 10 under v1 of :a")
       (is (contains? @cache [:sum]) "downstream [:sum] is cached")
@@ -215,11 +215,11 @@
           "[:sum] (transitive :<- dependent) cache slot was evicted")
       ;; The next subscribe rebuilds [:sum] (and its [:a] input) against the
       ;; new :a body: 2 * 10 = 20, NOT the stale 10.
-      (is (= 20 (rf/subscribe-once :rf/default [:sum]))
+      (is (= 20 (rf/subscribe-once [:sum] {:frame :rf/default}))
           "next subscribe of [:sum] observes the new :a body (2 * 10 = 20)")
       ;; A held reaction taken AFTER the re-registration also reads the new
       ;; body — the stale input reaction is no longer reachable from the cache.
-      (let [pin-sum-v2 (rf/subscribe :rf/default [:sum])]
+      (let [pin-sum-v2 (rf/subscribe [:sum] {:frame :rf/default})]
         (is (= 20 @pin-sum-v2)
             "a freshly-held [:sum] reaction reads the new :a body (20)")))))
 

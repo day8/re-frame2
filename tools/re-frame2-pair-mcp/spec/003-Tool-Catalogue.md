@@ -934,9 +934,9 @@ form; the await mailbox sentinel rides through the wrap unchanged.
 Note that `with-frame`'s lexical binding only lasts for the form's
 SYNCHRONOUS evaluation — once a Promise resolves on a later tick, the
 binding is gone (Spec 002 §with-frame: async closures must capture a
-frame api via `(rf/capture-frame)`, or wrap via `frame-bound-fn` / `frame-bound-fn*`). Most ad-hoc probes don't
-hit this; long-running async forms that need to dispatch in a `.then`
-callback should capture the frame explicitly.
+frame api via `(rf/capture-frame)` — the ONE public carry primitive).
+Most ad-hoc probes don't hit this; long-running async forms that need
+to dispatch in a `.then` callback should capture the frame explicitly.
 
 **Returns**: success envelope additionally carries `:frame <frame-kw>`
 when `:frame` was supplied, mirroring how `dispatch` echoes its

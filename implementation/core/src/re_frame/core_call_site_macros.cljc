@@ -57,22 +57,15 @@
 ;; / `*ns*` / `*file*` through; we emit the same gated expansion the
 ;; original inlined `defmacro` body produced.
 
-;; EP-0023 collapse slice 2 (rf2-32siq3.32): the 2-arity dispatch surface is now
-;; SHAPE-DISCRIMINATED at runtime by `dispatch*` / `dispatch-sync*` — the first
-;; arg is EITHER an event-vec (event-first `(dispatch [..] opts)`) or a frame
-;; target (frame-first `(dispatch frame [..])`). The call-site delivery is
-;; preserved BACKWARD-COMPATIBLY: the EVENT-FIRST stamped path keeps the historic
-;; 2-arity `(dispatch* event-vec (assoc opts :rf.trace/call-site cs))` shape (so
-;; every existing `(with-redefs [rf/dispatch* (fn [ev _opts] …)])` tools-test stub
-;; that matches the 2-arity contract keeps working), while the NEW FRAME-FIRST
-;; path uses the 3-arity `(dispatch* frame event-vec cs)` (it CANNOT `assoc` the
-;; call-site onto the event VECTOR). The stamped branch therefore discriminates
-;; at RUNTIME on the first arg's shape — `vector?` ⇒ event-first 2-arity, else ⇒
-;; frame-first 3-arity. The PLAIN (production) branch needs no call-site, so it
-;; just calls the 2-arity `dispatch*`, whose OWN `vector?` discrimination routes a
-;; frame-first call. The debug-gate stays OUTERMOST so the whole stamped branch
-;; (the `cs` literal + the discrimination) DCEs under `:advanced` +
-;; `goog.DEBUG=false`. `arg1`/`arg2` are the user's two forms verbatim.
+;; API-shrink #1 (rf2-csbbwu): the 2-arity dispatch surface is `[event-vec
+;; opts]` ONLY — no runtime shape-discrimination, no frame-first sugar. The
+;; stamped path always keeps the 2-arity `(dispatch* event-vec (assoc opts
+;; :rf.trace/call-site cs))` shape (so every existing `(with-redefs [rf/dispatch*
+;; (fn [ev _opts] …)])` tools-test stub keeps working) — the call-site keyword
+;; stays a macro-literal, never reaching the production-reachable `*`-fn body.
+;; The debug-gate stays OUTERMOST so the whole stamped branch (the `cs` literal)
+;; DCEs under `:advanced` + `goog.DEBUG=false`. `arg1`/`arg2` are the user's two
+;; forms verbatim.
 
 #?(:clj
    (defn- build-stamped-2
@@ -80,19 +73,12 @@
      `:rf.trace/call-site` keyword literal lives ONLY in THIS debug-gated macro
      expansion (DCE'd in production), never in the production-reachable `*`-fn
      body. `disp-sym` is the fully-qualified `*`-fn (`dispatch*` /
-     `dispatch-sync*`). When the user wrote two args, discriminate at runtime on
-     the first arg's shape: event-first (`arg1` a vector) keeps the historic
-     `(disp event-vec (assoc opts :rf.trace/call-site cs))`; frame-first builds
-     the event-first opts shape `(disp event-vec {:frame frame :rf.trace/call-site
-     cs})` (the call-site keyword stays a macro-literal — no `*`-fn 3-arity, so no
-     keyword leaks into the prod bundle). The 1-arg case is the ambient-frame
-     form, stamped via the 2-arity opts map."
+     `dispatch-sync*`). When the user wrote two args, `(disp event-vec (assoc
+     opts :rf.trace/call-site cs))`. The 1-arg case is the ambient-frame form,
+     stamped via the 2-arity opts map."
      [disp-sym arg1 arg2 cs-form]
      (if arg2
-       `(let [a# ~arg1 b# ~arg2]
-          (if (vector? a#)
-            (~disp-sym a# (assoc b# :rf.trace/call-site ~cs-form))
-            (~disp-sym b# {:frame a# :rf.trace/call-site ~cs-form})))
+       `(~disp-sym ~arg1 (assoc ~arg2 :rf.trace/call-site ~cs-form))
        `(~disp-sym ~arg1 {:rf.trace/call-site ~cs-form}))))
 
 #?(:clj
@@ -118,16 +104,12 @@
 #?(:clj
    (defn build-subscribe-form
      "Build the expansion for the `subscribe` macro. `arg1` is the user's
-     first form (the `query-v` in the taught grammar — or a frame target in
-     the internal frame-first reach); `arg2` is the optional second form
-     (`opts`, or a query-v in the frame-first reach), nil for the 1-arity.
-     Mirrors `build-dispatch-form`: the call-site coord rides a
-     `trace/with-call-site` wrapper (not an opts assoc), so NO `vector?`
-     discrimination is needed here — `subscribe*` / `re-frame.subs/subscribe`
-     do the shape split at runtime. The two forms emit POSITIONALLY
-     (`(subscribe* arg1 arg2)`), so both the public `(query-v opts)` and the
-     internal frame-first `(frame query-v)` reach route correctly. The
-     OUTERMOST debug-gate keeps the whole stamped branch DCE-able under
+     `query-v`; `arg2` is the optional `opts` map (may carry `{:frame
+     target}`), nil for the 1-arity. The call-site coord rides a
+     `trace/with-call-site` wrapper (not an opts assoc). The two forms emit
+     POSITIONALLY (`(subscribe* arg1 arg2)`), matching `subscribe*` /
+     `re-frame.subs/subscribe`'s `[query-v]` / `[query-v opts]` sig exactly.
+     The OUTERMOST debug-gate keeps the whole stamped branch DCE-able under
      `:advanced` + `goog.DEBUG=false`."
      [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)

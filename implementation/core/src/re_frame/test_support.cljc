@@ -1038,7 +1038,7 @@
 ;; Macro lives in the `#?(:clj ...)` arm so CLJS test files reach it via
 ;; `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`
 ;; — mirrors how `re-frame.core`'s call-site macros (`with-frame`,
-;; `frame-bound-fn`, …) ship.
+;; `with-new-frame`, …) ship.
 
 #?(:clj
    (defmacro with-trace-recorder!

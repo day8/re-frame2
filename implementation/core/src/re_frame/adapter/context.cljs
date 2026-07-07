@@ -275,7 +275,7 @@
   observes:
 
     1. `re-frame.frame/*current-frame*` (dynamic var) — set by
-       `with-frame` / `frame-bound-fn`.
+       `with-frame` / `bind-fn`.
     2. The closest enclosing frame-provider via React context. Reads
        `_currentValue` off the shared context object directly (the
        substrate-portable path; UIx's `use-context` and Helix's

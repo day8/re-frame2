@@ -36,7 +36,7 @@
             [re-frame.test-support :as test-support]
             [re-frame.views])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame
-                                          frame-bound-fn reg-view]]))
+                                          reg-view]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). Wiping the
 ;; registrar with clear-all! is hostile to CLJS test isolation: framework
@@ -81,18 +81,22 @@
   (testing "outside any binding the dynamic var falls back to :rf/default"
     (is (= :rf/default (rf/current-frame-id)))))
 
-;; ---- frame-bound-fn macro ---------------------------------------------------
+;; ---- capture-frame — the ONE public HOLD primitive --------------------------
 
-(deftest frame-bound-fn-captures-frame
-  (testing "frame-bound-fn captures the current frame and re-binds it inside the body"
+(deftest capture-frame-survives-scope-unwind-cljs
+  (testing "capture-frame captures the current frame at creation time; its
+            handle still targets that frame after with-frame unwinds
+            (API-shrink #1, rf2-csbbwu removed frame-bound-fn/frame-bound-fn*
+            from the facade — capture-frame is the one public carry primitive)"
     (rf/reg-frame :side {:doc "side frame"})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
-      ;; Outside the with-frame, dynamic var has reverted; the frame-bound-fn
-      ;; preserves :side.
+    (let [handle (with-frame :side (rf/capture-frame))]
+      ;; Outside the with-frame, dynamic var has reverted; the captured
+      ;; handle still targets :side.
       (is (= :rf/default (rf/current-frame-id)))
-      (is (= :side       (captured))))))
+      (is (= :side (:frame handle)))
+      (is (= 99 (:n (rf/app-db-value (:frame handle))))))))
 
 ;; ---- reg-view macro ---------------------------------------------------------
 
@@ -201,9 +205,9 @@
     (rf/dispatch-sync [:counter/init 100] {:frame :right})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
     (rf/dispatch-sync [:counter/inc] {:frame :left})
-    (is (= 12  (rf/subscribe-once :left  [:count])))
-    (is (= 100 (rf/subscribe-once :right [:count])))
-    (is (nil?  (rf/subscribe-once :rf/default [:count])))))
+    (is (= 12  (rf/subscribe-once [:count] {:frame :left})))
+    (is (= 100 (rf/subscribe-once [:count] {:frame :right})))
+    (is (nil?  (rf/subscribe-once [:count] {:frame :rf/default})))))
 
 ;; ---- reactivity -----------------------------------------------------------
 ;; Reagent reactions auto-update on input change. Plain-atom can't show this
@@ -990,7 +994,7 @@
     (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=2
     (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=3
 
-    (let [r       (rf/subscribe :restore/cljs [:n])
+    (let [r       (rf/subscribe [:n] {:frame :restore/cljs})
           _       (is (= 3 @r) "the reaction sees current value before restore")
           history (rf/epoch-history :restore/cljs)
           target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
@@ -1016,8 +1020,8 @@
     (rf/dispatch-sync [:seed 100] {:frame :restore/b})
     (rf/dispatch-sync [:inc]      {:frame :restore/b})  ;; b-n=101
 
-    (let [a-r       (rf/subscribe :restore/a [:n])
-          b-r       (rf/subscribe :restore/b [:n])
+    (let [a-r       (rf/subscribe [:n] {:frame :restore/a})
+          b-r       (rf/subscribe [:n] {:frame :restore/b})
           _         (is (= 2   @a-r))
           _         (is (= 101 @b-r))
           a-history (rf/epoch-history :restore/a)

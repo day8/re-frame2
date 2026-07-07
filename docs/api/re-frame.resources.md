@@ -739,7 +739,7 @@ A failure settles `:error` — there is no `:refresh-error` analogue (a write ha
 
 ## Reading resource and mutation state
 
-Resource and mutation state are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). `subscribe`'s frame-first arity carries the `{:frame <target>}` capability to read from an explicit frame. A sub never fetches.
+Resource and mutation state are read with the ordinary `subscribe` naming their framework sub vector — there is no named-read-sugar fn (a runtime-db framework read is a subscription vector, one grammar). `subscribe`'s `{:frame <target>}` opts form reads from an explicit frame. A sub never fetches.
 
 ```clojure
 ;; a view reads a resource passively — never fetches

@@ -320,7 +320,7 @@
     (rf/dispatch-sync [:plain/set] {:frame :plain/main})
     (is (= :global (:written-by (rf/app-db-value :plain/main)))
         "with no image generation, the dispatch resolved the GLOBAL handler")
-    (is (= :global @(rf/subscribe :plain/main [:plain/value]))
+    (is (= :global @(rf/subscribe [:plain/value] {:frame :plain/main}))
         "with no image generation, the subscribe resolved the GLOBAL sub")
     (is (nil? registrar/*generation*)
         "no generation was ever bound for an image-less frame")))

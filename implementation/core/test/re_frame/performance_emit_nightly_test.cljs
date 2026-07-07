@@ -143,7 +143,7 @@
       (rf/reg-sub :perf.emit-test/n
                   (fn [db _] (:n db)))
       (rf/dispatch-sync [:perf.emit-test/seed])
-      (is (= 7 (rf/subscribe-once :rf/default [:perf.emit-test/n]))
+      (is (= 7 (rf/subscribe-once [:perf.emit-test/n] {:frame :rf/default}))
           "subscribe-once delivered the seeded value")
       (let [counts (bucket-counts)
             names  (rf-measures)]
@@ -202,7 +202,7 @@
         (rf/reg-sub :perf.emit-test/count
                     (fn [db _] (:count db)))
         (rf/dispatch-sync [:perf.emit-test/initialise])
-        (is (= 5 (rf/subscribe-once :rf/default [:perf.emit-test/count])))
+        (is (= 5 (rf/subscribe-once [:perf.emit-test/count] {:frame :rf/default})))
         (let [counts (bucket-counts)]
           (doseq [bucket ["event" "sub" "fx"]]
             (is (pos? (get counts bucket 0))

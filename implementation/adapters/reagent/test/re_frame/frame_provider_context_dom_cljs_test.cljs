@@ -6,7 +6,7 @@
   subscribe / dispatch call site is
 
     1. `re-frame.frame/*current-frame*` (dynamic var; set by `with-frame`
-       / `frame-bound-fn`)
+       / `bind-fn`)
     2. closest enclosing `frame-provider` via React context
     3. nil — no scope. EP-0002 (rf2-69r7ui): there is NO `:rf/default`
        floor. The createContext default is the no-provider sentinel, the

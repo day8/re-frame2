@@ -695,7 +695,7 @@
         (with-redefs [re-frame.subs/subscribe
                       (fn
                         ([_query-v] throwing-reaction)
-                        ([_frame-id _query-v] throwing-reaction))]
+                        ([_query-v _opts] throwing-reaction))]
           (rf/dispatch-sync [:s/throws-machine [:go]]))
         (let [errors (filter #(= :rf.error/machine-after-sub-threw
                                  (:operation %))

@@ -70,10 +70,10 @@
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/intro"] {:frame f})
       (is (= :route.cljs/article
-             (rf/subscribe-once f [:rf.cljs.route/id]))
+             (rf/subscribe-once [:rf.cljs.route/id] {:frame f}))
           ":rf.route/id sub resolves under the Reagent adapter")
       (is (= {:id "intro"}
-             (rf/subscribe-once f [:rf.cljs.route/params]))
+             (rf/subscribe-once [:rf.cljs.route/params] {:frame f}))
           ":rf.route/params sub resolves under the Reagent adapter")
       (is (true? (:article-loaded? (rf/app-db-value f)))
           ":on-match's [:cljs/article-load] dispatched and ran")
@@ -81,7 +81,7 @@
       ;; A second navigation through the same path with new params re-fires.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/welcome"] {:frame f})
       (is (= {:id "welcome"}
-             (rf/subscribe-once f [:rf.cljs.route/params]))
+             (rf/subscribe-once [:rf.cljs.route/params] {:frame f}))
           "new params land in the slice on subsequent navigation")
       (is (some? (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
@@ -109,8 +109,8 @@
       (rf/dispatch-sync [:rf.route/transitioned "/cljs2/articles/intro"]
                         {:frame right})
 
-      (let [left-route  (rf/subscribe-once left  [:rf.cljs2/route])
-            right-route (rf/subscribe-once right [:rf.cljs2/route])]
+      (let [left-route  (rf/subscribe-once [:rf.cljs2/route] {:frame left})
+            right-route (rf/subscribe-once [:rf.cljs2/route] {:frame right})]
         (is (= :route.cljs2/articles (:route-id left-route))
             "left frame's current route is :route.cljs2/articles")
         (is (= :route.cljs2/article  (:route-id right-route))
@@ -123,8 +123,8 @@
       ;; Re-navigate on the left only — right is unaffected.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs2/"] {:frame left})
       (is (= :route.cljs2/home
-             (:route-id (rf/subscribe-once left [:rf.cljs2/route])))
+             (:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame left})))
           "left re-navigated to :route.cljs2/home")
       (is (= :route.cljs2/article
-             (:route-id (rf/subscribe-once right [:rf.cljs2/route])))
+             (:route-id (rf/subscribe-once [:rf.cljs2/route] {:frame right})))
           "right is unaffected by left's navigation"))))

@@ -723,7 +723,7 @@
               (for [[query-v expected-val] (or (:sub-values expect) {})]
                 {:query    query-v
                  :expected expected-val
-                 :actual   (rf/subscribe-once :rf/default query-v)}))
+                 :actual   (rf/subscribe-once query-v {:frame :rf/default})}))
             trace-failures (check-trace-emissions @traces
                                                   (:trace-emissions expect))
             not-emit-failures (check-trace-not-emitted @traces

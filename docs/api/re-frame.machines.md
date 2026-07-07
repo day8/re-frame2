@@ -207,7 +207,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```
 - **Description**: Reverse-lookup: given a `system-id`, returns the spawned-machine id bound to it, or `nil`.
     - The single-arity resolves the frame from the ambient scope, raising `:rf.error/no-frame-context` under no scope.
-    - The opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly — the trailing `{:frame …}` opts map, the same public-frame-targeting shape `subscribe`'s frame-first arity takes.
+    - The opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly — the trailing `{:frame …}` opts map, the same public-frame-targeting shape `subscribe` takes.
     - The 2-arity is shape-discriminated on the second arg: an opts map is the public form; a bare frame target is the *internal* frame-last plumbing.
 - **Example**:
   ```clojure

@@ -254,7 +254,7 @@
             ;; Explicit `:rf/default` (2-arity) — the dynamic-var scope
             ;; does not convey into the worker threads, so the frame stamp
             ;; rides as a value across the boundary (rf2-jue6sp / EP-0002).
-            (rf/subscribe :rf/default [:n])  ;; ref-count 1
+            (rf/subscribe [:n] {:frame :rf/default})  ;; ref-count 1
             (let [latch (CountDownLatch. 1)
                   threads (mapv (fn [_]
                                   (Thread.

@@ -168,7 +168,7 @@
                                     reg-view reg-machine defmachine
                                     dispatch dispatch-sync subscribe
                                     ->interceptor
-                                    with-frame with-new-frame frame-bound-fn
+                                    with-frame with-new-frame
                                     with-fx-overrides
                                     with-managed-request-stubs]])))
 
@@ -781,9 +781,10 @@
   rf2-32siq3.45 option-(b) record-only-key fail-loud redirect).
 
   Returns the frame VALUE — the live lifecycle token (its representation is not
-  an app-facing data contract; read its id with `rf/frame-value->id`). The frame
-  is fully runnable: `dispatch` / `subscribe` / `destroy-frame!` / `app-db-value`
-  accept the value OR its id. The public routing address is the frame id.
+  an app-facing data contract). The frame is fully runnable: `dispatch` /
+  `subscribe` / `destroy-frame!` / `app-db-value` / `frame-provider` all accept
+  the value directly, OR its id — the API teaches ONE frame-target grammar, so
+  there is no separate value→id accessor to reach for.
 
   Two arities mirror `re-frame.live-frame/make-frame`:
     (make-frame opts)             — resolve `:images` against the LIVE source store.
@@ -833,13 +834,14 @@
   frame from the registry. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
 
-(def ^{:doc "The single public accessor from a frame VALUE (the lifecycle token
-  `rf/make-frame` returns) to its frame id (EP-0024, rf2-tu2vr7). Returns the
-  frame id the value routes to; a frame-id keyword passes through unchanged, so a
-  caller can always pass a value or an id. The frame value's representation is
-  not an app-facing data contract — read the id through this accessor. Per Spec
-  002 §Frame value and EP-0024 Operation target grammar."}
-  frame-value->id frame/frame-value->id)
+;; `frame-value->id` is REMOVED from the facade (API-shrink #1, rf2-csbbwu).
+;; The API fully commits to ONE frame-target grammar accepted everywhere
+;; (`dispatch` / `subscribe` / `destroy-frame!` / `app-db-value` /
+;; `frame-provider` / … all take a frame VALUE or its id interchangeably), so
+;; there is no longer a public need to unwrap a value to its id — pass the
+;; value straight through. The internal normalization primitive
+;; (`re-frame.frame/frame-value->id`) survives for the framework's own
+;; call sites. Per Spec 002 §Frame value and EP-0024 Operation target grammar.
 
 ;; ---- flows / schemas — façade boundary (rf2-wad2fl) ----------------------
 ;;
@@ -898,94 +900,63 @@
 ;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
 ;; live here.
 
-;; EP-0023 collapse slice 2 (rf2-32siq3.32): the `*`-fns gain a frame-FIRST
-;; positional 2-arity — `(dispatch* frame event-vec)` — beside the established
-;; event-first `(dispatch* event-vec opts)`, so the public macro forms
-;; `(rf/dispatch-sync frame [...])` / `(rf/dispatch frame [...])` (EP-0023
-;; §Public API) route the carried frame TARGET (a frame-id keyword OR a live
-;; frame OBJECT) exactly like the 2-arity `(rf/subscribe frame [...])` already
-;; does. The discriminator is the FIRST arg's shape: an event-vec is ALWAYS a
-;; vector, a frame target NEVER is (a keyword id or a `:rf.frame/object`-marked
-;; object map), so `vector?` on arg-1 cleanly separates the two 2-arg forms —
-;; every existing `(dispatch* [..] opts)` caller (the capture-frame closures, the
-;; macro expansion, programmatic HoF callers) stays byte-identical. The
-;; frame-first form lowers to the established `{:frame target}` opt, which
-;; `re-frame.router/build-envelope` normalizes through `frame/frame-target->id`
-;; (object → runnable-id, keyword unchanged) — no new internal seam, the slice-1
-;; wiring carries it. The optional THIRD positional arg is the call-site coord
-;; the `dispatch` / `dispatch-sync` macro splices in under the OUTERMOST
-;; debug-gate (so it DCEs in `:advanced` + `goog.DEBUG=false`); it is stamped
-;; onto whichever opts map the discriminated form builds.
+;; API-shrink #1 (rf2-csbbwu): frame targeting is exactly THREE intents —
+;; ambient SCOPE (no `:frame` opt; reads the carried `with-frame` /
+;; frame-provider / captured `*current-frame*` stamp), explicit OVERRIDE
+;; (`{:frame target}`, `target` a frame-id keyword OR a live frame value), and
+;; HOLD (`capture-frame`, below). The EP-0023-era frame-FIRST positional
+;; 2-arity — `(dispatch* frame event-vec)` — is DELETED: every sig is
+;; `[payload]` / `[payload opts]`, no `vector?` shape-discrimination on the
+;; first arg. `re-frame.router/build-envelope` still normalizes an object
+;; `:frame` opt to its runnable-id via `frame/frame-target->id`, so a value or
+;; a keyword target both route correctly.
 
-;; The discriminating bodies live in `-impl` fns, and `dispatch*` /
-;; `dispatch-sync*` are `def` ALIASES to them. The alias-`def` (not a direct
-;; `defn`) is DELIBERATE: it keeps the public `*`-fns RE-DEFINABLE under
-;; `with-redefs` from the tools tests (Xray/Story stub `rf/dispatch*`). A direct
-;; `defn` here would let the CLJS compiler attach inline fixed-arity metadata to
-;; `re-frame.core/dispatch*`, so the macro call sites would emit a STATIC
-;; `.cljs$core$IFn$_invoke$arity$N` dispatch that a `with-redefs`'d fn whose arity
-;; set differs cannot satisfy ("arity$N is not a function"); the alias-`def`
-;; preserves the same general-application indirection the previous `(def
-;; dispatch* router/dispatch!)` cross-var alias gave.
-;;
-;; The `*`-fns are 1-or-2-arity ONLY (no call-site arity). The 2-arity
-;; discriminates the frame-first `(dispatch* frame event-vec)` sugar from the
-;; event-first `(dispatch* event-vec opts)` on the FIRST arg's shape (an event-vec
-;; is ALWAYS a vector; a frame target — a keyword id or a `:rf.frame/object`
-;; object map — never is), lowering frame-first to the established `{:frame …}`
-;; opt. Call-site stamping is the MACRO's job (debug-gated, DCE'd in prod) and
-;; reaches these via the 2-arity opts map, so NO `:rf.trace/call-site` literal
-;; lives in these production-reachable bodies (the elision probe asserts the
-;; keyword is ABSENT from the prod bundle).
+;; `dispatch*` / `dispatch-sync*` are `def` ALIASES (not direct `defn`s) to
+;; `-impl` fns. The alias-`def` is DELIBERATE: it keeps the public `*`-fns
+;; RE-DEFINABLE under `with-redefs` from the tools tests (Xray/Story stub
+;; `rf/dispatch*`). A direct `defn` here would let the CLJS compiler attach
+;; inline fixed-arity metadata to `re-frame.core/dispatch*`, so the macro call
+;; sites would emit a STATIC `.cljs$core$IFn$_invoke$arity$N` dispatch that a
+;; `with-redefs`'d fn whose arity set differs cannot satisfy ("arity$N is not
+;; a function"). Call-site stamping is the MACRO's job (debug-gated, DCE'd in
+;; prod) and reaches these via the 2-arity opts map, so NO
+;; `:rf.trace/call-site` literal lives in these production-reachable bodies
+;; (the elision probe asserts the keyword is ABSENT from the prod bundle).
 
 (defn- dispatch*-impl
-  ([event-vec] (router/dispatch! event-vec))
-  ([a b]
-   (if (vector? a)
-     (router/dispatch! a b)
-     (router/dispatch! b {:frame a}))))
+  ([event-vec]      (router/dispatch! event-vec))
+  ([event-vec opts] (router/dispatch! event-vec opts)))
 
 (defn- dispatch-sync*-impl
-  ([event-vec] (router/dispatch-sync! event-vec))
-  ([a b]
-   (if (vector? a)
-     (router/dispatch-sync! a b)
-     (router/dispatch-sync! b {:frame a}))))
+  ([event-vec]      (router/dispatch-sync! event-vec))
+  ([event-vec opts] (router/dispatch-sync! event-vec opts)))
 
 (def ^{:doc "Fn-form of `dispatch` for HoF / programmatic dispatch — no
-  call-site source-coord capture. Two 2-arity forms, discriminated by the
-  FIRST arg's shape (EP-0023 §Public API, rf2-32siq3.32):
+  call-site source-coord capture.
 
     (dispatch* event-vec)              — ambient frame (carried scope).
-    (dispatch* event-vec opts)         — event-first; `opts` may carry
-                                         `:frame` (a frame-id keyword OR a
-                                         live frame object), plus the other
-                                         dispatch opts.
-    (dispatch* frame event-vec)        — frame-first; `frame` is a frame-id
-                                         keyword OR a live frame OBJECT
-                                         (`rf/make-frame`'s return value),
-                                         lowered to `{:frame frame}`.
+    (dispatch* event-vec opts)         — `opts` may carry `:frame` (a
+                                         frame-id keyword OR a live frame
+                                         value) — the explicit OVERRIDE
+                                         intent.
 
-  An event-vec is always a VECTOR; a frame target never is — so `vector?`
-  on the first arg separates the forms. Appends `event` to the target
-  frame's router queue; returns nil. Per spec/API.md §Dispatch and
-  subscribe (rf2-ts1a)."
-       :arglists '([event-vec] [event-vec opts] [frame event-vec])}
+  Appends `event` to the target frame's router queue; returns nil. Per
+  spec/API.md §Dispatch and subscribe (rf2-ts1a)."
+       :arglists '([event-vec] [event-vec opts])}
   dispatch*       dispatch*-impl)
 
 (def ^{:doc "Fn-form of `dispatch-sync` for HoF / programmatic sync dispatch — no
-  call-site source-coord capture. Mirrors `dispatch*`'s forms, discriminated by
-  the FIRST arg's shape (EP-0023 §Public API, rf2-32siq3.32):
+  call-site source-coord capture. Mirrors `dispatch*`'s forms:
 
     (dispatch-sync* event-vec)         — ambient frame.
-    (dispatch-sync* event-vec opts)    — event-first; `opts` may carry `:frame`.
-    (dispatch-sync* frame event-vec)   — frame-first; `frame` is a frame-id
-                                         keyword OR a live frame OBJECT.
+    (dispatch-sync* event-vec opts)    — `opts` may carry `:frame` (a
+                                         frame-id keyword OR a live frame
+                                         value).
 
-  An event-vec is always a VECTOR; a frame target never is. Processes `event`
-  end-to-end synchronously, then drains to fixed point. For tests / REPL /
-  bootstrap only. Per spec/API.md §Dispatch and subscribe (rf2-ts1a)."
-       :arglists '([event-vec] [event-vec opts] [frame event-vec])}
+  Processes `event` end-to-end synchronously, then drains to fixed point.
+  For tests / REPL / bootstrap only. Per spec/API.md §Dispatch and
+  subscribe (rf2-ts1a)."
+       :arglists '([event-vec] [event-vec opts])}
   dispatch-sync*  dispatch-sync*-impl)
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
@@ -993,16 +964,14 @@
   bodies, machine actions, REPL — anywhere you need a value without a
   reactive subscription. Per spec/API.md §Dispatch and subscribe.
 
-  Call shapes (SHAPE-DISCRIMINATED on the first arg, mirroring `subscribe`):
+  Call shapes, mirroring `subscribe`:
 
       (subscribe-once query-v)               ;; ambient frame (carried scope)
       (subscribe-once query-v {:frame f})    ;; explicit-frame opts form
 
   The `{:frame …}` opt is the public way to target a named frame from
-  outside any scope (`f` is a frame-id keyword or a live frame object) —
-  parallel to `subscribe`'s opts form (rf2-bfadc6). The runtime ALSO
-  discriminates a frame-first `(subscribe-once frame f query-v)`, retained as
-  internal plumbing (tests, tooling); author with the `{:frame …}` opt."}
+  outside any scope (`f` is a frame-id keyword or a live frame value) —
+  parallel to `subscribe`'s opts form (rf2-bfadc6)."}
   subscribe-once subs/subscribe-once)
 
 (def ^{:doc "Decrement the ref-count on the cached subscription for
@@ -1036,14 +1005,12 @@
   `re-frame.core-call-site-macros/build-subscribe-form`). NOT an app-facing
   surface — the public read shapes are `subscribe`, `subscribe-once`, or the
   `:subscribe` op from a `capture-frame`. Arities mirror
-  `re-frame.subs/subscribe`: the public `(subscribe* query-v opts)` (`opts`
-  may carry `{:frame target}`; ambient when absent) and the internal
-  frame-first `(subscribe* frame-id query-v)`, SHAPE-DISCRIMINATED on the
-  first arg by `re-frame.subs/subscribe` (a query-vector ⇒ public; a frame
-  target ⇒ frame-first) — mirroring `dispatch*`."
+  `re-frame.subs/subscribe`: `(subscribe* query-v)` — ambient frame — and
+  `(subscribe* query-v opts)`, `opts` may carry `{:frame target}` (a
+  frame-id keyword OR a live frame value); mirrors `dispatch*`."
   {:arglists '([query-v] [query-v opts])}
-  ([query-v] (subs/subscribe query-v))
-  ([a b]     (subs/subscribe a b)))
+  ([query-v]      (subs/subscribe query-v))
+  ([query-v opts] (subs/subscribe query-v opts)))
 
 ;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017,
 ;; rf2-w9xyx1). The interceptor idiom was removed; coeffect delivery is
@@ -1076,16 +1043,7 @@
        [<event-id> {<k> <v>}]         ;; multi-argument — single map payload
      Variadic `[<id> a b c]` is accepted by the runtime for v1-migration
      and caller convenience; the linter nudges new code toward the map
-     form. See spec/Conventions.md §Canonical event-vector shape.
-
-     The runtime ALSO discriminates a frame-first `(dispatch frame
-     event-vec)` 2-arity (first arg a frame target, not a vector) and
-     lowers it to the `{:frame frame}` opt. EP-0024 (Open Issue #8,
-     rf2-5vla7c) retired the frame-first form from the taught app
-     grammar — author with the `{:frame …}` opt above. The
-     discrimination is retained as internal plumbing for implementation
-     / test / tooling reach only; it is not part of the public API
-     surface."
+     form. See spec/Conventions.md §Canonical event-vector shape."
      {:arglists '([event-vec] [event-vec opts])}
      ([arg1]
       (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
@@ -1110,14 +1068,7 @@
      The `{:frame …}` opt is the public way to target an explicit frame.
      Canonical `event-vec` shape — see `dispatch` docstring above; same
      best-practice convention applies (id-first, with at most one
-     trailing map; variadic tolerated, linter nudges).
-
-     As with `dispatch`, the runtime ALSO discriminates a frame-first
-     `(dispatch-sync frame event-vec)` 2-arity and lowers it to the
-     `{:frame frame}` opt; EP-0024 (Open Issue #8, rf2-5vla7c) retired
-     that form from the taught app grammar (author with the `{:frame …}`
-     opt). It is retained as internal plumbing for test / tooling reach
-     only, not as public API."
+     trailing map; variadic tolerated, linter nudges)."
      {:arglists '([event-vec] [event-vec opts])}
      ([arg1]
       (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
@@ -1138,17 +1089,9 @@
 
        (subscribe query-v)            ;; ambient frame (carried scope)
        (subscribe query-v opts)       ;; `opts` may carry `:frame` (a frame-id
-                                      ;; keyword OR a live frame object)
+                                      ;; keyword OR a live frame value)
 
-     The `{:frame …}` opt is the public way to target an explicit frame.
-
-     The runtime ALSO discriminates a frame-first `(subscribe frame
-     query-v)` 2-arity (first arg a frame target, not a vector) and routes
-     it to the same build. EP-0024 (Open Issue #8, rf2-5vla7c) retired the
-     frame-first form from the taught app grammar — author with the
-     `{:frame …}` opt above. The discrimination is retained as internal
-     plumbing for implementation / test / tooling reach only; it is not part
-     of the public API surface."
+     The `{:frame …}` opt is the public way to target an explicit frame."
      {:arglists '([query-v] [query-v opts])}
      ([arg1]
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
@@ -1169,8 +1112,10 @@
 ;; the keystone: a frame api — a per-frame bundle (`{:frame :dispatch
 ;; :dispatch-sync :subscribe}`) captured at CREATION time, so its ops
 ;; survive async boundaries that unwind the dynamic-var / React-context
-;; scope. The no-arg `capture-frame` / `frame-bound-fn*` capture forms
-;; capture ONLY when a real scope exists at capture time.
+;; scope. The no-arg `capture-frame` capture form captures ONLY when a real
+;; scope exists at capture time — `capture-frame` is the ONE public HOLD
+;; primitive (API-shrink #1, rf2-csbbwu — `frame-bound-fn` / `frame-bound-fn*`
+;; are removed from the facade).
 
 (defn current-frame-id
   "Return the active frame id the in-effect scope carries — a keyword.
@@ -1244,8 +1189,8 @@
      [query-v]
      (if (and subscribe-call-site interop/debug-enabled?)
        (trace/with-call-site subscribe-call-site
-         (subs/subscribe frame query-v))
-       (subs/subscribe frame query-v)))})
+         (subs/subscribe query-v {:frame frame}))
+       (subs/subscribe query-v {:frame frame})))})
 
 (defn capture-frame
   "Return a frame api — the keystone affordance for
@@ -1308,8 +1253,8 @@
      compile time on a vector argument.
 
      For async closures that fire after body returns, capture via
-     `capture-frame` / `frame-bound-fn` / `frame-bound-fn*`. Per
-     Spec 002 §with-frame."
+     `capture-frame` — the ONE public HOLD primitive. Per Spec 002
+     §with-frame."
      {:arglists '([frame-id body+])}
      [frame-id & body]
      (rvm/expand-with-frame frame-id body)))
@@ -1331,101 +1276,20 @@
      frame-id.
 
      For async closures that fire after body returns, capture via
-     `capture-frame` / `frame-bound-fn` — the body's dynamic binding has
-     unwound and `destroy-frame!` has already run by then. Per Spec 002
-     §with-frame."
+     `capture-frame` — the body's dynamic binding has unwound and
+     `destroy-frame!` has already run by then. Per Spec 002 §with-frame."
      {:arglists '([[sym expr] body+])}
      [bindings & body]
      (rvm/expand-with-new-frame bindings body)))
 
-(defn frame-bound-fn*
-  "INTERNAL carry helper (EP-0024 Open Issue #8, rf2-5vla7c —
-  `:tier :implementation`; NOT an app-facing surface). Higher-order
-  callback wrapper (the `*`-twin of the `frame-bound-fn` macro): take an
-  existing fn `f` and return a new fn that re-establishes
-  `*current-frame*` for `f`'s body. `capture-frame` is the ONE public
-  carry primitive — author async / tooling paths with `capture-frame` or
-  an explicit `{:frame …}` opt; this helper is retained only for
-  implementation / test reach. The captured frame value is closed
-  over — no dynamic-var read at call time, so the wrapped fn dispatches
-  into the captured frame even when it fires after the surrounding
-  `with-frame` / `frame-provider` lexical scope has unwound.
-
-  Two arities:
-    (frame-bound-fn* f)            — capture `(current-frame-id)` at wrap time.
-    (frame-bound-fn* frame-id f)   — explicit frame-id; no surrounding
-                                     `with-frame` or frame-provider needed
-                                     at wrap time.
-
-  The `frame-bound-fn` MACRO is the `fn`-syntax counterpart; this fn
-  takes an already-held fn value. Prefer `capture-frame` for the common
-  dispatch / subscribe case — `frame-bound-fn*` re-establishes the
-  dynamic binding around an arbitrary fn body (e.g. one that itself
-  calls `current-frame-id`), which is why it survives internally even
-  though `capture-frame` is the public carry primitive.
-
-  Use it when a callback is constructed in one synchronous moment (a
-  render-fn, an event handler body, a module install! routine) but
-  invoked LATER, across an async boundary that unwinds the
-  `*current-frame*` dynamic binding:
-
-    - `setTimeout` / `setInterval` callbacks
-    - `Promise.then` / `js/await` continuations
-    - `requestAnimationFrame` ticks
-    - WebSocket / EventSource `onmessage` handlers
-    - Worker `postMessage` handlers
-    - IntersectionObserver / MutationObserver callbacks
-    - Custom event subscribers, deferred fns, third-party callback APIs
-
-  See also spec/006 §Lazy-seq deref tracking (Reagent adapter) for an
-  adjacent but DIFFERENT bug class — \"view doesn't update on click\"
-  that looks superficially like \"frame lost across React onClick\" but
-  is actually a Reagent reactive-tracking failure (a lazy `(for ...)`
-  in a `reg-view` body whose elements deref subscriptions must be
-  realised with `doall` / `mapv` / `into` inside the render scope).
-  Reach for `frame-bound-fn*` when you have a genuine async-boundary
-  case; reach for `doall` when you have a reactive-tracking case. Per
-  rf2-atqkg the two are not interchangeable.
-
-  EP-0002: the 1-arity form captures the scope/hold stamp at WRAP time
-  via `frame/require-current-frame!` — it captures ONLY when a real scope
-  exists at wrap time. Wrapping outside any scope raises
-  `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
-  002 §Resolver surface). Use the 2-arity `(frame-bound-fn* frame-id f)`
-  to bind an explicit frame from outside any scope."
-  ([f]
-   (let [frame (frame/require-current-frame!
-                 :frame-bound-fn* {:where 're-frame.core/frame-bound-fn*})]
-     (fn [& args]
-       (binding [frame/*current-frame* frame]
-         (apply f args)))))
-  ([frame-id f]
-   (fn [& args]
-     (binding [frame/*current-frame* frame-id]
-       (apply f args)))))
-
-#?(:clj
-   (defmacro frame-bound-fn
-     "INTERNAL carry helper (EP-0024 Open Issue #8, rf2-5vla7c —
-     `:tier :implementation`; NOT an app-facing surface — `capture-frame`
-     is the one public carry primitive). Return a fn that captures the
-     current frame and re-binds `*current-frame*` inside its body. The
-     `fn`-syntax sugar over `frame-bound-fn*` — write the argv + body
-     inline:
-
-       (rf/frame-bound-fn [msg] (rf/dispatch [:ws/incoming msg]))
-
-     is equivalent to
-
-       (rf/frame-bound-fn* (fn [msg] (rf/dispatch [:ws/incoming msg])))
-
-     The captured frame is closed over, so the returned fn dispatches
-     into the captured frame even when it fires after the surrounding
-     `with-frame` / `frame-provider` scope has unwound (the async-
-     boundary case). For the common dispatch / subscribe case prefer
-     `capture-frame`. Per Spec 002 §frame-bound-fn."
-     [argv & body]
-     (rvm/expand-frame-bound-fn argv body)))
+;; `frame-bound-fn` / `frame-bound-fn*` are REMOVED from the facade
+;; (API-shrink #1, rf2-csbbwu) — `capture-frame` is the ONE public HOLD
+;; primitive for carrying a frame into closures and across async
+;; boundaries. The genuinely-different dynamic-rebinding semantics
+;; `frame-bound-fn*` offered (re-establish `*current-frame*` around an
+;; ARBITRARY already-held fn, as opposed to `capture-frame`'s pre-bound
+;; `{:dispatch :dispatch-sync :subscribe}` op bundle) survive internally as
+;; `re-frame.frame/bind-fn` for implementation / test / tooling reach.
 
 #?(:clj
    (defmacro with-fx-overrides

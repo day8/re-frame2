@@ -349,9 +349,9 @@
          (rf/reg-sub :test/counter
                      (fn [db _] (get db :counter 0)))
          (dc/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 1 (rf/subscribe-once vid [:test/counter])))
+         (is (= 1 (rf/subscribe-once [:test/counter] {:frame vid})))
          (dc/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 2 (rf/subscribe-once vid [:test/counter])))))))
+         (is (= 2 (rf/subscribe-once [:test/counter] {:frame vid})))))))
 
 #?(:cljs
    (deftest cljs-dispatch-event-records-history
@@ -376,10 +376,10 @@
          (rf/reg-sub :test/counter
                      (fn [db _] (get db :counter 0)))
          (dc/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 1 (rf/subscribe-once vid [:test/counter])))
+         (is (= 1 (rf/subscribe-once [:test/counter] {:frame vid})))
          (let [h (first (dc/current-history vid))]
            (dc/replay-history-entry! vid h))
-         (is (= 2 (rf/subscribe-once vid [:test/counter])))
+         (is (= 2 (rf/subscribe-once [:test/counter] {:frame vid})))
          ;; Replay added a new history entry.
          (is (= 2 (count (dc/current-history vid))))))))
 
@@ -461,7 +461,7 @@
          (dc/dispatch-from-inputs! vid :dispatch-sync)
          (is (nil? (get-in @dc/input-state [vid :error]))
              "supplying the provided fact clears the error path")
-         (is (= 99 (rf/subscribe-once vid [:cofx.console/seen]))
+         (is (= 99 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
              "the supplied recordable fact reached the handler")
          (let [h (first (dc/current-history vid))]
            (is (= {:cofx.console/boundary 99} (:cofx h))
@@ -508,14 +508,14 @@
          ;; original dispatch supplies the fact, recording it in history
          (dc/dispatch-event! vid [:cofx.console/needs] :dispatch-sync
                              {:cofx.console/boundary 7} false)
-         (is (= 7 (rf/subscribe-once vid [:cofx.console/seen])))
+         (is (= 7 (rf/subscribe-once [:cofx.console/seen] {:frame vid})))
          ;; replay the recorded row — the strict policy re-presents the
          ;; recorded value (no re-mint); the handler reads the SAME fact
          (let [row (first (dc/current-history vid))]
            (is (= {:cofx.console/boundary 7} (:cofx row))
                "the recorded row carries the supplied cofx")
            (dc/replay-history-entry! vid row))
-         (is (= 7 (rf/subscribe-once vid [:cofx.console/seen]))
+         (is (= 7 (rf/subscribe-once [:cofx.console/seen] {:frame vid}))
              "replay reused the recorded recordable fact under strict policy")
          (is (= 2 (count (dc/current-history vid)))
              "replay recorded a fresh history entry")

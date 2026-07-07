@@ -394,10 +394,10 @@
     (rf/dispatch-sync [:seed "B-title"] {:frame :frame-b})
     ;; Each frame's parametric read resolves [:item/by-id :x] in its OWN
     ;; frame, so the values differ by frame state.
-    (is (= "A-title" (rf/subscribe-once :frame-a [:item/title :x])))
-    (is (= "B-title" (rf/subscribe-once :frame-b [:item/title :x])))
+    (is (= "A-title" (rf/subscribe-once [:item/title :x] {:frame :frame-a})))
+    (is (= "B-title" (rf/subscribe-once [:item/title :x] {:frame :frame-b})))
     ;; The realized upstream is cached IN the outer frame, not :rf/default.
-    (rf/subscribe :frame-a [:item/title :x])
+    (rf/subscribe [:item/title :x] {:frame :frame-a})
     (is (contains? (cache-keys :frame-a) [:item/by-id :x])
         "the realized input is cached in the outer frame")
     (is (not (contains? (cache-keys :rf/default) [:item/by-id :x]))
