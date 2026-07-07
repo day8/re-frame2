@@ -238,9 +238,18 @@
 
 (defn- first-id
   "Lowest `:id` among the event bundle's events, or `##Inf` when no event
-  carries an id. Used for sorting event bundles into emission order."
-  [{:keys [event handler fx effects subs renders other]}]
-  (let [all (concat (when handler [handler])
+  carries an id. Used for sorting event bundles into emission order.
+
+  Reads `:dispatched` (the full `:rf.event/dispatched` trace EVENT), not
+  `:event` (the bare event VECTOR `absorb` also lands, which carries no
+  `:id`) — rf2-yl4c0s: destructuring `:event` here silently contributed
+  nothing to `all`, so a bundle containing ONLY the dispatched root (no
+  handler/fx/effects/subs/renders/other trace within its run) fell
+  through to the `##Inf` sentinel below and sorted LAST regardless of
+  its actual emission order."
+  [{:keys [dispatched handler fx effects subs renders other]}]
+  (let [all (concat (when dispatched [dispatched])
+                    (when handler [handler])
                     (when fx [fx])
                     effects subs renders other)
         ids (keep :id all)]

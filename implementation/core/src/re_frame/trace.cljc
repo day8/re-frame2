@@ -240,14 +240,40 @@
   nil)
 
 (defn- tagged-frame-trace-disabled?
-  "True when `tags` carries a `:frame` that is registered trace-disabled.
-  The empty-set common case (no tool frame mounted) short-circuits
-  before the membership test so the hot emit path is unaffected when no
-  inspector is running."
+  "True when the frame this (not-yet-built) trace envelope targets is
+  registered trace-disabled. Mirrors
+  `re-frame.trace.tooling/push-to-ring!`'s frame-resolution chain so the
+  suppression gate agrees with the ring on which frame an event belongs
+  to — `tags` here is exactly what becomes the envelope's `:tags`, so
+  `push-to-ring!`'s first two steps (`[:tags :frame]` and a top-level
+  `:frame` on the built envelope) collapse into the single `(:frame
+  tags)` read; its third step, the late-bound `:frame/current-frame-id`
+  hook, is mirrored as-is:
+
+    1. `:frame` under `tags` (the router / call sites stamp it on most
+       in-run emits).
+    2. The late-bound `:frame/current-frame-id` hook (published by
+       `re-frame.frame` at ns-load) — covers emits inside an in-flight
+       cascade whose call site doesn't stamp a `:frame` tag but whose
+       dynamic `*current-frame*` is bound (e.g. a sub recompute / view
+       render reached through the ambient scope rather than an explicit
+       `:frame` opt).
+
+  Without step 2 an un-tagged emit under a disabled tool frame ESCAPED
+  suppression (rf2-yl4c0s) — the inspector's own reactivity could leak
+  into the ring it inspects via any resolution path push-to-ring! honours
+  but this gate didn't. The empty-set common case (no tool frame
+  mounted) short-circuits before ANY frame resolution — including the
+  late-bind hook lookup — so the hot emit path pays a single nil-check
+  when no inspector is running."
   [tags]
   (let [disabled @trace-disabled-frames]
     (and (seq disabled)
-         (contains? disabled (:frame tags)))))
+         (let [frame-id (or (:frame tags)
+                             (when-let [current-frame
+                                        (late-bind/get-fn-cached :frame/current-frame-id)]
+                               (current-frame)))]
+           (contains? disabled frame-id)))))
 
 ;; ---- canonical frame reader (rf2-7737vq Stage A) --------------------------
 ;;

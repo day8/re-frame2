@@ -259,6 +259,28 @@
       (is (= 10 (:dispatch-id c)))
       (is (nil? (:parent-dispatch-id c))))))
 
+(deftest group-by-event-orders-dispatched-root-only-bundle-by-its-own-id
+  (testing "a bundle carrying ONLY the dispatched root (no handler/fx/
+            effects/subs/renders/other trace within its run) sorts by
+            its own :dispatched event's :id, not by the ##Inf sentinel
+            (rf2-yl4c0s — first-id previously destructured :event, the
+            bare event VECTOR which carries no :id, instead of
+            :dispatched, so a root-only bundle silently fell through to
+            the sentinel and sorted LAST regardless of emission order)"
+    (let [root-only {:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                      :tags {:rf.trace/dispatch-id :root-only :rf.event/v [:root-only]}}
+          ;; A full six-domino cascade whose own ids (100-107) are all
+          ;; HIGHER than the root-only bundle's id (1) — with the fix,
+          ;; the root-only bundle's first-id (1) beats the full
+          ;; cascade's first-id (100) and sorts first. Pre-fix, the
+          ;; root-only bundle's first-id fell to the ##Inf sentinel and
+          ;; sorted AFTER the full cascade instead.
+          full      (mapv #(update % :id + 99) (cascade-evs :full-cascade [:full]))
+          cs        (p/group-by-event (concat full [root-only]))]
+      (is (= 2 (count cs)))
+      (is (= [:root-only :full-cascade] (map :dispatch-id cs))
+          "the root-only bundle (id 1) sorts before the full cascade (ids 100-107)"))))
+
 (deftest group-by-event-dispatched-slot-carries-full-trace-event
   (testing "the :dispatched slot preserves the full :rf.event/dispatched
             trace so consumers (Xray Event lens) can read top-level
