@@ -472,10 +472,30 @@
       They are therefore DROPPED from this allow-list, as
       `allow-list-stays-honest` requires the moment the rows land.
 
+  rf2-rf3zgt DEV-HOT-RELOAD DIAGNOSTIC PAIR (held transitionally):
+    - `:rf.warning/reprojection-failed` — `re-frame.live-frame`'s deferred
+      (`next-tick`) reprojection sweep now DIAGNOSES a per-frame assembly
+      failure on the trace channel instead of silently aborting the whole
+      sweep (the mid-sweep-abort defect the bead fixed); carries `:frame` +
+      `:exception`.
+    - `:rf.warning/reprojection-flush-failed` — the same ns's belt-and-
+      suspenders outer catch around the deferred flush, for a failure outside
+      the per-frame boundary (vanishingly unlikely — enumerating live frame
+      ids, the dirty-flag swap itself).
+      Both are DIAGNOSTIC-channel-only (dev hot-reload, gated on
+      `interop/debug-enabled?` inside `trace/emit-error!` — zero production
+      cost) and were added by a worker scoped to `live_frame.cljc` alone (not
+      the hot-zone Spec 009 file); held here transitionally per this list's
+      own convention (see the `:rf.error/cofx-registration-invalid` precedent
+      above) until a follow-up authors the two catalogue rows in Spec 009
+      §Error event catalogue and drops them from here.
+
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
-  #{:rf.error/flow-cycle-extract-invariant})
+  #{:rf.error/flow-cycle-extract-invariant
+    :rf.warning/reprojection-failed
+    :rf.warning/reprojection-flush-failed})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests

@@ -63,7 +63,15 @@
       hot-reload `reg-*` burst onto a single `interop/next-tick` flush — see the
       §Auto-reprojection section below. So an ordinary `reg-*` re-eval swaps the
       affected live frame's generation WITHOUT a manual `make-frame` /
-      `reproject-live-frames!` call.
+      `reproject-live-frames!` call. Each frame reprojects against the pool it
+      was ORIGINALLY resolved against — the live store, or the SAME explicit
+      descriptor pool for a `make-frame` 2-arity frame (`frame-generation-pool`
+      §Generation PROVENANCE, rf2-rf3zgt) — never against a store its
+      composition was never selected from. The deferred (`next-tick`) flush
+      runs a RESILIENT variant of the sweep: a per-frame assembly failure is
+      diagnosed (trace DIAGNOSTIC channel) and does NOT abort the rest of the
+      sweep, so one bad hot-reload edit cannot silently stale every sibling
+      frame too (see `deferred-flush!`).
 
   Reload is frame-targeted: reloading `:counter/left` swaps the generation THAT
   frame runs; it does not move `:counter/right` merely because the two frames
@@ -138,7 +146,8 @@
             [re-frame.registrar      :as registrar]
             [re-frame.frame          :as frame]
             [re-frame.interop        :as interop]
-            [re-frame.error          :as error]))
+            [re-frame.error          :as error]
+            [re-frame.trace          :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -504,6 +513,65 @@
       (asm/assemble images descriptors))))
 
 ;; ===========================================================================
+;; Generation PROVENANCE — which pool a frame's generation was resolved
+;; against (rf2-rf3zgt)
+;; ===========================================================================
+;;
+;; `make-frame`'s 2-arity `(opts descriptors)` resolves against an EXPLICIT
+;; descriptor pool (tests / harnesses / a pre-snapshotted store) instead of
+;; the live source store (EP-0023 §Image — mirrors `image-assembly/assemble`'s
+;; two arities). Reprojection (below) re-resolves a frame's CURRENT
+;; `:rf.gen/images` composition — but against WHICH pool? Before this fix
+;; `reproject-live-frame!` always passed `nil` (⇒ the LIVE store), so an
+;; explicit-pool frame swept up by ANY reprojection (the auto hook fires for
+;; EVERY `reg-*`, live-store-scoped or not — `mark-dirty-and-schedule!`
+;; below — and a manual `reproject-live-frames!` sweeps every image-loaded
+;; frame regardless of its pool) got re-resolved against a store its
+;; composition was never selected from: a `:select-ns` pattern that matches
+;; only the explicit pool typically ZERO-MATCHES the live store
+;; (`:rf.error/image-zero-match`, fail-loud) — or, worse, silently resolves
+;; against unrelated live registrations that merely happen to share the
+;; selected namespace.
+;;
+;; The fix: remember, per frame id, WHICH pool its generation was last
+;; resolved against (nil = the live store; a real descriptors value = that
+;; explicit pool), and thread the SAME pool through reprojection.
+;; `make-frame` is the ONE place a frame's pool arity is chosen — both first
+;; construction and every hot-reload re-construction — so it is the ONE place
+;; that records it; a re-`make-frame` that changes arity (explicit pool ↔
+;; live store) simply overwrites the record, keeping it always current.
+;;
+;; This is process-local dev bookkeeping (a `defonce` atom, the same shape as
+;; `pending-reprojection?` further below) rather than a new key on the sealed
+;; generation itself — `image-assembly` (the generation-schema owner) stays
+;; untouched; the provenance lives beside the OTHER reload/reprojection
+;; bookkeeping in this ns. Trade-off accepted: a frame id that is destroyed
+;; and never reused leaves a residual entry for the remainder of the process
+;; (no destroy-time cleanup hook here) — harmless, since `reproject-live-frame!`
+;; is already a no-op for an unregistered id and a REUSED id's entry is always
+;; freshly overwritten by the next `make-frame` call, so the residue is never
+;; read incorrectly; only dev-process memory, bounded by the number of
+;; distinct frame ids ever created in a session.
+
+(defonce ^{:private true
+           :doc "frame id -> the descriptor pool its CURRENT generation was
+  resolved against: nil for the live source store, a real descriptors value
+  for an explicit pool (`make-frame`'s 2-arity). Recorded by `make-frame` on
+  EVERY call (creation + hot-reload re-construction) so reprojection re-
+  resolves against the SAME provenance (rf2-rf3zgt) instead of silently
+  defaulting to the live store for a frame that was never resolved against
+  it. See the §Generation PROVENANCE section above for the full rationale."}
+  frame-generation-pool
+  (atom {}))
+
+(defn- record-frame-generation-pool!
+  "Record that `runnable-id`'s generation was just resolved against `descriptors`
+  (nil for the live store) — see `frame-generation-pool`. Returns nil."
+  [runnable-id descriptors]
+  (swap! frame-generation-pool assoc runnable-id descriptors)
+  nil)
+
+;; ===========================================================================
 ;; make-frame — the ONE public constructor (EP-0024 §One constructor)
 ;; ===========================================================================
 
@@ -660,6 +728,13 @@
          record-config (cond-> (apply dissoc opts image-selection-opt-keys)
                          true            (assoc :rf.frame/generation generation)
                          (some? adapter) (assoc :rf.frame/adapter adapter))]
+     ;; Record which pool this generation was resolved against BEFORE
+     ;; registering — see §Generation PROVENANCE above (rf2-rf3zgt): a later
+     ;; reprojection reads this back so it re-resolves against the SAME pool
+     ;; (explicit or live) rather than always falling through to the live
+     ;; store. Recorded on EVERY call (creation + hot-reload re-construction),
+     ;; so a re-`make-frame` that changes arity keeps the record current.
+     (record-frame-generation-pool! runnable-id descriptors)
      ;; Create (or idempotently update) the ONE `frames`-registry record under
      ;; the id. `reg-frame` is idempotent on an existing id (surgical update
      ;; preserving runtime state — EP-0024 §Duplicate id policy), installs the
@@ -814,17 +889,23 @@
 
 (defn reproject-live-frame!
   "Re-resolve ONE registered live `frame-id` from its current generation's OWN
-  image composition (`:rf.gen/images`) against the CURRENT live source store,
-  and swap the freshly-assembled generation onto the frame when it CHANGED
-  (EP-0023 §Default Image Semantics — a source-store change reprojects affected
-  EXPLICIT-image frames, not only default-image frames). Returns the reload diff
-  `{:added … :changed … :removed … :retained …}` when the frame moved, or nil
-  when its composition re-resolved byte-for-byte (no swap). A no-op for a
-  frame-id whose record carries no generation (not image-loaded)."
+  image composition (`:rf.gen/images`) against the pool that generation was
+  ORIGINALLY resolved against — the CURRENT live source store for an ordinary
+  frame, or the SAME explicit descriptor pool for a frame `make-frame`'s
+  2-arity created (`frame-generation-pool`, rf2-rf3zgt §Generation PROVENANCE
+  above) — and swap the freshly-assembled generation onto the frame when it
+  CHANGED (EP-0023 §Default Image Semantics — a source-store change
+  reprojects affected EXPLICIT-image frames, not only default-image frames).
+  Returns the reload diff `{:added … :changed … :removed … :retained …}` when
+  the frame moved, or nil when its composition re-resolved byte-for-byte (no
+  swap — this is also the outcome for every explicit-pool frame, since a
+  frozen pool value always re-resolves identically). A no-op for a frame-id
+  whose record carries no generation (not image-loaded)."
   [frame-id]
   (when-let [old-generation (frame/frame-generation frame-id)]
     (let [images         (vec (:rf.gen/images old-generation))
-          new-generation (resolve-generation! images nil)]
+          pool           (get @frame-generation-pool frame-id)
+          new-generation (resolve-generation! images pool)]
       (when-not (= old-generation new-generation)
         (swap-frame-generation! frame-id new-generation)
         (generation-diff old-generation new-generation)))))
@@ -846,6 +927,62 @@
   []
   (reduce (fn [moved id]
             (if-let [diff (reproject-live-frame! id)]
+              (assoc moved id diff)
+              moved))
+          {}
+          (frame/image-loaded-frame-ids)))
+
+;; ---- the RESILIENT sweep — used ONLY by the deferred flush (rf2-rf3zgt) ---
+;;
+;; `reproject-live-frames!` above is all-or-nothing: a single frame's assembly
+;; failure propagates straight out of the `reduce`, discarding whatever the
+;; sweep had accomplished so far and leaving every frame AFTER the failing one
+;; (in enumeration order) un-reprojected. That is exactly right for a
+;; SYNCHRONOUS caller (a REPL session or a test forcing a flush) — an
+;; immediate, loud failure is the useful signal there, and `flush-pending-
+;; reprojection!` / `reproject-live-frames!` keep that contract unchanged.
+;;
+;; It is exactly WRONG for the deferred (`next-tick`) background flush
+;; (`deferred-flush!` below): that tick has no caller to report a throw to, so
+;; before this fix it caught the propagated exception and swallowed it with
+;; ZERO emission — and because the underlying sweep had already aborted
+;; mid-reduce, every sibling frame queued after the failing one silently
+;; stayed on its STALE generation too, with no diagnostic anywhere naming what
+;; happened or which frames were affected. One bad hot-reload edit in ONE
+;; frame's namespace silently broke hot-reload for every OTHER live frame in
+;; the same coalesced burst.
+;;
+;; The resilient sweep isolates each frame's reprojection in its OWN
+;; try/catch: a failure is DIAGNOSED (rf2-rf3zgt's judgment call — see
+;; `deferred-flush!`'s docstring for the emit-vs-swallow rationale) and the
+;; failed frame is left on its prior generation (indistinguishable from an
+;; unchanged frame to `reproject-live-frames!`'s callers), but the sweep
+;; CONTINUES to every other frame regardless of where in the enumeration
+;; order the failure fell.
+
+(defn- reproject-live-frames-resiliently!
+  "Like `reproject-live-frames!`, but a PER-FRAME assembly failure does NOT
+  abort the sweep: the failure is diagnosed on the trace DIAGNOSTIC channel
+  (`:rf.warning/reprojection-failed`, carrying `:frame` + `:exception` — dev
+  visibility, zero production cost, gated on `interop/debug-enabled?` inside
+  `trace/emit-error!`) and the sweep CONTINUES to every remaining frame — the
+  failed frame is simply left on its prior generation, same as a frame whose
+  composition re-resolved unchanged. Used ONLY by the deferred (`next-tick`)
+  flush; see its docstring for why the synchronous entry points keep the
+  all-or-nothing throw-through contract instead. Returns `{frame-id
+  reload-diff}` for every frame that MOVED (a failed frame is simply absent,
+  same as an unchanged one)."
+  []
+  (reduce (fn [moved id]
+            (if-let [diff (try
+                            (reproject-live-frame! id)
+                            (catch #?(:clj Throwable :cljs :default) ex
+                              (trace/emit-error! :rf.warning/reprojection-failed
+                                                 {:category  :rf.warning/reprojection-failed
+                                                  :frame     id
+                                                  :exception ex
+                                                  :where     :reproject-live-frame!})
+                              nil))]
               (assoc moved id diff)
               moved))
           {}
@@ -905,11 +1042,15 @@
 ;; wiring is therefore gated on `interop/debug-enabled?` — under `:advanced` +
 ;; `goog.DEBUG=false` the gate constant-folds to `false`, the `defonce` install
 ;; body DCEs, and the registration path carries ZERO reprojection cost. The
-;; hook adds NO new always-on error id: assembly errors flow through the
-;; existing `resolve-generation!` diagnostics, and the registrar fires
-;; registration hooks ISOLATED (a hook throw is swallowed, never blocking the
-;; `reg-*`), so a reprojection-assembly failure during a dev hot reload cannot
-;; break the underlying registration.
+;; hook adds NO new ALWAYS-ON error id: assembly errors never reach the
+;; always-on axis (Spec 009 §Observability channels) here — they are diagnosed
+;; on the trace DIAGNOSTIC channel only (`:rf.warning/reprojection-failed`,
+;; `reproject-live-frames-resiliently!` below), which is itself gated on
+;; `interop/debug-enabled?` inside `trace/emit-error!` and so carries the same
+;; ZERO production cost. And the registrar fires registration hooks ISOLATED
+;; (a hook throw is swallowed, never blocking the `reg-*`), so a reprojection-
+;; assembly failure during a dev hot reload cannot break the underlying
+;; registration EITHER WAY.
 
 (defonce ^{:private true
            :doc "Process-local DIRTY flag: true when a `reg-*` source-store change
@@ -955,18 +1096,47 @@
 
 (defn- deferred-flush!
   "The fire-and-forget tick body the coalescing scheduler arms on
-  `interop/next-tick`. Runs `flush-pending-reprojection!` but SWALLOWS any throw:
-  a deferred background dev-hot-reload reprojection has no caller to surface an
-  exception to (it runs on a microtask / the JVM executor thread, OUTSIDE any
-  `reg-*` call frame), so a throw there would become an unhandled rejection that
-  pollutes unrelated work. Crucially the flush has ALREADY cleared the dirty flag
-  before reprojecting, so a swallowed failure does not wedge the flag set (a
-  subsequent `reg-*` re-arms a fresh tick). The SYNCHRONOUS
+  `interop/next-tick`. A deferred background dev-hot-reload reprojection has
+  no caller to surface an exception to (it runs on a microtask / the JVM
+  executor thread, OUTSIDE any `reg-*` call frame), so this never lets a
+  reprojection failure escape as an unhandled rejection that pollutes
+  unrelated work.
+
+  rf2-rf3zgt (the judgment call — this ns was previously found to SWALLOW a
+  per-frame assembly failure with ZERO emission AND abort the sweep
+  mid-way, silently leaving every OTHER live frame queued after the failing
+  one on its stale generation): this now runs the RESILIENT sweep
+  (`reproject-live-frames-resiliently!`), which isolates each frame's
+  reprojection so one failure does NOT stop the others from reprojecting, and
+  DIAGNOSES the failure (`:rf.warning/reprojection-failed`, the trace
+  DIAGNOSTIC channel — dev visibility, zero production cost) instead of
+  swallowing it silently. The choice is DIAGNOSE, not RE-THROW: this is still
+  a background tick with no caller to report a hard failure to, and
+  ALWAYS-ON-axis promotion is deliberately NOT added here (Spec 009
+  §Observability channels — an always-on id is for failures an app must be
+  able to react to at runtime; a dev-hot-reload assembly typo is not that).
+
+  The dirty flag is cleared BEFORE reprojecting (read-then-reset), so a
+  re-entrant `reg-*` during the flush re-arms a fresh tick rather than being
+  lost — unchanged from before. The outer `try/catch` is now a defensive LAST
+  RESORT for something outside the per-frame boundary itself throwing (e.g.
+  enumerating `image-loaded-frame-ids`, the flag `reset!`) — vanishingly
+  unlikely, but diagnosed via `:rf.warning/reprojection-flush-failed` rather
+  than silently discarded, belt-and-suspenders. The SYNCHRONOUS
   `flush-pending-reprojection!` and the direct `reproject-live-frames!` keep
-  surfacing throws — only this deferred path is defensive. Returns nil."
+  their all-or-nothing throw-through contract UNCHANGED — a REPL/test caller
+  wants immediate fail-loud feedback, not a partially-applied sweep; only
+  THIS deferred path is resilient + defensive. Returns nil."
   []
-  (try (flush-pending-reprojection!)
-       (catch #?(:clj Throwable :cljs :default) _ nil))
+  (try
+    (when @pending-reprojection?
+      (reset! pending-reprojection? false)
+      (reproject-live-frames-resiliently!))
+    (catch #?(:clj Throwable :cljs :default) ex
+      (trace/emit-error! :rf.warning/reprojection-flush-failed
+                         {:category  :rf.warning/reprojection-flush-failed
+                          :exception ex
+                          :where     :deferred-flush!})))
   nil)
 
 (defn- mark-dirty-and-schedule!
@@ -977,8 +1147,9 @@
   re-evaluating all its registrations) sets the flag many times but schedules at
   most ONE deferred flush — reprojecting ONCE at the batch boundary, not per
   `reg-*`. `compare-and-set!` makes the schedule-decision atomic against the
-  burst. The scheduled body is the error-swallowing `deferred-flush!` (a
-  background tick has no caller to surface a throw to).
+  burst. The scheduled body is the RESILIENT, diagnosing `deferred-flush!` (a
+  background tick has no caller to surface a throw to, so a per-frame failure
+  is diagnosed rather than thrown — see its docstring).
 
   The NO-IMAGE-LOADED-FRAME skip keeps this off the hot path so an ordinary
   registration burst with no image-loaded frames costs essentially nothing
