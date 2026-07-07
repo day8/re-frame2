@@ -197,7 +197,7 @@
     ([] {:db nil :steps [] :fx-applied [] :errors []})
     ([acc] acc)                          ;; completing arity
     ([acc step]
-     (let [{:keys [rf/step db-after fx error]} step]
+     (let [{:keys [db-after fx error]} step]
        (cond-> acc
          true            (assoc :db db-after)
          true            (update :steps conj step)
@@ -220,7 +220,7 @@
          :fx-applied [] :errors []})
     ([acc] acc)
     ([acc step]
-     (let [{:keys [rf/step db-after fx error]} step
+     (let [{:keys [db-after fx error]} step
            [dispatches non-dispatches] ((juxt filter remove)
                                         (fn [[k _]] (= k :dispatch))
                                         (or fx []))]
@@ -250,7 +250,7 @@
          (assoc :committed? true
                 :staged-fx [])))
     ([acc step]
-     (let [{:keys [rf/step db-after fx error]} step]
+     (let [{:keys [db-after fx error]} step]
        (cond-> acc
          true            (assoc :db db-after)
          true            (update :steps conj step)

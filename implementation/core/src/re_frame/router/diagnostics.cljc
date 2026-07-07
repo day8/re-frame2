@@ -124,10 +124,15 @@
                             supplies `:explicit-live`. Absent ⇒ the frame
                             config's policy, else the router's `:live` default
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
-    :rf.machine/internal?   machine-internal continuation flag (front-queue)"
+    :rf.machine/internal?   machine-internal continuation flag (front-queue)
+    :step-index             frame-construction setup-step index, stamped by
+                            `frame.cljc`'s `run-setup-events!` onto each
+                            `:initial-events` dispatch (EP-0027); read by
+                            `build-envelope` and carried onto the dispatched
+                            trace as `:rf.frame/init-step-index`"
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
     :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
-    :rf.machine/internal?})
+    :rf.machine/internal? :step-index})
 
 (def ^:const retired-draft-opt-hints
   "Dispatch-opt keys that named a fact only ever spelled in the spec's own
