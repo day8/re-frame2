@@ -74,7 +74,7 @@ Three things to read off that snapshot:
 - **`:data`** is **shared** — one map, seen and written by every region. There is no per-region `:data` slot, on the region body or in the snapshot.
 - **`:tags`** is the **union** of every active state's tags across every region (covered [below](#tags-compose-across-regions)).
 
-You read the `:state` map through one ordinary subscription — `@(rf/sub-machine :ui/nine-states)`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/concepts/subscriptions.md).
+You read the `:state` map through one ordinary subscription — `@(rf/sub-machine :ui/nine-states)`. The [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id) sub returns the whole snapshot; named projections chain off it like any other [subscription](../core/subscriptions.md).
 
 ## Each region has its own `:initial`
 

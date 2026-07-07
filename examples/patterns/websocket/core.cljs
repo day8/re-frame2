@@ -106,7 +106,7 @@
 ;;
 ;; The id `:rf/default` is the same one `schema.cljs` scopes its
 ;; `reg-app-schema` to — they have to agree, or the schema lands in a
-;; different frame than the app. See docs/core/concepts/frames.md.
+;; different frame than the app. See docs/core/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

@@ -226,5 +226,5 @@ A useful rule: if you find yourself writing `(reg-sub ::derived-total (fn [...])
 ## See also
 
 - [re-frame.core](re-frame.core.md) — the ergonomic facade `reg-flow` is also exported from, plus the `:fx` effect mechanism the flow fx-ids ride.
-- [Flows: derived values your handlers can read](../core/concepts/flows.md) — the conceptual companion to this reference.
+- [Flows: derived values your handlers can read](../core/flows.md) — the conceptual companion to this reference.
 - [Migration reference](../../migration/from-re-frame-v1/README.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).

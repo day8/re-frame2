@@ -153,7 +153,7 @@ The first time it runs there is no `:rf/reply`, so the handler issues the reques
 ### Delivery rules
 
 - **Reply targets must be event vectors.** When you supply `:on-success` / `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
-- **The reply lands in the same [frame](../core/concepts/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
+- **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
 - **A stale reply is never delivered.** A reply from a superseded request ([below](#cancellation-supersession-and-abort)) does not reach your app at all; it is trace-only.
 
 ### Timestamps come from a coeffect

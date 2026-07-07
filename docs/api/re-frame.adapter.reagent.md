@@ -102,5 +102,5 @@ The two artefacts sit side by side; a build depends on exactly one of them, so t
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; wires `set-hiccup-emitter!` for you.
 - [`re-frame.resources`](re-frame.resources.md) — the resource runtime `with-resource-lease` leases into (`:rf.resource/ensure` / `:rf.resource/release-owner`).
 - [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md) — the substrate-choice how-to, including the slim swap.
-- [Views](../core/concepts/views.md) — why the substrate only shows up in the view body.
+- [Views](../core/views.md) — why the substrate only shows up in the view body.
 - [Adapter](../core/glossary.md#adapter) and [substrate](../core/glossary.md#substrate) — the seam, and the thing it binds to, defined.

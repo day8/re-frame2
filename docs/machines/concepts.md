@@ -101,7 +101,7 @@ So every event reaches the machine through the same `dispatch` and the same [eve
 ;; => {:state :submitting :data {:attempts 0 :error nil}}   (nil before the first event)
 ```
 
-`[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector), so it's traceable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph), and named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/concepts/subscriptions.md).
+`[:rf/machine <id>]` is an ordinary [query vector](../core/glossary.md#query-vector), so it's traceable like the rest of your [derivation graph](../core/glossary.md#the-derivation-graph), and named projections chain off it — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](../core/subscriptions.md).
 
 !!! note "One-time setup"
 
@@ -309,7 +309,7 @@ Two guard-rails enforce the boundary:
             (< (- time-ms (:first-attempt-at data)) 60000))}}
     ```
 
-    The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/concepts/coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
+    The fact rides the event's causal token (it's a *recordable* coeffect — see [recordable vs ambient coeffects](../core/glossary.md#recordable-vs-ambient-coeffects)), so the decision — and any `:data` it folds in — replays identically. [Effects & coeffects](../core/coeffects.md) has the general mechanism: a coeffect is a fact pulled *into* a handler, the mirror of an effect pushed out.
 
 ## The snapshot — `{:state :data :tags}`
 

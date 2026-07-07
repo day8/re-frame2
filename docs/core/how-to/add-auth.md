@@ -55,7 +55,7 @@ One [effect handler](../glossary.md#effect-handler), two behaviours, called from
 
 Persisting is half the seam; reading the value *back* when the app reboots is the other half. Skip the boot read and every refresh silently logs the user out.
 
-But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world. Handlers that reach out to the world are like a well salted paper cut — we try hard to avoid them. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../concepts/coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
+But there's a rule in the way. An [event handler](../glossary.md#event-handler) is pure, and reading `localStorage` is reaching out to the world. Handlers that reach out to the world are like a well salted paper cut — we try hard to avoid them. The escape hatch is a [coeffect](../glossary.md#coeffect): a declared input the framework supplies *before* the handler runs, so the handler stays pure ([Coeffects](../coeffects.md) owns the full story). A handler that wants the saved token declares it under `:rf.cofx/requires`.
 
 Now the auth-specific wrinkle: *which kind* of coeffect this is. Coeffects come in [two grades](../glossary.md#recordable-vs-ambient-coeffects). An *ambient* one is read live and re-read on every replay — fine for a display hint, fatal here. The saved token folds into durable `[:auth :token]`, and anything that feeds a durable write must arrive as **recorded data**: captured once, re-presented verbatim under replay. An ambient read would let an epoch-restore land *whatever `localStorage` holds now*, not the token recorded with the boot.
 
@@ -91,7 +91,7 @@ A provided coeffect needs an owner to stamp its value. For session restore that 
 
 ??? note "Going deeper — the one-question test"
 
-    Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Coeffects](../concepts/coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
+    Recordable-vs-ambient turns on a single question: does a *durable* write depend on the value? Yes here ([full treatment in Coeffects](../coeffects.md#two-grades-ambient-and-recordable)). The payoff for *provided* recordable: tests and replay feed it the same way every time — as data on the dispatch (`{:rf.cofx {:auth.session/token "…"}}`), never by re-registering a supplier ([Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md)).
 
 ### Keep the secret out of traces
 
@@ -199,7 +199,7 @@ An interceptor map carries **`:before`**, **`:after`**, or both — supply at le
 
 ??? note "Going deeper — how the chain composes"
 
-    HTTP interceptors compose with the same onion shape as event [interceptors](../concepts/interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
+    HTTP interceptors compose with the same onion shape as event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` runs in registration order, `:after` in reverse, so the outermost registration wraps the innermost on both legs, and a `:before`-only (or `:after`-only) interceptor is transparent on the other leg. The auth-specific wrinkle is failure. If a `:before` or `:after` *throws*, the runtime classifies it `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id`, `:url`, and `:phase`) and fails the request rather than silently dropping the decoration — there's no recovery cofx in the chain, so wrap any recoverable logic inside the interceptor itself.
 
 !!! warning "Gotcha — hot-reloading the interceptor"
 
@@ -313,7 +313,7 @@ The init event from step 1 restores the saved session and classifies the token p
 
 ??? info "From re-frame v1"
 
-    There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event pipeline](../glossary.md#event-pipeline) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (See [Frames](../concepts/frames.md).)
+    There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event pipeline](../glossary.md#event-pipeline) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (See [Frames](../frames.md).)
 
 !!! warning "Gotcha — exactly one frame owns the URL"
 

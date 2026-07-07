@@ -88,7 +88,7 @@ The flag is read **once**, at namespace load, so set it before `re-frame.interop
 
 Now the dev-side configuration. It lives in exactly three places, sorted by how long the configured thing lives, with one rule on top: **one option, one bucket.** Nothing is settable in two places, so there's never a question of where a setting "really" comes from.
 
-One term in the table below: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app — its own `app-db`, event queue, and subscription cache. (Frames isolate *state*, not registrations; see [Frames](../concepts/frames.md).)
+One term in the table below: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app — its own `app-db`, event queue, and subscription cache. (Frames isolate *state*, not registrations; see [Frames](../frames.md).)
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
@@ -168,7 +168,7 @@ These run in every build, dev and production alike. Each one [fails loud](../glo
 
     A guardrail that only runs in development is a guardrail you've disabled for the exact users who can attack you. Each of these defends a *production* threat — a recursive dispatch DoS, a keyword-interning DoS, header injection — so each survives `goog.DEBUG=false` by design.
 
-The elision mechanism itself — what disappears from a production build, and the two always-on streams that survive — is [Observability](../concepts/observability.md#production-the-wire-disappears--errors-dont)'s territory.
+The elision mechanism itself — what disappears from a production build, and the two always-on streams that survive — is [Observability](../observability.md#production-the-wire-disappears--errors-dont)'s territory.
 
 ## The pre-ship checklist
 

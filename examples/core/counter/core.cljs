@@ -55,7 +55,7 @@
 ;; wired to the frame in scope at render time — the `frame-provider` in
 ;; `run` below is what puts this tree in a frame. `reg-view` also def's a
 ;; Var named for the symbol, which is how `counter-app` can name
-;; `counter-buttons` just below. See `docs/core/concepts/views.md`.
+;; `counter-buttons` just below. See `docs/core/views.md`.
 
 (rf/reg-view counter-buttons []
   [:div
@@ -88,7 +88,7 @@
 ;; Mount again under the same `:id` — a hot reload, say — and the provider
 ;; hands back the frame that's already alive instead of re-seeding, so your
 ;; counter doesn't snap back to 5 every time you save. See
-;; `docs/core/concepts/frames.md`.
+;; `docs/core/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but
 ;; isn't — it's an ordinary frame id like any other. The runtime never

@@ -530,4 +530,4 @@ trust the developer — and stays a *helper*, not a contract.
 
 ## Guide impact
 
-The classification helper is taught in the human guide at `how-to/keep-secrets-out-of-traces.md` (its canonical home), with recaps where values reach a mediated egress — `concepts/observability.md`, `concepts/server-state.md`, `concepts/routing.md`, `concepts/ssr.md` — and the `:sensitive` (path/effect) vs `:sensitive?` (schema trace-flag) distinction noted in `how-to/validate-with-schemas.md`. These edits landed with the guide coherence pass; graduation owes no further human-facing guide change.
+The classification helper is taught in the human guide at `how-to/keep-secrets-out-of-traces.md` (its canonical home), with recaps where values reach a mediated egress — `observability.md`, `concepts/server-state.md`, `concepts/routing.md`, `concepts/ssr.md` — and the `:sensitive` (path/effect) vs `:sensitive?` (schema trace-flag) distinction noted in `how-to/validate-with-schemas.md`. These edits landed with the guide coherence pass; graduation owes no further human-facing guide change.

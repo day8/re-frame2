@@ -52,7 +52,7 @@
 ;; reg-view doesn't care about the substrate either. The same view form renders
 ;; on whichever adapter was installed at boot, because it looks up that adapter
 ;; at render time rather than baking one in. Here it finds slim (see `boot!`).
-;; See docs/core/concepts/views.md.
+;; See docs/core/views.md.
 
 (rf/reg-view counter-buttons []
   [:div
@@ -82,7 +82,7 @@
 ;;
 ;; And `:rf/default` is just a frame id — no magic, no privilege. You
 ;; establish it like any other; the runtime will never conjure it for you.
-;; See docs/core/concepts/frames.md.
+;; See docs/core/frames.md.
 (def app-frame :rf/default)
 
 (defn boot!

@@ -4,7 +4,7 @@ Managed HTTP is one async effect the framework ships. But you'll meet others it 
 
 !!! note "The one rule"
 
-    An [event handler](../core/concepts/effects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
+    An [event handler](../core/effects.md) is pure — it can't `.then`, can't `await`. The **`fx` is the one seam where impurity lives**: it does the async work and *dispatches* the result as a named event. Same discipline as everything else — [name the continuation, don't await it](continuations-are-data.md).
 
 ## Wrapping a promise
 
@@ -40,7 +40,7 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 
 !!! warning "Gotcha — carry the frame"
 
-    The `.then` callback fires on a *fresh stack*, long after the handler returned, with no [frame](../core/concepts/frames.md) in scope. A bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`. So read `(:frame fx-ctx)` in the fx and pass `{:frame frame}` to every deferred dispatch — that lands the reply back in the frame the request came from.
+    The `.then` callback fires on a *fresh stack*, long after the handler returned, with no [frame](../core/frames.md) in scope. A bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`. So read `(:frame fx-ctx)` in the fx and pass `{:frame frame}` to every deferred dispatch — that lands the reply back in the frame the request came from.
 
 !!! note "Keep it serializable"
 

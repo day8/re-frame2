@@ -44,7 +44,7 @@ One caution before you lean on those per-view milliseconds: they are best-effort
 
 ## 2 — Move the work behind the equality gate
 
-Two words this section turns on, recapped from [Subscriptions](../concepts/subscriptions.md): a **layer-1** sub (an **extractor**) reads [app-db](../glossary.md#app-db) directly and pulls out a slice; a **layer-2** sub reads from *other subscriptions* and is where derived work — sorting, filtering, formatting — belongs. The `=` check between them is the [circuit breaker](../concepts/subscriptions.md#the-equality-gate): when app-db changes, every extractor re-runs to re-check its slice, and an `=` result shuts the gate so nothing downstream recomputes. The whole game is putting expensive work on the layer-2 side of that gate.
+Two words this section turns on, recapped from [Subscriptions](../subscriptions.md): a **layer-1** sub (an **extractor**) reads [app-db](../glossary.md#app-db) directly and pulls out a slice; a **layer-2** sub reads from *other subscriptions* and is where derived work — sorting, filtering, formatting — belongs. The `=` check between them is the [circuit breaker](../subscriptions.md#the-equality-gate): when app-db changes, every extractor re-runs to re-check its slice, and an `=` result shuts the gate so nothing downstream recomputes. The whole game is putting expensive work on the layer-2 side of that gate.
 
 So the first question is always: **is there computation in a layer-1 sub?** An extractor runs on *every* app-db change — running is how it checks its gate — so any computing you put in one runs on every keystroke in every unrelated form:
 
@@ -80,7 +80,7 @@ The `:<-` arrow reads as "this sub's input comes from": `:feed/slugs` now derive
 
     When you split a sub, the new `:<-` edge points at another sub *by id*. Get that id wrong — a typo, a sub you haven't registered yet — and re-frame2 doesn't throw. It [fails loud as data](../glossary.md#error-record): it emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your always-on error listeners and feeds your derivation `nil` for that input. So a bad split doesn't look *slow* — it looks *wrong* (the feed renders empty, or a downstream `nil` throws somewhere unrelated). If a sub you just refactored returns nothing, check its `:<-` ids against your `reg-sub` names before you suspect the gate. The parametric input-function form has its own two named modes: an input fn that throws surfaces `:rf.error/sub-input-fn-exception`, and one that returns something other than a query vector (or vector of them) surfaces `:rf.error/sub-input-fn-bad-return`.
 
-The same misplacement happens one level up, and it trips people constantly. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup — the `[:div ...]` vector form re-frame2 uses to describe markup ([Views](../concepts/views.md)).
+The same misplacement happens one level up, and it trips people constantly. Computation in a **view body** runs on every render of that view, including renders caused by ancestors. Sorting, filtering, and formatting belong in a layer-2 sub; there they run once per input change and are shared by every consumer. Views just walk data and emit hiccup — the `[:div ...]` vector form re-frame2 uses to describe markup ([Views](../views.md)).
 
 Now watch the fix land. Dispatch the same event with the Views tab open, and the sub's drill shows it returning its cached value: gate closed, sort never ran. Unrelated typing no longer wakes the feed at all.
 
@@ -90,7 +90,7 @@ Now watch the fix land. Dispatch the same event with the Views tab open, and the
 
 !!! note "One derivation, read in many places?"
 
-    A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, and when a mounted view already holds that same query live, the read is a cache hit. But when nothing reactive holds the sub, each `subscribe-once` recomputes from scratch. So an expensive value read by handlers on paths no view keeps warm gets computed repeatedly. Promote it to a [flow](../concepts/flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
+    A subscription is a *view-facing* reactive cache — a handler can take a one-shot `subscribe-once` read of its current value, and when a mounted view already holds that same query live, the read is a cache hit. But when nothing reactive holds the sub, each `subscribe-once` recomputes from scratch. So an expensive value read by handlers on paths no view keeps warm gets computed repeatedly. Promote it to a [flow](../flows.md) and it's computed exactly once per app-db write, [materialised into app-db](../glossary.md#flow), and every reader — view and handler alike — shares that one result as plain state. A flow is the equality gate applied to *state* instead of to a view-facing cache.
 
 !!! note "When placement isn't enough"
 
@@ -150,7 +150,7 @@ Second, the inline `#(dispatch …)` on the button is correct as written: on a D
 
 !!! note "'But now I have 200 subscriptions — won't they leak?'"
 
-    No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (The mechanics are in [Subscriptions → Lifecycle](../concepts/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches).)
+    No. A subscription's cache key is its whole query vector, so `[:article/by-slug "abc"]` and `[:article/by-slug "xyz"]` are distinct cached entries, and equal subscriptions from multiple readers share one entry. Each entry is ref-counted: when the last reader of a query vector goes away — a row unmounts, the feed shrinks — the entry is evicted *in the same tick*, its reaction disposed, and a `:rf.sub/dispose` trace fires. Scroll a virtualised feed and the per-slug subs come and go with the rows; nothing accumulates. (The mechanics are in [Subscriptions → Lifecycle](../subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches).)
 
 ### Stable callbacks — only with a measurement
 
@@ -190,7 +190,7 @@ The trick is to split those two concerns. Build, once per row, a single long-liv
 
 !!! note "Why a Form-2 view?"
 
-    The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that seam: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views](../concepts/views.md) explains the three view shapes.)
+    The factory must be built *once per row*, not once per render — otherwise you've minted a fresh "stable" object each render and bought nothing. A Form-2 view (a render body that returns another fn) gives you exactly that seam: the outer fn runs once at mount and is where the factory lives; the inner fn is the render fn. ([Views](../views.md) explains the three view shapes.)
 
 ??? info "For JavaScript developers"
 
@@ -256,7 +256,7 @@ performance.getEntriesByType('measure')
 
 Leave `retain-entries?` off in production: the [W3C User-Timing buffer is unbounded](https://developer.mozilla.org/en-US/docs/Web/API/Performance/measure) (`maxBufferSize` is Infinite for measure entries), so retaining every entry across a multi-hour session leaks memory. re-frame2 clears after emit precisely so it doesn't.
 
-Once more, because it decides what ships: the channel is off by default, and it rides its own compile-time flag, distinct from the dev-trace gate. [Observability](../concepts/observability.md#production-the-wire-disappears--errors-dont) covers what ships and what doesn't.
+Once more, because it decides what ships: the channel is off by default, and it rides its own compile-time flag, distinct from the dev-trace gate. [Observability](../observability.md#production-the-wire-disappears--errors-dont) covers what ships and what doesn't.
 
 ??? info "For JavaScript developers"
 

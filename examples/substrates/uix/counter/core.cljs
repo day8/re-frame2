@@ -87,7 +87,7 @@
 ;; holds onto whatever you'd clicked it up to. Forget the provider entirely
 ;; and `use-subscribe` / `capture-frame` raise `:rf.error/no-frame-context`:
 ;; the runtime won't conjure a frame for you, so the app has to stand one up.
-;; See `docs/core/concepts/frames.md`.
+;; See `docs/core/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but
 ;; isn't — it's an ordinary frame id like any other. The runtime never

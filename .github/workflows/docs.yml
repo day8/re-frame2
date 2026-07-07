@@ -308,7 +308,7 @@ jobs:
       - name: Validate no live inject-cofx / :rf.world/inputs residue
         run: python scripts/check_inject_cofx_residue.py --verbose
 
-      # rf2-2oqj59 — the failure corpus (docs/core/concepts/errors.md + the
+      # rf2-2oqj59 — the failure corpus (docs/core/errors.md + the
       # failure testbeds) is a TEACHING corpus for the Spec 009 error
       # catalogue. Spec 009 binds the catalogue ROWS to the feature specs by
       # a co-edit invariant; this gate widens that invariant to the corpus by

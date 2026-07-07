@@ -110,7 +110,7 @@
     ;; mount creates the app frame and runs its `:initial-events` once to seed
     ;; app-db. A later mount under the same `:id` — a hot reload — reuses the
     ;; live frame and skips the seeding, so the count you were staring at
-    ;; survives the reload. See `docs/core/concepts/frames.md`.
+    ;; survives the reload. See `docs/core/frames.md`.
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame
                                               :initial-events [[:counter/initialise]]}

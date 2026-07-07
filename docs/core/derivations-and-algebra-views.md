@@ -10,9 +10,9 @@ One thing before we start, so nobody sits through theory they don't need: you do
 
 ## Start with a spreadsheet
 
-The anchor here is a spreadsheet — the same one the [subscriptions](concepts/subscriptions.md) page told you to hold onto, now asked to carry the whole framework. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea. A value declares its inputs, and it recomputes when those inputs move.
+The anchor here is a spreadsheet — the same one the [subscriptions](subscriptions.md) page told you to hold onto, now asked to carry the whole framework. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. That's the whole idea. A value declares its inputs, and it recomputes when those inputs move.
 
-re-frame2's [subscriptions](concepts/subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
+re-frame2's [subscriptions](subscriptions.md) are exactly spreadsheet cells. (A subscription is the read side of your app: a *derivation* — a value computed from other values by a pure function, which is all "derivation" means anywhere on this page.) You write a formula; the framework recomputes it when its inputs change; you never recompute it by hand.
 
 ??? info "Coming from Solid / Vue / Preact signals?"
 
@@ -49,7 +49,7 @@ Here's the example that makes the whole idea click — a cart total, expressed t
 | When it recomputes | when something reads it | after each event, in that event's commit |
 | Who keeps it alive | a subscription-cache entry | the frame |
 
-The subscription stores nothing and recomputes on demand — a formula cell. The [flow](concepts/flows.md) stores its answer into [app-db](glossary.md#app-db) (your app's single immutable state map) and recomputes after each event — a cell that writes its result back into the sheet. The math is identical; the *policy over the graph* is what differs.
+The subscription stores nothing and recomputes on demand — a formula cell. The [flow](flows.md) stores its answer into [app-db](glossary.md#app-db) (your app's single immutable state map) and recomputes after each event — a cell that writes its result back into the sheet. The math is identical; the *policy over the graph* is what differs.
 
 That's the entire reason the algebra exists:
 
@@ -293,7 +293,7 @@ Reading a healthy graph is the common case. But the algebra also shapes how the 
 
 !!! note "Why this matters for reading apps"
 
-    The whole point of the algebra is that a tool can describe your app from declarations alone. That same property is what makes its errors legible: an "unknown input fact" message can name the *fact*, an illegal-write message can name the *storage class*, a missing-owner message can name the *lifecycle*. You debug against the model on this page, not against a stack trace through framework internals. The error vocabulary itself (`:rf.error/*`, `:rf.warning/*`) is the one closed catalogue [Errors](concepts/errors.md) teaches you to read; this page is just the map that makes those messages mean something.
+    The whole point of the algebra is that a tool can describe your app from declarations alone. That same property is what makes its errors legible: an "unknown input fact" message can name the *fact*, an illegal-write message can name the *storage class*, a missing-owner message can name the *lifecycle*. You debug against the model on this page, not against a stack trace through framework internals. The error vocabulary itself (`:rf.error/*`, `:rf.warning/*`) is the one closed catalogue [Errors](errors.md) teaches you to read; this page is just the map that makes those messages mean something.
 
 !!! note "No public graph-accessor yet (pre-alpha)"
 

@@ -145,7 +145,7 @@
 ;; build on those — seconds and percentage are *derived*, never stored. The
 ;; `:<-` arrows wire each sub to its inputs, so it recomputes only when an
 ;; input actually changes. The view asks for the polished values and stays out
-;; of the arithmetic. Subscriptions: docs/core/concepts/subscriptions.md.
+;; of the arithmetic. Subscriptions: docs/core/subscriptions.md.
 
 (rf/reg-sub :timer/elapsed-ms  (fn [db _] (get-in db [:timer :elapsed-ms])))
 (rf/reg-sub :timer/duration-ms (fn [db _] (get-in db [:timer :duration-ms])))
@@ -208,7 +208,7 @@
 ;; `:initial-events` once to seed app-db. After that, every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame. On hot reload it reuses the
 ;; frame it already has and skips re-seeding, so the timer keeps right on ticking
-;; while you edit. Frames: docs/core/concepts/frames.md.
+;; while you edit. Frames: docs/core/frames.md.
 ;;
 ;; `app-frame` is just an id we chose — `:rf/default`, the same one the schema
 ;; block up top binds to.

@@ -48,7 +48,7 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
 
 One gotcha before we add anything, because it produces a misleading error. `handler-meta` returns `nil` for an unregistered id. Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta :event :articels/page-changed)` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
 
-The mirror case is legitimate. A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../concepts/effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
+The mirror case is legitimate. A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
 
 ## 2. A handler that needs the world
 
@@ -93,7 +93,7 @@ So the test supplies exactly what that vector lists, as literal entries in the c
            (first (:fx result))))))
 ```
 
-Look at what *didn't* happen here, because this is the part that trips people up. The handler did not fire an HTTP request. Its job is to *describe* one — an [effect](../glossary.md#effect) is just a piece of data saying "please do this" — and the runtime, which is absent in this test, would be the thing that actually performs it. So the test asserts on the description. No fetch was mocked because no fetch was involved. The clock wasn't frozen with fake timers; the clock was simply an entry in a map you wrote. The handler returned a map. You checked the map. For why the world only ever appears at this boundary, see [Effects and coeffects](../concepts/coeffects.md).
+Look at what *didn't* happen here, because this is the part that trips people up. The handler did not fire an HTTP request. Its job is to *describe* one — an [effect](../glossary.md#effect) is just a piece of data saying "please do this" — and the runtime, which is absent in this test, would be the thing that actually performs it. So the test asserts on the description. No fetch was mocked because no fetch was involved. The clock wasn't frozen with fake timers; the clock was simply an entry in a map you wrote. The handler returned a map. You checked the map. For why the world only ever appears at this boundary, see [Effects and coeffects](../coeffects.md).
 
 !!! note
 
@@ -107,7 +107,7 @@ Look at what *didn't* happen here, because this is the part that trips people up
 
 The pure call from the last section tests the handler's *logic* — but it skips the runtime entirely. It plucks the function out of the registry and calls it directly, so it never checks that dispatching `[:articles/refresh]` actually finds and runs that handler, nor that the `:db` it returns really lands in app-db. Most of the time you don't need to check that — the wiring is the framework's job, not yours. But sometimes you want the extra confidence. For that you go one notch up: drive a real [dispatch](../glossary.md#dispatch) — the call that sends an event into the system the way your app does — and read the state that ends up committed.
 
-That means giving the test its own [**frame**](../glossary.md#frame): an isolated runtime context with its own app-db, so tests can't leak state into each other (see [Frames](../concepts/frames.md)). `with-new-frame` creates one, makes it current for the body, and tears it down on the way out — whether the body returns or throws.
+That means giving the test its own [**frame**](../glossary.md#frame): an isolated runtime context with its own app-db, so tests can't leak state into each other (see [Frames](../frames.md)). `with-new-frame` creates one, makes it current for the body, and tears it down on the way out — whether the body returns or throws.
 
 ```clojure
 (deftest refresh-stamps-through-the-runtime
@@ -162,7 +162,7 @@ This is exactly the trap you want sprung. A silently-minted random value would m
 
 ### Seeding state: the frame boots it, the body tests it
 
-When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — that buries the dispatch under test. Events are the language of the system, and setup can speak it too, just not in the test body: hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
+When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — that buries the dispatch under test. Events are the language of the system, and setup can speak it too, just not in the test body: hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [`reg-frame`](../frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
 
 ```clojure
 (deftest page-change-from-a-seeded-feed
@@ -201,7 +201,7 @@ For the assertion itself, `test-support` ships two `clojure.test`-aware helpers 
 
 ## 4. The trap: frames don't isolate registrations
 
-There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registrar. `reg-event` and its siblings register into a process-global [registrar](../glossary.md#registrar) — one table shared across the whole test run. (This is the rule in action: a frame isolates **state, not registrations** — see [Frames](../concepts/frames.md).)
+There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registrar. `reg-event` and its siblings register into a process-global [registrar](../glossary.md#registrar) — one table shared across the whole test run. (This is the rule in action: a frame isolates **state, not registrations** — see [Frames](../frames.md).)
 
 So: if two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic flake-hunt horror — every test passes alone, the suite fails together, and the failure jumps around as test order changes. Maddening to chase. Cheap to prevent.
 

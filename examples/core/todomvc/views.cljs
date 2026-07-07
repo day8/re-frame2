@@ -14,7 +14,7 @@
   And hiccup throughout, which is really just markup-as-data. The job of a view
   is small and strict: read derived state, dispatch events when the user does
   something. No business logic sneaks in here.
-  See docs/core/concepts/views.md (the reg-view authoring lane)."
+  See docs/core/views.md (the reg-view authoring lane)."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]))
 
@@ -160,7 +160,7 @@
 ;; which sub-views to show — no `dispatch`/`subscribe` gets threaded down. That's
 ;; the reg-view authoring lane at work: a view that needs state asks for it,
 ;; rather than receiving it prop-drilled from above.
-;; See docs/core/concepts/views.md.
+;; See docs/core/views.md.
 (rf/reg-view root-view []
   (let [todos @(subscribe [:todo/todos])]
     [:<>

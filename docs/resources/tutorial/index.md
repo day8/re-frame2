@@ -230,7 +230,7 @@ By the time `reg-frame` returns, that pipeline run has settled and `app-db` hold
 
 ### Two config shapes: scope vs ensure
 
-`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The `{:frame …}` *scope* shape (the one on this page) just scopes the tree to a frame you already registered. The `{:id …}` *ensure* shape instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../core/concepts/frames.md) is the full picture; the slip to watch for here is crossing their keys:
+`frame-provider` is one component with two config shapes, chosen by the prop map you hand it. The `{:frame …}` *scope* shape (the one on this page) just scopes the tree to a frame you already registered. The `{:id …}` *ensure* shape instead brings a frame into being — keyed by `:id`, it creates the frame on first mount and reuses it without re-seeding on remount (no destroy-on-unmount) — the one you reach for when a view should bring its own frame into being (a Story canvas, an embedded widget, a modal). [Frames: isolated worlds](../../core/frames.md) is the full picture; the slip to watch for here is crossing their keys:
 
 !!! warning "Gotcha — the `{:frame …}` shape scopes an *existing* frame"
 

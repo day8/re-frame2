@@ -6,7 +6,7 @@ By the end you'll have used every part of `:rf.http/managed` that everyday work 
 
 !!! note "Before you start"
 
-    You've read [Effects](../core/concepts/effects.md) and can return an effect map from a handler. That's the only prerequisite.
+    You've read [Effects](../core/effects.md) and can return an effect map from a handler. That's the only prerequisite.
 
 ## Step 0 — turn managed HTTP on
 
@@ -48,7 +48,7 @@ Issuing a request takes two kinds of handler: one to send, one to receive. Here 
              (assoc-in [:article :error]  error))}))
 ```
 
-Walk the send handler first. It wrote a `:loading` status into [app-db](../core/concepts/app-db.md), returned an effect *describing* the request, and **finished**. It never paused to wait for the server. Inside `:request`, `:url` is the only required key; `:method` defaults to `:get`.
+Walk the send handler first. It wrote a `:loading` status into [app-db](../core/app-db.md), returned an effect *describing* the request, and **finished**. It never paused to wait for the server. Inside `:request`, `:url` is the only required key; `:method` defaults to `:get`.
 
 When the response lands — milliseconds or seconds later — the runtime dispatches a **new event**: `:article/loaded` on success, `:article/load-error` on failure. The reply rides as one more argument appended to the event vector, so what actually arrives is:
 
@@ -65,7 +65,7 @@ That's the one canonical reply envelope — the same `:status`-keyed map every a
 
 ??? info "Coming from `js/fetch`?"
 
-    The version you'd write by hand — `(-> (js/fetch url) (.then #(.json %)) (.then #(rf/dispatch [:article/loaded %])))` — is three lines and missing almost everything: no error path, no timeout, no retry, no way to test without a network. In re-frame2 it also fails outright: a bare `dispatch` inside a `.then` runs on a fresh stack with no [frame](../core/concepts/frames.md) in scope and raises `:rf.error/no-frame-context`. Describe the request as data instead; the runtime carries the frame through and does the rest.
+    The version you'd write by hand — `(-> (js/fetch url) (.then #(.json %)) (.then #(rf/dispatch [:article/loaded %])))` — is three lines and missing almost everything: no error path, no timeout, no retry, no way to test without a network. In re-frame2 it also fails outright: a bare `dispatch` inside a `.then` runs on a fresh stack with no [frame](../core/frames.md) in scope and raises `:rf.error/no-frame-context`. Describe the request as data instead; the runtime carries the frame through and does the rest.
 
 !!! note "Why an event, not an `await`?"
 

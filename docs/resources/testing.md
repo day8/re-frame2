@@ -41,7 +41,7 @@ Ensure is the cause; the stub answers; the projection settles — all inside one
 Three properties worth pinning while you're here, because each is a contract, not an accident:
 
 - **A subscription never fetches.** Read the state *before* any cause fires and it's `:idle` — a test that asserts that is the honest check for "my view was a permanent skeleton because I forgot the cause."
-- **A first-load failure is `:error` with no data.** Stub `{:reply {:failure {:kind :rf.http/http-5xx :status 503}}}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind` — [branch on the category, never the prose](../core/concepts/errors.md#test-the-structure-not-the-string).
+- **A first-load failure is `:error` with no data.** Stub `{:reply {:failure {:kind :rf.http/http-5xx :status 503}}}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind` — [branch on the category, never the prose](../core/errors.md#test-the-structure-not-the-string).
 - **A fresh ensure is a cache hit.** Ensure the same key twice against a stub table and the second dispatch fetches nothing — the stub table doubles as a coverage check, since an *unexpected* second request would hang at the unmatched effect rather than silently passing.
 
 ## 2. Scope resolvers are pure

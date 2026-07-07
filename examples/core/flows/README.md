@@ -10,7 +10,7 @@ A [subscription](../../../docs/core/glossary.md#subscription) derives a value to
 
 You declare three things: the `:inputs` to watch, a pure `:derive`, and the `:output-path` to write. When an input changes, the runtime re-runs `:derive` and writes the result — in step with the event pipeline. The cart's subtotal and total are exactly that kind of value.
 
-This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/core/concepts/flows.md) first — this example assumes the basics.
+This is the runnable companion to [`spec/013-Flows.md`](../../../spec/013-Flows.md), the spec for flows. New to flows? Read the [flows guide](../../../docs/core/flows.md) first — this example assumes the basics.
 
 ## Why a flow and not a sub
 

@@ -6,7 +6,7 @@ No browser for this one either. A [view](../glossary.md#view) is a pure function
 
 > **A view test calls the function and walks the returned data — no DOM, no JSDOM, no `act()`.**
 
-One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../concepts/views.md#when-something-renders-wrong) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
+One honest framing before the recipe: **most "view bugs" are data bugs.** A view holds no state and decides nothing, so when the screen is wrong, the culprit is nearly always the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream — pure functions with cheaper tests ([Views](../views.md#when-something-renders-wrong) makes the case). A view test is for what a view genuinely *owns*: its structure, its text, and its wiring. That's the whole list.
 
 The toolkit is `re-frame.test-helpers` — pure walks over hiccup, [catalogued in the API reference](../../api/re-frame.test-helpers.md) — alongside the `re-frame.test-support` fixtures you already use:
 
@@ -61,7 +61,7 @@ A presentational view takes data as arguments. A *connected* view subscribes and
 
 `expect-text` renders the stashed root view, finds the testid, and asserts its text through `clojure.test/is` — the view-side sibling of `ts/assert-path-equals`. (A 3-arity form takes an explicit tree when you're not using the fixture.)
 
-The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it in the fixture opts rather than the body: `:frame-config` merges into the fixture frame's config map, so `:frame-config {:initial-events [[:cart/seed-items …]]}` boots the frame through the same [construction script](../concepts/frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
+The two dispatches in that body are the *action under test* — the counter incrementing is the point. When a view instead needs state built *before* the action (a populated cart, a signed-in user), seed it in the fixture opts rather than the body: `:frame-config` merges into the fixture frame's config map, so `:frame-config {:initial-events [[:cart/seed-items …]]}` boots the frame through the same [construction script](../frames.md#seeding-initial-state) `make-frame` takes. The body then holds only the interaction being tested.
 
 One trap here, and it's the same one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) warns about: the fixture destroys its *frame*, but **`:install` registrations land in the process-global registrar**. Pair `with-app-fixture` with the `make-reset-runtime-fixture` shown at the top, so one test's registrations can't leak into the next.
 
@@ -92,7 +92,7 @@ Three neighbouring tools pick up where the tree walk stops:
 
 - **Rendered markup** — when the assertion is about the HTML *string* a view produces (attribute serialisation, SSR output), `render-to-string` is the complementary path; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
 - **A real DOM** — when you genuinely need React in the loop (a ref, a portal, an imperative child), mount under your adapter and settle updates with its `flush-views!` test helper; [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md#what-carries-over-what-doesnt) covers the shape. This is the rare case, not the default.
-- **A view's *states*** — "show this view empty, loading, error, and loaded" is not a tree-walk job; it's [Story](../concepts/observability.md#the-tools-four-presentations-zero-second-truths)'s whole purpose: named variants in isolated frames, promotable into tests.
+- **A view's *states*** — "show this view empty, loading, error, and loaded" is not a tree-walk job; it's [Story](../observability.md#the-tools-four-presentations-zero-second-truths)'s whole purpose: named variants in isolated frames, promotable into tests.
 
 ## When not to test a view
 

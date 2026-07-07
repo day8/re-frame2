@@ -79,7 +79,7 @@
    [core/root-view]])
 
 ;; re-frame2 never conjures a frame for you, so the live `#/` surface has to
-;; be wrapped in one explicitly (docs/core/concepts/frames.md). The Story
+;; be wrapped in one explicitly (docs/core/frames.md). The Story
 ;; side (`#/stories`) hands out its own per-variant frames and needs no help;
 ;; this little wrapper exists only to scope the live surface to the
 ;; showcase's `:rf/default` frame, so `login-app`'s injected

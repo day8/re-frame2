@@ -209,6 +209,37 @@ const PAGE = `<!DOCTYPE html>
    [:span#rf2-flow "parity: " (str @(subscribe [:rf2smoke/fparity]))]])
 [rf/frame-provider {:frame :rf2smoke/flowframe}
  [flow-view]]</pre>
+  <h2>program-only cell (ends on a reg-* call)</h2>
+  <pre class="language-cljs-rf2">(ns rf2smoke.program
+  (:require [re-frame.core :as rf]))
+;; Pins two surfaces: a cell that ONLY registers (its last form is reg-view,
+;; whose value is the returned id — the harness renders non-hiccup results
+;; as printed values), and the ns form that the mount cell below :refer's.
+(rf/reg-event :rf2smoke.two/init
+  (fn [_w [_ v]] {:db {:v v}}))
+(rf/reg-event :rf2smoke.two/inc
+  (fn [{:keys [db]} _] {:db (update db :v inc)}))
+(rf/reg-sub :rf2smoke.two/value (fn [db _] (:v db)))
+(rf/reg-view two-counter [bg]
+  [:div {:style {:background bg}}
+   [:span.two-val (str @(subscribe [:rf2smoke.two/value]))]
+   [:button {:on-click #(dispatch [:rf2smoke.two/inc])} "+"]])</pre>
+  <h2>mount cell (shares the program cell's registry + vars)</h2>
+  <pre class="language-cljs-rf2">(ns rf2smoke.mount
+  (:require [re-frame.core :as rf]
+            [rf2smoke.program :refer [two-counter]]))
+;; Pins the runtime half: {:id ...} ENSURE-shape providers created in a cell,
+;; multi-step :initial-events (the first frame shows 6), one program in two
+;; isolated frames, and the view argument flowing from the mount site.
+[:div
+ [:div#rf2-two-a
+  [rf/frame-provider {:id :rf2smoke/app-a
+                      :initial-events [[:rf2smoke.two/init 5] [:rf2smoke.two/inc]]}
+   [two-counter "yellow"]]]
+ [:div#rf2-two-b
+  [rf/frame-provider {:id :rf2smoke/app-b
+                      :initial-events [[:rf2smoke.two/init 0]]}
+   [two-counter "green"]]]]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -278,7 +309,7 @@ await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 // All cells mount (3 plain-eval + 3 rf2 render: counter + toggle-machine +
 // eager-start-machine).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 9, `9 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 11, `11 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -334,7 +365,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 6, `6 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 8, `8 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
@@ -369,6 +400,14 @@ const rf2FlowErr = await rf2Cells[5].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
 assert(!rf2FlowErr, "re-frame2 flow cell not flagged error");
+const rf2ProgErr = await rf2Cells[6].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2ProgErr, "program-only cell not flagged error");
+const rf2MountErr2 = await rf2Cells[7].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2MountErr2, "two-frame mount cell not flagged error");
 
 // Clicking the button dispatches a re-frame2 event; the v2 subscription updates
 // and the reagent2 view re-renders.
@@ -489,6 +528,26 @@ await page.waitForFunction(
 );
 console.log("flow cell (after click): \"parity: odd\"");
 assert(true, "flow recomputes when its input changes, inside the same commit");
+
+// --- two-cell page: program cell + mount cell -------------------------------
+const progText = (await rf2Cells[6].$eval(".cljs-result", (el) => el.innerText)).trim();
+console.log("program cell result:", JSON.stringify(progText));
+assert(progText.includes(":rf2smoke.program/two-counter"),
+  `program cell renders the returned reg-view id (got ${JSON.stringify(progText)})`);
+await page.waitForSelector("#rf2-two-a .two-val", { timeout: 20000 });
+const twoA = (await page.locator("#rf2-two-a .two-val").innerText()).trim();
+const twoB = (await page.locator("#rf2-two-b .two-val").innerText()).trim();
+console.log("two-frame mounts (initial):", JSON.stringify({ a: twoA, b: twoB }));
+assert(twoA === "6", `frame :app-a seeded [[init 5] [inc]] shows 6 (got ${JSON.stringify(twoA)})`);
+assert(twoB === "0", `frame :app-b seeded [[init 0]] shows 0 (got ${JSON.stringify(twoB)})`);
+await page.click("#rf2-two-a button");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-two-a .two-val")?.innerText.trim() === "7",
+  null, { timeout: 5000 }
+);
+const twoB2 = (await page.locator("#rf2-two-b .two-val").innerText()).trim();
+console.log("after clicking frame a:", JSON.stringify({ a: "7", b: twoB2 }));
+assert(twoB2 === "0", `clicking frame :app-a leaves :app-b untouched (got ${JSON.stringify(twoB2)})`);
 
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle
 // (Scittle + window.rf2sci coexist without interference).

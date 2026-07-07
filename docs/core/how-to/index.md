@@ -23,7 +23,7 @@ This is where most of your time goes: turning a feature request into stages of t
 
 ## Debug it
 
-When the app does something you didn't ask for, you don't reach for `println` — you read the [trace](../glossary.md#trace-stream), the timeline every event already wrote down, one [epoch](../glossary.md#epoch) per dispatch ([why it works](../concepts/observability.md)). These recipes are how you read it: replaying the timeline, and tracking down a view that recomputes more than it should.
+When the app does something you didn't ask for, you don't reach for `println` — you read the [trace](../glossary.md#trace-stream), the timeline every event already wrote down, one [epoch](../glossary.md#epoch) per dispatch ([why it works](../observability.md)). These recipes are how you read it: replaying the timeline, and tracking down a view that recomputes more than it should.
 
 | I want to… | Recipe |
 |---|---|

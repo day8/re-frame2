@@ -933,7 +933,7 @@ retained as the implementation record.
   authoring.
 
 Guide impact: update the interceptor and migration guide material
-(`concepts/interceptors.md` and the v1 migration guide). The new teachable
+(`interceptors.md` and the v1 migration guide). The new teachable
 payoff is "full-context work is named and inspectable."
 
 ### B2. Registrar and router implementation

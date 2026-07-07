@@ -653,7 +653,7 @@ At minimum, the implementation sweep should cover:
 - `spec/Conventions.md`
 - `spec/001-Registration.md`
 - `spec/002-Frames.md`
-- `docs/core/concepts/images.md`
+- `docs/core/images.md`
 - Pair `describe-image`
 - Xray image panels and reads
 - Story schemas/specs that model image values

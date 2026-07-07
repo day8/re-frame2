@@ -6,7 +6,7 @@
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is also re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. The examples below use the `rf/` form for the re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `clear-epoch-listeners!`, `configure!`). See [Observability](../core/concepts/observability.md) for how epochs fit the broader trace model.
+Most of this surface is also re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. The examples below use the `rf/` form for the re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `clear-epoch-listeners!`, `configure!`). See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 

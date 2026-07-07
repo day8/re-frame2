@@ -163,27 +163,25 @@ nav:
     # not repeat the section label "Core".
     - Introduction: core/introduction.md
     # Growth-order track: Introduction (the model) -> Our First App (the
-    # whole counter, live) -> numbered pages that each grow the SAME counter
-    # by exactly one concept, live cell first, depth after. Read side
-    # completes first (app-db -> subs -> views), then the write side deepens
-    # (effects -> coeffects), then scheduling, flows, frames, interceptors,
-    # errors. Every label carries a descriptive tail so the nav reads as the
-    # learning track.
+    # whole counter, live) -> flat concept pages that each grow the SAME
+    # counter by exactly one concept, live cell first, depth after. Read
+    # side completes first (app-db -> subs -> views), then the write side
+    # deepens (effects -> coeffects), then scheduling, flows, frames,
+    # interceptors, errors, then images and observability. Labels are the
+    # bare concept name; the nav order carries the learning track.
     - Our First App: core/first-app.md
-    - "One concept at a time":
-      - "1. app-db: state in one place": core/concepts/app-db.md
-      - "2. Subscriptions: derived values": core/concepts/subscriptions.md
-      - "3. Views: render the data": core/concepts/views.md
-      - "4. Effects: the way out": core/concepts/effects.md
-      - "5. Coeffects: the way in": core/concepts/coeffects.md
-      - "6. Run to completion: the queue settles": core/concepts/run-to-completion.md
-      - "7. Flows: derived values for handlers": core/concepts/flows.md
-      - "8. Frames: isolated worlds": core/concepts/frames.md
-      - "9. Interceptors: cross-cutting behaviour": core/concepts/interceptors.md
-      - "10. Errors: failures as data": core/concepts/errors.md
-    - "Beyond the loop":
-      - "Images: a frame's registrations": core/concepts/images.md
-      - "Observability: one wire, every tool": core/concepts/observability.md
+    - "app-db": core/app-db.md
+    - "Subscriptions": core/subscriptions.md
+    - "Views": core/views.md
+    - "Effects": core/effects.md
+    - "Coeffects": core/coeffects.md
+    - "Run to completion": core/run-to-completion.md
+    - "Flows": core/flows.md
+    - "Frames": core/frames.md
+    - "Interceptors": core/interceptors.md
+    - "Errors": core/errors.md
+    - "Images": core/images.md
+    - "Observability": core/observability.md
     - "How-to recipes":
       - core/how-to/index.md
       - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md

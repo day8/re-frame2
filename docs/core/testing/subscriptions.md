@@ -1,6 +1,6 @@
 # Test a subscription
 
-A [subscription](../concepts/subscriptions.md) is a formula over facts. You test a formula the spreadsheet way: hand it the cells, look at the answer.
+A [subscription](../subscriptions.md) is a formula over facts. You test a formula the spreadsheet way: hand it the cells, look at the answer.
 
 That works because a subscription's computation is a pure function of `(inputs, query-v)` — so you need no reactive runtime, no DOM, and no browser to test what it *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It runs on the JVM: no Reagent, no React, no installed [adapter](../glossary.md#adapter), no live cache.
 
@@ -8,7 +8,7 @@ That works because a subscription's computation is a pure function of `(inputs, 
 
 That's the whole recipe. The rest of this page is choosing where the db value comes from — and knowing the one thing a sub test doesn't prove.
 
-The sub under test here is the three-layer cart chain from [Subscriptions](../concepts/subscriptions.md#three-layers-one-graph): `:cart/items` and `:cart/category-filter` extract, `:cart/by-price` sorts, `:cart/visible` filters.
+The sub under test here is the three-layer cart chain from [Subscriptions](../subscriptions.md#three-layers-one-graph): `:cart/items` and `:cart/category-filter` extract, `:cart/by-price` sorts, `:cart/visible` filters.
 
 ```clojure
 (ns my-app.subs-test
@@ -52,7 +52,7 @@ Now the boundary — worth stating bluntly, because it spares you a whole catego
 
 ## When the sub carries a `:schema`
 
-Nothing about your assertions changes. A sub registered with output [`:schema`](../concepts/subscriptions.md#saying-things-about-a-sub-metadata) metadata validates its computed value at the `:sub-return` boundary in dev — so a shape bug in the computation surfaces as a structured `:rf.error/schema-validation-failure` rather than a downstream view choking on it. And [asserting on that record](../concepts/errors.md#test-the-structure-not-the-string) is itself an ordinary listener-based test.
+Nothing about your assertions changes. A sub registered with output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) metadata validates its computed value at the `:sub-return` boundary in dev — so a shape bug in the computation surfaces as a structured `:rf.error/schema-validation-failure` rather than a downstream view choking on it. And [asserting on that record](../errors.md#test-the-structure-not-the-string) is itself an ordinary listener-based test.
 
 ??? info "For JavaScript developers"
 

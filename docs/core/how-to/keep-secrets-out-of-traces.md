@@ -2,7 +2,7 @@
 
 Your login form just dispatched `[:auth/sign-in {:password "hunter2"}]`.
 
-In re-frame2 an [event](../glossary.md#event) is *just data* — an inert vector recording that something happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable. Events, snapshots of [app-db](../glossary.md#app-db), and HTTP records all flow down one in-process feed — the [trace stream](../glossary.md#trace-stream) — and every tool drinks from that one feed ([one wire, every tool](../concepts/observability.md)). [Xray](../glossary.md#xray), the dev inspector, reads it live. The [epoch](../glossary.md#epoch) history — the before/after record each event leaves behind, for [time-travel](../glossary.md#time-travel) debugging — keeps it. And any **shipper** — a [listener](../glossary.md#listener) you register to forward records to a hosted monitor like Datadog or Sentry — can carry it off-box.
+In re-frame2 an [event](../glossary.md#event) is *just data* — an inert vector recording that something happened — so that password is now plain data sitting in your system. And re-frame2 is unusually observable. Events, snapshots of [app-db](../glossary.md#app-db), and HTTP records all flow down one in-process feed — the [trace stream](../glossary.md#trace-stream) — and every tool drinks from that one feed ([one wire, every tool](../observability.md)). [Xray](../glossary.md#xray), the dev inspector, reads it live. The [epoch](../glossary.md#epoch) history — the before/after record each event leaves behind, for [time-travel](../glossary.md#time-travel) debugging — keeps it. And any **shipper** — a [listener](../glossary.md#listener) you register to forward records to a hosted monitor like Datadog or Sentry — can carry it off-box.
 
 That's a feature most of the time and a problem exactly once: when the data on the wire is a password, a token, or a 5MB upload. This page is the short list of declarations that keep those off the wire — **without ever hiding them from your own handler code**.
 
@@ -44,7 +44,7 @@ Wire `:auth/init` to run at frame creation with `:initial-events`, so the classi
 
 ??? info "For JavaScript developers"
 
-    `:initial-events` is the only frame-init surface — there is no `:initial-db` and no `:on-create`. A [frame](../glossary.md#frame) always starts with `app-db = {}`; seeding it is itself an event (`[:rf/set-db {…}]`) dispatched as the first init step. See [the frames concept page](../concepts/frames.md).
+    `:initial-events` is the only frame-init surface — there is no `:initial-db` and no `:on-create`. A [frame](../glossary.md#frame) always starts with `app-db = {}`; seeding it is itself an event (`[:rf/set-db {…}]`) dispatched as the first init step. See [the frames concept page](../frames.md).
 
 ### Two axes: sensitive and large
 

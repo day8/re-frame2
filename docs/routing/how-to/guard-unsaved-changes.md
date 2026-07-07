@@ -8,7 +8,7 @@ In re-frame2 this is a [route guard](../glossary.md#route-guard): a route declar
 
 ## 1. Write the "is it safe to leave?" sub
 
-The guard is an ordinary [subscription](../../core/concepts/subscriptions.md) that answers one yes/no question. Read it positively: **`true` means leaving is fine.** Here, leaving is fine when the editor's draft matches what was last saved (nothing unsaved to lose):
+The guard is an ordinary [subscription](../../core/subscriptions.md) that answers one yes/no question. Read it positively: **`true` means leaving is fine.** Here, leaving is fine when the editor's draft matches what was last saved (nothing unsaved to lose):
 
 ```clojure
 (rf/reg-sub :editor/can-leave?
@@ -34,7 +34,7 @@ When the guard returns `false`, nothing happens to the URL or to state — the n
 
 ## 3. Render the prompt from the pending slot
 
-The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when it's non-`nil`, a navigation is waiting on the reader's decision, so render your dialog. There's no imperative `window.confirm`, no `beforeunload` — it's an ordinary [view](../../core/concepts/views.md) over state:
+The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when it's non-`nil`, a navigation is waiting on the reader's decision, so render your dialog. There's no imperative `window.confirm`, no `beforeunload` — it's an ordinary [view](../../core/views.md) over state:
 
 ```clojure
 (rf/reg-view leave-guard-dialog []

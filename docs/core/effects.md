@@ -4,9 +4,9 @@ This page shows you how to write pure event handlers that side-effect.
 
 Yes. A surprising claim.
 
-Say your [event handler](../glossary.md#event-handler) needs to fire an HTTP request. It also has to stay a pure function — same inputs, same output, every time — because purity is what makes testing, replay, and time-travel work. Both demands are real. Neither bends.
+Say your [event handler](glossary.md#event-handler) needs to fire an HTTP request. It also has to stay a pure function — same inputs, same output, every time — because purity is what makes testing, replay, and time-travel work. Both demands are real. Neither bends.
 
-The way out is the move you've been leaning on since [our first app](../first-app.md): a handler never *does* anything. It returns a **to-do list** — a description of what should happen, in plain data — and the runtime does the dirty work. Hold onto that list — the whole page runs on it. What follows is the output story in full: the [effect](../glossary.md#effect) grammar, effects you register yourself, and the guarantees you can build on.
+The way out is the move you've been leaning on since [our first app](first-app.md): a handler never *does* anything. It returns a **to-do list** — a description of what should happen, in plain data — and the runtime does the dirty work. Hold onto that list — the whole page runs on it. What follows is the output story in full: the [effect](glossary.md#effect) grammar, effects you register yourself, and the guarantees you can build on.
 
 ## The counter learns to act
 
@@ -78,7 +78,7 @@ So the rule is one line, and it is the load-bearing sentence of this page: **des
 
 ## Effects are data
 
-Here is the same load, written so the handler stays pure. An [effect](../glossary.md#effect), here, is a description of something the runtime should do to the outside world:
+Here is the same load, written so the handler stays pure. An [effect](glossary.md#effect), here, is a description of something the runtime should do to the outside world:
 
 ```clojure
 ;; cf. examples/real-apps/realworld_http/articles.cljs
@@ -110,9 +110,9 @@ Here is the same load, written so the handler stays pure. An [effect](../glossar
 
 (One more piece of syntax in those last two handlers: `(-> db (assoc :a 1) (assoc :b 2))` is the *thread-first* macro. It reads top-to-bottom — take `db`, hand it to the first `assoc`, hand *that* result to the next — so it's a pipeline of "return a copy of the map with this key set." Same purity rule as before: every `assoc` produces a new map; nothing is mutated.)
 
-The inline version **did** a fetch. This version **describes** one. The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen — the to-do list in full: "set app-db to this, fire a [managed HTTP request](../../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](../glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the pipeline and its own row in [Xray](../glossary.md#xray), re-frame2's inspection tool.
+The inline version **did** a fetch. This version **describes** one. The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen — the to-do list in full: "set app-db to this, fire a [managed HTTP request](../resources/glossary.md#managed-http), on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` [effect handler](glossary.md#effect-handler), and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the pipeline and its own row in [Xray](glossary.md#xray), re-frame2's inspection tool.
 
-That reply rides as the event's last argument in [the uniform reply](../glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:error` — and every managed async surface answers the same way.
+That reply rides as the event's last argument in [the uniform reply](glossary.md#the-uniform-reply) shape — success carries `:value`, failure carries `:error` — and every managed async surface answers the same way.
 
 Read what that bought you. The entire fetch flow is three pure handlers you read top to bottom. No `.then` chains, no stale-`db` trap, and the failure path has a *name* instead of being a branch you forgot to write. Each handler tests as a plain function. The request tests as data: assert on the map, no network required.
 
@@ -124,23 +124,23 @@ And this pattern should feel familiar, because you already program in it all day
 
 ??? info "Coming from TanStack Query?"
 
-    A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
+    A bare `:rf.http/managed` fx is the low-level move — you're hand-wiring one request and its two reply events. Most real screens want caching, staleness, and dedup, and for those you reach one level higher: [resources](../resources/concepts.md) manage the request lifecycle for you, the way a `useQuery` hook does. The `:rf.http/managed` fx above is the mechanism underneath that convenience.
 
-The `:rf.http/managed` args map carries far more than the four keys above — `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../../async/http.md)'s subject.
+The `:rf.http/managed` args map carries far more than the four keys above — `:retry`, dropping a reply with `:on-failure nil`, the co-located single-handler form, the closed set of failure categories — but all of that is [Managed HTTP](../async/http.md)'s subject.
 
 Notes:
 
-1. **The first argument is the coeffects map** — a [coeffect](../glossary.md#coeffect) being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [Coeffects](coeffects.md)' subject.
+1. **The first argument is the coeffects map** — a [coeffect](glossary.md#coeffect) being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [Coeffects](coeffects.md)' subject.
 2. **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: *describe, don't do.*
 
 ## The grammar: the effect map
 
-One move covers *every* side-effect, not just state: a handler returns an [**effect map**](../glossary.md#effect-map), and the entire grammar is two top-level keys (plus the privacy classifications [app-db](app-db.md) already taught — restated in a gotcha below):
+One move covers *every* side-effect, not just state: a handler returns an [**effect map**](glossary.md#effect-map), and the entire grammar is two top-level keys (plus the privacy classifications [app-db](app-db.md) already taught — restated in a gotcha below):
 
 | Key | Meaning |
 |---|---|
 | `:db` | Replace `app-db` with this value. |
-| `:fx` | A vector of `[fx-id args]` rows — each row names a registered [effect](../glossary.md#effect) by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
+| `:fx` | A vector of `[fx-id args]` rows — each row names a registered [effect](glossary.md#effect) by id and hands it one argument. *Every* other effect rides here: a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself. |
 
 Because `:fx` is just a vector, you keep adding rows. A richer checkout is simply a longer to-do list:
 
@@ -160,7 +160,7 @@ Because `:fx` is just a vector, you keep adding rows. A richer checkout is simpl
 
 A state change, an HTTP POST, a storage write, and a follow-up dispatch — still one pure map. Push that thought as far as it will go: every request your app will ever send, every byte it will ever store, every place it will ever navigate — its entire worldly conduct — is rows of plain data, returned from pure functions, sitting still and legible before anything happens. Your app never *does* anything. It writes lists, and the runtime works down them.
 
-Too far? A little. One handler, one map. But "the app's conduct, as data" is not a slogan — it is exactly what the [trace stream](../glossary.md#trace-stream) records and [Xray](../glossary.md#xray) shows you when something goes weird at 4:45 on a Friday.
+Too far? A little. One handler, one map. But "the app's conduct, as data" is not a slogan — it is exactly what the [trace stream](glossary.md#trace-stream) records and [Xray](glossary.md#xray) shows you when something goes weird at 4:45 on a Friday.
 
 ### Ordering and atomicity — what you can rely on
 
@@ -173,16 +173,16 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold. 
 
 !!! warning "Gotcha — an effect throwing does NOT halt the others (and nothing rolls back)"
 
-    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, each error traced independently as `:rf.error/fx-handler-exception` — and the `:db` [commit](../glossary.md#commit), which happened first, is kept for good. Past the commit the pipeline is best-effort: `app-db` is never rolled back and already-fired effects are not undone (most real effects — a sent request, a written key — are irreversible anyway). This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, have the first report its outcome as an event (as `:rf.http/managed` does via `:on-success`) and run the dependent step in that event's handler; compensating for a half-finished sequence is likewise an event, not a framework rollback.
+    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` **still run**, each error traced independently as `:rf.error/fx-handler-exception` — and the `:db` [commit](glossary.md#commit), which happened first, is kept for good. Past the commit the pipeline is best-effort: `app-db` is never rolled back and already-fired effects are not undone (most real effects — a sent request, a written key — are irreversible anyway). This is deliberate: `:fx` rows are *independent* by design — "order" means order, not dependency. If one fx genuinely needs another to have succeeded first, have the first report its outcome as an event (as `:rf.http/managed` does via `:on-success`) and run the dependent step in that event's handler; compensating for a half-finished sequence is likewise an event, not a framework rollback.
 
 !!! warning "Gotcha — `:db` and `:fx` are the whole top level"
 
-    Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](../glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
+    Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
 
 
 ### Your own effects: `reg-fx`
 
-You aren't limited to the shipped effect set — you couldn't be, because the set of possible effects is open-ended. Maybe you need to write `window.location`, or save a cookie, or ship metrics to DataDog. Everyone's list is different, so the grammar stays closed at the top (`:db` and `:fx`, always) and opens at the rows: when you need a new effect, register it with [`reg-fx`](../glossary.md#effect-handler):
+You aren't limited to the shipped effect set — you couldn't be, because the set of possible effects is open-ended. Maybe you need to write `window.location`, or save a cookie, or ship metrics to DataDog. Everyone's list is different, so the grammar stays closed at the top (`:db` and `:fx`, always) and opens at the rows: when you need a new effect, register it with [`reg-fx`](glossary.md#effect-handler):
 
 ```clojure
 (rf/reg-fx :localstorage/set
@@ -192,19 +192,19 @@ You aren't limited to the shipped effect set — you couldn't be, because the se
     (.setItem js/localStorage key (pr-str value))))
 ```
 
-That `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each effect is named, registered, and addressable by id — which is exactly what lets a test redirect it, the [trace stream](../glossary.md#trace-stream) record it, and [Xray](../glossary.md#xray) display it.
+That `reg-fx` is now the *only* place in your codebase that writes to `js/localStorage`, so side-effects don't scatter across handlers. Each effect is named, registered, and addressable by id — which is exactly what lets a test redirect it, the [trace stream](glossary.md#trace-stream) record it, and [Xray](glossary.md#xray) display it.
 
 Two pieces of advice for writing one. First: make an effect handler as simple as possible, then simplify it further. It's side-effecty, which makes it the hardest kind of function to test rigorously, and fancy logic plus limited testing always ends in tears — if not now, later. Second: the args map you accept is a nano-DSL you are designing, so resist terse and smart; favour slightly verbose and obvious. Your future self will thank you. (Yes, this advice comes from a framework that named the key `:fx`. Oh, the hypocrisy.)
 
-The `:platforms #{:client}` declaration says where the effect may run. During [server-side rendering](../../ssr/concepts.md) the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
+The `:platforms #{:client}` declaration says where the effect may run. During [server-side rendering](../ssr/concepts.md) the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform` trace event, so handlers never branch on platform. A `:platforms` set with more than one member runs on each listed platform; omit the key and the effect runs everywhere.
 
-And if a row names an effect nobody registered? An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/no-such-fx`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter, though — the lookup happens when the row runs, not when the handler is defined. "Register before you use it" means registered by the time the row *runs*; nothing more.
+And if a row names an effect nobody registered? An `:fx` row naming an effect-id that was never `reg-fx`'d [fails loud](glossary.md#fail-loud-not-silent) with `:rf.error/no-such-fx`, surfaced through the always-on error listener rather than silently dropped. A typo in an fx-id fails the same way. Registration *ordering* across files doesn't matter, though — the lookup happens when the row runs, not when the handler is defined. "Register before you use it" means registered by the time the row *runs*; nothing more.
 
 #### The effect handler's two arguments
 
 The handler you pass `reg-fx` takes two arguments. The first — call it `m`, as the code below does — is a small *context map* carrying `:frame` (the frame the originating event ran in) and `:event` (the originating event vector). It is *not* the handler's coeffects map — there's no `:db` in it, deliberately. An effect that wants state receives it in its args, or reads it at run time with `app-db-value` — the function returning a frame's current app-db. The second argument is the row's args map, exactly as the handler built it.
 
-That `:frame` entry earns its keep the moment an effect needs to dispatch back. A [frame](../glossary.md#frame) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? **Frame-aware effects read `(:frame m)`** so the reply lands in the originating frame's `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
+That `:frame` entry earns its keep the moment an effect needs to dispatch back. A [frame](glossary.md#frame) is a single isolated app instance — its own `app-db` — and a page can run several at once. So when an effect fires a follow-up dispatch, *which* `app-db` should it land in? **Frame-aware effects read `(:frame m)`** so the reply lands in the originating frame's `app-db` instead of guessing at a default. An *async* effect — an HTTP callback, a timer, a deferred promise — captures `(:frame m)` into the closure that fires later:
 
 ```clojure
 (rf/reg-fx :my-app/save
@@ -221,12 +221,12 @@ That `:frame` entry earns its keep the moment an effect needs to dispatch back. 
 
 !!! note "Why thread `:frame` back through the callback?"
 
-    A detached callback like this `.then` runs with no ambient frame in scope — unlike a view, where the surrounding `frame-provider` supplies one — so a bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`: [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found). You'd normally reach for `:dispatch`, `:dispatch-later`, or `:rf.http/managed` rather than hand-rolling fetch — this example only shows the closure rule. In app code, with no `m` to read, the `capture-frame` helper makes the same move — capture the frame now, hand it to `dispatch` later; the [Frames](frames.md) page covers it.
+    A detached callback like this `.then` runs with no ambient frame in scope — unlike a view, where the surrounding `frame-provider` supplies one — so a bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`: [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found). You'd normally reach for `:dispatch`, `:dispatch-later`, or `:rf.http/managed` rather than hand-rolling fetch — this example only shows the closure rule. In app code, with no `m` to read, the `capture-frame` helper makes the same move — capture the frame now, hand it to `dispatch` later; the [Frames](frames.md) page covers it.
 
 Periodic and delayed work goes through that same door. An auto-dismissing notification rides a `[:dispatch-later {:ms 5000 :event [:notification/dismiss]}]` row — so there's no `js/setInterval` in app code, and the delayed dispatch is an ordinary recorded event that carries its frame.
 
 ## Stubbing effects in tests
 
-Because a registered effect is addressable by id, a test can redirect the world without touching the handler under test: pass `:fx-overrides` in the dispatch opts (or pin them per frame at construction). The recipe, with the symmetric fact-supplying move for coeffects, lives in [Testing event handlers](../testing/event-handlers.md).
+Because a registered effect is addressable by id, a test can redirect the world without touching the handler under test: pass `:fx-overrides` in the dispatch opts (or pin them per frame at construction). The recipe, with the symmetric fact-supplying move for coeffects, lives in [Testing event handlers](testing/event-handlers.md).
 
 Effects are the world crossing the boundary *outward*. The way *in* — the facts a pure handler is allowed to read, and why they're recorded — is the next page: [Coeffects](coeffects.md).

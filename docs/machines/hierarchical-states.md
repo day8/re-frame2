@@ -127,7 +127,7 @@ the tag is present — so you can re-shape the hierarchy later without touching
 the view. (See the [snapshot](glossary.md#snapshot) and
 [state tag](glossary.md#state-tag) glossary entries; the snapshot lives in the
 framework's [runtime-db](../core/glossary.md#runtime-db), read like any other
-[subscription](../core/concepts/subscriptions.md).)
+[subscription](../core/subscriptions.md).)
 
 ---
 

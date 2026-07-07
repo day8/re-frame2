@@ -131,7 +131,10 @@
                            "(defn-shape: (reg-view sym [args] body)). Got: "
                            (pr-str (first more)))
                       {:rf.error/id :rf.error/reg-view-bad-args})))
-    (let [id     (keyword "user" (str sym))
+    (let [;; derive the id from the CELL'S current ns at eval time (matching
+          ;; the real macro's auto-derive rule), not a hardcoded namespace —
+          ;; a cell's (ns first-app.counter ...) form must show through.
+          id     (list 'keyword (list 'str (list 'ns-name '*ns*)) (str sym))
           handle (gensym "handle")]
       (list 'do
             (list 're-frame.core/reg-view* id
@@ -145,7 +148,7 @@
                                'subscribe (list :subscribe handle)]
                               (cons 'do body))))
             (list 'def sym (list 're-frame.core/view id))
-            id))))
+            id))))  ;; the do returns the id form's value, per reg-* contract
 
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
@@ -295,8 +298,13 @@
     ;; (provide an already-created frame id), `{:id …}` ENSURES a named frame.
     ;; `app-frame` is created once in `ensure-init!`, so the SCOPE-only
     ;; `{:frame …}` shape is correct here.
+    ;; A cell whose last form isn't hiccup (e.g. a registrations-only cell
+    ;; ending on a reg-* call) renders its PRINTED value instead — so the
+    ;; visible result is the returned id, per Conventions §reg-* return-value.
     (rdc/render root [rf/frame-provider {:frame app-frame}
-                      (frame-bind-component component)])
+                      (if (vector? component)
+                        (frame-bind-component component)
+                        [:code (pr-str component)])])
     nil))
 
 ;; ---------------------------------------------------------------------------

@@ -166,7 +166,7 @@ UIx users register their views by Var (the React-component idiom) or with `rf/re
 ## Notes
 
 - **Shared React Context.** The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the **same** `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three, so a mixed-substrate app composes — a UIx `frame-provider` can wrap a Reagent or Helix subtree, and a UIx subtree can be wrapped by a provider from either of the other substrates.
-- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element, and `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes; it powers click-to-source in Xray and re-frame2-pair. Full contract in the [Observability concept guide](../core/concepts/observability.md).
+- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element, and `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes; it powers click-to-source in Xray and re-frame2-pair. Full contract in the [Observability concept guide](../core/observability.md).
 
 ## See also
 

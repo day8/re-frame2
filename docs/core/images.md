@@ -1,12 +1,12 @@
 # Images: which registrations a frame runs
 
-You've registered a dozen [events](../glossary.md#event) and [subscriptions](../glossary.md#subscription). Your app works. And you have never once wondered *which* of them a given [frame](../glossary.md#frame) can see.
+You've registered a dozen [events](glossary.md#event) and [subscriptions](glossary.md#subscription). Your app works. And you have never once wondered *which* of them a given [frame](glossary.md#frame) can see.
 
 Good. That's the design working. The default path is deliberately invisible, and you can stay productive on it for a long time without learning the word on this page.
 
 This page is for the day the default stops being enough. The day you want two examples on one page that both call their event `:counter/inc`. Or an inspection tool mounted right beside the app it inspects. Or a test that needs a *fake* HTTP effect instead of the real one. Three different wishes; one question underneath — *which registrations does this frame resolve against?*
 
-The answer is the [**image**](../glossary.md#image):
+The answer is the [**image**](glossary.md#image):
 
 > **An image is which registrations are loaded; a frame is the live run that resolves against them.**
 
@@ -29,7 +29,7 @@ Here is ordinary re-frame2. No image in sight:
   (fn [db _] (:count db 0)))
 ```
 
-Those `reg-*` forms don't *run* anything. They write entries into the [**registrar**](../glossary.md#registrar) — the process-global table holding every [registration](../glossary.md#registration) you've authored, each tagged with the namespace it was written in (its registration source, `:rf.provenance/*`). Nothing has executed yet. You've just filled the registrar.
+Those `reg-*` forms don't *run* anything. They write entries into the [**registrar**](glossary.md#registrar) — the process-global table holding every [registration](glossary.md#registration) you've authored, each tagged with the namespace it was written in (its registration source, `:rf.provenance/*`). Nothing has executed yet. You've just filled the registrar.
 
 When you then create a frame *without* naming an image, that frame resolves every lookup straight against the whole registrar — "everything I've registered." That implicit all-of-it selection is the **default image**: the conceptual zero-config selection you get for free. So an image, at its simplest, is just a *selection from the registrar*. The default selects all of it.
 
@@ -53,7 +53,7 @@ That refusal is a feature. Read it as one. The registrar kept *both* descriptors
 
 ??? info "From re-frame v1"
 
-    This is the deliberate hardening over v1's last-write-wins registrar. In v1 the second `reg-event` of `:counter/inc` quietly clobbered the first, and you found out weeks later when the wrong handler ran in production. v2 keeps both and stops at assembly with a named error, before any event touches state. It [fails loud, not silent](../glossary.md#fail-loud-not-silent).
+    This is the deliberate hardening over v1's last-write-wins registrar. In v1 the second `reg-event` of `:counter/inc` quietly clobbered the first, and you found out weeks later when the wrong handler ran in production. v2 keeps both and stops at assembly with a named error, before any event touches state. It [fails loud, not silent](glossary.md#fail-loud-not-silent).
 
 ## Naming an image: `rf/image`
 
@@ -181,14 +181,14 @@ The reader sees one small vocabulary evolve across lessons instead of `:counter-
 
 ## The shape of every image decision
 
-Every situation on this page — every single one — reduces to one decision. An image holds *behaviour*: the registrations. A frame holds *state and history*: its own [app-db](../glossary.md#app-db), evolving as events run. So:
+Every situation on this page — every single one — reduces to one decision. An image holds *behaviour*: the registrations. A frame holds *state and history*: its own [app-db](glossary.md#app-db), evolving as events run. So:
 
 **Different behaviour means a different image; the same behaviour with a different lived history means the same image, just a different frame.**
 
 Two surfaces on one page? That rule. A tool inspecting a live app? That rule. Test doubles, library packaging, story canvases, progressive lessons, the thing you're building right now that isn't on this list? The rule, the rule, the rule, probably the rule. ...All right. One rule doesn't need a chant. Watch it produce every shape instead:
 
 - **Two surfaces on one page.** A cart surface and a counter surface that both want simple local ids (`:boot/init`, `:item/add`). Give each its own image with disjoint `:select-ns` selectors; each frame resolves only its own.
-- **An inspection tool beside its target.** [Xray](../glossary.md#xray) is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame *as data* — the tool never has to coordinate ids with the thing it inspects.
+- **An inspection tool beside its target.** [Xray](glossary.md#xray) is itself a running surface with its own events, subs, and app-db paths. Run it in its own image and frame, and let it inspect the target frame *as data* — the tool never has to coordinate ids with the thing it inspects.
 - **Progressive docs examples.** Four versions of a counter, each a lesson, each its own image, all reusing `:counter/inc` / `:counter/value` / `:counter/view`.
 - **A library slice you compose in.** A library ships an image value; you build a frame from your image plus theirs.
 
@@ -255,7 +255,7 @@ An empty vector means nothing was overridden — so `(empty? (rf/frame-shadows f
 
 ## Tests and stories: behaviour is the image, state is the frame
 
-Tests and stories want two things pinned down: behaviour *and* state. The image gives you the behaviour half; the frame gives you the state half. So to swap in a fake HTTP [effect handler](../glossary.md#effect-handler), you don't mutate a process-global registrar underneath a running frame — you build a different image:
+Tests and stories want two things pinned down: behaviour *and* state. The image gives you the behaviour half; the frame gives you the state half. So to swap in a fake HTTP [effect handler](glossary.md#effect-handler), you don't mutate a process-global registrar underneath a running frame — you build a different image:
 
 ```clojure
 (def checkout-test-image
@@ -303,7 +303,7 @@ One boundary is absolute, so hear it plainly: **you cannot override a framework 
 
 ## Hot reload swaps the image, keeps the memory
 
-During development the registrar changes every time you save a file. A `reg-*` re-eval doesn't mutate any running sealed generation — it marks every image that selects the changed namespace *dirty*, resolves fresh sealed generations, and swaps them into the affected frames. The existing app-db, [runtime-db](../glossary.md#runtime-db), queues, and still-valid subscription caches continue. The code changed; the VM kept its memory.
+During development the registrar changes every time you save a file. A `reg-*` re-eval doesn't mutate any running sealed generation — it marks every image that selects the changed namespace *dirty*, resolves fresh sealed generations, and swaps them into the affected frames. The existing app-db, [runtime-db](glossary.md#runtime-db), queues, and still-valid subscription caches continue. The code changed; the VM kept its memory.
 
 That automatic path is the one you lean on day to day. You save a file. The live frames pick up the change without losing their state. You call nothing.
 

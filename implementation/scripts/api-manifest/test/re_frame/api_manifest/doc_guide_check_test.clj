@@ -49,9 +49,9 @@
             file is flagged — the bare global allowlist would have passed it"
     (let [probs (problems-for
                   [{:var "inject-cofx" :line 50 :raw "rf/inject-cofx"
-                    :file "docs/core/concepts/interceptors.md"}])]
+                    :file "docs/core/interceptors.md"}])]
       (is (= 1 (count probs)))
-      (is (= "docs/core/concepts/interceptors.md" (:file (first probs))))
+      (is (= "docs/core/interceptors.md" (:file (first probs))))
       (is (re-find #"removed API named outside its approved" (:detail (first probs)))))))
 
 (deftest scope-is-per-name-not-shared
@@ -87,6 +87,6 @@
     (let [scoped (:doc-guide-known-unmanifested-scoped (gen/read-sidecar))]
       (is (map? scoped) "the scoped allowlist must be a {name -> #{files}} map")
       (is (= #{"docs/core/25-from-re-frame-v1.md"
-               "docs/core/concepts/coeffects.md"}
+               "docs/core/coeffects.md"}
              (get scoped "inject-cofx"))
           "inject-cofx must be scoped to the from-v1 chapter + the cofx callout"))))

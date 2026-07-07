@@ -523,7 +523,7 @@ When the guard blocks, the runtime parks the blocked navigation in a **pending-n
 
 `:rf.route/continue` re-issues the original navigation, skipping the guard this one time. `:rf.route/cancel` clears the slot and stays put. The blocked navigation is, once again, *data*: a map you can subscribe to, assert on in a test, and see in Xray — not a `window.confirm` buried in router internals.
 
-Now re-read `:editor/replied` above and notice the choreography. On a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard waves the navigation through. Type into the editor, hit Back — dialog. Publish — clean navigation to your new article, lists already refreshing behind you. (The example's submit gate materialises "valid and dirty" as a [flow](../../core/concepts/flows.md) shared by the button and the handler.)
+Now re-read `:editor/replied` above and notice the choreography. On a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard waves the navigation through. Type into the editor, hit Back — dialog. Publish — clean navigation to your new article, lists already refreshing behind you. (The example's submit gate materialises "valid and dirty" as a [flow](../../core/flows.md) shared by the button and the handler.)
 
 ??? info "For JavaScript developers"
 

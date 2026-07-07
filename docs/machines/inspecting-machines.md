@@ -110,7 +110,7 @@ The full tour is in [Xray — Machine Inspector](../xray/08-machine-inspector.md
 
 ## The trace events a machine emits
 
-Because a machine is an event handler, every guard evaluation, action run, and transition flows through the standard [trace bus](../core/concepts/observability.md) — the same one Xray renders. There's no separate event log to consult. Three machine-specific records (all under the reserved `:rf.machine/*` namespace) are worth recognising:
+Because a machine is an event handler, every guard evaluation, action run, and transition flows through the standard [trace bus](../core/observability.md) — the same one Xray renders. There's no separate event log to consult. Three machine-specific records (all under the reserved `:rf.machine/*` namespace) are worth recognising:
 
 ```clojure
 ;; one trace record per user-declared guard call site
