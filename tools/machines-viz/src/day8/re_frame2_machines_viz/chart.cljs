@@ -1224,10 +1224,21 @@
             ;; reparses once here and busts every downstream cache.
             parsed     (parse-topology! definition)
             ;; Exclude synthetic parallel-region container nodes (zone
-            ;; chrome, not states) AND the synthetic ROOT-CONTAINER frame
-            ;; (the named box wrapping the whole machine — structural
-            ;; chrome, not a state) from the state count + aria-label.
-            n-states   (count (remove #(or (:region? %) (:root-container? %))
+            ;; chrome, not states), the synthetic ROOT-CONTAINER frame (the
+            ;; named box wrapping the whole machine — structural chrome, not
+            ;; a state), the synthetic MACHINE-ROOT / PARALLEL-ROOT anchor
+            ;; chips (minted for a machine-level / parallel-root `:on` /
+            ;; `:after` / `:on-done` fallback — routing chrome, not an
+            ;; occupiable state), and `:history?` pseudo-states (Spec 005
+            ;; history states are NEVER occupiable) from the state count +
+            ;; aria-label. rf2-3lrl2q — pre-fix only `:region?` /
+            ;; `:root-container?` were excluded, so any machine using a
+            ;; top-level `:on` fallback, a parallel-root `:on`/`:after`/
+            ;; `:on-done`, or a `:type :history` node over-reported its
+            ;; `data-node-count` / aria-label by +1 per anchor.
+            n-states   (count (remove #(or (:region? %) (:root-container? %)
+                                           (:machine-root? %) (:parallel-root? %)
+                                           (:history? %))
                                       (:nodes parsed)))
             n-regions  (count (filter :region? (:nodes parsed)))
             n-trans    (count (:edges parsed))

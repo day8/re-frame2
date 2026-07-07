@@ -413,6 +413,71 @@
           "scxml emits the target-less machine-level <transition>"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+;; `:on-done`: "a compound region reaching its own :final? child raises a
+;; region-local done.state.<region-compound> that the region's :on-done
+;; takes … exactly the compound case, scoped to one region"). Pre-fix,
+;; mermaid's `render-region-block` destructured only `{:keys [initial
+;; states on]}` — never `:on-done` — so this shape vanished from Mermaid
+;; with zero trace while SCXML preserved the `done.state.<region> ->
+;; <sibling-region>` transition. Scoped to mermaid<->SCXML agreement — the
+;; chart projector (`chart/layout.cljc`) has its OWN pre-existing gap for
+;; this shape (`project-flat` never reads a definition's top-level
+;; `:on-done` at all), tracked separately as rf2-2ydc87; it is NOT part of
+;; this fix.
+
+(def region-on-done-machine
+  "A parallel machine whose region :a completes into sibling region :b."
+  {:type    :parallel
+   :regions {:a {:initial :a1
+                 :on-done :b
+                 :states  {:a1 {:on {:go :a2}}
+                           :a2 {:final? true}}}
+             :b {:initial :b1
+                 :states  {:b1 {:on {:go :b2}}
+                           :b2 {:final? true}}}}})
+
+(def region-on-done-action-only-machine
+  "A parallel machine whose region :a's own :on-done is ACTION-ONLY (no
+  target — the engine just runs :log; the region stays in its final
+  config)."
+  {:type    :parallel
+   :regions {:a {:initial :a1
+                 :on-done {:action :log}
+                 :states  {:a1 {:on {:go :a2}}
+                           :a2 {:final? true}}}
+             :b {:initial :b1
+                 :states  {:b1 {:on {:go :b2}}}}}})
+
+(deftest region-on-done-target-bearing-surfaced-by-mermaid-and-scxml
+  (testing "rf2-f8fgz5 — a region's own top-level :on-done with a keyword
+            target surfaces as a completion transition in BOTH mermaid AND
+            SCXML, resolving to the SIBLING region in both"
+    ;; MERMAID
+    (let [out (mermaid-body region-on-done-machine)]
+      (is (str/includes? out "a --> b : ✓ done")
+          "mermaid renders the region's completion edge to its sibling region"))
+    ;; SCXML
+    (let [out (scxml/spec->scxml region-on-done-machine)]
+      (is (str/includes? out "event=\"done.state.a\" target=\"b\"")
+          "scxml renders the identical done.state.<region> -> <sibling> transition"))))
+
+(deftest region-on-done-action-only-surfaced-by-mermaid-and-scxml
+  (testing "rf2-f8fgz5 — a region's own top-level :on-done that is
+            ACTION-ONLY (no target) surfaces in BOTH mermaid (a note on the
+            region root) AND SCXML (a target-less <transition> with the
+            action comment)"
+    ;; MERMAID
+    (let [out (mermaid-body region-on-done-action-only-machine)]
+      (is (str/includes? out "note right of a")
+          "mermaid surfaces the action-only region on-done as a note on the region root")
+      (is (str/includes? out "on-done: ✓ done / log")))
+    ;; SCXML
+    (let [out (scxml/spec->scxml region-on-done-action-only-machine)]
+      (is (str/includes? out "event=\"done.state.a\"><!-- action: log --></transition>")
+          "scxml surfaces the action-only region on-done as a target-less transition"))))
+
+;; ---------------------------------------------------------------------------
 ;; EP-0011 — error-final terminal KIND surfaces in ALL THREE emitters.
 ;;
 ;; Spec 005 §:final? lets a `:final?` leaf carry `:error? true`: a child

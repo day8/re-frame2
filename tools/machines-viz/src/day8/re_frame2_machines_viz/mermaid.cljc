@@ -856,6 +856,52 @@
      (str "    " (on-done-action-label on-done))
      "  end note"]))
 
+(defn- region-root-on-done-edges
+  "rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+  `:on-done`: 'A **compound region** reaching its own `:final?` child
+  raises a region-local `done.state.<region-compound>` that the region's
+  `:on-done` takes … exactly the compound case, scoped to one region').
+  Reuses `collect-on-done-edges` — the SAME walker a nested compound's
+  `:on-done` uses — with the region's OWN container path doubling as both
+  `root-path` and `source-path` (the done-source). A KEYWORD target is
+  therefore a SIBLING OF THE REGION (another key in `:regions`), exactly
+  as a nested compound's keyword `:on-done` target is a sibling of the
+  compound — empirically verified against `scxml.cljc`'s `emit-state`
+  (which reads `:on-done` off ANY state node, a region included, via the
+  same sibling-resolution rule: a 2-region probe with `:on-done :b` on
+  region `:a` emits `<transition event=\"done.state.a\" target=\"b\"/>`,
+  `b` being the SIBLING region's own qualified id). A vector-path target
+  resolves IN-REGION (prefixed with the region id via `root-path`),
+  matching every other region-level collector in this namespace
+  (`collect-root-fallback-edges` et al).
+
+  Pre-fix `render-region-block` destructured only `{:keys [initial states
+  on]}` — never `:on-done` — so a target-bearing region `:on-done`
+  vanished from Mermaid with zero trace while SCXML preserved the
+  `done.state.<region> -> <sibling-region>` transition, breaking the G9
+  cross-emitter parity invariant (001-Topology-Parity.md)."
+  [regions]
+  (mapcat (fn [[region-id {:keys [on-done]}]]
+            (let [region-path (vector region-id)]
+              (collect-on-done-edges region-path region-path on-done)))
+          regions))
+
+(defn- region-root-on-done-notes
+  "rf2-f8fgz5 — the ACTION-ONLY counterpart of `region-root-on-done-
+  edges`: a region's own top-level `:on-done` with no resolvable target
+  has no sibling-region arrow to draw, so — exactly as
+  `collect-compound-on-done-notes` renders a nested compound's
+  action-only `:on-done` (and `render-parallel-on-done-note` renders the
+  parallel-root's) — it surfaces as a `note right of` the region's OWN
+  container (the region root)."
+  [regions]
+  (mapcat (fn [[region-id {:keys [on-done]}]]
+            (when (on-done-action-only? on-done)
+              [(str "  note right of " (sanitise-id [region-id]))
+               (str "    " (on-done-action-label on-done))
+               "  end note"]))
+          regions))
+
 (defn- render-parallel-body
   [{:keys [regions on after on-done]} header-comment?]
   (let [edges       (concat
@@ -876,7 +922,13 @@
                      ;; fallback edge labelled `after(<delay>)`. Pre-fix the
                      ;; root `:after` was DROPPED entirely (destructured only
                      ;; `regions on on-done`).
-                     (collect-root-fallback-after-edges [] after))
+                     (collect-root-fallback-after-edges [] after)
+                     ;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done`
+                     ;; (target-bearing form): a `✓ done` edge to the
+                     ;; SIBLING region. Pre-fix `render-region-block`
+                     ;; destructured only `{:keys [initial states on]}`, so
+                     ;; this vanished from Mermaid while SCXML preserved it.
+                     (region-root-on-done-edges regions))
         edge-lines  (map render-edge edges)
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
                               (render-final-edges [region-id] states))
@@ -896,6 +948,10 @@
         (mapcat (fn [[region-id {:keys [states]}]]
                   (collect-compound-on-done-notes [region-id] states))
                 regions)
+        ;; rf2-f8fgz5 — a REGION's OWN top-level `:on-done` (action-only
+        ;; form): no sibling-region arrow to draw, so it surfaces as a
+        ;; note on the region's own container (the region root).
+        region-root-on-done-note-lines (region-root-on-done-notes regions)
         ;; rf2-mnp93.4 — an INTERNAL (action-only) `:on` / `:after` /
         ;; `:always` candidate on a state inside a region renders as a note
         ;; too (no arrow to draw), matching the flat/compound emitter.
@@ -930,6 +986,7 @@
                final-lines
                error-final-notes
                region-on-done-notes
+               region-root-on-done-note-lines
                region-internal-notes
                region-fallback-notes
                root-internal-notes

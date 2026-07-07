@@ -106,6 +106,33 @@
                        :states {:on  {:on {:dim :off}}
                                 :off {:on {:lit :on}}}}}})
 
+(def ^:private parallel-root-fallback-machine
+  "rf2-3lrl2q — a parallel machine whose ROOT declares its own `:on`
+  fallback (a multi-region target), so the synthetic `:parallel-root?`
+  anchor chip projects. 4 real states (2 regions x 2 states each); the
+  anchor chip is structural chrome, not a state."
+  {:type    :parallel
+   :on      {:reset {:target [[:audio :playing] [:display :on]]}}
+   :regions {:audio   {:initial :playing
+                       :states {:playing {:on {:pause :paused}}
+                                :paused  {:on {:play :playing}}}}
+             :display {:initial :on
+                       :states {:on  {:on {:dim :off}}
+                                :off {:on {:lit :on}}}}}})
+
+(def ^:private history-machine
+  "rf2-3lrl2q — a compound with a `:type :history` pseudo-state
+  (`:hist`, NEVER occupiable per Spec 005 §History states). 4 real states
+  (:off, :player, :player/stopped, :player/playing); `:hist` is chrome,
+  not a state."
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? false}}
+                      :on      {:power-off :off}}}})
+
 ;; ---- DOM mount helpers --------------------------------------------------
 
 (defn- browser? []
@@ -773,6 +800,58 @@
               "all four region states render")
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count excludes the region containers"))))))
+
+;; ---- state-count excludes synthetic anchors + history (rf2-3lrl2q) -----
+;;
+;; Pre-fix, `n-states` excluded only `:region?` / `:root-container?`, so
+;; the synthetic `:machine-root?` chip (a top-level `:on` fallback), the
+;; synthetic `:parallel-root?` chip (a parallel-root `:on`/`:after`/
+;; `:on-done`), and every `:history?` pseudo-state (never occupiable, Spec
+;; 005 §History states) rode along as +1 over-counts in BOTH
+;; `data-node-count` and the aria-label — with zero aria-label assertions
+;; pre-existing to catch it.
+
+(deftest chart-node-count-excludes-machine-root-anchor
+  (testing "rf2-3lrl2q — a machine-level :on fallback mints a synthetic
+            :machine-root? anchor chip; data-node-count + the aria-label
+            must count only the 2 real states (:a, :b), not the anchor"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/root-fallback :definition machine-level-on-machine}
+        (fn [root _node]
+          (is (= "2" (.getAttribute root "data-node-count"))
+              "data-node-count excludes the machine-root anchor chip")
+          (is (str/includes? (.getAttribute root "aria-label") "with 2 states")
+              "the aria-label excludes the machine-root anchor chip"))))))
+
+(deftest chart-node-count-excludes-parallel-root-anchor
+  (testing "rf2-3lrl2q — a parallel-root :on fallback mints a synthetic
+            :parallel-root? anchor chip; data-node-count + the aria-label
+            must count only the 4 real region states, not the anchor"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/parallel-root-fallback :definition parallel-root-fallback-machine}
+        (fn [root _node]
+          (is (= "4" (.getAttribute root "data-node-count"))
+              "data-node-count excludes the parallel-root anchor chip")
+          (is (str/includes? (.getAttribute root "aria-label") "with 4 states")
+              "the aria-label excludes the parallel-root anchor chip"))))))
+
+(deftest chart-node-count-excludes-history-pseudo-state
+  (testing "rf2-3lrl2q — a `:type :history` pseudo-state is NEVER
+            occupiable (Spec 005 §History states); data-node-count + the
+            aria-label must count only the 4 real states, not the marker"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/history :definition history-machine}
+        (fn [root _node]
+          (is (= "4" (.getAttribute root "data-node-count"))
+              "data-node-count excludes the history pseudo-state")
+          (is (str/includes? (.getAttribute root "aria-label") "with 4 states")
+              "the aria-label excludes the history pseudo-state"))))))
 
 ;; ---- compound substate parent linkage (rf2-xh1lm visual-pin) -----------
 ;;
