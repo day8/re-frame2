@@ -1902,8 +1902,8 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    to framework subs. Change traces fire AFTER flows (per [013
       ;;    §Drain integration](013-Flows.md#drain-integration) and [009
       ;;    §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)):
-      ;;    an app-db change emits `:rf.event/db-changed` (APP-DB-ONLY — Mike
-      ;;    ruling #6); a partition change of EITHER kind additionally emits
+      ;;    an app-db change emits `:rf.event/db-changed` (app-db partition
+      ;;    only); a partition change of EITHER kind additionally emits
       ;;    the frame-level `:rf.event/frame-state-changed` carrying the
       ;;    changed-partition tag(s). `contains?` is the WHOLE guard: a
       ;;    pre-install throw leaves no partition effect, so this is a no-op

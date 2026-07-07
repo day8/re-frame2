@@ -65,7 +65,7 @@ A failure emits `:rf.error/schema-validation-failure :where :machine-data` and r
 
 ### App schemas validate the app-db partition only
 
-> **The public API name stays `reg-app-schema`, and the term stays "app-db schema"** (Mike ruling #11). What changes is precision: an app-db schema validates **only the app-db partition** of a frame — the user-owned application data. It does **not** describe, validate, or authorise the framework-owned **runtime-db** partition (machine snapshots, route slice, elision declarations, SSR metadata — per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)).
+> **The public API name is `reg-app-schema`, and the term is "app-db schema".** The precision to hold onto: an app-db schema validates **only the app-db partition** of a frame — the user-owned application data. It does **not** describe, validate, or authorise the framework-owned **runtime-db** partition (machine snapshots, route slice, elision declarations, SSR metadata — per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)).
 
 Concretely:
 

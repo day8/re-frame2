@@ -49,7 +49,7 @@ The two parts together form the **consolidated contract** — the complete set o
 | **Read registry** | `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/frame-ids)`, `(rf/frame-meta id)` | [001-Registration](001-Registration.md), [002](002-Frames.md) |
 | **Dispatch** | `(rf/dispatch ev opts)`, `(rf/dispatch-sync ev opts)` with `:frame` opt | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
 | **Drive the render** | `flush-render!` on the installed substrate adapter — synchronously commits pending renders so a headless `dispatch → observe-DOM` loop is deterministic | [006 §`flush-render!`](006-ReactiveSubstrate.md#flush-render-f--nil), [§Driving the render](#driving-the-render-headless-view-lifecycle) |
-| **Trace stream** | `(rf/register-listener! key callback)` plus structured trace events | [009](009-Instrumentation.md) |
+| **Trace stream** | `(rf/register-listener! :trace key callback)` plus structured trace events | [009](009-Instrumentation.md) |
 | **Hot-swap handlers** | Re-registration replaces; emits `:rf.registry/handler-replaced` trace | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | **Stub fx** | `:fx-overrides` map (id-valued at the pattern level) on `dispatch` opts or `reg-frame` metadata | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
 | **Source coordinates** | `:ns`/`:line`/`:column`/`:file` on every registration's metadata (shape: `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta)); mandatory `data-rf2-source-coord` DOM annotation (shape: `:rf/source-coord-attr` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-attr)) per Spec 006 | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference), [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory) |
@@ -85,7 +85,7 @@ Because `flush-render!` is synchronous, the post-settle render emits (`:rf.view/
 <a name="time-travel"></a>
 ## Time-travel: epoch snapshots and undo
 
-> **Artefact home.** As the seventh and final per-feature artefact split (Strategy B), the time-travel surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure! {:epoch-history {:depth N}})` knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the `restore-epoch!` rewind with its seven documented failure modes, the per-cascade trace-capture buffer, the `:rf.epoch/snapshotted` / `:rf.epoch/restored` trace events, and the `:sub-runs` / `:renders` / `:effects` projections — ships in `day8/re-frame2-epoch`. Apps that consume the pair-tool / time-travel surface add the artefact alongside core and require `re-frame.epoch` at boot so the namespace's late-bind hook publications fire before the public re-exports in `re-frame.core` (`rf/epoch-history`, `rf/restore-epoch!`, `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`, `(rf/configure! {:epoch-history ...})`) reach into the hook table at call time. When the artefact is not on the classpath, absent-artefact behaviour splits by surface. The **read / listener / dev-observation** re-exports degrade silently with sentinels — `rf/epoch-history` (and `projected-history`) returns the empty vector, `rf/restore-epoch!` returns `false`, and `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` (and `projected-record`) no-op (`nil`) — so a release build that omits the artefact does not raise on those paths. The lone exception is the **write** surface — the partition-aware injection mutators (`rf/replace-app-db!` / `rf/reset-app-db!` / `rf/replace-runtime-db!` / `rf/replace-frame-state!`): each raises `:rf.error/epoch-artefact-missing` rather than returning a sentinel, because a silent no-op would lie about the caller's undo invariant ("undo works after this call") — see the [§Pair-tool writes](#pair-tool-writes--state-injection) contract below, [009 §Trace events](009-Instrumentation.md) (`:rf.error/epoch-artefact-missing`), and [API §Conventions](API.md#conventions) (the per-artefact public-namespace table: absent artefacts surface `:rf.error/<feature>-artefact-missing`). The whole surface is dev-tier and gated on `interop/debug-enabled?`. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) and [MIGRATION §M-33](../migration/from-re-frame-v1/README.md#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch).
+> **Artefact home.** The time-travel surface — the per-frame `:rf/epoch-record` ring buffer (`epoch-history`), the `(rf/configure! {:epoch-history {:depth N}})` knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the `restore-epoch!` rewind with its seven documented failure modes, the per-cascade trace-capture buffer, the `:rf.epoch/snapshotted` / `:rf.epoch/restored` trace events, and the `:sub-runs` / `:renders` / `:effects` projections — ships in `day8/re-frame2-epoch`. Apps that consume the pair-tool / time-travel surface add the artefact alongside core and require `re-frame.epoch` at boot so the namespace's late-bind hook publications fire before the public re-exports in `re-frame.core` (`rf/epoch-history`, `rf/restore-epoch!`, `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`, `(rf/configure! {:epoch-history ...})`) reach into the hook table at call time. When the artefact is not on the classpath, absent-artefact behaviour splits by surface. The **read / listener / dev-observation** re-exports degrade silently with sentinels — `rf/epoch-history` (and `projected-history`) returns the empty vector, `rf/restore-epoch!` returns `false`, and `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` (and `projected-record`) no-op (`nil`) — so a release build that omits the artefact does not raise on those paths. The lone exception is the **write** surface — the partition-aware injection mutators (`rf/replace-app-db!` / `rf/reset-app-db!` / `rf/replace-runtime-db!` / `rf/replace-frame-state!`): each raises `:rf.error/epoch-artefact-missing` rather than returning a sentinel, because a silent no-op would lie about the caller's undo invariant ("undo works after this call") — see the [§Pair-tool writes](#pair-tool-writes--state-injection) contract below, [009 §Trace events](009-Instrumentation.md) (`:rf.error/epoch-artefact-missing`), and [API §Conventions](API.md#conventions) (the per-artefact public-namespace table: absent artefacts surface `:rf.error/<feature>-artefact-missing`). The whole surface is dev-tier and gated on `interop/debug-enabled?`. See [Conventions §Packaging conventions](Conventions.md#packaging-conventions) and [MIGRATION §M-33](../migration/from-re-frame-v1/README.md#m-33-epoch--time-travel-tool-pair-time-travel-ships-in-a-separate-artefact--day8re-frame2-epoch).
 
 The runtime contract for time-travel:
 
@@ -121,11 +121,11 @@ The runtime contract for time-travel:
 | **Missing handler** | `:rf.epoch/restore-missing-handler` | The recorded frame-state's **runtime-db partition** references a registered-id (e.g. an active machine at `[:rf.runtime/machines :snapshots <id>]`, a registered route currently in `[:rf.runtime/routing :current]`) that is no longer present in the registrar. Restoring would leave the frame referencing dangling ids. The precondition reads the recorded `:frame-state-after`'s `:rf.db/runtime` partition (machine snapshots + route slice are runtime-db state, not the app-db `[:rf/runtime …]` path). | `{:frame <id>, :rf.epoch/id <id>, :missing [{:kind <kind>, :id <id>} ...]}` |
 | **Version mismatch** | `:rf.epoch/restore-version-mismatch` | The frame's recorded `:rf/snapshot-version` (per [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot)) is incompatible with the currently-loaded machine definition. Hot-reload moved the machine forward; the older snapshot can no longer be interpreted. The current version is resolved the SAME way dispatch resolves the live spec: a **singleton** by its snapshot key (the key IS the registered machine-id), a **spawned actor** by its snapshot's `:rf/machine-type` (a registered TYPE keyword or an inline `:definition` map, per [Spec 005 §Reserved snapshot-internal keys](005-StateMachines.md)) — so a hot-reloaded spawned-actor TYPE's drift is caught (the instance-id key never named a registered handler). | `{:frame <id>, :rf.epoch/id <id>, :machine-id <id>, :version-recorded <int>, :version-current <int>}` — plus `:machine-type <type-ref>` (the resolved `:rf/machine-type`: keyword or inline-definition map) when the drifting snapshot is a spawned actor; omitted for a singleton. |
 | **Concurrent-drain rejection** | `:rf.epoch/restore-during-drain` | `restore-epoch!` was called while the frame's run-to-completion drain is still in flight (per [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Restore is rejected; the user retries after settle. | `{:frame <id>, :rf.epoch/id <id>}` |
-| **Halted-run target** | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — i.e. the record was committed for a halted pipeline run (`:halted-depth`, `:halted-destroy`, …). Halted records carry partial state for devtools introspection and are not valid restore targets; rewinding would land `app-db` in a state the run never settled to. | `{:frame <id>, :rf.epoch/id <id>, :outcome <kw>, :halt-reason <any>}` |
+| **Halted-run target** | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — i.e. the record was committed for a halted pipeline run (`:halted-depth`, `:halted-destroy`, …). Halted records carry partial state for devtools introspection and are not valid restore targets; rewinding would land `app-db` in a state the run never settled to. | `{:frame <id>, :rf.epoch/id <id>, :rf.epoch/outcome <kw>, :halt-reason <any>}` |
 
 All seven failures have `:op-type :error` and `:recovery :no-recovery`. Pair tools display the `:operation` and `:tags` to the user; the reserved `:rf.epoch/*` namespace lets tools route restore failures distinctly from frame-lookup errors. The failure surface is closed for v1 — additional categories require a Spec-ulation increment.
 
-> **Note on the unknown-frame row.** Six of the seven failures fire under the reserved `:rf.epoch/*` namespace; the remaining one (**Unknown frame**) rides the framework-wide `:rf.error/no-such-handler` op-type with `:kind :frame` because it is a registry-lookup failure that predates the restore call (the same op-type fires for any registrar lookup that names a missing frame). A pair tool routing restore failures should therefore match on either `:rf.epoch/*` or `(:rf.error/no-such-handler ∧ :kind = :frame)` to catch the full failure surface; the audit-found drift between the reserved-namespace prose and the table's heterogeneous first row is preserved-by-design, not a contradiction.
+> **Note on the unknown-frame row.** Six of the seven failures fire under the reserved `:rf.epoch/*` namespace; the remaining one (**Unknown frame**) rides the framework-wide `:rf.error/no-such-handler` op-type with `:kind :frame` because it is a registry-lookup failure that predates the restore call (the same op-type fires for any registrar lookup that names a missing frame). A pair tool routing restore failures should therefore match on either `:rf.epoch/*` or `(:rf.error/no-such-handler ∧ :kind = :frame)` to catch the full failure surface.
 
 **Restore caveat.** Even a *successful* restore rewinds durable **frame-state** only (both app-db and runtime-db partitions); effects already fired (HTTP requests sent, navigation pushed, localStorage written) are not reversed, and transient runtime state outside the durable partitions (in-flight HTTP handles, host handles, trace rings) is not reconstructed. Pair-shaped tools surface this caveat in their UI before applying a restore.
 
@@ -162,6 +162,7 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
 
 ;; Listener: catch restore success / failure traces and fan out to UI.
 (rf/register-listener!
+  :trace
   :my-tool/restore-watcher
   (fn [ev]
     (case (:operation ev)
@@ -175,7 +176,7 @@ A pair tool that wants to render a per-frame undo affordance walks `epoch-histor
       ;; Unknown-frame rides :rf.error/no-such-handler (kind :frame); see note above.
       nil)))
 
-;; Trigger the rewind. restore-epoch! returns nil on failure (the failure mode
+;; Trigger the rewind. restore-epoch! returns false on failure (the failure mode
 ;; is delivered via the trace stream); on success, the whole frame-state (both
 ;; partitions) has been rewound to the epoch's :frame-state-after and
 ;; :rf.epoch/restored has fired.
@@ -189,11 +190,11 @@ The walk-history-then-restore shape is the canonical pair-tool gesture; render-t
 
 `restore-epoch!` and `dispatch` cover most of pair-tools' write needs (rewind to a recorded prior state; drive a pipeline run through the application's own handlers). The remaining case is **state injection** — installing an arbitrary frame value that the runtime never recorded and that no event handler need exist to produce.
 
-Under the two-partition frame contract (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)) the injection surface is **four partition-aware mutators** (EP-0001, Mike rulings #1 + #10). They supersede the old single `reset-frame-db!` — whose db-shaped name would have silently replaced runtime-db (machines, routes, elision, SSR) along with app-db. API.md ([§Epoch history](API.md#epoch-history-per-tool-pair)) is the canonical row table; the per-surface contract is owned here:
+Under the two-partition frame contract (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)) the injection surface is **four partition-aware mutators** (EP-0001). A db-shaped name (`replace-app-db!` / `reset-app-db!`) never touches the runtime-db partition; `replace-frame-state!` is the explicit both-partition surface. API.md ([§Epoch history](API.md#epoch-history-per-tool-pair)) is the canonical row table; the per-surface contract is owned here:
 
 | Surface | Replaces | Use |
 |---|---|---|
-| `(rf/replace-app-db! frame-id app-db)` | **only** the app-db partition; live runtime-db survives | app-db-only state injection (the direct rename of `reset-frame-db!`, Mike ruling #10) |
+| `(rf/replace-app-db! frame-id app-db)` | **only** the app-db partition; live runtime-db survives | app-db-only state injection; the live runtime-db partition survives |
 | `(rf/reset-app-db! frame-id)` | the app-db partition with `{}`; live runtime-db survives | app-db-only reset (the app-db sibling of the whole-frame `reset-frame!`) |
 | `(rf/replace-runtime-db! frame-id runtime-db)` | **only** the runtime-db partition | privileged runtime / full-frame tool injection of subsystem state |
 | `(rf/replace-frame-state! frame-id frame-state)` | **both** partitions atomically (`{:rf.db/app … :rf.db/runtime …}`) | the full-frame install for tool-driven replay / fixture install |
@@ -544,10 +545,10 @@ The full attachment surface, from the tool's point of view:
 
 | Need | Surface | Spec |
 |---|---|---|
-| Receive live trace events | `(rf/register-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
+| Receive live trace events | `(rf/register-listener! :trace :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Receive per-event assembled epoch records | `(rf/register-epoch-listener! :my-tool callback)` | [009 §The listener API](009-Instrumentation.md#the-listener-api) |
 | Read recent trace history (runs that already fired in a frame) | `(rf/trace-buffer frame-id)` returns event bundles by default; `(rf/trace-buffer frame-id {:flat true})` returns raw trace events; cross-frame consumers merge by `:dispatch-id` across rings | [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only) |
-| Read live stream of frameless trace events (registration, REPL, lifecycle outside any pipeline run) | `(rf/register-listener! ...)` — frameless emits stream live to listeners only; they are not retained in any ring (per the B3 ruling) | [009 §Frameless trace events](009-Instrumentation.md#frameless-trace-events--live-stream-only-no-ring-storage) |
+| Read live stream of frameless trace events (registration, REPL, lifecycle outside any pipeline run) | `(rf/register-listener! :trace ...)` — frameless emits stream live to listeners only; they are not retained in any ring (per the B3 ruling) | [009 §Frameless trace events](009-Instrumentation.md#frameless-trace-events--live-stream-only-no-ring-storage) |
 | Read epoch history per frame | `(rf/epoch-history frame-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Restore an epoch | `(rf/restore-epoch! frame-id epoch-id)` | [§Time-travel](#time-travel-epoch-snapshots-and-undo) |
 | Inject an `app-db` value (state injection / story / repro) | `(rf/replace-app-db! frame-id app-db)` (or `replace-frame-state!` to install both partitions) | [§Pair-tool writes](#pair-tool-writes--state-injection) |
@@ -589,6 +590,7 @@ This is **dev-only** end-to-end — every primitive listed above elides in produ
 ;; :rf.flow/cleared, :rf.flow/failed).
 
 (rf/register-listener!
+  :trace
   :my-tool/flow-panel
   (fn [ev]
     (when (= :flow (:op-type ev))
@@ -709,6 +711,7 @@ Frameless trace events (registrations, REPL emits, lifecycle outside any pipelin
 
 ```clojure
 (rf/register-listener!
+  :trace
   :my-tool/registry-monitor
   (fn [ev]
     (when (and (= :rf.registry (:op-type ev))
