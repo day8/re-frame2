@@ -121,7 +121,7 @@ Three rules govern every UIx and Helix component, and once they click you won't 
 
 Step 2's second rule said: grab `dispatch` off `(rf/capture-frame)` during render, never reach for a bare `rf/dispatch` inside a callback. Here's the reason, and what the frame api gives you.
 
-It's the async-boundary rule from [Frames](../concepts/frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/capture-frame)`](../glossary.md#capture-frame), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the frame api yourself.
+It's the async-boundary rule from [Frames](../frames.md#the-async-boundary-capture-the-frame): a click handler fires *after* render, on a frameless stack, so a bare `rf/dispatch` inside it has no frame to aim at and raises `:rf.error/no-frame-context`. [`(rf/capture-frame)`](../glossary.md#capture-frame), called *during* render while the provider's frame is in scope, captures that frame as a value the callback closes over — [carried, not found](../glossary.md#frame-identity-is-carried-not-found). In Reagent `reg-view` injects `dispatch` for you; UIx/Helix have no such injection, so you pull it off the frame api yourself.
 
 And the frame api gives you more than just a dispatch function — it's a small map of *every* frame-locked operation, captured the instant you call it:
 
@@ -153,7 +153,7 @@ The no-arg `(rf/capture-frame)` captures the *ambient* frame at call time, which
 
 ??? info "From re-frame v1"
 
-    v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the frame api is how you carry the right frame across the async gap. [Frames](../concepts/frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
+    v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app; re-frame2 has many frames and never infers one from absence, so the frame api is how you carry the right frame across the async gap. [Frames](../frames.md#the-one-rule-frame-identity-is-carried-not-found) covers why a guessed default would be a trap.
 
 ## Step 4 — Mount it: scope a frame into the subtree
 
@@ -183,7 +183,7 @@ That's a complete UIx app: pick the substrate at boot (Step 1), write `defui` vi
 
 ## Step 5 — Ensure a view's own frame
 
-The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. The same `frame-provider`'s other shape, `{:id …}`, instead *ensures* one — a modal, a tab, a per-tenant panel that brings its frame into being on first mount. The two config shapes are detailed in [Frames — Two config shapes](../concepts/frames.md#two-config-shapes-scope-an-existing-frame-or-ensure-a-named-one); picking the wrong key is the most common mount-time stumble, so here are the opts each shape takes and the matched errors when you cross them:
+The `{:frame …}` scope shape from Step 4 scopes a frame that already exists. The same `frame-provider`'s other shape, `{:id …}`, instead *ensures* one — a modal, a tab, a per-tenant panel that brings its frame into being on first mount. The two config shapes are detailed in [Frames — Two config shapes](../frames.md#two-config-shapes-scope-an-existing-frame-or-ensure-a-named-one); picking the wrong key is the most common mount-time stumble, so here are the opts each shape takes and the matched errors when you cross them:
 
 - **`{:frame …}` (scope)** — Step 4. One opt: `:frame` (a required keyword id). Creates and destroys nothing.
 - **`{:id …}` (ensure)** — brings the frame into being. Takes the same construction opts as `rf/make-frame`: `:id` (a required keyword), `:images` (the [image](../glossary.md#image) — events, subs, effects — the new frame is born with), and `:initial-events` (the ordered setup events dispatched synchronously right after creation). Creates the frame if absent, reuses it without re-seeding if present; **no destroy-on-unmount**.

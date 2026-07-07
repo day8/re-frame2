@@ -4,7 +4,7 @@ Here's the whole idea in one line: **the URL is application state, and your back
 
 Most frameworks bolt a router onto the side of your app — its own context, its own lifecycle, its own opinion about where truth lives. re-frame2 doesn't. A route is a [registration](../core/glossary.md#registration): one row in re-frame2's table of routes. Navigating is dispatching an [event](../core/glossary.md#event): a data vector sent through the app. The active route is a [subscription](../core/glossary.md#subscription): a read of state your [views](../core/glossary.md#view) watch. That's it — three things you already know, pointed at the URL.
 
-Which means everything you already know about [events](../core/introduction.md) and [subscriptions](../core/concepts/subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
+Which means everything you already know about [events](../core/introduction.md) and [subscriptions](../core/subscriptions.md) is genuinely everything you need here. There is no fourth concept hiding behind the curtain. By the end of this page you'll register a route table, navigate and link between pages, branch your views on the active route, load each page's data declaratively, handle the 404, block a navigation, wire up back/forward, and — for free — run the exact same routing on the server.
 
 > **From re-frame v1.** There was no routing in v1 — you reached for secretary, bidi, or reitit, wired a third-party router to `dispatch` by hand, and kept the active route somewhere in [app-db](../core/glossary.md#app-db) yourself. re-frame2 folds all of that into the framework: routes are registrations, navigation is a built-in event, and the active route is a built-in subscription. The bring-your-own-router era is over. (It's still a *separate* artefact — `day8/re-frame2-routing` — so an app with no shareable URLs ships zero routing bytes.)
 
@@ -91,7 +91,7 @@ One more `:query` key earns its keep early. `:query-retain` is a set of keys car
 
 ### Routes are queryable data
 
-Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](../core/concepts/interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router machinery, just data and a step that reads it:
+Because routes are registry entries, the route table is *queryable data* — and that pays off. Tag a route `:tags #{:requires-auth}` and an ordinary [interceptor](../core/interceptors.md) (a `:before`/`:after` wrapper around your navigation events) can read the tag and redirect. That's the entire auth-guard mechanism — no special router machinery, just data and a step that reads it:
 
 ```clojure
 (rf/reg-route :app/admin
@@ -222,7 +222,7 @@ When the navigate event runs, three things happen in a **locked order**: first t
 
 ## Move 3: the active route is a subscription
 
-The current route lives in **runtime-db** — the framework-owned partition beside your app-db (see [the two partitions](../core/concepts/app-db.md#yours-and-the-frameworks-next-door)), addressed at `[:rf.db/runtime :rf.runtime/routing :current]`. Your code *reads* it and never *writes* it, and you read it like any other state:
+The current route lives in **runtime-db** — the framework-owned partition beside your app-db (see [the two partitions](../core/app-db.md#yours-and-the-frameworks-next-door)), addressed at `[:rf.db/runtime :rf.runtime/routing :current]`. Your code *reads* it and never *writes* it, and you read it like any other state:
 
 ```clojure
 @(rf/subscribe [:rf/route])             ;; the full slice: {:route-id :params :query :fragment :transition :error :nav-token}
@@ -315,7 +315,7 @@ A route can declare what data to load when it becomes active, so a page's data-n
   "/cart")
 ```
 
-`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](../core/concepts/coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
+`:on-match` events run server- *and* client-side (SSR populates the same data through the same vector), and they're enumerable — `(rf/handler-meta :route :app/cart)` returns the list, so tooling can draw a route's data-dependency graph. Each event reads the freshly-written route slice through a [coeffect](../core/coeffects.md) (a fact the framework injects into a handler) or the route subs (`:rf.route/params`, `:rf.route/query`), so you don't hand-wire params into the event vector.
 
 > **Coming from React Router or Remix?** `:on-match` *is* the route loader — but as a list of event vectors, not a function. Because it's data, you can read it, test it, and draw a dependency graph from it without running it. And it runs on the server through the exact same vector, so there's no separate "server loader" to keep in sync.
 
@@ -335,7 +335,7 @@ If any `:on-match` event errors, the runtime flips `:rf.route/transition` to `:e
       {:db (assoc-in db [:cart :load-error] (:rf.error/message error))})))
 ```
 
-Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](../core/concepts/errors.md), not a replacement for it.
+Routes with no `:on-error` simply leave `:transition :error` set; a view over `:rf.route/error` can render a banner. Either way, the structured-error trace still fires on the wire — `:on-error` is the route's *response*, layered over the framework's [error contract](../core/errors.md), not a replacement for it.
 
 > **Two subtleties worth knowing.** (1) *Later loaders still run.* re-frame2's [run-to-completion](../core/glossary.md#drain--run-to-completion) drain doesn't cancel events already queued, so `:on-match [[:a] [:b]]` runs `:b` even if `:a` threw. A loader that must short-circuit on a sibling's failure reads `:rf.route/transition` and self-guards. (2) *First error wins.* If both throw, `:rf.route/error` records the first, and `:on-error` fires exactly once. The slice always lands on `:error` regardless of how the events interleave.
 
@@ -382,7 +382,7 @@ When a resource is per-user, scope it with a **named scope resolver**. Register 
  :blocking? false}
 ```
 
-The runtime resolves `{:from-db :realworld/session}` against [app-db](../core/concepts/app-db.md) at route entry, and the resolution **fails closed**. Logged out, the resolver returns `nil` and the feed simply isn't loaded — that surfaces as a visible route error, never a quiet fall-back to a shared cache. So one user's feed can never leak into another's session. Security by construction, not by remembering to check.
+The runtime resolves `{:from-db :realworld/session}` against [app-db](../core/app-db.md) at route entry, and the resolution **fails closed**. Logged out, the resolver returns `nil` and the feed simply isn't loaded — that surfaces as a visible route error, never a quiet fall-back to a shared cache. So one user's feed can never leak into another's session. Security by construction, not by remembering to check.
 
 ## Blocking a navigation
 
@@ -491,9 +491,9 @@ Back/forward, deep links, and the initial page load are all, underneath, URL cha
 (rf/install-url-listener!)
 ```
 
-`:url-bound? true` declares which [frame](../core/concepts/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` — and having *no* owner is legal too: URL pushes and the URL-change listener simply no-op.
+`:url-bound? true` declares which [frame](../core/frames.md) owns the browser URL. Ownership is always explicit, never inferred. Only one frame may hold it — a second claimant is a loud `:rf.error/duplicate-url-binding` — and having *no* owner is legal too: URL pushes and the URL-change listener simply no-op.
 
-Frames without the flag still route internally, in memory. That's a feature, not a gap: a [Story](../core/concepts/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`.
+Frames without the flag still route internally, in memory. That's a feature, not a gap: a [Story](../core/observability.md) variant can sit on `/article/intro` without touching your address bar, and a test frame never calls `pushState`.
 
 `install-url-listener!` installs the URL-change listener (aimed at whichever frame owns the URL) and syncs the URL into state once at startup, so deep links and refreshes land on the right page. It's idempotent — hot-reload can call it again — and `rf/remove-url-listener!` tears it down. (`install-history-listener!` is retained as an alias — history is the default strategy, so the two behave identically for a path-URL app.)
 
@@ -519,7 +519,7 @@ When your URL-owning frame is created *asynchronously* — e.g. by a `frame-prov
 
 > **SSR ignores strategies.** On the server there's no address bar and a hash never arrives — the request URL is fed in path-form and `route-link` renders a path-form `<a href>` shell. On hydration the client re-encodes the href through the frame's strategy, so the server ships `/active` and the hydrated anchor becomes `#/active`, both pointing at the same route. The shape is a client-only concern.
 
-> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../core/concepts/frames.md) for the full lifecycle.
+> **Frames seed with events, not config.** Note the frame carries `:doc` and `:url-bound?` and nothing else — there's no `:db` or `:initial-db` config key. A frame's startup state is built by dispatching ordinary events via `:initial-events`: `(rf/reg-frame :app {:initial-events [[:rf/set-db {…}] [:app/initialise]]})`. "Events are the unit of state change" holds even for the very first state. See [Frames](../core/frames.md) for the full lifecycle.
 
 ### Converting routes ↔ URLs by hand
 

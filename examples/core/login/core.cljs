@@ -536,7 +536,7 @@
 ;; `subscribe` are already in scope, pre-bound to whichever frame the view
 ;; is rendering under. No threading a frame argument through every call.
 ;; That's also what lets the very same view mount in several isolated frames
-;; at once (docs/core/concepts/views.md).
+;; at once (docs/core/views.md).
 
 ;; The login form. Read it and notice the absence — there is no
 ;; `reagent.core/atom`, no local state hiding anywhere. Each input's
@@ -624,7 +624,7 @@
     ;; creates `:rf/default`, applies the config below, runs
     ;; `:initial-events` once, and scopes the frame into React. On hot reload
     ;; it finds the frame already there and leaves it alone — no double-seed.
-    ;; See docs/core/concepts/frames.md.
+    ;; See docs/core/frames.md.
     ;;
     ;; - `:fx-overrides` is where we swap in our fake backend: it points
     ;;   `:rf.http/managed` at the in-process stub above, so the example

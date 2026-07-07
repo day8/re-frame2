@@ -199,11 +199,11 @@ Notice where the throwables live: **inside** the `:hook-failures` vector, one pe
 
 ## 5. Know what survives elision {#what-survives-elision}
 
-It's worth being precise about what's still running in production, because the line isn't obvious from outside. ([Observability](../concepts/observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
+It's worth being precise about what's still running in production, because the line isn't obvious from outside. ([Observability](../observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
 
 - **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener! :trace` delivery, the per-frame trace rings, [epoch](../glossary.md#epoch) history and [time-travel](../glossary.md#time-travel), dispatch-id correlation, source-coords, [Xray](../glossary.md#xray), and the pair tooling. Zero code, zero cost.
 - **Still firing:** this error substrate (the `:errors` stream); its event-emit sibling `register-listener! :events` (§7); and an opt-in Performance API channel behind its own compile-time flag.
-- **The listener observes; it never steers.** What to *do* about a failure — recover, retry, fall back — is decided by the framework's typed per-category default ([Errors: dossiers, not log lines](../concepts/errors.md)), not by your listener: frame-destroyed recovers and emits, a failed subscription returns `nil`, a thrown handler [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. There is no error *hook* that swallows, substitutes, or re-runs. Your listener is a read-only seat, full stop.
+- **The listener observes; it never steers.** What to *do* about a failure — recover, retry, fall back — is decided by the framework's typed per-category default ([Errors: dossiers, not log lines](../errors.md)), not by your listener: frame-destroyed recovers and emits, a failed subscription returns `nil`, a thrown handler [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. There is no error *hook* that swallows, substitutes, or re-runs. Your listener is a read-only seat, full stop.
 
 !!! note "Recovery and observation are separate"
 

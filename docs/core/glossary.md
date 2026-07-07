@@ -20,7 +20,7 @@ You install it once, at boot, by passing it to `init!`:
 
 To switch substrate you change that one line — require `re-frame.adapter.uix` or `re-frame.adapter.helix` and pass *its* `adapter`. Nothing else moves: your events, subscriptions, and app-db are substrate-agnostic.
 
-Related: [Views](concepts/views.md), [Adapters](../api/re-frame.adapter.reagent.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
+Related: [Views](views.md), [Adapters](../api/re-frame.adapter.reagent.md). Don't confuse it with the [substrate](#substrate) — the substrate is the rendering library; the adapter is the value that binds re-frame2 to it.
 
 ### **app-db**
 
@@ -38,13 +38,13 @@ An example shape:
 
 Note: The framework keeps *its* own state separately in [runtime-db](#runtime-db) within a [frame](#frame); see [the two partitions](#the-two-partitions).
 
-Related: [app-db](concepts/app-db.md), [Validate with schemas](how-to/validate-with-schemas.md).
+Related: [app-db](app-db.md), [Validate with schemas](how-to/validate-with-schemas.md).
 
 ### **path**
 
 A vector of keys addressing one location inside [app-db](#app-db), with `get-in` / `assoc-in` semantics — `[:auth :token]` names the `:token` entry inside the `:auth` map. Paths are the framework-wide addressing vocabulary: an app-db [schema](#schema) binds to a path, a [data-classification](#data-classification) mark names one, a [flow](#flow) writes its `:output-path`, and the `path` interceptor narrows a handler to one.
 
-Related: [app-db](concepts/app-db.md).
+Related: [app-db](app-db.md).
 
 ### **coeffect**
 
@@ -69,7 +69,7 @@ You make a coeffect available by registering a supplier for it with [`reg-cofx`]
 
 Declaring the world this way — rather than reading it inside the handler — is what makes events pure, testable, and replayable.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 ### **effect**
 
@@ -81,7 +81,7 @@ A single side effect, described as data for the framework to perform — an HTTP
 
 The [event handler](#event-handler) only *describes* the effect; the runtime performs it, via the [effect handler](#effect-handler) you registered for that `effect-id` with [`reg-fx`](../api/re-frame.core.md#reg-fx). Effects are the output side of an event — the dual of its input [coeffects](#coeffect) — and keeping them as data, rather than doing them inline, is what makes events pure and testable.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 ### **effect handler**
 
@@ -95,7 +95,7 @@ The function — registered with `reg-fx` for a given `effect-id` — that actua
 
 re-frame2 ships handlers for the common effects (`:dispatch`, `:dispatch-later`, `:rf.http/managed`, …); you register your own with `reg-fx`.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 ### **effect map**
 
@@ -117,7 +117,7 @@ It has two reserved keys. `:db` is the new [app-db](#app-db) value — "replace 
 
 `:db` and `:fx` are the only top-level keys application code may return; an unknown key fails loud. Each effect is performed by an [effect handler](#effect-handler); register your own with [`reg-fx`](../api/re-frame.core.md#reg-fx).
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md). The `:fx` key is why effects are often just called "fx".
+Related: [Effects](effects.md), [Coeffects](coeffects.md). The `:fx` key is why effects are often just called "fx".
 
 ### **error record**
 
@@ -130,7 +130,7 @@ A failure the framework surfaces as a structured map rather than a thrown, silen
 
 Error records fan out to your always-on error listeners (Sentry, Datadog, …), so — unlike the dev-only trace surface — they **survive production**. Build your monitoring on them.
 
-Related: [Errors](concepts/errors.md).
+Related: [Errors](errors.md).
 
 ### **event**
 
@@ -185,7 +185,7 @@ Related: [Introduction](introduction.md).
 
 The second half of the [event pipeline](#event-pipeline) — [derive](#derive) → [render](#render) — the part that runs *once per [drain](#drain--run-to-completion)*, after the queue settles, and brings the screen up to date. It reads only the value the [commit](#commit) landed; it never sees a half-written [app-db](#app-db), and it runs once no matter how many events the drain settled.
 
-Related: [Subscriptions](concepts/subscriptions.md), [Introduction](introduction.md).
+Related: [Subscriptions](subscriptions.md), [Introduction](introduction.md).
 
 ### **world**
 
@@ -198,7 +198,7 @@ The map of declared facts assembled for an [event handler](#event-handler) to re
 
 A [**frame**](#frame) is a *running* world: a world plus the runtime machinery (queue, caches, lifecycle) that keeps it alive and re-assembles it per event.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [frame](#frame).
+Related: [Effects](effects.md), [Coeffects](coeffects.md), [frame](#frame).
 
 ### **event envelope**
 
@@ -223,7 +223,7 @@ Most application code never reads an event envelope directly. It is the router's
  :rf.cofx  {:rf/time-ms 1781078400123}}
 ```
 
-Related: [Introduction](introduction.md), [Frames](concepts/frames.md), [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Introduction](introduction.md), [Frames](frames.md), [Effects](effects.md), [Coeffects](coeffects.md).
 
 ### **event handler**
 
@@ -260,7 +260,7 @@ You declare the `:inputs` to watch, a pure `:derive` function, and the `:output-
 
 Reach for a flow to collate or collapse many facts into one — e.g. folding several error flags into a single `:any-errors?`. Inputs may also read framework state (a path under `:rf.db/runtime`), and flows can be [added and removed dynamically](../api/re-frame.flows.md) via effects.
 
-Related: [Flows](concepts/flows.md), [toggling a derivation at runtime](concepts/flows.md#toggling-a-derivation-at-runtime).
+Related: [Flows](flows.md), [toggling a derivation at runtime](flows.md#toggling-a-derivation-at-runtime).
 
 ### **frame**
 
@@ -276,19 +276,19 @@ Most apps create one frame at boot and then forget about it. But because frames 
    :images [image1 image2]})    ;; optional: a selected composition of registrations
 ```
 
-Related: [Frames](concepts/frames.md).
+Related: [Frames](frames.md).
 
 ### **capture-frame**
 
 `(rf/capture-frame)` captures a [frame](#frame) as a *value* — a **frame api**: a small bundle of that frame's `:dispatch` / `:dispatch-sync` / `:subscribe` ops, plus the captured `:frame` id. Carry it across an async boundary — grab one while the frame is in scope, and a later `setTimeout`, promise, or WebSocket callback can still dispatch into the right frame instead of raising `:rf.error/no-frame-context`. (`capture-frame` is the verb; the *frame api* is the value it returns — spelled lowercase so it never reads as the public re-frame2 API.)
 
-Related: [Frames](concepts/frames.md).
+Related: [Frames](frames.md).
 
 ### **frame-provider**
 
 The React component that scopes a [frame](#frame) to a view subtree, so `dispatch`/`subscribe` inside resolve to it. One component, two config shapes chosen by the prop map: `{:frame existing-id}` *scopes* an already-created frame's id down (creating and destroying nothing; fails loud if the frame is absent), while `{:id …}` *ensures* a named frame — creating it if absent, reusing it without re-seeding if present, with no destroy-on-unmount. (The everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).)
 
-Related: [Frames](concepts/frames.md).
+Related: [Frames](frames.md).
 
 ### **hiccup**
 
@@ -298,7 +298,7 @@ The plain Clojure data that describes your UI: nested vectors where `[:div.card 
 [:ul.cart (for [item items] [:li {:key (:sku item)} (:name item)])]
 ```
 
-Related: [Views](concepts/views.md).
+Related: [Views](views.md).
 
 ### **image**
 
@@ -316,13 +316,13 @@ The rule that ties it to a frame: **the image supplies behaviour; the [frame](#f
   {:images [checkout-image]})
 ```
 
-Related: [Images](concepts/images.md).
+Related: [Images](images.md).
 
 ### **generation**
 
 The sealed registration set a [frame](#frame)'s [image](#image) selection resolves into when the frame is constructed — the concrete "which handler answers this id" table the frame runs against, frozen as a value. Every `make-frame` frame carries one (the default image seals into a generation too); re-calling `make-frame` against the same `:id` with a new `:images` vector swaps a frame onto a freshly resolved generation.
 
-Related: [Images](concepts/images.md).
+Related: [Images](images.md).
 
 ### **interceptor**
 
@@ -344,7 +344,7 @@ Interceptors are registered by id with `reg-interceptor` (never written inline),
     {:db (update db :cart/items conj item)}))
 ```
 
-Related: [Interceptors](concepts/interceptors.md).
+Related: [Interceptors](interceptors.md).
 
 ### **query vector**
 
@@ -355,7 +355,7 @@ The vector you hand `subscribe` to read a [subscription](#subscription): an id p
 @(rf/subscribe [:article/by-id "BK-1"])   ;; id + argument
 ```
 
-Related: [Subscriptions](concepts/subscriptions.md).
+Related: [Subscriptions](subscriptions.md).
 
 ### **registrar**
 
@@ -448,7 +448,7 @@ A named, registered, pure, **cached** derivation of state — how a [view](#view
 (rf/reg-sub :cart/count (fn [db _] (count (:items (:cart db)))))
 ```
 
-Related: [Subscriptions](concepts/subscriptions.md). Casual "sub" is fine; not as a headword. (Need the value inside an [event handler](#event-handler)? Materialise it with a [flow](#flow).)
+Related: [Subscriptions](subscriptions.md). Casual "sub" is fine; not as a headword. (Need the value inside an [event handler](#event-handler)? Materialise it with a [flow](#flow).)
 
 ### **substrate**
 
@@ -469,7 +469,7 @@ A pure render function from [subscription](#subscription) values to **hiccup** �
   [:span.badge @(subscribe [:cart/count])])
 ```
 
-Related: [Views](concepts/views.md). Use "component" for React-analogy callouts only.
+Related: [Views](views.md). Use "component" for React-analogy callouts only.
 
 ## The Verbs
 
@@ -479,7 +479,7 @@ The six pipeline stages — [**assemble → transform → commit → perform**](
 
 The pipeline's first stage: gather the [**world**](#world) an [event handler](#event-handler) will read — [app-db](#app-db) (`:db`) plus every fact the event declared with `:rf.cofx/requires` — into one [coeffects](#coeffect) map, before the handler runs. This is where declared facts (the clock, a fresh id, a storage read) enter as data, so the handler stays pure.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [world](#world).
+Related: [Effects](effects.md), [Coeffects](coeffects.md), [world](#world).
 
 ### **transform**
 
@@ -501,19 +501,19 @@ Related: [Introduction](introduction.md).
 
 The pipeline's fourth stage and the last of the [write side](#write-side): run the `:fx` rows the [transform](#transform) returned, in source order, after the [commit](#commit). This is the *only* place the system touches the world — the HTTP call, the navigation, the follow-up dispatch — carried out by the [effect handler](#effect-handler) registered for each id. Past the [commit](#commit) seam it's best-effort: an effect that throws doesn't un-commit the state.
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md), [effect](#effect).
+Related: [Effects](effects.md), [Coeffects](coeffects.md), [effect](#effect).
 
 ### **derive**
 
 The pipeline's fifth stage and the first of the [read side](#read-side): recompute the [subscriptions](#subscription) (and the rest of [the derivation graph](#the-derivation-graph)) that watch the changed parts of the committed [app-db](#app-db). Values that come out equal (by `=`) to last time prune everything downstream. The read side runs once per [drain](#drain--run-to-completion), so derivation happens against settled state, never mid-run. (The public verb you write is [`subscribe`](#subscribe--derive); *derive* names the stage.)
 
-Related: [Subscriptions](concepts/subscriptions.md).
+Related: [Subscriptions](subscriptions.md).
 
 ### **render**
 
 The pipeline's sixth and final stage: the [views](#view) that deref a *changed* [subscription](#subscription) re-run, producing fresh [hiccup](#hiccup), and the [substrate](#substrate) patches just the DOM that moved. Because it runs once per [drain](#drain--run-to-completion) from settled state, the screen never flickers through an intermediate value.
 
-Related: [Views](concepts/views.md).
+Related: [Views](views.md).
 
 ### **dispatch**
 
@@ -546,7 +546,7 @@ The runtime drains the *whole* event queue to a fixed point — running the [wri
 ;; every queued event's write side runs, THEN — once — subs recompute and views render
 ```
 
-Related: [Run to completion](concepts/run-to-completion.md). Hyphenate **run-to-completion** consistently.
+Related: [Run to completion](run-to-completion.md). Hyphenate **run-to-completion** consistently.
 
 ### **elide**
 
@@ -556,7 +556,7 @@ Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-fram
 ;; goog.DEBUG=false removes the dev trace surface and schema checks
 ```
 
-Related: [Observability](concepts/observability.md). Name DCE once, then use **elide**.
+Related: [Observability](observability.md). Name DCE once, then use **elide**.
 
 ### **init!**
 
@@ -592,7 +592,7 @@ Read derived state by name through a [subscription](#subscription); `@(subscribe
 @(rf/subscribe [:cart/count])
 ```
 
-Related: [Subscriptions](concepts/subscriptions.md).
+Related: [Subscriptions](subscriptions.md).
 
 ## The Concepts
 
@@ -604,7 +604,7 @@ An [event handler](#event-handler) returns a *description* of side-effects — a
 {:fx [[:http {:url "/api/login"}] [:dispatch [:ui/spinner true]]]}
 ```
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 ### **Fail loud, not silent**
 
@@ -614,7 +614,7 @@ A recognised input that can't be honoured raises a structured [error record](#er
 ;; unregistered id, missing cofx, unknown fx → raises :rf.error/*, never returns nil
 ```
 
-Related: [Errors](concepts/errors.md).
+Related: [Errors](errors.md).
 
 ### **Frame identity is carried, not found**
 
@@ -624,7 +624,7 @@ An operation reads its [frame](#frame) from its scope (provider / running handle
 [rf/frame-provider {:frame :app} [app-root]]   ;; scope carries the frame downward
 ```
 
-Related: [Frames](concepts/frames.md).
+Related: [Frames](frames.md).
 
 ### **The four homes (where state lives)**
 
@@ -644,7 +644,7 @@ A [frame](#frame) holds [app-db](#app-db) (yours) and [runtime-db](#runtime-db) 
 [:rf.db/runtime :rf.runtime/resources]   ;; the resource cache IS a runtime-db subsystem
 ```
 
-Related: [app-db](concepts/app-db.md).
+Related: [app-db](app-db.md).
 
 ### **The uniform reply**
 
@@ -661,7 +661,7 @@ Related: [Managed HTTP](../async/http.md).
 
 The directed graph of pure derivations rooted at [app-db](#app-db), with [views](#view) at the leaves. [Subscriptions](#subscription), [flows](#flow), resource reads, route facts, and machine selectors are all nodes on this one graph; the runtime recomputes only along edges whose value actually changed (by `=`), so an unchanged input prunes everything downstream of it.
 
-Related: [Subscriptions](concepts/subscriptions.md).
+Related: [Subscriptions](subscriptions.md).
 
 ### **Data classification**
 
@@ -677,11 +677,11 @@ Two grades of [coeffect](#coeffect). A *recordable* one (the clock, a fresh id) 
 {:rf.cofx/requires [:rf/time-ms]}   ;; :rf/time-ms is recordable — stamped on the envelope
 ```
 
-Related: [Effects](concepts/effects.md), [Coeffects](concepts/coeffects.md).
+Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 ## Observability
 
-re-frame2's observability surface — everything tools read to show you the pipeline. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](concepts/observability.md).
+re-frame2's observability surface — everything tools read to show you the pipeline. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and event streams survive production. See [Observability](observability.md).
 
 ### **trace stream**
 
@@ -705,7 +705,7 @@ The record one [pipeline run](#event-pipeline) leaves behind — its trigger eve
 
 Epochs live on the dev-only observability surface — they're [elided](#elide) from production builds.
 
-Related: [Observability](concepts/observability.md).
+Related: [Observability](observability.md).
 
 ### **time-travel**
 
@@ -725,4 +725,4 @@ Related: [the Xray docs](../xray/index.md).
 
 The view workbench: render a [view](#view)'s loading, empty, error, and happy states as named variants, each in its own isolated [frame](#frame), then promote the good examples into tests. Reads the same [trace stream](#trace-stream) as every other tool.
 
-Related: [the Story tab](../story/index.md), [Observability](concepts/observability.md).
+Related: [the Story tab](../story/index.md), [Observability](observability.md).

@@ -183,7 +183,7 @@ The two always-on listener streams (`:events` / `:errors`) carve a minimal subst
 
 **The JVM default is ON** ("production-elided" means *elidable*, not *elided by default*). A production JVM SSR / tooling process that does not set `-Dre-frame.debug=false` runs the **full dev diagnostic surface** — retaining user input in per-frame trace rings and epoch history. EP-0008 calls this out: a JVM artefact shipped for production **MUST set `-Dre-frame.debug=false` explicitly** in its deployment (the audit-finding posture — an SSR/headless process should not retain user input by default). These are build-time / process-start gates that select the posture; apps do not toggle them per-request. Critically, the gate suppresses the **diagnostic trace** surface only — the **always-on error-emit axis (surface #4) survives it**, so `register-listener! :errors` shippers (including the promoted SSR records above) keep delivering under `-Dre-frame.debug=false`. That is the whole point of the always-on split: event/error observability survives the production posture; the dev trace surface does not.
 
-Full rationale: [`docs/core/concepts/observability.md`](../../../../docs/core/concepts/observability.md), [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production), and [`spec/009-Instrumentation.md §JVM builds`](../../../../spec/009-Instrumentation.md#jvm-builds).
+Full rationale: [`docs/core/observability.md`](../../../../docs/core/observability.md), [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production), and [`spec/009-Instrumentation.md §JVM builds`](../../../../spec/009-Instrumentation.md#jvm-builds).
 
 ## Generic shipper recipe (Datadog / Sentry / Honeycomb)
 
@@ -215,7 +215,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 ## Cross-references
 
-- Guide concept: [`docs/core/concepts/observability.md`](../../../../docs/core/concepts/observability.md) — narrative walkthrough of the one-wire substrate and what survives elision. Worked vendor recipes: [`docs/core/how-to/report-errors-in-production.md`](../../../../docs/core/how-to/report-errors-in-production.md).
+- Guide concept: [`docs/core/observability.md`](../../../../docs/core/observability.md) — narrative walkthrough of the one-wire substrate and what survives elision. Worked vendor recipes: [`docs/core/how-to/report-errors-in-production.md`](../../../../docs/core/how-to/report-errors-in-production.md).
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) — substrate contracts.
 - Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — owner-classified sensitive paths (the durable app-db `:sensitive` classification effect / registration `:sensitive`) are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked at listener entry. No whole-record drop.
 

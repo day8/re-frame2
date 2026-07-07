@@ -56,4 +56,4 @@ See [Find and fix a slow view](../core/how-to/fix-a-slow-view.md) for turning th
 
 - [Find and fix a slow view](../core/how-to/fix-a-slow-view.md) — turning this channel on and reading the entries.
 - [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) — how the perf flag composes with `goog.DEBUG` across build profiles.
-- [Observability](../core/concepts/observability.md) — where this production-survivable timing channel sits alongside the trace and error surfaces.
+- [Observability](../core/observability.md) — where this production-survivable timing channel sits alongside the trace and error surfaces.

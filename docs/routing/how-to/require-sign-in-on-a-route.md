@@ -1,6 +1,6 @@
 # Require sign-in on a route
 
-Some pages — a settings screen, an admin dashboard — should open only for signed-in users. In re-frame2 there's no special "protected route" primitive: a route is [queryable data](../concepts.md#routes-are-queryable-data), so you *tag* the routes that need a session and let an ordinary [interceptor](../../core/concepts/interceptors.md) read the tag and redirect. Data plus a step that reads it — no router machinery.
+Some pages — a settings screen, an admin dashboard — should open only for signed-in users. In re-frame2 there's no special "protected route" primitive: a route is [queryable data](../concepts.md#routes-are-queryable-data), so you *tag* the routes that need a session and let an ordinary [interceptor](../../core/interceptors.md) read the tag and redirect. Data plus a step that reads it — no router machinery.
 
 This page is the **routing half** of auth: tag a route, gate it, bounce the reader to login. The surrounding system — the login form, the token that requests carry, logout — is [Add authentication](../../core/how-to/add-auth.md), which embeds this same guard in the full picture. Start here for the route mechanics; go there for the whole flow.
 

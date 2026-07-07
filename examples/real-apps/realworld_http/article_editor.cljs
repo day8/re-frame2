@@ -29,7 +29,7 @@
             ;; `:editor/can-submit?` flow (see :editor/initialise below) that
             ;; keeps "valid AND dirty" materialised in app-db. Requiring the ns
             ;; registers the hooks behind the `:rf.fx/reg-flow` effect. See the
-            ;; flows guide: ../../../docs/core/concepts/flows.md
+            ;; flows guide: ../../../docs/core/flows.md
             [re-frame.flows]
             [realworld-http.schema :as schema]
             [realworld-http.http :as rh])
@@ -89,7 +89,7 @@
 ;; reads the very same value through a plain sub over the flow's
 ;; `:output-path` — one source of truth, two readers. See the flows guide on
 ;; when a derivation earns a place in app-db:
-;; ../../../docs/core/concepts/flows.md#when-a-derivation-earns-app-db
+;; ../../../docs/core/flows.md#when-a-derivation-earns-app-db
 ;;
 ;; The flow registers per-frame via `:rf.fx/reg-flow` from `:editor/initialise`
 ;; (below) — dispatched ONCE at boot from `:app/initialise`, not on every

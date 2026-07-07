@@ -130,7 +130,7 @@ Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initi
   (fn [_cofx _event] {:db {}}))
 ```
 
-Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in [app-db](../../core/glossary.md#app-db) — your app's single state map — at all. It lives in **[runtime-db](../../core/glossary.md#runtime-db)** instead, the framework-owned partition beside app-db (its resource cache is the `:rf.runtime/resources` subsystem there — see [app-db](../../core/concepts/app-db.md) for [the two-partition model](../../core/glossary.md#the-two-partitions)). App-db is for *your* state; server reads are a keyed, lifecycle-managed slice the runtime owns next door.
+Here's the part that quietly rearranges people's mental furniture the first time they see it: the article data no longer lives in [app-db](../../core/glossary.md#app-db) — your app's single state map — at all. It lives in **[runtime-db](../../core/glossary.md#runtime-db)** instead, the framework-owned partition beside app-db (its resource cache is the `:rf.runtime/resources` subsystem there — see [app-db](../../core/app-db.md) for [the two-partition model](../../core/glossary.md#the-two-partitions)). App-db is for *your* state; server reads are a keyed, lifecycle-managed slice the runtime owns next door.
 
 !!! note "Why isn't the server data in app-db?"
 

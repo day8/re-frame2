@@ -2,7 +2,7 @@
 
 Let's write the classic counter application.
 
-Here's the entire app, running live in an editable cell — read it top to bottom, click the buttons, or edit the code and watch it re-render. Then we'll walk through what each part is doing.
+Here's the entire app, running live in two editable cells: first the **program** — every registration — then a mount cell that runs it, twice. Read them top to bottom, click the buttons, or edit the code and watch it re-render. Then we'll walk through what each part is doing.
 
 ```cljs-rf2
 (ns first-app.counter
@@ -27,27 +27,37 @@ Here's the entire app, running live in an editable cell — read it top to botto
     (:value db)))
 
 ;; Register a view — reg-view injects ready-to-use `dispatch` and `subscribe`
-(rf/reg-view counter []
-  [:div
+(rf/reg-view counter [background]
+  [:div {:style {:background background}} "Counter: "
    [:button {:on-click #(dispatch [:dec])} "−"]
    [:span @(subscribe [:value])]
    [:button {:on-click #(dispatch [:inc])} "+"]])
+```
 
-;; Create a frame — an isolated runtime — seeded by dispatching :initialise
-(rf/reg-frame :app {:initial-events [[:initialise 5]]})
+That's the whole program — a set of registrations, exactly as the introduction promised. (The cell's result line reads `:first-app.counter/counter`: every `reg-*` call returns the id it registered.) Now give it somewhere to run:
 
-;; In this live cell the last form renders — frame-provider scopes the :app frame around the view
-;; (in a real app, boot does this mounting — see the counter example, linked below)
-[rf/frame-provider {:frame :app}
- [counter]]
+```cljs-rf2
+(ns first-app.main
+  (:require [re-frame.core :as rf]
+            [first-app.counter :refer [counter]]))
+
+;; Each frame-provider {:id ...} CREATES a frame and runs its seed events —
+;; the same program, mounted in two isolated runtimes.
+;; (In a real app, boot does this mounting — see the counter example, linked below.)
+[:div
+ [rf/frame-provider {:id :app1
+                     :initial-events [[:initialise 5]
+                                      [:inc]]}
+  [counter "yellow"]]
+ [rf/frame-provider {:id :app4
+                     :initial-events [[:initialise 0]]}
+  [counter "green"]]]
 ```
 
 This code:
 
-- registers three event handlers
-- registers one subscription handler
-- registers one view
-- creates a `frame` named `:app`, seeded by dispatching `[:initialise 5]` — and the view renders inside it
+- the first cell registers three event handlers, one subscription handler, and one view — the whole **program**
+- the second cell creates **two frames**, seeds each with its own `:initial-events`, and mounts the same `counter` in both — with a different `background` argument each
 
 Now let's walk the code in the same order the [introduction](introduction.md) walked the concepts. (First, the ns line: `[re-frame.core :as rf]` is the whole import — events, subscriptions, and `reg-view` all come through it, no second `:require-macros` line to remember.)
 
@@ -91,7 +101,7 @@ The three handlers are this app's whole write side. Each one is the introduction
     A few bits of syntax to read that handler. The first argument `{:keys [db]}` is *destructuring* — it pulls the `:db` entry out of the incoming `world` map and binds it to a local named `db`, so you don't write `(:db world)` by hand. The second argument is named `_event`: a leading underscore is the Clojure convention for "an argument I'm required to accept but don't use here." And `(update db :value inc)` returns a *new* map — a copy of `db` with `:value` run through `inc` (increment) — it never mutates the original. Returning a fresh value rather than editing in place is the move that keeps the handler pure.
 
 
-The map a handler returns is its [**effect map**](glossary.md#effect-map) — read it as *"the next state, and anything else to do."* For the counter there's nothing else, so `:db` is the whole story. Everything else an app ever does — an HTTP request, a storage write, a follow-up event — rides in that same map under `:fx`, and [Effects](concepts/effects.md) is that page.
+The map a handler returns is its [**effect map**](glossary.md#effect-map) — read it as *"the next state, and anything else to do."* For the counter there's nothing else, so `:db` is the whole story. Everything else an app ever does — an HTTP request, a storage write, a follow-up event — rides in that same map under `:fx`, and [Effects](effects.md) is that page.
 
 ## Commit
 
@@ -101,13 +111,15 @@ Notice we wrote no commit code at all. The `:db` key in each effect map is handl
 
 The last two registrations are the introduction's read side, one line each:
 
-- `reg-sub :value` is the **derive** step — it turns state into the `view-model` a view wants — and note the handler takes app-db itself, not a `world` map: derivations are state in, value out. Here the derivation is trivially thin; [subscriptions](glossary.md#subscription) earn their keep as apps grow (that's [Subscriptions](concepts/subscriptions.md), two stops down the track).
-- `reg-view counter` is the **views** step — a pure function returning hiccup, re-run when its subscriptions change. `subscribe` hands back a *reference* to the derived value — the `@` reads it, and that read is the subscription. React does the *reconcile* step. And here's the answer promised above: `reg-view` injects `dispatch` and `subscribe` into the [view](glossary.md#view) body, pre-bound to whichever frame the view renders in — no imports, no wiring.
+- `reg-sub :value` is the **derive** step — it turns state into the `view-model` a view wants — and note the handler takes app-db itself, not a `world` map: derivations are state in, value out. Here the derivation is trivially thin; [subscriptions](glossary.md#subscription) earn their keep as apps grow (that's [Subscriptions](subscriptions.md), two stops down the track).
+- `reg-view counter` is the **views** step — a pure function returning hiccup, re-run when its subscriptions change. `subscribe` hands back a *reference* to the derived value — the `@` reads it, and that read is the subscription. React does the *reconcile* step. And here's the answer promised above: `reg-view` injects `dispatch` and `subscribe` into the [view](glossary.md#view) body, pre-bound to whichever frame the view renders in — no imports, no wiring. And a registered view takes arguments like any function — `[background]` here — supplied at the mount site: `[counter "yellow"]`.
 
-## The frame
+## The frames
 
-The last two forms give the app somewhere to run. `reg-frame` creates the `:app` [frame](glossary.md#frame) — the introduction's isolated execution context — and seeds it by dispatching `[:initialise 5]`; the `frame-provider` scopes it around the view. (And note how the view is mounted: a registered view goes into hiccup by name — `[counter]` — like any element.) One detail worth holding onto: a frame isolates *state*, not registrations — so the same `counter` can later mount into a second frame with its own independent app-db ([Frames](concepts/frames.md) is that story).
+The mount cell gives the program somewhere to run — twice. Each `frame-provider {:id …}` **creates** a [frame](glossary.md#frame) — the introduction's isolated execution context — and runs its `:initial-events` in order: `:app1` initialises to 5 and then nudges once with `[:inc]`, so it wakes up showing 6; `:app4` starts at 0. (And note how the view is mounted: a registered view goes into hiccup by name, with its arguments after it — `[counter "yellow"]` — like any element.)
 
-The cell above is the full app *except* boot — the bit that installs a rendering [substrate](glossary.md#substrate) (the layer that hands your views to React) and mounts the view into a real page. The runnable version, boot wiring and build config included, is the [counter example](../../examples/core/counter) — clone it and go. And when you want boot *explained* rather than copied, [Boot and mount an app](how-to/boot-and-mount-an-app.md) is the recipe.
+Click either counter: the other doesn't move. A frame isolates *state*, not registrations — one program, two independent app-dbs — which is why the same `counter`, unchanged, runs in both ([Frames](frames.md) is that story).
+
+The two cells above are the full app *except* boot — the bit that installs a rendering [substrate](glossary.md#substrate) (the layer that hands your views to React) and mounts the view into a real page. The runnable version, boot wiring and build config included, is the [counter example](../../examples/core/counter) — clone it and go. And when you want boot *explained* rather than copied, [Boot and mount an app](how-to/boot-and-mount-an-app.md) is the recipe.
 
 That's the whole app, walked end to end. From here, the guide grows this same counter one concept at a time.

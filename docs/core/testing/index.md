@@ -13,7 +13,7 @@ The pages here climb one rung at a time, and each stands alone — start whereve
 | a **view** | call it, walk the returned hiccup with `re-frame.test-helpers` | [Views](views.md) |
 | a **whole pipeline run** | `dispatch-sync` into a fresh frame with supplied facts and canned replies | [Pipeline runs](pipeline-runs.md) |
 
-One habit runs through every page: **setup rides the frame's construction; the body dispatches only the action under test.** `make-frame` takes `:initial-events` — the same ordered event script a production [`reg-frame`](../concepts/frames.md#seeding-initial-state) boots with — so the state a test needs *before* its action is declared where the frame is made, not stacked up as `dispatch-sync` calls above the assertion. A setup step that needs pinned facts takes the map form, `{:event [...] :opts {:rf.cofx {...}}}`, and a failing step tears the frame down loudly instead of leaving the test half-seeded. When you see a `dispatch-sync` in a test body on these pages, it's the event being tested.
+One habit runs through every page: **setup rides the frame's construction; the body dispatches only the action under test.** `make-frame` takes `:initial-events` — the same ordered event script a production [`reg-frame`](../frames.md#seeding-initial-state) boots with — so the state a test needs *before* its action is declared where the frame is made, not stacked up as `dispatch-sync` calls above the assertion. A setup step that needs pinned facts takes the map form, `{:event [...] :opts {:rf.cofx {...}}}`, and a failing step tears the frame down loudly instead of leaving the test half-seeded. When you see a `dispatch-sync` in a test body on these pages, it's the event being tested.
 
 ## What about `reg-fx` and `reg-cofx`?
 

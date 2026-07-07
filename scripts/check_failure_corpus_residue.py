@@ -2,7 +2,7 @@
 """Failure-corpus co-edit invariant — retired failure-semantics advisory scan.
 
 The framework's *failure corpus* — the errors concept page
-(`docs/core/concepts/errors.md`) and the failure testbeds
+(`docs/core/errors.md`) and the failure testbeds
 (`testbeds/schema_violation`, `testbeds/drain_depth_trigger`, …) — is a
 TEACHING corpus for the error catalogue in Spec 009 §Error event catalogue.
 Spec 009 already binds the *catalogue rows* to the feature specs by a co-edit
@@ -64,7 +64,7 @@ mentions. The load-bearing distinction is *position*:
 SCAN SURFACE
 
 The failure corpus:
-  * docs/core/concepts/errors.md               — the errors concept page
+  * docs/core/errors.md               — the errors concept page
   * testbeds/**/README.md                       — testbed teaching (markdown)
   * testbeds/**/*.cljs / *.cljc / *.clj         — testbed source
 
@@ -93,7 +93,7 @@ from typing import Iterable, NamedTuple
 
 # The single errors concept page + the whole testbeds tree. errors.md is named
 # explicitly (a single file); the testbeds dir is walked for READMEs + source.
-_ERRORS_PAGE = "docs/core/concepts/errors.md"
+_ERRORS_PAGE = "docs/core/errors.md"
 _TESTBEDS_DIR = "testbeds"
 
 _MD_SUFFIXES = (".md",)

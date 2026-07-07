@@ -6,7 +6,7 @@
 (:require [re-frame.core :as rf])
 ```
 
-Core surfaces are documented in full below. Feature surfaces (machines, routing, flows, schemas, SSR, HTTP, resources) are re-exported here for single-import ergonomics; each has a brief entry with a pointer to its own namespace doc, which carries the deep contract. For the mental model, see the [Subscriptions](../core/concepts/subscriptions.md), [Frames](../core/concepts/frames.md), and [Effects](../core/concepts/effects.md) concept guides.
+Core surfaces are documented in full below. Feature surfaces (machines, routing, flows, schemas, SSR, HTTP, resources) are re-exported here for single-import ergonomics; each has a brief entry with a pointer to its own namespace doc, which carries the deep contract. For the mental model, see the [Subscriptions](../core/subscriptions.md), [Frames](../core/frames.md), and [Effects](../core/effects.md) concept guides.
 
 ## Registration
 
@@ -56,7 +56,7 @@ Every entry here registers a named handler into the frame's registrar.
 
   The optional first fn is the v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**. It must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and must not return live reactions (it is not a v1 reaction-returning signal fn). The runtime resolves each returned query vector in the *same frame* as the outer subscription.
 
-  This is the only sub-registration form in v2; `reg-sub-raw` is gone (see the [migration reference](../../migration/from-re-frame-v1/README.md)). Full input grammar and error ids: [Subscriptions concept guide](../core/concepts/subscriptions.md).
+  This is the only sub-registration form in v2; `reg-sub-raw` is gone (see the [migration reference](../../migration/from-re-frame-v1/README.md)). Full input grammar and error ids: [Subscriptions concept guide](../core/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
@@ -116,7 +116,7 @@ Every entry here registers a named handler into the frame's registrar.
   - A handler opts in with `:rf.cofx/requires` registration metadata. v2 has no `inject-cofx` interceptor.
   - The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact; `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator); a bare registration for an ambient (unrecorded) read.
   - Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it.
-  - Full model: [Effects](../core/concepts/effects.md), [Coeffects](../core/concepts/coeffects.md).
+  - Full model: [Effects](../core/effects.md), [Coeffects](../core/coeffects.md).
 - **Example**:
   ```clojure
   ;; A value-returning supplier — quarantines an impure read behind a named id.
@@ -330,7 +330,7 @@ These are the two verbs that drive the pipeline.
   (unsubscribe query-v) → nil
   (unsubscribe frame-id query-v) → nil
   ```
-- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** — see [Subscriptions](../core/concepts/subscriptions.md). The Reagent / UIx / Helix adapters wire it on unmount; most callers never reach for it directly. Target a non-ambient frame with the frame-first `(unsubscribe frame-id query-v)` form — unlike `subscribe` / `subscribe-once`, `unsubscribe` has no `{:frame …}` opts form (it is pure teardown, never a hot in-view call).
+- **Description**: Decrement the cache ref-count for a query. When the count hits zero, the entry is disposed **synchronously** — see [Subscriptions](../core/subscriptions.md). The Reagent / UIx / Helix adapters wire it on unmount; most callers never reach for it directly. Target a non-ambient frame with the frame-first `(unsubscribe frame-id query-v)` form — unlike `subscribe` / `subscribe-once`, `unsubscribe` has no `{:frame …}` opts form (it is pure teardown, never a hot in-view call).
 - **Example**:
   ```clojure
   ;; Manual ref-count pairing (tests / REPL) — balances an explicit subscribe.
@@ -498,7 +498,7 @@ The view layer is **substrate-agnostic** — the shared dataflow (frames, subscr
 - **Description**: Captures the active frame at CREATION time and returns an **operation bundle** whose `:dispatch` / `:dispatch-sync` / `:subscribe` ops always target the captured frame — they survive async boundaries (`Promise.then`, `setTimeout`, WebSocket `onmessage`, observer callbacks) where the ambient frame lookup would have unwound.
   - The handle is *locked* to one frame: a per-call `:frame` opt MUST NOT override it.
   - It is an operation bundle, not a container — read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
-  - Full async-boundary contract: [Frames — the async boundary](../core/concepts/frames.md).
+  - Full async-boundary contract: [Frames — the async boundary](../core/frames.md).
 - **Example**:
   ```clojure
   (rf/reg-view stream-view []
@@ -676,7 +676,7 @@ A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Mos
   - Frame-configuration opts (same call): `:initial-events` (a vector of event vectors dispatched into the new frame at creation), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`.
   - **Route by id, not by value:** read the id via `rf/frame-value->id` and pass the id to `dispatch` / `subscribe` / providers / tools.
   - Lifecycle is the caller's responsibility — pair a direct `make-frame` with a `destroy-frame!`, or use the UI-owned `rf/frame-provider` boundary.
-  - See the [Frames concept guide](../core/concepts/frames.md) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
+  - See the [Frames concept guide](../core/frames.md) and [EP-0024](../EP/EP-0024-unified-frame-identity-and-lifecycle.md).
 - **Example**:
   ```clojure
   ;; A component that OWNS a frame lifetime uses the UI-owned provider,
@@ -1788,7 +1788,7 @@ Resources are an optional capability (cached server-state reads plus mutations) 
 
 ## See also
 
-- [Subscriptions](../core/concepts/subscriptions.md), [Frames](../core/concepts/frames.md), [Effects](../core/concepts/effects.md), [Coeffects](../core/concepts/coeffects.md), [Observability](../core/concepts/observability.md) — the concept guides behind these surfaces.
+- [Subscriptions](../core/subscriptions.md), [Frames](../core/frames.md), [Effects](../core/effects.md), [Coeffects](../core/coeffects.md), [Observability](../core/observability.md) — the concept guides behind these surfaces.
 - [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md), [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) — the working guides.
 - [Core glossary](../core/glossary.md) — the surface vocabulary in one place.
 - The feature namespace docs linked under [Feature registration (re-exports)](#feature-registration-re-exports) carry the deep contract for every re-exported macro and its keyword surfaces.

@@ -59,7 +59,7 @@ And when a view needs to know what state the machine is in, it reads the machine
 ```
 
 
-**Why it works:** `reg-machine` is sugar over `reg-event`, so the snapshot rides the [frame](../core/concepts/frames.md) and you read it with an ordinary subscription — same `dispatch`, same `subscribe`. [Concepts → Registering and running it](concepts.md#registering-and-running-it) walks the machinery.
+**Why it works:** `reg-machine` is sugar over `reg-event`, so the snapshot rides the [frame](../core/frames.md) and you read it with an ordinary subscription — same `dispatch`, same `subscribe`. [Concepts → Registering and running it](concepts.md#registering-and-running-it) walks the machinery.
 
 ## Step 2 — a guard: refuse an invalid submit
 
@@ -98,7 +98,7 @@ You name the guard once in `:guards`, then point at it by id — `:guard :form-v
 @(rf/sub-machine :auth.login/flow)     ;; => {:state :submitting …}
 ```
 
-**Notice:** the guard read the credentials from `:event`, not [app-db](../core/concepts/app-db.md) — a machine callback sees only its own `:data` and the event that woke it. [Concepts → Strict encapsulation](concepts.md#strict-encapsulation--a-machine-sees-only-its-own-data) explains why that boundary matters.
+**Notice:** the guard read the credentials from `:event`, not [app-db](../core/app-db.md) — a machine callback sees only its own `:data` and the event that woke it. [Concepts → Strict encapsulation](concepts.md#strict-encapsulation--a-machine-sees-only-its-own-data) explains why that boundary matters.
 
 ## Step 3 — an action, and the `{:data :fx}` it returns
 

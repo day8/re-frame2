@@ -1,5 +1,5 @@
 (ns flows.core
-  "Worked example for flows. Guide: docs/core/concepts/flows.md
+  "Worked example for flows. Guide: docs/core/flows.md
    (glossary: docs/core/glossary.md#flow).
 
    A flow is a standing rule: \"when these app-db paths change, run this pure
@@ -49,7 +49,7 @@
 ;; bare path reads app-db; a path led by `:rf.db/runtime` reads runtime-db).
 ;; `:derive` gets the values at those paths, in order, and returns the value
 ;; written to `:output-path`. That's the whole contract; the full map is in
-;; docs/core/concepts/flows.md.
+;; docs/core/flows.md.
 
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
@@ -143,7 +143,7 @@
 ;; registry, so that walk finally materialises `[:cart :discount-rate]` (and
 ;; the `[:cart :total]` that depends on it) at the discounted figure.
 ;; `:cart/touch` writes nothing — the walk it triggers does all the work.
-;; Guide: docs/core/concepts/flows.md#toggling-a-derivation-at-runtime.
+;; Guide: docs/core/flows.md#toggling-a-derivation-at-runtime.
 (rf/reg-event :cart/apply-discount
   {:doc "Engage the 10%-off feature gate: register a flow that writes the
          discount rate, then nudge a re-walk so :cart/total recomputes."}

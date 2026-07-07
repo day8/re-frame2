@@ -49,9 +49,9 @@ External observers see `:asking → :winner` in one step. The "answer counted, s
 
 ### The mental model: settle, then commit once
 
-`:always` extends the event [pipeline](../core/concepts/run-to-completion.md): after the triggering transition, the runtime runs a **microstep loop** that keeps taking enabled `:always` transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal events) until it reaches a **fixed point** — no `:always` guard matches and no raised event is pending. Only then does it commit the snapshot, **once, atomically**, and emit the accumulated `:fx`.
+`:always` extends the event [pipeline](../core/run-to-completion.md): after the triggering transition, the runtime runs a **microstep loop** that keeps taking enabled `:always` transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal events) until it reaches a **fixed point** — no `:always` guard matches and no raised event is pending. Only then does it commit the snapshot, **once, atomically**, and emit the accumulated `:fx`.
 
-This is classic statechart **macrostep** semantics: the externally-observable transition is the *settled* result of an internal cascade of microsteps. Time-travel, [Xray](../core/concepts/observability.md), and undo all see the single committed transition; the inner microsteps ride the trace stream for tools that want them.
+This is classic statechart **macrostep** semantics: the externally-observable transition is the *settled* result of an internal cascade of microsteps. Time-travel, [Xray](../core/observability.md), and undo all see the single committed transition; the inner microsteps ride the trace stream for tools that want them.
 
 !!! note "It runs at birth, too"
 
@@ -149,7 +149,7 @@ Each entry is `<delay> → <transition>`. Both halves take several forms.
 **The delay (the key) — three forms:**
 
 - **Integer milliseconds** — `{30000 :timeout}`. The common fixed delay. (Note: a literal `:after` delay is **integer ms only** — not an ISO-8601 string, and *never* the `"5s"` shorthand. ISO-8601 durations belong to `:timeout`, below; the `"5s"` shorthand re-frame2 rejects everywhere.)
-- **A [subscription](../core/concepts/subscriptions.md) vector** — `[:sub-id & args]`, resolved like any `subscribe`. The canonical form for an **app-state-derived** delay (a user preference, a feature-flag config). It *re-resolves* when its value changes (see below).
+- **A [subscription](../core/subscriptions.md) vector** — `[:sub-id & args]`, resolved like any `subscribe`. The canonical form for an **app-state-derived** delay (a user preference, a feature-flag config). It *re-resolves* when its value changes (see below).
 - **A function** — `(fn [{:keys [snapshot]}] ms)`, called **once** at state entry. The escape valve for a delay computed from the machine's own `:data`.
 
 !!! note "Watch the shape"

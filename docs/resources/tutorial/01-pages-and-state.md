@@ -104,7 +104,7 @@ With canned data the slice is born `:loaded` and never moves, so today this shap
 
 ??? note "The deeper story of the one-map design"
 
-    The full rationale for keeping all state in a single map lives in [app-db: the one place](../../core/concepts/app-db.md).
+    The full rationale for keeping all state in a single map lives in [app-db: the one place](../../core/app-db.md).
 
 ## Step 2 — subscriptions: named, derived reads
 
@@ -136,7 +136,7 @@ The two-layer split is a habit worth forming early. The top sub (`:articles/slic
 
 ??? note "The full derivation-graph story"
 
-    For how the graph recomputes and stays cheap, see [Subscriptions: the derivation graph](../../core/concepts/subscriptions.md).
+    For how the graph recomputes and stays cheap, see [Subscriptions: the derivation graph](../../core/subscriptions.md).
 
 ## Step 3 — views: the feed, rendered
 
@@ -215,7 +215,7 @@ Those `rf/route-link`s point at a route id that doesn't exist yet. We add it nex
 
 ??? note "Why views stay pure"
 
-    What purity buys you, and where the line is drawn, is covered in [Views: pure functions of data](../../core/concepts/views.md).
+    What purity buys you, and where the line is drawn, is covered in [Views: pure functions of data](../../core/views.md).
 
 ## Step 4 — the routing skeleton
 
@@ -370,7 +370,7 @@ Finish `core.cljs` with the boot function your build invokes:
 Reading it top to bottom:
 
 1. `rf/init!` installs the Reagent [adapter](../../core/glossary.md#adapter) — the bridge between re-frame2 and your rendering [substrate](../../core/glossary.md#substrate). One line; swap it for `re-frame.adapter.uix` or `helix` and nothing else in the app moves.
-2. `rf/reg-frame` creates the [**frame**](../../core/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../core/concepts/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../core/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.)
+2. `rf/reg-frame` creates the [**frame**](../../core/glossary.md#frame) your app runs in: one isolated instance with its own app-db, event queue, and subscription cache ([Frames](../../core/frames.md)). (Registrations aren't part of that isolation — they live in a process-global [registrar](../../core/glossary.md#registrar) every frame shares; a frame isolates *state*, not behaviour.) What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default, so without that flag the address bar would never change. (Only one frame may claim it; register a second `:url-bound? true` frame and the runtime emits a `:rf.error/duplicate-url-binding` error to your error listeners. It doesn't throw — the first claimant keeps the URL and the late-comer's navigation effects quietly no-op — but the error names both frames so the clash is visible rather than a mystery about why the address bar won't move.)
 3. `dispatch-sync` runs the seed event *synchronously*, before the first render, so the feed never paints against an empty db. `with-frame` says which frame the dispatch targets. (Plain `dispatch` queues for the next tick — fine everywhere else, but at boot you want the state committed *now*.)
 4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the very first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces — Back is not a special case, it's just another event.
 5. `frame-provider {:frame :rf/default}` scopes the mounted tree to the already-registered frame, so every `subscribe` and `dispatch` inside your views resolves to it. ([Frame identity is carried, not found](../../core/glossary.md#frame-identity-is-carried-not-found) — the scope hands the frame down through React; the runtime never guesses one.)

@@ -85,7 +85,7 @@
 ;; this interceptor's id (`:undoable`) in its :interceptors — nothing more. Only
 ;; the events that *commit* a change wear it, which is exactly why dragging the
 ;; slider around can stay silent and add no history at all.
-;; See docs/core/concepts/interceptors.md.
+;; See docs/core/interceptors.md.
 
 (rf/reg-interceptor :undoable
   {:doc "Snapshot :circles before an undoable handler runs; push the prior
@@ -203,7 +203,7 @@
 ;; and the subs below chain off it with `:<-`. So the [:drawer ...] walk happens
 ;; a single time per app-db swap, not once per dependent recompute — a small
 ;; habit that keeps a subscription graph cheap as it grows.
-;; See docs/core/concepts/subscriptions.md.
+;; See docs/core/subscriptions.md.
 
 (rf/reg-sub :drawer/slice (fn [db _] (:drawer db)))
 
@@ -286,7 +286,7 @@
 ;;
 ;; `app-frame` is just a name we picked. `:rf/default` carries no special powers;
 ;; it's an ordinary frame id, named here and handed to the provider like any
-;; other. See docs/core/concepts/frames.md.
+;; other. See docs/core/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

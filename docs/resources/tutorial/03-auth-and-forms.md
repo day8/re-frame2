@@ -389,7 +389,7 @@ Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/req
 
 ??? note "Going deeper — why the token gets these two flags"
 
-    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Coeffects](../../core/concepts/coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
+    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Coeffects](../../core/coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. And because the boot boundary stamps it rather than a supplier generating it, it's `:provided? true` — a registration with no generator function, there only to give the boundary fact docs, schema, and an owner (so a typo'd requirement is distinguishable from a missing value). An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
 
 !!! note "Two failure paths at boot, not one"
 
@@ -528,7 +528,7 @@ You register the guard once, under the id `:conduit/auth-guard` — exactly like
 - **`:rf/skip-handler? true`** tells the runtime to skip the event's own handler. For a navigation that means the protected route never commits and its `:on-match` loads (`[:settings/load]`) never fire — a signed-out user can't even trigger the route's data fetch.
 - **The stash** lands the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and the guard dispatches the login navigation instead.
 
-Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../../core/concepts/interceptors.md) is the deeper model.
+Attached frame-wide, the guard wraps every event and quietly stands aside (returns `ctx` untouched) for everything `nav-target` returns `nil` for — which is every event that isn't a navigation. [Interceptors](../../core/interceptors.md) is the deeper model.
 
 ??? info "Coming from Axios?"
 

@@ -4,7 +4,7 @@ Two cross-cutting production concerns, in one place: stamping something onto *ev
 
 ## Interceptors: stamp every request once
 
-Threading `"Authorization"` into every call site is the kind of cross-cutting concern that belongs in one place. re-frame2 ships a **per-frame HTTP interceptor chain** for exactly this — the same `{:before :after}` onion you know from [event interceptors](../core/concepts/interceptors.md), but wrapping the transport instead of the event handler. A `:before` transforms the request on its way out; an `:after` transforms the reply on its way back.
+Threading `"Authorization"` into every call site is the kind of cross-cutting concern that belongs in one place. re-frame2 ships a **per-frame HTTP interceptor chain** for exactly this — the same `{:before :after}` onion you know from [event interceptors](../core/interceptors.md), but wrapping the transport instead of the event handler. A `:before` transforms the request on its way out; an `:after` transforms the reply on its way back.
 
 `rf/reg-http-interceptor` takes a positional id and an interceptor map. Here's Bearer auth as a single registration — note it reads the token *fresh on every request*, so rotation is picked up with zero re-registration:
 
@@ -33,7 +33,7 @@ That ctx-carried-forward shape is what makes per-request concerns — response-t
 
 The rules that matter:
 
-- **Chains are per-frame.** An interceptor registered on one [frame](../core/concepts/frames.md) never fires for a request from another. Multi-frame apps register independent chains.
+- **Chains are per-frame.** An interceptor registered on one [frame](../core/frames.md) never fires for a request from another. Multi-frame apps register independent chains.
 - **Onion order.** `:before`s run in registration order, `:after`s in reverse — A-registered-before-B means `A.before → B.before → transport → B.after → A.after`. Exactly the event-interceptor mental model.
 - **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with a named bad-interceptor error. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
 - **Each phase returns a map.** A `:before` returns the request ctx; an `:after` returns the reply map. Returning `nil`, a vector, or anything else is rejected with `:rf.error/http-interceptor-bad-return` so a bad interceptor cannot erase the request or reply.

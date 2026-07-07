@@ -334,7 +334,7 @@ The visibility rule lives in `:field-error` and nowhere else, which means it can
 
 ## 4. Write the view — which is almost nothing
 
-The [view](../glossary.md#view) renders [hiccup](../glossary.md#hiccup) from subscription values, and `reg-view` hands its body a `dispatch` and a `subscribe` already wired to the right [frame](../glossary.md#frame) ([Views](../concepts/views.md) has the full story). The leading `@` you'll see on every `@(subscribe ...)` is Clojure's *deref* — `subscribe` returns a live, reactive reference, and `@` reads its current value (and quietly re-renders the view whenever that value changes). So `@(subscribe [:form.login/draft])` means "give me the current draft, and keep this view in sync with it":
+The [view](../glossary.md#view) renders [hiccup](../glossary.md#hiccup) from subscription values, and `reg-view` hands its body a `dispatch` and a `subscribe` already wired to the right [frame](../glossary.md#frame) ([Views](../views.md) has the full story). The leading `@` you'll see on every `@(subscribe ...)` is Clojure's *deref* — `subscribe` returns a live, reactive reference, and `@` reads its current value (and quietly re-renders the view whenever that value changes). So `@(subscribe [:form.login/draft])` means "give me the current draft, and keep this view in sync with it":
 
 ```clojure
 (rf/reg-view login-form []

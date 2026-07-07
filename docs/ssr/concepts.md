@@ -54,7 +54,7 @@ In words:
 6. The client boots, dispatches `:rf/hydrate` with that payload, and renders. Its first render matches the server's HTML, so the existing DOM is adopted, not replaced.
 7. The per-request frame is destroyed — in a `finally`, on every exit path.
 
-Steps 2–4 run the handlers, subs, and views you already wrote; there's no separate "server code" to keep in sync with the client. And the per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/concepts/frames.md) — no SSR-only variant.
+Steps 2–4 run the handlers, subs, and views you already wrote; there's no separate "server code" to keep in sync with the client. And the per-request frame is *exactly* the frame from [Frames: isolated worlds](../core/frames.md) — no SSR-only variant.
 
 !!! note "Why this matters"
 
@@ -116,7 +116,7 @@ One rule governs this coeffect, and it's worth stating plainly before the fine p
 
 ??? note "Going deeper — why a durable write must be recorded, and how to fix it"
 
-    [Time-travel](../core/concepts/observability.md) replays a run only if every input a handler used was captured. The request coeffect is the exception: like `localStorage` or the wall clock, it reads a live per-request slot and its value is **never recorded** — an *[ambient](../core/glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../core/glossary.md#event-envelope).
+    [Time-travel](../core/observability.md) replays a run only if every input a handler used was captured. The request coeffect is the exception: like `localStorage` or the wall clock, it reads a live per-request slot and its value is **never recorded** — an *[ambient](../core/glossary.md#recordable-vs-ambient-coeffects)* coeffect, not a *recordable* one stamped onto the [event envelope](../core/glossary.md#event-envelope).
 
     An ambient read is fine for a **non-durable** decision (branch on `:request-method`, peek at a header to pick a code path). It is **not** fine for a value you fold into durable state: on replay the framework re-runs the live supplier rather than re-presenting the value the recorded run saw — and after the per-request frame is torn down, that supplier reads `nil`. So `(assoc db :session-user (-> request :session :user))` is a durable write whose input was never recorded, and a replay reconstructs a different app-db.
 
@@ -225,7 +225,7 @@ The payload also carries a couple of stamps that catch the classic "the server a
 - **`:rf.ssr/check-version`** compares the payload's pattern-protocol version (`:rf/version`, an integer) against the client's. A mismatch emits a `:rf.ssr/version-mismatch` trace — your "the server bundle is a deploy ahead of the client" alarm.
 - **`:rf.ssr/check-schema-digest`** (fired only when the payload carries a digest) hashes the client's registered `app-schema` set and compares it to the server's. A mismatch emits `:rf.ssr/schema-digest-mismatch` — the server is validating against a different schema set than the client's bundle.
 
-If the runtime can't find the client-side value to compare against (no version hook registered, say), the check emits `:rf.ssr/compatibility-check-skipped` and no-ops rather than crashing. Degraded-but-running is the deliberate posture: a version stamp should never be what stops a page from loading. These three categories ride the dev trace surface, so wire an [observability](../core/concepts/observability.md) listener on them if you want deploy-drift visibility in CI.
+If the runtime can't find the client-side value to compare against (no version hook registered, say), the check emits `:rf.ssr/compatibility-check-skipped` and no-ops rather than crashing. Degraded-but-running is the deliberate posture: a version stamp should never be what stops a page from loading. These three categories ride the dev trace surface, so wire an [observability](../core/observability.md) listener on them if you want deploy-drift visibility in CI.
 
 ## When the renders disagree
 
@@ -249,7 +249,7 @@ Be clear about what the hash buys you: it proves *that* the renders diverged —
 
 !!! note "The mismatch trace is dev-only — instrument deliberately for production"
 
-    That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work). To watch for drift in production you instrument deliberately: the strict-mode exception carries both hashes, so the boot site can catch it around `hydrate!` and ship it through your [observability](../core/concepts/observability.md) sinks.
+    That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work). To watch for drift in production you instrument deliberately: the strict-mode exception carries both hashes, so the boot site can catch it around `hydrate!` and ship it through your [observability](../core/observability.md) sinks.
 
 ??? note "Going deeper — the hash is structural, not textual"
 
@@ -378,7 +378,7 @@ The wiring facts, one at a time:
 - **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent.
 - **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
 
-The full error story lives in the [error dossier](../core/concepts/errors.md).
+The full error story lives in the [error dossier](../core/errors.md).
 
 !!! note "Why this matters — two error opts, two jobs"
 

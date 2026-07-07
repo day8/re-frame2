@@ -52,7 +52,7 @@ The wiring — navigate event in, slice out — is a [pipeline-run test](../core
     (is (= {:id "intro"} @(rf/subscribe [:rf.route/params])))))
 ```
 
-If the route declares `:on-match` loaders, they dispatch inside the same drain — so a loader that fires a [managed HTTP](../async/http.md) request wants the same canned-reply stubs a pipeline-run test uses, and `@(rf/subscribe [:rf.route/transition])` gives you the `:idle` / `:loading` / `:error` fact to assert. A loader failure lands the structured error in `@(rf/subscribe [:rf.route/error])` — assert on its category, [never its prose](../core/concepts/errors.md#test-the-structure-not-the-string).
+If the route declares `:on-match` loaders, they dispatch inside the same drain — so a loader that fires a [managed HTTP](../async/http.md) request wants the same canned-reply stubs a pipeline-run test uses, and `@(rf/subscribe [:rf.route/transition])` gives you the `:idle` / `:loading` / `:error` fact to assert. A loader failure lands the structured error in `@(rf/subscribe [:rf.route/error])` — assert on its category, [never its prose](../core/errors.md#test-the-structure-not-the-string).
 
 ## 3. Deep links, and the 404
 
@@ -101,6 +101,6 @@ Dispatch `:rf.route/cancel` instead and the pending slot clears with the slice u
 
 ## What lives elsewhere
 
-- **Auth-guard interceptors** over the navigation events are ordinary [interceptors — tested like any other](../core/concepts/interceptors.md#testing-an-interceptor); [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the recipe they guard.
+- **Auth-guard interceptors** over the navigation events are ordinary [interceptors — tested like any other](../core/interceptors.md#testing-an-interceptor); [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) is the recipe they guard.
 - **Route-declared `:resources`** are the resources artefact's territory — [Testing resources](../resources/testing.md) covers ensuring, stubbing, and reading them; the route is just the cause.
 - **The server side** needs no separate route tests: the same `handle-url-change` event you drove above is what SSR feeds the request URL to — [Testing SSR](../ssr/testing.md).

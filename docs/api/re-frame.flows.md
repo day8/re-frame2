@@ -13,7 +13,7 @@ Outputs are always written to `app-db`.
 (:require [re-frame.flows :as flows])
 ```
 
-See [Flows: derived values your handlers can read](../core/concepts/flows.md) for the conceptual companion.
+See [Flows: derived values your handlers can read](../core/flows.md) for the conceptual companion.
 
 > **Note** — `reg-flow` is also exported from the `re-frame.core` facade, so the examples below register with `rf/reg-flow` (the conventional call site). `clear-flow`, the introspection accessors, and the test-support resets are called on the `flows` alias. The full `reg-flow` contract lives here.
 
@@ -272,5 +272,5 @@ A useful rule: if you find yourself writing `(reg-sub ::derived-total (fn [...])
 ## See also
 
 - [re-frame.core](re-frame.core.md) — the ergonomic facade `reg-flow` is also exported from, plus the `:fx` effect mechanism the flow fx-ids ride.
-- [Flows: derived values your handlers can read](../core/concepts/flows.md) — the conceptual companion to this reference.
+- [Flows: derived values your handlers can read](../core/flows.md) — the conceptual companion to this reference.
 - [Migration reference](../../migration/from-re-frame-v1/README.md) — `on-changes` (replaced by flows) and `enrich` (replaced by flows / schemas).

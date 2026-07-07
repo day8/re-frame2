@@ -238,7 +238,7 @@ DOM work keeps all of those safe.
 
 ## When boot goes wrong
 
-Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../concepts/errors.md) rather than a blank page. Three, in the order you're likely to meet them.
+Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../errors.md) rather than a blank page. Three, in the order you're likely to meet them.
 
 **You touched the substrate before `init!`.** `rf/init!` installs the
 [adapter](../glossary.md#adapter); until it runs there is nothing to render
@@ -283,4 +283,4 @@ creation, and render calls change.
     pipeline.
 
 That's the recipe. The full frame lifecycle is covered in
-[Frames](../concepts/frames.md).
+[Frames](../frames.md).

@@ -50,7 +50,7 @@ The response `:body` also carries the `__rf_payload` script, so "did the allowli
 
 Two SSR surfaces are deliberately test-shaped:
 
-- **Construction fails loud.** A missing `:payload` policy throws at *boot*, not on the first request — and thrown framework errors carry their category in `ex-data`, so the test [pins the discriminator, never the message](../core/concepts/errors.md#the-errors-that-throw-not-trace):
+- **Construction fails loud.** A missing `:payload` policy throws at *boot*, not on the first request — and thrown framework errors carry their category in `ex-data`, so the test [pins the discriminator, never the message](../core/errors.md#the-errors-that-throw-not-trace):
 
     ```clojure
     (deftest payload-policy-is-mandatory

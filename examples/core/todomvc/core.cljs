@@ -10,7 +10,7 @@
   frame is seeded once via `:initial-events`. In re-frame2 the URL is just an
   input and navigation is just an event; the router's hash strategy handles the
   `#` on both sides, so this app uses `route-link` / `rf.route/navigate` like
-  every other example. See docs/core/concepts/frames.md."
+  every other example. See docs/core/frames.md."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.routing :as routing]

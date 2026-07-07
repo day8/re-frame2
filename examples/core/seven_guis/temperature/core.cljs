@@ -16,7 +16,7 @@
    That gives us a tidy tour of the basics: a single source of truth, one
    event and one subscription chain over one value, pure Celsius ↔ Fahrenheit
    derivation in the subs, and a schema watching the slice. The guide walks
-   subscriptions slowly in `docs/core/concepts/subscriptions.md`; event,
+   subscriptions slowly in `docs/core/subscriptions.md`; event,
    subscription, and app-db each have a glossary entry in
    `docs/core/glossary.md`."
   (:require [clojure.string :as str]
@@ -122,7 +122,7 @@
 ;; reformat itself out from under you mid-keystroke.
 ;;
 ;; For the layers, the equality gate, and the `:<-` arrow in full, see
-;; `docs/core/concepts/subscriptions.md`.
+;; `docs/core/subscriptions.md`.
 
 (rf/reg-sub :temp/active
   (fn sub-temp-active [db _] (get-in db [:temp :input-source])))
@@ -198,7 +198,7 @@
 ;; `subscribe` in the tree finds its way home to that frame. Mount again under
 ;; the same `:id` — a hot reload, say — and the provider hands back the frame
 ;; that's already alive instead of re-seeding, so your half-typed temperature
-;; survives the save. See `docs/core/concepts/frames.md`.
+;; survives the save. See `docs/core/frames.md`.
 ;;
 ;; `app-frame` is just an id we picked. `:rf/default` looks special but isn't —
 ;; it's an ordinary frame id. The runtime never guesses which frame you mean,

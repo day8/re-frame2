@@ -3,10 +3,10 @@
 
 A UI is just derived data.
 
-[App-db](../glossary.md#app-db) holds your **facts**. Your
-[views](../glossary.md#view) want **conclusions** — "the visible articles", "can
+[App-db](glossary.md#app-db) holds your **facts**. Your
+[views](glossary.md#view) want **conclusions** — "the visible articles", "can
 this form submit?", "the current user's initials". A
-[subscription](../glossary.md#subscription) is the thing in between: a named,
+[subscription](glossary.md#subscription) is the thing in between: a named,
 cached derivation that turns facts into a conclusion, and re-runs only when it
 must.
 
@@ -25,7 +25,7 @@ is this page.
 
 Here's the discipline the whole page hangs off.
 
-[Our first app](../first-app.md)'s counter shows a number. Suppose we also want to
+[Our first app](first-app.md)'s counter shows a number. Suppose we also want to
 show whether that number is odd or even. The tempting move: store a parity flag in
 app-db and keep it updated alongside the value.
 
@@ -89,7 +89,7 @@ A view reads it by deref:
 @(rf/subscribe [:cart/category-filter])
 ```
 
-The vector `[:cart/category-filter]` is the [**query vector**](../glossary.md#query-vector) —
+The vector `[:cart/category-filter]` is the [**query vector**](glossary.md#query-vector) —
 the id, plus any arguments. `[:cart/line-item "sku-1"]` carries one argument, and
 the sub destructures it from the same vector it was called with:
 
@@ -110,7 +110,7 @@ the graph does the rest.
 
 Subscribe to an id nobody registered — a typo, a namespace that hasn't loaded —
 and re-frame2 does not quietly hand you `nil` and let you guess. It emits
-`:rf.error/no-such-sub` (an always-on [error record](../glossary.md#error-record)
+`:rf.error/no-such-sub` (an always-on [error record](glossary.md#error-record)
 that survives into production, carrying the offending `:rf.sub/id`) and then
 recovers the subscription to `nil` so the view still renders. Loud, then graceful.
 And the failed lookup leaves no cache entry behind, so registering the sub later —
@@ -125,7 +125,7 @@ reasons, and they recur all through this framework:
    Move it tomorrow and you change one registration, not forty views.
 2. **Sharing.** Every view asking for `[:cart/category-filter]` reads the *same*
    cached node. The cache is keyed by query vector (per
-   [frame](../glossary.md#frame) — for now, read that as "per app"), so the
+   [frame](glossary.md#frame) — for now, read that as "per app"), so the
    computation runs once per change no matter how many views consume it. The
    forty-first reader costs nothing.
 
@@ -197,7 +197,7 @@ wrinkle in the syntax. Once you've seen it, you've seen it.
 And notice something quieter: the *shape of the registration* is the *shape of the
 graph*. `(fn [db _] ...)` is an extractor by construction. `:<-` is a composer by
 construction. The framework can read the registry and know your entire topology as
-data — which is exactly how [Xray](../glossary.md#xray) draws your subscription
+data — which is exactly how [Xray](glossary.md#xray) draws your subscription
 graph without executing a single computation function (`re-frame.subs.tooling/sub-topology`
 is a literal read of the registry). Declared dependencies, not discovered ones.
 This will be a theme.
@@ -216,7 +216,7 @@ time, because app-db is their input. Each one's new output is compared with its
 previous output by `=`. If the slice didn't change, the cached value stands and
 **propagation stops right there**. Downstream subs don't re-run. Views don't
 re-render. Nothing past the unchanged extractor even learns an
-[event](../glossary.md#event) happened.
+[event](glossary.md#event) happened.
 
 That makes layer 1 a **circuit breaker** for everything behind it. Change
 `:cart/category-filter` and the `:cart/items` extractor re-runs, sees its slice is
@@ -246,10 +246,10 @@ an extractor and that sort runs on every keystroke in every unrelated form — y
 placed expensive work *in front of* the gate instead of behind it. Move it into a
 `:<-` sub and it runs only when its slice actually changes. Same code, dramatically
 less work. When a view is mysteriously slow, "is there computation in a layer-1
-sub?" is the first question [Find and fix a slow view](../how-to/fix-a-slow-view.md)
+sub?" is the first question [Find and fix a slow view](how-to/fix-a-slow-view.md)
 asks — because the answer is so often yes.
 
-Does the gate scale? The [Cells spreadsheet example](../../../examples/core/seven_guis/cells)
+Does the gate scale? The [Cells spreadsheet example](../../examples/core/seven_guis/cells)
 derives 2,600 mounted cell values from one shared input sub, and the `=` check on
 each result means only cells whose displayed value genuinely changed re-render. A
 literal spreadsheet, running on the metaphor.
@@ -314,8 +314,8 @@ anywhere. The new app-db is `=` to the old one, so the graph proves nothing chan
 and goes back to sleep.
 
 To see the gate's decisions rather than infer them, run this shape in your own app
-with [Xray](../glossary.md#xray) attached (one-line setup:
-[Debug with Xray](../../xray/index.md)), click **add item**, select the newest
+with [Xray](glossary.md#xray) attached (one-line setup:
+[Debug with Xray](../xray/index.md)), click **add item**, select the newest
 event row, and open the **Views** tab: `:cart/count-label` is marked as the
 re-render's trigger while `:cart/currency-label` sits beside it, unmarked.
 
@@ -401,7 +401,7 @@ itself be a query vector — a vector whose head is a keyword:
 ```
 
 None of these are silently coerced — they
-[fail loud](../glossary.md#fail-loud-not-silent), because a typo that quietly
+[fail loud](glossary.md#fail-loud-not-silent), because a typo that quietly
 produced the wrong dependency edges would cost you an afternoon. Three distinct
 errors keep three distinct mistakes apart: a malformed registration shape signals
 `:rf.error/reg-sub-bad-args` at `reg-sub` time; a bad return value signals
@@ -433,13 +433,13 @@ The keys you'll reach for:
    build warns when you omit it, because tools (Xray's sub list, the topology
    view) surface it. Treat it as a SHOULD.
 2. **`:schema`** — a [Malli](https://github.com/metosin/malli)
-   [schema](../glossary.md#schema) for the sub's **output**. When present, the dev
+   [schema](glossary.md#schema) for the sub's **output**. When present, the dev
    build validates the computed value at the `:sub-return` boundary — a fail-loud
-   guard, [elided](../glossary.md#elide) from production like every schema check.
-   The full story: [Validate with schemas](../how-to/validate-with-schemas.md).
+   guard, [elided](glossary.md#elide) from production like every schema check.
+   The full story: [Validate with schemas](how-to/validate-with-schemas.md).
 3. **`:tags`** — a set of keywords for your own grouping and tooling.
 
-Two more keys come from the [data-classification](../glossary.md#data-classification)
+Two more keys come from the [data-classification](glossary.md#data-classification)
 model, and they exist because the observability pipeline captures sub outputs into
 traces. **`:sensitive`** marks paths in the output that hold secrets (`[[]]` marks
 the whole output); **`:large`** marks paths big enough to summarise rather than
@@ -455,7 +455,7 @@ capture verbatim (a 5,000-row table, a decoded blob):
 One thing to hear plainly: **classification does not propagate.** A sub does *not*
 inherit its inputs' `:sensitive`/`:large` declarations. If a derived value is
 sensitive, classify it at the sub that produces it. (The narrative:
-[Keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md).) A malformed
+[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).) A malformed
 declaration is rejected at registration with `:rf.error/bad-classification`.
 
 ## Testing, Briefly
@@ -464,7 +464,7 @@ A layer-1/2/3 computation is a pure function of `(inputs, query-v)`. So you don'
 need a reactive runtime — or a DOM, or a browser — to test what a subscription
 *computes*. `rf/compute-sub` runs a sub's body against an app-db **value**,
 resolving the whole `:<-` chain for you, JVM-runnable, no live cache. The recipe,
-both styles, gotchas included: [Test a subscription](../testing/subscriptions.md).
+both styles, gotchas included: [Test a subscription](testing/subscriptions.md).
 
 ## Lifecycle: a Sub Exists Only While Something Watches
 
@@ -475,7 +475,7 @@ again and reads the same cached value. A view unmounts; its reference is release
 And on the **last** release — ref-count hits zero — the slot is disposed
 **synchronously, in the same tick**: reaction torn down, input ref-counts released
 (which can cascade disposal up the chain), slot removed. A `:rf.sub/dispose`
-[trace event](../glossary.md#trace-event) marks the eviction.
+[trace event](glossary.md#trace-event) marks the eviction.
 
 Why should you care? Two everyday ways:
 
@@ -486,7 +486,7 @@ Why should you care? Two everyday ways:
    disposed, and a remount observes no flicker.
 2. **Hot-reload and teardown are clean.** Re-registering a sub disposes every
    cached slot for that query, regardless of ref-count — the next subscribe builds
-   against the new body. Destroying a [frame](../glossary.md#frame) disposes every
+   against the new body. Destroying a [frame](glossary.md#frame) disposes every
    slot it owns. Correct behaviour across a `shadow-cljs` reload, no thought
    required.
 
@@ -498,7 +498,7 @@ Two functions step outside the deref-driven lifecycle on purpose:
   handler that genuinely needs a derived value once. (Takes the same
   `{:frame f}` opts as `subscribe` for reading a named frame from outside any
   scope.) If you reach for it *routinely* from handlers, the value probably wants
-  to be a [flow](../glossary.md#flow) instead — see below.
+  to be a [flow](glossary.md#flow) instead — see below.
 - **`rf/unsubscribe`** — decrement the ref-count by hand, for the rare case where
   you took a reference programmatically. Views never call this; mount/unmount does
   it for them.
@@ -508,12 +508,12 @@ Two functions step outside the deref-driven lifecycle on purpose:
 The framework registers a handful of subscriptions for you, and you read subsystem
 state through them exactly as you read your own:
 
-- **`[:rf/machine <machine-id>]`** — a [state machine](../../machines/glossary.md#machine)'s
-  [snapshot](../../machines/glossary.md#snapshot) `{:state :data}`, or `nil` before
+- **`[:rf/machine <machine-id>]`** — a [state machine](../machines/glossary.md#machine)'s
+  [snapshot](../machines/glossary.md#snapshot) `{:state :data}`, or `nil` before
   it's initialised. The canonical way to drive a view off a machine.
 - The router publishes a family — **`:rf/route`**, **`:rf.route/id`**,
   **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**,
-  **`:rf.route/chain`**, and more — covered in [Routing](../../routing/concepts.md).
+  **`:rf.route/chain`**, and more — covered in [Routing](../routing/concepts.md).
 
 Anything under `:rf/…` or `:rf.<subsystem>/…` is framework-owned, per the reserved-
 namespace convention. Keep your subs out of that namespace and the two never collide.
@@ -524,17 +524,17 @@ Subscriptions are view-facing and pull-based: a node exists only while a view
 watches it. That boundary tells you when to reach for something else.
 
 - **An event handler needs the derived value.** Handlers don't subscribe. That's
-  what [flows](../glossary.md#flow) are for — derived values materialised *into*
+  what [flows](glossary.md#flow) are for — derived values materialised *into*
   app-db, where a handler reads them as plain state.
 - **The value comes from a server.** Subscriptions never fetch; computation
   functions are pure, no IO. Server-owned data belongs to
-  [resources](../../resources/glossary.md#resource); subscriptions derive *over*
+  [resources](../resources/glossary.md#resource); subscriptions derive *over*
   the cached resource state.
 - **The value crosses frames.** A subscription must not reach into another
-  [frame](../glossary.md#frame)'s state. Frames are isolated worlds; that's the
+  [frame](glossary.md#frame)'s state. Frames are isolated worlds; that's the
   point of them.
 - **Not sure where a value belongs at all?**
-  [Where should this value live?](../where-state-lives.md) sorts it into a sub,
+  [Where should this value live?](where-state-lives.md) sorts it into a sub,
   flow, resource, or machine with four questions.
 
 (TanStack Query folks: `useQuery` is one hook doing two jobs — fetching server
@@ -548,7 +548,7 @@ Three corners you won't need on day one. You'll want them the day something goes
 sideways, so here they are.
 
 **A computation throws.** A `nil` where you assumed a map; a divide-by-zero in a
-derived total. re-frame2 treats it as a [fail-loud](../glossary.md#fail-loud-not-silent)
+derived total. re-frame2 treats it as a [fail-loud](glossary.md#fail-loud-not-silent)
 event, not a crash: it emits `:rf.error/sub-exception` and recovers the sub to
 `nil`, so the throw can't take down the render. The record is always-on — it
 reaches your production error listeners — and its `:where` tag names the path that
@@ -563,7 +563,7 @@ body runs, at the `:sub-return` boundary. On a mismatch it emits
 to the consumer — the same recover-to-`nil` posture as a throw — so a derivation
 producing the wrong shape is caught at the sub that produced it, not three layers
 downstream where some view chokes on it. A strict mode re-raises, for CI. Like
-every schema check, the whole boundary is [elided](../glossary.md#elide) from
+every schema check, the whole boundary is [elided](glossary.md#elide) from
 production.
 
 **Subscribing during teardown.** A stray async callback fires after its
@@ -573,15 +573,15 @@ carrying the frame id and the attempted query vector, so a genuine
 use-after-destroy bug stays visible on the stream you actually watch. (A
 *rootless* subscribe — issued under no frame scope at all — is the different
 `:rf.error/no-frame-context`; see
-[frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found).)
+[frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found).)
 
 ---
 
 One last widening of the lens. Subscriptions are one face of a larger family:
 flows, resources, route facts, and machine selectors all live on
-[one derivation graph](../glossary.md#the-derivation-graph), with one shared
+[one derivation graph](glossary.md#the-derivation-graph), with one shared
 algebra. The essay-length tour is
-[One graph: derivations and their algebra views](../derivations-and-algebra-views.md).
+[One graph: derivations and their algebra views](derivations-and-algebra-views.md).
 
 Derived data, all the way down — and now you can read any registration on the
 graph and say exactly when it recomputes.

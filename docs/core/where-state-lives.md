@@ -12,8 +12,8 @@ This is the page every other concept page links back to instead of answering the
 
 Ask them top to bottom. Stop at the first *yes*.
 
-1. **Can you recompute it, every time, from state you already have?** → It's a **subscription**. ([Subscriptions: the derivation graph](concepts/subscriptions.md))
-2. **Must it live *in* [`app-db`](glossary.md#app-db) — read by [event handlers](glossary.md#event-handler), covered by your schema, riding time-travel?** → It's a **flow**. ([Flows: derived values your handlers can read](concepts/flows.md))
+1. **Can you recompute it, every time, from state you already have?** → It's a **subscription**. ([Subscriptions: the derivation graph](subscriptions.md))
+2. **Must it live *in* [`app-db`](glossary.md#app-db) — read by [event handlers](glossary.md#event-handler), covered by your schema, riding time-travel?** → It's a **flow**. ([Flows: derived values your handlers can read](flows.md))
 3. **Does it come from a server, where it can go stale and needs caching, refetch, and invalidation?** → It's a **resource**. ([Server state: resources](../resources/concepts.md))
 4. **Does it have a lifecycle of its own — named states, timers, retries, cancellation?** → It's a **machine**. ([State machines](../machines/concepts.md))
 
@@ -87,7 +87,7 @@ The rent is real: an `app-db` write on every recompute, plus a piece of register
 
 !!! note "You write the inputs, never the output"
 
-    A flow's `:output-path` belongs to the flow. Your handlers `assoc` into `[:cart :items]` (an input); the flow computes `[:cart/total]` (the output) for you, atomically, on the same event. Writing the output by hand from a handler reintroduces the exact two-copies-drift bug the flow was meant to kill. ([Flows](concepts/flows.md) covers the rules a flow's `:output-path` must obey; the paths are ordinary [app-db paths](concepts/app-db.md).)
+    A flow's `:output-path` belongs to the flow. Your handlers `assoc` into `[:cart :items]` (an input); the flow computes `[:cart/total]` (the output) for you, atomically, on the same event. Writing the output by hand from a handler reintroduces the exact two-copies-drift bug the flow was meant to kill. ([Flows](flows.md) covers the rules a flow's `:output-path` must obey; the paths are ordinary [app-db paths](app-db.md).)
 
 !!! note "Two more knobs worth knowing"
 
@@ -213,7 +213,7 @@ The four questions get you there the first time. This table is for the *second* 
 
 | The smell | What it really means | Move it to |
 |---|---|---|
-| A **subscription that does IO** — fetches, writes `localStorage`, reads the clock. | A subscription is a *pure read*. If it reaches into the world, it isn't a derivation. | A **resource** if it's remote data; otherwise the [event boundary](concepts/coeffects.md) — an effect for the write, a declared coeffect for the read. |
+| A **subscription that does IO** — fetches, writes `localStorage`, reads the clock. | A subscription is a *pure read*. If it reaches into the world, it isn't a derivation. | A **resource** if it's remote data; otherwise the [event boundary](coeffects.md) — an effect for the write, a declared coeffect for the read. |
 | A **flow whose output no handler reads.** | An `app-db` write paid to materialise a value only views consume — a subscription wearing a flow's costume. | A **subscription** — drop the flow, recompute on demand. |
 | A **handler writing a flow's `:output-path` by hand.** | The two-copies-drift bug the flow exists to kill, reintroduced — and now flow and handler fight over the same slot. | Nothing — *remove the hand-write*. Let the handler `assoc` an **input**; the flow owns the output. |
 | A **machine wrapping a single fetch** — `:loading`, `:loaded`, nothing else. | No real branching, timers, or cancellation isn't a process; it's a remote read with a status. | A **resource** — its status model already *is* the loading/loaded/error lifecycle. |

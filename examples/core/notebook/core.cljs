@@ -28,7 +28,7 @@
    bundle small and spares us an npm dependency for a demo.
 
    New to the terms? docs/core/glossary.md defines event, subscription,
-   app-db, and view; docs/core/concepts/views.md covers views and hiccup
+   app-db, and view; docs/core/views.md covers views and hiccup
    in depth."
   ;; We render through stock Reagent (`reagent.dom.client` +
   ;; `re-frame.adapter.reagent`). The adapter is the value that teaches
@@ -121,7 +121,7 @@
 ;; function of their values. The payoff is that it recomputes only when
 ;; one of those inputs actually changes, and the subs downstream (`-body`,
 ;; `-hiccup`) chain off this one in the same way. A little graph of pure
-;; derivations. See docs/core/concepts/subscriptions.md.
+;; derivations. See docs/core/subscriptions.md.
 (rf/reg-sub :notebook/selected
   :<- [:notebook/documents]
   :<- [:notebook/selected-id]
@@ -296,7 +296,7 @@
 ;; No `rf/` prefix, no frame to thread through; they find the frame in
 ;; scope at render time on their own. Each view below just subscribes to
 ;; what it needs and dispatches on interaction — pure functions of state,
-;; nothing reaching out to mutate. See docs/core/concepts/views.md.
+;; nothing reaching out to mutate. See docs/core/views.md.
 
 (rf/reg-view sidebar []
   (let [docs        @(subscribe [:notebook/documents])
@@ -370,7 +370,7 @@
 ;; every `dispatch` and `subscribe` in the tree resolves to it. The name
 ;; `:rf/default` is just an id — pick any keyword; it earns no special
 ;; privileges for being the only one here. See
-;; docs/core/concepts/frames.md.
+;; docs/core/frames.md.
 (def app-frame :rf/default)
 
 (defn run []

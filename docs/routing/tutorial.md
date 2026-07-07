@@ -2,7 +2,7 @@
 
 The fastest way to understand re-frame2 routing is to build something small and watch each piece arrive on its own. We'll make a three-page app — a **home** page, a **list of articles**, and a **detail** page for one article — then add the touches that make it real: page data, a 404, the Back button, and a shared layout.
 
-You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [core Quickstart](../core/first-app.md) — you know what an [event](../core/introduction.md), a [subscription](../core/concepts/subscriptions.md), and a [view](../core/concepts/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
+You'll meet every part of routing you reach for daily, one at a time. This page assumes you've done the [core Quickstart](../core/first-app.md) — you know what an [event](../core/introduction.md), a [subscription](../core/subscriptions.md), and a [view](../core/views.md) are. If you'd rather see the whole model at once, read [Concepts](concepts.md); if you're arriving from React Router, [the mapping](coming-from-react-router.md) may be the faster door.
 
 > **One idea to carry through.** The URL is just application state. You *read* the active route through a subscription and *change* it by dispatching an event. There's no router object to hold and no route context to thread down your tree. Keep that in mind and every step below is a small variation on something you already know.
 
@@ -145,7 +145,7 @@ And the detail page from Step 3 now reads the loaded article, like any other sta
     [:h1 (or (:title article) "Loading…")]))
 ```
 
-There's no special "loader data" hook, because the loader just wrote to [app-db](../core/concepts/app-db.md) like every other event. And `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
+There's no special "loader data" hook, because the loader just wrote to [app-db](../core/app-db.md) like every other event. And `:on-match` re-fires when the `:id` changes but *not* when you navigate to the same route with identical params, so you never get an accidental double-load.
 
 **What you see:** click through to `/articles/intro` and the title appears. Navigate to another article and the loader fires again with the new id; re-navigate to the *same* one and it doesn't. Open [Xray](../xray/index.md) and you'll see exactly those dispatches on the wire.
 
@@ -193,7 +193,7 @@ Back in Step 1, the mount had two routing lines you took on faith. Time to cash 
                [root-view]]))
 ```
 
-`:url-bound? true` says *this* [frame](../core/concepts/frames.md) owns the browser URL. When it navigates, the address bar updates; a frame without the flag routes purely in memory, which is exactly what a test frame wants.
+`:url-bound? true` says *this* [frame](../core/frames.md) owns the browser URL. When it navigates, the address bar updates; a frame without the flag routes purely in memory, which is exactly what a test frame wants.
 
 `install-history-listener!` does two jobs. At startup, it syncs the current URL into state — so a deep link or a refresh lands on the right page instead of always starting at home. From then on, every Back/Forward press is delivered to the owning frame as an ordinary dispatch. It's idempotent, so hot-reload is safe.
 

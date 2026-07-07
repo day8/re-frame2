@@ -1044,7 +1044,7 @@ Update skills:
 
 Update:
 
-- `docs/core/concepts/frames.md`;
+- `docs/core/frames.md`;
 - the topical `docs/core/concepts/*` pages and
   `docs/core/25-from-re-frame-v1.md` where they teach default frame
   convenience;
@@ -1328,7 +1328,7 @@ Implementation must reconcile `:rf.error/no-frame-context`,
 The EP overrides a stated design goal:
 
 - `spec/002-Frames.md:21`: frame plurality is invisible to single-frame apps;
-- `docs/core/concepts/frames.md` §"A default frame would hide cross-frame
+- `docs/core/frames.md` §"A default frame would hide cross-frame
   leaks": most users never type `frame` and `:rf/default` costs nothing.
 
 This revocation should be explicit. The strongest principled support is
@@ -1432,7 +1432,7 @@ Tooling surfaces to enumerate:
 
 Docs and skills to update beyond the obvious specs:
 
-- `docs/core/concepts/frames.md`;
+- `docs/core/frames.md`;
 - the topical `docs/core/concepts/*` pages and
   `docs/core/25-from-re-frame-v1.md`;
 - `docs/core/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
