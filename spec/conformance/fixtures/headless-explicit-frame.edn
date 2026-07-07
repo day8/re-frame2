@@ -1,0 +1,103 @@
+;; Conformance fixture: headless/explicit-frame
+;;
+;; Cross-Spec Interaction #9 (Reactive substrate without React-context), per
+;; [Cross-Spec-Interactions §9 — Reactive substrate without React-context](../../Cross-Spec-Interactions.md#9-reactive-substrate-without-react-context).
+;;
+;; Specs that meet: [006-ReactiveSubstrate §register-context-provider](../../006-ReactiveSubstrate.md#register-context-provider-frame-keyword--component),
+;;                  [002-Frames §View ergonomics](../../002-Frames.md#view-ergonomics-the-hard-part).
+;;
+;; Scenario: a host substrate with no context concept (Solid, plain-atom on
+;; the JVM, a hand-rolled minimal adapter) falls back to the two resolution
+;; tiers that remain once the React-context tier is unavailable:
+;;   1. explicit-frame-as-argument (the `{:frame <id>}` opt on dispatch/
+;;      subscribe), and
+;;   2. the `with-frame` dynamic-binding scope.
+;; The corpus harness never exercises React context for ANY fixture (per
+;; README §Render-time observables), so its own dispatch loop already
+;; models exactly this headless shape: every `:fixture/dispatches` run is
+;; wrapped in a single `with-frame` scope, and any entry may instead carry
+;; an explicit `:frame` override. This fixture is the CANONICAL pin for
+;; that shape rather than an incidental one — a single, non-`:rf/default`-
+;; named frame is registered, and both resolution tiers are exercised
+;; against it in the SAME run, so a port cannot pass by secretly routing
+;; through an invented `:rf/default` floor (there is none registered here
+;; to route through).
+;;
+;; Behaviour (the load-bearing contract):
+;;   1. A bare dispatch (no `:frame` key) resolves via the with-frame
+;;      dynamic-binding tier to `:widget`.
+;;   2. An explicit `{:frame :widget}` dispatch resolves via the
+;;      explicit-frame-as-argument tier, independent of any established
+;;      scope.
+;;   3. Both tiers land on the SAME frame's app-db; there is no
+;;      `:rf/default` frame anywhere in this fixture's config, dispatches,
+;;      or expectations — the resolution chain never needs one.
+;;
+;; Deliberately NOT asserted here:
+;;   - `:rf.warning/no-context-provider-once` — per Cross-Spec-Interactions
+;;     §9's Status, the op-type stays DESIGN-INTENT (not wired). It lights
+;;     up when the first non-React adapter that hosts provider-like,
+;;     mounted-reactive views lands; plain-atom (this fixture's conceptual
+;;     host) hosts no views, so the scenario the warning is FOR does not
+;;     arise here. Asserting it would pin behaviour the reference does not
+;;     implement.
+;;   - `:rf.error/no-frame-context` on a GENUINELY frame-less dispatch/
+;;     subscribe (no established scope at all, no explicit `:frame`). The
+;;     corpus's Mode-A harness always wraps `:fixture/dispatches` in an
+;;     ambient `with-frame` scope before running any entry (see
+;;     `implementation/core/test/re_frame/conformance_test.clj`'s
+;;     `run-fixture` and the CLJS mirror), so a truly scope-less call is
+;;     not reachable through `:fixture/dispatches` — the same "not
+;;     currently expressible as a fixture" gap the README documents for
+;;     render-time observables. The contract is pinned host-side instead:
+;;     `implementation/core/test/re_frame/router_carried_frame_test.clj`
+;;     (`bare-dispatch-outside-context-raises-no-frame-context`,
+;;     `bare-dispatch-sync-outside-context-raises-no-frame-context`,
+;;     `no-frame-error-precedes-registry-lookup`) and
+;;     `implementation/core/test/re_frame/frame_resolver_test.clj`
+;;     (`require-current-frame-raises-no-frame-context-outside-scope`)
+;;     exercise the real `rf/dispatch` / `rf/dispatch-sync` / `require-
+;;     current-frame!` public surface with no scope established at all.
+
+{:fixture/id           :headless/explicit-frame
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub :core/frame :core/trace}
+ :fixture/doc          "Headless (no React-context) frame resolution: explicit-frame-as-argument and the with-frame dynamic-binding scope both resolve a single, non-:rf/default-named frame in the SAME run; no :rf/default frame is registered, dispatched to, or synthesised anywhere in this fixture."
+
+ :fixture/registry
+ {:event {:counter/initialise {:doc "Seed the counter."}
+          :counter/inc        {:doc "Increment."}}
+  :sub   {:count {:doc "Current counter value."}}
+  :fx    {}}
+
+ :fixture/handlers
+ {:event {:counter/initialise [[:set [:count] 0]]
+          :counter/inc        [[:update [:count] [:fn :inc]]]}
+  :sub   {:count [[:get [:count]]]}}
+
+ ;; A single frame, deliberately NOT named :rf/default. Using
+ ;; :fixture/frames (rather than :fixture/frame-config) means the harness
+ ;; never registers :rf/default at all for this fixture — the only frame
+ ;; that can possibly answer a dispatch or subscribe is :widget.
+ :fixture/frames
+ [{:id :widget :initial-events [[:counter/initialise]]}]
+
+ :fixture/dispatches
+ [;; Bare entry — resolves via the with-frame dynamic-binding tier the
+  ;; harness establishes around the whole dispatch sequence (mirrors a
+  ;; headless host's explicit `(with-frame :widget ...)` scope).
+  [:counter/inc]
+  ;; Explicit-frame-as-argument tier — independent of established scope.
+  {:event [:counter/inc] :frame :widget}
+  [:counter/inc]]
+
+ :fixture/expect
+ {:final-app-dbs {:widget {:count 3}}
+
+  :sub-values {[:widget [:count]] 3}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/initialise :frame :widget}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc       :frame :widget}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc       :frame :widget}}
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :counter/inc       :frame :widget}}]}}
