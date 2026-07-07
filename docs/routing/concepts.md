@@ -370,10 +370,10 @@ When a resource is per-user, scope it with a **named scope resolver**. Register 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/scope.cljs + routing.cljs
 (rf/reg-resource-scope :realworld/session
-  {:inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username
-                [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))
 
 ;; The personalised feed, as a route resource:
 {:resource :realworld/feed

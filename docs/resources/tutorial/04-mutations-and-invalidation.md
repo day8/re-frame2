@@ -32,10 +32,10 @@ To key the cache per user, register a **named scope resolver** — a pure functi
 ;; src/conduit/scope.cljs
 ;; cf. examples/real-apps/realworld_resources/scope.cljs
 (rf/reg-resource-scope :conduit/session
-  {:doc     "The session's cache scope — nil when logged out (fail-closed)."
-   :inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:doc    "The session's cache scope — nil when logged out (fail-closed)."
+   :inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username [:rf.scope/session {:username username}])))
 ```
 
 Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` (meaning "resolve my scope through the `:conduit/session` resolver") instead of the default `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own.
