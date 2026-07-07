@@ -235,6 +235,43 @@
   (testing "root :assoc whole-value replacement still works"
     (is (= {:y 9} (de/apply-patches {:x 1} [[[] :assoc {:y 9}]])))))
 
+(deftest apply-patches-vector-index-vs-absent-parent-vivifies-vector
+  ;; rf2-x2vapx: the missing-parent auto-vivification cases pinned above
+  ;; ("MISSING / nil intermediate parent still auto-vivifies") only cover
+  ;; MAP-KEY paths (`[:a :b]` ⇒ `{:a {:b 2}}`). A path whose NEXT segment
+  ;; is an INTEGER (a vector index) reaching an ABSENT parent used to fall
+  ;; through to the same map-vivifying `assoc-in` call, so
+  ;; `(apply-patches {} [[[:items 0 :qty] :assoc 2]])` silently produced
+  ;; `{:items {0 {:qty 2}}}` — an int-keyed MAP — a shape NEITHER encoder
+  ;; side ever emits (`collect-vector-patches-into` only reaches an
+  ;; index-path patch via an already-present, same-length vector on both
+  ;; halves of the diff). Reachable only via a malformed / corrupt /
+  ;; third-party diff replayed against an absent base. Fix: an integer
+  ;; segment meeting a `nil` node vivifies a VECTOR instead — the shape a
+  ;; real diff would have produced.
+  (testing "absent parent + integer index ⇒ vector vivified, NOT an int-keyed map"
+    (is (= {:items [{:qty 2}]}
+           (de/apply-patches {} [[[:items 0 :qty] :assoc 2]]))
+        "was {:items {0 {:qty 2}}} before the fix"))
+  (testing "nested absent parent + integer index, deeper leaf"
+    (is (= {:a {:xs [9]}}
+           (de/apply-patches {} [[[:a :xs 0] :assoc 9]]))))
+  (testing "a non-zero integer index against an absent parent is a mismatch, not a partial vivify"
+    ;; A freshly-vivified vector starts empty, so only index 0 is a valid
+    ;; tail-grow target — mirrors the existing out-of-range-vs-PRESENT-vector
+    ;; guard pinned above, extended to the absent-parent case.
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/bad-diff-replay"
+          (de/apply-patches {} [[[:items 5 :qty] :assoc 2]]))))
+  (testing "round-trips through decode-db-after's section replay too"
+    (let [epoch {:db-before {}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path [:items]
+                                         :section-kind :modified
+                                         :patches      [[[:items 0 :qty] :assoc 2]]}]}}]
+      (is (= {:items [{:qty 2}]} (:db-after (de/decode-db-after epoch)))))))
+
 (deftest decode-db-after-nested-assoc-mismatched-base-is-structured-error
   ;; The same guard reached via the section-decoder hot
   ;; path. `decode-db-after` replays through the non-validating

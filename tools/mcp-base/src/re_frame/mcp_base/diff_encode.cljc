@@ -496,25 +496,69 @@
           (assoc-in m parent-path (dissoc parent k))
           m)))))
 
+(defn- vivify-assoc-in
+  "`assoc-in`-alike that chooses the auto-vivification container by the
+  SEGMENT's type rather than always defaulting to a map: an ABSENT
+  (`nil`) node vivifies a VECTOR when the segment reaching it is an
+  integer — the shape a same-length vector diff's index-path patch
+  (`[[:items 0 :qty] :assoc 2]`, from `collect-vector-patches-into`)
+  actually targets — and a MAP otherwise (`assoc-in`'s existing
+  default, unchanged for every non-integer segment). A PRESENT map or
+  vector node is written into directly via plain `assoc`, so an
+  already-shaped base is never reshaped; only a `nil` node gets a
+  fresh container manufactured, and which shape it gets follows the
+  segment about to be `assoc`ed into it. Assumes the caller
+  (`assoc-in-safe`'s `ok?` walk) has already proven every segment along
+  `path` is safe to descend — in particular that an integer segment
+  meeting a `nil` node is exactly `0` (see rf2-x2vapx below), so the
+  freshly-vivified `[]` here never `assoc`s an out-of-range index."
+  [node path v]
+  (if (empty? path)
+    v
+    (let [seg       (first path)
+          more      (rest path)
+          container (cond
+                      (some? node)   node
+                      (integer? seg) []
+                      :else          {})]
+      (assoc container seg (vivify-assoc-in (get node seg) more v)))))
+
 (defn- assoc-in-safe
   "Set the value at `path` (a non-empty path vector) in `m` to `v`,
   raising a structured `:rf.error/bad-diff-replay` ex-info — never a
   raw host exception — when an intermediate parent is present but
-  non-associative.
+  non-associative, or when a `nil` parent is reached by an
+  out-of-range vector index.
 
   The spec contract for `[<path> :assoc v]` is 'set the value at
   `path`, creating the slot if it didn't exist'. The naive `assoc-in`
-  honours the create-if-absent half — a MISSING / `nil` intermediate
-  parent auto-vivifies a map (`(assoc-in {} [:a :b] 2)` ⇒
-  `{:a {:b 2}}`), which is the intended grammar behaviour and is
-  preserved here. But when an intermediate parent is PRESENT and
+  honours the create-if-absent half, but always vivifies a MAP for a
+  missing intermediate regardless of the segment's type — including
+  an INTEGER segment (`(assoc-in {} [:items 0 :qty] 2)` ⇒
+  `{:items {0 {:qty 2}}}`, an int-keyed MAP), which is a shape NEITHER
+  encoder side ever emits (`collect-vector-patches-into` only reaches
+  an index path via an actual vector). `vivify-assoc-in` (above) fixes
+  this: a `nil` node reached by an integer segment vivifies a VECTOR
+  instead (`⇒ {:items [{:qty 2}]}`, rf2-x2vapx) — the shape a real
+  diff would have produced — while every non-integer segment still
+  vivifies a map exactly as before.
+
+  A freshly-vivified vector starts empty, so — mirroring the existing
+  PRESENT-vector tail-growth rule below — only index `0` is a valid
+  segment against a `nil` node; any other integer is an out-of-range
+  vivification attempt (a base/patch mismatch, not a real diff) and is
+  rejected the same way a present-but-out-of-range vector index is.
+
+  Separately, when an intermediate parent is PRESENT and
   non-associative, `assoc-in` throws a raw host exception with nil
   `ex-data`:
 
     - a SCALAR intermediate throws `ClassCastException`
       (`(assoc-in {:a 1} [:a :b] 2)` — `1` can't be `assoc`ed into);
-    - a VECTOR intermediate reached by a non-integer key throws
-      `IllegalArgumentException` (`(assoc-in {:a [1 2]} [:a :b] 9)`).
+    - a VECTOR intermediate reached by a non-integer key, or an
+      out-of-range integer key, throws `IllegalArgumentException` /
+      `IndexOutOfBoundsException`
+      (`(assoc-in {:a [1 2]} [:a :b] 9)`, `(assoc-in {:a [1 2]} [:a 9] 9)`).
 
   This is the `:assoc` peer of `dissoc-in`'s missing-/scalar-parent
   guard: `apply-patches`'s grammar gate pins the patch
@@ -525,45 +569,55 @@
   routes here.
 
   Policy (acceptance): a non-associative intermediate
-  parent is a base/patch MISMATCH, not a no-op. Unlike `:dissoc`
-  (where 'remove a key from a non-map' is naturally a no-op), silently
-  dropping an `:assoc` would discard the requested change (data loss),
-  and clobbering the scalar with a manufactured map would corrupt the
-  base into a shape neither encoder side emitted (data corruption).
-  Neither silent outcome is safe, so we surface the drift as a
-  structured failure rather than guess. The ex-info names the ACTUAL
-  decode-side boundary via `where` (`'mcp-base/apply-patches`
-  from the public validating decoder, `'mcp-base/decode-db-after` from
-  the section decoder), carries `:recovery :no-recovery`, and reports
-  the offending `:patch-path` plus the `:at` prefix where traversal hit
-  the non-associative node — without `pr-str`ing the value (the base
-  may carry sensitive payload; we report shape, not content)."
+  parent — or an out-of-range vector index against either a present
+  vector or a freshly-vivified one — is a base/patch MISMATCH, not a
+  no-op. Unlike `:dissoc` (where 'remove a key from a non-map' is
+  naturally a no-op), silently dropping an `:assoc` would discard the
+  requested change (data loss), and clobbering the scalar with a
+  manufactured map would corrupt the base into a shape neither encoder
+  side emitted (data corruption). Neither silent outcome is safe, so
+  we surface the drift as a structured failure rather than guess. The
+  ex-info names the ACTUAL decode-side boundary via `where`
+  (`'mcp-base/apply-patches` from the public validating decoder,
+  `'mcp-base/decode-db-after` from the section decoder), carries
+  `:recovery :no-recovery`, and reports the offending `:patch-path`
+  plus the `:at` prefix where traversal hit the non-associative node
+  — without `pr-str`ing the value (the base may carry sensitive
+  payload; we report shape, not content)."
   [m path v where]
   ;; Walk every key in `path`; before each key is applied, verify the
-  ;; node it lands on is associable-for-that-key the way `assoc-in`
-  ;; requires — including the LEAF key's direct parent (the final
-  ;; descent `assoc-in` performs). A MISSING / `nil` node is fine
-  ;; (auto-vivified to a map). A PRESENT non-associative node is the
-  ;; mismatch we surface.
+  ;; node it lands on is associable-for-that-key the way
+  ;; `vivify-assoc-in` requires — including the LEAF key's direct
+  ;; parent (the final descent `vivify-assoc-in` performs). A MISSING
+  ;; / `nil` node is fine (auto-vivified to a map, or to a vector when
+  ;; `seg` is integer — see `vivify-assoc-in` — but ONLY at index `0`,
+  ;; since a freshly-vivified vector is empty). A PRESENT
+  ;; non-associative node, or a `nil` node met by a non-zero integer
+  ;; segment, is the mismatch we surface.
   (loop [node    m
          segs    (seq path)
          crumbed []]
     (if (empty? segs)
-      (assoc-in m path v)
+      (vivify-assoc-in m path v)
       (let [seg  (first segs)
-            ;; A map takes any key; a vector takes only an in-bounds
-            ;; (or tail) integer index. `nil`/absent auto-vivifies.
-            ok?  (or (nil? node)
-                     (map? node)
+            ;; A map takes any key. A vector takes only an in-bounds
+            ;; (or tail) integer index — `nil` counts as a zero-length
+            ;; vector for this check when `seg` is an integer, since
+            ;; that's the container `vivify-assoc-in` is about to
+            ;; manufacture for it. A `nil` node met by a non-integer
+            ;; segment auto-vivifies a map unconditionally, as before.
+            ok?  (or (map? node)
                      (and (vector? node) (integer? seg)
-                          (<= 0 seg (count node))))]
+                          (<= 0 seg (count node)))
+                     (and (nil? node)
+                          (or (not (integer? seg)) (zero? seg))))]
         (if ok?
           (recur (get node seg) (rest segs) (conj crumbed seg))
           (throw (ex-info ":rf.error/bad-diff-replay"
                           {:rf.error/id :rf.error/bad-diff-replay
                            :where       where
                            :recovery    :no-recovery
-                           :reason      "diff :assoc replay hit a non-associative intermediate parent — patch path does not exist in this base"
+                           :reason      "diff :assoc replay hit a non-associative intermediate parent (or an out-of-range vector index against a present or absent parent) — patch path does not exist in this base"
                            :patch-path  (vec path)
                            :at          crumbed
                            :parent-type (some-> node type pr-str)})))))))
