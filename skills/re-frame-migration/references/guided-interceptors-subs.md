@@ -71,7 +71,7 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 1. **Body reads only `app-db`**: convert to `reg-sub`. Most call sites hit here. Mechanical when the body is straightforward.
 2. **Body subscribes to a non-app-db reactive source** (WebSocket, timer, external pub/sub): convert to a registered fx that dispatches events; the sub reads `app-db`. See Pattern-AsyncEffect.
-3. **Body manages reaction lifecycle** (explicit track/dispose, on-mount/on-dispose hooks): convert to a state machine. The machine has entry/exit/data lifecycle; its snapshot lives in the **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (not in app-db) and is read via `sub-machine`.
+3. **Body manages reaction lifecycle** (explicit track/dispose, on-mount/on-dispose hooks): convert to a state machine. The machine has entry/exit/data lifecycle; its snapshot lives in the **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (not in app-db) and is read via the `[:rf/machine <id>]` subscription vector.
 4. **Body has side effects** (writes to `app-db`, fires `dispatch`, mutates external state): anti-pattern. Move the side effect into an event handler; the sub reads the resulting `app-db` state. **Flag as a code-quality finding** alongside the rewrite.
 
 Present the categorisation per call site with the proposed rewrite; the author confirms before each is applied.
