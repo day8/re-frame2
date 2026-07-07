@@ -186,12 +186,26 @@
 ;; so an inline `:rf.cofx/requires` cannot hide on a slot value.
 
 (defn- always-entries
-  "Normalise a state-node's `:always` slot to a vector of entry maps (a
-  single map or a vector of maps; absent → `[]`). Mirrors
+  "Normalise a state-node's `:always` slot to a vector of entry maps
+  through the SAME shared candidate grammar `candidate-maps` below
+  resolves for `:on` / `:after` / `:on-done` (`grammar/transition-value-
+  form` — rf2-0k0f3x): a bare keyword desugars to `{:target <kw>}`, a
+  vector-target to `{:target <vec>}`, a single map is the one-element
+  case, a guarded candidate-vector passes through unchanged, and an
+  unrecognised shape degrades to `[]` (the runtime normaliser is the
+  throw's designated surface — `:rf.error/machine-bad-always`). Absent
+  `:always` (missing key, or present with nil) → `[]`. Mirrors
   `validation/always-entries`."
   [node]
   (let [a (:always node)]
-    (cond (nil? a) [] (vector? a) a :else [a])))
+    (if (nil? a)
+      []
+      (case (grammar/transition-value-form a)
+        :keyword          [{:target a}]
+        :candidate-vector a
+        :vec-target       [{:target a}]
+        :map              [a]
+        :other            []))))
 
 (defn- walk-nodes-with-path
   "Yield `[absolute-path node]` pairs for every state node, recursing

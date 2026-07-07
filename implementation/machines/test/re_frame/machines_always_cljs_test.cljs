@@ -111,3 +111,24 @@
       (is (not-any? (fn [ev] (= :rf.machine.event/unhandled-no-op (:operation ev)))
                     @traces)
           "a runaway cycle is NOT a benign no-op — no unhandled-no-op fires"))))
+
+(deftest machine-always-bare-keyword-shorthand-cljs
+  (testing "a bare-keyword :always (the :on / :after keyword-target shorthand,
+            rf2-0k0f3x) registers cleanly and desugars to {:target <kw>} — no
+            raw platform throw (assoc on a keyword) at the first macrostep,
+            and the eventless transition fires unconditionally on entry"
+    (let [machine
+          {:initial :asking
+           :data    {}
+           :states
+           {:asking  {:always :sibling}
+            :sibling {}}}]
+      (rf/reg-machine :quiz4/flow machine)
+      ;; The bare-keyword :always is unconditional (no :guard) — it settles
+      ;; during the SAME birth macrostep, before the creation kick's
+      ;; dispatch-sync returns. :asking is never externally observed.
+      (rf/dispatch-sync [:quiz4/flow [:rf.machine/start]])
+      (let [s (snapshot :quiz4/flow)]
+        (is (= :sibling (:state s))
+            "the bare-keyword :always shorthand desugars to {:target :sibling}
+             and settles at the first (birth) macrostep")))))

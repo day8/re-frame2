@@ -223,7 +223,7 @@ Every state in `:states` is a map. The complete state-node grammar — every key
 
 ```clojure
 {:on      {<event-id> <transition>, ...}    ;; event-driven transitions
- :always  [<guarded-transition>, ...]        ;; eventless transitions (see §Eventless `:always`)
+ :always  <transition>                       ;; eventless transitions — same value-form grammar as :on / :after (see §Eventless `:always`)
  :after   {<delay> <transition>, ...}        ;; delayed transitions (see §Delayed `:after`)
  :timeout <duration>                         ;; this state must finish before <duration> (see §`:timeout` / `:on-timeout`); requires :on-timeout
  :on-timeout <transition>                    ;; transition fired when :timeout elapses
@@ -1892,7 +1892,14 @@ Parallel-region transitions emit one `:rf.machine/transition` macrostep trace pe
 
 An `:always` transition fires automatically when its guard becomes true — no event needed. xstate/SCXML term: **transient** or **eventless** transition. The pattern handles "the snapshot just changed; if condition X is now true, immediately move to state Y" without the author having to manually `:raise` a synthetic event from every action that could enable the condition.
 
-`:always` is a **state-node key** (alongside `:on`, `:entry`, `:exit`, `:spawn`) holding a vector of guarded transition specs. Checked **after entry** (or after any transition that lands in this state). First matching guard wins; subsequent entries in the vector are not evaluated.
+`:always` is a **state-node key** (alongside `:on`, `:entry`, `:exit`, `:spawn`), resolved through the **same** value-form grammar as an `:on` clause / `:after` entry (per [§Delayed `:after` transitions §Value shape](#value-shape)) — the runtime normalises all three through one shared candidate-walk, so the slots can never drift apart. The accepted value forms:
+
+- **`:keyword`** — sugar for `{:target <keyword>}`, resolved as a sibling of the declaring state. The common single-target case.
+- **`[:vector :path]`** — sugar for `{:target [:vector :path]}`, an absolute path target.
+- **`:rf/transition` map** — a single transition spec `{:guard <guard-ref> :target <target> :action <action-ref> :meta <map>}` — the one-element case.
+- **guarded candidate-vector** — `[{:guard g1 :target s1} {:guard g2 :target s2} … {:target sN}]`, resolved **first-guard-pass-wins**, exactly as an `:on` clause's multiple-candidate form.
+
+Sugar normalises at registration time, exactly as `:after`'s value grammar does — the runtime sees only the desugared candidate-vector form. Checked **after entry** (or after any transition that lands in this state). First matching guard wins; subsequent candidates are not evaluated. A malformed value (neither of the four forms above) throws `:rf.error/machine-bad-always` at the first macrostep that walks it (per [009 §Error contract](009-Instrumentation.md)).
 
 ```clojure
 {:checking-form
