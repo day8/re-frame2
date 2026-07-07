@@ -1408,7 +1408,14 @@
   (frames/allocate-inline! variant-id
                            decorator-stack
                            (get-in plan [:world :frame :fx-overrides])
-                           (inline-events-only? plan decorator-stack))
+                           (inline-events-only? plan decorator-stack)
+                           ;; rf2-cmjly3 finding 12: thread the plan's
+                           ;; :sensitive/:large classification (carried
+                           ;; through `:world` by `plan.cljc`'s
+                           ;; `context-keys`) into `allocate-inline!` so it
+                           ;; actually applies to the frame's elision
+                           ;; registry instead of being silently dropped.
+                           (select-keys (:world plan) [:sensitive :large]))
   (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
   (assoc ctx :epoch-baseline (runner-events/last-epoch-id variant-id)))

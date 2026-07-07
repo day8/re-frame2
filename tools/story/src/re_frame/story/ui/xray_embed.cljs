@@ -456,8 +456,21 @@
                       (release!)
                       (when-let [host @host-ref]
                         (when-let [mount-fn (mount-fn-for pid)]
-                          (try
-                            (let [container (.createElement js/document "div")]
+                          ;; `container` is created OUTSIDE the `try` (rf2-cmjly3
+                          ;; finding 5) so the `catch` below can reach it: if
+                          ;; `mount-fn` throws AFTER `.appendChild` has already
+                          ;; wired the container into the host, the container
+                          ;; was never stored in `mounted-ref` (the `reset!`
+                          ;; that would register it never runs), so `release!`
+                          ;; would never see it either — without the explicit
+                          ;; removal below, a failed mount left an orphan `<div>`
+                          ;; (plus whatever partial DOM/listener side effects
+                          ;; `mount-fn` made before throwing) appended to the
+                          ;; host for the rest of the panel-host's lifetime, and
+                          ;; every subsequent failed mount on the same host
+                          ;; accumulated another one.
+                          (let [container (.createElement js/document "div")]
+                            (try
                               ;; Mark the container so DOM-level
                               ;; assertions / dev-tools can identify
                               ;; which Xray panel owns it. The
@@ -486,13 +499,21 @@
                               (let [unmount! (mount-fn container)]
                                 (reset! mounted-ref
                                         {:unmount unmount!
-                                         :container container})))
-                            (catch :default e
-                              (when (and (exists? js/console)
-                                         (.-warn js/console))
-                                (.warn js/console
-                                       (str "[story.xray-embed] mount " pid " threw: "
-                                            (.-message e)))))))))]
+                                         :container container}))
+                              (catch :default e
+                                (when (and (exists? js/console)
+                                           (.-warn js/console))
+                                  (.warn js/console
+                                         (str "[story.xray-embed] mount " pid " threw: "
+                                              (.-message e))))
+                                ;; Never registered in `mounted-ref` (the throw
+                                ;; pre-empted the `reset!`), so `release!` will
+                                ;; never clean this up — remove it from the DOM
+                                ;; right here, regardless of how far the try
+                                ;; body got before throwing.
+                                (when-let [parent (.-parentNode container)]
+                                  (try (.removeChild parent container)
+                                       (catch :default _ nil)))))))))]
     (r/create-class
       {:display-name "story-xray-embed-panel-host"
        :component-did-mount
