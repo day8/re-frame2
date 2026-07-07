@@ -270,23 +270,39 @@
   scope it raises `:rf.error/no-frame-context` rather than clearing an
   invented default. One-arity targets the named frame (the right shape
   for fixtures / tools outside any scope). Returns nil. See also:
-  `re-frame.subs/clear-sub` (registrar-side counterpart)."
+  `re-frame.subs/clear-sub` (registrar-side counterpart).
+
+  Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
+  `interop/dispose!` call, not after. A layer-2+ slot's on-dispose
+  callback releases its `:<-` input refs via `unsubscribe!`, which — if
+  the input's slot were still present in the cache atom mid-walk — could
+  drive its ref-count to 0 and fire `dispose-entry-now!`, re-emitting a
+  SECOND `:rf.sub/dispose` (reason `:no-more-derefers`) for a slot this
+  same walk is about to visit with reason `:cache-clear`; the resulting
+  double-emit's ORDER (and thus which reason lands first) depended on
+  hash-map iteration order over the cache. Clearing the atom first means
+  every cascade-driven `unsubscribe!` finds nothing to evict, so it can
+  never re-fire — every slot in the pre-clear snapshot gets exactly one
+  emit, deterministically reasoned `:cache-clear`."
   ([] (clear-sub-cache! (frame/require-current-frame!
                           :clear-sub-cache!
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
    (when-let [cache (:sub-cache (frame/frame frame-id))]
-     (doseq [[k entry] @cache]
-       ;; Emit dispose per evicted key BEFORE the per-
-       ;; reaction `interop/dispose!`. Reason `:cache-clear`
-       ;; discriminates the explicit-teardown path from sync 1 → 0
-       ;; fires (`:no-more-derefers`) and hot-reload re-registration
-       ;; (`:hot-reload`).
-       (emit-dispose! frame-id k :cache-clear)
-       (when-let [r (:reaction entry)]
-         (try (interop/dispose! r)
-              (catch #?(:clj Throwable :cljs :default) _ nil))))
-     (reset! cache {}))))
+     (let [snapshot @cache]
+       ;; Evict the whole cache BEFORE any dispose! call — see the
+       ;; rf2-awhtpc note above.
+       (reset! cache {})
+       (doseq [[k entry] snapshot]
+         ;; Emit dispose per evicted key BEFORE the per-
+         ;; reaction `interop/dispose!`. Reason `:cache-clear`
+         ;; discriminates the explicit-teardown path from sync 1 → 0
+         ;; fires (`:no-more-derefers`) and hot-reload re-registration
+         ;; (`:hot-reload`).
+         (emit-dispose! frame-id k :cache-clear)
+         (when-let [r (:reaction entry)]
+           (try (interop/dispose! r)
+                (catch #?(:clj Throwable :cljs :default) _ nil))))))))
 
 (defn clear-all-frame-sub-caches!
   "CLJC-safe adapter-disposal sub-cache walk: dispose every cached entry
@@ -336,15 +352,28 @@
   atom), emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason
   :frame-destroy` and `:frame frame-id`, then empty the cache. Per Spec
   009 §`:rf.sub/dispose` reason enum + Spec 006 §Disposal on frame
-  destroy. Returns nil."
+  destroy.
+
+  Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
+  `interop/dispose!` call — same rationale as `clear-sub-cache!` above.
+  Without pre-clearing, disposing a layer-2+ slot cascades (via its
+  on-dispose callback) into `unsubscribe!` on its `:<-` inputs; if an
+  input's slot were still live in the cache mid-walk, that could drive
+  its ref-count to 0 and fire a SECOND `:rf.sub/dispose` (reason
+  `:no-more-derefers`) for a slot this walk is about to visit with
+  reason `:frame-destroy` — nondeterministic by hash-map iteration
+  order. Pre-clearing means the cascade always finds nothing to evict,
+  so every slot in the pre-clear snapshot gets exactly one emit,
+  deterministically reasoned `:frame-destroy`. Returns nil."
   [cache frame-id]
   (when cache
-    (doseq [[k entry] @cache]
-      (emit-dispose! frame-id k :frame-destroy)
-      (when-let [r (:reaction entry)]
-        (try (interop/dispose! r)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
-    (reset! cache {}))
+    (let [snapshot @cache]
+      (reset! cache {})
+      (doseq [[k entry] snapshot]
+        (emit-dispose! frame-id k :frame-destroy)
+        (when-let [r (:reaction entry)]
+          (try (interop/dispose! r)
+               (catch #?(:clj Throwable :cljs :default) _ nil))))))
   nil)
 
 (late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!
