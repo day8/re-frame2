@@ -92,8 +92,11 @@
 ;; ---- step-back! ----------------------------------------------------------
 
 (deftest step-back-pops-and-restores
-  (testing "step-back! pops the epoch stack, calls restore-epoch against
-            the new head, and decrements cursor"
+  (testing "step-back! restores against the CURRENT top of the epoch
+            stack (the pre-image of the step being undone), then pops
+            it — rf2-4e545l finding 7. The prior implementation popped
+            BEFORE peeking, which restored one epoch too far (the entry
+            one further down the stack) for cursor >= 2."
     (let [vid      :story.unit/back
           restored (atom [])]
       (seed-slot! vid [[:e/a] [:e/b]])
@@ -111,11 +114,54 @@
                     assertions/read-assertions (fn [_] [])]
         (st/step-back! vid)
         (let [s (get @st/results-atom vid)]
-          (is (= [[vid :epoch/before-a]] @restored)
-              "restored against the NEW head of the popped stack")
+          (is (= [[vid :epoch/before-b]] @restored)
+              "restored against the TOP of the stack (before-b) — the
+               pre-image of the step cursor=2 just ran, NOT the entry
+               one further down (before-a, the pre-fix bug)")
           (is (= 1 (:cursor s)) "cursor decrements to 1")
           (is (= [:epoch/seed :epoch/before-a] (:epoch-stack s))
-              "stack popped"))))))
+              "stack popped (the top is removed regardless of the
+               peek/pop ordering fix — only the RESTORE target
+               changed)"))))))
+
+(deftest step-back-cursor-2-plus-does-not-undershoot
+  (testing "rf2-4e545l finding 7 — reproduces the reported scenario
+            directly: `begin!` seeds :epoch-stack with the pre-play
+            epoch, and step 0 (no domino between begin! and the first
+            step!) pushes that SAME epoch again, so the stack carries a
+            duplicate bottom entry [S0 S0 S1 S2 …]. Stepping back from
+            cursor=3 must restore S2 (the state right before the THIRD
+            step ran) — not S1, which the pre-fix `(peek (butlast
+            stack))` under-shoot returned."
+    (let [vid      :story.unit/back-cursor3
+          restored (atom [])]
+      (seed-slot! vid [[:e/a] [:e/b] [:e/c]])
+      (swap! st/results-atom update vid
+             (fn [s] (-> s
+                         (assoc :cursor 3)
+                         ;; The real duplicate-seed shape begin!/step!
+                         ;; build: seed pushed twice (S0 S0), then one
+                         ;; genuine pre-image per subsequent step (S1, S2).
+                         (assoc :epoch-stack [:epoch/s0 :epoch/s0
+                                              :epoch/s1 :epoch/s2]))))
+      (with-redefs [rf/restore-epoch! (fn [v eid]
+                                       (swap! restored conj [v eid]))
+                    rf/epoch-history (fn [_] [{:epoch-id :x}])
+                    assertions/read-assertions (fn [_] [])]
+        (st/step-back! vid)
+        (is (= [[vid :epoch/s2]] @restored)
+            "restores S2 — the pre-image of the step just taken —
+             rather than S1 (the pre-fix off-by-one under-shoot)")
+        (is (= 2 (:cursor (get @st/results-atom vid))))
+        ;; Stepping back again from cursor=2 must land on S1, exercising
+        ;; the SAME correct behaviour continues past the duplicate-seed
+        ;; entry at the bottom.
+        (st/step-back! vid)
+        (is (= [[vid :epoch/s2] [vid :epoch/s1]] @restored)
+            "a second step-back restores S1 — the duplicate seed at the
+             bottom of the stack is consumed correctly, never restoring
+             one epoch too far")
+        (is (= 1 (:cursor (get @st/results-atom vid))))))))
 
 (deftest step-back-noops-at-start
   (testing "step-back! does nothing when cursor is 0"

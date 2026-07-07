@@ -84,8 +84,15 @@
         ;; (one per `:dispatch`/`:dispatch-sync` step), the shape the
         ;; scrubber's slot expects.
         play-events  (play/variant-play-events variant-id)
-        history      (rf/epoch-history variant-id)
-        epoch-ids    (pure/epoch-id-slice history (count play-events))]
+        ;; rf2-4e545l finding 4: match against THIS run's own scoped
+        ;; `:epoch-tape` (the result's raw `:rf/epoch-record` vector,
+        ;; each carrying its `:trigger-event`) by trigger-event identity
+        ;; rather than a positional trailing-N slice of the frame's WHOLE
+        ;; epoch-history — a mixed :click+:dispatch script where the
+        ;; :click ALSO commits an epoch (its DOM handler dispatches)
+        ;; would otherwise misalign a positional slice. See
+        ;; `pure/epoch-id-slice`'s docstring.
+        epoch-ids    (pure/epoch-id-slice (:epoch-tape result) play-events)]
     (swap! results-atom assoc variant-id
            {:result        result
             :ran-at-ms     now

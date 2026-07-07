@@ -169,15 +169,29 @@
 
   Step-back never re-dispatches the popped event — that would create a
   fresh epoch and lose the deterministic mapping between cursor and
-  history. The popped event simply becomes pending again."
+  history. The popped event simply becomes pending again.
+
+  rf2-4e545l finding 7: `begin!` seeds `:epoch-stack` with the pre-play
+  epoch AND `step!` (for the FIRST forward step) pushes that SAME
+  pre-play epoch again (there is no domino between `begin!`'s seed and
+  step 0's push) — so the stack carries a duplicate bottom entry. The
+  top of the stack (`peek`) is always the pre-image of the MOST RECENT
+  step, i.e. exactly the state to restore to on a step-back. Popping
+  BEFORE peeking (the prior code) read the entry one further down the
+  stack instead, under-shooting by one epoch for every cursor >= 2 (the
+  cursor == 1 case only looked correct because the duplicate bottom
+  entry happened to mask the shift). Peek THEN pop is the correct
+  order — it restores the top image and leaves the new top as the
+  pre-image for the NEXT step-back, matching the stack cursor==(c-1)
+  would have built by forward-stepping alone."
   [variant-id]
   (let [slot (get @results-atom variant-id)]
     (when (stepper-pure/can-step-back? slot)
-      (let [stack    (or (:epoch-stack slot) [])
-            ;; Pop the head; the NEW head is the pre-image of the
-            ;; previous step (the cursor we're stepping back to).
-            new-stack (vec (butlast stack))
-            target-id (peek new-stack)]
+      (let [stack     (or (:epoch-stack slot) [])
+            ;; Peek the CURRENT top — the pre-image of the step we're
+            ;; undoing — before popping it off.
+            target-id (peek stack)
+            new-stack (vec (butlast stack))]
         (when target-id
           (rf/restore-epoch! variant-id target-id))
         ;; Pop the substrate's last-run step + result so the row outcomes

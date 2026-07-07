@@ -630,9 +630,9 @@
 (defn test-view
   "Top-level `:test` mode pane for `variant-id`.
 
-  On first mount for a variant the pane auto-runs the variant once
-  so the user lands on the result; subsequent visits to the tab
-  show the most recent result until the Re-run button is clicked.
+  On first encounter of a variant the pane auto-runs it once so the
+  user lands on the result; subsequent visits to the tab show the most
+  recent result until the Re-run button is clicked.
 
   Returns nil when given no variant id (the shell already gates
   this, but the helper guards itself too).
@@ -640,56 +640,70 @@
   Per spec/009 the pane is read-only — no inputs mutate args /
   overrides / modes. The Re-run button mutates **runtime state**
   (re-allocates the variant frame via `reset-variant`) but not
-  the variant's authoring shape."
+  the variant's authoring shape.
+
+  rf2-4e545l finding 3: shell.cljs mounts this component with NO React
+  key (`[test-mode-view/test-view variant-id]`), and `:active-mode-tab`
+  is per-variant persisted, so switching `:selected-variant` between two
+  variants BOTH already on the `:test` tab reconciles as a PROP UPDATE
+  at this component's tree position — React reuses the same instance
+  rather than unmounting/remounting it. A `:component-did-mount`-only
+  auto-run (the prior implementation) never re-fires on a prop update,
+  so the newly-focused variant's pane rendered blank until a manual
+  Re-run. `r/with-let`'s body runs on EVERY render (mount AND
+  reconciled update alike), so tracking the last-seen `variant-id` here
+  and re-checking the auto-run condition on a change catches a
+  reconciled swap the same way a fresh mount would — the same pattern
+  `variant-cell` (workspace.cljc, rf2-zme7/kgn0c/c56hr) uses to
+  pre-allocate a variant's frame from inside a render body rather than a
+  lifecycle hook."
   [variant-id]
   (when variant-id
-    (r/create-class
-      {:display-name "rf-story-test-view"
-       :component-did-mount
-       (fn [_this]
-         ;; Auto-run on first mount per variant. If a slot already
-         ;; exists (returning to the tab without re-mount) we don't
-         ;; re-fire — the user clicks Re-run to refresh.
-         (when (pure/variant-has-tests? variant-id)
-           (when-not (get @state/results-atom variant-id)
-             (state/run-variant-pane! variant-id))))
-       :reagent-render
-       (fn [variant-id]
-         (cond
-           (not (pure/variant-has-tests? variant-id))
-           [:section {:style     (:wrap styles)
-                      :data-test "story-test-view"
-                      :aria-label "Variant tests"}
-            [empty-state variant-id]]
+    (r/with-let [last-variant (atom nil)]
+      (when (not= variant-id @last-variant)
+        (reset! last-variant variant-id)
+        ;; Auto-run on first encounter of this variant (a fresh mount OR
+        ;; a reconciled prop swap). If a slot already exists (returning
+        ;; to the tab without a variant change) we don't re-fire — the
+        ;; user clicks Re-run to refresh.
+        (when (and (pure/variant-has-tests? variant-id)
+                   (not (get @state/results-atom variant-id)))
+          (state/run-variant-pane! variant-id)))
+      (cond
+        (not (pure/variant-has-tests? variant-id))
+        [:section {:style     (:wrap styles)
+                   :data-test "story-test-view"
+                   :aria-label "Variant tests"}
+         [empty-state variant-id]]
 
-           :else
-           [:section {:style     (:wrap styles)
-                      :data-test "story-test-view"
-                      :aria-label "Variant tests"}
-            [header variant-id]
-            [summary-section variant-id]
-            ;; the unified run-result surfaces (spec/021 §1):
-            ;; checks grouped by id, the per-test assertions (terminal +
-            ;; script-checkpoint, with the failed-only filter), schema
-            ;; violations (consumed + unconsumed), and cannot-run refusals.
-            [checks-section variant-id]
-            [stepper-view/stepper-section variant-id]
-            [scrubber-section variant-id]
-            [rows-section variant-id]
-            [schema-section variant-id]
-            [cannot-run-section variant-id]
-            ;; visual + a11y check RESULTS (spec/021 §4).
-            ;; Reads the browser-tier oracle records (structural-a11y /
-            ;; axe-a11y / visual-snapshot) off the SAME unified `:assertions`
-            ;; slot and presents them readably (violations as a
-            ;; finding+locus list; screenshot identity; honest cannot-run),
-            ;; rather than as the raw `:actual` EDN blob the generic
-            ;; assertions table would show.
-            [visual-a11y-view/visual-a11y-section variant-id]
-            ;; result → evidence-spine link (spec/021 §2),
-            ;; a graceful "evidence pending" until the spine display lands.
-            [evidence-section variant-id]
-            ;; generated-failure promotion entry point
-            ;; (spec/021 §3). Captures THIS run as an artifact and opens the
-            ;; promotion dialog. Distinct from save-current-state.
-            [promotion-section variant-id]]))})))
+        :else
+        [:section {:style     (:wrap styles)
+                   :data-test "story-test-view"
+                   :aria-label "Variant tests"}
+         [header variant-id]
+         [summary-section variant-id]
+         ;; the unified run-result surfaces (spec/021 §1):
+         ;; checks grouped by id, the per-test assertions (terminal +
+         ;; script-checkpoint, with the failed-only filter), schema
+         ;; violations (consumed + unconsumed), and cannot-run refusals.
+         [checks-section variant-id]
+         [stepper-view/stepper-section variant-id]
+         [scrubber-section variant-id]
+         [rows-section variant-id]
+         [schema-section variant-id]
+         [cannot-run-section variant-id]
+         ;; visual + a11y check RESULTS (spec/021 §4).
+         ;; Reads the browser-tier oracle records (structural-a11y /
+         ;; axe-a11y / visual-snapshot) off the SAME unified `:assertions`
+         ;; slot and presents them readably (violations as a
+         ;; finding+locus list; screenshot identity; honest cannot-run),
+         ;; rather than as the raw `:actual` EDN blob the generic
+         ;; assertions table would show.
+         [visual-a11y-view/visual-a11y-section variant-id]
+         ;; result → evidence-spine link (spec/021 §2),
+         ;; a graceful "evidence pending" until the spine display lands.
+         [evidence-section variant-id]
+         ;; generated-failure promotion entry point
+         ;; (spec/021 §3). Captures THIS run as an artifact and opens the
+         ;; promotion dialog. Distinct from save-current-state.
+         [promotion-section variant-id]]))))

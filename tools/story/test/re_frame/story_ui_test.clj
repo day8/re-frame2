@@ -1188,18 +1188,39 @@
     (is (= [] (test-mode/play-step-statuses [] [])))
     (is (= [] (test-mode/play-step-statuses nil nil)))))
 
-(deftest test-mode-epoch-id-slice-trailing-window
-  (testing "epoch-id-slice returns the trailing n epoch-ids"
-    (let [history [{:epoch-id 10} {:epoch-id 11} {:epoch-id 12}
-                   {:epoch-id 13} {:epoch-id 14}]]
-      (is (= [12 13 14] (test-mode/epoch-id-slice history 3)))
-      (is (= [10 11 12 13 14] (test-mode/epoch-id-slice history 5)))
-      (is (= [14] (test-mode/epoch-id-slice history 1)))))
-  (testing "epoch-id-slice short-circuits to [] when history is too small"
-    ;; production / ring-buffer-trimmed contexts: degrade gracefully
-    ;; rather than mis-mapping play-steps onto wrong epochs.
-    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] 3))))
-  (testing "epoch-id-slice tolerates nil history and non-positive n"
-    (is (= [] (test-mode/epoch-id-slice nil 3)))
-    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] 0)))
-    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1}] -2)))))
+(deftest test-mode-epoch-id-slice-trigger-event-alignment
+  (testing "epoch-id-slice matches each play-event against the tape by
+            :trigger-event, in order, when every tape record corresponds
+            1-to-1 to a play event (the simple no-interleaving case)"
+    (let [play-events [[:a] [:b] [:c]]
+          tape        [{:epoch-id 10 :trigger-event [:a]}
+                       {:epoch-id 11 :trigger-event [:b]}
+                       {:epoch-id 12 :trigger-event [:c]}]]
+      (is (= [10 11 12] (test-mode/epoch-id-slice tape play-events)))))
+  (testing "rf2-4e545l finding 4 — a non-dispatch step (:click/:type) that
+            ALSO commits an epoch interleaves a tape record whose
+            :trigger-event is not among play-events; epoch-id-slice
+            skips it rather than misattributing it to the next
+            dispatch-only play-event"
+    (let [play-events [[:a] [:b] [:c]]
+          ;; a :click between the [:a] and [:b] dispatch steps fires its
+          ;; own on-click handler dispatch — an epoch NOT represented in
+          ;; play-events (variant-play-events skips :click entirely).
+          tape        [{:epoch-id 100 :trigger-event [:a]}
+                       {:epoch-id 101 :trigger-event [:click/side-effect]}
+                       {:epoch-id 102 :trigger-event [:b]}
+                       {:epoch-id 103 :trigger-event [:c]}]]
+      (is (= [100 102 103] (test-mode/epoch-id-slice tape play-events))
+          "epoch 101 (the interleaved click-triggered epoch) is skipped —
+           NOT attributed to play-event [:b], which a positional
+           trailing-N slice would have done")))
+  (testing "epoch-id-slice returns [] when the tape runs out before every
+            play-event is matched — production / ring-buffer-trimmed
+            contexts degrade gracefully rather than mis-mapping steps"
+    (let [play-events [[:a] [:b] [:c]]
+          tape        [{:epoch-id 10 :trigger-event [:a]}]]
+      (is (= [] (test-mode/epoch-id-slice tape play-events)))))
+  (testing "epoch-id-slice tolerates nil/empty tape and play-events"
+    (is (= [] (test-mode/epoch-id-slice nil [[:a]])))
+    (is (= [] (test-mode/epoch-id-slice [{:epoch-id 1 :trigger-event [:a]}] nil)))
+    (is (= [] (test-mode/epoch-id-slice [] [])))))
