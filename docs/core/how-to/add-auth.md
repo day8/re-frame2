@@ -348,11 +348,10 @@ To clear *a user's* cached reads you need a way to name "this user's scope." Tha
 ;; Register once at boot. The resolver is PURE — it derives a scope from db,
 ;; it does not fetch, dispatch, or read ambient state.
 (rf/reg-resource-scope :my-app/session
-  {:inputs {:username [:db [:auth :user :username]]}
-   :resolve
-   (fn [{:keys [username]} _ctx]
-     (when username
-       [:rf.scope/session {:username username}]))})   ;; nil when logged out — fail-closed
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))   ;; nil when logged out — fail-closed
 ```
 
 Now logout itself. There's one subtlety, and the ordering is the whole game: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.

@@ -54,7 +54,7 @@ Two keys carry the minimum model. `:params-schema` defines the read's *identity*
 
 !!! warning "Gotcha — the `_ctx` second argument is reserved, currently `nil`"
 
-    Every author-supplied function this artefact calls (`:request`, a scope resolver's `:resolve`) receives a trailing `ctx` that is **literal nil** in this slice — declared for forward-compatibility, not to be relied on. Derive your request from `params` and your scope from declared `:inputs`, never from `ctx`. (The one exception is a route-resource `:params` / `:scope` / `:when` function, which carries a populated route context, because route-entry planning has a real match to thread.)
+    Every author-supplied function this artefact calls (`:request`, a scope resolver's resolver fn) receives a trailing `ctx` that is **literal nil** in this slice — declared for forward-compatibility, not to be relied on. Derive your request from `params` and your scope from declared `:inputs`, never from `ctx`. (The one exception is a route-resource `:params` / `:scope` / `:when` function, which carries a populated route context, because route-entry planning has a real match to thread.)
 
 ## Cause it to fetch from a route
 
@@ -237,10 +237,10 @@ Params say *which* article. Scope says *whose* cache. A genuinely public read de
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/scope.cljs
 (rf/reg-resource-scope :realworld/session
-  {:inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username
-                [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))
 
 ;; Adapted from examples/real-apps/realworld_resources/resources.cljs
 (rf/reg-resource :realworld/feed

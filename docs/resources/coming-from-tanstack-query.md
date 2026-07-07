@@ -65,9 +65,9 @@ re-frame2 makes that leak *unrepresentable*. A cache entry's identity is a tripl
 
 ```clojure
 (rf/reg-resource-scope :realworld/session
-  {:inputs  {:username [:db [:auth :user :username]]}
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username [:rf.scope/session {:username username}])))
 ```
 
 Three properties fall out that a hand-assembled key can't give you:
