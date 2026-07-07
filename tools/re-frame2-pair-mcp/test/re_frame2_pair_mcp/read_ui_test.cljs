@@ -93,6 +93,52 @@
                      (is (str/includes? form ":frame :stories") "frame coerced to keyword"))
                    (done)))))))
 
+(deftest non-string-frame-does-not-throw-and-drops-cleanly
+  ;; rf2-pvh95w: read-ui used to reimplement :frame coercion locally
+  ;; (a private `frame-edn` doing a bare `(str/replace frame #"^:" "")`
+  ;; with no type guard). `str/replace` requires a STRING first arg, so a
+  ;; JSON :frame of any non-string type (number/boolean/array/object —
+  ;; e.g. a malformed client) reached it and threw a raw synchronous
+  ;; TypeError BEFORE any Promise/.catch boundary — an uncaught crash,
+  ;; not a clean `:ok? false`.
+  ;;
+  ;; :frame now routes through the shared `args/->frame-keyword` (->
+  ;; `base-args/fresh-keyword`), the same coercer every sibling read tool
+  ;; (get-path/read-sub/read-dom/handler-meta) already uses — its
+  ;; `:else nil` fallback resolves a non-string/non-keyword :frame to
+  ;; nil (dropped from the emitted form; the runtime resolves the
+  ;; operating frame itself) instead of throwing.
+  ;;
+  ;; The call to `read-ui-tool` below IS the regression guard: a
+  ;; resurfaced `frame-edn`-style bug would throw synchronously right
+  ;; here, failing the test with an uncaught exception rather than a
+  ;; normal assertion failure.
+  (async done
+    (let [seen (atom nil)]
+      (-> (with-captured-form! seen {:ok? true}
+            (fn []
+              (read-ui/read-ui-tool (fresh-conn)
+                                    #js {:selector "#save" :frame 42})))
+          (.then (fn [_]
+                   (is (not (str/includes? @seen ":frame"))
+                       "a non-string (number) :frame is dropped, not embedded raw")
+                   (done)))))))
+
+(deftest array-frame-does-not-throw-and-drops-cleanly
+  ;; The array/object shape the bead calls out explicitly — a JSON array
+  ;; :frame arriving off a malformed client must degrade the same way a
+  ;; number does, not throw.
+  (async done
+    (let [seen (atom nil)]
+      (-> (with-captured-form! seen {:ok? true}
+            (fn []
+              (read-ui/read-ui-tool (fresh-conn)
+                                    #js {:selector "#save" :frame #js ["not" "a" "string"]})))
+          (.then (fn [_]
+                   (is (not (str/includes? @seen ":frame"))
+                       "a non-string (array) :frame is dropped, not embedded raw")
+                   (done)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool wiring — preflight + envelope passthrough.
 ;; ---------------------------------------------------------------------------

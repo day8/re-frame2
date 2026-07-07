@@ -27,6 +27,7 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.freshness :as freshness]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 ;; ---------------------------------------------------------------------------
@@ -337,6 +338,130 @@
         (fn []
           (assert-ladder-rejects-with-reason
             (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))
+
+;; ---------------------------------------------------------------------------
+;; Liveness re-validation (rf2-dk6bv5).
+;;
+;; A positively-cached marker probe (`:probed-builds`) is scoped to the
+;; nREPL socket, which stays open independently of the browser tab's own
+;; WebSocket. If the tab closes/crashes/navigates away AFTER the marker
+;; was cached, `runtime-preloaded?` alone would keep resolving true
+;; forever — `ensure-runtime!` would wave every later call straight
+;; through to a real eval that comes back blank, and the caller would
+;; read that blank as a legitimate nil (`{:ok? true :value nil}`),
+;; indistinguishable from a genuine nil, with the diagnostic ladder
+;; unreachable (it only runs when the marker probe itself is false).
+;;
+;; `ensure-runtime!` closes this by routing through `confirmed-live?`,
+;; which pairs the (still-cached) marker probe with a cheap JVM-side
+;; liveness read — `freshness/jvm-build-freshness`'s `:runtime-count` —
+;; on EVERY call. `freshness/jvm-build-freshness` uses `nrepl/jvm-eval`
+;; (a DIFFERENT round-trip from the browser marker eval `cljs-eval-value`
+;; probes), so stubbing it independently lets these tests simulate the
+;; runtime going blank WITHOUT touching the marker cache itself.
+;; ---------------------------------------------------------------------------
+
+(defn- with-stubbed-freshness-sequence!
+  "Stub `freshness/jvm-build-freshness` to resolve to each of `values` in
+  turn (one per call; the last value repeats once `values` is
+  exhausted), counting invocations into `calls*`. Restored in `.finally`
+  via the identity-guarded `tu/restore-freshness!`."
+  [values calls* body-fn]
+  (let [orig freshness/jvm-build-freshness
+        n    (count values)
+        stub (fn [_conn _build-id]
+               (let [i (swap! calls* inc)]
+                 (js/Promise.resolve (nth values (min (dec i) (dec n))))))]
+    (set! freshness/jvm-build-freshness stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (tu/restore-freshness! stub orig))))))
+
+(deftest ensure-runtime-revalidates-a-previously-cached-positive-probe
+  ;; THE acceptance test: a runtime confirmed live once must NOT be
+  ;; trusted forever from the marker cache. The first `ensure-runtime!`
+  ;; call succeeds and caches the marker; between it and the second call
+  ;; the browser tab goes away (`:runtime-count` drops to a DEFINITIVE
+  ;; 0). The second call must reject via the diagnostic ladder — NOT
+  ;; resolve as if the runtime were still live.
+  (async done
+    (let [conn            (fresh-conn)
+          eval-calls      (atom 0)
+          freshness-calls (atom 0)
+          ;; The marker-eval stub: true on the very first call (caches
+          ;; the positive marker); nil (blank) thereafter — faithful to
+          ;; a genuinely-disconnected browser, which is what the ladder's
+          ;; own re-check would also see in production once the tab is
+          ;; actually gone.
+          cljs-fn         (fn [_form]
+                            (let [n (swap! eval-calls inc)]
+                              (if (= 1 n) true nil)))
+          jvm-fn          (fn [form-str]
+                            (if (re-find #"active-builds" form-str)
+                              {:value "[:app]"}
+                              {:value "1"}))
+          drive!          (fn []
+                            (-> (probe/ensure-runtime! conn :app)
+                                (.then (fn [_]
+                                         ;; First call: still connected — resolves.
+                                         (probe/ensure-runtime! conn :app)))
+                                (.then (fn [_]
+                                         (is false "second ensure-runtime! must reject once the tab disconnects")))
+                                (.catch (fn [err]
+                                          (let [data (ex-data err)]
+                                            (is (= :no-runtime-connected (:reason data))
+                                                "the liveness re-check's :runtime-count 0 routes to the precise reason")
+                                            (is (= :app (:build data))))))))]
+      (-> (with-stubbed-freshness-sequence!
+            [{:runtime-count 1} {:runtime-count 0}] freshness-calls
+            (fn [] (with-tri-stub! cljs-fn jvm-fn drive!)))
+          (.then (fn [_]
+                   (is (= 2 @freshness-calls)
+                       "the liveness read re-runs on EVERY ensure-runtime! call, cache hit or not")
+                   (done)))))))
+
+(deftest ensure-runtime-cache-hit-stays-live-when-jvm-confirms-runtime
+  ;; Control: a cache hit whose liveness re-check confirms the runtime is
+  ;; STILL connected (:runtime-count > 0) must keep resolving — the fix
+  ;; must not turn every cache hit into a spurious rejection.
+  (async done
+    (let [conn  (fresh-conn)
+          calls (atom 0)]
+      (-> (with-stubbed-freshness-sequence! [{:runtime-count 1}] (atom 0)
+            (fn []
+              (with-stubbed-eval! true calls
+                (fn []
+                  (-> (probe/ensure-runtime! conn :app)
+                      (.then (fn [_] (probe/ensure-runtime! conn :app)))
+                      (.then (fn [_] (probe/ensure-runtime! conn :app)))
+                      (.catch (fn [err]
+                                (is false (str "must not reject: " (.-message err))))))))))
+          (.then (fn [_]
+                   (is (= 1 @calls)
+                       "the marker probe is still cache-hit — only the JVM liveness read re-runs")
+                   (done)))))))
+
+(deftest ensure-runtime-cache-hit-tolerant-of-unreadable-jvm-half
+  ;; An unreadable JVM half (nil — old shadow, a socket hiccup, or, as in
+  ;; every OTHER test in this suite, a conn with no live :socket at all)
+  ;; is INCONCLUSIVE, not proof of disconnection. It must never
+  ;; false-positive a live runtime as gone — this is the default
+  ;; behaviour every other test in this file already relies on (their
+  ;; `fresh-conn` carries no socket, so `jvm-build-freshness` short-
+  ;; circuits to nil without a round-trip); this test pins it explicitly.
+  (async done
+    (let [conn  (fresh-conn)
+          calls (atom 0)]
+      (-> (with-stubbed-eval! true calls
+            (fn []
+              (-> (probe/ensure-runtime! conn :app)
+                  (.then (fn [v]
+                           (is (nil? v)
+                               "resolves nil (success) when the JVM half is unreadable")))
+                  (.catch (fn [err]
+                            (is false (str "must not reject on an unreadable JVM half: "
+                                           (.-message err))))))))
+          (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `err->result`. A runtime/preflight/transport REJECTION is a known-tool

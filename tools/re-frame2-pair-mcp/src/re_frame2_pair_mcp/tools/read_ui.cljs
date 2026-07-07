@@ -122,9 +122,9 @@
     :no-target-arg           — none of :view-id / :point / :selector given.
     :no-element              — the entry point matched nothing.
     :rf.error/ui-read-bad-selector — a malformed CSS selector."
-  (:require [clojure.string :as str]
-            [re-frame2-pair-mcp.tools.wire :as wire]
+  (:require [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
 (def default-max-text
@@ -134,26 +134,24 @@
   slots, so the agent recognises an elision uniformly."
   2000)
 
-(defn- frame-edn
-  "Render the `:frame` opt for the runtime call. A supplied frame string
-  (`\":stories\"` / `\"stories\"`) coerces to a keyword; nil drops the key
-  so the runtime resolves the operating frame itself."
-  [frame]
-  (some-> frame (str/replace #"^:" "") keyword))
-
 (defn- read-ui-form
   "Compose the single `(re-frame2-pair.runtime/ui-read {...})` form via the
   shared `eval-form` DSL — the SAME plumbing read-dom uses.
   Only present entry points / knobs ride (the runtime enforces the
   precedence view-id > point > selector). Pure form-builder, no
   connection: callable directly by the form-composition regression guard
-  so the alias-trap check covers BOTH ops, not just read-dom."
+  so the alias-trap check covers BOTH ops, not just read-dom.
+
+  `frame`, when supplied, is expected ALREADY coerced to a keyword (or
+  nil) by the caller — see `read-ui-tool`'s `args/->frame-keyword` call.
+  This form-builder does no coercion of its own, matching `read-dom-form`'s
+  contract."
   [vid pt selector max-text frame]
   (let [opts (cond-> {:max-text max-text}
                (some? vid)      (assoc :view-id vid)
                (some? pt)       (assoc :point pt)
                (some? selector) (assoc :selector selector)
-               (some? frame)    (assoc :frame (frame-edn frame)))]
+               (some? frame)    (assoc :frame frame))]
     (ef/emit (ef/rt-call 'ui-read opts))))
 
 (defn read-ui-tool
@@ -171,7 +169,15 @@
         selector (wire/arg raw-args :selector)
         max-text (let [m (wire/arg raw-args :max-text)]
                    (if (and (number? m) (pos? m)) (long m) default-max-text))
-        frame    (wire/arg raw-args :frame)
+        ;; :frame arrives untyped off the JSON/MCP wire — route it through
+        ;; the shared coercer every sibling read tool uses
+        ;; (get-path/read-sub/read-dom/handler-meta), NOT a locally
+        ;; reimplemented `str/replace`. `args/->frame-keyword` (->
+        ;; `base-args/fresh-keyword`) accepts a string or keyword and
+        ;; falls back to nil for anything else (number/boolean/array/
+        ;; object) instead of throwing a raw TypeError on a malformed
+        ;; client's non-string :frame (rf2-pvh95w).
+        frame    (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         build-id (wire/arg-build conn raw-args)]
     (if-not (or (some? view-id) (some? point) (some? selector))
       (js/Promise.resolve
