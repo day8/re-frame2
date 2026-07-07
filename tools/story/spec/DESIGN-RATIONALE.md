@@ -36,8 +36,13 @@ tools per the Storybook MCP Dev / Docs / Testing toolset split. See
 :helix}` (subset, default = the host frame's adapter); when Story
 renders the variant against multiple substrates the failure for each
 is rendered **inline** with the variant pane — not auto-skipped.
-`:reagent-slim` is reserved for future addition once the renderer
-ships; until then it is not on the canonical substrate enum.
+`:reagent-slim` is reserved for addition at reagent-slim GA / first
+published artefact — the same gate as Story's UI-shell migration (see
+[`Principles.md`](Principles.md) §Reagent for the v1 UI shell) and the
+template's fourth substrate choice (see
+[`tools/template/spec/001-Substrate-Variants.md`](../../template/spec/001-Substrate-Variants.md)
+§Future variants); until then it is not on the canonical substrate
+enum.
 
 **Rationale.** Substrate-portability gaps are the entire point of
 multi-substrate rendering. Hiding failures hides the bugs Story
