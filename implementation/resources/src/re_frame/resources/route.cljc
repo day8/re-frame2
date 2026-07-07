@@ -242,10 +242,10 @@
 
 ;; ---- plan execution + the route-resource planning ctx seam (rf2-ac71vm) ---
 ;;
-;; A route-resource `:scope` / `:when` resolver is `(fn [route ctx] …)`; the
-;; spec example (Spec 016 §Route integration) resolves session scope FROM the
-;; ctx (`(fn [_route ctx] (:current-session-scope ctx))`). The ctx is the
-;; entry context routing threads through its `:routing/on-route-entry` hook.
+;; A route-resource `:scope` / `:when` resolver is `(fn [route ctx] …)`. The
+;; ctx is the reserved entry context routing threads through its
+;; `:routing/on-route-entry` hook (currently `{}`); db-derived viewer scope
+;; comes from a `{:from-db …}` named-resolver reference, not from the ctx.
 ;; The seam is REAL (not a placeholder): the planner fails CLOSED when a
 ;; resolver needs the ctx but planning was handed no ctx (a `nil`), rather
 ;; than silently feeding the resolver `nil` and letting it collapse to an
@@ -499,9 +499,9 @@
   scoped-key set. Per Spec 016 §Route integration.
 
   `route` is the resolved route value
-  (`{:id :params :query :fragment …}`), `ctx` the entry context (the seam
-  routing threads through `:routing/on-route-entry`; a `:scope` / `:when`
-  resolver reads it, e.g. `(fn [_route ctx] (:current-session-scope ctx))`).
+  (`{:id :params :query :fragment …}`), `ctx` the reserved entry context
+  (the seam routing threads through `:routing/on-route-entry`; currently `{}`
+  — a `:scope` / `:when` resolver receives it as its trailing argument).
   `entry-ctx` carries `:nav-token`, `:prev-id`, `:prev-nav-token`, and
   `:app-db` (the route-entry app-db value — see the `:app-db` paragraph
   below). Returns `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`.

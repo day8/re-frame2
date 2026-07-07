@@ -44,7 +44,7 @@ Three use cases the reference implementation has hit repeatedly:
 
 ## The registration shape
 
-Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) 3-slot shape (rf2-bqstzr, completing the rf2-wvh95f F1 alignment of the fused registrars), `reg-flow` is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive` fn — the flow's HANDLER — is the third VALUE slot, and the middle slot is the reflection-config metadata map.
+Per the canonical [Spec 001 §Registration grammar](001-Registration.md#registration-grammar) 3-slot shape, `reg-flow` is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive` fn — the flow's HANDLER — is the third VALUE slot, and the middle slot is the reflection-config metadata map.
 
 ```clojure
 (rf/reg-flow :rectangle/area
@@ -75,13 +75,13 @@ Optional metadata keys (per the [001-Registration §Registration grammar](001-Re
 | `:sensitive` / `:large` / `:large?` | EP-0025 output data-classification declarations (see [§Flow output data classification](#flow-output-data-classification-ep-0025) and [015-Data-Classification](015-Data-Classification.md)). |
 | `:ns`, `:line`, `:file` | Source coordinates (auto-captured by the registration macro per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)). |
 
-Splitting the `derive-fn` out of the fused flow-map (v1-alpha's single-map inheritance) restores clean documentation-DCE (the middle slot is now a pure metadata map) and brings flows into line with `reg-resource` / `reg-mutation` / `reg-route`. A `:derive` left INSIDE the metadata map is rejected loudly as a mislocated key (`:rf.error/invalid-flow-metadata`) — the third slot is `:derive`'s one home. Likewise a non-map metadata slot throws the same error before any reconstruction runs.
+The `derive-fn` sits in the third (value) slot and the middle slot is a pure metadata map — documentation-DCE stays clean, and flows align with `reg-resource` / `reg-mutation` / `reg-route`. A `:derive` left INSIDE the metadata map is rejected loudly as a mislocated key (`:rf.error/invalid-flow-metadata`) — the third slot is `:derive`'s one home. Likewise a non-map metadata slot throws the same error before any reconstruction runs.
 
 `:inputs` is a positional vector matching `on-changes`. The vector form is short for the common 2–4-input case and the destructure-by-position is straightforward. Each path is read against the pending frame-state, whose two partitions select on the path's leading element — see [§Input partition](#input-partition--bare--app-db-rfdbruntime---runtime-db). (A map-keyed alternative was considered — see [§Open questions](#open-questions).)
 
 ## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
 
-An `:inputs` path is read against the pending **frame-state**, which has two partitions (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract) — the app-db / runtime-db split). The syntax is **binary** (RESOLVED, Mike 2026-06-09 ruling (b); refinement (i) — no third explicit-app form):
+An `:inputs` path is read against the pending **frame-state**, which has two partitions (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract) — the app-db / runtime-db split). The syntax is **binary** — a bare path reads app-db; a `[:rf.db/runtime …]`-rooted path reads runtime-db. There is no third explicit-app form:
 
 ```clojure
 [:cart :items]                                    ;; bare path → app-db (the common case)

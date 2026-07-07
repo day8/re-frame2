@@ -24,7 +24,7 @@ This Spec defines:
 
 ## Registration grammar
 
-Every registration takes the same shape:
+Registrations share one canonical shape:
 
 ```clojure
 (rf/reg-* id metadata-map handler-or-value)
@@ -82,7 +82,7 @@ The metadata-map is the **superset** middle slot: it carries reflection metadata
 
 **A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event :id some-interceptor (fn …))` rather than `(rf/reg-event :id {:interceptors [some-interceptor]} (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain belongs in metadata `:interceptors`; the call is rejected, not coerced). A map carrying `:before` / `:after` in the middle slot is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives).
 
-For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a defn-shape macro** (auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. (`reg-interceptor` also ships as a macro, but only to capture the authoring source-coord — it defs no symbol; see §21.) See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-and-reg-interceptor-have-a-macro-tier) for why the family is asymmetric.
+For `reg-fx`, `reg-cofx`, `reg-frame`, etc., the middle slot is the metadata map only. Per-kind deviations are deliberate and documented at their owning specs: `reg-sub`'s optional first fn is an `input-fn` producer (not metadata — [Conventions §reg-sub grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors)), and `reg-app-schema` is path-id + metadata with the schema under `:schema` (no third value slot — [API §Registration](API.md#registration)). `reg-view` is the **only registration that ships as a defn-shape macro** (auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. (`reg-interceptor` also ships as a macro, but only to capture the authoring source-coord — it defs no symbol; see §21.) See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-and-reg-interceptor-have-a-macro-tier) for why the family is asymmetric.
 
 ## Registry model — the canonical `kind` keyword set
 
