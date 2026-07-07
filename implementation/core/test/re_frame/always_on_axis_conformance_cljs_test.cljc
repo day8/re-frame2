@@ -88,7 +88,6 @@
     :rf.error/override-fallthrough
     :rf.error/reserved-fx-override
     :rf.error/no-such-fx
-    :rf.error/no-such-cofx
     :rf.error/frame-destroyed
     :rf.error/write-after-destroy
     :rf.error/flow-eval-exception
