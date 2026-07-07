@@ -940,8 +940,10 @@ list with reasoning; the short version:
 - **Component-co-located fixtures (React Cosmos `.fixture.tsx`
   files).** re-frame2's registered artefacts are the canonical
   structure mechanism.
-- **Statechart visualisation engine.** Deferred to
-  `day8/re-frame2-machines-viz`.
+- **Statechart visualisation engine.** Owned by
+  `day8/re-frame2-machines-viz`; reaches Story via Xray's `[Machines]`
+  chip (`panels/mount-machine-inspector!`) in the per-panel embed —
+  not a dedicated Story panel.
 - **Pixel-scrubber UI (BackstopJS slider).** Data-space scrubber via
   Xray's epoch panel covers the same UX better.
 - **BackstopJS-style baseline storage.** Services handle baselines.
