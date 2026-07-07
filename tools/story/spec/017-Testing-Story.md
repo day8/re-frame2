@@ -1286,12 +1286,14 @@ list of fragments `F1 … Fn`:
 | Slot | Rule |
 |---|---|
 | `:setup` | APPEND: inherited (root→parent) ++ composed fragments (declared order) ++ child's own — variant-owned setup lands last. |
-| `:script` | APPEND through `:compose` only: composed fragments (declared order) ++ child's own. Parent scripts never append (a child does not silently run a parent's behaviour). |
+| `:script` | APPEND through `:compose` only: composed fragments (declared order) ++ child's own. Parent scripts never append (a child does not silently run a parent's behaviour). Applies BOTH to the reported top-level `:script` AND the EXECUTED `[:world :scripts]` primary (auto-run) play — the two must never diverge (rf2-k23efg). |
 | `:args` / `:argtypes` | DEEP-MERGE root → fragments → child (last wins). |
 | `:checks` | inherited+own (root→child) ++ composed check-ids. |
 | `:assertions` | child-only (own terminal judgement). |
 | `:network` | per-route merge: composed fragments under the variant chain. |
 | `:fx-overrides` / `:interceptor-overrides` | strict-conflict, per-key (below). |
+| `:loaders` / `:loaders-teardown` | APPEND: composed fragments (declared order) ++ the variant chain's own (`:extends`-merged, child-wins). |
+| `:decorators` | APPEND: globals → story → composed fragments (declared order) → the variant chain's own. |
 
 ### Variant-owned-wins for strict-conflict fields
 

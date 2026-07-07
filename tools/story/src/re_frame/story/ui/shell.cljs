@@ -490,6 +490,37 @@
   ;; value held over from the previous mount.
   (reset! selection-prev nil))
 
+;; rf2-chi9j3: `component-did-mount` schedules a mount-time auto-run for an
+;; already-selected variant (deep-link / persisted selection) AFTER
+;; `hydrate-url-state!` runs. But `hydrate-url-state!` may ITSELF change
+;; `:selected-variant` (a `?variant=…` deep link) — and that selection
+;; change fires the already-installed `selection-watcher`, which schedules
+;; its OWN auto-run for the same variant. Without a guard, both paths
+;; schedule a `js/setTimeout` calling `play-runner-events/auto-run!` for
+;; the same variant, so its `:play-script` runs (and every event in it
+;; dispatches) TWICE.
+;;
+;; `mount-time-autorun-vid` is the pure decision this guard reduces to: it
+;; takes the selection observed BEFORE `hydrate-url-state!` ran and the
+;; CURRENT (post-hydration) selection, and returns the variant-id the
+;; mount-time block should schedule an auto-run for, or nil to skip.
+;;
+;;   - `pre-hydrate-vid` = `post-hydrate-vid` (unchanged across hydration,
+;;     including both nil) — the selection was ALREADY current before this
+;;     mount (a persisted / re-mount selection the watcher never saw as a
+;;     change, so it never scheduled anything) → the mount-time block is
+;;     the ONLY scheduler; return `post-hydrate-vid`.
+;;   - `pre-hydrate-vid` ≠ `post-hydrate-vid` — `hydrate-url-state!` JUST
+;;     changed the selection during THIS mount (a deep link), which means
+;;     `selection-watcher`'s change-handler already fired and scheduled its
+;;     own auto-run → return nil (skip; scheduling here would double-run).
+;;
+;; Pure data → data, so it is unit-testable without mounting the shell.
+(defn- mount-time-autorun-vid
+  [pre-hydrate-vid post-hydrate-vid]
+  (when (and post-hydrate-vid (= pre-hydrate-vid post-hydrate-vid))
+    post-hydrate-vid))
+
 ;; ---- url-state apply-fn ---------------------------------------------------
 ;;
 ;; rf2-o4u18: bridge between the pure `url-state` engine and the live
@@ -875,95 +906,113 @@
          (backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
-         ;; rf2-o4u18 / rf2-ovb1en: hydrate the URL-state slots (workspace +
-         ;; mode-tab + viewport + background + tag-filter + variant / modes /
-         ;; substrate) — `url-state/hydrate-from-url!` is the authoritative,
-         ;; VALIDATING owner of all of them and sets the focused selection.
-         ;; `share/hydrate-from-url!` then owns ONLY the focused-variant
-         ;; cell-overrides slice (declared-key drift filter + share-import
-         ;; hint, rf2-9jthx); it reads — never rewrites — the validated
-         ;; selection / substrate, so the second pass can't undo the first
-         ;; pass's validation. Selection runs through the same shell-state-atom
-         ;; swap path the user's click would take, so the selection-watcher's
-         ;; preallocate-frame branch fires for deep-linked variants.
-         (hydrate-url-state!)
-         ;; rf2-o4u18: subscribe to popstate so the back-button restores
-         ;; prior URL state, and watch shell-state-atom so user-driven
-         ;; selection / viewport / background / tag-filter changes
-         ;; pushState the canonical URL. The focused variant's
-         ;; cell-override edits ARE pushed (rf2-5fyo3 — the share popover
-         ;; that once owned override serialisation was retired by
-         ;; rf2-ymnfx, so the live address bar is the only sharing
-         ;; surface) and restored on popstate via apply-parsed-to-state
-         ;; (rf2-j0hwf — closes the override round-trip on back/forward).
-         (url-state/install-popstate-listener!
-           state/shell-state-atom
-           (url-state-apply-fn))
-         (url-state/install-state-watcher! state/shell-state-atom)
-         ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
-         ;; listener once at shell mount. The listener short-circuits
-         ;; on every emit when no recording is in flight, so leaving
-         ;; it installed is free; we only need to make sure it
-         ;; exists before the user clicks REC.
-         (recorder-ui/install-trace-listener!)
-         ;; rf2-d5u89: install the recorder's DOM-capture listeners
-         ;; on the canvas root so :click / :input / :change / :submit
-         ;; events translate into [:dom/click ...] / [:dom/type ...]
-         ;; / [:dom/submit ...] entries on the recorder's :entries
-         ;; stream. Delegate to a one-tick `setTimeout` so the React
-         ;; tree has committed the `[data-test=\"story-canvas-frame\"]`
-         ;; root before the install tries to find it. The listener
-         ;; short-circuits when no recording is in flight, so the
-         ;; install is free even when REC is idle.
-         (js/setTimeout
-           (fn []
-             (recorder-dom/install!)
-             ;; rf2-h0jc0: element-level click-to-code inspector. Hooks
-             ;; mousemove / click / keydown on the same canvas root the
-             ;; recorder uses. Listener gates on `(inspector/active?)`
-             ;; so the install is free when the chip is off — install
-             ;; once at shell-mount, gate per-event at the listener
-             ;; head. Same one-tick `setTimeout` discipline as the
-             ;; recorder so the React tree has committed the canvas-
-             ;; frame DOM node before the install tries to find it.
-             (element-inspector/install!))
-           0)
-         ;; rf2-one3t: install the save-as-variant dialog-open callback
-         ;; against the pure ns so `save-variant/save-current-as-variant!`
-         ;; can drive the modal without coupling the .cljc helper to
-         ;; Reagent / DOM. Idempotent.
-         (save-variant-ui/install!)
-         (rails/hydrate!)
-         ;; rf2-g8l8x — hydrate per-panel chrome-visibility map from
-         ;; localStorage BEFORE the embed-flag pass (embed is URL-
-         ;; driven, must not be clobbered by stale persisted slot).
-         (keybindings/hydrate!)
-         ;; rf2-pucku — hydrate the `:embed?` slot from the
-         ;; `?embed=1` URL flag. One-shot at mount.
-         (url-state/hydrate-embed-flag! state/shell-state-atom)
-         ;; rf2-g8l8x / rf2-p3i0t — install the chrome-level hotkey
-         ;; listener. Cmd-K palette ships its own listener.
-         (keybindings/install!)
-         (when-let [vid (:selected-variant @state/shell-state-atom)]
-           (ensure-listeners-for-variant! vid)
-           ;; rf2-v1ach: per-panel embed manages its own mount on
-           ;; commit. The cross-host bridges (project-root +
-           ;; keybinding detach) still need to fire so the popout
-           ;; escape hatch + Xray's source-coord chips resolve
-           ;; against Story's `:rf.story/project-root`.
-           (xray-preset/wire-cross-host!)
-           ;; rf2-q9kv5: apply per-story preset on the mount-time
-           ;; selection too (the selection-watcher only fires on
-           ;; change, so a pre-selected variant would otherwise miss
-           ;; the preset).
-           (xray-preset/on-variant-selected! vid)
-           ;; rf2-8i2a9: mount-time auto-run for an already-selected
-           ;; variant (deep-link / persisted selection). Yields a tick
-           ;; so the canvas has committed before the script's first
-           ;; DOM-sensitive step runs.
+         ;; rf2-chi9j3: capture the selection BEFORE `hydrate-url-state!`
+         ;; runs — the same value `selection-watcher` just seeded
+         ;; `selection-prev` from. When the URL carries a deep-linked
+         ;; `?variant=…`, `hydrate-url-state!` swaps `:selected-variant`
+         ;; synchronously, which fires the already-installed watcher and
+         ;; schedules ITS OWN mount-time auto-run (below, `selection-
+         ;; watcher`'s `js/setTimeout`). `mount-time-autorun-vid` uses this
+         ;; pre-hydration value to tell the two cases apart so the mount-
+         ;; time block never double-schedules a deep-linked variant's
+         ;; `:play-script`.
+         (let [pre-hydrate-vid (:selected-variant @state/shell-state-atom)]
+           ;; rf2-o4u18 / rf2-ovb1en: hydrate the URL-state slots (workspace +
+           ;; mode-tab + viewport + background + tag-filter + variant / modes /
+           ;; substrate) — `url-state/hydrate-from-url!` is the authoritative,
+           ;; VALIDATING owner of all of them and sets the focused selection.
+           ;; `share/hydrate-from-url!` then owns ONLY the focused-variant
+           ;; cell-overrides slice (declared-key drift filter + share-import
+           ;; hint, rf2-9jthx); it reads — never rewrites — the validated
+           ;; selection / substrate, so the second pass can't undo the first
+           ;; pass's validation. Selection runs through the same shell-state-atom
+           ;; swap path the user's click would take, so the selection-watcher's
+           ;; preallocate-frame branch fires for deep-linked variants.
+           (hydrate-url-state!)
+           ;; rf2-o4u18: subscribe to popstate so the back-button restores
+           ;; prior URL state, and watch shell-state-atom so user-driven
+           ;; selection / viewport / background / tag-filter changes
+           ;; pushState the canonical URL. The focused variant's
+           ;; cell-override edits ARE pushed (rf2-5fyo3 — the share popover
+           ;; that once owned override serialisation was retired by
+           ;; rf2-ymnfx, so the live address bar is the only sharing
+           ;; surface) and restored on popstate via apply-parsed-to-state
+           ;; (rf2-j0hwf — closes the override round-trip on back/forward).
+           (url-state/install-popstate-listener!
+             state/shell-state-atom
+             (url-state-apply-fn))
+           (url-state/install-state-watcher! state/shell-state-atom)
+           ;; rf2-5fc15: install the Test Codegen recorder's trace-bus
+           ;; listener once at shell mount. The listener short-circuits
+           ;; on every emit when no recording is in flight, so leaving
+           ;; it installed is free; we only need to make sure it
+           ;; exists before the user clicks REC.
+           (recorder-ui/install-trace-listener!)
+           ;; rf2-d5u89: install the recorder's DOM-capture listeners
+           ;; on the canvas root so :click / :input / :change / :submit
+           ;; events translate into [:dom/click ...] / [:dom/type ...]
+           ;; / [:dom/submit ...] entries on the recorder's :entries
+           ;; stream. Delegate to a one-tick `setTimeout` so the React
+           ;; tree has committed the `[data-test=\"story-canvas-frame\"]`
+           ;; root before the install tries to find it. The listener
+           ;; short-circuits when no recording is in flight, so the
+           ;; install is free even when REC is idle.
            (js/setTimeout
-             (fn [] (play-runner-events/auto-run! vid))
-             0))))
+             (fn []
+               (recorder-dom/install!)
+               ;; rf2-h0jc0: element-level click-to-code inspector. Hooks
+               ;; mousemove / click / keydown on the same canvas root the
+               ;; recorder uses. Listener gates on `(inspector/active?)`
+               ;; so the install is free when the chip is off — install
+               ;; once at shell-mount, gate per-event at the listener
+               ;; head. Same one-tick `setTimeout` discipline as the
+               ;; recorder so the React tree has committed the canvas-
+               ;; frame DOM node before the install tries to find it.
+               (element-inspector/install!))
+             0)
+           ;; rf2-one3t: install the save-as-variant dialog-open callback
+           ;; against the pure ns so `save-variant/save-current-as-variant!`
+           ;; can drive the modal without coupling the .cljc helper to
+           ;; Reagent / DOM. Idempotent.
+           (save-variant-ui/install!)
+           (rails/hydrate!)
+           ;; rf2-g8l8x — hydrate per-panel chrome-visibility map from
+           ;; localStorage BEFORE the embed-flag pass (embed is URL-
+           ;; driven, must not be clobbered by stale persisted slot).
+           (keybindings/hydrate!)
+           ;; rf2-pucku — hydrate the `:embed?` slot from the
+           ;; `?embed=1` URL flag. One-shot at mount.
+           (url-state/hydrate-embed-flag! state/shell-state-atom)
+           ;; rf2-g8l8x / rf2-p3i0t — install the chrome-level hotkey
+           ;; listener. Cmd-K palette ships its own listener.
+           (keybindings/install!)
+           (when-let [vid (:selected-variant @state/shell-state-atom)]
+             (ensure-listeners-for-variant! vid)
+             ;; rf2-v1ach: per-panel embed manages its own mount on
+             ;; commit. The cross-host bridges (project-root +
+             ;; keybinding detach) still need to fire so the popout
+             ;; escape hatch + Xray's source-coord chips resolve
+             ;; against Story's `:rf.story/project-root`.
+             (xray-preset/wire-cross-host!)
+             ;; rf2-q9kv5: apply per-story preset on the mount-time
+             ;; selection too (the selection-watcher only fires on
+             ;; change, so a pre-selected variant would otherwise miss
+             ;; the preset).
+             (xray-preset/on-variant-selected! vid)
+             ;; rf2-8i2a9 / rf2-chi9j3: mount-time auto-run for an
+             ;; already-selected variant (deep-link / persisted
+             ;; selection) — but ONLY when `hydrate-url-state!` did NOT
+             ;; just change the selection during THIS mount. When it did,
+             ;; `selection-watcher`'s change-handler already scheduled its
+             ;; own auto-run for `vid` (above); scheduling a second one
+             ;; here would run the deep-linked variant's `:play-script`
+             ;; TWICE (every dispatch doubled). Yields a tick so the
+             ;; canvas has committed before the script's first
+             ;; DOM-sensitive step runs.
+             (when-let [run-vid (mount-time-autorun-vid pre-hydrate-vid vid)]
+               (js/setTimeout
+                 (fn [] (play-runner-events/auto-run! run-vid))
+                 0))))))
      :component-will-unmount
      (fn [_]
        (stop-hot-reload-poll!)

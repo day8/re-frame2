@@ -1236,6 +1236,21 @@
                                     frag-layers))
         {child-script :script scripts :scripts} (normalize-scripts id child)
         script       (vec (concat compose-script child-script))
+        ;; rf2-k23efg: `compose-script` above only ever fed the REPORTED
+        ;; top-level `:script` — the runtime executes `[:world :scripts]`
+        ;; (below), never the top-level `:script` slot, so a composed
+        ;; fragment's `:script` was silently dropped from every actual run
+        ;; (plan/explain looked right; nothing happened). Fold it into the
+        ;; PRIMARY (first/auto-run) play too, exactly where it lands in the
+        ;; top-level `:script`: prepended onto that play's own script when
+        ;; the child declares one, or synthesized as a fresh auto-run play
+        ;; when the child composes a fragment's script but authors none of
+        ;; its own.
+        scripts      (cond
+                       (empty? compose-script) scripts
+                       (seq scripts) (update-in scripts [0 :script]
+                                                 #(vec (concat compose-script %)))
+                       :else [{:script compose-script :auto-run? true :name nil}])
         ;; terminal assertions are CHILD-ONLY (verdict is local)
         assertions   (vec (:assertions child))
         ;; ---- args: inherited deep-merge, THEN composed fragments, THEN
@@ -1384,6 +1399,23 @@
         fx-overrides (merge (when network-low (:fx-overrides network-low))
                             ctx-fx)
         interceptor-overrides ctx-ic
+        ;; ---- composed-fragment loaders / decorators (rf2-2g7ebs) ----
+        ;; `ctx` (above) is reduced over the `:extends` chain bodies ONLY —
+        ;; a composed fragment's `:loaders` / `:loaders-teardown` /
+        ;; `:decorators` never reached it, so they were silently dropped
+        ;; from every composed variant (the Fragment schema permits them;
+        ;; the compiler just never read them). Fold frag-layers in here,
+        ;; same declared-order-append discipline as `:setup` / `:script`:
+        ;; composed fragments contribute FIRST, the variant-chain's own
+        ;; value (`ctx`) lands after/outermost.
+        frag-loaders (vec (mapcat #(:loaders %) frag-layers))
+        loaders      (vec (concat frag-loaders (:loaders ctx)))
+        frag-loaders-teardown (vec (mapcat #(:loaders-teardown %) frag-layers))
+        loaders-teardown (vec (concat frag-loaders-teardown (:loaders-teardown ctx)))
+        ;; Decorators fold in `globals -> story -> fragment -> variant`
+        ;; order — composed fragments sit BETWEEN the ambient story
+        ;; decorators and the variant-chain's own decorators (below).
+        frag-decorators (vec (mapcat #(:decorators %) frag-layers))
         ;; ---- view arg schema + effective-args validation ----
         ;; `:effective-args` at plan time IS the resolved arg-map; the
         ;; render path layers control-panel overrides on top later. We
@@ -1445,19 +1477,22 @@
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})
         ;; ---- full decorator stack ----
-        ;; `(concat globals story variant-chain)` — globals outermost, then
-        ;; the parent story's `:decorators`, then the variant-chain slot
-        ;; (`(:decorators ctx)` — the `:extends`-merged, child-wins refs).
-        ;; The SAME ordered set `decorators/collect-decorator-refs`
-        ;; assembles at resolve time; folding it onto `[:world :decorators]`
-        ;; here makes the compiled plan the single source of truth, so the
-        ;; canvas + render-variant resolve the identical stack.
-        ;; Each layer falls through to `[]` when absent — the empty-collection
-        ;; concat is render-transparent.
+        ;; `(concat globals story fragments variant-chain)` — globals
+        ;; outermost, then the parent story's `:decorators`, then composed
+        ;; fragments' `:decorators` in declared order (rf2-2g7ebs —
+        ;; `frag-decorators` above; previously dropped entirely), then the
+        ;; variant-chain slot (`(:decorators ctx)` — the `:extends`-merged,
+        ;; child-wins refs). The SAME ordered set
+        ;; `decorators/collect-decorator-refs` assembles at resolve time;
+        ;; folding it onto `[:world :decorators]` here makes the compiled
+        ;; plan the single source of truth, so the canvas + render-variant
+        ;; resolve the identical stack. Each layer falls through to `[]`
+        ;; when absent — the empty-collection concat is render-transparent.
         story-decos  (vec (when-let [sid (args/parent-story-id id)]
                             (story-deco-lk sid)))
         full-decos   (vec (concat global-decos
                                   story-decos
+                                  frag-decorators
                                   (or (:decorators ctx) [])))
         world        (cond-> {:setup          setup
                               :args           arg-map
@@ -1493,14 +1528,19 @@
                        (seq network)          (assoc :network network)
                        (seq fx-overrides)     (assoc-in [:frame :fx-overrides] fx-overrides)
                        (seq interceptor-overrides) (assoc-in [:frame :interceptor-overrides] interceptor-overrides)
-                       (contains? ctx :loaders)     (assoc :loaders (:loaders ctx))
+                       ;; `loaders` / `loaders-teardown` already fold in
+                       ;; composed-fragment contributions (rf2-2g7ebs,
+                       ;; above) — `(seq …)`, not `(contains? ctx …)`, since
+                       ;; the slot may now be non-empty from fragments alone
+                       ;; even when the variant chain itself carries none.
+                       (seq loaders)                (assoc :loaders loaders)
                        ;; Carry `:loaders-complete-when` onto
                        ;; the plan's `:world` (it inherits through `:extends`
                        ;; into `ctx`) so the inline-plan run path (which has
                        ;; no registered body) drives phase-1 loaders + the
                        ;; completion predicate from the plan alone.
                        (contains? ctx :loaders-complete-when) (assoc :loaders-complete-when (:loaders-complete-when ctx))
-                       (contains? ctx :loaders-teardown) (assoc :loaders-teardown (:loaders-teardown ctx))
+                       (seq loaders-teardown)       (assoc :loaders-teardown loaders-teardown)
                        ;; The FULL stack (globals + story + variant chain),
                        ;; not just `(:decorators ctx)`. Folded when non-empty
                        ;; so a bare variant carries no slot
