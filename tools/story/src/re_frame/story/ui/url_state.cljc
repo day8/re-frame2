@@ -211,6 +211,12 @@
       `:uix`/`:helix`. A present-but-unregistered substrate (rejected by the
       `:substrate?` validator) likewise degrades to `:reagent` so a stale URL
       can't pin a substrate the host app never registered.
+    - omitted `mode-tab=` (alongside a KEPT variant) clears that variant's
+      `[:active-mode-tab variant-id]` entry (rf2-gchydo) so the reader's
+      `:dev` default applies — mode-tab is per-variant (unlike the slots
+      above), so the clear is `dissoc`, scoped to the focused variant only,
+      not an unconditional `:always` write (mirrors the `:cell-overrides`
+      per-variant clear immediately below it).
   This means a share URL like `?variant=story.counter/loaded` restores the
   DEFAULT framing / filter / modes for the recipient rather than keeping
   their prior localStorage-seeded chrome, and back/forward from a populated
@@ -259,6 +265,25 @@
 
       (and keep-variant? mode-tab)
       (assoc-in [:active-mode-tab variant-id] mode-tab)
+
+      ;; rf2-gchydo: the URL is authoritative for the focused variant's
+      ;; mode-tab too — mirrors the cell-overrides clear immediately
+      ;; below. Mode-tab changes ARE pushState'd
+      ;; (`install-state-watcher!` treats `:active-mode-tab` as URL-
+      ;; relevant, per `url-relevant-slots-changed?` above), so a URL
+      ;; that keeps this variant but carries NO `mode-tab=` param must
+      ;; clear any stale `[:active-mode-tab variant-id]` entry — dissoc
+      ;; rather than an explicit `:dev` assoc, so the reader's
+      ;; `default-mode-tab` fallback (`re-frame.story.ui.state/active-
+      ;; mode-tab`) is the single source of truth for the default,
+      ;; not a value duplicated here. Without this, select a variant
+      ;; (push, no mode-tab=) → Test tab (push mode-tab=test) → Docs
+      ;; (push mode-tab=docs) → Back twice to the first entry (no
+      ;; mode-tab=) left `[:active-mode-tab variant-id]` at `:docs`
+      ;; instead of reverting to `:dev` — the canvas rendered the wrong
+      ;; tab while the address bar had already reverted.
+      (and keep-variant? (not mode-tab))
+      (update :active-mode-tab dissoc variant-id)
 
       ;; rf2-j0hwf: install the focused variant's parsed cell-overrides
       ;; under [:cell-overrides variant-id] so a popstate / shared-URL

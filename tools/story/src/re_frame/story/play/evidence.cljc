@@ -529,32 +529,54 @@
 ;;
 ;; This is the PRODUCER-side bridge that lights up `explicit-beats?` /
 ;; `spans-from-stamps`. The runner / replay path records, per
-;; dispatch-opening step (in executed-script order), the epoch-history
-;; LENGTH at the moment that step's settle began (`settle-boundaries`). The
-;; epoch tape is append-only during a run, so dispatch step K owns the
-;; contiguous run of records `[boundary_K, boundary_{K+1})` — and the LAST
-;; dispatch step owns through the tape end. This naturally rolls any epochs
-;; committed by intervening non-dispatch steps (an `[:assert …]` checkpoint
-;; that dispatches its `:rf.assert/*` verdict, a `:wait-until`) into the
-;; PRECEDING dispatch span, exactly the forward-attribution model the
-;; narrative documents (spec/017 §Epoch tape and narrative). Records before
-;; the first boundary (setup-phase cascades, framework bootstrap) are
-;; stamped nil → the leading span.
+;; dispatch-opening step (in executed-script order), the last-committed
+;; `:epoch-id` at the moment that step's settle began (`settle-boundaries`).
+;; `:epoch-id` is the framework's genuine, globally-monotonic per-record
+;; identity (`re-frame.epoch.state/next-epoch-id`) — NOT a position in
+;; `tape`. Dispatch step K owns every record whose OWN `:epoch-id` is
+;; greater than boundary K but not greater than boundary K+1 (the LAST
+;; dispatch step owns through the tape end). This naturally rolls any
+;; epochs committed by intervening non-dispatch steps (an `[:assert …]`
+;; checkpoint that dispatches its `:rf.assert/*` verdict, a `:wait-until`)
+;; into the PRECEDING dispatch span, exactly the forward-attribution model
+;; the narrative documents (spec/017 §Epoch tape and narrative). Records
+;; whose `:epoch-id` is at or before the first boundary (setup-phase
+;; cascades, framework bootstrap) are stamped nil → the leading span.
 ;;
-;; `boundaries` is positional, NOT keyed by step index: its Nth element is
-;; the settle boundary of the Nth DISPATCH step in `script` (in order). This
-;; is what makes the mechanism runtime-agnostic — the live multi-play runner
-;; and the replay path both execute the concatenated dispatch steps in the
-;; same order the boundaries are recorded, so the zip is exact without any
-;; cross-play index arithmetic.
+;; rf2-96qsjr: comparing by `:epoch-id` rather than `tape` POSITION is what
+;; makes this robust to `epoch-history`'s bounded ring (default depth 50)
+;; evicting older records mid-run. A position-based zip requires the tape
+;; to be exactly as long, from the same zero-point, as it was when the
+;; boundaries were recorded — an assumption a long run (a big `:script`, a
+;; heavy cascade, or multi-play accumulation across ALL auto-plays) breaks
+;; the moment total epochs exceed the ring depth. `:epoch-id` never
+;; depends on tape length or ring occupancy: a record still IN the tape
+;; always carries the same id it was assigned at commit time, so eviction
+;; can only ever drop beats (the evicted records are simply gone), never
+;; misattribute a surviving one to the wrong step.
+;;
+;; `boundaries` is positional only with respect to DISPATCH-STEP ORDER, not
+;; epoch-tape order: its Nth element is the settle boundary of the Nth
+;; DISPATCH step in `script` (in order). This is what makes the mechanism
+;; runtime-agnostic — the live multi-play runner and the replay path both
+;; execute the concatenated dispatch steps in the same order the boundaries
+;; are recorded, so the zip is exact without any cross-play index
+;; arithmetic.
 
 (defn stamp-tape
   "Stamp each `:rf/epoch-record` in `tape` with the 0-based
   `:rf.story/script-idx` of the authored `script` step whose settle
-  produced it, using the runner-recorded `boundaries` (the epoch-history
-  length at the start of each dispatch step's settle, in dispatch-step
+  produced it, using the runner-recorded `boundaries` (the last-committed
+  `:epoch-id` at the start of each dispatch step's settle, in dispatch-step
   order). Pure data → data; the stamped tape is what the EXACT narrative
   attribution (`explicit-beats?` / `spans-from-stamps`) consumes.
+
+  Ownership is decided by comparing each record's OWN `:epoch-id` against
+  the boundaries (rf2-96qsjr) — NOT the record's position in `tape` — so a
+  tape that has had earlier records evicted from the `epoch-history` ring
+  (default depth 50) still attributes every SURVIVING record correctly;
+  only the evicted records' beats are lost, never misattributed to the
+  wrong step.
 
   The stamp is a `:rf.story/*` accumulator key, so the deterministic
   projection (`re-frame.story.fingerprint/project`) strips it before the
@@ -564,9 +586,10 @@
   Degrades gracefully: with no `boundaries` (a bare tape — replay/live
   paths that did not record settle boundaries) the tape is returned
   verbatim (unstamped), so `narrative` falls back to the EVEN partition
-  exactly as before. A record at or past the last boundary belongs to the
-  last dispatch step; records before the first boundary are stamped nil
-  (the leading setup span)."
+  exactly as before. A record whose `:epoch-id` is at or past the last
+  boundary belongs to the last dispatch step; records at or before the
+  first boundary (or carrying no `:epoch-id` at all — a defensive
+  fallback) are stamped nil (the leading setup span)."
   [script tape boundaries]
   (let [records       (vec (or tape []))
         bounds        (vec (or boundaries []))
@@ -578,19 +601,21 @@
     (if (empty? bounds)
       records
       (mapv
-        (fn [pos record]
-          (let [;; The index into `bounds` of the LAST dispatch step whose
-                ;; settle had already begun at this record's tape position —
-                ;; i.e. the dispatch step that owns this record. A record
-                ;; before the first boundary owns to no step (leading nil).
-                owner (loop [k (dec (count bounds))]
-                        (cond
-                          (neg? k)                  nil
-                          (<= (nth bounds k) pos)    k
-                          :else                     (recur (dec k))))]
+        (fn [record]
+          (let [eid   (:epoch-id record)
+                ;; The index into `bounds` of the LAST dispatch step whose
+                ;; settle had already begun before this record's OWN
+                ;; `:epoch-id` was assigned — i.e. the dispatch step that
+                ;; owns this record. A record at or before the first
+                ;; boundary owns to no step (leading nil).
+                owner (when (some? eid)
+                        (loop [k (dec (count bounds))]
+                          (cond
+                            (neg? k)                nil
+                            (< (nth bounds k) eid)  k
+                            :else                   (recur (dec k)))))]
             (assoc record :rf.story/script-idx
                    (when (some? owner) (nth dispatch-idxs owner nil)))))
-        (range)
         records))))
 
 (defn narrative
@@ -610,10 +635,12 @@
     beat lands in the span of the step that produced it; unstamped / setup
     beats lead under a `nil` span. This is the precise model the
     PRODUCER feeds: the runner / replay path records each dispatch step's
-    settle boundary (the epoch-history length at the start of its settle),
-    and `project-evidence` stamps the tape via `stamp-tape` before handing
-    it here. A re-dispatch step that settles to N committed
-    epochs has all N attributed to the one authored step — exactly.
+    settle boundary (the last-committed `:epoch-id` at the start of its
+    settle — a genuine monotonic identity, robust to `epoch-history` ring
+    eviction, rf2-96qsjr), and `project-evidence` stamps the tape via
+    `stamp-tape` before handing it here. A re-dispatch step that settles to
+    N committed epochs has all N attributed to the one authored step —
+    exactly.
   - EVEN — absent stamps (a bare `epoch-history` tape with no recorded
     attribution — e.g. a hand-built tape or a host that did not record
     settle boundaries), records are partitioned across the dispatch steps
@@ -849,9 +876,10 @@
     two-level `:narrative` spans. Absent, the narrative is a single
     `nil`-step span over the whole tape.
   - `:attribution` — the runner-recorded per-dispatch-step settle
-    boundaries (the epoch-history length at the start of each dispatch
-    step's settle, in dispatch-step order). When present, the
-    `:narrative` is attributed EXACTLY via these boundaries
+    boundaries (the last-committed `:epoch-id` at the start of each
+    dispatch step's settle, in dispatch-step order — a genuine monotonic
+    identity, robust to `epoch-history` ring eviction, rf2-96qsjr). When
+    present, the `:narrative` is attributed EXACTLY via these boundaries
     (`stamp-tape` → `spans-from-stamps`); absent, the narrative falls
     back to the EVEN forward partition. The stamp lands ONLY
     on the records the narrative projection consumes — the verbatim

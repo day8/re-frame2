@@ -316,6 +316,92 @@
                           :rf.story/script-idx))
           "no stamp key is added on the fallback path"))))
 
+;; ---- rf2-96qsjr: stamp-tape survives epoch-history ring eviction ---------
+;;
+;; `epoch-history` is a bounded per-frame ring (default depth 50); once
+;; total epochs exceed the depth, the ring evicts the OLDEST records.
+;; `boundaries` are the runner-recorded `:epoch-id` at the start of each
+;; dispatch step's settle (a genuine monotonic identity — see
+;; `runner-events/last-epoch-id`), NOT a ring-length COUNT: a count
+;; PLATEAUS at the ring depth once full, so two boundaries recorded after
+;; that point are numerically identical and a position-based zip against
+;; the (now-truncated) tape silently attributes surviving epochs to the
+;; WRONG step. Fixture below simulates a 5-dispatch-step run against a
+;; ring depth of 3 — epochs 1 and 2 are evicted; epochs 3/4/5 survive
+;; with THEIR OWN real `:epoch-id`s (48/49/50 — arbitrary large numbers,
+;; standing in for "whatever the process-global epoch counter had
+;; reached", proving the mechanism does not depend on ids starting at 1
+;; or being contiguous from 0). Fixed boundaries are RECORDED as each
+;; step's own settle began — i.e. the id of the LAST epoch committed
+;; before that step's dispatch, exactly what `last-epoch-id` snapshots.
+
+(deftest stamp-tape-survives-ring-eviction-no-plateau
+  (testing "rf2-96qsjr: five dispatch steps' worth of boundaries, recorded
+            as genuine (non-plateauing) epoch-ids, correctly attribute
+            each SURVIVING record to the step that actually produced it
+            — even though the two earliest records were evicted from the
+            tape entirely"
+    (let [script  [[:dispatch [:set 1]]
+                   [:dispatch [:set 2]]
+                   [:dispatch [:set 3]]
+                   [:dispatch [:set 4]]
+                   [:dispatch [:set 5]]]
+          ;; Only the LAST 3 of 5 committed epochs survive the depth-3
+          ;; ring (their own ids are 48/49/50 — the first two, 46/47,
+          ;; were evicted and are simply gone from `tape`).
+          tape    [(epoch 48 {:trigger-event [:set 3]})
+                   (epoch 49 {:trigger-event [:set 4]})
+                   (epoch 50 {:trigger-event [:set 5]})]
+          ;; Recorded BEFORE each step's own dispatch — genuinely
+          ;; monotonic, no plateau, regardless of the ring depth.
+          boundaries [45 46 47 48 49]
+          stamped (evidence/stamp-tape script tape boundaries)]
+      (is (= [2 3 4] (mapv :rf.story/script-idx stamped))
+          "epoch 48 -> step 2 (dispatched [:set 3]); 49 -> step 3
+           ([:set 4]); 50 -> step 4 ([:set 5]) — each surviving record's
+           OWN epoch-id decides ownership, not its position in the
+           (evicted) tape")
+      (let [n (evidence/narrative script stamped)]
+        (is (= [] (:epochs (nth n 0))) "step 0's own epoch (id 46) was evicted — no beats")
+        (is (= [] (:epochs (nth n 1))) "step 1's own epoch (id 47) was evicted — no beats")
+        (is (= [[:set 3]] (mapv :trigger-event (:epochs (nth n 2))))
+            "step 2 correctly owns its surviving epoch")
+        (is (= [[:set 4]] (mapv :trigger-event (:epochs (nth n 3))))
+            "step 3 correctly owns its surviving epoch")
+        (is (= [[:set 5]] (mapv :trigger-event (:epochs (nth n 4))))
+            "step 4 correctly owns its surviving epoch")))))
+
+(deftest stamp-tape-plateaued-count-boundaries-would-misattribute
+  (testing "rf2-96qsjr: documents the OLD count-based boundary bug as a
+            CONTRAST, not a desired behaviour. Once a depth-3 ring is
+            full, `(count (epoch-history ...))` plateaus at 3 for every
+            subsequent boundary snapshot, so feeding `stamp-tape` boundary
+            values shaped like that (rather than genuine epoch-ids)
+            collapses every surviving record onto the LAST step —
+            demonstrating why the producer had to stop recording
+            ring-length counts. `runner-events/last-epoch-id` never
+            emits boundaries shaped like this in production; this input
+            is deliberately pathological."
+    (let [script  [[:dispatch [:set 1]]
+                   [:dispatch [:set 2]]
+                   [:dispatch [:set 3]]
+                   [:dispatch [:set 4]]
+                   [:dispatch [:set 5]]]
+          tape    [(epoch 48 {:trigger-event [:set 3]})
+                   (epoch 49 {:trigger-event [:set 4]})
+                   (epoch 50 {:trigger-event [:set 5]})]
+          ;; What a COUNT-based recorder would have produced: 0, 1, 2,
+          ;; then PLATEAUED at 3 (the ring depth) for every subsequent
+          ;; boundary once it filled — steps 3 and 4 are indistinguishable.
+          plateaued-count-boundaries [0 1 2 3 3]
+          stamped (evidence/stamp-tape script tape plateaued-count-boundaries)]
+      (is (= [4 4 4] (mapv :rf.story/script-idx stamped))
+          "these tiny plateaued counts are all `<` every real epoch-id in
+           `tape` (48-50), so every record's owner-search bottoms out at
+           the LAST boundary (index 4) — collapsing steps 2/3/4's
+           distinct epochs onto step 4 alone. This is the 'confident but
+           wrong' misattribution the bug reported."))))
+
 (deftest narrative-no-dispatch-steps-leads-whole-tape
   (testing "a script with no dispatch steps puts the whole tape in a leading span"
     (let [script [[:assert-db [:k] 1] [:wait 10]]

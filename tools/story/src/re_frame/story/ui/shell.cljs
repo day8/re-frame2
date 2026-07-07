@@ -747,7 +747,26 @@
 
   Per rf2-zgu68 also surfaces a viewport-px chip at the bottom-right
   when a non-`:full` viewport mode is active. The chip self-elides
-  for `:full`."
+  for `:full`.
+
+  rf2-j8hklm: `[canvas/canvas]` sits behind a STABLE always-present
+  `:div` wrapper regardless of `sized?` — only the wrapper's OWN style
+  varies (the real `vp-style` sizing box when sized, `display: contents`
+  otherwise so the wrapper drops out of layout and `canvas/canvas`'s own
+  `:flex \"1\"` sizes it against the outer flex container exactly as
+  when it rendered unwrapped). Previously `sized?` picked between TWO
+  DIFFERENT hiccup shapes at this tree position — `[:div ... [canvas/
+  canvas]]` vs bare `[canvas/canvas]` — so toggling the viewport across
+  the `:full`-vs-sized boundary changed the React element TYPE at this
+  slot (`:div` vs the canvas class) and forced React to unmount + remount
+  the canvas subtree. `canvas/canvas`'s `component-will-unmount` cleared
+  the run-key sentinel, so the fresh mount's `component-did-mount` always
+  re-ran `run-variant` — wiping the live variant's interactive app-db even
+  though the viewport is deliberately excluded from `run-key` precisely
+  so a viewport toggle should NOT re-run it. Keying `[canvas/canvas]` at
+  an identical tree position across both branches keeps React's
+  reconciler on the SAME component instance, so the toggle only ever
+  updates the wrapper's style — never a remount."
   []
   (let [vp        (viewport-switcher/effective-viewport)
         bg        (backgrounds-switcher/effective-background)
@@ -771,11 +790,9 @@
            :data-test   "story-canvas-frame"
            :data-viewport (name (viewport-switcher/effective-id))
            :data-background (name (backgrounds-switcher/effective-id))}
-     (if sized?
-       [:div {:style     vp-style
-              :data-test "story-canvas-frame-sized"}
-        [canvas/canvas]]
-       [canvas/canvas])
+     [:div (cond-> {:style (or vp-style {:display "contents"})}
+             sized? (assoc :data-test "story-canvas-frame-sized"))
+      [canvas/canvas]]
      ;; rf2-zgu68 — viewport-px indicator chip. Self-elides for `:full`.
      [canvas/viewport-indicator vp]]))
 

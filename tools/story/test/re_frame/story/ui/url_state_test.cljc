@@ -418,6 +418,85 @@
           "navigating to the override-free shared URL clears the stale edit —
            the address bar is authoritative"))))
 
+;; ---- rf2-gchydo: mode-tab is URL-authoritative too (per-variant) -------
+;;
+;; `:active-mode-tab` gets the SAME authoritative-clear treatment as
+;; `:cell-overrides` (rf2-2cpoo) above — it is per-variant, so the clear
+;; is scoped to the focused variant via `dissoc`, NOT an unconditional
+;; `:always` write like the global rf2-fkmnh slots below.
+
+(deftest apply-parsed-clears-stale-mode-tab-when-url-omits-it
+  (testing "rf2-gchydo — hydrating a URL that KEEPS the focused variant but
+            carries NO mode-tab= clears the stale [:active-mode-tab
+            variant-id] entry so the reader's :dev default applies.
+            Reproduces the bead's repro: select variant A (no mode-tab=),
+            Test tab (mode-tab=test), Docs (mode-tab=docs), Back twice to
+            the first entry (no mode-tab=) — the stale :docs must not
+            survive."
+    (let [stale {:selected-variant :story.foo/bar
+                 :active-mode-tab  {:story.foo/bar :docs}}
+          out   (us/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
+      (is (= :story.foo/bar (:selected-variant out)))
+      (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
+          "the stale entry is dissoc'd, not left at :docs — the reader's
+           default-mode-tab (:dev) fallback now applies"))))
+
+(deftest apply-parsed-sets-mode-tab-when-url-carries-it
+  (testing "rf2-gchydo — a URL that DOES carry mode-tab= overwrites a stale
+            entry (authoritative, not a merge) — the sibling of the clear
+            test above"
+    (let [stale {:selected-variant :story.foo/bar
+                 :active-mode-tab  {:story.foo/bar :test}}
+          out   (us/apply-parsed-to-state
+                  stale {:variant-id :story.foo/bar :mode-tab :docs} {})]
+      (is (= :docs (get-in out [:active-mode-tab :story.foo/bar]))))))
+
+(deftest apply-parsed-clears-mode-tab-leaves-other-variants-intact
+  (testing "rf2-gchydo — clearing the focused variant's mode-tab touches
+            ONLY its entry; another variant's mode-tab survives (mode-tab
+            is per-variant, the URL speaks for the focused variant alone)"
+    (let [stale {:selected-variant :story.foo/bar
+                 :active-mode-tab  {:story.foo/bar   :docs
+                                    :story.other/baz :test}}
+          out   (us/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
+      (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
+          "the focused variant's stale mode-tab is cleared")
+      (is (= :test (get-in out [:active-mode-tab :story.other/baz]))
+          "an unfocused variant's mode-tab is left intact"))))
+
+(deftest apply-parsed-mode-tab-untouched-when-variant-not-kept
+  (testing "rf2-gchydo — mode-tab is per-variant: when NO variant is kept
+            (e.g. an invalid/rejected variant id, or none at all) there is
+            no focused variant's entry to clear, so OTHER variants'
+            mode-tab entries are left alone entirely (unlike the global
+            rf2-fkmnh slots below, this is not an unconditional :always
+            write)"
+    (let [stale {:active-mode-tab {:story.other/baz :test}}
+          out   (us/apply-parsed-to-state stale {} {})]
+      (is (nil? (:selected-variant out)))
+      (is (= :test (get-in out [:active-mode-tab :story.other/baz]))
+          "no variant kept -> the mode-tab map is untouched"))))
+
+(deftest apply-parsed-mode-tab-back-forward-scenario
+  (testing "rf2-gchydo — the bead's concrete Back/Back scenario end-to-end:
+            select variant (no mode-tab), Test tab (mode-tab=test), Docs
+            tab (mode-tab=docs), Back twice to the first (variant-only)
+            history entry — the address bar has reverted to no mode-tab=,
+            so hydrating it must revert the canvas's active tab too"
+    (let [;; History entry 1: variant selected, default (:dev) tab — no
+          ;; mode-tab= param, matching share/parse-params' shape for it.
+          entry-1 {:variant-id :story.foo/bar}
+          ;; The Test/Docs clicks pushed mode-tab=test then mode-tab=docs;
+          ;; simulate the resulting stale in-memory state just before
+          ;; Back/Back lands on entry-1 again.
+          stale   {:selected-variant :story.foo/bar
+                   :active-mode-tab  {:story.foo/bar :docs}}
+          out     (us/apply-parsed-to-state stale entry-1 {})]
+      (is (= :story.foo/bar (:selected-variant out)))
+      (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
+          "Back/Back to the mode-tab-less entry reverts the stale :docs —
+           address bar and rendered UI agree again"))))
+
 ;; ---- rf2-fkmnh: URL authoritative for ALL URL-owned chrome slots --------
 
 (deftest apply-parsed-clears-active-modes-when-url-omits-modes

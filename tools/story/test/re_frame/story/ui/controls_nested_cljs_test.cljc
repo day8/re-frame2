@@ -6,11 +6,16 @@
   default-element-value seeding for collection adds, and the path-
   aware cell-override writes against shell-state.
 
-  Splits into two tiers:
+  Splits into three tiers:
 
-  - **JVM + CLJS** (`state.cljc` is `.cljc`) — the path-aware
-    `set-cell-override` fn (plus its `-scalar` wrapper). Pure data →
-    data.
+  - **JVM + CLJS** (`state.cljc` / `args.cljc` are `.cljc`) — the
+    path-aware `set-cell-override` fn (plus its `-scalar` wrapper) in
+    isolation, AND the rf2-mzfh9c edit -> `resolve-args` round-trip: a
+    nested-control edit against a REGISTERED variant's real args,
+    resolved back through `args/resolve-args` the way the canvas
+    actually reads them. `story/reg-variant` + `args/resolve-args` are
+    plain registrar reads — no Reagent / DOM needed — so this tier runs
+    on both runtimes.
   - **CLJS-only** (`controls.cljs` is CLJS-only — it depends on
     Reagent / DOM) — `infer-widget` widget-spec emission on every
     collection operator, plus `resolve-argtypes` integration with the
@@ -21,22 +26,24 @@
   picked up by both `cljs-test$` and `-cljs-test$` regexes)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
-            #?(:cljs [re-frame.story :as story])
+            [re-frame.story :as story]
+            [re-frame.story.args :as args]
             #?(:cljs [re-frame.story.ui.controls :as controls])
             [re-frame.story.ui.state :as state]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
-#?(:cljs
-   (defn reset-fixture [test-fn]
-     (story/clear-all!)
-     (state/reset-shell-state!)
-     (story/install-canonical-vocabulary!)
-     (test-fn))
-   :clj
-   (defn reset-fixture [test-fn]
-     (state/reset-shell-state!)
-     (test-fn)))
+(defn reset-fixture [test-fn]
+  (story/clear-all!)
+  (state/reset-shell-state!)
+  ;; `install-canonical-vocabulary!` seeds the lifecycle-machine
+  ;; event/registrar entries a LIVE variant run needs; nothing in this
+  ;; file dispatches a run — the JVM+CLJS round-trip tests below only
+  ;; read `story/reg-variant` bodies back through `args/resolve-args`
+  ;; (plain registrar data, no frame involved) — so it stays CLJS-only,
+  ;; matching what this file has always needed.
+  #?(:cljs (story/install-canonical-vocabulary!))
+  (test-fn))
 
 (use-fixtures :each reset-fixture)
 
@@ -253,10 +260,139 @@
                             :outer :inner :leaf]))))))
 
 (deftest set-cell-override-tolerates-integer-indices
-  (testing "vector indices are valid path elements (per assoc-in)"
+  (testing "vector indices are valid path elements — WITHOUT a base seed
+            (the caller supplied none) the missing collection vivifies
+            as a real VECTOR (rf2-mzfh9c), NOT the int-keyed map plain
+            `assoc-in` would have minted for a missing intermediate value"
     (let [s  state/default-shell-state
           s1 (state/set-cell-override s :story.a/x [:items 0] "x")]
-      (is (= "x" (get-in s1 [:cell-overrides :story.a/x :items 0]))))))
+      (is (= "x" (get-in s1 [:cell-overrides :story.a/x :items 0])))
+      (is (vector? (get-in s1 [:cell-overrides :story.a/x :items]))
+          "rf2-mzfh9c: a real vector — not {0 \"x\"}, the collection-kind
+           corruption the bug reported")
+      (is (= ["x"] (get-in s1 [:cell-overrides :story.a/x :items]))))))
+
+;; ---- rf2-mzfh9c: kind-aware vivification (nested :vector/:set edit) -----
+;;
+;; Editing an EXISTING entry of a not-yet-overridden `:vector`/`:set` arg
+;; is the most common controls-panel interaction (open panel, edit an
+;; array entry directly, never touch [+]/[-]). Plain `assoc-in` against
+;; `state` cannot know the collection's sibling entries, so
+;; `set-cell-override`'s 5-arity accepts a `base` seed — the arg's
+;; current resolved value (`args/resolve-args`, cell-overrides excluded)
+;; — and walks it via `assoc-in-kind-aware` instead of raw `assoc-in`.
+
+(deftest set-cell-override-with-base-seeds-missing-vector-preserving-siblings
+  (testing "rf2-mzfh9c: a `base` seed lets a first-ever edit of an
+            unoverridden vector preserve sibling entries instead of
+            truncating to a singleton or corrupting into a map"
+    (let [s  state/default-shell-state
+          s1 (state/set-cell-override s :story.a/x [:items 0] "x" ["a" "b"])]
+      (is (vector? (get-in s1 [:cell-overrides :story.a/x :items])))
+      (is (= ["x" "b"] (get-in s1 [:cell-overrides :story.a/x :items]))
+          "index 0 replaced; sibling \"b\" at index 1 survives"))))
+
+(deftest set-cell-override-with-set-base-seeds-preserving-siblings-as-a-set
+  (testing "a :set base seed round-trips as a SET (matching the arg's
+            declared collection kind), sorted the same way the controls
+            panel's own vector-coerce renders it for editing"
+    (let [s  state/default-shell-state
+          s1 (state/set-cell-override s :story.a/x [:items 0] "x" #{"a" "b"})]
+      (is (set? (get-in s1 [:cell-overrides :story.a/x :items])))
+      (is (= #{"x" "b"} (get-in s1 [:cell-overrides :story.a/x :items]))))))
+
+(deftest set-cell-override-set-override-already-established-does-not-throw
+  (testing "rf2-mzfh9c: editing an entry when the OVERRIDE (not just the
+            base) is already a real set does not throw — the reported
+            'assoc undefined on PersistentHashSet' failure mode"
+    (let [s0 state/default-shell-state
+          s1 (state/set-cell-override-scalar s0 :story.a/x :items #{"a" "b"})
+          s2 (state/set-cell-override s1 :story.a/x [:items 0] "x")]
+      (is (set? (get-in s2 [:cell-overrides :story.a/x :items])))
+      (is (contains? (get-in s2 [:cell-overrides :story.a/x :items]) "x")))))
+
+(deftest set-cell-override-deeply-nested-vivifies-map-levels-with-set-base
+  (testing "a deep path mixes map-vivification (keyword segments) and
+            set-vivification (the integer segment) correctly at each
+            level, preserving sibling keys at every level"
+    (let [s  state/default-shell-state
+          ;; :group has an unrelated sibling key + a nested :tags SET,
+          ;; none of it overridden yet.
+          s1 (state/set-cell-override s :story.a/x [:group :tags 0] "x"
+                                      {:tags #{"a" "b"} :other 1})]
+      (is (= {:tags #{"x" "b"} :other 1}
+             (get-in s1 [:cell-overrides :story.a/x :group]))
+          "the nested set becomes {x b}; the group's :other sibling
+           survives untouched"))))
+
+;; ---- rf2-mzfh9c: the edit -> resolve-args ROUND TRIP ---------------------
+;;
+;; The isolated set-cell-override tests above pin the shell-state write
+;; shape; they never prove the write actually SURVIVES a real
+;; `args/resolve-args` deep-merge read against a REGISTERED variant's
+;; base args — the exact seam `args.cljc`'s documented 'vectors/sets
+;; replace, not merge element-wise' semantics corrupted before this fix.
+;; `story/reg-variant` + `args/resolve-args` are plain registrar reads
+;; (no frame / dispatch), so this tier runs on JVM + CLJS.
+
+(deftest set-cell-override-edit-vector-entry-then-resolve-args-round-trip
+  (testing "rf2-mzfh9c: editing ONE entry of a registered variant's
+            un-overridden :vector arg, seeded the SAME way the controls
+            panel seeds it (`args/resolve-args` minus cell-overrides),
+            round-trips through `resolve-args` as the sibling-preserving
+            vector — not an int-keyed map, not a truncated singleton"
+    (story/reg-variant :story.nest.roundtrip/vector-arg
+      {:args   {:items ["a" "b" "c"]}
+       :events []})
+    (let [base       (get (args/resolve-args :story.nest.roundtrip/vector-arg) :items)
+          shell      (state/set-cell-override state/default-shell-state
+                                              :story.nest.roundtrip/vector-arg
+                                              [:items 1] "X" base)
+          overrides  (get-in shell [:cell-overrides :story.nest.roundtrip/vector-arg])
+          eff        (args/resolve-args :story.nest.roundtrip/vector-arg
+                                        {:cell-overrides overrides})]
+      (is (= ["a" "b" "c"] base) "precondition: the registered base vector")
+      (is (vector? (:items overrides))
+          "the override itself stays a real vector, not an int-keyed map")
+      (is (= ["a" "X" "c"] (:items overrides))
+          "only the edited index changed; siblings a/c survive")
+      (is (= ["a" "X" "c"] (:items eff))
+          "resolve-args' deep-merge (vectors replace whole) reflects the
+           SAME sibling-preserving vector — the edit->resolve-args round
+           trip the isolated set-cell-override tests never proved"))))
+
+(deftest set-cell-override-edit-set-entry-then-resolve-args-round-trip
+  (testing "rf2-mzfh9c: the same round-trip for a :set-kind arg — the
+            override stays a real set (matching the schema's declared
+            kind), and a SECOND edit against the now-established set
+            override does not throw"
+    (story/reg-variant :story.nest.roundtrip/set-arg
+      {:args   {:tags #{"a" "b"}}
+       :events []})
+    (let [base       (get (args/resolve-args :story.nest.roundtrip/set-arg) :tags)
+          ;; The panel's repeater renders a SET via a stable sorted
+          ;; vector projection — index 0 is "a" (sort-by str).
+          shell      (state/set-cell-override state/default-shell-state
+                                              :story.nest.roundtrip/set-arg
+                                              [:tags 0] "x" base)
+          overrides  (get-in shell [:cell-overrides :story.nest.roundtrip/set-arg])
+          eff        (args/resolve-args :story.nest.roundtrip/set-arg
+                                        {:cell-overrides overrides})]
+      (is (set? base))
+      (is (set? (:tags overrides))
+          "the override is a real set, not a vector or an int-keyed map")
+      (is (= #{"x" "b"} (:tags overrides)))
+      (is (= #{"x" "b"} (:tags eff)))
+      ;; A SECOND edit against the now-established set override (no base
+      ;; passed — none needed, an override already exists) must not throw.
+      (let [shell2     (state/set-cell-override shell
+                                                :story.nest.roundtrip/set-arg
+                                                [:tags 0] "y")
+            overrides2 (get-in shell2 [:cell-overrides :story.nest.roundtrip/set-arg])]
+        (is (set? (:tags overrides2)))
+        (is (= #{"y" "x"} (:tags overrides2))
+            "sort-by str on #{x b} is [b x] — index 0 is \"b\"; replacing
+             it with \"y\" leaves {y x}")))))
 
 (deftest set-cell-override-singleton-path-equivalent-to-scalar-wrapper
   (testing "a 1-element path produces the same result as the scalar wrapper"
