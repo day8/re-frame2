@@ -731,11 +731,14 @@
   `:rf.error/make-frame-bad-opts`; the all-defaults frame is `(make-frame {})`).
   The image-selection + value opts:
 
-    :images        a VECTOR of image values (always a vector, even for a single
-                   image). Resolved into one sealed image generation; a
-                   non-vector fails loud (`:rf.error/make-frame-bad-images`).
-                   Optional — absent ⇒ an ordinary configured frame on the shared
-                   registrar; `[]` runs the DEFAULT IMAGE.
+    :images        a NON-EMPTY VECTOR of image values (always a vector, even
+                   for a single image), resolved into one sealed image
+                   generation. A non-vector OR an empty `[]` fails loud
+                   (`:rf.error/make-frame-bad-images`) — pass at least one
+                   image, or OMIT `:images` for the DEFAULT IMAGE generation
+                   over the whole source store + framework standards (which
+                   fails loud on a cross-namespace same-`[kind id]` collision,
+                   `:rf.error/image-duplicate-id`).
     :id            the frame id (optional). When supplied, the frame is registered
                    under this id; re-`make-frame`-ing the same id is IDEMPOTENT
                    REPLACEMENT (config + generation refresh, durable state
@@ -1773,6 +1776,9 @@
     :rf.gen/resolver  {[kind id] descriptor, …}   the sealed [kind id] map
     :rf.gen/images    [<normalized image value> …]
     :rf.gen/kinds     #{kind …}                     kinds present, for tools
+    :rf.gen/shadows   [{:registration [kind id]
+                        :image <loser> :shadowed-by <winner>} …]   the
+                      cross-image shadow report (`rf/frame-shadows` reads it)
 
   (EP-0026, rf2-dlvmpc: `:rf.gen/requires` was retired with the image-capability
   feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
