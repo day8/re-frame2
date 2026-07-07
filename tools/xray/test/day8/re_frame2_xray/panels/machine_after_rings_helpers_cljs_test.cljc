@@ -25,7 +25,9 @@
        ring-spec projection (rf2-uv1on; replaced the SVG-era
        `state-node-center` / `timers->ring-positions`).
     8. `needs-ticking?`                     — rAF tick driver gate.
-    9. `ms-remaining`                       — tooltip-ms calc."
+    9. `ms-remaining`                       — tooltip-ms calc.
+    10. `focused-cascade-time-ms` / `resolve-now-ms` — rf2-8i1tg3 retro
+        now-ms anchor (xray/003 §M.2)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
@@ -465,3 +467,45 @@
 (deftest ms-remaining-nil-cases
   (is (nil? (h/ms-remaining {} 1000)))
   (is (nil? (h/ms-remaining {:fires-at 6000} nil))))
+
+;; ---- (10) focused-cascade-time-ms / resolve-now-ms (rf2-8i1tg3) ---------
+;;
+;; xray/003 §M.2: "Retro mode (scrubber-driven): the ring is static at
+;; the elapsed-fraction the timer had reached at the focused-cascade's
+;; timestamp." Before this fix the view fed the LIVE `now-ms` into the
+;; ring projection unconditionally regardless of scrubber-position —
+;; these tests pin the corrected branch.
+
+(deftest focused-cascade-time-ms-reads-dispatched-time
+  (is (= 12345
+         (h/focused-cascade-time-ms
+           {:selected-event-bundle {:dispatched {:time 12345}}}))))
+
+(deftest focused-cascade-time-ms-nil-cases
+  (is (nil? (h/focused-cascade-time-ms nil))
+      "no detail composite at all")
+  (is (nil? (h/focused-cascade-time-ms {}))
+      "no selected event-bundle")
+  (is (nil? (h/focused-cascade-time-ms
+              {:selected-event-bundle {}}))
+      "selected event-bundle carries no :dispatched slot")
+  (is (nil? (h/focused-cascade-time-ms
+              {:selected-event-bundle {:dispatched {:time "not-a-number"}}}))
+      "non-numeric :time defends against a malformed/synthetic event-bundle"))
+
+(deftest resolve-now-ms-present-uses-live-clock
+  (is (= 9999 (h/resolve-now-ms :present 9999 1111))
+      "LIVE mode (:present) always uses the rAF-bumped live clock, even
+       when a focused-cascade timestamp is also available"))
+
+(deftest resolve-now-ms-retro-uses-focused-cascade-timestamp
+  (is (= 1111 (h/resolve-now-ms 3 9999 1111))
+      "RETRO mode (scrubber-position anything but :present) anchors to
+       the focused cascade's timestamp, NOT the live clock — the exact
+       rf2-8i1tg3 regression: pre-fix this returned 9999 (the stale
+       live clock)"))
+
+(deftest resolve-now-ms-retro-falls-back-to-live-clock-when-no-focused-ms
+  (is (= 9999 (h/resolve-now-ms 3 9999 nil))
+      "defensive fallback — a nil focused-cascade timestamp must not
+       freeze the ring at nil (every fraction calc would blank)"))

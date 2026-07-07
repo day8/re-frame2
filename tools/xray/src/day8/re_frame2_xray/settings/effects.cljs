@@ -591,6 +591,19 @@
                                     (zero? prev)
                                     (not (visible-shell?)))
                            (call-mount-fn! "open_BANG_"))))]
+        ;; Seed the baseline from the reaction's CURRENT value before
+        ;; `add-watch` — a reagent/re-frame reaction is already live the
+        ;; instant `subscribe` returns (it may have run against issues
+        ;; that predate this install, e.g. re-install after a focus nav
+        ;; that already landed on an issue-carrying epoch). `add-watch`
+        ;; only fires on the NEXT change, so leaving `last-issue-count`
+        ;; at its `defonce` 0 misclassifies that pre-existing non-empty
+        ;; state as the empty->non-empty edge on the first subsequent
+        ;; change, spuriously auto-opening Xray. Seeding here makes the
+        ;; watcher's edge detection start from the true "now", matching
+        ;; xray/016-Auxiliary-Panels §Auto-open-on-error (first
+        ;; empty->non-empty only).
+        (reset! last-issue-count (count (:issues @reaction)))
         (add-watch reaction ::auto-open-on-error watch-fn)
         (reset! auto-open-watcher reaction))))
   nil)

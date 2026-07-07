@@ -320,6 +320,33 @@
       (:cascade ev)
       []))
 
+(defn- microstep-cascade-steps
+  "rf2-8i1tg3 — the `:kind :microstep` steps off a transition trace's
+  `:cascade`, in firing order. `transition.cljc`'s unified `:always`
+  loop (`machine-transition-single`) appends ONE such step per
+  eventless iteration — `{:kind :microstep :from <state> :to <state>
+  :microstep-index N :steps [...] ...}`, `:from`/`:to` being the RAW
+  before/after `:state` value (keyword or path vector for a single-
+  active machine — parallel region-maps are out of scope here, see
+  `extract-fired-edge-ids` docstring). Empty when the macrostep ran no
+  `:always` steps (`:microsteps 0`)."
+  [cascade]
+  (filterv #(= :microstep (:kind %)) cascade))
+
+(defn- direct-event-target
+  "rf2-8i1tg3 — the state the DISPATCHED event's own (non-`:always`)
+  transition landed in, as opposed to `to-path-from-trace`'s `:after`,
+  which is the FINAL state once every subsequent `:always` microstep
+  has also settled. When `microsteps` ran (`(seq microsteps)` true),
+  that direct target is the FIRST microstep's `:from` — the state the
+  event-driven transition committed before the `:always` loop took
+  over. With no microsteps, the event-driven transition's target IS
+  the settled `:after`, so `to-path-from-trace` already reads it."
+  [ev microsteps]
+  (if (seq microsteps)
+    (normalise-path (:from (first microsteps)))
+    (to-path-from-trace ev)))
+
 (defn- handled-regions-from-cascade
   "rf2-l8ls6w — the SET of region names a parallel macrostep actually HANDLED
   this transition, read off the trace's structured `:cascade`. Each cascade
@@ -602,6 +629,23 @@
   HANDLED-unchanged region (lights its self/internal edge) from a RESTING
   region that simply declined the event (lights nothing).
 
+  rf2-8i1tg3 — `:always`-MICROSTEP macrosteps (single-active machines only;
+  parallel `:always` microsteps are out of scope here). `commit-or-finalize`
+  emits ONE `:rf.machine/transition` per macrostep whose `:after` is the
+  FINAL settled state once every `:always` iteration has ALSO run — not the
+  state the dispatched event's own transition landed in. Matching
+  `(from, :after, event)` against the declared edges therefore looks for an
+  edge that does not exist (the dispatched event's real target, followed by
+  N eventless hops, was collapsed into one before/after pair) and silently
+  returns nothing — a `:microsteps > 0` transition lit NO fired edge at all.
+  `direct-event-target` recovers the event-driven transition's OWN target
+  (the first `:always` microstep's `:from`, i.e. before the loop advanced
+  further) so its edge matches by construction; `microstep-cascade-steps`
+  then walks the structured `:cascade`'s `:microstep` entries and lights
+  EACH `:always` hop's own edge too (`chart.layout` mints eventless edges
+  with `:event :always` — rf2-oy49f1), so a multi-hop `:always` cascade
+  highlights the FULL path the macrostep walked, not just its entry edge.
+
   Returns `#{}` for a nil/empty definition or no matching transitions."
   [definition trace-events machine-id]
   (let [edges (:edges (chart-layout/project-definition definition))]
@@ -623,11 +667,23 @@
                    event*
                    (handled-regions-from-cascade (cascade-from-trace ev)))
                  ;; Single-active (flat / compound): the existing
-                 ;; (from, to, event) match + machine-level fallback.
-                 (let [from* (from-path-from-trace ev)
-                       to*   (to-path-from-trace ev)]
+                 ;; (from, to, event) match + machine-level fallback —
+                 ;; PLUS (rf2-8i1tg3) the direct event-driven target
+                 ;; (not the post-`:always` settled state) and every
+                 ;; `:always` microstep's own edge.
+                 (let [from*      (from-path-from-trace ev)
+                       microsteps (microstep-cascade-steps (cascade-from-trace ev))
+                       to*        (direct-event-target ev microsteps)]
                    (when (and from* to* event*)
-                     (single-transition-fired-ids edges from* to* event*)))))))
+                     (concat
+                       (single-transition-fired-ids edges from* to* event*)
+                       (mapcat (fn [{step-from :from step-to :to}]
+                                 (single-transition-fired-ids
+                                   edges
+                                   (normalise-path step-from)
+                                   (normalise-path step-to)
+                                   :always))
+                               microsteps))))))))
          set)))
 
 ;; ---- guard-blocked-edge ids (rf2-fzrzlw) --------------------------------

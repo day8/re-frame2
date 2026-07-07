@@ -269,6 +269,72 @@
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{populate-id submit-id} fired)))))
 
+;; ---- :always-microstep fired-edge (rf2-8i1tg3) ---------------------------
+;;
+;; `commit-or-finalize` emits ONE `:rf.machine/transition` per macrostep
+;; whose `:after` is the FINAL settled state once every `:always`
+;; iteration has ALSO run — not the state the dispatched event's OWN
+;; transition landed in. Matching `(from, :after, event)` looked for an
+;; edge that does not exist, so a `:microsteps > 0` transition lit NO
+;; fired edge at all (`#{}`). The fix derives the direct event-driven
+;; target from the FIRST `:kind :microstep` cascade step and additionally
+;; lights each `:always` hop's own edge (matched on `event* :always`).
+
+(defn- always-microstep-definition
+  "`:populate` is event-driven (:empty -> :populated); `:populated`
+  declares an eventless `:always` straight through to
+  `:auto-processing` — the runtime settles `:always` to a fixed point
+  BEFORE the outer `:rf.machine/transition` trace commits, so the
+  trace's `:after` is `:auto-processing`, never the event-driven
+  `:populated` target."
+  []
+  {:initial :empty
+   :states  {:empty           {:on {:populate :populated}}
+             :populated       {:always :auto-processing}
+             :auto-processing {:final? true}}})
+
+(deftest extract-fired-edge-ids-always-microstep-lights-direct-and-chain-edges
+  (testing "rf2-8i1tg3 — a :microsteps > 0 macrostep lights BOTH the
+            dispatched event's own edge (:empty -> :populated) AND
+            the :always microstep's own edge (:populated ->
+            :auto-processing) — NOT the (from, FINAL-settled, event)
+            triple that matches no declared edge"
+    (let [def         (always-microstep-definition)
+          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
+          always-id   (canonical-edge-id def [:populated] [:auto-processing] :always)
+          events      [{:operation  :rf.machine/transition
+                        :tags       {:machine-id :cart}
+                        :from       [:empty]
+                        :to         [:auto-processing]
+                        :event      :populate
+                        :microsteps 1
+                        :cascade    [{:kind             :microstep
+                                      :from             [:populated]
+                                      :to               [:auto-processing]
+                                      :microstep-index  0}]}]
+          fired       (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (string? populate-id))
+      (is (string? always-id))
+      (is (not= populate-id always-id))
+      (is (= #{populate-id always-id} fired)
+          "both the event-driven edge AND the always-microstep edge light"))))
+
+(deftest extract-fired-edge-ids-no-microsteps-unaffected
+  (testing "rf2-8i1tg3 regression guard — a plain (:microsteps 0)
+            transition is unaffected by the microstep-target derivation
+            (falls through to the pre-existing to-path-from-trace read)"
+    (let [def         (toy-definition)
+          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
+          events      [{:operation  :rf.machine/transition
+                        :tags       {:machine-id :cart}
+                        :from       [:empty]
+                        :to         [:populated]
+                        :event      :populate
+                        :microsteps 0
+                        :cascade    []}]
+          fired       (trace-state/extract-fired-edge-ids def events :cart)]
+      (is (= #{populate-id} fired)))))
+
 (deftest extract-fired-edge-ids-reads-modern-before-after-shape
   (testing "modern :tags {:before/:after {:state ...}} drives the match"
     (let [def         (toy-definition)
