@@ -387,7 +387,7 @@ Views are where the pipeline ends and pixels begin. The view layer is **substrat
   (reg-view sym docstring [args] body+)
   (reg-view ^{:rf/id :explicit/id} sym [args] body+)
   ```
-- **Description**: The `defn`-shape view registration — the app-facing lane. Auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, auto-injects `dispatch` / `subscribe` as lexical bindings, and rejects non-defn-shape bodies at macroexpand. The 80% of registrations want this form. In all shapes the symbol is `def`-ed so you can write `[my-view item]` from sibling code; render an app-facing view by **Var reference** (bare keyword-tagged hiccup `[:my-view "args"]` is removed in v2).
+- **Description**: The `defn`-shape view registration — the app-facing lane. Auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, auto-injects `dispatch` / `subscribe` as lexical bindings, and rejects non-defn-shape bodies at macroexpand. The 80% of registrations want this form. In all shapes the symbol is `def`-ed so you can write `[my-view item]` from sibling code; render an app-facing view by **Var reference** or `(rf/view id)` (bare keyword-tagged hiccup `[:my-view "args"]` is rejected — see [Spec 004 §Resolved decisions](../../spec/004-Views.md#bare-my-view-args-in-raw-hiccup-is-rejected)).
 - **Example**:
   ```clojure
   (rf/reg-view counter-buttons []

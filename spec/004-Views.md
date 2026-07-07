@@ -323,7 +323,7 @@ Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** f
 [(rf/view :counter) "Hello"]
 ```
 
-**Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
+**Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **rejected** — not deferred. Registered views resolve by Var reference (the canonical `reg-view` form, [§above](#the-canonical-form-reg-view-auto-defs-the-symbol)) or by explicit `(rf/view id)` lookup ([§above](#view--the-canonical-post-registration-lookup)) only; a bare keyword tag in hiccup stays a plain substrate-owned HTML/custom element and is never resolved against the view registry. See [§Resolved decisions](#resolved-decisions) for the rationale.
 
 ## Plain Reagent fns: no frame injection
 
@@ -541,15 +541,17 @@ This regime subsumes into the general outer/inner pattern for wrapping stateful 
 
 Most animations are Regime A. Reach for B only when the state genuinely advances per-frame (games, physics, scroll-momentum). Reach for C only when a third-party library owns the timing. Genuine "completion-sensing" cases — "the state must wait for an exact `animationend`" — are rare, and usually signal that Regime A's "state is truth, visual catches up" approach was not fully exploited. When the case is genuine, the lifecycle hook (Form-3 / `use-effect`) is the escape hatch: it attaches `addEventListener "animationend"` after commit, cleans up on unmount, and carries the frame correctly because the `capture-frame` was built during render.
 
-## Open questions
-
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): the bare-`[:my-view "args"]`-in-hiccup item classifies as **`:post-v1 tracked`** — out of scope for v1 and folded into the substrate-decoupling work tracked at [Spec 006 §Open questions](006-ReactiveSubstrate.md#open-questions).
-
-### Bare `[:my-view "args"]` in raw hiccup (post-v1)
-
-The bare `[:my-view "args"]` form in raw hiccup requires Reagent extension and is out of scope for v1; it is deferred to the substrate-decoupling work in [Spec 006](006-ReactiveSubstrate.md).
-
 ## Resolved decisions
+
+### Bare `[:my-view "args"]` in raw hiccup is rejected
+
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): `:resolved` — rf2-n82bbu ruled **reject for the v-family**, superseding the earlier `:post-v1 tracked` deferral to Spec 006 (006 never carried the item; the pointer had gone stale).
+
+Bare `[:my-view "args"]` in raw hiccup — where the substrate itself would interpret a keyword tag as a registered view — is **rejected**, not deferred. Registered views resolve by Var reference (the canonical `reg-view` form, [§The canonical form](#the-canonical-form-reg-view-auto-defs-the-symbol)) or by explicit `(rf/view id)` lookup ([§`view`](#view--the-canonical-post-registration-lookup)) only; a bare keyword tag in hiccup stays a plain substrate-owned HTML/custom element and is never resolved against the view registry.
+
+**Why:** the two existing resolution mechanisms, across three call-site spellings, already cover every identified use case — including runtime-computed ids via `(rf/view id)`. No example, testbed, or consumer in the repo uses or requests a third (keyword-tag) form. The natural failure mode of adding it is worse than the status quo: either a typo'd keyword silently renders a bogus custom element, or every keyword-headed hiccup form pays a view-registry probe on the render hot path to guard against that — both fail the over-engineering bar. The feature is also adapter-lopsided: it is only meaningful for the Reagent / reagent-slim hiccup family, since UIx and Helix render via `$` / `defnc` macros rather than raw hiccup. Tested semantics already assert the rejection (the reagent-runtime `keyword-head-does-not-dispatch-to-registered-view` test; reagent-slim routing keyword/symbol/string heads through the native-element path), so adopting the form would change tested hot-path semantics rather than merely add an alias.
+
+This is fully reversible: a future consumer with genuine demand can file a new bead, and adding keyword-tag resolution later remains a non-breaking addition.
 
 ### `reg-view` defs the Var by default
 
