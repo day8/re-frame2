@@ -233,7 +233,7 @@
     ;; away from this; the guard enforces it so a stray full
     ;; read can't blow the context window. Sliced reads + the default
     ;; `:app` scope (reserved frames already excluded) pass through.
-    (if-let [refused (guard/snapshot-refusal frames path mode)]
+    (if-let [refused (guard/snapshot-refusal frames path slice-mode)]
       (js/Promise.resolve refused)
       (probe/eval-after-runtime-signalled!
         conn build-id form :snapshot-failed

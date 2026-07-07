@@ -340,6 +340,16 @@
             (fn []
               (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":anything"}))
                   (.then (fn [result]
+                           ;; rf2-acckgr regression: this tool-built
+                           ;; :unexpected-shape map lacked the codec's
+                           ;; ::codec-error meta, so it silently rode
+                           ;; back as ok-text (isError: false) despite
+                           ;; carrying :ok? false — masking the defect
+                           ;; as a success. Sibling test
+                           ;; `handler-meta-unserializable-surfaces-structured`
+                           ;; already asserts this; it was missing here.
+                           (is (is-error? result)
+                               "an :unexpected-shape defect MUST be isError: true")
                            (let [edn (extract-edn result)]
                              (is (false? (:ok? edn)))
                              (is (= :unexpected-shape (:reason edn)))

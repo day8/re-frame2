@@ -170,34 +170,41 @@
                     :value value
                     :build resolved-build}))
 
+   ;; rf2-acckgr: :on-rejected / :on-timeout / :on-missing all build
+   ;; `:ok? false` envelopes — per spec/003's universal isError rule
+   ;; every one of them MUST ride as `wire/err-text` (isError: true), not
+   ;; `wire/ok-text`. A rejected/timed-out/missing-mailbox await is a
+   ;; known-tool failure, not a success carrying bad news — leaving it
+   ;; ok-text lets it cache as a normal success and read as green by the
+   ;; MCP host.
    :on-rejected
    (fn [{:keys [rejection]}]
-     (wire/ok-text {:ok?       false
-                    :reason    :rf.error/eval-cljs-rejected
-                    :rejection rejection
-                    :build     resolved-build}))
+     (wire/err-text {:ok?       false
+                     :reason    :rf.error/eval-cljs-rejected
+                     :rejection rejection
+                     :build     resolved-build}))
 
    :on-timeout
    (fn [_]
-     (wire/ok-text {:ok?        false
-                    :reason     :rf.error/eval-cljs-timeout
-                    :timeout-ms timeout-ms
-                    :build      resolved-build}))
+     (wire/err-text {:ok?        false
+                     :reason     :rf.error/eval-cljs-timeout
+                     :timeout-ms timeout-ms
+                     :build      resolved-build}))
 
    :on-missing
    (fn [{:keys [reason sentinel]}]
      (if (= :bad-sentinel reason)
-       (wire/ok-text {:ok?      false
-                      :reason   :rf.error/eval-cljs-await-wrap-failed
-                      :hint     "the await wrapper returned an unrecognised sentinel"
-                      :sentinel sentinel
-                      :build    resolved-build})
-       (wire/ok-text {:ok?    false
-                      :reason :rf.error/eval-cljs-mailbox-missing
-                      :hint   (str "eval-cljs await mailbox vanished before the result was read. "
-                                   "This indicates a wire-shape regression or a page-reload "
-                                   "destroying the mailbox between the wrap and the poll.")
-                      :build  resolved-build})))})
+       (wire/err-text {:ok?      false
+                       :reason   :rf.error/eval-cljs-await-wrap-failed
+                       :hint     "the await wrapper returned an unrecognised sentinel"
+                       :sentinel sentinel
+                       :build    resolved-build})
+       (wire/err-text {:ok?    false
+                       :reason :rf.error/eval-cljs-mailbox-missing
+                       :hint   (str "eval-cljs await mailbox vanished before the result was read. "
+                                    "This indicates a wire-shape regression or a page-reload "
+                                    "destroying the mailbox between the wrap and the poll.")
+                       :build  resolved-build})))})
 
 ;; ---------------------------------------------------------------------------
 ;; Tool entry point.

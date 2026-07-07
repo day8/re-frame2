@@ -567,8 +567,12 @@
                    :await true
                    :build "app"})))
         (.then (fn [r]
-                 (is (not (err? r))
-                     "rejection is :ok? false but not isError (not a transport-layer error)")
+                 ;; rf2-acckgr regression: a rejected await IS a known-tool
+                 ;; failure and MUST ride as isError: true per spec/003's
+                 ;; universal isError rule — it was previously masked as a
+                 ;; success (isError: false), which this test used to pin.
+                 (is (err? r)
+                     "rejection is a known-tool failure — MUST be isError: true")
                  (let [edn (read-edn r)]
                    (is (false? (:ok? edn)))
                    (is (= :rf.error/eval-cljs-rejected (:reason edn)))
@@ -596,11 +600,37 @@
                    :timeout-ms 75
                    :build      "app"})))
         (.then (fn [r]
-                 (is (not (err? r)) "timeout is :ok? false but not a transport error")
+                 ;; rf2-acckgr regression: a timed-out await IS a known-tool
+                 ;; failure and MUST ride as isError: true per spec/003's
+                 ;; universal isError rule.
+                 (is (err? r) "timeout is a known-tool failure — MUST be isError: true")
                  (let [edn (read-edn r)]
                    (is (false? (:ok? edn)))
                    (is (= :rf.error/eval-cljs-timeout (:reason edn)))
                    (is (= 75 (:timeout-ms edn)) "caller's timeout echoed back")
+                   (is (= :app (:build edn))))
+                 (done))))))
+
+(deftest await-bad-sentinel-surfaces-structured
+  ;; rf2-acckgr regression: the await wrapper returning an unrecognised
+  ;; sentinel (a `wrap-form` regression) hits `:on-missing`'s
+  ;; `:bad-sentinel` branch, which builds `:ok? false` — it MUST ride as
+  ;; isError: true, not a masked ok-text success.
+  (async done
+    (-> (with-stubbed-await!
+          {:wrap-result {:some/unexpected-key 42}
+           :poll-script []}
+          (fn []
+            (eval-cljs/eval-cljs-tool
+              (fresh-conn)
+              #js {:form  "(+ 1 2)"
+                   :await true
+                   :build "app"})))
+        (.then (fn [r]
+                 (is (err? r) "an unrecognised await sentinel MUST be isError: true")
+                 (let [edn (read-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :rf.error/eval-cljs-await-wrap-failed (:reason edn)))
                    (is (= :app (:build edn))))
                  (done))))))
 

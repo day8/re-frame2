@@ -111,8 +111,14 @@
                                   (fn []
                                     (let [elapsed (- (js/Date.now) start)]
                                       (if (>= elapsed wait-ms)
+                                        ;; rf2-acckgr: a timed-out probe
+                                        ;; wait is `:ok? false` — a
+                                        ;; known-tool failure per
+                                        ;; spec/003's universal isError
+                                        ;; rule, not a success carrying
+                                        ;; bad news.
                                         (resolve
-                                          (wire/ok-text
+                                          (wire/err-text
                                             {:ok?           false
                                              :reason        :timed-out
                                              :timed-out?    true
@@ -141,7 +147,9 @@
                 ;; (distinct from :timed-out, which means "polled but
                 ;; never changed"). With probe-error included the
                 ;; operator gets the underlying exception verbatim.
-                (wire/ok-text {:ok?         false
-                               :reason      :probe-errored
-                               :probe-error (.-message err)
-                               :note        probe-errored-note}))))))))
+                ;; rf2-acckgr: `:ok? false` MUST ride as err-text per
+                ;; spec/003's universal isError rule.
+                (wire/err-text {:ok?         false
+                                :reason      :probe-errored
+                                :probe-error (.-message err)
+                                :note        probe-errored-note}))))))))

@@ -512,9 +512,12 @@
      :edn-submap {:ok? true :value {:hello "world"} :build :app}}}
 
    ;; Await + rejected thenable: the mailbox-read returns :rejected;
-   ;; the server surfaces :rf.error/eval-cljs-rejected.
+   ;; the server surfaces :rf.error/eval-cljs-rejected. rf2-acckgr: this
+   ;; is a known-tool failure and MUST be isError: true per spec/003's
+   ;; universal isError rule — it used to ride back as ok-text
+   ;; (isError: false), masking the rejection as a success.
    {:fixture/id    :eval-cljs/await-rejected
-    :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} (rf2-xn4f9)."
+    :fixture/doc   "eval-cljs :await true on a thenable that rejects returns {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>} as an isError envelope (rf2-xn4f9 / rf2-acckgr)."
     :fixture/tool  "eval-cljs"
     :fixture/args  {:form "(js/Promise.reject (ex-info \"nope\" {}))"
                     :await true :build "app"}
@@ -524,7 +527,7 @@
      ["cljs.reader/read-string"    {:status :rejected :rejection "#error {:message \"nope\"}"}]
      [:default                     nil]]
     :fixture/expect
-    {:isError? false
+    {:isError? true
      :edn-submap {:ok? false
                   :reason :rf.error/eval-cljs-rejected
                   :rejection "#error {:message \"nope\"}"

@@ -191,6 +191,21 @@
     (is (renv/error? codec-err)
         "a codec error tag IS a codec error")))
 
+(deftest mark-codec-error-flags-a-tool-built-defect-map
+  ;; rf2-acckgr: a tool's OWN `on-value` shaper can detect a defect the
+  ;; runtime should never produce against a healthy build (handler-meta's
+  ;; `:unexpected-shape`) — that isn't one of `envelope->result`'s own
+  ;; tagged outcomes, but IS a genuine fault, not a legitimate structured
+  ;; miss like `:not-registered`. `mark-codec-error` lets the tool opt
+  ;; that map into the SAME `error?` routing the codec's own tags get.
+  (let [defect (renv/mark-codec-error {:ok? false :reason :unexpected-shape :value 42})]
+    (is (= {:ok? false :reason :unexpected-shape :value 42} defect)
+        "the map's data is unchanged — only metadata is added")
+    (is (renv/error? defect)
+        "a marked map routes through error? as a genuine codec error")
+    (is (renv/error? (assoc defect :kind :event))
+        "the mark survives assoc — metadata propagates through persistent map ops, matching how handler-meta's stamp-frame further shapes the map")))
+
 (deftest truncate-preview-caps-long-text
   (let [long-text (apply str (repeat 500 "x"))
         out       (tu/truncate-preview long-text)]
