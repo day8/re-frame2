@@ -62,6 +62,14 @@
     (is (= "rf.error" (namespace kw)))
     (is (= "stream-abuse-detected" (name kw)))))
 
+(deftest drain-failed-keyword-is-namespaced
+  ;; The dead-connection termination reason (rf2-ajhwbm), same
+  ;; rf.error/* convention as the abuse-detected sentinel above.
+  (let [kw :rf.error/drain-failed]
+    (is (qualified-keyword? kw))
+    (is (= "rf.error" (namespace kw)))
+    (is (= "drain-failed" (name kw)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Resource-controls config surfaces through to subscribe behaviour.
 ;; ---------------------------------------------------------------------------
@@ -216,3 +224,109 @@
                      (is (zero? (:rate-dropped @state))
                          "no rate-drop when a token was available")))
             (.finally (fn [] (restore!) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; Dead-connection cap (rf2-ajhwbm). A permanently-dead nREPL connection
+;; (e.g. shadow-cljs restarted onto a new port mid-session) rejects
+;; every drain eval the SAME way. `max-ms` defaults to 0 (unbounded), so
+;; without a cap on consecutive failures the poll loop — and the
+;; resource-controls concurrent-stream slot it holds — would leak for
+;; the rest of the MCP session. `poll` is driven BY HAND here (the
+;; stubbed `js/setTimeout` is an inert no-op, same pattern as the
+;; rate-gate tests above) so the test doesn't depend on real timer
+;; delays; each `(poll)` call's returned Promise settles once that
+;; cycle's `.then`/`.catch` handler has run, which is enough to
+;; sequence the next manual `(poll)` call deterministically.
+;; ---------------------------------------------------------------------------
+
+(deftest dead-connection-terminates-and-releases-stream-slot
+  (async done
+    (let [state       (fresh-state)
+          resolved    (atom nil)
+          orig-eval   nrepl/cljs-eval-value
+          orig-set-to js/setTimeout
+          eval-stub   (fn ([_c _b _form] (js/Promise.reject (js/Error. "dead conn")))
+                        ([_c _b _form _o] (js/Promise.reject (js/Error. "dead conn"))))
+          restore!    (fn []
+                        (tu/restore-eval! eval-stub orig-eval)
+                        (set! js/setTimeout orig-set-to))]
+      (set! nrepl/cljs-eval-value eval-stub)
+      (set! js/setTimeout (fn [& _] 0))
+      (resource/reset-for-tests!)
+      ;; Reserve a slot the way `subscribe-tool` would, so we can prove
+      ;; `terminate` releases it rather than leaking it.
+      (resource/acquire-stream!)
+      (let [{:keys [poll]}
+            (sub/make-stream-controller
+              {:conn :stub :build-id "b" :sub-id "sub-dead" :topic :trace
+               :resolve (fn [v] (reset! resolved v))
+               :state state
+               :signal nil :send-note nil :progress-tk nil
+               :poll-ms 1 :max-events 0
+               :incl? false :elision? true :dedup? false})]
+        (letfn [(drive [n]
+                  (if (or (some? @resolved) (<= n 0))
+                    (do
+                      (is (some? @resolved)
+                          "a permanently-dead nREPL connection MUST terminate the stream rather than poll forever")
+                      ;; `resolve` receives the `wire/ok-text`-wrapped MCP
+                      ;; JS envelope `final-summary` builds, not a plain
+                      ;; map — unwrap via the shared EDN extractor.
+                      (is (= :rf.error/drain-failed (:reason (tu/extract-edn @resolved)))
+                          "the honest dead-connection reason, not a silent hang")
+                      (is (zero? (resource/active-stream-count))
+                          "terminate releases the concurrent-stream slot — no leak on a dead conn")
+                      (restore!)
+                      (done))
+                    (-> (poll)
+                        (.then (fn [_] (drive (dec n)))))))]
+          ;; 20 is a generous ceiling above any sane consecutive-failure
+          ;; cap — the assertion inside `drive` fails loudly if
+          ;; termination never happens within it.
+          (drive 20))))))
+
+(deftest isolated-drain-error-does-not-terminate
+  ;; A single rejected drain is a transient nREPL hiccup, not a dead
+  ;; connection — the consecutive-failure counter resets on the NEXT
+  ;; successful drain (rf2-ajhwbm), so an alternating fail/succeed
+  ;; pattern must never accumulate toward the terminate cap. This pins
+  ;; the resilience the fix must NOT regress: back off and retry stays
+  ;; the behaviour for isolated blips.
+  (async done
+    (let [state       (fresh-state)
+          resolved    (atom nil)
+          orig-eval   nrepl/cljs-eval-value
+          orig-set-to js/setTimeout
+          call-n      (atom 0)
+          respond     (fn []
+                        (if (odd? (swap! call-n inc))
+                          (js/Promise.reject (js/Error. "transient"))
+                          (js/Promise.resolve {:ok? true :sub-id "sub-flaky"
+                                               :events [] :gone? false})))
+          eval-stub   (fn ([_c _b _form] (respond))
+                        ([_c _b _form _o] (respond)))
+          restore!    (fn []
+                        (tu/restore-eval! eval-stub orig-eval)
+                        (set! js/setTimeout orig-set-to))]
+      (set! nrepl/cljs-eval-value eval-stub)
+      (set! js/setTimeout (fn [& _] 0))
+      (resource/reset-for-tests!)
+      (let [{:keys [poll]}
+            (sub/make-stream-controller
+              {:conn :stub :build-id "b" :sub-id "sub-flaky" :topic :trace
+               :resolve (fn [v] (reset! resolved v))
+               :state state
+               :signal nil :send-note nil :progress-tk nil
+               :poll-ms 1 :max-events 0
+               :incl? false :elision? true :dedup? false})]
+        (letfn [(drive [n]
+                  (if (<= n 0)
+                    (do
+                      (is (nil? @resolved)
+                          "alternating fail/succeed never runs two consecutive failures — must NOT terminate")
+                      (is (= 12 @call-n) "every cycle drove a real eval call — the loop kept going")
+                      (restore!)
+                      (done))
+                    (-> (poll)
+                        (.then (fn [_] (drive (dec n)))))))]
+          (drive 12))))))

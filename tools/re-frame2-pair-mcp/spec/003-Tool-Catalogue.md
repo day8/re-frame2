@@ -2874,17 +2874,20 @@ On termination, the `tools/call` result is
  :rate-dropped   <integer>   ; poll cycles DEFERRED by the per-session rate cap — events stayed queued for a later cycle, not lost (omitted when zero)
  :ticks     <integer>
  :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached |
-            :rf.error/stream-abuse-detected}
+            :rf.error/stream-abuse-detected | :rf.error/drain-failed}
 ```
 
 `:reason` is `:aborted` when the client cancelled the call,
 `:sub-gone` when the runtime's subscription disappeared (typically a
 full page reload, or an `unsubscribe` op fired separately),
 `:max-ms-reached` / `:max-events-reached` when the caller's
-upper-bounds fire, or `:rf.error/stream-abuse-detected` when the
+upper-bounds fire, `:rf.error/stream-abuse-detected` when the
 session's rolling-window overflow count exceeded
 `abuse-overflow-threshold` (rf2-3ijbl — see [§Universal: server
-resource controls](#universal-server-resource-controls-streaming-surfaces)).
+resource controls](#universal-server-resource-controls-streaming-surfaces)),
+or `:rf.error/drain-failed` when consecutive nREPL drain rejections
+exceeded the internal retry cap (rf2-ajhwbm — a permanently-dead
+connection, e.g. shadow-cljs restarted onto a new port mid-session).
 
 ### Termination paths
 
@@ -2903,6 +2906,18 @@ resource controls](#universal-server-resource-controls-streaming-surfaces)).
    stderr log line; the operator can raise the threshold via
    `--abuse-overflow-threshold=N` if the workload legitimately
    produces high overflow rates.
+5. **Dead connection (rf2-ajhwbm)** — the drain eval rejects (nREPL
+   round-trip failure) on `max-consecutive-drain-errors` (5)
+   consecutive poll cycles in a row. A single rejection is treated as
+   a transient hiccup and the loop backs off and retries; only a
+   SUSTAINED run of rejections — the signature of a connection that
+   is never coming back, e.g. shadow-cljs restarted onto a new port —
+   terminates the stream with `:reason :rf.error/drain-failed`. Any
+   successful drain in between resets the counter, so isolated blips
+   never accumulate toward the cap. Without this cap, `max-ms`
+   defaults to 0 (unbounded), so a dead connection would otherwise
+   poll (and reject) forever, leaking the concurrent-stream slot for
+   the rest of the session.
 
 ### Failure modes
 

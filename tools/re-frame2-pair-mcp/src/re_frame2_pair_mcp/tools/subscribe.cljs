@@ -58,6 +58,27 @@
 ;; mirroring would force a two-file sync on every runtime budget tweak.
 ;; Pass nil → runtime defaults.
 
+(def ^:private max-consecutive-drain-errors
+  "Consecutive rejected drain evals tolerated before the poll loop gives
+  up and terminates the stream (rf2-ajhwbm).
+
+  A single rejection is usually a transient nREPL hiccup — the `.catch`
+  below backs off and retries rather than collapsing the stream. But a
+  PERMANENTLY dead connection (e.g. shadow-cljs restarted onto a new
+  port mid-session) rejects every future drain the SAME way, and
+  `max-ms` defaults to 0 (unbounded) — retrying forever would leak the
+  resource-controls concurrent-stream slot and the poll loop's
+  `setTimeout` chain for the rest of the MCP session, silently
+  exhausting `--max-concurrent-streams`.
+
+  Capping consecutive failures bounds the leak: on the Nth rejection in
+  a row the loop calls `terminate` instead of rescheduling, which
+  releases the stream slot and resolves the outer `tools/call` with an
+  honest `:rf.error/drain-failed` summary. The counter resets to zero
+  on any successful drain, so isolated blips never accumulate toward
+  the cap."
+  5)
+
 (def ^:private initial-state
   "The rolling per-stream accounting map. Held inside one
   atom for the lifetime of a `subscribe-tool` call; merged once per
@@ -154,8 +175,10 @@
 
 (defn final-summary
   "The terminal `ok-text` result emitted when the subscription ends —
-  client cancel, unsubscribe, max-events / max-ms hit, sub-gone, or
-  abuse-detected.
+  client cancel, unsubscribe, max-events / max-ms hit, sub-gone,
+  abuse-detected, or a permanently-dead nREPL connection
+  (`max-consecutive-drain-errors` consecutive drain rejections —
+  rf2-ajhwbm).
 
   `state` is the deref'd rolling accumulators map (see
   `initial-state`); `wire/with-indicators` splices the
@@ -509,7 +532,8 @@
   `tools/call` Promise with the final-summary envelope. `poll` runs
   the rate-gate → drain → state-merge → progress-emit → reschedule
   cycle until termination triggers (client abort, max-events reached,
-  sub-gone, or abuse-detected).
+  sub-gone, abuse-detected, or `max-consecutive-drain-errors`
+  consecutive drain rejections — rf2-ajhwbm).
 
   Public (not `defn-`) so `subscribe_resource_controls_test.cljs` can
   drive a single `poll` invocation with a stubbed
@@ -520,6 +544,14 @@
            incl? elision? dedup? cap]}]
   (let [drain-src    (drain-form sub-id topic elision? incl?)
         terminated?  (atom false)
+        ;; Consecutive rejected-drain counter (rf2-ajhwbm). Local to
+        ;; this stream — NOT part of the shared `state` accumulator
+        ;; map (that atom is session-visible bookkeeping surfaced on
+        ;; the final summary; this is internal poll-loop plumbing).
+        ;; Reset to zero on any successful drain; incremented on
+        ;; rejection; the loop gives up once it reaches
+        ;; `max-consecutive-drain-errors`.
+        drain-errors (atom 0)
         terminate
         (fn terminate [reason]
           ;; Idempotent: a double-fire (e.g. abuse-detected fires the
@@ -574,6 +606,11 @@
             (-> (nrepl/cljs-eval-value conn build-id drain-src)
                 (.then
                   (fn [drain-resp]
+                    ;; A successful drain (whatever its content) proves
+                    ;; the connection is alive — clear the consecutive-
+                    ;; failure counter so an isolated earlier blip never
+                    ;; accumulates toward the terminate cap (rf2-ajhwbm).
+                    (reset! drain-errors 0)
                     (if (:gone? drain-resp)
                       (terminate :sub-gone)
                       (let [;; The drain envelope carries the
@@ -637,8 +674,19 @@
                 (.catch
                   (fn [_err]
                     ;; nREPL hiccup — back off and try again rather
-                    ;; than collapsing the stream.
-                    (js/setTimeout poll (* 2 poll-ms)))))))]
+                    ;; than collapsing the stream, UNLESS this is the
+                    ;; Nth consecutive rejection in a row. A permanently
+                    ;; dead connection (e.g. shadow-cljs restarted onto
+                    ;; a new port) rejects every future drain the same
+                    ;; way, and `max-ms` defaults to 0 (unbounded) — so
+                    ;; retrying forever would leak the concurrent-stream
+                    ;; slot + this poll loop for the rest of the session
+                    ;; (rf2-ajhwbm). Give up and terminate instead, which
+                    ;; releases the slot and resolves the outer call
+                    ;; with an honest `:rf.error/drain-failed` summary.
+                    (if (>= (swap! drain-errors inc) max-consecutive-drain-errors)
+                      (terminate :rf.error/drain-failed)
+                      (js/setTimeout poll (* 2 poll-ms))))))))]
     {:state state :terminate terminate :poll poll}))
 
 (defn- run-acquired
