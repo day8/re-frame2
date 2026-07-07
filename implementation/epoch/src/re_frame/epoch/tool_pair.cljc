@@ -60,7 +60,6 @@
             [re-frame.classification :as classification]
             [re-frame.projection :as projection]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 ;; ---- restore failure-mode predicates --------------------------------------
