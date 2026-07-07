@@ -1413,3 +1413,143 @@
           go-edge (edge-with-event edges :go)]
       (is (= ["rf/time-ms"] (:guard-requires go-edge))
           "a region guard resolves its requires against the machine registry"))))
+
+;; ---- a REGION's OWN top-level :on-done (rf2-2ydc87) ---------------------
+;;
+;; Spec 005 §Parallel `:on-done`: "A compound region reaching its own
+;; :final? child raises a region-local done.state.<region-compound> that
+;; the region's :on-done takes … exactly the compound case, scoped to one
+;; region." Mermaid (rf2-f8fgz5) and SCXML already project this; pre-fix
+;; the chart's `project-flat` never read a definition's own top-level
+;; `:on-done` (only a NESTED compound's, via `collect-state-edges`), so a
+;; 2-region parallel with region `:a`'s `:on-done` targeting sibling
+;; region `:b` projected ZERO `:on-done?` edges — a G9 cross-emitter-
+;; parity gap (001-Topology-Parity.md).
+
+(deftest project-definition-region-on-done-target-bearing-sibling-edge
+  (testing "rf2-2ydc87 — a region's own top-level :on-done with a KEYWORD
+            target projects a ✓ done edge from the region's OWN container
+            to the SIBLING region's container, matching SCXML's
+            done.state.a -> b shape"
+    (let [m {:type    :parallel
+             :regions {:a {:initial :a1
+                           :on-done :b
+                           :states  {:a1 {:on {:go :a2}}
+                                     :a2 {:final? true}}}
+                       :b {:initial :b1
+                           :states  {:b1 {:on {:go :b2}}
+                                     :b2 {:final? true}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          od (filter :on-done? edges)]
+      (is (= 1 (count od)) "exactly one region on-done completion edge")
+      (let [e (first od)
+            a-rid (layout/region-node-id :a)
+            b-rid (layout/region-node-id :b)]
+        (is (= a-rid (:source e)) "sourced from region :a's OWN container")
+        (is (= b-rid (:target e)) "lands on SIBLING region :b's container")
+        (is (= :rf.machine/done (:event e)) "carries the reserved done event")
+        (is (= [:a] (:done-path e)) "the done.state node is the region's own path")
+        (is (= "✓ done" (:event-label e)))
+        (is (not (:internal? e)) "a targeted region on-done is a real sibling edge")
+        (is (contains? (set (map :id nodes)) a-rid))
+        (is (contains? (set (map :id nodes)) b-rid))))))
+
+(deftest project-definition-region-on-done-action-only-self-anchors
+  (testing "rf2-2ydc87 — a region's own top-level :on-done that is
+            ACTION-ONLY (no target) self-anchors on the region's OWN
+            container as a terminal completion affordance — mirrors how
+            a nested compound's action-only :on-done self-anchors, and
+            how the parallel-root's action-only :on-done self-anchors on
+            the parallel-root chip"
+    (let [m {:type    :parallel
+             :regions {:a {:initial :a1
+                           :on-done {:action :log}
+                           :states  {:a1 {:on {:go :a2}}
+                                     :a2 {:final? true}}}
+                       :b {:initial :b1 :states {:b1 {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          od (filter :on-done? edges)]
+      (is (= 1 (count od)) "one region on-done completion affordance")
+      (let [e (first od)
+            a-rid (layout/region-node-id :a)]
+        (is (true? (:internal? e)) "target-less region on-done self-anchors")
+        (is (= a-rid (:source e)) "sourced from region :a's container")
+        (is (= a-rid (:target e)) "self-anchored: no phantom sibling edge")
+        (is (= :log (:action e)))))))
+
+(deftest project-definition-region-without-on-done-emits-no-completion-edge
+  (testing "rf2-2ydc87 — a region declaring no :on-done emits no
+            :on-done? edge (no false-positive completion arrows)"
+    (let [m {:type    :parallel
+             :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
+                       :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
+          {:keys [edges]} (layout/project-definition m)]
+      (is (empty? (filter :on-done? edges))))))
+
+;; ---- :same-state at machine-root / region-root drops (rf2-v5wzjo) -------
+;;
+;; `collect-machine-edges`' own docstring declares a `:same-state`
+;; machine-level fallback STILL DROPPED ("there is no concrete root state
+;; to self-transition against at the top level"). Pre-fix,
+;; `resolve-target-path` returned `(vec [])` = `[]` for this shape — TRUTHY
+;; in Clojure — so the candidate survived as a real (non-internal) edge and
+;; minted a phantom edge to `(node-id [])` / `(region-scoped-id region-id
+;; [])`, both degenerate empty-ish ids no real node carries.
+
+(deftest project-definition-machine-root-same-state-drops-no-phantom-edge
+  (testing "rf2-v5wzjo — a machine-level :on candidate with :target
+            :same-state is DROPPED (honouring collect-machine-edges'
+            own docstring), not minted as a phantom edge to node-id \"\""
+    (let [m {:initial :a
+             :states  {:a {} :b {}}
+             :on      {:noop {:target :same-state}}}
+          {:keys [nodes edges]} (layout/project-definition m)]
+      (is (empty? (filter #(= :noop (:event %)) edges))
+          "the root :same-state fallback is dropped entirely")
+      (is (not (contains? (set (map :id edges)) ""))
+          "no phantom edge id derived from an empty node-id")
+      (is (empty? (filter :machine-root? nodes))
+          "no synthetic MACHINE-ROOT chip is minted for a fully-dropped fallback"))))
+
+(deftest project-definition-region-root-same-state-drops-no-phantom-edge
+  (testing "rf2-v5wzjo — a PARALLEL REGION's own top-level :on candidate
+            with :target :same-state is likewise dropped, not region-
+            scoped into a degenerate `region__<id>__` phantom edge"
+    (let [m {:type    :parallel
+             :regions {:a {:initial :one
+                           :on      {:noop {:target :same-state}}
+                           :states  {:one {} :two {}}}
+                       :b {:initial :one :states {:one {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          degenerate-id (str (layout/region-node-id :a) "__")]
+      (is (empty? (filter #(= :noop (:event %)) edges))
+          "the region-root :same-state fallback is dropped entirely")
+      (is (not-any? #(= degenerate-id (:target %)) edges)
+          "no degenerate region-scoped empty-path target (region__a__) leaks into the graph"))))
+
+;; ---- forbidden transitions: nil ≡ {} (rf2-oy49f1) ------------------------
+;;
+;; Spec 005 §Forbidden transitions declares `{:on {:logout {}}}` and
+;; `{:on {:logout nil}}` RUNTIME-EQUIVALENT — both block parent-fallthrough
+;; for that event. Pre-fix `grammar/transition-candidates` had no `nil`
+;; branch (`cond`'s `:else []`), so a nil-spelled forbidden transition
+;; silently dropped to ZERO candidates while the `{}` spelling correctly
+;; rendered as a blocking chip — a reader saw `:logout` as still
+;; inherited/reachable at a state where the engine actually blocks it.
+
+(deftest project-definition-nil-forbidden-transition-matches-empty-map
+  (testing "rf2-oy49f1 — a nil-spelled forbidden transition (`:on {:logout
+            nil}}`) projects the SAME internal blocking chip as the
+            empty-map spelling (`{:on {:logout {}}}`), not silently
+            dropped"
+    (let [nil-spelled {:initial :a :states {:a {:on {:logout nil}}}}
+          map-spelled {:initial :a :states {:a {:on {:logout {}}}}}
+          {edges-nil :edges} (layout/project-definition nil-spelled)
+          {edges-map :edges} (layout/project-definition map-spelled)
+          nil-e (first (filter #(= :logout (:event %)) edges-nil))
+          map-e (first (filter #(= :logout (:event %)) edges-map))]
+      (is (some? nil-e) "the nil-spelled forbidden transition is NOT dropped")
+      (is (some? map-e) "the empty-map spelling still projects (baseline)")
+      (is (true? (:internal? nil-e)) "nil spelling flags :internal? true, like {}")
+      (is (= (dissoc nil-e :id) (dissoc map-e :id))
+          "nil and {} project structurally-identical edges (bar the edge id)"))))

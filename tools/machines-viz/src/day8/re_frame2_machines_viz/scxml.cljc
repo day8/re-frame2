@@ -469,9 +469,17 @@
           after-map))
 
 (defn- emit-transitions-for-always
+  "rf2-oy49f1 — gated on `always` being present. `:always` is a SINGULAR
+  top-level slot (unlike a per-event `:on`/`:after` MAP entry, where the
+  caller only ever visits a key that EXISTS) — an absent `:always` and an
+  explicit `nil` value are indistinguishable once destructured off the
+  state-node, so `transition-candidates`' `(nil? spec) [{}]` forbidden-
+  transition arm must not fire here (it would emit a phantom eventless
+  `<transition/>` for EVERY state, even one with no `:always` declared)."
   [always source-path depth]
-  (->> (transition-candidates always)
-       (map #(emit-transition nil % source-path depth))))
+  (when always
+    (->> (transition-candidates always)
+         (map #(emit-transition nil % source-path depth)))))
 
 (defn- emit-transitions-for-on-done
   "Emit the compound / parallel `:on-done` (XState `onDone`) as W3C

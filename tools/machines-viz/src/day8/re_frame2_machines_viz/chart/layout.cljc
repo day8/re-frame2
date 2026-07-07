@@ -271,7 +271,20 @@
   - `:target :same-state` — the **external** self-transition sentinel.
     Resolve to `source-path` so the edge is a true self-transition
     (source == target); it dissolves through an event-node under the
-    events-as-nodes paradigm (`state → event-node → state`).
+    events-as-nodes paradigm (`state → event-node → state`). rf2-v5wzjo
+    — at an EMPTY `source-path` (the machine root, or a parallel
+    region's own root — both project via `collect-machine-edges`'
+    `resolve-target-path []` call) there is NO concrete state to
+    self-target: `(vec [])` is `[]`, which is FALSY in most Lisps but
+    TRUTHY in Clojure, so pre-fix this minted a phantom edge to
+    `(node-id [])` = the empty string (a machine-root `:same-state`) or
+    `(region-scoped-id region-id [])` (a region-root `:same-state`) — an
+    id no real node carries. `collect-machine-edges`' own docstring
+    already declared this shape DROPPED (\"there is no concrete root
+    state to self-transition against at the top level\"); returning nil
+    here (instead of the empty vector) makes the code honour it —
+    `transition-edge`'s `(when (or internal? tp) ...)` then drops the
+    candidate for a targeted (non-internal) `:same-state` at a root.
   - a plain keyword target — resolve relative to the parent path.
   - a vector-path target — take it verbatim.
   - nil (no `:target`) — returns nil. The **internal** self-transition
@@ -280,7 +293,7 @@
     edge itself (flagging `:internal? true`), so this fn never sees it."
   [source-path target]
   (cond
-    (= :same-state target)  (vec source-path)
+    (= :same-state target)  (when (seq source-path) (vec source-path))
     (keyword? target)       (conj (g/parent-path source-path) target)
     (g/target-path? target) (vec target)
     :else                   nil))
@@ -435,11 +448,23 @@
          ;; even though a self-target on `:always` is rejected at registration
          ;; (no-op there); a cross/ancestor `:always` target may legitimately
          ;; carry it, and the viz never silently drops author-declared keys.
-         (keep (fn [candidate]
-                 (transition-edge candidate
-                                  {:from state-path :event :always :always? true}
-                                  self-anchor resolve-tgt))
-               (g/transition-candidates (:always state-node)))
+         ;;
+         ;; rf2-oy49f1 — GATED on `(:always state-node)` being present. Unlike
+         ;; a per-event `:on`/`:after` MAP entry (where `mapcat` only ever
+         ;; visits a key that EXISTS, so a nil VALUE unambiguously means the
+         ;; Spec 005 forbidden-transition shape), `:always` is a SINGULAR
+         ;; top-level slot: an absent `:always` key and an explicit `nil`
+         ;; value are indistinguishable once read via `(:always state-node)`.
+         ;; `grammar/transition-candidates`'s `(nil? spec) [{}]` arm (added for
+         ;; the forbidden-transition fix) would otherwise turn EVERY state
+         ;; with NO `:always` declared into a phantom internal `∞` chip — this
+         ;; gate keeps that fix scoped to the per-event grammar it targets.
+         (when (:always state-node)
+           (keep (fn [candidate]
+                   (transition-edge candidate
+                                    {:from state-path :event :always :always? true}
+                                    self-anchor resolve-tgt))
+                 (g/transition-candidates (:always state-node))))
          ;; rf2-41goo — the compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node
          ;; (its path is the `done.state.<id>` the engine raises).
@@ -1021,6 +1046,81 @@
      :edges        edges
      :initial-path initial-path}))
 
+(defn- collect-region-on-done-edges
+  "rf2-2ydc87 — a REGION's OWN top-level `:on-done` (Spec 005 §Parallel
+  `:on-done`: 'A **compound region** reaching its own `:final?` child
+  raises a region-local `done.state.<region-compound>` that the region's
+  `:on-done` takes … exactly the compound case, scoped to one region').
+
+  `project-flat` (called once per region by `project-parallel`, treating
+  the region-def as a self-contained flat/compound machine rooted at `[]`)
+  never read a definition's OWN top-level `:on-done` — only a NESTED
+  compound's (`collect-state-edges`' `(on-done-edges state-path state-path
+  od)` call, at a non-empty `state-path`). So a region's own `:on-done`
+  was silently dropped from the chart entirely (confirmed empirically: a
+  2-region parallel with region `:a`'s `:on-done` targeting sibling
+  region `:b` projected zero `:on-done?` edges), while mermaid
+  (`region-root-on-done-edges`, rf2-f8fgz5) and SCXML (`emit-state`'s
+  generic `:on-done` read, which sees a region like any other state node)
+  both already rendered it — a G9 cross-emitter-parity gap.
+
+  Threading this through `project-flat` + `project-parallel`'s generic
+  region-scoping pass (`region-scoped-id`) would be WRONG: a region's own
+  `:on-done` keyword target is a SIBLING REGION (a top-level `region__…`
+  container), not an in-region state — the exact asymmetry documented on
+  `region-root-on-done-edges` in `mermaid.cljc`. So this collector runs
+  DIRECTLY in `project-parallel` (bypassing `project-flat`/region-scoping
+  for this one shape), reusing the SHARED `on-done-edges` walker — the
+  SAME one `collect-state-edges` uses for a nested compound — with the
+  region's OWN path (`[region-id]`) doubling as both `done-path` and
+  `state-path`, exactly as a nested compound's `on-done-edges` call uses
+  its own path for both. A keyword target then resolves (via
+  `resolve-target-path`'s parent-path rule, parent of `[region-id]` is
+  `[]`) to `[target]` — a bare sibling-region id, verbatim — matching
+  SCXML's empirically-verified `done.state.a -> b` shape.
+
+  - **Target-bearing, single-segment** (`:on-done :b`) — a SIBLING
+    region: sourced from THIS region's container (`region-node-id`),
+    targeting the sibling's container.
+  - **Target-bearing, multi-segment** (`:on-done [:b :inner]`) — resolves
+    IN-REGION (mirrors every other region-level collector's vector-path
+    convention, e.g. `collect-root-fallback-edges`): region-scoped
+    against THIS region, not read as a cross-region address.
+  - **Action-only** (no `:target`) — self-anchors on the region's OWN
+    container as a terminal completion affordance, exactly as a nested
+    compound's action-only `:on-done` self-anchors on itself (no new
+    node needed — the region container already exists).
+
+  `:done-path` carries `[region-id]` (NOT region-scoped) so the chart's
+  `:doneState` label (`chart.projection`, `(node-id done-path)`) reads
+  `done.state.<region-id>` — matching SCXML's `done.state.a` bare form,
+  the same reasoning `parallel-root-done-state-id` already applies one
+  level up for the whole-parallel completion."
+  [regions]
+  (mapcat
+    (fn [[region-id {:keys [on-done]}]]
+      (when on-done
+        (let [rid         (region-node-id region-id)
+              region-path [region-id]]
+          (->> (on-done-edges region-path region-path on-done)
+               (map-indexed
+                 (fn [i e]
+                   (let [base      (edge-id (:to e) e)
+                         internal? (:internal? e)
+                         target    (cond
+                                     internal?                   rid
+                                     (= 1 (count (:to e)))       (region-node-id (first (:to e)))
+                                     :else                       (region-scoped-id region-id (:to e)))]
+                     (assoc e
+                       :id                    (if (zero? i) base (str base "__" i))
+                       :region-on-done?       true
+                       :source                rid
+                       :target                target
+                       :from-path             (:from e)
+                       :to-path               (:to e)
+                       :event-label           (edge-label e)))))))))
+    regions))
+
 (defn- project-parallel
   "Project a `{:type :parallel :regions {...}}` definition into the
   flat graph, projecting EVERY region (rf2-lkwev — Phase 1 deferred
@@ -1247,7 +1347,14 @@
                                 (when root-node [root-node])))
      :edges        (vec (concat (mapcat :edges per-region)
                                 root-od-edges
-                                root-on-edges))
+                                root-on-edges
+                                ;; rf2-2ydc87 — each region's OWN top-level
+                                ;; :on-done (distinct from `root-od-edges`,
+                                ;; the WHOLE-parallel completion). No new
+                                ;; node needed: it anchors on the existing
+                                ;; region container / sibling-region
+                                ;; container nodes.
+                                (collect-region-on-done-edges regions)))
      :initial-path nil
      :parallel?    true}))
 
