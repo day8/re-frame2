@@ -7,7 +7,15 @@
   every armed `:after` timer draws a countdown ring AROUND its bearing
   state-node. In live mode the ring sweeps from full → empty in real
   time; in retrospective mode (scrubber not at `:present`) it freezes
-  at the position it occupied when the scrubber was paused.
+  at the elapsed-fraction the timer had reached at the FOCUSED
+  CASCADE's timestamp (xray/003 §M.2) — `AfterRingsOverlay` resolves
+  the `now-ms` anchor via `machine-after-rings-helpers/resolve-now-ms`
+  (rf2-8i1tg3): the rAF-bumped live clock in `:present`/LIVE mode, the
+  focused event-bundle's dispatched time otherwise. Before rf2-8i1tg3
+  the retro branch fed the STALE live clock in unconditionally — the
+  scrubber gated only whether the rAF loop kept ticking, so leaving
+  LIVE mode froze the ring wherever the clock happened to last sit,
+  not at the cascade the operator is actually looking at.
 
   ## Architecture (rf2-uv1on — xyflow Phase 2)
 
@@ -373,9 +381,25 @@
   `display: contents` element is not a positioning context). Same
   pattern as `shell.cljs` (rf2-uu3lp)."
   [& _opts]
-  (let [timers @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
-        now    @(rf/subscribe [:rf.xray/now-ms])
-        scrub  @(rf/subscribe [:rf.xray/machine-scrubber-position])
+  (let [timers     @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
+        live-now   @(rf/subscribe [:rf.xray/now-ms])
+        scrub      @(rf/subscribe [:rf.xray/machine-scrubber-position])
+        ;; rf2-8i1tg3 — xray/003 §M.2: in RETRO mode ('scrubber-
+        ;; driven') the ring must freeze at the elapsed-fraction the
+        ;; timer had reached at the FOCUSED CASCADE's timestamp, not
+        ;; wherever the live clock last sat when the tick loop
+        ;; stopped. `needs-ticking?` already suspends the rAF loop when
+        ;; `scrub` leaves `:present`, so `live-now` simply goes stale —
+        ;; nothing was plumbing the scrubbed anchor into the ring
+        ;; projection below. `:rf.xray/focused-event-bundle-detail` is
+        ;; the same cross-panel primitive the Epoch / App-db-diff
+        ;; panels read to find "the event-bundle the spine is pointing
+        ;; at"; referenced by keyword (no ns require — re-frame's
+        ;; registrar resolves subs at runtime, not compile-time,
+        ;; keeping this ns out of the `registry.cljs` require cycle).
+        focused-ms (rings-h/focused-cascade-time-ms
+                     @(rf/subscribe [:rf.xray/focused-event-bundle-detail]))
+        now        (rings-h/resolve-now-ms scrub live-now focused-ms)
         ;; rf2-nesy9 — capture the surrounding instance frame so the
         ;; off-render rAF clock + the hover/leave callbacks dispatch
         ;; into it (not a `:rf/xray` literal). `frame` arms the rAF loop

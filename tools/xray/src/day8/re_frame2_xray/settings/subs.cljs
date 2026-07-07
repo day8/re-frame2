@@ -11,6 +11,17 @@
                                           when app-db has not yet
                                           mirrored the slot (pre-
                                           first-open).
+  - `:rf.xray/keybinding-enabled?` — boolean. Keybindings tab
+                                      'Handle keys?' master toggle
+                                      (rf2-8i1tg3). Reads the app-db
+                                      mirror `:rf.xray/keybinding-
+                                      enabled-update` writes; falls
+                                      back to `config/keybinding-
+                                      attach-enabled?` pre-first-
+                                      dispatch. NOT part of `:settings`
+                                      — the underlying atom is a bare
+                                      process-global `configure!` slot,
+                                      not a persisted settings key.
 
   The `:rf.xray/setting` sub is parameterised — the query vector
   carries `[section key]`. Layout views read `[:rf.xray/setting
@@ -120,5 +131,21 @@
       (or (get-in db [:settings :general :long-keyword-threshold])
           (config/get-setting :general :long-keyword-threshold)
           24)))
+
+  ;; rf2-8i1tg3 — Keybindings tab 'Handle keys?' master toggle. The
+  ;; underlying flag (`config/keybinding-enabled?`) is a bare
+  ;; process-global `configure!` slot, not a `:settings` key, so it
+  ;; gets its own top-level app-db mirror (`:keybinding-enabled?`,
+  ;; written by `:rf.xray/keybinding-enabled-update`) rather than
+  ;; riding the `[:settings section key]` shape `:rf.xray/setting`
+  ;; reads. `contains?` (not `or`) distinguishes "app-db has mirrored
+  ;; an explicit false" from "app-db has never mirrored this at all"
+  ;; — the popup's checkbox needs the true current value the instant
+  ;; the toggle flips off, not a fallback that only reads the atom.
+  (rf/reg-sub :rf.xray/keybinding-enabled?
+    (fn [db _query]
+      (if (contains? db :keybinding-enabled?)
+        (boolean (:keybinding-enabled? db))
+        (config/keybinding-attach-enabled?))))
 
   nil)

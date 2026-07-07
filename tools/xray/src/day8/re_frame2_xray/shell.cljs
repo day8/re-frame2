@@ -419,10 +419,25 @@
   ;; under. Falls back to `rf/dispatch*` defensively (test-driven drags
   ;; that bypassed `start-drag!`).
   (when-let [{:keys [col-id start-x start-width dispatch-fn]} @col-divider-drag-state]
-    ;; Divider sits to the RIGHT of the column it sizes; dragging right
-    ;; widens, dragging left narrows. dx = (now-x - start-x).
+    ;; rf2-8i1tg3 — every divider sits to the LEFT of the column named
+    ;; by `col-id` (between `event id` and `source`, between `source`
+    ;; and `timestamp`, between `timestamp` and `duration`); `event id`
+    ;; is the row's SOLE `flex 1 1 auto` column, far to the left of
+    ;; every divider, and it silently absorbs whatever width any
+    ;; resizable column gives up or takes (the row's total width is
+    ;; fixed). So GROWING `col-id` by `dx` steals `dx` from `event id`
+    ;; — which moves the divider itself (sitting at `event id`'s
+    ;; trailing edge, transitively, however many fixed columns sit
+    ;; between them) LEFT by `dx` while the pointer moved RIGHT by
+    ;; `dx`: a 2×dx divergence per drag-frame, and the classic
+    ;; "handle recedes from the cursor" bug. Correct split-pane
+    ;; semantics: dragging the divider TOWARD a column shrinks that
+    ;; column (the boundary is encroaching on it) and grows whatever
+    ;; is on the far side (ultimately `event id`, the shared elastic
+    ;; pool) — i.e. SHRINK `col-id` by `dx` so the divider's own
+    ;; position moves by exactly `+dx`, matching the pointer 1:1.
     (let [dx        (- (.-pageX e) start-x)
-          new-width (+ start-width dx)]
+          new-width (- start-width dx)]
       ((or dispatch-fn rf/dispatch*)
        [:rf.xray/set-event-list-col-width col-id new-width]))))
 
@@ -501,11 +516,17 @@
   §Resize affordance every drag handle MUST be operable without a
   pointer device. Mirrors the panel resize handle's bindings:
 
-    ArrowRight        +<step>px (widen the column to the LEFT)
-    ArrowLeft         -<step>px (narrow)
+    ArrowRight        +<step>px (widen THIS column, `col-id`)
+    ArrowLeft         -<step>px (narrow this column)
     Shift+ArrowRight  +<coarse> (10 × 3 = 30px)
     Shift+ArrowLeft   -<coarse>
     Enter / Space     reset this column to its default
+
+  Deliberately NOT inverted the way rf2-8i1tg3 inverted the pointer-
+  drag delta in `col-divider-on-move` — a keypress has no continuous
+  cursor position to track (no divider-recedes-from-the-pointer failure
+  mode is possible), so ArrowRight does the obvious, discoverable
+  thing: it grows the column named by `col-id` directly.
 
   The clamp lives in the registry handler — we dispatch the desired
   width and let `:rf.xray/set-event-list-col-width` apply the per-
@@ -534,18 +555,20 @@
        false))))
 
 (defn- col-divider
-  "Render a draggable divider sitting to the RIGHT of the column with
-  `col-id`. The divider is a 6px-wide vertical strip carrying the
-  `col-resize` cursor + a hover affordance defined in
-  `theme/global_styles/motion-css` (the rule paints a 1px accent stripe
-  on hover so authors can find the affordance without a hidden hit-test
-  game; the cursor change is the always-visible signal).
+  "Render a draggable divider sitting to the LEFT of the column with
+  `col-id` (i.e. BETWEEN the previous column and `col-id`'s column —
+  rf2-8i1tg3 corrected this docstring; it previously claimed the
+  opposite, which did not match the call sites below). The divider is
+  a 6px-wide vertical strip carrying the `col-resize` cursor + a hover
+  affordance defined in `theme/global_styles/motion-css` (the rule
+  paints a 1px accent stripe on hover so authors can find the
+  affordance without a hidden hit-test game; the cursor change is the
+  always-visible signal).
 
   rf2-6ni62. The divider participates in the row's flex layout as a
-  zero-content cell with explicit width — placed BETWEEN the column
-  it sizes (to its left) and the next column. Per the alignment
-  contract the same divider widths apply to header + every row, so the
-  flex layout stays consistent across surfaces.
+  zero-content cell with explicit width. Per the alignment contract
+  the same divider widths apply to header + every row, so the flex
+  layout stays consistent across surfaces.
 
   `:dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
   the surrounding `reg-view` body (the L2 event-list views) — threaded
@@ -1371,6 +1394,26 @@
   ;; re-trigger scroll on every parent rerender).
   (atom ::never))
 
+(defonce ^:private focused-row-ref-cache
+  ;; rf2-8i1tg3 — single-slot memo `{:id <dispatch-id> :ref-fn <fn>}`.
+  ;; `focused-row-ref` used to build a FRESH closure on every call —
+  ;; i.e. on every render of the focused row, since `event-row` is a
+  ;; plain fn re-invoked on every parent re-render, not a stateful
+  ;; component. React treats a CHANGED callback ref as detach(nil)
+  ;; then attach on the VERY NEXT commit, regardless of whether the
+  ;; underlying DOM node actually changed — so every render fired
+  ;; `(fn [nil])` (resetting `last-scrolled-focus-id` to `::never`)
+  ;; immediately followed by `(fn [el])`, and the `not=` dedup guard
+  ;; below always saw a fresh `::never` baseline and re-scrolled every
+  ;; time — the exact opposite of its documented "scroll once per
+  ;; focus change" purpose. Memoizing on `id` (the only thing that
+  ;; should trigger a re-attach) keeps the SAME fn object across
+  ;; re-renders of the same focused row, so React's ref reconciliation
+  ;; sees no change and skips the detach/reattach cycle entirely; only
+  ;; an ACTUAL focus-id change (or auto-track? flipping off and back
+  ;; on) produces a new closure and a genuine detach→attach pair.
+  (atom nil))
+
 (defn- scroll-focused-row-into-view!
   "Imperative scroll. Called from the focused row's `:ref` callback
   when a new focus id lands in LIVE+head. Guarded against test
@@ -1390,17 +1433,30 @@
   The callback compares `id` against `last-scrolled-focus-id` and
   scrolls + updates the atom only on transition. nil-element calls
   (React's unmount signal) reset the atom so a re-mount of the same
-  id will scroll again (covers the toggle-off/on case)."
+  id will scroll again (covers the toggle-off/on case).
+
+  rf2-8i1tg3 — memoized on `id` via `focused-row-ref-cache` so REPEAT
+  calls for the SAME focused row (every re-render while focus doesn't
+  change) return the IDENTICAL fn object rather than a fresh closure.
+  Without this, React's callback-ref reconciliation would detach +
+  reattach on every render (a changed fn reference looks like a
+  changed ref to React), which resets `last-scrolled-focus-id` right
+  before re-checking it — permanently defeating the dedup guard above."
   [id auto-track?]
   (when auto-track?
-    (fn [el]
-      (cond
-        (nil? el)
-        (reset! last-scrolled-focus-id ::never)
+    (let [{cached-id :id cached-fn :ref-fn} @focused-row-ref-cache]
+      (if (and cached-fn (= cached-id id))
+        cached-fn
+        (let [f (fn [el]
+                  (cond
+                    (nil? el)
+                    (reset! last-scrolled-focus-id ::never)
 
-        (not= id @last-scrolled-focus-id)
-        (do (reset! last-scrolled-focus-id id)
-            (scroll-focused-row-into-view! el))))))
+                    (not= id @last-scrolled-focus-id)
+                    (do (reset! last-scrolled-focus-id id)
+                        (scroll-focused-row-into-view! el))))]
+          (reset! focused-row-ref-cache {:id id :ref-fn f})
+          f)))))
 
 (defn- event-row
   "One row in the L2 event list. Single line per the Figma-Make
@@ -1659,10 +1715,14 @@
                      :text-align "left"
                      :min-width "0"}}
       (render-event-id-only event-vec)]
-     ;; rf2-6ni62 — divider sits to the RIGHT of `event id` and resizes
-     ;; the `source` column to its right. The divider widths participate
-     ;; in the flex layout on rows + header identically so the cells
-     ;; stay column-for-column aligned.
+     ;; rf2-6ni62 — divider sits between `event id` and `source`
+     ;; (to the LEFT of `source`, per `col-divider`'s docstring) and
+     ;; resizes `source`. The divider widths participate in the flex
+     ;; layout on rows + header identically so the cells stay
+     ;; column-for-column aligned. `event id` is the row's sole
+     ;; `flex 1 1 auto` column — rf2-8i1tg3 inverted the drag delta in
+     ;; `col-divider-on-move` so dragging this handle tracks the
+     ;; pointer instead of receding from it.
      [col-divider {:col-id    :source
                    :col-px    (:source col-widths)
                    :row-height "22px"
