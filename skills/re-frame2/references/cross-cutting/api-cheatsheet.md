@@ -62,7 +62,7 @@ The public composition model is `image → frame → event stream`; there is **n
 | Surface | Shape |
 |---|---|
 | `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → **inert image value** (pure data, no registrar side effect). `:select-ns :include` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match include pattern fails image assembly; `:exclude` subtracts. Supplied to a frame via the `:images` vector — composition resolves by **image order** (the later image wins; assert on shadows via `rf/frame-shadows`). There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud. |
-| re-`make-frame` | frame-targeted; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation while preserving its memory (no separate reload verb, rf2-lxwpob) |
+| re-`make-frame` | frame-targeted; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation while preserving its memory (no separate reload verb — see `spec/002-Frames.md` §Resolved decisions, "Frame-lifecycle facade collapse") |
 | `rf/generation-diff` | `(before after)` → `{:added :changed :removed :retained}` — a pure diff between two `frame-generation` reads |
 
 `make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts in one call and returns the live frame **value** (see the §Dispatch, subscribe, frames row above).
