@@ -17,10 +17,15 @@
 ;; And require `re-frame.flows` in any namespace that calls
 ;; `rf/reg-flow` / `rf/clear-flow` or relies on the `:rf.fx/reg-flow`
 ;; / `:rf.fx/clear-flow` runtime fxs — loading the namespace registers
-;; its late-bind hooks (`:flows/reg-flow`, `:flows/clear-flow`,
-;; `:flows/run-flows-on-db`, `:flows/reset-last-inputs!`, `:flows/reset-flows!`)
-;; and installs the registrar replacement-hook for hot-reload
-;; `last-inputs` invalidation.
+;; its late-bind hooks and wires `reg-flow` to clear the affected
+;; frame's `last-inputs` row directly on a same-frame hot-reload
+;; replacement, so a hot-reloaded flow re-evaluates on its next drain.
+;;
+;; The authoritative, always-current hook list is the `late-bind/set-fn!`
+;; calls in `re-frame.flows` (cross-referenced against the
+;; `re-frame.late-bind.directory/hooks` `:flows/*` rows, pinned in sync by
+;; the `re-frame.late-bind-drift-test` gate) — this comment intentionally
+;; does NOT maintain a parallel list that would silently drift.
 ;;
 ;; Per Spec 006 §Adapter shipping convention (and the
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
