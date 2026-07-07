@@ -334,11 +334,21 @@
            ;; patterns the catch-all bit ties (both 1), so the comparison
            ;; falls through to total-length exactly as before — only
            ;; rankings involving the bare `/*` change.
+           ;; rf2-dqlfty: rules 4 and 5 are BOOLEAN discriminators per
+           ;; Spec 012 §Route ranking algorithm — "named params beat rest
+           ;; params" / "exact routes beat optional-group routes" — not a
+           ;; magnitude comparison. The pre-fix `(- splat)` / `(- optional)`
+           ;; ranked by the raw segment COUNT, so two routes tied by the
+           ;; spec (e.g. differing only in HOW MANY optional groups they
+           ;; declare) ranked differently — a cross-host divergence, since
+           ;; a conforming implementation following the spec pseudocode
+           ;; ties them. `(if (pos? n) 0 1)` collapses "any" vs "none" to
+           ;; the same two-value cascade the spec pseudocode uses.
            :rank    [static
                      (if catch-all? 0 1)
                      total
-                     (- splat)
-                     (- optional)]})
+                     (if (pos? splat) 0 1)
+                     (if (pos? optional) 0 1)]})
         (let [ch (.charAt ^String pattern i)]
           (cond
             (= ch \/)

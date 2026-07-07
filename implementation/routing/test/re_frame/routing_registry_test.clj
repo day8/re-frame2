@@ -1996,6 +1996,70 @@
     (is (= :route/catch-all (:route-id (routing/match-url "/anything/deep")))
         "catch-all still catches URLs no concrete route matches")))
 
+;; ---- rf2-dqlfty: rank rule 5 is a boolean bit, not the optional-group ----
+;; COUNT (and rule 4 the same shape for splats)
+;;
+;; Spec 012 §Route ranking algorithm rule 5: "Exact routes beat
+;; optional-group routes" — the pseudocode's discriminator is
+;; `(if has-optional? 0 1)`, a BOOLEAN bit. Pre-fix, `parse-pattern`
+;; ranked rule 5 (and rule 4, "named params beat rest params") by the raw
+;; segment COUNT (`(- optional)` / `(- splat)`), so two routes differing
+;; ONLY in HOW MANY optional groups (or splats) they declare ranked
+;; differently where the spec ties them — a cross-host divergence, since
+;; a conforming implementation following the spec pseudocode ties them.
+
+(deftest parse-pattern-optional-group-count-does-not-affect-rank-rf2-dqlfty
+  (testing "rf2-dqlfty — one optional group and two optional groups rank
+            IDENTICALLY at rule 5 (rank element 4): both simply `have` an
+            optional group, and the spec discriminator is has-optional?,
+            not a magnitude"
+    (let [one-group  (:rank (routing.match/parse-pattern "/docs{/a}?"))
+          two-groups (:rank (routing.match/parse-pattern "/docs{/a}?{/b}?"))]
+      (is (= one-group two-groups)
+          "one optional group and two optional groups rank IDENTICALLY —
+           the spec ties them (rule 5 is has-optional?, not a magnitude);
+           pre-fix these ranked [1 1 1 0 -1] vs [1 1 1 0 -2] — NOT tied")
+      (is (= 0 (nth one-group 4))
+          "rank element 4 (rule 5) is the boolean bit: 0 = has an optional group")))
+
+  (testing "rf2-dqlfty — an EXACT route (no optional group) still out-ranks
+            both optional-group routes (rule 5 keeps discriminating exact
+            vs optional — only the WITHIN-optional-group magnitude is
+            collapsed)"
+    (let [exact      (:rank (routing.match/parse-pattern "/docs"))
+          one-group  (:rank (routing.match/parse-pattern "/docs{/a}?"))]
+      (is (pos? (compare exact one-group))
+          "the exact route out-ranks the optional-group route (rule 5)"))))
+
+(deftest parse-pattern-splat-count-does-not-affect-rank-rf2-dqlfty
+  (testing "rf2-dqlfty — rule 4 (\"named params beat rest params\") is the
+            same boolean shape: a named param still beats a splat, but the
+            fix must not regress that cascade"
+    (let [named (:rank (routing.match/parse-pattern "/files/:name"))
+          splat (:rank (routing.match/parse-pattern "/files/*rest"))]
+      (is (pos? (compare named splat))
+          "named param out-ranks the splat at rule 4 (rank element 3)")
+      (is (= 1 (nth named 3)) "named: rule-4 bit is 1 (no splat)")
+      (is (= 0 (nth splat 3)) "splat: rule-4 bit is 0 (has a splat)"))))
+
+(deftest match-url-optional-group-count-tie-breaks-on-registration-order-rf2-dqlfty
+  (testing "rf2-dqlfty — two routes differing ONLY in optional-group COUNT
+            are a genuine structural TIE per Spec 012 rule 5; match-url
+            resolves the tie via rule 6 (registration order) exactly as it
+            would for any other structurally-identical pair. Register the
+            route with MORE optional groups FIRST: pre-fix, the route with
+            FEWER optional groups always won regardless of registration
+            order (rule 5's raw count shadowed rule 6) — this test would
+            have picked :route/one-group either way if it were registered
+            first, so the two-groups-first order is the one that actually
+            discriminates the bug from the fix"
+    (rf/reg-route :route/two-groups {} "/docs{/a}?{/b}?")
+    (rf/reg-route :route/one-group  {} "/docs{/a}?")
+    (is (= :route/two-groups (:route-id (routing/match-url "/docs")))
+        "the FIRST-registered route (:route/two-groups, despite having
+         MORE optional groups) wins the tie for a URL both match — rule 6
+         registration-order tiebreak, not rule 5's group count")))
+
 (deftest match-against-root-pattern-matches-root-path
   (testing "rf2-aleg9 — the special `/` pattern matches the root URL
             and returns an empty params map; a deeper URL returns nil"

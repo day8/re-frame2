@@ -7,6 +7,7 @@
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
+            [re-frame.routing.registry :as registry]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
 
@@ -551,3 +552,71 @@
                        (= :route/owner (-> ev :tags :frame))))
                 @traces)
           ":rf.route/external-url-requested carries :frame :route/owner (pre-fix: absent)"))))
+
+;; ============================================================================
+;; rf2-dqlfty — nav-guard phase fails CLOSED on a throwing/hostile URL
+;; ============================================================================
+;;
+;; The finding: `pending-target` (the target the leave/enter guards branch
+;; on) called raw `registry/match-url`, bypassing `match-url-fail-closed` —
+;; the SAME wrapper `url-change-fx` already routes through (rf2-6t1xb).
+;; `pending-target` runs UNCONDITIONALLY inside `maybe-block-navigation`,
+;; even when the route declares no `:can-leave` / `:can-enter` at all, so
+;; any unexpected throw out of `match-url` escaped the guard phase and
+;; crashed the event drain for EVERY nav entry point (`:rf/url-requested`,
+;; `:rf.route/navigate`, `:rf.route/transitioned`,
+;; `:rf.route/handle-url-change`) instead of failing closed to
+;; `:rf.route/not-found` like a bare miss.
+
+(deftest nav-guard-hostile-url-fails-closed-not-found-rf2-dqlfty
+  (testing "rf2-dqlfty: a URL that makes `match-url` THROW during the
+            nav-guard phase must not crash the event drain — the
+            guard-phase target now resolves through `match-url-fail-closed`
+            exactly like `url-change-fx`, so the throw is swallowed and the
+            navigation proceeds to :rf.route/not-found instead of an
+            uncaught exception escaping `dispatch-sync`"
+    (rf/reg-route :route/home {} "/")
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/"])
+    (with-redefs [registry/match-url
+                  (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
+      ;; Pre-fix this call throws straight out of dispatch-sync (crashes
+      ;; the event drain); post-fix it completes cleanly.
+      (rf/dispatch-sync [:rf/url-requested {:url "/hostile"}])
+      (is (= :rf.route/not-found
+             (get-in (rf/runtime-db-value :rf/default)
+                     [:rf.runtime/routing :current :route-id]))
+          "the throwing URL fails closed to :rf.route/not-found rather than
+           crashing the event drain"))))
+
+(deftest nav-guard-hostile-url-does-not-bypass-declared-can-leave-guard-rf2-dqlfty
+  (testing "rf2-dqlfty: the fail-closed target still lets a DECLARED
+            :can-leave guard run against the CURRENT route (only the
+            TARGET half of `pending-target` — derived from the hostile
+            URL — is nil'd out); a dirty-form guard still blocks a hostile
+            navigation attempt rather than silently crashing past it"
+    (rf/reg-route :editor/article
+                  {:params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?} "/editor/articles/:id")
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
+    (rf/dispatch-sync [:editor/dirty true])
+    (with-redefs [registry/match-url
+                  (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
+      (rf/dispatch-sync [:rf/url-requested {:url "/hostile"}])
+      (is (some? (get-in (rf/runtime-db-value :rf/default)
+                         [:rf.runtime/routing :pending-navigation]))
+          "the dirty-form :can-leave guard still blocks the throwing URL —
+           no crash, no silent bypass")
+      (is (= :editor/article
+             (get-in (rf/runtime-db-value :rf/default)
+                     [:rf.runtime/routing :current :route-id]))
+          "the active route is unchanged (leave was blocked, not crashed
+           past)"))))
