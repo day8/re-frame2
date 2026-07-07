@@ -43,9 +43,9 @@ Each `patterns/*.md` opens with load triggers, gives the canonical mini-declarat
 
 Application keywords use the app's own namespace (`:cart/`, `:auth/`); `:rf/*` and `:rf.machine/*` / `:rf.epoch/*` / `:rf.http/*` / `:rf.error/*` are framework-owned. This rule lands in SKILL.md cardinal rules so it's read on every load.
 
-### L7 — `reg-*` macros over `register-*` functions
+### L7 — `reg-*` macros over the `*`-suffixed runtime fns
 
-The macros capture source-coords that Xray and re-frame2-pair rely on. Functional registrations exist for programmatic / generated cases; recipes always reach for the macro.
+The macros capture source-coords that Xray and re-frame2-pair rely on. The functional counterparts (`reg-view*`, `reg-machine*`, `reg-interceptor*`, …) exist for programmatic / generated cases; recipes always reach for the macro.
 
 ### L8 — Frames before globals
 
@@ -92,10 +92,10 @@ skills/re-frame2/
 ├── package.json                 (npm metadata)
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
-│   ├── fundamentals/            (events, fx, cofx, subs, flows, schemas, frames, event-state-cycle, project-structure)
+│   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
-│   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring)
+│   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)
 ├── evals/                       (eval harness inputs)

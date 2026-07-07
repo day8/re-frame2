@@ -36,20 +36,20 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
 ## Canonical signature
 
 ```clojure
-(rf/reg-flow
-  {:id     :rectangle/area              ;; unique; feature-prefixed (never :rf/*)
-   :inputs [[:width] [:height]]         ;; vector of frame-state paths (bare = app-db)
-   :derive (fn [w h] (* w h))           ;; pure: (in-1, in-2, ...) → output value
-   :output-path [:area]                 ;; where the output is written — always app-db
+(rf/reg-flow :rectangle/area            ;; flow-id first; feature-prefixed (never :rf/*)
+  {:inputs [[:width] [:height]]         ;; REQUIRED: vector of frame-state paths (bare = app-db)
+   :output-path [:area]                 ;; REQUIRED: where the output is written — always app-db
    :doc    "Rectangle area from :width and :height."   ;; optional
-   :schema [:int]})                     ;; optional Malli schema for the output
+   :schema [:int]}                      ;; optional Malli schema for the output
+  (fn [w h] (* w h)))                   ;; pure derive fn: (in-1, in-2, ...) → output value
 
-(rf/reg-flow flow {:frame :scratch})       ;; optional 2nd arg: explicit frame
+(rf/reg-flow :rectangle/area {:inputs … :output-path … :frame :scratch} derive-fn)
+                                           ;; explicit frame = :frame key in the metadata slot
 (flows/clear-flow :rectangle/area)         ;; dissoc-in's the output :output-path
 (flows/clear-flow :rectangle/area {:frame :scratch})
 ```
 
-`:inputs` order matches the positional args to `:derive`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is not on the `re-frame.core` façade.
+The 3-slot grammar is `(reg-flow flow-id metadata derive-fn)` — id first, the pure derive fn last, `metadata` carrying `:inputs` / `:output-path` (both required) plus optional `:doc` / `:schema` / `:frame`. A `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`). `:inputs` order matches the positional args to the derive fn. `reg-flow` returns the flow-id (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is not on the `re-frame.core` façade.
 
 ## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
 
@@ -74,22 +74,20 @@ From `examples/core/flows/core.cljs` — a cart whose subtotal and total are mat
 ```clojure
 (defn- line-total [{:keys [price qty]}] (* price qty))
 
-(rf/reg-flow
-  {:id     :cart/subtotal
-   :inputs [[:cart :items]]
-   :derive (fn [items] (reduce + 0 (map line-total items)))
-   :output-path [:cart :subtotal]})
+(rf/reg-flow :cart/subtotal
+  {:inputs [[:cart :items]]
+   :output-path [:cart :subtotal]}
+  (fn [items] (reduce + 0 (map line-total items))))
 
 ;; :cart/total reads ANOTHER flow's output ([:cart :subtotal]) plus the
 ;; runtime-toggleable discount rate. The runtime derives the dependency edge
 ;; from the path overlap and topologically sorts so :cart/subtotal always
 ;; runs first — both settle in one walk right after the handler.
-(rf/reg-flow
-  {:id     :cart/total
-   :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :derive (fn [subtotal discount-rate]
-             (Math/round (* subtotal (- 1 (or discount-rate 0)))))
-   :output-path [:cart :total]})
+(rf/reg-flow :cart/total
+  {:inputs [[:cart :subtotal] [:cart :discount-rate]]
+   :output-path [:cart :total]}
+  (fn [subtotal discount-rate]
+    (Math/round (* subtotal (- 1 (or discount-rate 0))))))
 
 ;; Reading a flow's output inside a handler — the central reason :total is a
 ;; flow and not a sub: a sub's value lives in the view-facing cache and is
@@ -106,13 +104,12 @@ A flow may read framework runtime-db state via a `[:rf.db/runtime …]` input an
 ;; Mixed inputs: one bare app-db path + one runtime-db-qualified path.
 ;; The runtime-db input reads the active route id at
 ;; [:rf.runtime/routing :current :route-id]; the output still writes app-db only.
-(rf/reg-flow
-  {:id     :cart/show-checkout-banner?
-   :inputs [[:cart :items]
+(rf/reg-flow :cart/show-checkout-banner?
+  {:inputs [[:cart :items]
             [:rf.db/runtime :rf.runtime/routing :current :route-id]]
-   :derive (fn [items route-id]
-             (and (seq items) (= route-id :route/cart)))
-   :output-path [:cart :show-checkout-banner?]})
+   :output-path [:cart :show-checkout-banner?]}
+  (fn [items route-id]
+    (and (seq items) (= route-id :route/cart))))
 ```
 
 ## Runtime toggle via fx
@@ -122,10 +119,10 @@ Two reserved fx-ids register / clear a flow mid-event. They route to the **dispa
 ```clojure
 (rf/reg-event :cart/apply-discount
   (fn [_ _]
-    {:fx [[:rf.fx/reg-flow {:id          :cart/discount-rate
-                            :inputs [[:cart :discount-engaged?]]
-                            :derive (fn [_] 0.10)
-                            :output-path [:cart :discount-rate]}]
+    {:fx [[:rf.fx/reg-flow [:cart/discount-rate
+                            {:inputs [[:cart :discount-engaged?]]
+                             :output-path [:cart :discount-rate]}
+                            (fn [_] 0.10)]]     ;; same 3-slot triple reg-flow takes
           [:dispatch [:cart/touch true]]]}))   ;; nudge a re-walk (see Sequencing)
 
 (rf/reg-event :cart/remove-discount

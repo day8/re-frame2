@@ -97,10 +97,15 @@ Child auto-kick: `:on {:rf.machine.spawn/spawned :processing}` — runtime synth
 Cancellation is a state transition; the substrate does the rest. All three exits (`:cancelled` / `:complete` / `:error`) trigger the same cascade.
 
 ```clojure
-(rf/dispatch [:work/flow [:cancel]])                          ;; user click
+;; user click — inside a reg-view body, use the INJECTED `dispatch`
+;; (a bare rf/dispatch in the callback raises :rf.error/no-frame-context):
+[:button {:on-click #(dispatch [:work/flow [:cancel]])} "Cancel"]
 
-(r/with-let [_ nil] [work-bench-ui]                           ;; React unmount
-  (finally (rf/dispatch [:work/flow [:cancel]])))
+;; React unmount — the finally-clause runs outside any frame scope, so
+;; capture the frame api at render time and dispatch through it:
+(let [{:keys [dispatch]} (rf/capture-frame)]
+  (r/with-let [_ nil] [work-bench-ui]
+    (finally (dispatch [:work/flow [:cancel]]))))
 ```
 
 Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all true`; the handler reads `[:rf.runtime/machines :spawned :work/flow [:working] :children]` and tears down every surviving child. Each torn-down child's pending `:after` timer cancels automatically.

@@ -52,7 +52,7 @@ The shapes are structurally similar — both take an args map and dispatch a res
 | `:on-request [:event-id]` (lib's per-request lifecycle hook) | (drop) | ajax-cljs dispatches `:on-request` before sending — used for request logging. The equivalent in v2 is a `register-listener!` listener on `:rf.http/request-sent` (per [014 §Trace surface](../../spec/014-HTTPRequests.md)) — observer-shaped, not handler-shaped. Cross-cutting concerns should not ride request envelopes. |
 | `:interceptors` (cljs-ajax interceptor chain — request transform / response transform middleware) | `(rf/reg-http-interceptor id {:before … :after …})` per [M-39](README.md#m-39-reg-http-interceptor--clear-http-interceptor--additive-http-middleware-on-rfhttpmanaged) | ajax-cljs's middleware chain ports to the per-frame `reg-http-interceptor` surface. Bearer-auth header injection / dev-mode base-URL rewrite / correlation-id stamping lift to `:before`; response-time telemetry / rate-limit header parsing / Cache-Control inspection / 401 auth-refresh lift to `:after`. Register once per frame; every `:rf.http/managed` request from that frame picks up the transform. Per-request `:interceptors` (rare in v1) lower to bespoke `:request :headers` / `:request :url` shaping at the call site. |
 | No retry support | `:retry {:on #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout} :max-attempts 4 :backoff {:base-ms 250 :factor 2 :max-ms 5000 :jitter true}}` | ajax-cljs has no retry; v1 codebases either implemented retry by hand (re-dispatching the request event from the `:on-failure` handler) or didn't bother. v2 ships transport-level retry as a first-class slot — function of attempt count + failure category, no body inspection (per [014 §Boundary — transport vs semantic retry](../../spec/014-HTTPRequests.md#boundary--transport-vs-semantic-retry)). **The rewrite SHOULD recommend adding `:retry`** for endpoints that benefit from it (idempotent reads against flaky upstreams); the operator picks the `:max-attempts` and `:backoff` shape per endpoint. Hand-rolled retry in `:on-failure` handlers becomes obsolete — flag those handlers for cleanup in the same pass. |
-| Custom abort via the `XhrIo` handle | `:request-id <id>` + `(rf/dispatch [:rf.http/managed-abort <id>])` | ajax-cljs callers reached into the underlying `XhrIo` handle to cancel — a CLJS-only escape hatch. v2 ships abort as a first-class slot: tag the request with a stable `:request-id` (keyword / vector / uuid), then dispatch `:rf.http/managed-abort` with that id. Abort always wins over the reply (per [014 §Abort precedence](../../spec/014-HTTPRequests.md#abort-precedence-abort-always-wins)) — the reply lands as `:rf.http/aborted` with `:reason :user`, never as the transport-completion category that arrived at the same time. The rewrite is mechanical when the v1 codebase already had an abort site; flag every reach-into-`XhrIo` for the cleaner v2 surface. |
+| Custom abort via the `XhrIo` handle | `:request-id <id>` + `{:fx [[:rf.http/managed-abort <id>]]}` | ajax-cljs callers reached into the underlying `XhrIo` handle to cancel — a CLJS-only escape hatch. v2 ships abort as a first-class slot: tag the request with a stable `:request-id` (keyword / vector / uuid), then have an event handler return the `:rf.http/managed-abort` fx entry with that id (it is an fx-id, not a dispatchable event). Abort always wins over the reply (per [014 §Abort precedence](../../spec/014-HTTPRequests.md#abort-precedence-abort-always-wins)) — the reply lands as `:rf.http/aborted` with `:reason :user`, never as the transport-completion category that arrived at the same time. The rewrite is mechanical when the v1 codebase already had an abort site; flag every reach-into-`XhrIo` for the cleaner v2 surface. |
 | `:progress-cb` (per-XHR upload / download progress) | (escalate) | ajax-cljs exposed `XhrIo`'s progress events as a callback. Managed-HTTP does NOT ship per-request progress callbacks for v1 — streaming + bidirectional flows are out of scope per [014 §Abstract](../../spec/014-HTTPRequests.md#abstract). Sites that depend on progress events escalate to a human; the migration paths are (a) keep the v1 add-on for those specific endpoints, (b) drop the progress UI if it's nice-to-have, (c) wait for a future streaming-aware spec. |
 
 ## Before / after — representative GET + JSON decode
@@ -271,7 +271,7 @@ The retry decision is a pure function of attempt count + failure category — bo
 If the v1 codebase reached into the `XhrIo` handle to cancel, port to v2's first-class abort surface:
 
 ```clojure
-;; v2 — tag the request, then dispatch the abort
+;; v2 — tag the request, then abort via the fx
 {:fx [[:rf.http/managed
        {:request    {:method :get :url "/search" :params {:q query}}
         :request-id [:search query]                      ;; stable id, =-comparable
@@ -279,8 +279,9 @@ If the v1 codebase reached into the `XhrIo` handle to cancel, port to v2's first
         :on-success [:search/results]
         :on-failure [:search/error]}]]}
 
-;; cancel from another event
-(rf/dispatch [:rf.http/managed-abort [:search query]])
+;; cancel from another event's handler — :rf.http/managed-abort is an fx-id,
+;; returned as an :fx entry, not a dispatchable event
+{:fx [[:rf.http/managed-abort [:search query]]]}
 ```
 
 Abort always wins over the natural-completion reply (per [014 §Abort precedence](../../spec/014-HTTPRequests.md#abort-precedence-abort-always-wins)). For spawned-actor contexts ([M-45](README.md#m-45-rfhttpmanaged-requests-issued-from-spawned-actors-abort-on-actor-destroy-additive)), abort-on-actor-destroy is automatic; per-app abort sites need the explicit `:request-id` + `:rf.http/managed-abort` pair.

@@ -80,15 +80,15 @@ Two scope tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core
 
 If neither tier names a frame, the reader returns `nil` and a public frame-scoped operation raises `:rf.error/no-frame-context` — the chain never invents a default. (The explicit `{:frame …}` *override* / leading `frame-id` arg bypasses the chain entirely.)
 
-`dispatch` and `subscribe` both resolve the target frame from the established scope (via `require-current-frame!`, which raises outside any scope), but their explicit-routing surfaces differ — **`dispatch` / `dispatch-sync` take a trailing `{:frame …}` opts map; `subscribe` / `subscribe-once` / `unsubscribe` take a *leading* `frame-id` argument** (no opts map). The explicit form is first-class (tools, tests, SSR, fx handlers), not a workaround:
+`dispatch` and `subscribe` both resolve the target frame from the established scope (via `require-current-frame!`, which raises outside any scope), and both take the **same explicit-routing surface — a trailing `{:frame …}` opts map** (`dispatch` / `dispatch-sync` / `subscribe` / `subscribe-once` all mirror it). The explicit form is first-class (tools, tests, SSR, fx handlers), not a workaround:
 
 ```clojure
-(rf/dispatch  [:foo] {:frame :stories})           ;; dispatch: trailing {:frame …} opt
-(rf/subscribe :stories [:my-sub])                 ;; subscribe: LEADING frame-id arg
-(rf/subscribe [:my-sub])                          ;; no frame-id → resolves the established scope (raises if none)
+(rf/dispatch  [:foo]    {:frame :stories})        ;; trailing {:frame …} opt
+(rf/subscribe [:my-sub] {:frame :stories})        ;; same shape on the read side
+(rf/subscribe [:my-sub])                          ;; no opts → resolves the established scope (raises if none)
 ```
 
-A trailing `{:frame …}` map passed to `subscribe` is **not** an opts map — it would be read as the `query-v`, silently subscribing to the wrong query. To read a non-default frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
+(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` is the one exception that keeps a public `(unsubscribe frame-id query-v)` arity.) To read a non-default frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
 
 ## Carrying the frame into async callbacks
 

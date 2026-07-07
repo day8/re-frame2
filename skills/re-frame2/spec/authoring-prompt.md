@@ -25,6 +25,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > ├── README.md                    (human-facing intro)
 > ├── LICENSE                      (MIT)
 > ├── package.json                 (npm metadata; mirror re-frame-migration pattern)
+> ├── .claude-plugin/plugin.json   (Claude Code Plugin packaging metadata)
 > ├── examples-map.md              (pattern → worked-example table)
 > ├── references/
 > │   ├── fundamentals/
@@ -32,6 +33,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── fx.md                (reg-fx, :fx vector shape)
 > │   │   ├── cofx.md              (reg-cofx value-returning, :rf.cofx/requires)
 > │   │   ├── subs.md              (reg-sub, layered subs, dynamic args, machine subs)
+> │   │   ├── views.md             (reg-view, injected dispatch/subscribe, reg-view*)
 > │   │   ├── flows.md             (reg-flow, materialised computed state, flow-vs-sub)
 > │   │   ├── schemas.md           (reg-app-schema, boundary validation)
 > │   │   ├── frames.md            (frame ids, default frame, per-frame config)
@@ -46,12 +48,20 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   └── cancellation.md      (destroy cascade, cleanup contract)
 > │   ├── tooling/
 > │   │   ├── stories.md           (reg-story, story frames)
-> │   │   └── routing.md           (reg-route, :can-leave?, navigation)
+> │   │   ├── routing.md           (reg-route, :can-leave?, navigation)
+> │   │   ├── story-recorder.md    (record canvas interactions as a :script body)
+> │   │   ├── story-mcp-loop.md    (story-mcp author/refine side; run-side handoff)
+> │   │   └── xray.md              (devtools panel — mount, launch modes, popout)
 > │   └── cross-cutting/
 > │       ├── testing.md           (make-reset-runtime-fixture, dispatch-sync, compute-sub)
-> │       └── api-cheatsheet.md    (one-page reg-* signature index)
+> │       ├── api-cheatsheet.md    (one-page reg-* signature index)
+> │       ├── privacy-and-elision.md      (sensitive/large classification, egress profiles)
+> │       ├── production-observability.md (register-listener! production sinks)
+> │       ├── ssr-authoring.md            (reg-head, hydrate, SSR check fxs)
+> │       └── path-and-identity.md        (:rf/path algebra, canonical EDN identity)
 > ├── patterns/
 > │   ├── remote-data.md
+> │   ├── resources.md
 > │   ├── forms.md
 > │   ├── boot.md
 > │   ├── websocket.md
@@ -59,10 +69,17 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   ├── managed-http.md
 > │   ├── async-effect.md
 > │   ├── long-running-work.md
-> │   └── stale-detection.md
+> │   ├── stale-detection.md
+> │   ├── reusable-components.md
+> │   ├── stateful-components.md
+> │   ├── form-action.md
+> │   └── ssr-loaders.md
 > ├── decision-trees/
 > │   ├── pick-a-pattern.md        ("I want to build X — which pattern?")
 > │   └── slice-or-machine.md      ("Should this be a slice, region, or top-level machine?")
+> ├── evals/
+> │   ├── README.md                (how to run the behavioural evals)
+> │   └── evals.json               (the eval fixtures)
 > └── spec/
 >     ├── design.md
 >     ├── inputs.md
@@ -80,7 +97,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *5. **Examples in `examples/**` are canonical.** When a pattern has a worked example, match its shape.*
 > *6. **Frames before globals.** Code talks to a frame; never bypasses `dispatch` / `subscribe`.*
 > *7. **Reserved namespaces are reserved.** `:rf/*` is framework-owned.*
-> *8. **`reg-*` macros over `register-*` functions.** Macros capture source-coords.*
+> *8. **`reg-*` macros over the `*`-suffixed runtime fns** (`reg-view*`, `reg-machine*`, …). Macros capture source-coords.*
 > *9. **Pillar 4 — assume training knowledge.** Teach only the re-frame2-specific binding.*
 >
 > *Locks to preserve verbatim:*
