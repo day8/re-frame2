@@ -184,8 +184,10 @@
 ;; One line — and that's not a simplification, that's the whole truth. A machine
 ;; IS an event handler. `reg-machine` is just sugar over a `reg-event` whose body
 ;; happens to interpret the table above. When you need registration metadata
-;; (`:doc`, `:interceptors`, ...), drop down to the longer form
-;; `(reg-event machine-id (make-machine-handler m))` — same machine, more knobs.
+;; (`:doc`, `:interceptors`, ...), reach for the 3-arity —
+;; `(reg-machine machine-id {:doc "..."} m)` — same machine, more knobs, no
+;; hand-stamped `reg-event` + `re-frame.machines/make-machine-handler`
+;; composition needed.
 
 (rf/reg-machine :auth.login/flow login-flow)
 

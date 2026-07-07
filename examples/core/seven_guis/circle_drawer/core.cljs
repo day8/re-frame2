@@ -82,24 +82,28 @@
 ;; because once you take a new action the future you'd undone-into is gone.
 ;;
 ;; The clever part is opting in. An event becomes undoable simply by listing
-;; this interceptor's id (`:undoable`) in its :interceptors — nothing more. Only
-;; the events that *commit* a change wear it, which is exactly why dragging the
-;; slider around can stay silent and add no history at all.
+;; this interceptor's id (`:drawer/undoable`) in its :interceptors — nothing
+;; more. Only the events that *commit* a change wear it, which is exactly why
+;; dragging the slider around can stay silent and add no history at all.
 ;; See docs/core/interceptors.md.
 
-(rf/reg-interceptor :undoable
+(rf/reg-interceptor :drawer/undoable
   {:doc "Snapshot :circles before an undoable handler runs; push the prior
          value onto :undo and clear :redo when the handler changed it."}
   {:before (fn before [ctx]
              ;; On the way in: stash the old :circles. We read it from coeffects,
              ;; which is the db as it stands *before* the handler touches it.
+             ;; Namespaced key on ctx itself (NOT a bare key stuffed into the
+             ;; flat :coeffects map) — interceptor-private bookkeeping stays
+             ;; off to the side instead of risking collision with a real
+             ;; declared coeffect. See docs/core/interceptors.md.
              (let [db   (get-in ctx [:coeffects :db])
                    prior (get-in db [:drawer :circles])]
-               (assoc-in ctx [:coeffects :prior-circles] prior)))
+               (assoc ctx ::prior-circles prior)))
    :after  (fn after [ctx]
              ;; On the way out: only bother recording history if the handler
              ;; actually changed :circles. No change, no undo step.
-             (let [prior     (get-in ctx [:coeffects :prior-circles])
+             (let [prior     (::prior-circles ctx)
                    db-after  (get-in ctx [:effects :db])]
                (if (and db-after (not= prior (get-in db-after [:drawer :circles])))
                  (-> ctx
@@ -124,7 +128,7 @@
          The counter sits *outside* the `:circles` snapshot that undo/redo
          tracks, so it just keeps climbing and can never accidentally reissue an
          id that's still in use."
-   :interceptors [:undoable]}
+   :interceptors [:drawer/undoable]}
   (fn handler-drawer-add-circle [{:keys [db]} [_ x y]]
     {:db (let [id (get-in db [:drawer :next-id])]
       (-> db
@@ -146,8 +150,8 @@
 (rf/reg-event :drawer/dialog-drag
   {:doc "The slider is moving. We only update the *draft* radius — the circle on
          screen keeps its real size until you close the dialog and commit. And
-         since this event skips `:undoable`, a frantic slider wiggle leaves the
-         history completely untouched."}
+         since this event skips `:drawer/undoable`, a frantic slider wiggle
+         leaves the history completely untouched."}
   (fn handler-drawer-dialog-drag [{:keys [db]} [_ new-radius]]
     {:db (assoc-in db [:drawer :dialog :draft-radius] new-radius)}))
 
@@ -158,7 +162,7 @@
          snapshot it finds the state from *before the dialog even opened*. The
          entire resize — however many slider ticks it took — collapses into one
          tidy undo step."
-   :interceptors [:undoable]}
+   :interceptors [:drawer/undoable]}
   (fn handler-drawer-close-dialog [{:keys [db]} _]
     {:db (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db

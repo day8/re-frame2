@@ -137,9 +137,28 @@
     :tags  #{[:feed]}
     :patch #(apply-fav favorited? slug %)}])
 
+(defn- fav-invalidates
+  "Shared `:invalidates` body for favorite/unfavorite. `slug` always reaches the
+   detail + every list that already has it cached. `username` — the ACTING user,
+   who this article's own Favorited-Articles tab belongs to — is optional in
+   `:params-schema` (older/direct callers may omit it), so its list-identity tag
+   only goes in when present. This is the one tag `slug` can't stand in for: a
+   newly-favorited article isn't yet a member of any cached Favorited-Articles
+   page, so `[:article slug]` never reaches it there. `:invalidates` has no
+   `:db`/ctx of its own to source this from, so `:ui/favorite` threads it in via
+   `:params` from the acting user's session at the call site — not from the
+   decoded reply, whose `:author` here names the ARTICLE's author, not the
+   person who clicked the heart."
+  [{:keys [slug username]}]
+  [{:scope :rf.scope/global
+    :tags  (cond-> #{[:article slug] [:article-list]}
+             username (conj [:favorited-articles username]))}
+   {:scope {:from-db :realworld/session}
+    :tags  #{[:feed]}}])
+
 (rf/reg-mutation :realworld/favorite
   {:doc             "Favorite an article (optimistic). POST /articles/:slug/favorite."
-   :params-schema   [:map [:slug :string]]
+   :params-schema   [:map [:slug :string] [:username {:optional true} :string]]
    :scope           :rf.scope/global
    ;; Forward: flip the heart on and bump the count across the detail, every list,
    ;; and the session feed — immediately on click, before the request goes out.
@@ -151,12 +170,9 @@
    ;; same mutation's `[:article slug]` refetch.
    :populates       (fn [{:keys [slug]} result]
                       {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   ;; Reconcile: refetch the lists (global) and the feed (session) to truth.
-   :invalidates     (fn [{:keys [slug]} _result]
-                      [{:scope :rf.scope/global
-                        :tags  #{[:article slug] [:article-list]}}
-                       {:scope {:from-db :realworld/session}
-                        :tags  #{[:feed]}}])
+   ;; Reconcile: refetch the lists (global) and the feed (session) to truth. See
+   ;; `fav-invalidates` for why `[:favorited-articles username]` needs threading.
+   :invalidates     (fn [params _result] (fav-invalidates params))
    ;; The conflict policy. It's the default, spelled out here so it's visible: if a
    ;; failure rollback finds that a competing write already moved a touched entry,
    ;; refetch it rather than restoring an inverse that's now stale.
@@ -167,16 +183,17 @@
 
 (rf/reg-mutation :realworld/unfavorite
   {:doc             "Unfavorite an article (optimistic). DELETE /articles/:slug/favorite."
-   :params-schema   [:map [:slug :string]]
+   :params-schema   [:map [:slug :string] [:username {:optional true} :string]]
    :scope           :rf.scope/global
    :optimistic-tags (fn [{:keys [slug]}] (optimistic-fav-tags false slug))
    :populates       (fn [{:keys [slug]} result]
                       {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
-   :invalidates     (fn [{:keys [slug]} _result]
-                      [{:scope :rf.scope/global
-                        :tags  #{[:article slug] [:article-list]}}
-                       {:scope {:from-db :realworld/session}
-                        :tags  #{[:feed]}}])
+   ;; The unfavorited article is already a tagged member of any cached
+   ;; Favorited-Articles page it appears on, so `[:article slug]` alone would
+   ;; reach it there too — naming `[:favorited-articles username]` (via the same
+   ;; `fav-invalidates`) just keeps the pair symmetric and states the real
+   ;; intent explicitly, rather than relying on member-tag coincidence.
+   :invalidates     (fn [params _result] (fav-invalidates params))
    :on-conflict     :invalidate}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :delete :url (rh/full-url (str "/articles/" slug "/favorite"))}
