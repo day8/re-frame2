@@ -1205,3 +1205,72 @@
       (is (= :same (engine/op-at p [:xs 2])))
       (is (nil? (engine/shifted-was-index p [:xs 2]))))))
 
+;; ---- rf2-96csq4 — vector :r before-value resolved through the replay ---
+;;
+;; A vector `:r` (in-place replace) edit's edit-index addresses a position
+;; in the FINAL after-vector — exactly like `:+`/`:-` — but `:r` itself
+;; stays OUT of the unified replay (`replay-vector-edits`; a replace never
+;; shifts anything). Resolving its `:before`-value via a raw
+;; `(value-at before [after-idx])` reads the WRONG (or out-of-range) slot
+;; whenever a prior `:+`/`:-` at the SAME parent shifted positions. The fix
+;; resolves through the SAME replay `:slots` that already feed the
+;; removals + shift channels: `slots[after-idx]` IS the true before-index.
+;; Each repro below was verified against Editscript 0.6.5's actual output.
+
+(deftest r-96csq4-insert-then-replace-resolves-true-before-index
+  (testing "rf2-96csq4 repro (the bead's exact example) — `[:x :y] →
+            [:new :x :z]` ⇒ `[[0] :+ :new] [[2] :r :z]`. Raw
+            `(value-at before [2])` is OUT OF RANGE on the 2-element
+            before-vector (missing-sentinel), misclassifying [2] as
+            `:added` and losing `:y`'s removal/change entirely — not
+            reported as `:modified`, not `:removed`, silently lost.
+            Correct: [2] is `:modified :y → :z` (via `slots[2] = 1`, the
+            true before-index the prior `:+` shifted it to)."
+    (let [p (engine/project [:x :y] [:new :x :z])]
+      (is (= :added (engine/op-at p [0])))
+      (is (= :new (:after (engine/entry-at p [0]))))
+      (is (= :same-shifted (engine/op-at p [1]))
+          ":x survives, shifted from before-idx 0")
+      (is (= 0 (engine/shifted-was-index p [1])))
+      (is (= :modified (engine/op-at p [2]))
+          "the replaced slot must classify as :modified — NOT :added
+           (pre-fix: :y was lost, an out-of-range value-at read produced
+           the missing-sentinel)")
+      (is (= {:op :modified :before :y :after :z}
+             (engine/entry-at p [2]))
+          ":y's true before-value must surface, not the missing-sentinel")
+      (is (empty? (get-in p [:vector-removals []]))
+          "a replace is not a removal — no vector-removals entry"))))
+
+(deftest r-96csq4-delete-then-replace-resolves-true-before-index
+  (testing "rf2-96csq4 — the delete-before-replace variant. `[:a :b :c] →
+            [:b :Z]` ⇒ `[[0] :-] [[1] :r :Z]`. Raw `(value-at before [1])`
+            reads `:b` — the WRONG, post-shift slot (the pre-fix bug's
+            'wrong-but-present before-value' symptom). The true
+            before-value at the replaced after-index 1 is `:c`
+            (`slots[1] = 2`, the survivor index the `:-` replay already
+            computed for it)."
+    (let [p (engine/project [:a :b :c] [:b :Z])]
+      (is (= [{:before-index 0 :before-value :a}]
+             (get-in p [:vector-removals []]))
+          "sanity — :a's removal is reported at the parent")
+      (is (= :same-shifted (engine/op-at p [0]))
+          ":b survives at after-idx 0, shifted from before-idx 1")
+      (is (= 1 (engine/shifted-was-index p [0])))
+      (is (= :modified (engine/op-at p [1])))
+      (is (= {:op :modified :before :c :after :Z}
+             (engine/entry-at p [1]))
+          "the replaced slot's true before-value is :c (before-idx 2) —
+           NOT :b, which is what the raw post-shift value-at read would
+           have wrongly produced"))))
+
+(deftest r-96csq4-map-key-replace-unaffected
+  (testing "rf2-96csq4 — a NON-vector :r (a map-key replace, `[[:status]
+            :r :done]`) is unaffected by the fix: map keys are never
+            index-shifted, so the raw value-at resolution was already
+            correct and stays correct"
+    (let [p (engine/project {:status :pending} {:status :done})]
+      (is (= :modified (engine/op-at p [:status])))
+      (is (= {:op :modified :before :pending :after :done}
+             (engine/entry-at p [:status]))))))
+

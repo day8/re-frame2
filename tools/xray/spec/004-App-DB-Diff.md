@@ -283,6 +283,27 @@ a replace is length- and order-preserving, so it never shifts a
 subsequent index or adds/removes a slot — and their after-indices are
 skipped from the shift output (they classify as `:modified`).
 
+**A vector `:r`'s `:before`-value is resolved through the SAME replay
+slots (rf2-96csq4), not a raw `value-at`.** Although `:r` itself never
+runs through the replay, its edit-index still addresses a position in
+the FINAL after-vector — a position a prior `:+`/`:-` at the same
+parent may already have shifted. Resolving `:before` as a naive
+`(value-at before [parent-path after-idx])` reads the WRONG slot (or an
+out-of-range one) whenever the vector saw a mixed insert/delete-then-
+replace script. The correct before-value is `slots[after-idx]` — the
+survivor index the unified `:+`/`:-` replay already computed for that
+exact after-position (the replay's `:slots` output is 1:1 with the
+after-vector regardless of whether the caller asks about a survivor, an
+insert, *or* a replace target). REPRO: `[:x :y] → [:new :x :z]` ⇒
+`[[0] :+ :new] [[2] :r :z]`. The naive read, `(value-at before [2])`,
+is out-of-range on the 2-element before-vector — the missing-sentinel
+misclassifies the slot as `:added` and `:y`'s removal never surfaces
+anywhere (not `:modified`, not `:removed` — silently lost). The replay-
+resolved read, `slots[2]`, is `1` (`:y`'s original index), correctly
+classifying `[2]` as `:modified :y → :z`. Non-vector `:r` (map key,
+scalar, root replace) is unaffected — those addressing modes are never
+index-shifted, so the raw `value-at` lookup stays correct for them.
+
 > **Why the unified `:+`/`:-` replay (rf2-3eplfk).** An earlier
 > implementation replayed **only** the `:-` edits against pristine
 > `(range before-len)`, ignoring interleaved `:+` inserts. That is

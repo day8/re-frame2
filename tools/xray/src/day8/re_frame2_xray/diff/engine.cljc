@@ -974,6 +974,40 @@
                 acc))
             {}
             vec-replays)
+          ;; rf2-96csq4 — resolve a vector `:r`'s BEFORE-value through the
+          ;; unified replay, NOT a raw post-shift `value-at`. Editscript
+          ;; applies vector edits SEQUENTIALLY against an evolving
+          ;; sequence, so an `:r`'s edit-index addresses a position in the
+          ;; FINAL after-vector, not a pristine before-index, whenever a
+          ;; prior `:+`/`:-` at the SAME vector parent shifted positions
+          ;; (`:r` deliberately stays OUT of the replay itself — see
+          ;; `replay-vector-edits` — but the FINAL `:slots` it produces
+          ;; still aligns 1:1 with the after-vector, rf2-3eplfk). REPRO:
+          ;; before `[:x :y]`, after `[:new :x :z]` ⇒ editscript
+          ;; `[[0] :+ :new] [[2] :r :z]`; raw `(value-at before [2])` is
+          ;; out-of-range on a 2-element before-vector (missing-sentinel,
+          ;; misclassifying the slot as `:added` and losing `:y`'s
+          ;; removal), while `slots[2]` (from the SAME replay that already
+          ;; feeds the removals + shift channels) correctly resolves to
+          ;; before-index 1 (`:y`). Non-vector `:r` (map / scalar / root
+          ;; replace) is untouched — those keys are never index-shifted,
+          ;; so the raw `value-at` lookup stays correct for them.
+          r-before-value
+          (fn [path]
+            (let [parent-path (vec (butlast path))
+                  after-idx   (peek path)
+                  slot        (when (and (integer? after-idx)
+                                         (vector-parent? path))
+                                (get-in vec-replays [parent-path :slots after-idx]))]
+              (if (integer? slot)
+                (nth (vec (value-at before parent-path)) slot)
+                ;; Non-vector `:r`, or (defensively) a replay that
+                ;; produced no slot / an `::insert` marker at this
+                ;; after-index — shouldn't happen for a real Editscript
+                ;; `:r` (a fresh insert and an in-place replace never
+                ;; target the identical index), but fall back to the raw
+                ;; lookup rather than crash.
+                (value-at before path))))
           ;; Step 1 — expand each non-vector-deletion raw edit into
           ;; per-leaf ops at every path the operator can navigate to in
           ;; the AFTER tree.
@@ -987,7 +1021,7 @@
                        (expand-leaf-paths path :removed removed-val)
                        [{:path path :op :removed :value removed-val}]))
                 :r [{:path path :op :modified
-                     :before (value-at before path)
+                     :before (r-before-value path)
                      :after  value}]
                 :s [{:path path :op :modified
                      :before (value-at before path)
@@ -996,9 +1030,15 @@
             other-edits)
           ;; Step 2 — re-classify modifieds via the leaf-op rules so R7
           ;; type-change + R8 redaction branches surface in the op map.
+          ;; Consumes the entry's OWN `:before`/`:after` (already resolved
+          ;; correctly in Step 1, including the rf2-96csq4 replay-aware
+          ;; `:r` resolution) rather than re-deriving via a fresh
+          ;; `value-at before/after path` — re-deriving here was the
+          ;; SECOND site of the same post-shift bug (it silently discarded
+          ;; Step 1's correct `:before` and re-computed the wrong one).
           path-ops
           (reduce
-            (fn [acc {:keys [path op value before-val after-val]
+            (fn [acc {:keys [path op value]
                       :as entry}]
               (cond
                 (= op :added)
@@ -1008,9 +1048,7 @@
                 (assoc acc path {:op :removed :before (or value (value-at before path))})
 
                 (= op :modified)
-                (let [b (value-at before path)
-                      a (value-at after path)
-                      classified (leaf-op b a)]
+                (let [classified (leaf-op (:before entry) (:after entry))]
                   (assoc acc path classified))
 
                 :else

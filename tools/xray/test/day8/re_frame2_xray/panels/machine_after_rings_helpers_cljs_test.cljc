@@ -46,13 +46,20 @@
            :epoch        epoch}}))
 
 (defn- fired
-  [id machine-id state epoch & {:keys [fired?] :or {fired? true}}]
+  "`:delay` is optional — real `:rf.machine.timer/fired` traces always
+  carry it (the resolved ms value, stable across a timer's whole
+  lifecycle; `machines/transition.cljc emit-pick-traces!`), and rf2-2es2x8
+  needs it in fixtures exercising MULTIPLE concurrent `:after` timers on
+  one state (same `machine-id`/`state`/`epoch`, different `:delay`) so a
+  `:fired` for ONE delay closes only that timer's record."
+  [id machine-id state epoch & {:keys [fired? delay] :or {fired? true}}]
   {:id id :time id
    :operation :rf.machine.timer/fired
-   :tags {:machine-id machine-id
-          :state      state
-          :epoch      epoch
-          :fired?     fired?}})
+   :tags (cond-> {:machine-id machine-id
+                  :state      state
+                  :epoch      epoch
+                  :fired?     fired?}
+           (some? delay) (assoc :delay delay))})
 
 (defn- stale-after
   [id machine-id state scheduled-epoch current-epoch]
@@ -197,6 +204,41 @@
             fired (some #(when (= :fired (:status %)) %) (vals t))]
         (is (= 1 (:epoch armed)))
         (is (= 0 (:epoch fired)))))))
+
+(deftest fold-multiple-after-timers-same-state-same-epoch-stay-independent
+  (testing "rf2-2es2x8 — a state declaring MULTIPLE :after entries
+            ({:after {5000 :warn 30000 :timeout}}) schedules both timers
+            CONCURRENTLY at the SAME (machine-id, state, epoch) —
+            build-after-fx computes ONE epoch per scheduling node, reused
+            across every entry in that node's :after map (Spec 005
+            §Multiple :after per state). Before the fix `timer-key`
+            omitted the :delay discriminator, so the SECOND :scheduled
+            assoc-overwrote the first record at the identical key and
+            only one ring survived."
+    (let [t (h/fold-timer-events
+              [(scheduled 1000 :auth/login :idle 5000  0)
+               (scheduled 1000 :auth/login :idle 30000 0)])]
+      (is (= 2 (count t))
+          "both concurrent timers get their own independent fold record")
+      (is (= #{5000 30000} (set (map :duration-ms (vals t))))
+          "each record keeps its own delay/duration"))))
+
+(deftest fold-multiple-after-timers-fire-independently
+  (testing "rf2-2es2x8 — a :fired event for ONE delay closes only that
+            timer's record; the concurrent timer at the same
+            (machine-id, state, epoch) but a DIFFERENT delay stays
+            :armed, untouched"
+    (let [t (h/fold-timer-events
+              [(scheduled 1000 :auth/login :idle 5000  0)
+               (scheduled 1000 :auth/login :idle 30000 0)
+               (fired     6000 :auth/login :idle 0 :delay 5000)])
+          by-duration (into {} (map (fn [r] [(:duration-ms r) r]) (vals t)))]
+      (is (= 2 (count t)) "both records still present after the fire")
+      (is (= :fired (:status (get by-duration 5000)))
+          "the 5000ms timer's fired trace closed its own record")
+      (is (= :armed (:status (get by-duration 30000)))
+          "the concurrent 30000ms timer did NOT collapse into the fired
+           record — it keeps counting down independently"))))
 
 (deftest fold-ignores-events-without-machine-id-or-state
   (let [bad-machine {:id 1 :time 1
