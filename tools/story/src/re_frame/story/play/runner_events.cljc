@@ -38,6 +38,7 @@
   cascade."
   (:refer-clojure :exclude [run!])
   (:require [re-frame.core              :as rf]
+            [re-frame.frame             :as frame]
             #?(:cljs [reagent.core      :as r])
             [re-frame.story.assertions  :as assertions]
             [re-frame.story.config      :as config]
@@ -88,8 +89,8 @@
      :clj  (atom  {})))
 
 (defonce
-  ^{:doc "frame-id → vector of per-dispatch-step settle boundaries
-         (rf2-rkd14). Each element is the `:epoch-id` of the
+  ^{:doc "[frame-id play-key] → vector of per-dispatch-step settle
+         boundaries (rf2-rkd14). Each element is the `:epoch-id` of the
          most-recently-committed epoch at the moment a dispatch-opening
          step's settle BEGAN (0 when none has committed yet), recorded in
          dispatch-step execution order. The evidence projection
@@ -111,6 +112,21 @@
          ring survives eviction — `stamp-tape` compares it directly
          against each SURVIVING record's own `:epoch-id`, so eviction can
          only ever drop beats, never misattribute them.
+
+         rf2-m0cge5 finding 2: keyed by the `[frame-id play-key]` PAIR, not
+         `frame-id` alone. A multi-play sequencer (`run-plays-sequentially!`
+         / `runtime/run-phase-4!`) accumulates boundaries across several
+         play-keys on ONE frame (`:clear-boundaries? false`); the per-`[frame
+         play-key]` run-token guard (`current-state-for-play`) does NOT block
+         a CONCURRENT `run!` / `re-run!` / `run-play!` for a DIFFERENT
+         play-key on the SAME frame — that concurrent call's default
+         `:clear-boundaries? true` used to wipe this ONE shared frame-id
+         bucket out from under the in-flight sequence. Keying by the pair
+         confines each play's boundaries to its own slot so a same-frame,
+         different-play-key run can never collide with it; a multi-play
+         reader concatenates the per-play-key slots in the same order it
+         drove the plays (mirrors `:executed-script`'s
+         `(mapcat :script auto-plays)`).
 
          Plain atom on both runtimes — it is read once at result-build
          time, not a reactive UI input."}
@@ -134,11 +150,16 @@
   (get @run-state frame-id))
 
 (defn settle-boundaries
-  "Read the recorded per-dispatch-step settle boundaries for `frame-id`,
-  or nil. The runner-recorded narrative attribution the evidence
-  projection consumes to stamp `:rf.story/script-idx`."
-  [frame-id]
-  (get @step-boundaries frame-id))
+  "Read the recorded per-dispatch-step settle boundaries for
+  `[frame-id play-key]`, or nil. The runner-recorded narrative attribution
+  the evidence projection consumes to stamp `:rf.story/script-idx`.
+
+  rf2-m0cge5 finding 2: keyed by the pair, not `frame-id` alone — see
+  `step-boundaries`'s docstring. A caller reading a MULTI-play sequence's
+  accumulated boundaries calls this once per play-key it drove (in the
+  same order) and concatenates the results."
+  [frame-id play-key]
+  (get @step-boundaries [frame-id play-key]))
 
 (defn last-epoch-id
   "The `:epoch-id` of the most-recently-committed epoch for `frame-id`, or
@@ -178,10 +199,15 @@
   play K's, so the full vector zips against the concatenated script in
   dispatch order — an ordering fact, independent of ring occupancy. A
   per-play clear would drop every earlier play's boundaries, leaving only
-  the last play's to be mis-zipped."
-  [frame-id step]
+  the last play's to be mis-zipped.
+
+  rf2-m0cge5 finding 2: writes to the `[frame-id play-key]` composite key
+  (see `step-boundaries`'s docstring), so a same-frame run of a DIFFERENT
+  play-key accumulates into its OWN slot and can never collide with — or
+  be wiped alongside — this one."
+  [frame-id play-key step]
   (when (evidence/dispatch-step? step)
-    (swap! step-boundaries update frame-id (fnil conj []) (last-epoch-id frame-id)))
+    (swap! step-boundaries update [frame-id play-key] (fnil conj []) (last-epoch-id frame-id)))
   nil)
 
 (defn current-state-for-play
@@ -205,19 +231,30 @@
   nil)
 
 (defn clear-step-boundaries!
-  "Reset the per-dispatch-step settle boundaries for `frame-id`.
-  Called at the START of a fresh script run so the narrative attribution
-  windows onto THIS run's epoch tape, not a previous run's boundaries.
+  "Reset the per-dispatch-step settle boundaries for `[frame-id play-key]`
+  (the 1-arity defaults `play-key` to nil — the default/single play, the
+  stepper's convention). Called at the START of a fresh script run so the
+  narrative attribution windows onto THIS run's epoch tape, not a previous
+  run's boundaries.
 
   Owned by every entry that WRITES boundaries: the public driver
-  `run!`, the orchestrator `runtime/run-phase-4!` (which also covers its
-  no-auto-plays branch), and the stepper start `play/begin-stepper!` (via the
-  `:clear-step-boundaries` late-bind seam). So a non-orchestrator re-run /
+  `run!` (clears its OWN resolved play-key), the multi-play sequencers
+  (`run-plays-sequentially!`, the orchestrator `runtime/run-phase-4!` —
+  which also covers its no-auto-plays branch) clear each play-key they are
+  ABOUT to drive, and the stepper start `play/begin-stepper!` (via the
+  `:clear-step-boundaries` late-bind seam, always play-key nil — the
+  stepper only ever walks the default play). So a non-orchestrator re-run /
   replay-in-place / stepping session never inherits stale accumulated
-  offsets that would mis-attribute the exact narrative."
-  [frame-id]
-  (swap! step-boundaries dissoc frame-id)
-  nil)
+  offsets that would mis-attribute the exact narrative.
+
+  rf2-m0cge5 finding 2: scoped to ONE `[frame-id play-key]` slot (see
+  `step-boundaries`'s docstring) — clearing play-key K's boundaries never
+  touches a DIFFERENT play-key's slot on the same frame, closing the
+  concurrent-run wipe hazard."
+  ([frame-id] (clear-step-boundaries! frame-id nil))
+  ([frame-id play-key]
+   (swap! step-boundaries dissoc [frame-id play-key])
+   nil))
 
 (defn clear-state!
   "Wipe the run-state for `frame-id` across all four process-global atoms
@@ -231,7 +268,12 @@
                         (into {} (remove (fn [[[fid _]]]
                                            (= fid frame-id)) m))))
   (swap! active-play dissoc frame-id)
-  (swap! step-boundaries dissoc frame-id)
+  ;; `step-boundaries` is keyed by [frame-id play-key] (rf2-m0cge5 finding
+  ;; 2) — evict every play-key's slot for this frame, mirroring the
+  ;; `runs-by-play` cleanup just above.
+  (swap! step-boundaries (fn [m]
+                           (into {} (remove (fn [[[fid _]]]
+                                              (= fid frame-id)) m))))
   nil)
 
 (defn clear-all-runs!
@@ -928,20 +970,50 @@
                                                       (pr-str (:payload rec)) " failed"))})
                 :else                 (runner/step-pass idx step))))))))
 
+(defn- frame-router-state
+  "Read the raw `{:queue :scheduled? ...}` router state for `frame-id`, or
+  nil for an unknown / destroyed frame. There is no dedicated public
+  accessor for router/queue state on the framework facade (`re-frame.core`)
+  yet; Story already depends on `re-frame.frame` directly elsewhere
+  (`re-frame.story.frames`), so this reaches one level further into the
+  SAME already-depended-on ns rather than adding a new cross-boundary
+  dependency. Tolerant — a throwing host (or an absent/destroyed frame)
+  reads as nil."
+  [frame-id]
+  (try
+    (some-> (frame/frame frame-id) :router deref)
+    (catch #?(:clj Throwable :cljs :default) _ nil)))
+
 (defn- queue-empty?
-  "True iff `frame-id`'s event queue has drained. Under a
-  settled-boundary runner the preceding `[:dispatch …]` step ran the
-  router to a FIXED POINT (`settled-boundary` — the `dispatch-sync*`
-  run-to-completion drain in headless), so by the time a following
-  `[:wait-until [:queue-empty]]` is evaluated the queue is, by contract,
-  drained. The predicate is the explicit, readable settle-on-drain form;
-  it is satisfied whenever the runner has reached the settled boundary,
-  which the step driver guarantees before this step runs. Returns true."
-  [_frame-id]
-  ;; The settled-boundary contract (re-frame.story.play.settled-boundary)
-  ;; guarantees the queue has drained to a fixed point before the next
-  ;; step executes; there is no partial-drain state to observe here.
-  true)
+  "True iff `frame-id`'s event queue has GENUINELY drained — no envelope
+  left in the router's `:queue` AND no pending async drain tick
+  (`:scheduled?`). A real read of the frame's router state (rf2-m0cge5
+  finding 1) — the previous implementation was a hard-coded `true` stub.
+
+  That stub's own comment justified it ONLY from the `[:dispatch …]` case:
+  under `settled-boundary` a preceding dispatch step already ran the
+  router to a fixed point, so the queue IS drained by the time a
+  following `[:wait-until [:queue-empty]]` runs. But this step can ALSO
+  follow a `:click` / `:type` / `:focus` step — `exec-click!` / `exec-type!`
+  / `exec-focus!` (above) fire a synthetic DOM event directly and never
+  call `boundary/dispatch-and-settle!`. A handler the synthetic event
+  triggers may issue an ASYNC `[:dispatch …]` that has not yet drained —
+  the router schedules an async drain via `interop/next-tick`, genuinely
+  deferred, never inline (`re-frame.router/ensure-drain-scheduled!`). A
+  hard-coded `true` silently reported that pending dispatch as settled, so
+  a following `:assert-*` step could read app-db BEFORE it landed — the
+  exact dispatch-vs-settle race `[:wait-until [:queue-empty]]` exists to
+  catch. Per `exec-wait-until!`'s one-shot (non-polling) headless contract,
+  an unmet predicate now correctly FAILS readably instead of passing
+  vacuously.
+
+  Tolerant — an unregistered / destroyed frame reads as drained (nothing
+  left to wait for)."
+  [frame-id]
+  (let [state (frame-router-state frame-id)]
+    (or (nil? state)
+        (and (empty? (:queue state))
+             (not (:scheduled? state))))))
 
 (defn- wait-until-satisfied?
   "Evaluate a decomposed `:wait-until` predicate against `frame-id`'s
@@ -1093,9 +1165,13 @@
   Public so the step-debugger substrate (`play/step-once!`) can drive a
   full rich-DSL step without re-implementing the executor. Reached from
   `play.cljc` via the `:run-play-step` late-bind hook to avoid the
-  play ↔ runner-events require cycle."
+  play ↔ runner-events require cycle.
+
+  Always records its settle boundary under play-key nil — the stepper
+  (`play/variant-play-steps`) only ever walks the DEFAULT play, never a
+  named `:plays` entry."
   [frame-id idx step]
-  (record-settle-boundary! frame-id step)
+  (record-settle-boundary! frame-id nil step)
   (let [result (try
                  (exec-step! frame-id idx step)
                  (catch #?(:clj Throwable :cljs :default) e
@@ -1238,7 +1314,7 @@
             (schedule! (or ms 0) #(run-loop! frame-id play-key token done-cb)))
 
           :else
-          (let [_      (record-settle-boundary! frame-id step)
+          (let [_      (record-settle-boundary! frame-id play-key step)
                 result (try
                          (exec-step! frame-id idx step)
                          (catch #?(:clj Throwable :cljs :default) e
@@ -1342,8 +1418,14 @@
      ;; drop every earlier play's boundaries, leaving only the LAST play's
      ;; to be mis-zipped against the concatenated script's leading dispatch
      ;; steps — a false-green evidence-provenance failure.
+     ;;
+     ;; rf2-m0cge5 finding 2: clears ONLY this run's OWN `[variant-id pk]`
+     ;; slot, never the whole frame — a concurrent run! for a DIFFERENT
+     ;; play-key on this SAME frame (not blocked by the per-`[frame
+     ;; play-key]` run-token guard above) writes to its OWN slot and can
+     ;; no longer wipe an in-flight multi-play sequence's accumulator.
      (when clear-boundaries?
-       (clear-step-boundaries! variant-id))
+       (clear-step-boundaries! variant-id pk))
      (set-state! variant-id pk started)
      (set-active-play! variant-id pk)
      (run-loop! variant-id pk token done-cb)
@@ -1419,10 +1501,14 @@
   Resolves `done-cb` with a vector of terminal states once every play
   has finished (or the loop is interrupted by a missing frame).
 
-  Clears the per-dispatch-step settle boundaries ONCE up front, then
-  drives each play with `:clear-boundaries? false` so the boundaries
-  ACCUMULATE across the sequence. The evidence narrative spans the
-  CONCATENATED play scripts, and `:epoch-id` only ever increases across
+  Clears the per-dispatch-step settle boundaries for EVERY play-key this
+  sequence is about to drive, ONCE up front, then drives each play with
+  `:clear-boundaries? false` so each play's OWN `[variant-id play-key]`
+  slot ACCUMULATES across the sequence (rf2-m0cge5 finding 2: boundaries
+  are keyed by the pair, not by `variant-id` alone, so this clear can never
+  wipe a DIFFERENT, concurrently-running play-key's slot on this same
+  frame — see `step-boundaries`'s docstring). The evidence narrative spans
+  the CONCATENATED play scripts, and `:epoch-id` only ever increases across
   the run (rf2-96qsjr — independent of ring eviction), so each play's
   boundaries tail the previous play's for `stamp-tape`'s dispatch-order
   zip to stay aligned. Letting each `run!` clear would leave only the
@@ -1430,7 +1516,8 @@
   earlier-play steps."
   [variant-id plays done-cb]
   (let [acc (atom [])]
-    (clear-step-boundaries! variant-id)
+    (doseq [pk (map :name plays)]
+      (clear-step-boundaries! variant-id pk))
     (letfn [(step! [remaining]
               (if (empty? remaining)
                 (when done-cb

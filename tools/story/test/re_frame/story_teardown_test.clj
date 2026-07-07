@@ -355,7 +355,7 @@
           "runs-by-play evicted on destroy — no leak")
       (is (not (contains? @runner-events/active-play :story.runstate/v))
           "active-play evicted on destroy — no leak")
-      (is (nil? (runner-events/settle-boundaries :story.runstate/v))
+      (is (nil? (runner-events/settle-boundaries :story.runstate/v nil))
           "step-boundaries evicted on destroy — no leak"))))
 
 ;; ===========================================================================

@@ -195,6 +195,7 @@
 ;; ===========================================================================
 
 (def ^:private exec-step! @#'re/exec-step!)
+(def ^:private queue-empty? @#'re/queue-empty?)
 
 (def ^:private step-frame :story.step-runner/frame)
 
@@ -239,6 +240,40 @@
             settled boundary"
     (let [res (exec-step! step-frame 0 [:wait-until [:queue-empty]])]
       (is (nil? (:passed? res))))))
+
+(deftest queue-empty-reads-the-real-router-queue
+  (testing "queue-empty? reads the frame's ACTUAL router queue rather than
+            a hard-coded `true` stub (rf2-m0cge5 finding 1). `[:click]` /
+            `[:type]` / `[:focus]` fire a synthetic DOM event directly and
+            never call `boundary/dispatch-and-settle!`, so a handler the
+            event triggers may enqueue an ASYNC `[:dispatch …]` that has not
+            yet drained (the router schedules async drains via
+            `interop/next-tick` — genuinely deferred, never inline). A
+            following `[:wait-until [:queue-empty]]` must see that as NOT
+            drained rather than silently reporting `true` — the exact
+            dispatch-vs-settle race the step exists to catch."
+    (is (true? (queue-empty? step-frame))
+        "a frame with an empty router queue and no pending drain reads as
+         drained")
+    ;; Directly manipulate the frame's router state (rather than racing a
+    ;; REAL async `rf/dispatch` against `interop/next-tick`'s host scheduler
+    ;; — on the JVM `next-tick` runs on a SEPARATE executor thread, so timing
+    ;; the check against a live dispatch would be inherently flaky). This
+    ;; exercises the read mechanism deterministically: a non-empty `:queue`
+    ;; is exactly the state an async-dispatched, not-yet-drained envelope
+    ;; leaves behind.
+    (let [router (:router (frame/frame step-frame))]
+      (swap! router update :queue conj {:event [:step/inc]})
+      (is (false? (queue-empty? step-frame))
+          "a non-empty router queue reads as NOT drained — the old
+           hard-coded stub silently reported `true` here, hiding a pending
+           dispatch from a following :assert-* read")
+      ;; Draining the queue (what the router's own drain loop does once the
+      ;; scheduled tick runs) flips the read back to true.
+      (swap! router assoc :queue (empty (:queue @router)))
+      (is (true? (queue-empty? step-frame))
+          "once the queue is actually empty again, the real check reports
+           true"))))
 
 (deftest wait-until-times-out-readably-when-predicate-never-true
   (testing "an unmet [:wait-until pred] records a step-fail with a readable

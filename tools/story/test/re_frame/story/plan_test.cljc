@@ -336,6 +336,42 @@
       (is (contains? (:required-runner p) :app-db)
           "the DOM-free :dispatch script still contributes :app-db"))))
 
+(deftest required-runner-unions-across-every-auto-run-play
+  (testing "a NON-first :auto-run? true play whose step lifts capability
+            (a :click DOM step) is unioned into :required-runner — not
+            just the primary (first) play's tokens (rf2-m0cge5 finding 10).
+            Before the fix, `:required-runner` was computed over the
+            primary `:script` (the first play) alone even though
+            `[:world :scripts]` retains every play and the runtime
+            auto-runs each `:auto-run? true` one; `:auto` runner-selection
+            trusts `:required-runner` verbatim, so it could pick a
+            headless runner unable to execute the second play's DOM step
+            — a spurious mid-run failure instead of an honest
+            `:cannot-run` refusal at selection time."
+    (let [m {:story.r/multi-autorun
+             {:plays [{:name "first"  :auto-run? true
+                       :script [[:dispatch [:a]]]}
+                      {:name "second" :auto-run? true
+                       :script [[:click "[data-test=go]"]]}]}}
+          p (plan-of :story.r/multi-autorun m)]
+      (is (contains? (:required-runner p) :dom)
+          "the SECOND auto-run play's :click step lifts :required-runner
+           to :dom, even though the first play never touches the DOM")
+      (is (contains? (:required-runner p) :app-db)
+          "the first play's :dispatch still contributes :app-db")))
+  (testing "a play with :auto-run? false is NOT unioned — it never
+            executes automatically, so its capability tokens correctly
+            stay out of :required-runner"
+    (let [m {:story.r/manual-dom
+             {:plays [{:name "auto"   :auto-run? true
+                       :script [[:dispatch [:a]]]}
+                      {:name "manual" :auto-run? false
+                       :script [[:click "[data-test=go]"]]}]}}
+          p (plan-of :story.r/manual-dom m)]
+      (is (not (contains? (:required-runner p) :dom))
+          "the manually-triggered play's DOM step never auto-runs, so it
+           does not lift :required-runner"))))
+
 ;; ---- explain -------------------------------------------------------------
 
 (deftest explain-includes-source-chain-and-substitutions

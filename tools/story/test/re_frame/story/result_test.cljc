@@ -100,6 +100,47 @@
       (is (= :pass (:status (first recs))) "an empty group is vacuously :pass")
       (is (empty? (:assertions (first recs)))))))
 
+(deftest check-groups-sensitive-path-equals-record-by-redaction-invariant-key
+  (testing "a sensitive :rf.assert/path-equals record — whose :payload was
+            rebuilt from the REDACTED expected value at run time
+            ([path :rf/redacted], per assertions.cljc `evaluate-path-equals`)
+            — still groups under its check even though the check plan's atom
+            carries the RAW author-declared expected value ([path <secret>]).
+            Before rf2-m0cge5 finding 11's fix, the exact-payload match never
+            agreed for a sensitive assertion (`:rf/redacted` != the raw
+            secret), so the check's :assertions read empty and the check
+            vacuously aggregated to :pass even though the assertion FAILED
+            (the run-level verdict stayed correct via the ungrouped
+            `records` fold — only the check-level grouping lied)."
+    (let [records [{:assertion :rf.assert/path-equals
+                    :payload   [[:user :ssn] :rf/redacted]
+                    :status    :fail
+                    :expected  :rf/redacted
+                    :actual    :rf/redacted}]
+          check->atoms {:check/no-leak [[:rf.assert/path-equals [:user :ssn] "123-45-6789"]]}
+          recs (result/check-records check->atoms records)
+          c    (first recs)]
+      (is (= :check/no-leak (:check c)))
+      (is (= 1 (count (:assertions c)))
+          "the redacted record IS grouped under its check — matched by the
+           redaction-invariant path key, not the (unequal) raw payload")
+      (is (= :fail (:status c))
+          "the check's own status reflects the sensitive assertion's real
+           FAILURE, not a vacuous :pass from an empty group")))
+  (testing "a NON-sensitive :rf.assert/sub-equals record still matches by
+            full payload when unaffected by redaction — the fix only
+            changes the comparison KEY for the two redaction-prone ids, it
+            does not weaken disambiguation for the ordinary case"
+    (let [records [{:assertion :rf.assert/sub-equals :payload [[:sub/a] 1] :status :pass}
+                   {:assertion :rf.assert/sub-equals :payload [[:sub/b] 2] :status :fail}]
+          check->atoms {:check/a [[:rf.assert/sub-equals [:sub/a] 1]]}
+          recs (result/check-records check->atoms records)
+          c    (first recs)]
+      (is (= 1 (count (:assertions c)))
+          "only the matching sub-vec's record groups under the check —
+           different sub-vecs remain disambiguated")
+      (is (= :pass (:status c))))))
+
 ;; ===========================================================================
 ;; RUN RESULT — the unified shape + the agreement floor
 ;; ===========================================================================
@@ -186,6 +227,35 @@
                   :consumed-selectors #{sel}})]
       (is (= :pass (:status r))
           "the consumed violation is excused — the floor does not trip"))))
+
+(deftest tape-floor-escalates-cannot-run-to-fail
+  (testing "a run whose base status is :cannot-run (an unmet-requirement
+            refusal) that ALSO carries an unconsumed schema-validation
+            failure on the tape (tape-red? true) escalates to :fail — the
+            agreement floor previously lifted ONLY a :pass, so this case
+            silently stayed :cannot-run and masked a genuine MUST-fail
+            (rf2-m0cge5 finding 9). Precedence: :error > :fail > :cannot-run
+            > :pass — :cannot-run and tape-red? are ORTHOGONAL signals (an
+            unmet capability refusal says nothing about whether the tape
+            independently carries an unconsumed failure), so both
+            floor-eligible base statuses must escalate."
+    (let [refusal (requirements/requirement-refusal
+                    #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
+                    :runner-lacks-capability :headless)
+          tape    [(epoch {:trace-events
+                           [{:operation :rf.error/schema-validation-failure
+                             :tags {:where :event :failing-id :checkout/submit}}]})]
+          r       (result/run-result
+                    {:epoch-tape  tape
+                     :assertions  [{:assertion :rf.assert/path-equals :passed? true}]
+                     :unmet       [refusal]})]
+      (is (= :fail (:status r))
+          "tape-red? escalates the :cannot-run base-status to :fail")
+      (is (= [refusal] (:cannot-run r))
+          "the unmet refusal still surfaces on :cannot-run even though the
+           top-level :status escalated past it — the two are separate
+           result slots")
+      (is (= 1 (count (:schema-violations r))) "the violation is still projected"))))
 
 ;; ===========================================================================
 ;; SCHEMA-ERROR EXACT CONSUMPTION  (spec/017 §Schema rule, rf2-5x1wt.21)

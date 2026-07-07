@@ -592,7 +592,7 @@
   so a registered variant and an INLINE plan assemble the
   same result through one path."
   [{:keys [variant-id decorator-stack effective-args snapshot executed-script
-           plan runner-selection epoch-baseline]} start-ms]
+           executed-play-keys plan runner-selection epoch-baseline]} start-ms]
   (let [app-db   (rf/app-db-value variant-id)
         ;; Read the epoch tape through the
         ;; late-bound `re-frame.core/epoch-history` facade (mirroring
@@ -641,7 +641,21 @@
         ;; zero-point shift needed, unlike the old count-based scheme,
         ;; because identity comparison is unaffected by how `tape` was
         ;; sliced or how much of the ring survived eviction.
-        attribution (runner-events/settle-boundaries variant-id)
+        ;;
+        ;; rf2-m0cge5 finding 2: `step-boundaries` is keyed by `[frame-id
+        ;; play-key]`, not `frame-id` alone (a concurrent run for a
+        ;; DIFFERENT play-key on this frame must never collide with —  or
+        ;; wipe — this run's boundaries). Read each auto-play's OWN slot,
+        ;; in the SAME order `run-phase-4!` drove them (`executed-script`
+        ;; concatenates their scripts in this order too), and concatenate —
+        ;; reconstructing the one attribution vector `stamp-tape` zips
+        ;; against the concatenated dispatch steps. Absent
+        ;; `executed-play-keys` (a pre-phase-4 error result, no script
+        ;; ever ran) degrades to `[]`, identical to the old `nil` — both
+        ;; read as "absent" by `stamp-tape`'s `(empty? bounds)` check.
+        attribution (into []
+                          (mapcat #(runner-events/settle-boundaries variant-id %))
+                          (or executed-play-keys []))
         ;; Project the tape ONCE here so the post-run evidence
         ;; validation (`requirements-unmet` → `validate-run-evidence`) reads
         ;; the SAME projected slots `result/run-result` derives the result
@@ -1004,9 +1018,10 @@
 (defn- run-phase-4!
   "Phase 4: run the play-script. Returns `[ctx' play-promise]` — `ctx'`
   carries `:executed-script` (the folded steps the auto-plays ran, for the
-  unified result's two-level narrative), and the
-  orchestrator chains `then` on the promise to know when to build the
-  result.
+  unified result's two-level narrative) and `:executed-play-keys` (the
+  auto-plays' `:name`s, in the SAME order — rf2-m0cge5 finding 2, see
+  below), and the orchestrator chains `then` on the promise to know when
+  to build the result.
 
   Drives the rich-DSL `:play-script` runner via
   `runner-events/run!`. Variants without `:play-script` / `:plays`
@@ -1037,15 +1052,28 @@
           ;; The folded steps the auto-plays ran, concatenated in order —
           ;; the script the unified result's two-level narrative spans.
           executed   (vec (mapcat :script auto-plays))
-          ctx'       (assoc ctx :executed-script executed)
-          ;; Reset the per-dispatch-step settle boundaries before
-          ;; the auto-plays drive, so the narrative attribution windows onto
-          ;; THIS run's epoch tape. The boundaries snapshot the last-
-          ;; committed `:epoch-id` at each dispatch step (setup-phase
-          ;; epochs carry an id at or before the first boundary → leading
-          ;; nil span), the SAME identity `record-result-map` compares
-          ;; against when it filters the tape (rf2-96qsjr).
-          _          (runner-events/clear-step-boundaries! variant-id)]
+          ;; The auto-plays' own play-keys, in the SAME order as `executed`
+          ;; concatenates their scripts. `record-result-map` reads each
+          ;; play-key's OWN settle-boundaries slot and concatenates them in
+          ;; this order to reconstruct the full per-dispatch-step attribution
+          ;; vector (rf2-m0cge5 finding 2 — `step-boundaries` is keyed by
+          ;; `[frame-id play-key]`, not `frame-id` alone).
+          play-keys  (mapv :name auto-plays)
+          ctx'       (assoc ctx
+                            :executed-script executed
+                            :executed-play-keys play-keys)
+          ;; Reset the per-dispatch-step settle boundaries for EVERY
+          ;; play-key this run is about to drive, before the auto-plays run,
+          ;; so the narrative attribution windows onto THIS run's epoch
+          ;; tape. The boundaries snapshot the last-committed `:epoch-id` at
+          ;; each dispatch step (setup-phase epochs carry an id at or before
+          ;; the first boundary → leading nil span), the SAME identity
+          ;; `record-result-map` compares against when it filters the tape
+          ;; (rf2-96qsjr). Clearing per-play-key (rather than the whole
+          ;; frame) means a concurrent run for a DIFFERENT play-key on this
+          ;; frame can never be wiped by — or wipe — this reset.
+          _          (doseq [pk play-keys]
+                       (runner-events/clear-step-boundaries! variant-id pk))]
       (if (empty? auto-plays)
         ;; No script ran, but the world settled (phase-2 setup committed).
         ;; The terminal `:assertions` check the FINAL settled state, so they
