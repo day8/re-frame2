@@ -1964,6 +1964,15 @@ jobs:
       # itself red. The dedicated capability-routed (:pixels / :a11y-engine)
       # browser-tier gate is DEFERRED per Mike's 2026-05-31 ruling — this
       # bead wires ONLY the failed-run artifact upload on the existing gate.
+      # Un-defer trigger (rf2-a0t1z5, compound first-of, RULED 2026-07-07):
+      # (1) the first COMMITTED authored variant/inline plan — outside tool
+      # unit tests / spec / MCP descriptors — that intentionally carries
+      # :rf.assert/visual-snapshot (:pixels) or :rf.assert/a11y
+      # (:a11y-engine) => wire a NIGHTLY capability-routed browser gate in
+      # expensive-tests.yml; (2) the first genuine visual/a11y regression
+      # that the structural a11y check + existing Story/Xray browser gates
+      # MISS => escalate to a changed-surface PR gate. See TESTING.md
+      # (Story-as-test paragraph) for the mirrored prose.
       - name: Upload failed browser-gate run evidence (rf2-315cf)
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
