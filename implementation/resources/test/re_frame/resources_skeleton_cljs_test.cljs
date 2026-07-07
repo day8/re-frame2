@@ -72,6 +72,39 @@
       (resources/clear-resource :test/article)
       (is (not (contains? (registrar/registrations :resource) :test/article))))))
 
+(deftest gc-after-ms-normalizes-at-registration
+  ;; rf2-bbpu11 (Option A) — `:gc-after-ms` is normalized AT REGISTRATION so
+  ;; `resource-meta` (and every downstream `positive-or-nil` read site) sees
+  ;; exactly one of: the finite framework default, the auditable `:never`
+  ;; opt-out, the caller's own positive number, or a loud registration error.
+  ;; Never today's silent "any non-number becomes nil".
+  (testing "absent :gc-after-ms normalizes to the finite framework default (300000ms)"
+    (resources/reg-resource :test/gc-absent (valid-spec) valid-request)
+    (is (= 300000 (:gc-after-ms (resources/resource-meta :test/gc-absent))))
+    (is (= 300000 registry/default-gc-after-ms)))
+  (testing ":gc-after-ms :never is stored verbatim — the explicit, auditable
+            opt-out for intentional unowned-entry pinning, distinct from an
+            accidental nil"
+    (resources/reg-resource :test/gc-never
+                             (assoc (valid-spec) :gc-after-ms :never)
+                             valid-request)
+    (is (= :never (:gc-after-ms (resources/resource-meta :test/gc-never)))))
+  (testing "a positive :gc-after-ms is stored unchanged"
+    (resources/reg-resource :test/gc-positive
+                             (assoc (valid-spec) :gc-after-ms 45000)
+                             valid-request)
+    (is (= 45000 (:gc-after-ms (resources/resource-meta :test/gc-positive)))))
+  (testing "a bad :gc-after-ms (zero, negative, a string, an explicit nil, or
+            any keyword other than :never) throws :rf.error/resource-bad-spec
+            rather than silently disarming GC"
+    (doseq [bad [0 -1 "5min" :neverr nil]]
+      (is (thrown-with-msg?
+            js/Error #"resource-bad-spec"
+            (resources/reg-resource :test/gc-bad
+                                    (assoc (valid-spec) :gc-after-ms bad)
+                                    valid-request))
+          (str "bad :gc-after-ms value " (pr-str bad) " must throw")))))
+
 (deftest scope-policy-is-required-fail-closed
   (testing "reg-resource with no :scope throws :rf.error/resource-missing-scope-policy"
     (is (thrown-with-msg?
