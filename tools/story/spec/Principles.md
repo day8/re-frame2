@@ -84,7 +84,11 @@ short version is:
 - Reagent is stable; reagent-slim is still landing.
 - Dogfood-neutrality — the UI exercises the same primitives stories
   exercise.
-- Cheap to revisit at Stage 8 once reagent-slim hits GA.
+- Cheap to revisit at Stage 8 once reagent-slim hits GA / first
+  published artefact — the same trigger gating the Story
+  substrate-enum addition (see [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md)
+  §inline-substrate-failures) and the template's fourth substrate
+  choice.
 
 ## re-com-scoped surface
 

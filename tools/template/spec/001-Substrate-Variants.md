@@ -151,8 +151,12 @@ Reserved space — not implemented:
   (`render-to-string` consumes hiccup), but the worked example + the
   ssr-ring test corpus are Reagent-driven; the UIx / Helix SSR variants
   land once those adapters demonstrate parity.
-- **reagent-slim.** Once the substrate-portable reagent-slim adapter
-  exists the template can ship it as a fourth substrate choice.
+- **reagent-slim.** Gated on reagent-slim GA / first published
+  artefact — the same trigger that gates Story's substrate-enum
+  addition and UI-shell migration (see
+  `tools/story/spec/DESIGN-RATIONALE.md` §inline-substrate-failures);
+  nothing in this repo has published yet. Once fired the template can
+  ship reagent-slim as a fourth substrate choice.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.
