@@ -787,3 +787,176 @@
           (lf/flush-pending-reprojection!)
           (registrar/unregister! :event :reentry/inc)
           (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ===========================================================================
+;; 10. Generation PROVENANCE — reprojection resolves an EXPLICIT-POOL frame
+;;     against its OWN pool, never the live store (rf2-rf3zgt)
+;; ===========================================================================
+;;
+;; Bug: `reproject-live-frame!` always re-resolved a frame's `:rf.gen/images`
+;; against `nil` (⇒ the LIVE source store), even for a frame `make-frame`'s
+;; 2-arity created against an EXPLICIT descriptor pool. Any reprojection sweep
+;; — a manual `reproject-live-frames!` call, or the auto-hook firing on ANY
+;; `reg-*` anywhere — would then re-resolve that frame against a store its
+;; composition was never selected from. The fix (`frame-generation-pool`,
+;; §Generation PROVENANCE in live_frame.cljc) records which pool a frame's
+;; generation came from and threads the SAME pool through reprojection.
+
+(deftest reproject-resolves-explicit-pool-frame-against-its-own-pool
+  (testing "a frame created via make-frame's 2-arity (an EXPLICIT descriptor
+            pool) reprojects against that SAME pool, not the live source
+            store. The pool's namespace exists ONLY in the pool, never in the
+            live store, so a reprojection that (bug) fell through to the live
+            store would :rf.error/image-zero-match fail-loud here — proving
+            the fix threads the ORIGINAL pool through, not nil/live."
+    (let [pool  [(reg-desc "rpf-pool.provenance.ns" :event :rpf-pool/inc ::pool-v1)]
+          img   (image/image {:id :rpf-pool/img :select-ns {:include ["rpf-pool.provenance.ns"]}})
+          frame (lf/make-frame {:id :rpf-pool/main :images [img]} pool)
+          gen-before (lf/frame-generation frame)]
+      (testing "control: resolves against the explicit pool at creation"
+        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor gen-before :event :rpf-pool/inc)))))
+      (testing "reprojecting does NOT throw and reports the frame UNCHANGED —
+                the live store has NOTHING under \"rpf-pool.provenance.ns\", so
+                a fall-through-to-live bug would zero-match fail-loud here"
+        (is (nil? (lf/reproject-live-frame! :rpf-pool/main))))
+      (testing "the frame's generation is untouched and still resolves through
+                the explicit pool"
+        (is (identical? gen-before (lf/frame-generation (lf/live-frame :rpf-pool/main))))
+        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor
+                                         (lf/frame-generation (lf/live-frame :rpf-pool/main))
+                                         :event :rpf-pool/inc))))))))
+
+(deftest reproject-live-frames-mixes-explicit-pool-and-live-store-frames-safely
+  (testing "reproject-live-frames! sweeps an explicit-pool frame ALONGSIDE a
+            live-store frame in the SAME pass: each reprojects against its OWN
+            recorded provenance — the live frame picks up its reg-* re-eval,
+            the explicit-pool frame is left untouched (no cross-contamination,
+            no throw, no stray move either way).
+
+            DETERMINISM (rf2-roou7s idiom): creating the SECOND live frame
+            below (once the first is already live) fires the process-defonce
+            auto-reprojection hook for real — `interop/next-tick` is redef'd
+            to a no-op for the whole case so no background tick can race this
+            case's own manual `reproject-live-frames!` call and drain the
+            dirty flag out from under it."
+    (let [snapshot @source-store/kind->id->ns->descriptor]
+      (try
+        (with-redefs [interop/next-tick (fn [_f] nil)]
+          (lf/flush-pending-reprojection!))
+        (source-store/record-descriptor!
+          :event :rpf-live/inc
+          {:rf.provenance/ns "rpf-live.provenance.ns" :kind :event :id :rpf-live/inc
+           :handler-fn ::live-v1})
+        (with-redefs [interop/next-tick (fn [_f] nil)]
+          (let [pool       [(reg-desc "rpf-mix-pool.provenance.ns" :event :rpf-mix-pool/inc ::pool-v1)]
+                live-img   (image/image {:id :rpf-live/img :select-ns {:include ["rpf-live.provenance.ns"]}})
+                pool-img   (image/image {:id :rpf-mix-pool/img :select-ns {:include ["rpf-mix-pool.provenance.ns"]}})
+                live-frame (lf/make-frame {:id :rpf-live/main :images [live-img]})
+                pool-frame (lf/make-frame {:id :rpf-mix-pool/main :images [pool-img]} pool)
+                pool-gen-before (lf/frame-generation pool-frame)]
+            (source-store/record-descriptor!
+              :event :rpf-live/inc
+              {:rf.provenance/ns "rpf-live.provenance.ns" :kind :event :id :rpf-live/inc
+               :handler-fn ::live-v2})
+            (let [moved (lf/reproject-live-frames!)]
+              (testing "the live-store frame moved (picked up the reg-* re-eval)"
+                (is (contains? moved :rpf-live/main)))
+              (testing "the explicit-pool frame did NOT move and was not corrupted"
+                (is (not (contains? moved :rpf-mix-pool/main)))
+                (is (identical? pool-gen-before (lf/frame-generation (lf/live-frame :rpf-mix-pool/main))))
+                (is (= ::pool-v1
+                       (:handler-fn
+                         (asm/resolve-descriptor
+                           (lf/frame-generation (lf/live-frame :rpf-mix-pool/main))
+                           :event :rpf-mix-pool/inc))))))))
+        (finally
+          (reset! frame/frames {})
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+
+;; ===========================================================================
+;; 11. Deferred-flush resilience — no mid-sweep abort, failure DIAGNOSED, not
+;;     silently swallowed (rf2-rf3zgt)
+;; ===========================================================================
+;;
+;; Bug: `deferred-flush!` (the `next-tick`-scheduled background tick) caught
+;; whatever `reproject-live-frames!`'s all-or-nothing `reduce` threw and
+;; swallowed it with ZERO emission — but that `reduce` had ALREADY aborted
+;; mid-sweep on the first failing frame, so every OTHER live frame queued
+;; AFTER it (in enumeration order) silently stayed on its stale generation
+;; too, with no diagnostic anywhere naming what broke. The fix
+;; (`reproject-live-frames-resiliently!`) isolates each frame's reprojection
+;; so ONE failure does not stop the sweep from reaching the rest, and
+;; diagnoses the failure on the trace channel (`:rf.warning/reprojection-failed`)
+;; instead of a silent black hole. `frame/image-loaded-frame-ids` is redef'd
+;; to a FIXED order so the regression is pinned deterministically — the real
+;; registry enumerates a hash-set whose natural iteration order this test must
+;; not depend on (an ordering where the good frame happened to process BEFORE
+;; the bad one would make the OLD buggy code look fine too).
+
+(deftest deferred-flush-does-not-abort-mid-sweep-on-one-frame-failure
+  (testing "the deferred (next-tick) reprojection flush isolates a PER-FRAME
+            assembly failure: a frame whose reprojection throws must NOT stop
+            the sweep from reaching + reprojecting the REMAINING frames (the
+            mid-sweep-abort defect), and the failure is DIAGNOSED rather than
+            silently swallowed."
+    (let [snapshot  @source-store/kind->id->ns->descriptor
+          diagnosed (atom [])]
+      (try
+        ;; Start from a clean slate: drain any reprojection a prior case left
+        ;; pending on the shared process-defonce flag (under a next-tick
+        ;; no-op so draining cannot itself arm a stray real tick).
+        (with-redefs [interop/next-tick (fn [_f] nil)]
+          (lf/flush-pending-reprojection!))
+        (registrar/register! :event :rpf-good/inc
+          {:rf.provenance/ns "rpf-good.provenance.ns" :handler-fn ::good-v1})
+        (registrar/register! :event :rpf-bad/inc
+          {:rf.provenance/ns "rpf-bad.provenance.ns" :handler-fn ::bad-v1})
+        (let [good-img (image/image {:id :rpf-good/img :select-ns {:include ["rpf-good.provenance.ns"]}})
+              bad-img  (image/image {:id :rpf-bad/img  :select-ns {:include ["rpf-bad.provenance.ns"]}})
+              tick     (atom nil)]
+          ;; Capture (never run) every scheduled tick for the rest of the case
+          ;; — including the ones make-frame's own reg-frame calls arm — so no
+          ;; real async tick can race this case's manual drive (the same
+          ;; rf2-roou7s determinism idiom the auto-reprojection tests above
+          ;; use). `frame/image-loaded-frame-ids` is ALSO fixed for the whole
+          ;; case: `mark-dirty-and-schedule!`'s guard only checks non-empty,
+          ;; so the fixed answer is harmless during setup and DETERMINISTIC at
+          ;; the sweep itself (bad frame first).
+          (with-redefs [interop/next-tick (fn [f] (reset! tick f) nil)
+                        frame/image-loaded-frame-ids
+                        (fn [] [:rpf-bad/main :rpf-good/main])]
+            (lf/make-frame {:id :rpf-good/main :images [good-img]})
+            (lf/make-frame {:id :rpf-bad/main  :images [bad-img]})
+            ;; A legitimate re-eval for the good frame — this is the change
+            ;; the sweep must still pick up despite the bad frame's failure.
+            (registrar/register! :event :rpf-good/inc
+              {:rf.provenance/ns "rpf-good.provenance.ns" :handler-fn ::good-v2})
+            ;; Forget the bad frame's ENTIRE selected namespace so its
+            ;; reprojection zero-match fails loud.
+            (registrar/unregister! :event :rpf-bad/inc)
+            (rf/register-listener! :trace ::rpf-rec
+              (fn [ev] (when (= :rf.warning/reprojection-failed (:operation ev))
+                         (swap! diagnosed conj ev))))
+            (try
+              (testing "running the captured deferred tick does not throw even
+                        though the bad frame's reprojection fails"
+                (is (nil? (@tick))))
+              (finally
+                (rf/unregister-listener! :trace ::rpf-rec))))
+          (testing "the GOOD frame still reprojected — the sweep reached it
+                    despite the bad frame's failure earlier in the fixed order"
+            (is (= ::good-v2
+                   (:handler-fn (asm/resolve-descriptor
+                                  (lf/frame-generation (lf/live-frame :rpf-good/main))
+                                  :event :rpf-good/inc)))))
+          (testing "the bad frame's failure was DIAGNOSED (not a silent black
+                    hole) via a :rf.warning/reprojection-failed trace event
+                    naming the frame"
+            (is (= 1 (count @diagnosed)))
+            (is (= :rpf-bad/main (get-in (first @diagnosed) [:tags :frame])))))
+        (finally
+          (with-redefs [interop/next-tick (fn [_f] nil)]
+            (reset! frame/frames {})
+            (lf/flush-pending-reprojection!))
+          (registrar/unregister! :event :rpf-good/inc)
+          (reset! source-store/kind->id->ns->descriptor snapshot))))))
