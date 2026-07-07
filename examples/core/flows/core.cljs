@@ -54,42 +54,51 @@
 (defn- line-total [{:keys [price qty]}]
   (* price qty))
 
-;; Every flow belongs to a frame, so `reg-flow` needs a frame in scope; call
-;; it bare and you'll get :rf.error/no-frame-context for your trouble. This
-;; example lives in the :rf/default frame, so we name it once here. (The
-;; toggleable `:cart/discount-rate` flow comes later, registered via
-;; :rf.fx/reg-flow from inside a handler — that route carries the dispatching
-;; frame along for you, no naming required.)
+;; `reg-flow` needs a LIVE frame to register against (docs/core/flows.md,
+;; Spec 013 §Frame-scoping), and `:rf/default` doesn't exist at ns-load —
+;; constructing a frame itself needs the substrate adapter installed first
+;; (`rf/init!`), and that only happens once `run` (MOUNT, further down)
+;; fires. So the two flows below don't register here directly; `install-
+;; flows!` wraps the registration and is called from `run`, right after
+;; `rf/init!` and `rf/reg-frame` have made `:rf/default` a real, live frame —
+;; the same point every other example that constructs a frame outside a
+;; `frame-provider` uses (see e.g.
+;; examples/patterns/nine_states/stories_host.cljs's `install-live-frame!`).
+;; Every flow belongs to a frame, so `reg-flow` needs a frame in scope; the
+;; toggleable `:cart/discount-rate` flow (further down) doesn't need this
+;; treatment — it registers later, via `:rf.fx/reg-flow` from inside a
+;; handler, and that route carries the dispatching frame along for you.
 ;; See docs/core/glossary.md#frame-identity-is-carried-not-found.
-(rf/with-frame :rf/default
+(defn- install-flows! []
+  (rf/with-frame :rf/default
 
-(rf/reg-flow :cart/subtotal
-  {:doc    "Every line item's price × qty, summed. Materialised into app-db
-            so the checkout handler can read it as ordinary data."
-   :inputs [[:cart :items]]
-   :output-path [:cart :subtotal]}
-  (fn [items] (reduce + 0 (map line-total items))))
+    (rf/reg-flow :cart/subtotal
+      {:doc    "Every line item's price × qty, summed. Materialised into app-db
+                so the checkout handler can read it as ordinary data."
+       :inputs [[:cart :items]]
+       :output-path [:cart :subtotal]}
+      (fn [items] (reduce + 0 (map line-total items))))
 
-;; Here's the cascade. `:cart/total` reads another flow's output
-;; (`[:cart :subtotal]`) alongside the discount rate. The runtime spots that
-;; shared path, works out that `:cart/subtotal` feeds `:cart/total`, and runs
-;; them in that order — both settle in a single walk. You never wire the
-;; ordering by hand; the dependency graph falls out of the paths.
-;;
-;; The discount starts switched off. `:cart/discount-rate` has no flow yet,
-;; so its path reads nil and this `:derive` treats that as 0% off. "Apply 10%
-;; discount" registers the flow; "Remove discount" clears it. While it's
-;; live, it derives a flat 10% off the current subtotal. And because it reads
-;; `[:cart :subtotal]`, the rate stays fresh as the cart changes — a tiered
-;; "5% over $50" rule would drop straight in.
-(rf/reg-flow :cart/total
-  {:doc    "Subtotal less the active discount. Reads :cart/subtotal's output
-            and the discount rate you can toggle at runtime."
-   :inputs [[:cart :subtotal] [:cart :discount-rate]]
-   :output-path [:cart :total]}
-  (fn [subtotal discount-rate]
-    (let [rate (or discount-rate 0)]
-      (Math/round (* subtotal (- 1 rate)))))))
+    ;; Here's the cascade. `:cart/total` reads another flow's output
+    ;; (`[:cart :subtotal]`) alongside the discount rate. The runtime spots that
+    ;; shared path, works out that `:cart/subtotal` feeds `:cart/total`, and runs
+    ;; them in that order — both settle in a single walk. You never wire the
+    ;; ordering by hand; the dependency graph falls out of the paths.
+    ;;
+    ;; The discount starts switched off. `:cart/discount-rate` has no flow yet,
+    ;; so its path reads nil and this `:derive` treats that as 0% off. "Apply 10%
+    ;; discount" registers the flow; "Remove discount" clears it. While it's
+    ;; live, it derives a flat 10% off the current subtotal. And because it reads
+    ;; `[:cart :subtotal]`, the rate stays fresh as the cart changes — a tiered
+    ;; "5% over $50" rule would drop straight in.
+    (rf/reg-flow :cart/total
+      {:doc    "Subtotal less the active discount. Reads :cart/subtotal's output
+                and the discount rate you can toggle at runtime."
+       :inputs [[:cart :subtotal] [:cart :discount-rate]]
+       :output-path [:cart :total]}
+      (fn [subtotal discount-rate]
+        (let [rate (or discount-rate 0)]
+          (Math/round (* subtotal (- 1 rate))))))))
 
 ;; ============================================================================
 ;; EVENTS
@@ -101,9 +110,11 @@
    {:sku "RF2-STKR"  :name "Sticker pack"       :price 500  :qty 3}])
 
 (rf/reg-event :cart/initialise
-  {:doc "Seed the cart. The :cart/subtotal and :cart/total flows fire on the
-         heels of this handler and materialise their outputs in the same
-         write — so the totals exist before the first render."}
+  {:doc "Seed the cart. `run` (MOUNT, below) dispatches this only after
+         `install-flows!` has registered :cart/subtotal and :cart/total, so
+         those flows fire on the heels of this handler and materialise their
+         outputs in the same write — the totals exist before the first
+         render."}
   (fn handler-cart-initialise [{:keys [db]} _]
     {:db (assoc db :cart {:items seed-items})}))
 
@@ -279,24 +290,33 @@
 ;; the shared `#app`.
 (defonce react-root (atom nil))
 
-;; `frame-provider` stands the frame up at the render root. On first mount it
-;; creates the frame and runs its `:initial-events` once to seed it (here
-;; `[:cart/initialise]`); on hot reload it reuses the frame as-is and skips
-;; the seed, so your live state survives a save. Wrapping the render is also
-;; what lets the `reg-view`-injected `dispatch`/`subscribe` find this frame —
-;; render without a provider and they raise :rf.error/no-frame-context. The
-;; id is `:rf/default`, an ordinary frame id, the very same one the
-;; `with-frame` flow registrations use up top.
+;; `frame-provider`'s ENSURE shape (`{:id …}`) would normally be where
+;; `:rf/default` gets created — but by the time it mounts below, `run` has
+;; already created the frame itself (`rf/reg-frame`), registered the two
+;; named flows against it (`install-flows!`), and dispatched the cart's seed
+;; — in that order, so the seeding dispatch's own `:db` write is the one the
+;; flow walk sees, and `:cart/subtotal` / `:cart/total` materialise in that
+;; SAME write. So this mount just REUSES the frame; there's nothing left to
+;; seed here. The id is `:rf/default`, the very same one `run` uses below.
 (def app-frame :rf/default)
 
 (defn run []
-  ;; Tell the runtime to render through Reagent. This picks the substrate; it
-  ;; doesn't create a frame — that's frame-provider's job below.
+  ;; `init!` tells re-frame2 which reactive substrate to render through —
+  ;; here, Reagent. It has to come before any frame is constructed: a
+  ;; frame's state container is substrate-specific, so `rf/reg-frame` (next)
+  ;; would raise :rf.error/no-adapter-installed without this first.
   (rf/init! reagent-adapter/adapter)
+  ;; Create the frame explicitly, here, rather than leaving it to
+  ;; `frame-provider` below. `reg-flow` (inside `install-flows!`) needs a
+  ;; LIVE frame to register against, and the render tree — where
+  ;; `frame-provider` would otherwise create one — doesn't exist yet at this
+  ;; point in `run`.
+  (rf/reg-frame app-frame {:doc "Cart-with-flows demo frame."})
+  (install-flows!)
+  (rf/with-frame app-frame (rf/dispatch-sync [:cart/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
-                                    :initial-events [[:cart/initialise]]}
+                [rf/frame-provider {:id app-frame}
                  [cart-app]])))

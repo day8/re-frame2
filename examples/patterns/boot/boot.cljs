@@ -232,7 +232,21 @@
     ;; self-transition to `:ready` once the write lands.
     (fn [{data :data}]
       {:data (assoc data :phase :hydrating)
-       :fx   [[:dispatch [:boot/apply-hydration]]]})}
+       :fx   [[:dispatch [:boot/apply-hydration]]]})
+
+    :promote-hydrated
+    ;; Runs on the :hydrating → :ready transition, triggered by the very
+    ;; `:boot/hydrated` event `:boot/apply-hydration` (below) dispatches once
+    ;; it has promoted the staged payloads into app-db. That handler carries
+    ;; the SAME payload as this event's arg, and this action is the only
+    ;; place it's allowed to reach the machine's own snapshot: mirroring it
+    ;; into `:data` here — from inside the machine's own action — is what
+    ;; Spec 005 §Where snapshots live means by "the machine sets its own
+    ;; :data." An ordinary handler writing straight into
+    ;; `[:rf.runtime/machines ...]` (which `:boot/apply-hydration` used to
+    ;; do) is the thing this action replaces.
+    (fn [{data :data [_ staged] :event}]
+      {:data (merge data staged)})}
 
    :states
    {;; ---- :configuring — the :initial state; a single :spawn fetches /config
@@ -304,7 +318,7 @@
     ;; ---- :hydrating — promotes the loaded payloads into app-db ---------
     :hydrating
     {:entry :enter-hydrating
-     :on    {:boot/hydrated {:target :ready}}}
+     :on    {:boot/hydrated {:target :ready :action :promote-hydrated}}}
 
     ;; ---- :ready / :failed — terminal -------------------------------------
     :ready  {:meta {:terminal? true}}
@@ -334,35 +348,26 @@
 (rf/reg-event :boot/apply-hydration
   {:doc "Promote every staged payload at [:boot/staging ...] into the
          top-level app-db slices the running app reads, then fire
-         :boot/hydrated back at :app/boot so it can finish the trip from
-         :hydrating to :ready."}
-  ;; The app slices go to app-db (`:db`). The snapshot mirror below is a
-  ;; separate `:rf.db/runtime` effect, because a machine snapshot lives in
-  ;; runtime-db, not app-db (docs/core/glossary.md#runtime-db).
-  ;;
-  ;; ADVANCED — and genuinely rare. This is the *only* handler in the whole
-  ;; examples tree that writes a `:rf.db/runtime` effect, and it's here to
-  ;; teach one specific shape: mirroring loaded values into a machine snapshot
-  ;; so the snapshot is self-describing for SSR and tools. Everyday handlers
-  ;; write app-db through `:db` and leave the machine runtime to mind its own
-  ;; snapshot. Reach for `:rf.db/runtime` only when you're deliberately writing
-  ;; boot/hydration glue like this.
-  (fn handler-boot-apply-hydration [{:keys [db] rt :rf.db/runtime} _]
+         :boot/hydrated — carrying that same payload — back at :app/boot so
+         it can finish the trip from :hydrating to :ready."}
+  ;; An ordinary app handler like this one writes app-db and ONLY app-db
+  ;; (`:db`, below) — never a machine's snapshot. A machine's snapshot lives
+  ;; in runtime-db, and Spec 005 §Where snapshots live is unambiguous: user
+  ;; code MUST NOT write under [:rf.runtime/machines ...] — only the owning
+  ;; machine's own actions may. So the payload this handler promotes into
+  ;; app-db rides along on the `:boot/hydrated` event instead, and it's
+  ;; :app/boot's own `:promote-hydrated` action (see the machine's `:actions`
+  ;; above) that mirrors it into the machine's `:data` — from inside the
+  ;; machine, with framework authority, the only place that's allowed to
+  ;; happen.
+  (fn handler-boot-apply-hydration [{:keys [db]} _]
     (let [staging (:boot/staging db)]
       {:db (-> db
                (assoc :config (:config staging))
                (assoc :flags  (:flags staging))
                (assoc :user   (:user staging))
                (assoc :routes (:routes staging)))
-       ;; Mirror the same values into the boot machine's :data so the snapshot
-       ;; stands on its own for SSR and tools.
-       :rf.db/runtime (update-in (or rt {})
-                                 [:rf.runtime/machines :snapshots :app/boot :data] assoc
-                                 :config (:config staging)
-                                 :flags  (:flags staging)
-                                 :user   (:user staging)
-                                 :routes (:routes staging))
-       :fx [[:dispatch [:app/boot [:boot/hydrated]]]]})))
+       :fx [[:dispatch [:app/boot [:boot/hydrated staging]]]]})))
 
 ;; ============================================================================
 ;; PUBLIC ENTRY EVENT
