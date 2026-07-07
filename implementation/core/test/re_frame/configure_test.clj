@@ -92,8 +92,11 @@
         (is (= 1 (count @warnings))
             "the retired {:depth N} shape emits exactly one warning")
         (let [ev (first @warnings)]
-          (is (= :error (:op-type ev))
-              "op-type is :error (emit-error! family); :operation carries the :rf.warning/* category")
+          (is (= :warning (:op-type ev))
+              "op-type is :warning (rf2-ho20xj — routed via :trace/emit!'s
+              :warning path, matching Spec 009's catalogued :op-type for
+              :rf.warning/trace-buffer-unrecognised-opts; a
+              {:severity :warning} trace-buffer filter must catch it)")
           (is (= {:depth 200} (-> ev :tags :opts))
               "the rejected opts map rides the :opts tag")
           (is (string? (-> ev :tags :reason))
@@ -114,6 +117,36 @@
             "the canonical {:events-retained N} shape does NOT warn")
         (finally
           (rf/unregister-listener! :trace ::trace-buffer-opts))))))
+
+(deftest trace-buffer-severity-warning-filter-catches-unrecognised-opts
+  (testing "rf2-ho20xj — a {:severity :warning} trace-buffer filter must
+            catch :rf.warning/trace-buffer-unrecognised-opts. Before the
+            fix, configure-trace-buffer! routed the warning through
+            trace/emit-error! (a hardcoded :op-type :error), so the
+            Spec 009-declared :op-type :warning row and a
+            {:severity :warning} filter silently missed it. Dispatch the
+            bad {:configure! {:trace-buffer {:depth N}}} call FROM INSIDE
+            an event handler so the emit rides an in-flight dispatch-id +
+            frame (push-to-ring! skips frameless/dispatch-id-less emits
+            per the B3 ruling) and lands in the frame's retained ring."
+    (rf/reg-event :bad-configure-call
+                  (fn [{:keys [db]} _]
+                    (rf/configure! {:trace-buffer {:depth 200}})
+                    {:db db}))
+    (rf/dispatch-sync [:bad-configure-call])
+    (let [warnings (rf/trace-buffer :rf/default {:flat true :severity :warning})]
+      (is (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
+                warnings)
+          "a {:severity :warning} trace-buffer read surfaces
+          :rf.warning/trace-buffer-unrecognised-opts (rf2-ho20xj)"))
+    ;; Sanity: a {:severity :error} filter must NOT catch it — the whole
+    ;; point of the fix is that this category no longer masquerades as
+    ;; an :error op-type.
+    (let [errors (rf/trace-buffer :rf/default {:flat true :severity :error})]
+      (is (not (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
+                     errors))
+          ":rf.warning/trace-buffer-unrecognised-opts no longer rides the
+          :error op-type"))))
 
 (deftest configure-unknown-key-is-silent-no-op
   (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"

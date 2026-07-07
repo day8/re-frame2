@@ -609,18 +609,22 @@
     ;; Loud-not-silent: a config call that supplied opts we can't apply
     ;; is a misuse the runtime recovers from (the ring stays at its
     ;; current default) but must surface. Routed through the late-bound
-    ;; `:trace/emit-error!` so this ns carries no static dep on
-    ;; `re-frame.trace`; the warning rides the same trace stream tools
-    ;; already consume.
-    (when-let [emit-error! (late-bind/get-fn :trace/emit-error!)]
-      (emit-error! :rf.warning/trace-buffer-unrecognised-opts
-                   {:category :rf.warning/trace-buffer-unrecognised-opts
-                    :opts     opts
-                    :reason   (str "(configure! {:trace-buffer ...}) accepts only "
-                                   "{:events-retained N} where N is a non-negative "
-                                   "integer; got " (pr-str opts) ". Retention is "
-                                   "unchanged. The retired {:depth N} shape is not "
-                                   "supported — use {:events-retained N}.")})))
+    ;; `:trace/emit!` (NOT `:trace/emit-error!`, which hardcodes
+    ;; op-type `:error`) so this ns carries no static dep on
+    ;; `re-frame.trace`; the category's `:rf.warning/*` root and its
+    ;; Spec 009 catalogue row are both `:op-type :warning` — a
+    ;; `{:severity :warning}` `trace-buffer` filter must catch this
+    ;; emit, which `match-event?`'s `:severity` key matches against
+    ;; `(:op-type ev)` (rf2-ho20xj).
+    (when-let [emit! (late-bind/get-fn :trace/emit!)]
+      (emit! :warning :rf.warning/trace-buffer-unrecognised-opts
+             {:category :rf.warning/trace-buffer-unrecognised-opts
+              :opts     opts
+              :reason   (str "(configure! {:trace-buffer ...}) accepts only "
+                              "{:events-retained N} where N is a non-negative "
+                              "integer; got " (pr-str opts) ". Retention is "
+                              "unchanged. The retired {:depth N} shape is not "
+                              "supported — use {:events-retained N}.")})))
   (when (and interop/debug-enabled?
              (number? events-retained)
              (not (neg? events-retained)))

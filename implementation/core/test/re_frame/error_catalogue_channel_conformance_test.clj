@@ -445,9 +445,18 @@
       violation, not caller-fixable\" (topo.cljc). An internal invariant is not a
       consumer-facing error category, so it stays out of the catalogue.
 
-  INTERNAL-INVARIANT / framework-bug categories, held here rather than catalogued:
-    - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`
-      unknown-kind guard; a framework-bug guard, not a consumer-facing category.
+  rf2-ho20xj CATALOGUE FIX (verified from #5229 impl-review):
+    - `:rf.error/unknown-registry-kind` — `re-frame.registrar/register!`'s
+      unknown-kind guard was held here as an INTERNAL-INVARIANT / framework-bug
+      category (a mis-wired internal caller, not ordinary app code). The 009
+      catalogue's own co-edit invariant (\"Every `:rf.<area>/<category>` error /
+      warning / advisory event MUST land as a row in this catalogue\") carries
+      no internal-invariant carve-out, so the omission was a genuine gap — it
+      IS now CATALOGUED in Spec 009 §Error event catalogue (diagnostic
+      channel, `:fix-registration` recovery) and therefore DROPPED from this
+      allow-list, as `allow-list-stays-honest` requires the moment the row
+      lands. The sibling `:rf.error/flow-cycle-extract-invariant` above is
+      NOT part of this fix — its stays-uncatalogued rationale is unchanged.
 
   EP-0025 PURGE TRANSITION (rf2-j3jlgu / rf2-5fqlz1):
     - `:rf.error/bad-classification` is now CATALOGUED in Spec 009 §Error event
@@ -466,8 +475,7 @@
   `allow-list-stays-honest` fails if any entry becomes catalogued or stops being
   emitted, forcing the co-edit so the list cannot rot into a silent blanket
   suppression."
-  #{:rf.error/flow-cycle-extract-invariant
-    :rf.error/unknown-registry-kind})
+  #{:rf.error/flow-cycle-extract-invariant})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
