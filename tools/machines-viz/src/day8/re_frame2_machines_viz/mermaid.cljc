@@ -346,9 +346,17 @@
                    (filter internal-candidate?)
                    (map #(internal-note-line (str "after(" (label-value delay) ")") %))))
             (:after state-node))
-    (->> (transition-candidates (:always state-node))
-         (filter internal-candidate?)
-         (map #(internal-note-line "always" %)))))
+    ;; rf2-oy49f1 — gated on `(:always state-node)` being present. `:always`
+    ;; is a SINGULAR top-level slot (unlike the per-event `:on`/`:after` maps
+    ;; above, where `mapcat` only ever visits a key that EXISTS) — an absent
+    ;; `:always` and an explicit nil value are indistinguishable, so
+    ;; `transition-candidates`' `(nil? spec) [{}]` forbidden-transition arm
+    ;; must not fire here (it would render a phantom "always" note on every
+    ;; state with no `:always` declared at all).
+    (when (:always state-node)
+      (->> (transition-candidates (:always state-node))
+           (filter internal-candidate?)
+           (map #(internal-note-line "always" %))))))
 
 (defn- collect-internal-transition-notes
   "rf2-mnp93.4 — emit a `note right of <state>` for every state with one or
@@ -400,11 +408,22 @@
   least one candidate, and EVERY candidate is target-less (the engine just
   runs an action when the sub-flow completes; the machine stays in the
   all-final config). A target-bearing candidate routes a `✓ done` edge
-  (`collect-on-done-edges`); a target-less one has no arrow to draw."
+  (`collect-on-done-edges`); a target-less one has no arrow to draw.
+
+  rf2-oy49f1 — gated on `on-done` being present. `:on-done` is a SINGULAR
+  top-level slot (unlike a per-event `:on`/`:after` MAP entry) — an absent
+  `:on-done` and an explicit `nil` value are indistinguishable once
+  destructured off the state/region node, so `transition-candidates`'
+  `(nil? spec) [{}]` forbidden-transition arm must not fire here (every
+  caller of this predicate — `collect-compound-on-done-notes`,
+  `region-root-on-done-notes` — invokes it on a state/region that very
+  commonly declares NO `:on-done` at all; without this gate EVERY such
+  state/region would read as a phantom action-only completion)."
   [on-done]
-  (let [cands (transition-candidates on-done)]
-    (and (seq cands)
-         (every? #(nil? (resolve-target-path [] [] (:target %))) cands))))
+  (and on-done
+       (let [cands (transition-candidates on-done)]
+         (and (seq cands)
+              (every? #(nil? (resolve-target-path [] [] (:target %))) cands)))))
 
 (defn- on-done-action-label
   "rf2-ay42f — the `on-done: ✓ done / <action>` note body for an

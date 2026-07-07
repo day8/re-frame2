@@ -58,6 +58,15 @@
   - a vector path of keywords — an absolute target path;
   - a map — `{:target ... :action ... :guard ...}` (no `:target` =
     internal / action-only);
+  - `nil` — a FORBIDDEN transition (rf2-oy49f1). Spec 005 §Forbidden
+    transitions (`spec/005-StateMachines.md` §Forbidden transitions)
+    declares `{:on {:logout {}}}` and `{:on {:logout nil}}`
+    RUNTIME-EQUIVALENT — both block parent-fallthrough for that event.
+    `nil` normalises to the SAME single empty-map candidate `{}` as the
+    empty-map spelling (`map? {}` already yields `[{}]` → `internal?`
+    true → a blocking chip); pre-fix `nil` matched no cond arm and fell
+    to `:else []` (ZERO candidates), silently dropping the block instead
+    of rendering it.
   - a vector of specs — multiple candidates (first-match wins at runtime;
     every target-bearing branch surfaces);
   - anything else (e.g. an inline fn) — dropped (cannot statically
@@ -66,13 +75,16 @@
   The SINGLE shared walker the chart + mermaid + the per-state SCXML
   emitters all use. NOTE the root-parallel SCXML emitter uses its OWN
   `scxml/root-transition-candidates` instead — a vector-of-vectors there
-  is one multi-region target, not a candidate fork."
+  is one multi-region target, not a candidate fork (that walker already
+  special-cases `(nil? spec) [{}]` per the same equivalence — this fix
+  brings the SHARED walker into alignment with it)."
   [spec]
   (cond
     (keyword? spec)     [{:target spec}]
     (target-path? spec) [{:target spec}]
     (map? spec)         [spec]
     (vector? spec)      (mapcat transition-candidates spec)
+    (nil? spec)         [{}]
     :else               []))
 
 ;; ---------------------------------------------------------------------------

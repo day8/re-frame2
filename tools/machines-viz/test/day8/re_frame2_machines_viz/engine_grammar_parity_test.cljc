@@ -159,8 +159,6 @@
 ;; SCOPE NOTE (deliberate, documented divergence — NOT drift): the two
 ;; differ ONLY on degenerate / non-grammar shapes the viz walker handles
 ;; more permissively than the runtime normaliser:
-;;   - nil VALUE: viz → [] (drop, nothing to project); engine → [{}] (the
-;;     forbidden-transition / internal no-op form, rf2-16gxd).
 ;;   - a MIXED vector ([:a [:x :y]] — not all maps, not all keywords):
 ;;     viz mapcat-explodes it into per-element candidates; the engine
 ;;     treats any non-all-maps vector as a single absolute vec-target.
@@ -170,6 +168,18 @@
 ;; pinned to the shared grammar so a drift WITHIN that region stays loud;
 ;; the divergent shapes are asserted separately below so a future change
 ;; that accidentally ALIGNS or further DIVERGES them is also caught.
+;;
+;; rf2-oy49f1 — `nil` USED to be listed here as a documented divergence
+;; (viz → `[]` drop; engine → `[{}]` the forbidden-transition / internal
+;; no-op form, rf2-16gxd). That was actually a BUG, not a deliberate
+;; scope choice: Spec 005 §Forbidden transitions declares `nil` and `{}`
+;; RUNTIME-EQUIVALENT, so the viz walker silently dropping a nil-spelled
+;; forbidden transition (while rendering the `{}` spelling as a blocking
+;; chip) made a reader believe an event was still inherited/reachable
+;; when the engine actually blocks it. `grammar/transition-candidates`
+;; now special-cases `(nil? spec) [{}]`, matching the engine — `nil` has
+;; MOVED into `shared-grammar-spec-fixtures` below as a genuine parity
+;; case, not a divergence.
 
 (def ^:private shared-grammar-spec-fixtures
   "Transition specs on which the viz walker and the engine normaliser
@@ -184,7 +194,11 @@
    ;; a single transition map (targeted)
    {:target :a :guard :g}
    ;; a single transition map (internal / action-only)
-   {:action :log}])
+   {:action :log}
+   ;; rf2-oy49f1 — nil ≡ {} (Spec 005 §Forbidden transitions): a
+   ;; forbidden transition spelled nil normalises identically to the
+   ;; empty-map spelling on BOTH sides.
+   nil])
 
 (deftest transition-candidates-parity
   (testing "viz grammar/transition-candidates agrees with the engine normaliser across the shared grammar"
@@ -199,9 +213,6 @@
     ;; re-read the scope note above and confirm the change is intentional
     ;; (a viz walker that newly drops/explodes a shape differently from
     ;; the documented contract is itself a drift signal).
-    (testing "nil value: viz drops, engine yields the internal no-op form"
-      (is (= [] (g/transition-candidates nil)))
-      (is (= [{}] (engine-normalise-candidates nil :rf.error/test-bad-value))))
     (testing "mixed vector: viz mapcat-explodes, engine treats as one vec-target"
       (is (= [{:target :a} {:target [:x :y]}]
              (g/transition-candidates [:a [:x :y]])))
