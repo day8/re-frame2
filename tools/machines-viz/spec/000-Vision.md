@@ -80,8 +80,10 @@ required.
 (`MachineChart`) plus a **read-only viewer page** that renders a
 chart from a URL fragment. Xray's Machine Inspector panel
 ([`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md))
-embeds it as content; Story's per-variant machine panel embeds it
-the same way. The component is the single source of charting truth;
+embeds it as content; Story's machine-chart surface is that same
+Xray panel, reached via the `[Machines]` chip inside Story's Xray
+embed — Story has no machine panel of its own. The component is the
+single source of charting truth;
 the hosts add transition-history ribbons, source-coord jumps, and
 panel chrome around it.
 
@@ -197,17 +199,17 @@ must tell."
 
 ```
               ┌────────────────────────────────┐
+              │  Story (RHS Xray embed)        │   ─  embeds  ─┐
+              │   • `[Machines]` chip picks the │               │
+              │     machine-inspector panel     │               │
+              │   • no dedicated machine panel  │               │
+              └────────────────────────────────┘               │
+                                                               ▼
+              ┌────────────────────────────────┐
               │  Xray (Machine Inspector)     │   ─  embeds  ─┐
               │   • transition-history ribbon  │               │
               │   • source-coord chips         │               │
               │   • frame picker               │               │
-              └────────────────────────────────┘               │
-                                                               ▼
-              ┌────────────────────────────────┐
-              │  Story (per-variant machine    │   ─  embeds  ─┐
-              │  panel)                        │               │
-              │   • per-variant scope          │               │
-              │   • compact chrome             │               │
               └────────────────────────────────┘               │
                                                                ▼
                               ┌─────────────────────────────────────┐
@@ -227,15 +229,17 @@ must tell."
                               └─────────────────────────────────────┘
 ```
 
-`tools/xray/` and `tools/story/` both depend on
-`tools/machines-viz/`. The arrow does not invert. Machines-Viz
-does not know about Xray's chrome or Story's variant runtime —
-the chart is presentation-only, so it only knows the
-`:machine-id`, `:definition`, and `:current-state` the host pulled
-and passed in, plus the two callbacks the host wired. It takes no
-`:frame-id` (that survives only as **optional** share-envelope payload
-provenance — an EP-0023 frame-target id, [`API.md`](./API.md)
-§ShareEnvelope).
+`tools/xray/` depends on `tools/machines-viz/`; `tools/story/` does
+NOT — Story's `[Machines]` chip reaches the chart THROUGH Xray's
+per-panel embed (`panels/mount-machine-inspector!`), not via a direct
+dependency (`tools/story/deps.edn` declares no `machines-viz` coord).
+The arrow does not invert. Machines-Viz does not know about Xray's
+chrome or Story's variant runtime — the chart is presentation-only,
+so it only knows the `:machine-id`, `:definition`, and
+`:current-state` the host pulled and passed in, plus the two
+callbacks the host wired. It takes no `:frame-id` (that survives only
+as **optional** share-envelope payload provenance — an EP-0023
+frame-target id, [`API.md`](./API.md) §ShareEnvelope).
 
 ## Surface set
 
@@ -681,8 +685,9 @@ References:
 ### v1.0 (the foundation)
 
 The component + the read-only viewer + the encoding rules — the
-surface Xray and Story require to ship their panels. **The whole v1.0
-foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
+surface Xray requires to ship its panel (Story reaches the same
+surface through Xray's `[Machines]` chip, not a separate panel).
+**The whole v1.0 foundation has shipped** (the renderer per the rf2-gpzb4 xyflow
 migration + Phase 2; the share-URL / viewer / exporter trio per
 rf2-8d7w1) — see the per-surface "Status" column in
 [`spec/README.md`](./README.md) §Shipped for the authoritative

@@ -19,7 +19,9 @@ to a framework registry — the host pulls the machine `:definition` (via
 in, which keeps the chart testable in isolation and decoupled from the
 runtime. Its main consumer is **Xray's Machine Inspector** panel
 ([`tools/xray/spec/003-Machine-Inspector.md`](../xray/spec/003-Machine-Inspector.md)),
-which embeds it; Story embeds it through its machine panel. A custom dev
+which embeds it; Story's machine-chart surface is that same Xray
+panel, reached via the `[Machines]` chip inside Story's right-hand-pane
+Xray embed — Story has no machine panel of its own. A custom dev
 shell can depend on it directly for a chart without the rest of Xray.
 
 Surfaces that ship today:

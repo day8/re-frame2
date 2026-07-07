@@ -142,11 +142,13 @@ before they meet the token contracts.
   [`003-Render-Shell.md`](003-Render-Shell.md) and
   [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §xray-embed). The two
   artefacts share the epoch buffer.
-- **A statechart visualisation engine.** Story ships a one-line
-  current-state indicator for active machines; full chart rendering
-  lives in a future `day8/re-frame2-machines-viz` artefact (per
-  Phase 1 §6.8) which exposes a `reg-story-panel` adapter Story
-  consumes.
+- **A statechart visualisation engine.** `day8/re-frame2-machines-viz`
+  (per Phase 1 §6.8) ships the `MachineChart` component; Story's
+  machine-chart surface is the `[Machines]` chip in the Xray per-panel
+  embed (`panels/mount-machine-inspector!`, which mounts machines-viz's
+  chart) — see [`003-Render-Shell.md`](003-Render-Shell.md)
+  §Right-hand pane. Story does not host a dedicated machines-viz panel
+  of its own.
 - **An MCP server in-process.** The agent surface is a separate jar
   with its own stdio + JSON-RPC machinery. Story's runtime exposes the
   *data* the MCP server reads; the MCP server is not loaded by app
