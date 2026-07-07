@@ -17,7 +17,7 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 
 ---
 
-> **Delegated / orchestrated / CI execution.** Every "the **author** runs it" below is the *interactive* default — the skill prints the `npm install` / compile / classpath-check command and waits for the pasted result. Under delegated / orchestrated / CI execution the executor is a *sandboxed autonomous worker* (an isolated git worktree) or a *CI runner*: it runs the printed command **itself, inside its own sandbox** and posts command + result for human ratification at PR review. The trust boundary — *arbitrary-code execution* — is unchanged; the sandbox stands in for the human's machine. See [`SKILL.md` cardinal rule 5 — the sandboxed-executor exception](../SKILL.md).
+> **Delegated / orchestrated / CI execution.** Every "the **author** runs it" below is the *interactive* default (the skill prints the `npm install` / compile / classpath-check command, the author runs it). Orchestrated/CI: the sandbox runs it itself and posts command + result for ratification at PR review — the trust boundary is unchanged. See [`SKILL.md` cardinal rule 5 — the sandboxed-executor exception](../SKILL.md).
 
 ## The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 

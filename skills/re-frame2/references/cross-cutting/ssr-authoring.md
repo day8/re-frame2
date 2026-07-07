@@ -51,11 +51,10 @@ Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by
 ## `active-head` — the current route's head model
 
 ```clojure
-(rf/active-head)                ;; current frame
-(rf/active-head frame-id)       ;; named frame
+(rf/active-head frame-id)       ;; frame is carried, not ambient
 ```
 
-Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model. The `:rf/head` sub returns the same value reactively for views/tools.
+`active-head` is **1-arity only** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model. The `:rf/head` sub returns the same value reactively for views/tools.
 
 ## `head-model->html` — explicit serialiser
 
@@ -68,7 +67,7 @@ The SSR pipeline calls this internally; reach for it only when emitting custom H
 
 ## `:rf.ssr/check-version` — payload version vs runtime version
 
-Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the runtime's published `:rf2/runtime-version` hook; emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :error`) on disagreement. The hydrate handler still applies — locked best-effort posture.
+Dispatch from a `:rf/hydrate` handler. Compares the payload's `:rf/version` against the runtime's published `:rf2/runtime-version` hook; emits `:rf.ssr/version-mismatch` (a trace event, `:op-type :warning`) on disagreement. The hydrate handler still applies — locked best-effort posture.
 
 Two input forms:
 
@@ -118,7 +117,7 @@ Drop any of these and you reintroduce a fail-open hydration path. Hydration inst
            schema-digest (conj [:rf.ssr/check-schema-digest schema-digest]))}))
 ```
 
-Matches `examples/capabilities/ssr/ssr/core.cljc` and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf.runtime/ssr :hydration :server-hash]`** (a runtime-db path) — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
+Matches the shipped `re-frame.ssr` handler (`implementation/ssr/src/re_frame/ssr/hydrate.cljc`) and the reference body in [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event). If you override to add client-only transient state, **preserve `[:rf.runtime/ssr :hydration :server-hash]`** (a runtime-db path) — `verify-hydration!` reads it after first render to drive `:rf.ssr/hydration-mismatch` detection.
 
 ## The trace events you'll see
 
@@ -126,13 +125,13 @@ All three are catalogued in [`009 §Error event catalogue`](../../../../spec/009
 
 | Operation | When | Severity |
 |---|---|---|
-| `:rf.ssr/version-mismatch` | payload `:rf/version` ≠ client `:rf2/runtime-version` | `:op-type :error` |
-| `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :error` |
-| `:rf.ssr/compatibility-check-skipped` | no hook registered for the relevant probe | `:op-type :warn` |
+| `:rf.ssr/version-mismatch` | payload `:rf/version` ≠ client `:rf2/runtime-version` | `:op-type :warning` |
+| `:rf.ssr/schema-digest-mismatch` | payload `:rf/schema-digest` ≠ client `:schemas/app-schemas-digest` | `:op-type :warning` |
+| `:rf.ssr/compatibility-check-skipped` | no hook registered for the relevant probe | `:op-type :warning` |
 
 These `:rf.ssr/*` events are **trace-channel** diagnostics — DCE-eligible in CLJS production builds, JVM-gated on `re-frame.debug`. **Keep them distinct from the promoted `:rf.error/ssr-*` records below:** `:rf.ssr/version-mismatch`, `:rf.ssr/schema-digest-mismatch`, `:rf.ssr/compatibility-check-skipped`, and `:rf.ssr/hydration-mismatch` are compatibility/hydration *diagnostics* that do **not** ride the always-on error-emit substrate; they elide in a production CLJS client build unless the build keeps the trace surface (`:closure-defines {goog.DEBUG true}`), and none has been promoted to a catalogued `:rf.error/*` as of EP-0008. So do not wire `register-listener!` `:errors` expecting *these* to arrive — they won't. To track this drift in production, instrument it deliberately: detect the condition in your own app code (the strict-mode hydration hook, or your `:rf/hydrate` extension) and dispatch an app event that ships through the production observability surfaces (`register-listener!` `:events` / `:errors` per [`production-observability.md`](production-observability.md)). The default `:rf2/runtime-version` / schema-digest checks remain dev-and-server diagnostics on the trace channel.
 
-> **The SSR render/streaming/projection failures DO ride the always-on axis (EP-0008).** Separately from the `:rf.ssr/*` compatibility diagnostics above, the production-reachable SSR error categories — `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, and `:rf.error/ssr-ring-error-view-failed` — ride the **always-on error-emit axis** (surface #4). On a long-lived JVM SSR host, an off-box shipper (Sentry / Datadog) registered via `register-listener!` `:errors` receives these structured records **even under `-Dre-frame.debug=false`**, where the dev trace surface is elided — the off-box record, not the wire response, is the telemetry. These are **non-event** records: they carry no `:event` / `:event-id` (some carry only `:frame` + `:exception` + category-specific slots), so a listener must branch on `(:error record)` and not assume the per-event shape. So you need not route SSR production drift only through the `:rf/public-error` projector or the dev trace — the always-on records ARE the production egress for these categories. (The recoverable-degradation and post-commit members are non-projecting: their riding the axis changes what shippers see, never the wire status.) See [`production-observability.md` §The promoted-SSR records](production-observability.md) and [`009 §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production).
+> **The SSR render/streaming/projection failures DO ride the always-on axis (EP-0008).** Separately from the `:rf.ssr/*` compatibility diagnostics above, the production-reachable SSR error categories — `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch` — ride the **always-on error-emit axis** (surface #4). On a long-lived JVM SSR host, an off-box shipper (Sentry / Datadog) registered via `register-listener!` `:errors` receives these structured records **even under `-Dre-frame.debug=false`**, where the dev trace surface is elided — the off-box record, not the wire response, is the telemetry. These are **non-event** records: they carry no `:event` / `:event-id` (some carry only `:frame` + `:exception` + category-specific slots), so a listener must branch on `(:error record)` and not assume the per-event shape. So you need not route SSR production drift only through the `:rf/public-error` projector or the dev trace — the always-on records ARE the production egress for these categories. (The recoverable-degradation and post-commit members are non-projecting: their riding the axis changes what shippers see, never the wire status.) See [`production-observability.md` §The promoted-SSR records](production-observability.md) and [`009 §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production).
 
 ## Streaming SSR (advanced — most apps skip this)
 
@@ -152,7 +151,7 @@ Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slo
 - **The default `:rf/hydrate` already dispatches the checks.** It ships in `re-frame.ssr`; most apps never write their own. Re-registering replaces a reserved framework event — do it only as documented framework-extension code to change the merge policy, and preserve the malformed-payload fail-closed guard, the runtime-metadata merge, and the handler-level platform gate.
 - **`:platforms #{:client}` gates both fxs.** Server-side dispatches no-op silently; don't sprinkle `:platforms` guards inside your own code.
 - **The fxs never throw.** A misregistered hook → `:rf.ssr/compatibility-check-skipped` (warning), not a crash. Read the trace surface to confirm wiring.
-- **Head emits as part of the unified render-tree hash in v1.** Head-mismatch surfaces as `:rf.ssr/hydration-mismatch` with `:tags {:failing-id :rf.ssr/head-mismatch}` — not a separate category. Body-mismatch carries `:failing-id :rf/hydrate`.
+- **Head emits as part of the unified render-tree hash in v1.** Head rides the same `:rf/render-hash` channel as the body, so the bundled v1 runtime cannot tell a head-only divergence from a body-only one — **any** mismatch (head or body) emits `:rf.ssr/hydration-mismatch` with the runtime's only value, `:failing-id :rf/hydrate`. `:rf.ssr/head-mismatch` is a **host-suppliable** attribution value through the generic `:failing-id` seam (a host running its own head diffing may attribute it) — never runtime-emitted until the post-v1 head-only-hash channel ships.
 
 ## Cross-references
 
@@ -160,10 +159,10 @@ Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slo
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide concept: [`docs/ssr/concepts.md`](../../../../docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
-- Worked example: [`examples/capabilities/ssr/ssr/core.cljc`](../../../../examples/capabilities/ssr/ssr/core.cljc) — the reference `:rf/hydrate` body matches this leaf verbatim.
+- Worked example: [`examples/capabilities/ssr/ssr/core.cljc`](../../../../examples/capabilities/ssr/ssr/core.cljc) — note it registers **no** `:rf/hydrate` handler (on purpose: `:rf/hydrate` is a reserved `:rf/*` event that `re-frame.ssr` owns, handler and all). The shipped body lives in `implementation/ssr/src/re_frame/ssr/hydrate.cljc` and [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event).
 - Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners. Note `:rf.ssr/*` diagnostics do NOT ride the error-emit substrate (they elide with the trace channel unless separately promoted); instrument SSR drift via your own app event through those listeners, or the `:rf/public-error` projector server-side.
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.
 
 ---
 
-*Derived from `re-frame.ssr.head` and `:rf.ssr/check-*` fxs @ main. Verified shapes: `examples/capabilities/ssr/ssr/core.cljc:112-118` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*
+*Derived from `re-frame.ssr.head` and `:rf.ssr/check-*` fxs @ main. Verified shapes: `implementation/ssr/src/re_frame/ssr/hydrate.cljc` (canonical `:rf/hydrate`); `spec/011-SSR.md §Head/meta contract` (head surface); `spec/Spec-Schemas.md §:rf/head-model` (head-model shape).*

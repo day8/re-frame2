@@ -16,7 +16,7 @@ Crucially, the skill consumes **re-frame2's own Tool-Pair contract** (per `spec/
 
 1. **Correctness — structured ops over `repl/eval`.** Every operation is a named structured call that returns edn (`{:ok? true ...}` / `{:ok? false :reason ...}`). The skill teaches the AI to compose forms and read structured results; the raw `repl/eval` escape hatch exists for probes that don't fit the catalogue.
 2. **Idiomaticness — speak re-frame2's vocabulary.** Dispatch, reg-event, reg-sub, reg-machine, frame, epoch, sub-cache. The AI never invents alternate vocabulary for the same concept.
-3. **Context economy — router skill + on-demand references.** SKILL.md (~130 lines) is the router and the connect-first rules; six references carry per-task depth, loaded at most two at a time.
+3. **Context economy — router skill + on-demand references.** SKILL.md is the always-loaded router and connect-first rules (kept well under Anthropic's 500-line ceiling); nine references carry per-task depth, loaded at most two at a time.
 4. **Read before you write.** The AI grounds a hypothesis in live data (an epoch, a snapshot, a render entry) **before** proposing a change. Speculation without evidence is the single largest anti-pattern; the skill calls it out repeatedly.
 
 ## 3. Locked decisions
@@ -28,7 +28,7 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
-2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
+2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of the 2-arg tooling fn; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
 3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-listener! id cb)`, and `(rf/restore-epoch! ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
@@ -65,7 +65,7 @@ The skill registers exactly one trace listener under `:re-frame2-pair` and one e
 
 ### L8 — Use the assembled epoch stream by default; reach for the raw trace stream when the projection drops detail
 
-`:sub-runs`, `:renders`, `:effects` are the structured projections — the routing surface. `:trace-events` is the escape hatch when the projection is incomplete (e.g. successful-fx attribution, where the `:effects` projection records only outcomes and the raw stream carries the full picture).
+`:sub-runs`, `:renders`, `:effects` are the structured projections — the routing surface. `:trace-events` is the escape hatch when you need detail the projection drops (e.g. per-interceptor timing, or the raw fx `:args` the `:effects` projection redacts off-box).
 
 ### L9 — No bead-ids in user-facing skill content
 
@@ -118,7 +118,12 @@ skills/re-frame2-pair/
 │   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map appendix)
 │   ├── recipes.md                      (named procedures — "explain this dispatch", post-mortem, etc.)
 │   ├── errors.md                       (structured error → English + recovery)
-│   └── mcp-transport.md                (MCP install + tool reference — the only transport)
+│   ├── mcp-transport.md                (MCP install + transport reference — the only transport)
+│   ├── vocabulary.md                   (flat glossary + privacy posture)
+│   ├── streaming-subscriptions.md      (push-mode subscribe/unsubscribe)
+│   ├── wire-size-budget.md             (de-dupe decoding + size-conscious args)
+│   ├── stories.md                      (live-session story-mcp tools)
+│   └── variant-as-frame.md             (driving Story variants from a pair session)
 ├── scripts/                            (bash shims — retired from the skill surface; on disk for the e2e harness only)
 ├── tests/                              (skill smoke tests)
 ├── docs/                               (developer docs for the skill maintainer)
@@ -128,7 +133,7 @@ skills/re-frame2-pair/
     └── authoring-prompt.md             (one-shot reauthor prompt)
 ```
 
-SKILL.md (~175) + references (~1,100) + spec (~300) ≈ ~1,575 LoC. Typical session reads SKILL.md + one or two references (~150-300 each) = ~430-800 LoC. The hot-reload protocol and v1 → v2 surface-map both live in `ops.md` as sections rather than separate leaves.
+Typical session reads SKILL.md (the always-loaded router) + one or two references. Leaves are single-concept and kept ideally ≤250 lines / ≤16 KB; the two catalogue leaves (`ops.md`, `recipes.md`) run longer where a split would not reduce tokens-per-session. The hot-reload protocol and v1 → v2 surface-map both live in `ops.md` as sections rather than separate leaves.
 
 ## 6. Discovery surface (frontmatter `description`)
 

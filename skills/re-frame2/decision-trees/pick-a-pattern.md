@@ -5,30 +5,30 @@
 
 Patterns compose: most real screens combine two or three of them. This tree picks the *primary* pattern — the one whose shape the feature is built around. Secondary patterns get loaded in their own pass after the primary one is in place.
 
-Each leaf below names the file under [`patterns/`](../patterns) (the pattern leaf) and the worked example under `examples/` (when one exists).
+The canonical routing matrix (shape → leaf) is [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits?; this tree restates it once with a worked-example column (Step 1) and adds the disambiguation rules (Step 2) that are its real value. Each leaf below names the file under [`patterns/`](../patterns) and the worked example under `examples/` (when one exists).
 
 ## Step 1 — name the shape
 
-Read the prompt for **one** of the following shape-tells. They are mutually exclusive at the level of *primary* role:
+Read the prompt for **one** of the following shape-tells. They are mutually exclusive at the level of *primary* role; the third column names the leaf to load and its worked example.
 
-| Shape-tell in the prompt | Primary pattern |
-|---|---|
-| "Fetch / GET / load / refresh / reload" — a request whose response writes to `app-db` | RemoteData |
-| "Query cache / server-state / TanStack-Query / React-Query / SWR / shared cached read / invalidate after a write / refetch on focus / `reg-resource`" | Resources |
-| "Submit / save / form / validation / required / draft / dirty" — user-edited input crossing a server boundary | Forms |
-| "Boot / init / hydrate / startup / first-load / splash" — the initial-load sequence before the app is interactive | Boot |
-| "WebSocket / SSE / EventSource / live / push / subscribe / channel / heartbeat / reconnect" — long-lived connection | WebSocket |
-| "Retry / backoff / circuit-breaker / 4xx vs 5xx / abort / cancel an in-flight request" — a request with status-aware policy | ManagedHTTP |
-| "Empty state / no-results / one-result / too-many / not-found / forbidden / nine UI states" — render every legal lifecycle distinctly | NineStates |
-| "Fire-and-forget / log / analytics / telemetry / external side-effect with no observable reply" | AsyncEffect |
-| "CPU-bound / heavy / parses / hashes / pegs the main thread / chunked / yields / progress bar" | LongRunningWork |
-| "Async-result arrives after state moved on / ignore stale results / don't apply old data after navigating away" | StaleDetection |
-| "Reusable / parameterised widget / customer-card / renders N of the same / works against any X / compare two side by side" | ReusableComponents |
-| "Wrap a JS library / D3 / Mapbox / CodeMirror / Three.js / ag-grid / chart / map / editor / `:ref` + lifecycle / `.setData`" | StatefulComponents |
-| "SSR form POST / progressive enhancement / works without JavaScript / server `action` / POST-redirect-GET / CSRF on submit" | FormAction |
-| "SSR parallel fetch / `Promise.all` server-side / fan-out N requests before render / per-page loader" | SSR-Loaders |
+| Shape-tell in the prompt | Pattern (leaf) | Worked example |
+|---|---|---|
+| "Fetch / GET / load / refresh / reload" — a request whose response writes to `app-db` | RemoteData — [`patterns/remote-data.md`](../patterns/remote-data.md) | `examples/real-apps/realworld_http/` (articles.cljs slice · tags.cljs machine) |
+| "Query cache / server-state / TanStack-Query / React-Query / SWR / shared cached read / invalidate after a write / refetch on focus / `reg-resource`" | Resources — [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read) · `examples/real-apps/realworld_resources/` (mutations) |
+| "Submit / save / form / validation / required / draft / dirty" — user-edited input crossing a server boundary | Forms — [`patterns/forms.md`](../patterns/forms.md) | `examples/core/login/` |
+| "Boot / init / hydrate / startup / first-load / splash" — the initial-load sequence before the app is interactive | Boot — [`patterns/boot.md`](../patterns/boot.md) | `examples/patterns/boot/` |
+| "WebSocket / SSE / EventSource / live / push / subscribe / channel / heartbeat / reconnect" — long-lived connection | WebSocket — [`patterns/websocket.md`](../patterns/websocket.md) | `examples/patterns/websocket/` |
+| "Retry / backoff / circuit-breaker / 4xx vs 5xx / abort / cancel an in-flight request" — a request with status-aware policy | ManagedHTTP — [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/core/managed_http_counter/` |
+| "Empty state / no-results / one-result / too-many / not-found / forbidden / nine UI states" — render every legal lifecycle distinctly | NineStates — [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/patterns/nine_states/` |
+| "Fire-and-forget / log / analytics / telemetry / external side-effect with no observable reply" | AsyncEffect — [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
+| "CPU-bound / heavy / parses / hashes / pegs the main thread / chunked / yields / progress bar" | LongRunningWork — [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/patterns/long_running_work/` |
+| "Async-result arrives after state moved on / ignore stale results / don't apply old data after navigating away" | StaleDetection — [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
+| "Reusable / parameterised widget / customer-card / renders N of the same / works against any X / compare two side by side" | ReusableComponents — [`patterns/reusable-components.md`](../patterns/reusable-components.md) | (inline mini-example) |
+| "Wrap a JS library / D3 / Mapbox / CodeMirror / Three.js / ag-grid / chart / map / editor / `:ref` + lifecycle / `.setData`" | StatefulComponents — [`patterns/stateful-components.md`](../patterns/stateful-components.md) | (per-adapter README) |
+| "SSR form POST / progressive enhancement / works without JavaScript / server `action` / POST-redirect-GET / CSRF on submit" | FormAction — [`patterns/form-action.md`](../patterns/form-action.md) | (inline mini-example) |
+| "SSR parallel fetch / `Promise.all` server-side / fan-out N requests before render / per-page loader" | SSR-Loaders — [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/patterns/boot/` |
 
-If you see **two** shape-tells, the dominant one is the one the user names first or the one that owns the data. Pattern composition (e.g. "managed-HTTP retries inside a form submit") is normal — pick the primary, plan the secondary as a follow-up.
+If you see **two** shape-tells, the dominant one is the one the user names first or the one that owns the data. Pattern composition (e.g. "managed-HTTP retries inside a form submit") is normal — pick the primary, plan the secondary as a follow-up. **Load at most two pattern leaves at a time**; if three or more seem necessary, the request spans features — author each pattern's leaf in its own pass.
 
 ## Step 2 — the disambiguation pairs
 
@@ -114,28 +114,7 @@ Every pattern has a worked example app (the `examples/` tree is test-free; patte
 
 If the example contradicts the leaf, **the example wins** (implementation is ground truth). Report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around.
 
-## Step 4 — load the leaves
-
-| Primary pattern | Leaf to load | Worked example |
-|---|---|---|
-| RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
-| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read-side) · `examples/real-apps/realworld_resources/` (the write-side mutation example) |
-| Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/core/login/` |
-| Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/patterns/boot/` |
-| WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/patterns/websocket/` |
-| ManagedHTTP | [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/core/managed_http_counter/` |
-| NineStates | [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/patterns/nine_states/` |
-| AsyncEffect | [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
-| LongRunningWork | [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/patterns/long_running_work/` |
-| StaleDetection | [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
-| ReusableComponents | [`patterns/reusable-components.md`](../patterns/reusable-components.md) | (inline mini-example) |
-| StatefulComponents | [`patterns/stateful-components.md`](../patterns/stateful-components.md) | (per-adapter README) |
-| FormAction | [`patterns/form-action.md`](../patterns/form-action.md) | (inline mini-example) |
-| SSR-Loaders | [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/patterns/boot/` |
-
-Load at most two pattern leaves at a time. If three or more seem necessary, the request probably spans features and should be broken up — author each pattern's leaf in its own pass.
-
-## Step 5 — the state-shape question (separate decision)
+## Step 4 — the state-shape question (separate decision)
 
 After picking the pattern, a second question applies independently: *should the state behind this pattern live as a slice in `app-db`, as a region inside an existing machine, or as a top-level `reg-machine`?* That question is its own decision tree — see [`slice-or-machine.md`](slice-or-machine.md). Pattern choice and state-shape choice are orthogonal: WebSocket is always a machine; AsyncEffect is usually a slice; RemoteData is a slice unless its retry policy needs a machine.
 
@@ -143,7 +122,7 @@ After picking the pattern, a second question applies independently: *should the 
 
 - [`slice-or-machine.md`](slice-or-machine.md) — when to lift state into a machine.
 - [`../examples-map.md`](../examples-map.md) — one-paragraph index of every worked example.
-- [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits? — the same matrix, in the router's own voice.
+- [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits? — the canonical routing matrix this tree's Step 1 restates.
 
 ---
 

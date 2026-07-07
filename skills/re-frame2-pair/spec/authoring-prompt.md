@@ -30,11 +30,15 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > ├── package.json                        (npm metadata)
 > ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
 > ├── references/
-> │   ├── ops.md                          (op catalogue)
+> │   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map; hot-reload protocol lives here as a section)
 > │   ├── recipes.md                      (named procedures)
 > │   ├── errors.md                       (structured error → English + recovery)
-> │   └── mcp-transport.md                (MCP install + tool reference — the ONLY transport)
-> │   (the hot-reload protocol and the v1 → v2 surface-map both live in `ops.md` as sections.)
+> │   ├── mcp-transport.md                (MCP install + transport reference — the ONLY transport)
+> │   ├── vocabulary.md                   (flat glossary + privacy posture)
+> │   ├── streaming-subscriptions.md      (push-mode subscribe/unsubscribe)
+> │   ├── wire-size-budget.md             (de-dupe decoding + size-conscious args)
+> │   ├── stories.md                      (live-session story-mcp tools)
+> │   └── variant-as-frame.md             (driving Story variants from a pair session)
 > ├── scripts/                            (bash shims — retired from the skill surface; on disk only for the e2e harness)
 > ├── tests/                              (smoke tests)
 > ├── docs/                               (maintainer docs)
@@ -44,7 +48,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 >     └── authoring-prompt.md
 > ```
 >
-> *Every reference is ≤250 lines. SKILL.md is ~130 lines (well under Anthropic's 500-line ceiling). All references one level deep — no SKILL → A → B chains.*
+> *Keep leaves single-concept, ideally ≤250 lines AND ≤16 KB; catalogue-shaped leaves (`ops.md`, `recipes.md`) may run longer where a split would not reduce tokens-per-session. SKILL.md is the always-loaded router — keep it well under Anthropic's 500-line ceiling. All references one level deep — no SKILL → A → B chains.*
 >
 > *Frontmatter — `allowed-tools` lists **all 30** MCP tools (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`, `describe-image`, `trace-window`, `watch-epochs`, `tail-build`, … plus the two write tools `restore-epoch` / `replace-app-db`) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The two write tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` until an operator flips it at launch), so the server's gate — not the allow-list — is the write boundary and allow-listing them is safe. There is **no** `inject-runtime` tool (the runtime ships via shadow-cljs `:devtools :preloads`), and **no** `Bash(...)` shim entries (the MCP server is the only transport; the `scripts/*.sh` shims stay on disk for the e2e harness only). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
 >
@@ -81,7 +85,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *- Don't include bead-ids in user-facing leaves.*
 > *- Don't invent alternate vocabulary (e.g. "state graph" for frame). Pillar 2.*
 >
-> *Open the PR with title `feat(skills): re-frame2-pair — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-only transport story (29 server tools, all allow-listed, with the two write tools gated at runtime by the server's `--allow-writes` flag), the relationship to the sibling skills (`re-frame2` for authoring, `re-frame2-pair-retro` for retrospectives).*
+> *Open the PR with title `feat(skills): re-frame2-pair — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-only transport story (30 server tools, all allow-listed, with the two write tools gated at runtime by the server's `--allow-writes` flag), the relationship to the sibling skills (`re-frame2` for authoring, `re-frame2-pair-retro` for retrospectives).*
 
 ## Notes on the reauthoring contract
 

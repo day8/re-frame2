@@ -343,7 +343,7 @@ Present the categorisation and the proposed rewrite; confirm with the author; ap
 1. Specs that declared `:spawn` **without** an `:on-spawn` callback — pre-fix these silently leaked the spawned actor on state-exit (the runtime had no recorded id to destroy).
 2. Tests or `:exit` action bodies that **asserted on the old behaviour**: a stale `[:rf.runtime/machines :snapshots <id>]` entry surviving after exit, or that read the spawned id back out of the parent's `[:data :pending]` slot.
 
-**Risk**: the runtime now tracks each spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`. `:on-spawn` becomes purely advisory — apps that omitted it now correctly destroy the child on exit. The **public API is unchanged** (`:on-spawn` signature `(fn [data spawned-id] new-data)` is identical), and the destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
+**Risk**: the runtime now tracks each spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`. `:on-spawn` becomes purely advisory — apps that omitted it now correctly destroy the child on exit. The **public API is unchanged** — the `:on-spawn` callback signature is the unified context map `(fn [{:keys [data id]}] …)` every machine callback receives (its return is **advisory and dropped**, so `:on-spawn` is not an id-recording mechanism — the runtime records the spawn-id at the reserved runtime-db slot itself), and the destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
 
 **Decision shape** (per hit site):
 
@@ -357,9 +357,9 @@ Present the categorisation per site; confirm with the author; only then apply. F
 
 ## M-42 — React-19-removed Reagent surfaces (bridge *and* slim)
 
-**Trigger**: fires on **both** Reagent paths, because `reagent.dom/render` is removed in **Reagent 2.x itself** — and the classic bridge runs on Reagent 2.x (per the Phase-0 floor gate). The render call site needs a createRoot+render **rewrite** regardless of which adapter the app boots; only the **target namespace** differs. The slim rewrite additionally ships the *other* legacy symbols (`dom-node`, `force-update-all`, `unmount-component-at-node`) as throw-on-call shims; on the bridge those four non-render Vars are **unchanged** (stock Reagent has not removed them — only the React-DOM `render`/`createRoot` floor moved).
+**Trigger**: fires on **both** Reagent paths, because the render call site breaks on the React-19 floor both adapters target. On the **bridge**, stock Reagent 2.x still ships the `reagent.dom/render` Var — but React 19 removed `react-dom/render` underneath it, so the Var warns and no-ops at runtime; the call site must be rewritten to `reagent.dom.client/create-root` + `render`. On **slim**, the legacy `reagent.dom` render surface is absent entirely (the render API lives at `reagent2.dom.client`), so the same call site fails at **compile** time with an unresolved-var error. Either way the render call site needs a createRoot+render **rewrite**; only the **target namespace** differs. The *other* legacy symbols (`dom-node`, `force-update-all`, `unmount-component-at-node`) are **absent on slim** (a compile-time unresolved-var, not a runtime shim throw) but **unchanged on the bridge** (stock Reagent has not removed them — only the React-DOM `render`/`createRoot` floor moved).
 
-> **Do not read "apps on the bridge are unaffected" (MIGRATION.md §M-42) as "the bridge needs no render change."** That sentence is about the *non-render* legacy Vars (`dom-node` etc.) staying available on the bridge. The **render call site still needs the createRoot rewrite on the bridge too**, because `reagent.dom/render` is gone in Reagent 2.x — the bridge just targets a different namespace than slim.
+> **Do not read "apps on the bridge are unaffected" (MIGRATION.md §M-42) as "the bridge needs no render change."** That sentence is about the legacy Vars still *existing* on the bridge (stock Reagent 2.x has not removed them). But the **render call site still needs the createRoot rewrite on the bridge too**: the `reagent.dom/render` Var survives, yet React 19 removed the `react-dom/render` it delegated to, so it warns and no-ops at runtime. The bridge just targets a different namespace (`reagent.dom.client`) than slim.
 
 **The adapter-keyed render-namespace table** (the render rewrite is the same shape — `create-root` + `render` around the same `container` — only the namespace changes):
 
@@ -369,7 +369,7 @@ Present the categorisation per site; confirm with the author; only then apply. F
 | **slim rewrite** (`re-frame.adapter.reagent-slim`) | `reagent2.dom.client` | `day8/reagent-slim` |
 
 ```clojure
-;; v1 (both paths) — reagent.dom/render is gone in Reagent 2.x
+;; v1 (both paths) — reagent.dom/render no-ops under React 19 (bridge) / is absent (slim)
 (reagent.dom/render [app] (.getElementById js/document "app"))
 
 ;; bridge — create-root + render via reagent.dom.client
@@ -391,7 +391,7 @@ Pick the row by the **adapter artefact M-0 committed** — that disambiguates th
 2. **`dom-node` (Type B — ask first; slim only)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership. (Available unchanged on the bridge.)
 3. **`force-update-all` (Type B — ask first; slim only)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per the shared [`issue-filing.md`](../../shared/issue-filing.md) recipe) rather than inventing a replacement. (Available unchanged on the bridge.)
 
-Apply the render mount-path half mechanically (in the adapter's namespace); flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the throw-on-call shim list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim).
+Apply the render mount-path half mechanically (in the adapter's namespace); flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the removed-surface list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim) — note its heading and shim list predate the slim change that made these surfaces **absent** (compile-time unresolved-var) rather than throw-on-call.
 
 ---
 

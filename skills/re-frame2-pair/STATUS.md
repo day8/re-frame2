@@ -1,8 +1,6 @@
 # Implementation status
 
-A living record of what's actually implemented, what's scaffolded, and what's blocked. Updated per release. See `docs/initial-spec.md` for the original design this is measured against; the live surface is now the MCP server (`tools/re-frame2-pair-mcp/`) + the injected `re-frame2-pair.runtime` preload, and the normative contract is re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
-
-**Last updated:** 2026-06-04 — MCP-server-primary; push-mode streaming landed
+A living record of what's actually implemented, what's scaffolded, and what's blocked. See [`docs/initial-spec.md`](docs/initial-spec.md) for the original (historical) design this is measured against; the live surface is the MCP server (`tools/re-frame2-pair-mcp/`) + the injected `re-frame2-pair.runtime` preload, and the normative contract is re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
 
 ---
 
@@ -18,7 +16,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. |
 | Push-mode streaming | **Landed** — `subscribe` / `unsubscribe` MCP tools push live trace/epoch events as `notifications/progress`. See [`streaming-subscriptions.md`](references/streaming-subscriptions.md). |
 | Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
-| `.claude-plugin/plugin.json`, `package.json`, GH Actions (CI + release) | Written |
+| `.claude-plugin/plugin.json`, `package.json` | Written. Release rides re-frame2's own release pipeline — this skill ships no skill-local CI/release workflow (see `RELEASING.md`). |
 
 **Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. The structured-read egress posture is now expressed as the EP-0015 §10 named profile `:rf.egress/off-box-tool` (the off-box default; sensitive → `:rf/redacted`, large → `:rf.size/large-elided`); the `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in selects `:rf.egress/local-raw` (raw). The profile resolves to its `:rf.size/*` floor through the framework table (mirrored byte-identically for the bundle in `re-frame.mcp-base.egress`, pinned by the mcp-conformance wire-vocab gate) — the server never re-derives the redaction posture from an ad-hoc toggle. Still pre-alpha — see *Known unknowns* below.
 
@@ -36,7 +34,7 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 | Hot-swap (REPL) | **Live** | `reg-event`/`reg-sub`/`reg-fx`/`reg-machine` via `eval-cljs`. Re-registration emits `:rf.registry/handler-replaced` per Spec 001 §Hot-reload semantics. Ephemeral — source edit for permanence. |
 | Hot-reload coordination | **Live** | `tail-build` implements the probe-based protocol — preferred probes target `(rf/handler-meta ...)` since the meta map's `:line` / `:column` / `:handler-fn` change after re-registration. |
 | Time-travel | **Live — first-class** | `restore-epoch`, `replace-app-db` (dedicated tools, allow-listed, `--allow-writes`-gated) are the **canonical** named-write path; the eval forms `(rf/restore-epoch! ...)` / `app-db-reset!` and the `undo-step-back` / `undo-to-epoch` sugar are the **backstop** for a gate-OFF server. **Seven** documented failure modes per Tool-Pair §Time-travel. No adapter — re-frame2 ships this directly. |
-| Packaging | **Live** | `package.json`, `plugin.json`, GH Actions for CI + npm release on tag (`@day8/re-frame2-pair-mcp`). See `RELEASING.md`. |
+| Packaging | **Live** | `package.json` + `plugin.json` version-locked. Release rides re-frame2's release pipeline — no skill-local CI/release workflow; the MCP server package (`@day8/re-frame2-pair-mcp`) is released from `tools/re-frame2-pair-mcp/`. See `RELEASING.md`. |
 
 ---
 
@@ -66,7 +64,7 @@ Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the r
 
 ## What's genuinely verified
 
-- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (core-API name carries the bang; the MCP tool that calls it is named `restore-epoch`), `replace-app-db!`, `configure`, `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `implementation/core/src/re_frame/core.cljc`. The `trace-buffer` reader lives in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only); CLJS callers use the `re-frame.trace.tooling` ns directly.
+- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes on the facade — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (core-API name carries the bang; the MCP tool that calls it is named `restore-epoch`), `replace-app-db!`, `configure!` (the bang), `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of` — confirmed in `implementation/core/src/re_frame/core.cljc`. The owned-ns readers are **not** on the `rf/` facade: `sub-cache-snapshot` lives in `re-frame.subs.tooling`, `machines` / `machine-meta` in `re-frame.machines`, `app-schemas` in `re-frame.schemas`, and `trace-buffer` in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only) — CLJS callers use those namespaces directly.
 - Epoch records carry the documented `:rf/epoch-record` shape (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, `:trace-events`, `:sub-runs`, `:renders`, `:effects`).
 - `restore-epoch!` implements the **seven** documented failure modes per Tool-Pair §Time-travel.
 - shadow-cljs nREPL accepts JVM `(shadow.cljs.devtools.api/cljs-eval ...)` calls (well-known).
@@ -85,10 +83,9 @@ In order:
 
 ---
 
-## Asymmetries to monitor in the spec
+## Projection notes
 
-These are documented gaps in re-frame2's `:rf/epoch-record` projection that affect what recipes can return today. Each is a candidate follow-on if real usage shows it materially blocks a recipe:
+How the `:rf/epoch-record` projection shapes what recipes can return today (Spec-Schemas §`:rf/epoch-record`):
 
-- **`:effects` projection captures only warning/error outcomes** — successful fx execution is not in the projection (Spec-Schemas §`:rf/epoch-record`). The skill's "What effects fired?" recipe falls back to walking `:trace-events` directly when successful-fx attribution is needed.
-- **`:render-key` shape is TBD** (Spec-Schemas §`:rf/epoch-record`). Treated as opaque by the skill; recipes that route by render-key compare via `str` until the shape stabilises.
-- **`:sub-runs` `:result-changed?` is currently always true when the sub recomputed** — the raw trace doesn't yet carry the prior value. Tools requiring fine-grained change-tracking consume the raw trace stream.
+- **`:effects` records every dispatched fx** — one entry per fx with `:fx-id` / `:args` / `:outcome` (`:ok` / `:error` / `:skipped-on-platform`), successes included, so per-event fx attribution needs no re-fold of the raw trace. Off-box, each row's `:args` egresses as `:rf/redacted` by default (`:include-fx-args?` opt-in); reserve the `:trace-events` walk for richer per-fx detail, not basic attribution.
+- **`:render-key` is a finalised tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]`. Resolve source coords from the **first** slot (the registered view id); the second is a per-mount instance token.

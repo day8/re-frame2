@@ -22,11 +22,9 @@ With these capabilities, Claude Code can iteratively perform experiments by patc
 
 ## Status
 
-**Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed.** The repository contains the SKILL.md, the `preload/re_frame2_pair/runtime.cljs` helper namespace (shipped into consumer apps via shadow-cljs `:devtools :preloads`), the MCP server at [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp) (the only skill-facing transport), the plugin manifest, the npm package manifest, and a GitHub Actions workflow that publishes to npm on tag. The bash-shim dispatcher (`scripts/ops.clj` + the `*.sh` wrappers) is retired from the skill surface — kept on disk only for the project's own e2e harness and ad-hoc shell use.
+**Pre-alpha — MCP-server-primary; push-mode streaming and the fixture app have landed.** Per-surface implementation state, known unknowns, and the remaining spike deliverables live in [`STATUS.md`](STATUS.md).
 
-Still ground-truthing the *Known unknowns* against the live fixture (`tests/fixture/`) before graduating out of pre-alpha. See [`STATUS.md`](STATUS.md) for the per-surface implementation state and the remaining spike deliverables.
-
-Read [`STATUS.md`](STATUS.md) for the per-phase implementation state; [`docs/initial-spec.md`](docs/initial-spec.md) for the full design; [`docs/TESTING.md`](docs/TESTING.md) for the test plan; [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) for running from a clone without waiting for an npm release; [`RELEASING.md`](RELEASING.md) for the release flow.
+More docs: [`docs/TESTING.md`](docs/TESTING.md) (test plan); [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md) (running from a clone); [`RELEASING.md`](RELEASING.md) (release flow); [`docs/initial-spec.md`](docs/initial-spec.md) (the original, historical design record).
 
 ## Why a separate skill (vs. extending re-frame-pair)?
 
@@ -100,7 +98,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Tell me about every `:checkout/*` event as I click through.
 >
-> **Claude**: *(watches in the background; narrates each matching epoch as it fires, one short paragraph, with effect cascade)* — idle timeout after 30s of silence, so you don't need to remember to stop it.
+> **Claude**: *(subscribes in the background; narrates each matching epoch as it fires, one short paragraph, with effect cascade)* — I'll close the stream with `unsubscribe` when you're done, or bound it up front with `:max-ms` / `:max-events`.
 
 ### Hot-swap a handler mid-session
 
@@ -121,7 +119,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Are there any items in the cart with `:qty <= 0`?
 >
-> **Claude**: *[at the REPL]* `(->> (rf/snapshot-of [:shopping-cart :items]) (filter #(<= (:qty %) 0)))` — returns `()`. None right now, but the invariant isn't enforced by the `:cart/add-item` handler, and there's no `app-schema` registered for `[:shopping-cart :items]`. Want me to propose a guard, or register a malli schema?
+> **Claude**: *[at the REPL, passing the frame so the read has a scope]* `(->> (rf/snapshot-of [:shopping-cart :items] {:frame :rf/default}) (filter #(<= (:qty %) 0)))` — returns `()`. None right now, but the invariant isn't enforced by the `:cart/add-item` handler, and there's no `app-schema` registered for `[:shopping-cart :items]`. Want me to propose a guard, or register a malli schema?
 
 ### Post-mortem — how did I get into this state?
 
@@ -140,7 +138,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: What would happen if the checkout HTTP request returned a 500?
 >
-> **Claude**: I'll dispatch `[:cart/checkout]` with `:fx-overrides {:http :stub-http}`, where `:stub-http` is a registered fx that fires the canonical `:rf.http/managed` failure trace with status 500. Watch — *(reports the resulting epoch's cascade, including the error-projector path through `reg-error-projector`)*
+> **Claude**: I'll dispatch `[:cart/checkout]` with `:fx-overrides {:http :stub-http}`, where `:stub-http` is a registered fx that fires the canonical `:rf.http/managed` failure trace with status 500. Watch — *(reports the resulting epoch's cascade: the failure reply lands on the request's `:on-failure` event, whose `:rf.http/http-5xx` failure `:kind` drives the rest of the cascade)*
 
 ### Commit a change via source edit
 
@@ -214,9 +212,9 @@ The pieces (design; see *Status* above):
 2. `eval-cljs` (MCP tool `mcp__re-frame2-pair__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame2_pair/runtime.cljs` is the `re-frame2-pair.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), and installs the `js/globalThis.__re_frame2_pair_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with `:ns` / `:line` / `:file` resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with source coords resolvable through the registrar's source-coord capture (Spec 001).
 
-See [`docs/initial-spec.md`](docs/initial-spec.md) for the full operation catalogue, architecture, error surfaces, versioning, and phased delivery plan.
+The live operation catalogue and error surfaces are in [`references/ops.md`](references/ops.md) and [`references/errors.md`](references/errors.md); per-surface state is in [`STATUS.md`](STATUS.md).
 
 ## License
 

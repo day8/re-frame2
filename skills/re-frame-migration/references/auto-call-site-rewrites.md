@@ -43,7 +43,7 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 
 - **`re-frame.core`** — the public façade. The single import for application code (`[re-frame.core :as rf]`).
 - **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http.managed` / `re-frame.http`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http.test-support`.
-- **`re-frame.interop`** (JVM interop) and **`re-frame.std-interceptors`** — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave them.
+- **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it. **`re-frame.std-interceptors` is NOT preserved** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
 
 Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** a public surface in v2 — it does not exist as a v2 namespace; a v1 `re-frame.alpha` require is removed by **M-23**, not M-1. The internals that an `:enumerate-the-list` sweep tends to miss include `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, **`re-frame.utils`**, `re-frame.loggers`, `re-frame.interceptor`, `re-frame.fx`, `re-frame.cofx`, `re-frame.spec` (reach the interceptor through `re-frame.core` instead). `re-frame.utils` in particular is a classic surprise: a v1 app that used `re-frame.utils/map-vals` sails through an enumerated sweep and only fails later with `The required namespace "re-frame.utils" is not available` — *after* the obvious db/router/subs/events/registrar requires are cleared, so it reads as a regression rather than a known M-1 site.
 
@@ -54,7 +54,7 @@ Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** 
 # Stage 1: broad-scan every re-frame.* require. Stage 2: invert-filter out
 # core + the preserved/feature namespaces. Each surviving line is an M-1 site.
 rg -n '\[\s*re-frame\.[a-z-]+' . \
-  | rg -v '\[\s*re-frame\.(core|interop|std-interceptors|schemas|machines|routing|flows|http|http-managed|http-test-support|ssr|epoch|test-support)\b'
+  | rg -v '\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|http|http-managed|http-test-support|ssr|epoch|test-support)\b'
 ```
 
 (**Do not** reach for an inline negative-lookahead — `rg -n '\[\s*re-frame\.(?!core\b|…)…'` — in the *default* engine: ripgrep's default Rust `regex` engine rejects look-around and exits non-zero *before scanning* with "look-around … is not supported", so the M-1 inventory silently produces nothing and reads as a false-clean sweep. The broad-scan-then-invert-filter form above works on **any** ripgrep build; an equivalent single-command form needs `rg -P`/`--pcre2`, which only works on a ripgrep compiled with PCRE2. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)
@@ -278,14 +278,14 @@ Mechanical name-rename only. The macro's `binding` over `re-frame.router/*fx-ove
 
 A sibling mechanical (Type A) rewrite to M-23, for a v1 surface that carries **no `M-N` id** — cite it by name (a `reg-sub` `:->` / `:=>` desugaring), not a phantom `M-NN`.
 
-re-frame **v1.3+** `reg-sub` accepts two **flat-sub sugar** markers — `:->` and `:=>` — that let the computation fn be written as a plain function of the input value(s):
+Later re-frame v1 releases' `reg-sub` accept two **flat-sub sugar** markers — `:->` and `:=>` — that let the computation fn be written as a plain function of the input value(s):
 
 - `(reg-sub :id :-> f)` — **no** `:<-`, so the input is **app-db**; `f` is applied to it.
 - `(reg-sub :id :<- [:a] :-> f)` — `f` is applied to the single upstream value.
 - `(reg-sub :id :<- [:a] :<- [:b] :-> f)` — `f` is applied to the **vector** of upstream values `[a b]`.
 - `:=>` is the same family but **also passes the query vector** (spread) into `f`.
 
-**re-frame2's `reg-sub` DROPPED both markers.** The sub parser (`implementation/core/src/re_frame/subs.cljc`) recognises **only** `:<-` chains, the two-trailing-fn parametric form, and a single trailing computation fn — there is no `:->` / `:=>` handling and no desugaring macro. So a `:->` / `:=>` registration falls through the parser's `:else` arm and throws **`:rf.error/reg-sub-bad-args`** (`:recovery :fix-registration`) at **registration / ns-load**. This is **loud-at-registration, not loud-at-compile** and not a silent miss: like the retired event registrars (M-73) and the bad interceptor-chain shapes (M-70), the throw **aborts the rest of that namespace's load** — every later `reg-event` / `reg-frame` / `reg-machine` in the same ns never registers, so a boot that depends on them hangs. `:->` / `:=>` are high-frequency in v1.3+ / alpha apps, so expect many sites; grep them up front (see [`inventory-and-plan.md`](inventory-and-plan.md) Phase 0a) rather than marching the wall.
+**re-frame2's `reg-sub` DROPPED both markers.** The sub parser (`implementation/core/src/re_frame/subs.cljc`) recognises **only** `:<-` chains, the two-trailing-fn parametric form, and a single trailing computation fn — there is no `:->` / `:=>` handling and no desugaring macro. So a `:->` / `:=>` registration falls through the parser's `:else` arm and throws **`:rf.error/reg-sub-bad-args`** (`:recovery :no-recovery` — the registration is rejected) at **registration / ns-load**. This is **loud-at-registration, not loud-at-compile** and not a silent miss: like the retired event registrars (M-73) and the bad interceptor-chain shapes (M-70), the throw **aborts the rest of that namespace's load** — every later `reg-event` / `reg-frame` / `reg-machine` in the same ns never registers, so a boot that depends on them hangs. `:->` / `:=>` are high-frequency in later-v1 / alpha apps, so expect many sites; grep them up front (see [`inventory-and-plan.md`](inventory-and-plan.md) Phase 0a) rather than marching the wall.
 
 **The rewrite — desugar to the explicit computation fn**, matching re-frame v1's documented sugar semantics. The v2 computation fn shape is `(fn [input query-v] …)`, where `input` is exactly what the sugar's `f` was fed: app-db with no `:<-`, the single value with one `:<-`, the vector with several.
 
@@ -344,7 +344,7 @@ The single highest-impact mechanical rewrite. The transformation is structural.
  :fx [[:dispatch <event-vec>]]}
 
 {:fx [[:dispatch-later <map>] ...]}           ; one entry per map in the original vector;
-                                              ; rename each map's :dispatch key → :event (M-16)
+                                              ; rename each map's :dispatch key → :event (M-8)
 
 {:fx [[:dispatch <e1>] [:dispatch <e2>] ...]} ; one entry per event-vec
 

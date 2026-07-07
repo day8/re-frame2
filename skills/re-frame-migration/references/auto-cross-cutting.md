@@ -115,13 +115,15 @@ The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cach
 Closed mechanical rename table. The trace and epoch listener APIs collapse onto the same one stream-parameterized `register-listener!` / `unregister-listener!` verb (stream ∈ `{:trace :events :errors :epoch}`). Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
 
 ```
-(rf/register-trace-cb! ...) → (rf/register-listener! ...)
-(rf/remove-trace-cb! ...) → (rf/unregister-listener! ...)
-(rf/clear-trace-cbs! ...) → (rf/clear-listeners! ...)
+(rf/register-trace-cb! id f) → (rf/register-listener! :trace id f)
+(rf/remove-trace-cb! id) → (rf/unregister-listener! :trace id)
+(rf/clear-trace-cbs!) → (rf/clear-listeners! :trace)
 (rf/register-epoch-cb! ...) → (rf/register-epoch-listener! ...)
 (rf/remove-epoch-cb! ...) → (rf/unregister-epoch-listener! ...)
 (rf/clear-epoch-cbs! ...) → (rf/clear-epoch-listeners! ...)
 ```
+
+The `stream` keyword (`:trace`) is a **required leading arg** on the unified verb — a 2-arg `(register-listener! id f)` reads the id as the stream and throws `:rf.error/unknown-listener-stream`.
 
 **Late-bind hook keys** (tool authors only — most apps will not touch these):
 
@@ -392,16 +394,16 @@ When a per-feature surface is in use, add the dep AND add the `:require` of the 
 
 | Surface in code | Dep to add | Namespace to require |
 |---|---|---|
-| `reg-app-schema` / `:schema` metadata (the per-`reg-*` key — was `:spec` pre-M-54) | `day8/re-frame2-schemas` | `re-frame.schemas` |
+| `reg-app-schema` / `:schema` metadata (the per-`reg-*` key — was `:spec` pre-M-54) | `day8/re-frame2-schemas` | `re-frame.schemas` **plus** `re-frame.schemas.malli` in the CLJS boot path — without the Malli adapter the default validator soft-passes silently (validates nothing) |
 | `reg-machine` / `sub-machine` | `day8/re-frame2-machines` | `re-frame.machines` |
 | `reg-route` / `:rf.route/*` events | `day8/re-frame2-routing` | `re-frame.routing` |
 | `reg-flow` / `:rf.fx/reg-flow` | `day8/re-frame2-flows` | `re-frame.flows` |
 | `[:rf.http/managed ...]` (and/or the `rf.http/get` / `post` / … verb helpers) | `day8/re-frame2-http` | `re-frame.http.managed` (registers the `:rf.http/managed` fx at ns-load) **plus** `re-frame.http` (the call-site verb helpers). Require **both** in any ns using managed HTTP — `re-frame.http` is verb helpers only and does **not** register the fx, so a require of `re-frame.http` alone fails at dispatch with `:rf.error/no-such-fx`. |
 | `render-to-string` (SSR) | `day8/re-frame2-ssr` | `re-frame.ssr` |
-| `epoch-history` / `restore-epoch` | `day8/re-frame2-epoch` | `re-frame.epoch` |
+| `epoch-history` / `restore-epoch!` | `day8/re-frame2-epoch` | `re-frame.epoch` |
 | managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`) or stub macros (`with-managed-request-stubs` family) **in test code** (M-31a / M-65) | (no separate Maven dep — ships with `day8/re-frame2-http`) | `re-frame.http.test-support` (in the **test** ns require closure) |
 
-The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call (the `re-frame.http.test-support` require is the test-side counterpart — its omission raises `:rf.error/http-artefact-missing` from the `rf/<stub>` re-exports).
+The `:require` is what triggers the artefact's load-time hook registrations. Without it the public surface throws `:rf.error/<artefact>-artefact-missing` at the first call (the `re-frame.http.test-support` require is the test-side counterpart — its omission raises `:rf.error/http-artefact-missing` from the `rf/<stub>` re-exports). **Epoch is the exception** (it is dev-tier, so a release build that omits it must not raise): without the epoch artefact the query re-exports **degrade silently** — `epoch-history` returns `[]`, `restore-epoch!` returns `false`, listener register / remove return `nil`, `configure!` is a no-op; only the injection mutators (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!`) throw `:rf.error/epoch-artefact-missing`.
 
 ---
 

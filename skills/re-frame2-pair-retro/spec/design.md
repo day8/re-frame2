@@ -154,17 +154,9 @@ The `description` triggers on two canonical paths: (a) **explicit pull** — ret
 
 ## 8. Working style (meta-process)
 
-> **Operational home: [`references/working-style.md`](../references/working-style.md).** The diagnostic-posture rules below are an authoring-time *rationale* copy. The normative, **shipped** statement the skill loads during normal operation lives in `references/working-style.md` (a packaged `references/` leaf) — `SKILL.md` cross-links there, not here. This was moved out of `spec/` because `spec/` is excluded from the npm package / plugin bundle and is "not loaded during normal operation", so an operational `SKILL.md → spec/design.md §8` link broke in every packaged/plugin/vendored install. Keep the two copies aligned, or (preferred) treat `references/working-style.md` as the source and let this section paraphrase it.
+The pillars in §2 govern *what* the skill delivers; the **diagnostic-posture rules** govern *how* the AI conducts the retro conversation — evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, and creative ambition only after diagnosis. They lock the posture so the skill doesn't degenerate into vibes-driven editorialising or solutionism.
 
-The pillars in §2 govern *what* the skill delivers; the rules below govern *how* the AI conducts the retro conversation. They lock the diagnostic posture so the skill doesn't degenerate into vibes-driven editorialising or solutionism.
-
-- **Evidence over vibes.** Cite concrete moments: retries, clarifications, fallbacks, stale outputs, empty outputs, waits, manual workarounds. Re-states pillar 2 as an operational rule per finding.
-- **Symptom vs cause.** *"We had to retry the attach three times"* is the symptom; *"discovery was brittle on this platform"* is the likely cause. The skill names both; the GitHub issue targets the cause.
-- **Direct and indirect friction.** Direct = the user says something was frustrating. Indirect = repeated commands, repeated explanations, fallback to lower-level tools, manual reconstruction, hidden prerequisites, partial results, confusing contracts. Both count as evidence.
-- **Positive gaps too.** What almost worked? What required too much expert knowledge? What capability existed but was undiscoverable? What should have been the default? Negative-space evidence is as load-bearing as failure evidence.
-- **Be creatively ambitious after diagnosis.** Start with grounded fixes; then ask what would make this workflow feel nearly automatic or hard to misuse. Include 1-2 higher-upside ideas when warranted, even if they reshape the workflow rather than patching a local symptom. Operationalises pillar 4 + L6.
-
-SKILL.md cross-links the shipped `references/working-style.md` leaf rather than reciting these rules inline — keeps the orchestrator lean per `skills/README.md` §Leaf size discipline's per-leaf size ceiling, and (unlike a cross-link into this `spec/` doc) the leaf ships in the npm package / plugin bundle so the link resolves in every advertised install shape.
+Their normative, **shipped** home is [`references/working-style.md`](../references/working-style.md) — a packaged `references/` leaf that `SKILL.md` cross-links and that loads during normal operation. This section keeps **no synced copy**: the rules were moved out of `spec/` precisely because `spec/` is excluded from the npm package / plugin bundle, so an operational `SKILL.md → spec/design.md §8` link would break in every packaged / plugin / vendored install. For the rules themselves, read the leaf.
 
 ## 9. Why this design diverges from `re-frame2-pair`
 

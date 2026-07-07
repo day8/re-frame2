@@ -4,7 +4,7 @@ End-to-end worked example: a working re-frame2 counter in one file. This is the 
 
 Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, **greenfield setup is done** — switch the author to the main `re-frame2` skill for everything else.
 
-> **Reagent only.** This leaf uses Reagent's `reg-view` macro (auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook, dispatch through `(:dispatch (rf/capture-frame))`, and mount through their own root API. For a UIx/Helix greenfield do **not** use this counter: copy the substrate entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md), or take the generator route (SKILL.md cardinal rule 4). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
+> **Reagent only.** This leaf uses Reagent's `reg-view` macro (auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook, dispatch through `(:dispatch (rf/capture-frame))`, and mount through their own root API. For a UIx/Helix greenfield do **not** use this counter: copy the substrate entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md), or take the generator route (SKILL.md cardinal rule 5). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
 
 ## Contents
 
@@ -120,7 +120,7 @@ Two contracts make the attach work:
 - **The artefact must be loaded as a side effect before any `reg-app-schema` runs.** Requiring `re-frame.schemas` + `re-frame.schemas.malli` publishes Malli's `validate`/`explain` into the framework's late-bind hook table — so the registration actually validates rather than throwing `:rf.error/schemas-artefact-missing`. (On the CLJS reference, schema **implies** validation — Spec 010 §Schema implies validation; there is no silent soft-pass with the artefact on the classpath.)
 - **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002 carried-frame invariant); at namespace-load time no frame is established, so registering there raises `:rf.error/no-frame-context`. The attach therefore lives in a `register-schema!` fn that `init` calls **after** `reg-frame` makes `:rf/default` live, inside `(rf/with-frame :rf/default …)`. (Contrast `reg-event` / `reg-sub`, which are frame-agnostic global registrations and are fine at ns-load.)
 
-A schema describes **shape**, not durable egress policy — whether an app-db path is `:sensitive?` / `:large?` (and so redacted/elided at Xray / Story / trace boundaries) is **frame-owned**, declared on `reg-frame`, not re-attached on the schema (Spec 015 §Schemas describe shape, not durable app-db egress policy).
+A schema describes **shape**, not egress policy — whether a path is `:sensitive?` / `:large?` (redacted/elided at Xray/trace boundaries) is **frame-owned** on `reg-frame`, not on the schema (Spec 015).
 
 ### Events
 
@@ -130,27 +130,18 @@ Adding a side effect later (HTTP, navigation, a child dispatch) doesn't change t
 
 ### Subscriptions
 
-One subscription, `[:counter/value]`, reads `(:counter/value db)`. Views deref it with `@(subscribe [:counter/value])`. Under re-frame2's value-equal recompute suppression, the sub re-runs only when its inputs change; if the new return value is `=` to the previous one, downstream consumers don't re-render. That suppression is automatic; nothing to configure.
+One subscription, `[:counter/value]`, reads `(:counter/value db)`. Views deref it with `@(subscribe [:counter/value])`. re-frame2's value-equal recompute suppression (a sub re-runs only when inputs change, and downstream consumers skip re-render when the value is unchanged) is automatic — nothing to configure here.
 
 ### Views
 
-`reg-view` is a macro that **registers a view** under `(keyword *ns* sym)` — here, `:your-app.core/counter-buttons` and `:your-app.core/counter-app`. It also defs a regular CLJS var with the same name so the hiccup `[counter-buttons]` reference works.
-
-Inside the body, two locals are **auto-injected** by the macro:
-
-- `dispatch` — bound to the current frame's `dispatch` fn. Use it like `(dispatch [:counter/increment])`.
-- `subscribe` — bound to the current frame's `subscribe` fn. Use it like `@(subscribe [:counter/value])`.
-
-This makes registered views frame-aware without threading the frame through every component. The macro resolves both at render time against whatever frame is in scope — here `:rf/default`, scoped by the root `frame-provider {:frame …}` in `init`. (There is no implicit default frame; the provider supplies the carried frame to the tree. Multi-frame apps wrap subtrees in additional `frame-provider`s.)
-
-The result is regular Reagent hiccup. Reagent renders, the React 19 root commits, the DOM updates.
+`reg-view` **registers a view** under `(keyword *ns* sym)` (here `:your-app.core/counter-buttons` / `:counter-app`) and defs a same-named var so `[counter-buttons]` works. Inside the body it auto-injects two frame-bound locals — `dispatch` (e.g. `(dispatch [:counter/increment])`) and `subscribe` (e.g. `@(subscribe [:counter/value])`) — resolved at render time against the frame in scope (here `:rf/default`, from the root `frame-provider` in `init`), so you never thread the frame through components. The result is regular Reagent hiccup.
 
 ### Mount
 
-`defonce` guards `react-root` against hot-reload. `init` runs four steps in order — `rf/init!` → `reg-frame` → `with-frame (register-schema!) (dispatch-sync …)` → `rdc/render` wrapped in `frame-provider` — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two facts specific to this counter:
+`defonce` guards `react-root` against hot-reload. `init` runs four steps in order — `rf/init!` → `reg-frame` → `with-frame (register-schema!) (dispatch-sync …)` → `rdc/render` wrapped in `frame-provider` — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two counter-specific facts:
 
-- **Step 3 attaches the schema before the seed**, both inside `(rf/with-frame :rf/default …)`: `reg-app-schema` needs an established frame (§Schema), and seeding synchronously means the initial render sees `{:counter/value 0}`, not a transient empty frame.
-- **The `dispatch-sync` seed is the reset boundary** — it re-seeds the demo state on **every** hot reload. Seeding via `:initial-events` instead would only run on the first registration (step 2's surgical update does not rerun them), so a save mid-demo would leave the counter wherever you'd clicked it.
+- **Step 3 attaches the schema before the seed**, both inside `(rf/with-frame :rf/default …)`: `reg-app-schema` needs an established frame (§Schema), and seeding synchronously means the initial render sees `{:counter/value 0}`.
+- **The `dispatch-sync` seed re-seeds this counter on every hot reload** (the reset boundary — see entry-namespace.md), so a save mid-demo resets the count to `0` rather than leaving it where you'd clicked.
 
 ## Verifying it works
 
@@ -170,7 +161,7 @@ You should see:
 
 Click `+1` — the number becomes `1`, then `2`, and so on. Refresh the page — back to `0` (state lives in app-db, which resets on full reload).
 
-First-run failures, in roughly the order you'll hit them:
+First-run failures, roughly in order:
 - **`shadow-cljs: command not found` / `Cannot find module`** — `npm install` hasn't run (or you ran `npx shadow-cljs` before installing). Run `npm install`, then retry `npx shadow-cljs watch app`.
 - **Page loads but the browser console shows `main.js` 404 (`GET /js/main.js 404`)** — `:output-dir`, `:asset-path`, and `index.html`'s `<script src>` disagree. The template serves `resources/public` with `:output-dir "resources/public/js"` + `:asset-path "/js"` + `<script src="/js/main.js">`; if you changed any one, change the others to match.
 - **Blank page, no console errors** — `index.html` is missing `<main id="app">`, or the entry ns looks up a different id than `index.html` declares.
@@ -189,7 +180,7 @@ If you see a blank page, open the browser console. Most failures land there with
 
 - **Writing more code (events, subs, machines, schemas, frames, fx, flows, routing, SSR)** — load the **`re-frame2`** skill. It covers the API surface in modular files; you can load just the pieces relevant to what you're building.
 - **Touring the Xray panel that just auto-opened** — load the **`re-frame2-xray`** skill. The day-one preload mounts Xray into the right-side host the moment the counter renders; the skill is a read-only tour of how to launch it and which tab surfaces what (epoch cascade, app-db, trace, the registry-browse Static tabs).
-- **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL, lets you walk app-db, dispatch from the REPL, hot-swap handlers, time-travel through epoch history. nREPL stays dev-only and bound to localhost — see SKILL.md cardinal rule 6.
+- **Inspecting the running app live from the REPL** — install the **`re-frame2-pair`** skill. It attaches over nREPL to walk app-db, dispatch from the REPL, hot-swap handlers, and time-travel through epoch history (that last needs `day8/re-frame2-epoch` on your own classpath — it is **not** in the day-one deps; see [`deps-versions.md`](deps-versions.md)). nREPL stays dev-only and bound to localhost — see SKILL.md cardinal rule 7.
 
 All three are independent and can be loaded individually.
 

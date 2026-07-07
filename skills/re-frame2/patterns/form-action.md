@@ -111,7 +111,7 @@ No standalone example app — the SSR worked apps are `examples/capabilities/ssr
 
 - Spec: [`spec/Pattern-FormAction.md`](../../../spec/Pattern-FormAction.md) — full worked `/cart/add` page, the failure-path projector hook, multipart privacy, the server-vs-client handler-tree table, conformance checklist.
 - Substrate: `SKILL-REDIRECT.md` → *EP — SSR (011)* (`:rf.server/request` cofx, the side-channel response accumulator read via `get-response`, the seven server-only fxs, `:platforms` gating, server error projection), *EP — Schemas (010)* (`:schema` boundary check, `:sensitive?`).
-- Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + `:rf/hydrate` checks); `references/cross-cutting/privacy-and-elision.md` (the path-based, fail-open owner-classification model; handler-meta `:sensitive?` is a no-op; no propagation).
+- Cross-cutting: [`../references/cross-cutting/ssr-authoring.md`](../references/cross-cutting/ssr-authoring.md) (head/meta + `:rf/hydrate` checks); [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md) (the path-based, fail-open owner-classification model; handler-meta `:sensitive?` is a no-op; no propagation).
 - Compose: `patterns/forms.md` (the form-slice shape this reuses server-side), `patterns/ssr-loaders.md` (the GET-path sibling — a page uses Loaders for the initial render, FormAction for subsequent POSTs).
 
 ---

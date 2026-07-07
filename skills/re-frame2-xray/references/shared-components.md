@@ -91,17 +91,15 @@ signal, colour is never alone):
 Nine Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
 slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Modules**
 `:order 9` are the three cross-feature lenses, each self-registered
-through `reg-l4-tab!`; the **Modules** and **Graph** tabs are L4-only —
-focusable, no standalone mount facade). There is **no Issues tab** and
-**no Event tab** — the Epoch tab is the "what happened" surface, and issues
-surface inline in the Epoch
-cascade, the L2 pink-wash, and the issues-ribbon signal.
+through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
+the Epoch tab is the "what happened" surface (issues detail:
+[`panels.md` §Issues](panels.md)).
 
 L2 row badges (live impl `l2_timeline.cljc`): `⚠` issue · `◆` machine
 transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲` timer
 dispatch. **L2 issue pink-wash**: a cascade carrying an issue
 washes its whole L2 row pink (`:bg-issue-row`) — the per-row "this epoch
-is broken" signal. There is no dedicated Issues tab.
+is broken" signal.
 
 Cross-panel arrows: `⤴` jump-to-panel from popover (`:accent-violet`,
 12px) · `↳` cause-attribution chip (`:text-tertiary`, 11px) · `→`

@@ -27,13 +27,11 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against
 - `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
 - `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
-- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation
-- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, deliberately **excluded** from the npm package `files` array (see below)
+- `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation, and — like `evals/` — **excluded from the npm `files` array by design** (repo-maintenance artifacts that run from a full clone, not material a packaged consumer re-runs; `npm pack --dry-run` lists no `spec/` or `evals/` files, mirroring the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills)
+- `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, also excluded from the npm package `files` array
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence
-
-`spec/` carries skill-internal design/authoring meta-docs (not loaded during normal operation), and `evals/` holds the trigger-accuracy fixtures. Both are **excluded from the npm `files` array by design** — they are repo-maintenance artifacts that run from a full re-frame2 clone (where the description-optimisation loop can reach `evals/evals.json`), not material a packaged-skill consumer re-runs. This mirrors the sibling `re-frame2`, `re-frame2-setup`, and `re-frame2-pair` skills; `npm pack --dry-run` from this directory lists no `spec/` or `evals/` files.
 
 ## Relationship to other repos
 
@@ -53,23 +51,13 @@ A good run of the skill produces:
 4. 2-5 high-leverage improvement ideas
 5. optional GitHub-issue candidates (against `day8/re-frame2`; the `pair-mcp` label for tool-side friction is applied only when the repo defines it), with draft text or direct filing only after approval
 
-## Status
-
-Pre-alpha. Ports the v1 `re-frame-pair-improver` skill structure to target re-frame2. Expected to evolve as `re-frame2-pair` matures and as more re-frame2 sessions surface novel friction patterns.
-
 ## Install
 
-`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is **not published to npm or any plugin registry yet** — the current install path is to clone re-frame2 and link the skill from `skills/re-frame2-pair-retro/` (see below).
+`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is **not published to npm or any plugin registry yet** — the current install path is to link the skill from a full monorepo clone.
 
-> **The supported install is a link from a full monorepo clone — not a standalone copy.** This skill loads three normal-operation reference leaves from a **sibling** directory: [`../shared/retro-protocol.md`](../shared/retro-protocol.md) (the diagnosis-first workflow + the redaction / untrusted-evidence security boundary), [`../shared/issue-filing.md`](../shared/issue-filing.md) (the shell-safe `gh issue create` filing recipe), and [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md). Those `../shared/` paths resolve **only** when the skill sits inside a full re-frame2 checkout (linking from a clone preserves the sibling). The npm tarball and the plugin bundle deliberately **do not** carry `shared/` (`npm pack --dry-run` from this directory lists no `shared/` files): the three leaves are a single shared boundary owned once under `skills/shared/`, not duplicated into each consumer package. A standalone tarball / plugin / copied install that does **not** also bring `skills/shared/` alongside the skill will hit broken `../shared/` links and silently lose the redaction, untrusted-evidence, and shell-safe issue-filing protocol — so until Agent-Skill / plugin distribution learns to ship `skills/shared/` as a peer, **link from a clone; do not depend on the tarball or plugin bundle being self-contained.**
+> **Link from a clone; do not copy, and do not depend on a standalone tarball.** Two reasons. (1) A `cp -r` copy silently drifts from the maintained source, and for this skill that drift is a *security* concern — the shared redaction / untrusted-evidence / shell-safe issue-filing boundary it loads is an active AI/off-box surface, so a stale copy can miss later hardening while still filing GitHub issues from sensitive pair-session recaps. (2) The skill loads three normal-operation leaves from a **sibling** directory — [`../shared/retro-protocol.md`](../shared/retro-protocol.md), [`../shared/issue-filing.md`](../shared/issue-filing.md), and [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — whose `../shared/` paths resolve only inside a full re-frame2 checkout. The npm tarball / plugin bundle deliberately do not carry `skills/shared/` (it is a single boundary owned once, not duplicated per consumer), so any install that does not bring `skills/shared/` alongside the skill hits broken links and silently loses the protocol. If you deliberately vendor a pinned snapshot, you own the update burden and **must copy `skills/shared/` as a peer**.
 
-### Install the skill in Claude Code
-
-**Link, never copy.** Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. For this skill that drift is a security concern, not just polish: the shared redaction / issue-filing protocol it loads is an active AI/off-box boundary, so a stale copy can miss later redaction, prompt-injection, or shell-safety hardening while still filing GitHub issues from sensitive pair-session recaps. Always link the repo source so the active skill is the maintained source by construction.
-
-The cross-platform installer at the repo root links *every* re-frame2 skill (this one included) into `~/.claude/skills/`. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical installer commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour.
-
-To link just this one skill:
+Claude Code loads skills from `~/.claude/skills/<name>/`. The cross-platform installer at the repo root links *every* re-frame2 skill into place — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) for the canonical commands (macOS / Linux + Windows) and the idempotent / `--force` / `--check` behaviour. To link just this one skill:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git ~/src/re-frame2
@@ -84,5 +72,3 @@ New-Item -ItemType Junction -Path "$HOME\.claude\skills\re-frame2-pair-retro" -T
 ```
 
 Then `git pull` in the cloned repo to pick up updates everywhere at once.
-
-> **Project-local copying is an explicit pinned-vendoring choice, not the default.** If your team deliberately wants a frozen snapshot committed into a project's `.claude/skills/`, you own the update burden: re-vendor on every re-frame2 release or you will silently run a skill that has fallen behind the shared security hardening above. **Vendoring must also copy `skills/shared/` as a peer** (so `../shared/retro-protocol.md`, `../shared/issue-filing.md`, and `../shared/tool-pair-surfaces.md` still resolve) — vendoring this skill's directory alone drops the redaction / untrusted-evidence / shell-safe-filing boundary and leaves the `../shared/` links broken. Prefer linking unless you have a specific reason to pin.

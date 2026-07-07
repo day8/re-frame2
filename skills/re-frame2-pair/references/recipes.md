@@ -95,7 +95,7 @@ Fire the event and capture its full epoch in one call — `dispatch {event: "[:c
 
 - Event vector + interceptor chain (from `handler-meta {kind: "event", id: ":cart/apply-coupon"}`)
 - Coeffects injected (visible as `:event/run` tags in `:trace-events`)
-- Effects map (visible as `:event/do-fx` plus per-fx warning/error traces; the `:effects` projection only carries warning/error outcomes — successful fx executions live in the raw `:trace-events` slot, see Spec-Schemas note)
+- Effects map — the `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` is `:rf/redacted` by default, and `:trace-events` carries the finer per-fx detail
 - `app-db` diff between `:db-before` and `:db-after`
 - Subs that re-ran (the `:sub-runs` projection); the absence of a sub from this list means it cache-hit
 - Components that re-rendered (the `:renders` projection). Each row's `:render-key` is a **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` (Spec-Schemas `:rf/epoch-record` `:renders`), so resolve source coords from the **first** slot, not the whole tuple: `(first render-key)` is the registered view id you pass to `handler-meta {kind: "view", id: <view-id>}` to get `:ns` / `:line` / `:file`. When the first slot is `:rf.view/anonymous` (a plain Reagent fn, not `reg-view`-registered) `handler-meta` will return `:not-registered` — fall back to `read-ui`'s `:entity` `:view-id` / `:source-coord`, which resolves the producing entity directly. Passing the whole tuple as the `id` always yields `:not-registered`.
@@ -125,7 +125,7 @@ Procedure:
 
 ## "What effects fired?"
 
-Walk the epoch's `:effects` projection — but note its asymmetry (Spec-Schemas §`:rf/epoch-record`): the projection captures *visible outcomes* (skipped-on-platform, fx-handler-exception, no-such-fx). Successful fx execution is observable only in the raw `:trace-events` slot (look for `:event/do-fx` plus the absence of an error trace for that fx-id). If you need successful-fx attribution, walk `:trace-events` directly and group by `:fx-id` tag.
+Walk the epoch's `:effects` projection — it carries **one entry per dispatched fx** (Spec-Schemas §`:rf/epoch-record`), each with `:fx-id`, `:args`, and `:outcome` (`:ok` / `:error` / `:skipped-on-platform`), so per-event fx attribution needs no re-fold of the raw trace. Off-box, each row's `:args` egresses as `:rf/redacted` by default (`:include-fx-args?` opt-in); reach for the raw `:trace-events` slot only when you need richer per-fx detail than `:fx-id` / `:outcome`.
 
 For cascaded dispatches: follow `:dispatch-id` / `:parent-dispatch-id` (Spec 009 §Dispatch correlation) into child epochs. `eval-cljs {form: "(re-frame2-pair.runtime/cascade-of <dispatch-id>)"}` returns the tree.
 
@@ -148,7 +148,7 @@ The one-call move is `read-ui {selector: "#save"}` (or `{point: {x, y}}` / `{vie
 mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-source-at \"#save\")"}   ;; or (... :last-clicked)
 ```
 
-Returns `{:ns :line :file}`. If `:src` is nil, report which prerequisite is missing: no registered view at this DOM position (anonymous Reagent fn, so no `data-rf2-source-coord` is stamped — re-frame2 annotates registered-view roots only), a non-DOM-capable adapter or production build, or no `:src (at)` on a re-com call site.
+Returns `{:ok? true :src <coord>}` — `:src` is `{:ns :handler-id :line :col}` from re-frame2's attribute (or `{:file :line :column}` on the re-com `data-rc-src` fallback). If `:src` is nil, report which prerequisite is missing: no registered view at this DOM position (anonymous Reagent fn, so no `data-rf2-source-coord` is stamped — re-frame2 annotates registered-view roots only), a non-DOM-capable adapter or production build, or no `:src (at)` on a re-com call site.
 
 ## "Understand this component" / "What is this thing?"
 

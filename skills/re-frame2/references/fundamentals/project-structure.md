@@ -44,7 +44,7 @@ In a consumer app, tests live in a sibling `test/` directory rooted at the same 
 
 ## Stories — co-located with the feature
 
-Stories ship in the same `src/myapp/` tree as the code they exercise, in `<feature>_stories.cljs` (or a `stories/` subdirectory when many share a feature). The ns is `<app>.stories.<feature>` or `<app>.<feature>.stories` (`tools/story/spec/001-Authoring.md:228-230`) — either works as long as the path tracks the ns. The stories file requires its feature's events / subs / views so registrations fire before the variant bodies are read (`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`).
+Stories ship in the same `src/myapp/` tree as the code they exercise, in `<feature>_stories.cljs` (or a `stories/` subdirectory when many share a feature). The ns is `<app>.stories.<feature>` (`tools/story/spec/001-Authoring.md` — e.g. `app.stories`, `app.stories.button`), as long as the path tracks the ns. The stories file requires its feature's events / subs / views so registrations fire before the variant bodies are read (`tools/story/testbeds/counter_with_stories/stories.cljs:1-40`).
 
 Story integration tests live alongside the stories file, not under `test/` — they need the same load order (`tools/story/testbeds/counter_with_stories/stories_cljs_test.cljs:1-25`).
 
@@ -96,7 +96,7 @@ in the same ns (`examples/capabilities/ssr/ssr/core.cljc:188-269`).
 
 ## Routing — one `routing.cljs`
 
-Route registrations belong in a single `routing.cljs` — the `reg-route` table, auth-gating helpers, and a small `route-link` helper view (`examples/real-apps/realworld_http/routing.cljs:1-49`). The entry ns requires it for side-effects and calls its `install-router!` from `run` (`realworld/core.cljs:310-312`). Don't sprinkle `reg-route` across feature files — the router is one table; one file makes it grep-able and keeps the auth-guard helpers private.
+Route registrations belong in a single `routing.cljs` — the `reg-route` table, auth-gating helpers, and a small `route-link` helper view (`examples/real-apps/realworld_http/routing.cljs:1-49`). The entry ns requires it for side-effects and calls its `install-router!` from `run` (`realworld/core.cljs:536`). Don't sprinkle `reg-route` across feature files — the router is one table; one file makes it grep-able and keeps the auth-guard helpers private.
 
 ## Per-frame organisation (multi-frame apps)
 

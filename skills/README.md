@@ -194,6 +194,11 @@ Each skill subdir contains, at minimum:
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata.
 - `package.json` — npm packaging metadata (skill is also distributable as
   an Agent Skill via `npx skills add`).
+- `spec/` and `evals/` (where present) are **authoring-time scaffolding**
+  — the skill's own design docs and eval fixtures. They are not part of
+  the skill contract a consumer loads, so they stay out of `package.json`
+  `files[]` (the published npm package ships `SKILL.md`, `README.md`,
+  `references/`, and `.claude-plugin/` only).
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for

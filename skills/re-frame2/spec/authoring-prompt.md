@@ -41,6 +41,8 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   └── project-structure.md (source-tree conventions)
 > │   ├── state-machines/
 > │   │   ├── reg-machine.md       (states, initial, guards, actions)
+> │   │   ├── xstate-translation.md (the full xstate→re-frame2 translation catalogue)
+> │   │   ├── machine-schemas.md   (:schemas :data/:output + snapshot-egress redaction)
 > │   │   ├── regions.md           (single-region + :type :parallel)
 > │   │   ├── tags.md              (state tags, machine-has-tag?)
 > │   │   ├── spawn.md             (:spawn, :spawn-all, child-machine result)
@@ -62,6 +64,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > ├── patterns/
 > │   ├── remote-data.md
 > │   ├── resources.md
+> │   ├── resources-mutations.md
 > │   ├── forms.md
 > │   ├── boot.md
 > │   ├── websocket.md

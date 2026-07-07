@@ -50,11 +50,4 @@ Two common amendments the engineer may add:
 
 ## Why a kickoff prompt at all
 
-The skill description triggers on a wide range of "porting re-frame2" phrasings, but the **opening shape of the implementation** is identical regardless of phrasing — Phase 1 then Phase 2. Giving the engineer a paste-ready prompt:
-
-- Locks the workflow shape the first time, so the session doesn't drift mid-implementation.
-- Makes the "Phase 1 before Phase 2" rule explicit upfront — the session can't skip ahead to coding.
-- Frames the spec as the contract and the reference impl as one example — so the session doesn't mistake the CLJS choices for pattern requirements.
-- Names the standing rules (substrate-agnostic phrasing, no core.async, JVM-runnability, GH-issue-files-not-silent-extrapolation, search-before-filing-to-avoid-duplicates, cross-repo-announce-before-filing) so they're in the session's context from the first turn.
-
-The prompt is short (under 500 words) so the engineer doesn't lose anything by pasting it verbatim, but rigid enough that a fresh session executing it walks the implementation the same way every time.
+The opening shape is identical regardless of phrasing — Phase 1 then Phase 2 — so a paste-ready prompt locks the workflow the first time (no mid-implementation drift), makes "Phase 1 before Phase 2" explicit, frames the spec as the contract and the reference as one example, and seeds the standing rules from the first turn. It is ~750 words: short enough to paste verbatim, rigid enough that a fresh session walks the implementation the same way every time.

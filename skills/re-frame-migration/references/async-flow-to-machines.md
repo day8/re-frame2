@@ -188,7 +188,12 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
 ;; [:rf.machine/start] is the reserved eager-creation kick (xstate createActor(m).start()):
 ;; it runs the initial-entry cascade (firing :starting's :entry) then stops.
 ;; A plain [:start] would be an unhandled user event (no :on {:start ...}) → spurious no-op.
-(rf/dispatch [:app/boot [:rf.machine/start]])
+;; Kick it from a frame scope — the frame's :initial-events or the host mount hook (rule 2
+;; below). A bare top-level (rf/dispatch ...) runs under NO frame scope and throws
+;; :rf.error/no-frame-context (EP-0002). Here, from the mount hook:
+(defn ^:export init []
+  (rf/with-frame :rf/default
+    (rf/dispatch [:app/boot [:rf.machine/start]])))
 ```
 
 What changed:

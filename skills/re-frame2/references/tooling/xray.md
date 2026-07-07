@@ -28,7 +28,7 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 ```
 
 ```css
-:root { --rf-xray-accent: #7C5CFF; } /* brand-accent var */
+:root { --rf-xray-accent: #539bf5; } /* brand-accent var */
 .app-shell { display: flex; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
@@ -74,11 +74,11 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`, …)
 
 The variable is published as `day8.re-frame2-xray.config/default-layout-host-css-var` and the 560px default as `default-layout-host-width`, so tooling can refer to them without forking the string. **Xray MUST NOT introduce a CLJS setter for this property** — the host's stylesheet is the single source of truth.
 
-Xray also auto-injects a drag handle on the panel's outer edge (`tools/xray/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it — persisted across reloads in the Settings slot `[:general :panel-width-px]` (written by the resize handle via `:rf.xray/settings-update`; a host boot default bulk-sets it via the one-arg `configure!`, `{:rf.xray/settings {:general {:panel-width-px 720}}}`), clamped to `[320px, 90vw]`, double-click to reset. Both write the same `flex-basis` slot — no parallel sizing channel. To prefer the browser-native handle, set `resize: horizontal` on the host; Xray detects it via `getComputedStyle` and yields (no double-handle).
+Xray also auto-injects a drag handle on the panel's outer edge (`tools/xray/spec/007-UX-IA.md` §Resize affordance). The variable seeds the initial width; a user drag overrides it — persisted across reloads in the Settings slot `[:general :panel-width-px]` (written by the resize handle via `:rf.xray/set-panel-width-px`, which clamps and persists through the same Settings round-trip every `:rf.xray/settings-update` uses; a host boot default bulk-sets it via the one-arg `configure!`, `{:rf.xray/settings {:general {:panel-width-px 720}}}`), clamped to `[320px, 90vw]`, double-click to reset. Both write the same `flex-basis` slot — no parallel sizing channel. To prefer the browser-native handle, set `resize: horizontal` on the host; Xray detects it via `getComputedStyle` and yields (no double-handle).
 
 ## Brand-accent CSS variable (`--rf-xray-accent`)
 
-The recommended snippet also publishes a second CSS custom property — `--rf-xray-accent` — on `:root` carrying Xray's brand violet (`#7C5CFF`, matching `theme/tokens.cljc`'s `:accent-violet`). Host stylesheets can read `var(--rf-xray-accent)` anywhere to colour their own dev chrome (resize handles, dock separators, story chips) so it harmonises with Xray without forking the hex. Override on `:root` for a tinted brand variant. Published as `default-accent-css-var` + `default-accent` on the same `config` ns. Same single-source-of-truth rule applies — Xray never sets it from CLJS.
+The recommended snippet also publishes a second CSS custom property — `--rf-xray-accent` — on `:root` carrying Xray's brand accent (`#539bf5`, GitHub blue, from `theme/tokens.cljc`'s `:accent` token). Host stylesheets can read `var(--rf-xray-accent)` anywhere to colour their own dev chrome (resize handles, dock separators, story chips) so it harmonises with Xray without forking the hex. Override on `:root` for a tinted brand variant. Published as `default-accent-css-var` + `default-accent` on the same `config` ns. Same single-source-of-truth rule applies — Xray never sets it from CLJS.
 
 ## Mount lifecycle (defonce, single-shell, hot-reload-safe)
 

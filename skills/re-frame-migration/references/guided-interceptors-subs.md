@@ -344,14 +344,13 @@ rewrite, and let the author confirm.
 **Decision shape**: rewrite `(rf/on-changes f out-path & in-paths)` as a flow:
 
 ```clojure
-(rf/reg-flow
-  {:id          <picked-id>
-   :inputs      <in-paths>
-   :derive      f
-   :output-path <out-path>})
+(rf/reg-flow <picked-id>
+  {:inputs      <in-paths>
+   :output-path <out-path>}
+  f)
 ```
 
-The author picks the flow's `:id`; the agent suggests `:legacy/<original-event-id>` as a starting point. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
+`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](../../../spec/API.md#registration). The author picks the flow id; the agent suggests `:legacy/<original-event-id>` as a starting point. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
 
 ### `enrich`
 
@@ -365,11 +364,10 @@ Read the `enrich` body and propose the path; author confirms.
 
 ### `after`
 
-**Risk**: ran an arbitrary fn `:after` for side effects. Three replacement paths:
+**Risk**: ran an arbitrary fn `:after` for side effects. Two replacement paths:
 
 1. **Pure side effect, event-shaped** (analytics, logging, telemetry): canonical replacement is a registered fx returned from the handler: `:fx [[:analytics/track ...]]`.
-2. **Must run for every event of a kind**: register the behaviour with `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` from each affected event's (or the frame's) `:interceptors` chain. Named, addressable, queryable — `reg-interceptor` is the public authoring form (EP-0022), not `->interceptor`.
-3. **Vendor-from-v1**: copy `re-frame.std-interceptors/after` into the project as a 7-line utility. Acceptable if the codebase uses it widely as convention.
+2. **Must run for every event of a kind**: register the behaviour with `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` from each affected event's (or the frame's) `:interceptors` chain. Named, addressable, queryable — `reg-interceptor` is the public authoring form (EP-0022), not `->interceptor`. (There is no vendor path: `re-frame.std-interceptors` is off-contract and `->interceptor` is internal-only, so the registered interceptor IS the named replacement — per the corpus M-21 `after` guidance.)
 
 Read the body and propose; author confirms.
 

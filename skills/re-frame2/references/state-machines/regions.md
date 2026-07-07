@@ -46,49 +46,29 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 
 Adapted from `examples/real-apps/realworld_http/tags.cljs`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
 
-## Parallel regions — the canonical declaration
+## Parallel regions — the grammar
+
+`:type :parallel` replaces root `:initial` / `:states` with a `:regions` map; each region is a full transition table with its own `:initial`. `:data`, `:guards`, and `:actions` stay at the top level, shared across regions:
 
 ```clojure
 (def nine-states-machine
   {:type :parallel
-   :data {:items [] :error nil :archived-at nil}     ;; shared across regions
-
-   :guards   {:empty?     (fn [{:keys [data]}] (zero? (count (:items data))))
-              :too-many?  (fn [{:keys [data]}] (> (count (:items data)) 7))}
-
-   :actions  {:set-items  (fn [{data :data [_ {:keys [items]}] :event}]
-                            {:data (assoc data :items (vec items))})}
-
+   :data {:items [] :error nil}                       ;; shared across regions
+   :guards  {...}                                     ;; top-level, shared
+   :actions {...}
    :regions
-   {:data    {:initial :nothing
-              :states  {:nothing   {:tags #{:data/nothing}
-                                    :on   {:fetch-started :loading}}
-                        :loading   {:tags #{:data/loading}
-                                    :on   {:fetch-succeeded {:target :resolving
-                                                             :action :set-items}}}
-                        :resolving {:always [{:guard :empty?    :target :empty}
-                                             {:guard :too-many? :target :too-many}
-                                             {:target :some}]}
-                        :empty     {:tags #{:data/empty}}
-                        :some      {:tags #{:data/some}}
-                        :too-many  {:tags #{:data/too-many}}}}
-
-    :form    {:initial :neutral
-              :states  {:neutral   {:tags #{:form/neutral}
-                                    :on   {:submit-valid   :correct
-                                           :submit-invalid :incorrect}}
-                        :incorrect {:tags #{:form/invalid}}
-                        :correct   {:tags #{:form/success}}}}
-
-    :mode    {:initial :active
-              :states  {:active    {:tags #{:mode/active}
-                                    :on   {:archive :done}}
-                        :done      {:tags #{:mode/done :mode/read-only}}}}}})
+   {:data {:initial :nothing
+           :states  {:nothing {:tags #{:data/nothing} :on {:fetch-started :loading}}
+                     :loading {:tags #{:data/loading} :on {:fetch-succeeded :resolving}}
+                     ;; ...
+                     }}
+    :form {:initial :neutral :states {...}}           ;; second orthogonal axis
+    :mode {:initial :active  :states {...}}}})         ;; third
 
 (rf/reg-machine :ui/nine-states nine-states-machine)
 ```
 
-From `examples/patterns/nine_states/core.cljs` (the `nine-states-machine` declaration). Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances; the `:form` and `:mode` regions ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`re-frame.machines.lifecycle-fx.validation`).
+Three orthogonal axes, one machine. `(rf/dispatch [:ui/nine-states [:fetch-started]])` reaches **every** region; the `:data` region advances while `:form` and `:mode` ignore the event (their `:on` tables don't list it). The runtime is validated by `validate-parallel!` (`re-frame.machines.lifecycle-fx.validation`). The full worked machine (all three regions, guards, actions, `:always` resolution) is the sole carrier at [`../../patterns/nine-states.md`](../../patterns/nine-states.md) (`examples/patterns/nine_states/core.cljs`).
 
 ## Snapshot shape with parallel regions
 
@@ -101,7 +81,7 @@ For a parallel machine the snapshot's `:state` is a **map** keyed by region-name
 ;;                    :tags  #{:data/loading :form/neutral :mode/active}}
 ```
 
-`:data` is shared across regions (same map). `:tags` is the union of every active state's `:tags` set across every region. Per Spec 005 §Parallel regions §Snapshot shape and `compute-tags` in `re-frame.machines.parallel` (broadens the tag union to cover all active regions).
+`:data` is shared across regions (same map). `:tags` is the union of every active state's `:tags` set across every region. Per Spec 005 §Parallel regions §Snapshot shape and `compute-tags-parallel` in `re-frame.machines.parallel` (the cross-region union — it calls `compute-tags` per region).
 
 ## Common gotchas
 

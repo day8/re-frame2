@@ -15,7 +15,10 @@ Structural signal: the data path and the flag path are siblings (`{:items [...] 
 
 ## Why it's an anti-pattern
 
-A boolean flag is a one-bit lifecycle marker implemented in `assoc` calls. It cannot express the framework's canonical **Nine States** checklist: six **data** render states (Nothing, Loading, Empty, One, Some, Too Many), two **form** render states (Incorrect, Correct), and one terminal/read-only **mode** state (Done / Frozen). These nine are a page-level render-design checklist, not one shared enum — in the implementation they are tags emitted by three independent `:data` / `:form` / `:mode` regions and collapsed by a render-priority selector. (Transport failure stays the `:data` region's `:error` *branch*, not one of the canonical nine.) Worse, the flag's lifecycle is implicit — every code path that can terminate the in-flight operation must remember to flip it. The most common bug is a missing `dissoc` on the failure branch, leaving the UI stuck on a spinner. The data and the flag drift: rendering needs both, must guard against the `{:items [] :items-loading? true}` race (is this "initial load" or "loaded zero items"?), and ends up with the boolean-discriminator-sub cluster downstream.
+A boolean flag is a one-bit lifecycle marker implemented in `assoc` calls. It cannot express the page-level lifecycle the framework's **Nine States** checklist enumerates — see [`nine-states.md`](../../re-frame2/patterns/nine-states.md). Two detection-relevant traps follow from the one-bit shape:
+
+- **Implicit lifecycle / missing `dissoc`.** Every code path that can terminate the in-flight operation must remember to flip the flag off. The most common bug is a missing `dissoc` on the failure branch, leaving the UI stuck on a spinner.
+- **Flag-vs-data race.** The flag and the data are sibling keys, so rendering must guard against `{:items [] :items-loading? true}` (is this "initial load" or "loaded zero items"?) — and typically grows the boolean-discriminator-sub cluster downstream to disambiguate.
 
 ## The canonical fix
 

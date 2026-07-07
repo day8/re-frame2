@@ -16,12 +16,15 @@
 > injection step described below are **retired** from the skill
 > surface — shims on disk for the e2e harness only, and there is no
 > `inject-runtime` tool (gone; the runtime ships via shadow-cljs
-> `:devtools :preloads`). The §3.3 component layout and §4 op-catalogue slash-op
-> names below are a historical snapshot; the current op surface is the
-> flat `mcp__re-frame2-pair__*` tools catalogued in
-> `references/ops.md` + `references/mcp-transport.md`. A re-authoring
-> pass MUST target the current MCP-only contract, not the shapes in
-> this draft.
+> `:devtools :preloads`). The §3.3 component layout, §4 op-catalogue
+> slash-op names, and the §6 phased-delivery table below are a
+> **historical snapshot** — they do **not** reflect the live tree.
+> For current state read [`STATUS.md`](../STATUS.md); for the live op
+> surface read the flat `mcp__re-frame2-pair__*` tools catalogued in
+> [`references/ops.md`](../references/ops.md) +
+> [`references/mcp-transport.md`](../references/mcp-transport.md). A
+> re-authoring pass MUST target the current MCP-only contract, not the
+> shapes in this draft.
 
 ---
 
@@ -58,7 +61,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 - **Trace stream** — `(re-frame.trace.tooling/register-listener!)` listeners + `(re-frame.trace.tooling/trace-buffer frame-id)` retain-N ring. The fine-grained, per-emit stream (Spec 009). (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form. Frame-id is the first positional arg — a missing frame returns `[]`.)
 - **Assembled epoch** — one `:rf/epoch-record` per drain-settle, with structured `:sub-runs` / `:renders` / `:effects` projections plus `:trace-events`. Consumed via `(rf/register-epoch-listener!)` and `(rf/epoch-history frame-id)`.
 - **Frame** — a re-frame2 isolated runtime instance (Spec 002). Most apps have one (`:rf/default`); larger apps have several.
-- **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch (`:app`, `:pair`, `:story`, `:ui`, `:timer`, `:http`...). The skill stamps `:pair` on its own dispatches.
+- **Origin** — the Spec 002 §Dispatch origin tagging keyword on every dispatch — the *actor* axis, an open vocabulary defaulting to `:app` (`:pair`, `:claude`, `:story`, `:test`, …). The skill stamps `:pair` on its own dispatches. Distinct from `:source` — the *trigger kind* (`:ui`, `:frame-init`, `:after-timer`, `:http`, …), the closed `:rf/dispatch-envelope` enum.
 - **Session sentinel** — a UUID interned at preload-load time. The MCP server probes the load-time mirror at `js/globalThis.__re_frame2_pair_runtime`; its absence means the preload isn't configured (or the page refreshed and the next bundle load hasn't run the preload yet).
 
 ---
@@ -93,9 +96,9 @@ shadow-cljs nREPL into the connected browser runtime. Same as v1.
 
 Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame2's own surfaces:
 
-- `(re-frame.trace.tooling/register-listener! :re-frame2-pair cb)` — raw trace stream (also re-exported on `rf/`). The skill's listener id is fixed (one listener per skill per Spec 009).
+- `(re-frame.trace.tooling/register-listener! :re-frame2-pair cb)` — raw trace stream. The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of this 2-arg tooling fn. The skill's listener id is fixed (one listener per skill per Spec 009).
 - `(rf/register-epoch-listener! :re-frame2-pair-epoch cb)` — assembled-epoch stream. Mirrors `register-listener!`'s contract.
-- `(re-frame.trace.tooling/trace-buffer frame-id)` / `(re-frame.trace.tooling/trace-buffer frame-id opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! {:trace-buffer {:events-retained N}})`). Frame-id is the first positional arg (a missing frame returns `[]`); the default shape is event bundles, and `:operation` / `:op-type` / `:since` / `:severity` are `:flat-only` filters (pass `{:flat true ...}`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
+- `(re-frame.trace.tooling/trace-buffer frame-id)` / `(re-frame.trace.tooling/trace-buffer frame-id opts)` — retain-N trace ring (default 50 retained events — one slot per dispatched event, configurable via `(rf/configure! {:trace-buffer {:events-retained N}})`). Frame-id is the first positional arg (a missing frame returns `[]`); the default shape is event bundles, and `:operation` / `:op-type` / `:since` / `:severity` are `:flat-only` filters (pass `{:flat true ...}`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
 - `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! {:epoch-history {:depth N}})`).
 - `(rf/restore-epoch! frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
 
@@ -225,7 +228,7 @@ Four surfaces — see `docs/TESTING.md`.
 - **No re-frame-10x dependency.** Every 10x reach has been replaced with a re-frame2 Tool-Pair surface. See `SKILL.md`'s "Dropped from v1" section for the exhaustive substitution table.
 - **First-class time-travel.** `restore-epoch` is shipped by re-frame2; no adapter, no stubs, seven documented failure modes.
 - **Multi-frame.** Every op carries an operating-frame concept; the operating frame resolves to the sole registered app frame when unambiguous; both reads and writes refuse on `:ambiguous-frame` (reads return `:reason :ambiguous-frame` rather than silently reading `:rf/default`).
-- **Origin tagging.** Pair dispatches carry `:origin :pair` so they can be filtered out of a trace stream that also carries `:app` / `:ui` / `:timer` / `:http` events.
+- **Origin tagging.** Pair dispatches carry `:origin :pair`, so they can be filtered apart from the default `:origin :app` events in a shared trace stream. (Trigger kind — `:ui` / `:after-timer` / `:http` / … — is the separate `:source` envelope key, not an `:origin` value.)
 - **Render projection consumed verbatim.** `:renders` and `:sub-runs` are projected by re-frame2 itself; no re-com classifier in the runtime (Spec-Schemas owns the projection shape).
 - **Source-coord bridge takes re-frame2's annotation first, re-com's as a fallback.**
 

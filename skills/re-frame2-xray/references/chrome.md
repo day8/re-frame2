@@ -14,27 +14,35 @@ Source of truth for chrome layout / tokens / animation:
 
 ## L1 frame picker
 
-The leftmost L1-ribbon cluster is the **`Frame ▾` frame-switcher** — the
-single contractually-anchored surface every frame-aware feature reaches
-through (the L1 picker, the Cmd-K palette's `:palette/select-frame` verb).
-It chooses **which frame Xray observes**; every Dynamic tab, the L2 spine,
-*and* the Static catalogues rebind to the picked frame (the picker is
+The leftmost L1-ribbon cluster is the **Frame switcher** — the single
+contractually-anchored surface every frame-aware feature reaches through
+(the L1 picker, the Cmd-K palette's `:palette/select-frame` verb). Its face
+carries the currently-selected frame id (e.g. `:rf/default ▾`), not a static
+label. It chooses **which frame Xray observes**; every Dynamic tab, the L2
+spine, *and* the Static catalogues rebind to the picked frame (the picker is
 **mode-independent** — registries are frame-scoped, so pick the frame
 whether you're in Dynamic or Static).
 
-- **Single-frame apps collapse it to a flat `Frame: :rf/default` label** —
-  there is no dropdown to hunt for when only one app frame exists.
+- **The control always renders.** On a single-frame app it is a working
+  one-entry dropdown (the native select still opens and shows the lone
+  frame); only a zero-frame state disables it. The button face shows the
+  currently-selected frame id live, falling back to a literal `Frame ▾` only
+  at cold start when no frame is pickable yet.
 - **It is a TRANSIENT view scope, not a filter and NOT persisted across
   reload.** The pin is written to localStorage within a session but
   `mount.cljs/::reset-transient-filters` clears it on load, so every
   session starts at the head-frame default (per spec/007 §Frame slot
   contract). Don't tell a user their frame choice survives a
   refresh — it doesn't.
-- **Tool frames are hidden by default.** `:rf/xray` (and other tool frames)
-  are filtered out of the picker — invariant **I1**: Xray observes ANOTHER
-  frame, never itself. Reveal them via **Settings → View → "Show tool
-  frames in picker"**. So "I can't find frame X in the picker" → it's a tool
-  frame; flip that toggle.
+- **Tool frames are hidden unconditionally.** `:rf/xray` and
+  `:rf/re-frame2-pair` are filtered out of the picker — invariant **I1**:
+  Xray observes ANOTHER frame, never itself. The `:show-tool-frames?` config
+  slot exists (default `false`) but is **not wired**: the picker's
+  `:rf.xray/available-frames` sub hardcodes it off, so tool frames cannot
+  currently be revealed from the UI (the spec's "Show tool frames in picker"
+  power-user toggle in `018-Event-Spine.md` / `007-UX-IA.md` is
+  normative-future, not yet wired). So "I can't find frame X in the picker"
+  → it's a tool frame.
 
 Canonical write is `:rf.xray/select-frame <frame-id>` (which re-seeds the
 spine's `:target-frame` + `:epoch-history`); the picker sub is
@@ -163,12 +171,8 @@ command's default. Source
 
 ## Wired hotkeys
 
-The same four globally/focus-gated hotkey families are catalogued in
-[`launch-modes.md` §Wired hotkeys](launch-modes.md#wired-hotkeys) (the
-single home for the keydown contract). In one line: `Ctrl+Shift+C` toggles
-the shell, `Cmd/Ctrl+Shift+M` toggles mode, `Cmd/Ctrl+K` opens the palette,
-and the focus-gated bare keys `Space`/`L`/`j`/`k`/`G`/`,`/`s` drive the
-spine + Settings. `Cmd/Ctrl+K` **is** wired; `Esc` is
-modal-local, not a wired spine key; there are no wired `r`/`R`/`*` rewind
-keys. Source of truth
+The keydown contract (the four wired hotkey families + guardrails) has a
+single home:
+[`launch-modes.md` §Wired hotkeys](launch-modes.md#wired-hotkeys). Source of
+truth
 [`keybinding.cljs`](../../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).

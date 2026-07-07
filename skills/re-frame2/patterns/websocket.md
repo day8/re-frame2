@@ -2,7 +2,7 @@
 
 Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) modelled as a state machine that owns the socket actor.
 
-**re-frame2 does NOT ship a managed WebSocket** — there is no `:rf.ws/*` fx, and `:rf/*` (every sub-namespace, `:rf.ws/*` included) is **framework-reserved** (Cardinal rule 7; `spec/Conventions.md`): app/library code MUST NOT register handlers, fx, cofx, subs, or failure categories under it. You (or a library) build the connection on the state-machine substrate under **your own feature prefix** (`:ws/*`, `:myapp.ws/*`, `:auth.ws/*`); the **shipped** managed-effect surfaces are `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, `:rf.flow/*`. This is the canonical worked example of applying the **managed external effect** umbrella *by hand*: implemented this way, the connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under your namespace, trace-bus observability, wire-value elision) satisfies the eight common properties — but you own it, not the framework. The ninth property — a **uniform reply envelope** for async completion — applies to any *request-reply* messages you correlate over the open socket (model those on the envelope; see *§Variations → request-reply correlation*). Shared contract: [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); the rest of this leaf is WebSocket-specific.
+**re-frame2 does NOT ship a managed WebSocket** — there is no `:rf.ws/*` fx, and the `:rf/*` root (every sub-namespace, `:rf.ws/*` included) is **framework-reserved** (Cardinal rule 7; `spec/Conventions.md`): app/library code MUST NOT register handlers, fx, cofx, subs, or failure categories under it. You (or a library) build the connection on the state-machine substrate under **your own feature prefix** (`:ws/*`, `:myapp.ws/*`, `:auth.ws/*`). This is the canonical worked example of applying the **managed external effect** umbrella *by hand* — implemented this way the connection satisfies the umbrella's common properties (issuance, reconnect, abort, teardown, structured failures under your namespace, trace-bus observability, wire-value elision), but you own the lifecycle, not the framework. Request-reply messages you correlate over the open socket use the uniform reply envelope (see *§Variations → request-reply correlation*). Umbrella recap: [`managed-http.md`](managed-http.md).
 
 > **Worked example:** `examples/patterns/websocket/` ships the canonical Pattern-WebSocket app (`connection.cljs` holds the machine). Read it as ground truth; the canonical declaration below is the leaf-level summary.
 
@@ -40,6 +40,15 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 `make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is not on the `re-frame.core` façade. The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
 
 ```clojure
+;; The socket actor is spawned on the :active parent, so the runtime binds its
+;; id into our own :data under the reserved :rf/spawned map, keyed by the
+;; spawn-bearing state's path — [:active]. Read it straight back: there is NO
+;; :socket-id data key, no :on-spawn self-dispatch, and no :exit cleanup — the
+;; runtime CLEARS the slot on teardown, so a torn-down socket reads nil on its
+;; own (which is what makes :current-socket? a safe connection clock).
+(def socket-invoke-id [:active])
+(defn socket-id [data] (get-in data [:rf/spawned socket-invoke-id]))
+
 (rf/reg-event :ws/connection
   (machines/make-machine-handler
     {:initial :disconnected
@@ -48,17 +57,19 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
      ;; (an app-prefixed registration — NOT a framework surface).
      :data    {:url nil :cred-ref nil :retries 0 :max-retries 8
                :base-ms 1000 :max-backoff-ms 30000
-               :socket-id nil :subscriptions #{}
+               :subscriptions #{}
                :queue [] :in-flight {} :error nil}
 
      :guards
      {:max-retries-exceeded? (fn [{data :data}] (>= (:retries data) (:max-retries data)))
       :has-queued-messages?  (fn [{data :data}] (seq (:queue data)))
       :current-socket?
-      ;; Connection-epoch check: reject events from a prior socket actor
-      ;; that may dispatch in flight while the cascade tears it down.
+      ;; Connection-epoch check: reject events from a prior socket actor that
+      ;; may dispatch in flight while the cascade tears it down. A torn-down
+      ;; socket reads nil from :rf/spawned, so stragglers drop for free.
       (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
-        (= source-socket-id (:socket-id data)))}
+        (let [live (socket-id data)]
+          (and (some? live) (= source-socket-id live))))}
 
      :actions
      {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
@@ -66,20 +77,14 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
       :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
                          {:data (assoc data :cred-ref new-cred-ref)})
       :bump-retry      (fn [{data :data}] {:data (update data :retries inc)})
-      :clear-socket-id (fn [{data :data}] {:data (assoc data :socket-id nil)})
-      ;; The freshly-spawned actor id arrives as the payload of the
-      ;; self-dispatched :ws/-socket-spawned event (see :on-spawn below);
-      ;; an ORDINARY action persists it into :data — :on-spawn's own
-      ;; return is dropped, so it cannot write :data itself.
-      :record-socket-id (fn [{data :data [_ id] :event}] {:data (assoc data :socket-id id)})
       :on-connected
       ;; :entry takes one fn / id, never a vector — consolidate.
       (fn [{data :data}]
         {:data (assoc data :retries 0)
-         :fx   (mapv (fn [t] [:dispatch [(:socket-id data) [:send {:type :subscribe :topic t}]]])
+         :fx   (mapv (fn [t] [:dispatch [(socket-id data) [:send {:type :subscribe :topic t}]]])
                      (:subscriptions data))})
       :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
-                                 :fx (mapv (fn [m] [:dispatch [(:socket-id data) [:send m]]])
+                                 :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
                                            (:queue data))})
       :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})}
 
@@ -92,28 +97,18 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
       {;; Socket actor anchored on the PARENT — lifetime spans all three leaves.
        ;; The actor receives only :url + :cred-ref; it resolves the bearer
        ;; via a client-only cofx inside its own JS context, then opens the
-       ;; socket. The bearer never re-enters dispatch.
+       ;; socket. The bearer never re-enters dispatch. The runtime binds the
+       ;; newborn's id into :data under :rf/spawned [:active] — read via the
+       ;; socket-id helper above; no :on-spawn, no :exit cleanup (teardown
+       ;; clears the slot). See examples/patterns/websocket/connection.cljs.
        :spawn  {:machine-id :websocket/socket
                  ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.
                  :data       (fn [{snap :snapshot}] {:url      (-> snap :data :url)
-                                                     :cred-ref (-> snap :data :cred-ref)})
-                 ;; :on-spawn is ADVISORY — its return is dropped, so it cannot
-                 ;; write :data. It dispatches a self-event carrying the actor
-                 ;; id; the :ws/-socket-spawned transition's :record-socket-id
-                 ;; action persists it. (Worked example:
-                 ;; examples/patterns/websocket/connection.cljs.)
-                 :on-spawn   (fn [{id :id}]
-                               (when-let [dispatch! (re-frame.late-bind/get-fn :router/dispatch!)]
-                                 (dispatch! [:ws/connection [:ws/-socket-spawned id]]
-                                            {:source :websocket})))}
-       :exit    :clear-socket-id
-       :on      {:ws/closed        {:target :reconnecting :action :bump-retry}
-                 :ws/fatal         {:target :failed}
-                 :ws/send          {:action :enqueue-message}
-                 :ws/rotate-cred   {:action :rotate-cred}
-                 ;; Framework-internal: records the spawned socket id into
-                 ;; :data via an ordinary action (:on-spawn's return is dropped).
-                 :ws/-socket-spawned {:action :record-socket-id}}
+                                                     :cred-ref (-> snap :data :cred-ref)})}
+       :on      {:ws/closed      {:target :reconnecting :action :bump-retry}
+                 :ws/fatal       {:target :failed}
+                 :ws/send        {:action :enqueue-message}
+                 :ws/rotate-cred {:action :rotate-cred}}
        :initial :connecting
        :states
        {:connecting     {:on {:ws/opened {:target :authenticating}}}

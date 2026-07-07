@@ -10,7 +10,7 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 
 **This is the source of truth.** Every op the skill teaches is a structured call against one of the Tool-Pair surfaces:
 
-- `(re-frame.trace.tooling/register-listener! id cb)` / `(re-frame.trace.tooling/trace-buffer frame-id)` — the trace stream. (`register-listener!` is also re-exported on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
+- `(re-frame.trace.tooling/register-listener! id cb)` / `(re-frame.trace.tooling/trace-buffer frame-id)` — the trace stream. (The facade form is the stream-parameterized `(rf/register-listener! :trace id cb)` — a stream-dispatching wrapper, not a same-signature re-export of this 2-arg tooling fn; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form — frame-id first, `(trace-buffer frame-id opts)` for filters.)
 - `(rf/register-epoch-listener! id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
 - `(rf/restore-epoch! ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
@@ -23,7 +23,7 @@ The skill is one of the principal downstream consumers of these surfaces.
 
 For verifying that the public surface in `spec/Tool-Pair.md` is wired up in the reference impl:
 
-- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (the core-API name carries the bang — the MCP tool that calls it is named `restore-epoch`), `frame-ids`, `frame-meta`, `app-schemas`, `handler-meta`, `configure`. (`trace-buffer` lives in `re-frame.trace.tooling`; `core.cljc` re-exports it on `rf/` JVM-side only.)
+- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (the core-API name carries the bang — the MCP tool that calls it is named `restore-epoch`), `frame-ids`, `frame-meta`, `handler-meta`, `configure!` (the bang). (`trace-buffer` lives in `re-frame.trace.tooling` — `core.cljc` re-exports it on `rf/` JVM-side only; `app-schemas` lives on `re-frame.schemas`, the machine query helpers on `re-frame.machines`, `sub-cache-snapshot` on `re-frame.subs.tooling` — none re-exported on the facade.)
 - `implementation/core/src/re_frame/trace.cljc` — the trace stream's internals; what op-types are emitted, how `:op-type :error` filtering works.
 - `implementation/core/src/re_frame/epoch.cljc` — the per-frame epoch ring; what fields a `:rf/epoch-record` carries; the structured `:sub-runs` / `:renders` / `:effects` projections.
 - `implementation/core/src/re_frame/frame.cljc` — frame lifecycle; `:rf/default` registration; per-frame router queues.
