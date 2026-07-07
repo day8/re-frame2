@@ -474,14 +474,6 @@
         sub-ovr        (resolve-sub-overrides variant-id eff-args)
         substrates     (variant-substrate-set variant-id)
         multi?         (and variant-id (> (count substrates) 1))
-        ;; Skeleton gating. The lifecycle machine reports
-        ;; :pre-mount / :mounting / :loading while the four-phase
-        ;; loader cascade runs; once :ready / :error lands, the
-        ;; first-rendered sentinel flips (in component-did-mount /
-        ;; -did-update) and the skeleton hides.
-        lifecycle-phase (try (story-loaders/current-state variant-id)
-                             (catch :default _ nil))
-        first?         (variant-first-rendered? variant-id)
         ;; Events-only variants take the lifecycle fast-
         ;; path (`mount-ready!` jumps :pre-mount → :ready directly) so
         ;; the skeleton must not engage even on the brief render
@@ -490,6 +482,44 @@
         ;; `loaders/events-only-variant?`.
         events-only?   (story-loaders/events-only-variant?
                          variant-body decorator-pack)
+        ;; rf2-4iu7tu: events-only?'s skeleton suppression (below /
+        ;; `loading-phase?`'s events-only? arm) means THIS render — not
+        ;; `component-did-mount` — is the one that reaches `frame-provider`
+        ;; further down. `component-did-mount` / `run-if-needed!` normally
+        ;; allocates the frame, but that fires AFTER React commits this
+        ;; render, and `ensure-variant-frame!` (rf2-zme7)'s
+        ;; selection-watcher pre-allocation only fires on a `:selected-
+        ;; variant` CHANGE — a variant already selected before the canvas
+        ;; ever mounts (deep link / persisted selection read synchronously,
+        ;; or a bare test harness pre-seeding `:selected-variant`) sees
+        ;; neither. Without the frame, `[rf/frame-provider {:frame
+        ;; variant-id} …]` further down FAILS LOUD
+        ;; (`:rf.error/frame-provider-frame-absent`) — the exact race the
+        ;; rf2-j8hklm viewport-toggle DOM test (#5265) had to route around
+        ;; by omitting `:component` from its probe variant.
+        ;;
+        ;; `run-if-needed!` ENSURES the frame HERE, synchronously, during
+        ;; render — mirroring `re-frame.views.owned-frame/ensure-frame-fc`'s
+        ;; render-phase-ensure justification ("an effect would run after
+        ;; the first child render and race descendant subscribes/
+        ;; dispatches"). It is idempotent (keyed on `canvas-last-run-key`),
+        ;; so calling it here AND again from `component-did-mount` /
+        ;; `component-did-update` never double-runs the variant's `:events`
+        ;; — the second call is a no-op once the key matches. Scoped to
+        ;; `events-only?` only: non-events-only variants stay on the
+        ;; skeleton-gated path below, which already avoids this render ever
+        ;; reaching `frame-provider` before allocation. Runs BEFORE
+        ;; `lifecycle-phase` / `first?` below so those reads see the
+        ;; POST-allocation state (the fast-path `:ready`) on this same pass.
+        _              (when events-only? (run-if-needed!))
+        ;; Skeleton gating. The lifecycle machine reports
+        ;; :pre-mount / :mounting / :loading while the four-phase
+        ;; loader cascade runs; once :ready / :error lands, the
+        ;; first-rendered sentinel flips (in component-did-mount /
+        ;; -did-update) and the skeleton hides.
+        lifecycle-phase (try (story-loaders/current-state variant-id)
+                             (catch :default _ nil))
+        first?         (variant-first-rendered? variant-id)
         ;; A recorded assertion proves the loader cascade
         ;; resolved its outcome (success path → :ready; failure paths
         ;; like loader-never-completes / loader-rejects park at
