@@ -723,6 +723,39 @@ muted `[NO OP] staying in {state}` cascade-row (rf2-iu3no) — that surface is
 the per-run narration; this section is the Machines TAB's topology
 read. Both key off the one `:rf.machine.event/unhandled-no-op` trace.
 
+### Inherited-transition fired-edge highlight (rf2-6e8rh8)
+
+Per Spec 005 deepest-wins, a transition declared on a **compound ANCESTOR**
+state applies to every descendant that doesn't override it — a `:door/close`
+handler declared at `:open` fires while the active leaf is `[:open :wide]`.
+The single-active `extract-fired-edge-ids` match (`single-transition-fired-
+ids`) originally required EXACT equality between the trace's
+`(from-path, to-path)` and the projected edge's `(:from-path, :to-path)`.
+That works for a STATE-LOCAL edge (the runtime's `:before :state` IS the
+declaring path) but fails for an INHERITED one: the runtime's `:before
+:state` is the active LEAF (`[:open :wide]`) while `chart.layout/project-
+definition` projects the inherited edge's `:from-path` at the DECLARING
+ancestor (`[:open]`) — the two paths are never `=`. The edge is not
+`:machine-level?` either (it's a real declared transition, not the
+top-level `:on` fallback), so that fallback doesn't catch it — the fired
+set came back empty and the chart lit no edge for a dispatch that
+demonstrably transitioned the machine. A compound TARGET's initial-descent
+breaks the `to*` match the same way: the edge's declared `:to-path` (the
+compound target, e.g. `:open`) is shallower than the runtime's landed leaf
+(`[:open :wide]`).
+
+**Fix — prefix match, not exact equality.** `single-transition-fired-ids`
+matches `from*` / `to*` against each candidate edge's `:from-path` /
+`:to-path` via `on-active-path?` (a possibly-equal PREFIX test), the same
+predicate `extract-guard-blocked-edge-ids` already used for the analogous
+rf2-tjm3u2 guard-blocked case. A STATE-LOCAL edge still matches (its
+`:from-path` / `:to-path` equal the leaf, a count-equal prefix); an
+INHERITED edge now matches too (its `:from-path` is a strict prefix of the
+active leaf); a SIBLING state's same-event edge remains excluded (its
+`:from-path` is not a prefix of the active path at all). `on-active-path?`
+lives once in `trace_state.cljs`, shared by both the fired-edge and the
+guard-blocked matchers.
+
 ### Parallel multi-region fired-edge highlight (rf2-8ncxrf)
 
 A `:type :parallel` machine's snapshot `:state` is a **region-map** —
@@ -760,8 +793,10 @@ regions sharing a state NAME never cross-light. A region that did NOT
 move this event contributes no edge. The returned ids are the EXACT
 canonical machines-viz edge-ids the live chart mints (agreement by
 construction). Single-active (flat / compound) transitions are
-unaffected — they take the existing `(from, to, event)` match + the
-machine-level fallback.
+unaffected — they take the existing `(from, to, event)` match (prefix-
+matched on `from`/`to` per [§Inherited-transition fired-edge highlight
+(rf2-6e8rh8)](#inherited-transition-fired-edge-highlight-rf2-6e8rh8)) +
+the machine-level fallback.
 
 **Per-region CHANGED fallback ordering (rf2-85a9do).** A changed region's
 edge is resolved through an ordered, mutually-exclusive fallback:

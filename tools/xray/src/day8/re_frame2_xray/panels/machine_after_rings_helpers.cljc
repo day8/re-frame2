@@ -40,11 +40,15 @@
   ## Folding algorithm
 
   Walk the trace buffer oldest-first. Each `scheduled` event opens a
-  timer keyed by `(machine-id, state, epoch)`; a later `fired` /
-  `stale-after` / `cancelled` event for the same key closes it. The
-  latest event wins so re-schedules at the same key replace the prior
-  record (matches the runtime's idempotent `cancel-after-timer-entry!`
-  shape).
+  timer keyed by `(machine-id, state, epoch, delay)`; a later `fired`
+  / `stale-after` / `cancelled` event for the same key closes it. The
+  `delay` discriminator (rf2-2es2x8) matters because a single state's
+  `:after` map can schedule several timers CONCURRENTLY at the same
+  `(machine-id, state, epoch)` — one entry per delay — so `delay` is
+  required to keep them as independent records / independent rings.
+  The latest event wins so re-schedules at the same key replace the
+  prior record (matches the runtime's idempotent
+  `cancel-after-timer-entry!` shape).
 
   ## Ring geometry
 
@@ -110,43 +114,61 @@
 ;; ---- timer key resolution -----------------------------------------------
 
 (defn- timer-key
-  "Composite key for the timer-table fold. `(machine-id, state, epoch)`
-  is the runtime's identity tuple — re-scheduling at the same state
+  "Composite key for the timer-table fold. `(machine-id, state, epoch,
+  delay)` is the runtime's identity tuple.
+
+  rf2-2es2x8 — `epoch` alone does NOT disambiguate: `build-after-fx`
+  computes ONE epoch per scheduling node and reuses it across EVERY
+  entry in that node's `:after` map (Spec 005 §Multiple :after per
+  state — `{:after {5000 :warn 30000 :timeout}}` schedules both timers
+  concurrently at the same `(machine-id, state, epoch)`). Every
+  `:rf.machine.timer/*` trace (scheduled / fired / stale-after /
+  cancelled / skipped-on-server) carries `:delay` as the resolved ms
+  value, stable across a timer's whole scheduled→fired/cancelled
+  lifecycle, so it is included here as the discriminator — each
+  concurrent `:after` timer on a state gets its own key, its own fold
+  record, and its own ring. Re-scheduling at the same state still
   bumps the epoch (per `re-frame.machines.transition/pick-after-
-  transition`), so a fresh epoch ALWAYS starts a new record. Within an
-  epoch the latest event wins (the runtime's invariant: at most one
-  in-flight timer per (state, epoch)).
+  transition`), so a fresh epoch ALWAYS starts a new record regardless
+  of delay.
 
   Per rf2-82a0u the unified `:rf.machine.timer/cancelled` event
   carries `:epoch` (mirroring the `:scheduled` shape), so the closing
   match is exact for cancel rows — the `:*` fallback is retained for
   pre-rf2-82a0u trace replays + edge cases where the closing event's
   tags are projected through a lossy intermediary."
-  [machine-id state epoch]
+  [machine-id state epoch delay]
   {:machine-id machine-id
    :state      state
-   :epoch      (or epoch :*)})
+   :epoch      (or epoch :*)
+   :delay      (or delay :*)})
 
 ;; ---- public: project active timers --------------------------------------
 
 (defn- update-or-cancel
-  "Match a closing event against the open timer-table. When `epoch` is
-  provided, exact match; when nil, match the most recent open record
-  for `(machine-id, state)`. Returns `[k record-or-nil]` — `nil`
+  "Match a closing event against the open timer-table. When `epoch`
+  AND `delay` are both known, exact match on the full
+  `(machine-id, state, epoch, delay)` key; otherwise fall back to the
+  most recent open record for `(machine-id, state)` — narrowed to
+  `delay` when the closing event carries one, so two concurrent
+  `:after` timers on the same state/epoch (rf2-2es2x8) don't collide
+  in the fallback path either. Returns `[k record-or-nil]` — `nil`
   record means no open entry to update.
 
   Pure fn — JVM-runnable."
-  [open machine-id state epoch]
-  (let [exact-k (timer-key machine-id state epoch)
+  [open machine-id state epoch delay]
+  (let [exact-k (timer-key machine-id state epoch delay)
         exact   (get open exact-k)]
     (if exact
       [exact-k exact]
       ;; Fall back to the latest open record for the (machine-id, state)
-      ;; pair — the closing event didn't stamp epoch so we trust the
-      ;; ordering of the buffer.
+      ;; pair — the closing event didn't stamp epoch (and/or delay) so
+      ;; we trust the ordering of the buffer, narrowed by `:delay` when
+      ;; available so concurrent timers at the same state don't collide.
       (let [matches (filter (fn [[k _v]]
                               (and (= machine-id (:machine-id k))
-                                   (= state      (:state k))))
+                                   (= state      (:state k))
+                                   (or (nil? delay) (= delay (:delay k)))))
                             open)]
         (if (seq matches)
           ;; Pick the most-recently-armed one. The open record's
@@ -202,7 +224,7 @@
           (nil? state)      open
 
           (= :rf.machine.timer/scheduled op)
-          (assoc open (timer-key machine-id state epoch)
+          (assoc open (timer-key machine-id state epoch delay)
                  {:machine-id  machine-id
                   :state       state
                   :armed-at    t
@@ -215,7 +237,7 @@
                   :sub-id      sub-id})
 
           (= :rf.machine.timer/fired op)
-          (let [[k v] (update-or-cancel open machine-id state epoch)]
+          (let [[k v] (update-or-cancel open machine-id state epoch delay)]
             (if v
               (assoc open k
                      (assoc v
@@ -230,13 +252,13 @@
                 ;; + `:current-epoch` (the machine's epoch when the timer
                 ;; fired) — we close the scheduled-epoch record.
                 stale-epoch (or (:scheduled-epoch tags) epoch)
-                [k v] (update-or-cancel open machine-id state stale-epoch)]
+                [k v] (update-or-cancel open machine-id state stale-epoch delay)]
             (if v
               (assoc open k (assoc v :status :stale :closed-at t))
               open))
 
           (= :rf.machine.timer/cancelled op)
-          (let [[k v] (update-or-cancel open machine-id state epoch)]
+          (let [[k v] (update-or-cancel open machine-id state epoch delay)]
             (if v
               (assoc open k (assoc v
                                    :status :cancelled
@@ -251,7 +273,7 @@
               open))
 
           (= :rf.machine.timer/skipped-on-server op)
-          (assoc open (timer-key machine-id state epoch)
+          (assoc open (timer-key machine-id state epoch delay)
                  {:machine-id  machine-id
                   :state       state
                   :armed-at    t

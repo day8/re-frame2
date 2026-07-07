@@ -419,6 +419,94 @@
       (is (= #{(:id local-edge)} fired)
           "the state-local edge lights; the machine-level fallback is not pulled in"))))
 
+;; ---- inherited-transition fired-edge match (rf2-6e8rh8) -----------------
+;;
+;; Per Spec 005 deepest-wins, a transition declared on a compound ANCESTOR
+;; applies to a descendant leaf that doesn't override it. The runtime's
+;; `:before`/`:after` :state is the actual LEAF; `chart.layout/project-
+;; definition` projects the edge's `:from-path`/`:to-path` at the DECLARING
+;; path (the ancestor for an inherited source; the flat declared target —
+;; NOT initial-descended — for a compound target). Exact `=` never matches
+;; either; `single-transition-fired-ids` now matches via `on-active-path?`
+;; (a possibly-equal prefix test), mirroring the rf2-tjm3u2 guard-blocked
+;; fix's `on-active-path?` treatment.
+
+(deftest fired-ids-inherited-transition-on-active-path
+  (testing "rf2-6e8rh8 — an INHERITED transition (declared on an ANCESTOR
+            still on the active path) is matched: the ancestor's
+            :from-path is a strict PREFIX of the runtime's actual leaf
+            :before :state, not an exact match"
+    (let [;; `:open` is a COMPOUND with `:door/close` declared at the
+          ;; PARENT level; the active leaf is `[:open :wide]` (no override
+          ;; declared at the leaf, so the ancestor's transition applies).
+          def      {:initial :open
+                    :states  {:open {:initial :wide
+                                     :on      {:door/close :closed}
+                                     :states  {:wide {} :narrow {}}}
+                              :closed {}}}
+          close-id (canonical-edge-id def [:open] [:closed] :door/close)
+          events   [{:operation :rf.machine/transition
+                     :tags {:machine-id :door
+                            :before {:state [:open :wide]}
+                            :after  {:state :closed}
+                            :event  :door/close}}]
+          fired    (trace-state/extract-fired-edge-ids def events :door)]
+      (is (string? close-id))
+      (is (= #{close-id} fired)
+          "the inherited edge lights — its [:open] :from-path is a prefix
+           of the runtime's actual [:open :wide] leaf, matched via
+           on-active-path? rather than exact equality"))))
+
+(deftest fired-ids-compound-target-initial-descent
+  (testing "rf2-6e8rh8 — a transition TARGETING a compound state
+            initial-descends to a deeper leaf at runtime; the edge's
+            declared :to-path ([:open], the flat compound target — Not
+            initial-descended by chart.layout/resolve-target-path) is a
+            prefix of the runtime's landed leaf ([:open :wide]), not an
+            exact match"
+    (let [def      {:initial :closed
+                    :states  {:closed {:on {:door/open :open}}
+                              :open   {:initial :wide
+                                       :states  {:wide {} :narrow {}}}}}
+          open-id  (canonical-edge-id def [:closed] [:open] :door/open)
+          events   [{:operation :rf.machine/transition
+                     :tags {:machine-id :door
+                            :before {:state :closed}
+                            :after  {:state [:open :wide]}
+                            :event  :door/open}}]
+          fired    (trace-state/extract-fired-edge-ids def events :door)]
+      (is (string? open-id))
+      (is (= #{open-id} fired)
+          "the edge's declared :to-path [:open] is a prefix of the actual
+           landed leaf [:open :wide] — matched via on-active-path?"))))
+
+(deftest fired-ids-sibling-not-matched-by-inherited-prefix
+  (testing "rf2-6e8rh8 — the prefix match does NOT over-match a sibling
+            state's edge: only an ancestor ON the active path qualifies"
+    (let [;; `:open` and `:closed` are siblings; both declare `:door/audit`.
+          ;; The active leaf is under `:open`, so only :open's edge (an
+          ;; exact state-local match here) may light — :closed's identical-
+          ;; event edge must NOT.
+          def      {:initial :open
+                    :states  {:open   {:initial :wide
+                                       :on      {:door/audit :open}
+                                       :states  {:wide {} :narrow {}}}
+                              :closed {:on {:door/audit :closed}}}}
+          open-id  (canonical-edge-id def [:open] [:open] :door/audit)
+          closed-id (canonical-edge-id def [:closed] [:closed] :door/audit)
+          events   [{:operation :rf.machine/transition
+                     :tags {:machine-id :door
+                            :before {:state [:open :wide]}
+                            :after  {:state :open}
+                            :event  :door/audit}}]
+          fired    (trace-state/extract-fired-edge-ids def events :door)]
+      (is (string? open-id))
+      (is (string? closed-id))
+      (is (not= open-id closed-id))
+      (is (= #{open-id} fired)
+          "only :open's edge lights — :closed's identical-event edge is
+           NOT a prefix of the active [:open :wide] leaf"))))
+
 ;; ---- extract-guard-blocked-edge-ids (rf2-fzrzlw) ------------------------
 ;;
 ;; A guard-blocked transition is a NO-OP: the guard evaluated fail/threw, so

@@ -256,20 +256,46 @@
 
 ;; ---- fired-edge ids (machines-viz canonical) ----------------------------
 
+(defn- on-active-path?
+  "True iff `path` (an edge's declaring `:from-path` / `:to-path`) is on
+  the active `state-path` — i.e. `path` is a (possibly equal) PREFIX of
+  `state-path`. A STATE-LOCAL edge declares on the active leaf (`path` ==
+  `state-path`); an INHERITED edge declares on an ANCESTOR still on the
+  active path (`path` is a strict prefix). A path declared on a DIFFERENT
+  branch (a sibling state reusing the same event, or the bug's sibling
+  guard case) is NOT a prefix of the active path, so it is excluded. nil
+  `state-path` (region-map / absent) disables the check upstream — never
+  reaches here."
+  [path state-path]
+  (and (<= (count path) (count state-path))
+       (= (vec path) (vec (take (count path) state-path)))))
+
 (defn- single-transition-fired-ids
   "Fired-edge ids for ONE single-active (flat / compound) transition: the
-  `(from*, to*, event*)` paths read off the trace (already path-coerced).
+  `(from*, to*, event*)` paths read off the trace (already path-coerced;
+  `from*` / `to*` are the runtime's actual LEAF before/after state).
   A STATE-LOCAL edge matches on all three; falls back to a MACHINE-LEVEL
   (top-level `:on`) edge matched on (to, event) alone — rf2-vcnvj projects
   the fallback ONCE from the synthetic MACHINE-ROOT node, so its
   `:from-path` is the root context `[]`, not the concrete leaf the runtime
   fired it from. Without that fallback the door `:door/audit` fallback
-  firing from `:alarming` would highlight no edge. Returns a seq of ids."
+  firing from `:alarming` would highlight no edge. Returns a seq of ids.
+
+  rf2-6e8rh8 — `:from-path` / `:to-path` match via `on-active-path?`
+  (prefix), NOT `=` (exact equality). Per Spec 005 deepest-wins, a
+  transition inherited from a compound ANCESTOR fires with the runtime's
+  `:before :state` at the active LEAF (e.g. `[:open :wide]`) while
+  `chart.layout/project-definition` projects the edge's `:from-path` at
+  the DECLARING ancestor (`[:open]`) — exact `=` never matches an
+  inherited edge. Symmetrically, a compound TARGET's initial-descent
+  lands the runtime's `:after :state` at a deeper leaf than the edge's
+  declared `:to-path`, so `to*` is matched the same way. `on-active-path?`
+  subsumes the STATE-LOCAL case (`path` == the leaf, count-equal prefix)."
   [edges from* to* event*]
   (let [local (keep (fn [e]
                       (when (and (not (:machine-level? e))
-                                 (= from*  (:from-path e))
-                                 (= to*    (:to-path e))
+                                 (on-active-path? (:from-path e) from*)
+                                 (on-active-path? (:to-path e) to*)
                                  (= event* (:event e)))
                         (:id e)))
                     edges)]
@@ -277,7 +303,7 @@
       local
       (keep (fn [e]
               (when (and (:machine-level? e)
-                         (= to*    (:to-path e))
+                         (on-active-path? (:to-path e) to*)
                          (= event* (:event e)))
                 (:id e)))
             edges))))
@@ -666,19 +692,6 @@
   preserving the pre-rf2-tjm3u2 behaviour for traces that carry no state)."
   [ev]
   (normalise-path (get-in ev [:tags :state])))
-
-(defn- on-active-path?
-  "True iff `from-path` (an edge's declaring source path) is on the active
-  `state-path` — i.e. `from-path` is a (possibly equal) PREFIX of
-  `state-path`. A STATE-LOCAL edge declares on the active leaf (`from-path`
-  == `state-path`); an INHERITED edge declares on an ANCESTOR still on the
-  active path (`from-path` is a strict prefix). An edge declared on a
-  DIFFERENT branch (the bug's sibling state reusing the same event + guard)
-  is NOT a prefix of the active path, so it is excluded. nil `state-path`
-  (region-map / absent) disables the check upstream — never reaches here."
-  [from-path state-path]
-  (and (<= (count from-path) (count state-path))
-       (= (vec from-path) (vec (take (count from-path) state-path)))))
 
 (defn extract-guard-blocked-edge-ids
   "Given a machine `definition`, a vector of trace events for the

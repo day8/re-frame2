@@ -239,17 +239,24 @@
   scrubber sub; bumps `now-ms` when ticking is warranted; re-schedules
   itself iff still needed.
 
-  The two app-db reads inside the body are deliberately NOT
-  `rf/subscribe`-mediated — the loop is a side-effect driver, not a
-  view; using `subscribe` here would create a reactive dependency on
-  Xray's own frame from outside the view's reactive context, which is
-  the same self-noise hazard the trace collector avoids. We reach through
-  `rf/frame-app-db-value` (the JVM-runnable read; CLJS impl reads off
-  the frame's app-db atom) directly."
+  rf2-nms77h — the loop runs as a rAF/next-tick callback, OFF-render:
+  there is no established frame scope (no `with-frame`, no enclosing
+  Provider, no carried `*current-frame*` stamp), so the ambient
+  1-arity `rf/subscribe` has NO `:rf/default` floor and raises
+  `:rf.error/no-frame-context` (subs.cljc, frame.cljc) — the `catch`
+  below swallowed that error every tick, silently killing the loop
+  after its first iteration. The two reads below use the PUBLIC
+  explicit-frame opts form `(rf/subscribe query-v {:frame frame})`
+  (subs.cljc §Lookup algorithm), targeting the frame captured in
+  `tick-state` at `kick-tick!` time (rf2-nesy9) — the same frame the
+  dispatch below already correctly targets."
   []
   (try
-    (let [timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])
-          scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position])
+    (let [frame    (:frame @tick-state)
+          timers   @(rf/subscribe [:rf.xray/active-timers-for-focused-machine]
+                                  {:frame frame})
+          scrub    @(rf/subscribe [:rf.xray/machine-scrubber-position]
+                                  {:frame frame})
           now      (now-ms)
           last-now (:last-now-ms @tick-state)
           due?     (or (zero? *tick-min-delta-ms*)
@@ -260,7 +267,7 @@
         ;; surrounding instance frame at the time the overlay armed the
         ;; clock), not a `{:frame :rf/xray}` literal.
         (rf/dispatch [:rf.xray/timer-tick now]
-                     {:frame (:frame @tick-state)})
+                     {:frame frame})
         (swap! tick-state assoc :last-now-ms now))
       (if (rings-h/needs-ticking? timers scrub)
         (raf! tick-loop!)
