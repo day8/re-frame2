@@ -162,11 +162,11 @@ A machine spec MAY declare an optional machine-level **`:schemas`** map (EP-0029
 The framework ships two subs:
 
 ```clojure
-@(rf/subscribe [:rf/machine :my/feature])              ;; the whole snapshot
-@(rf/machine-has-tag? :my/feature :loading)            ;; tag containment-bit
+@(rf/subscribe [:rf/machine :my/feature])                     ;; the whole snapshot
+@(rf/subscribe [:rf/machine-has-tag? :my/feature :loading])   ;; tag containment-bit
 ```
 
-The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `machine-has-tag?` is sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — see `tags.md` — and is re-exported from `re-frame.core`.
+The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `[:rf/machine-has-tag? machine-id tag]` is the companion derived subscription — see `tags.md` — read the same way, with the ordinary `subscribe`; there is no named-read-sugar fn over either.
 
 Project off the snapshot with ordinary `reg-sub`:
 
