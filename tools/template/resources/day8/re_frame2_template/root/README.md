@@ -648,10 +648,13 @@ shape changes mechanically.
 
 re-frame2 ships first-class Claude Code skills (under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills))
 that pair-program against a running app, drive scaffolds, and walk
-the v1→v2 migration. Once those publish to the Claude Code skills
-marketplace this template will install them into your project on
-scaffold; until then, clone the `re-frame2` repo and copy the
-relevant skill directory into your `.claude/skills/`.
+the v1→v2 migration. Once those publish as an installable Claude Code
+plugin, this template will wire them in declaratively (an emitted
+`.claude/settings.json` marketplace + plugin entry, or a `/plugin
+install` one-liner) on scaffold; until then, clone the `re-frame2`
+repo and **symlink** (never copy) the relevant skill directory into
+your `.claude/skills/` — see [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy)
+for why a copy drifts stale.
 
 ## License
 

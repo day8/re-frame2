@@ -307,29 +307,36 @@ During development the registrar changes every time you save a file. A `reg-*` r
 
 That automatic path is the one you lean on day to day. You save a file. The live frames pick up the change without losing their state. You call nothing.
 
-When you want to change a frame's image *composition* outright — swap one whole `:images` vector for another — that's an explicit, frame-targeted reload via **`rf/reload-images!`**:
+When you want to change a frame's image *composition* outright — swap one whole `:images` vector for another — that's an explicit, frame-targeted reload: re-call **`rf/make-frame`** against the SAME `:id` with a new `:images` vector. There is no dedicated reload verb — re-construction already refreshes the generation while preserving frame memory, so that IS the reload:
 
 ```clojure
-(rf/reload-images! :docs/main {:images [cart-image routing-image checkout-v2-image]})
-;; => {:rf.frame/frame   <frame value for the reloaded frame>
-;;     :rf.reload/diff   {:added    #{[:event :checkout/apply-discount]}
-;;                        :changed  #{[:sub :checkout/total]}
-;;                        :removed  #{[:event :checkout/legacy-init]}
-;;                        :retained #{[:event :cart/add] …}}
-;;     :rf.reload/shadows [{:registration … :image … :shadowed-by …} …]}
+(rf/make-frame {:id :docs/main :images [cart-image routing-image checkout-v2-image]})
 ```
 
-You hand it a frame (id or value) and a new `:images` vector — exactly the shape `make-frame` takes. It's composition-*replacing*, not member-patching: the whole vector is re-assembled into a fresh sealed generation and swapped onto the frame's record. Only the generation slot moves; app-db, runtime-db, queues, and still-valid subscription caches continue untouched.
+You hand it the SAME `:id` and a new `:images` vector — exactly the shape `make-frame` always takes. It's composition-*replacing*, not member-patching: the whole vector is re-assembled into a fresh sealed generation and installed onto the frame's record via `reg-frame`'s surgical-update path. Only the generation slot moves; app-db, runtime-db, queues, and still-valid subscription caches continue untouched (config other than `:images` is refreshed too, Clojure-`def`-style — re-supply anything you want kept).
+
+If you want the diff report the old `reload-images!` verb used to return, read `frame-generation` before and after the call and diff the two values with `generation-diff`:
+
+```clojure
+(let [before (rf/frame-generation :docs/main)
+      _      (rf/make-frame {:id :docs/main :images [cart-image routing-image checkout-v2-image]})
+      after  (rf/frame-generation :docs/main)]
+  (rf/generation-diff before after))
+;; => {:added    #{[:event :checkout/apply-discount]}
+;;     :changed  #{[:sub :checkout/total]}
+;;     :removed  #{[:event :checkout/legacy-init]}
+;;     :retained #{[:event :cart/add] …}}
+```
 
 ??? note "Going deeper"
 
-    The return value is a **reload report**. Its `:rf.reload/diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so the runtime invalidates only what actually moved (a sub whose definition didn't change keeps its cache). `:rf.reload/shadows` is the new composition's shadow report, the same shape `rf/frame-shadows` returns, so if a reload changes the override set you see it right there beside the diff. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as `make-frame`, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
+    `generation-diff` partitions the `(kind, id)` space four ways — `:added`, `:changed`, `:removed`, `:retained` — between the old generation and the new, so you can invalidate only what actually moved (a sub whose definition didn't change keeps its cache). Read `rf/frame-shadows` on the reloaded frame for its cross-image shadow report — the same shape it always returns — so if a reload changes the override set you see it there too. Reloading one frame never drags a sibling that happened to share a generation along with it — the swap is frame-targeted, and the old generation is never mutated. Re-assembling the new `:images` runs the same assembly gate as any `make-frame` call, so a bad new composition fails loud with the *same* error ids from the table above (a duplicate id, a zero-match include, …) — the swap is all-or-nothing, and a failed reload leaves the frame on its existing generation.
 
-    **Gotcha — `reload-images!` targets a generation-carrying frame.** Every `make-frame` frame qualifies, the sealed default included — re-pointing a default-image frame at an explicit composition is exactly the move it exists for. The frame it *can't* target is one declared via bare `reg-frame` (no generation to swap): aimed there it **fails loud** with `:rf.error/reload-no-such-frame`, and the error names the frame ids it could have targeted. To move such a frame onto a composition, recreate it with `make-frame` carrying the `:images` you want.
+    **Gotcha — reload targets an `:id`-bearing, generation-carrying frame.** Every `make-frame` frame qualifies, the sealed default included — re-pointing a default-image frame at an explicit composition is exactly the move it exists for. A frame declared via bare `reg-frame` (no generation to swap) has no image composition to reload — recreate it with `make-frame` carrying the `:images` you want instead. A frame with no `:id` (a direct, local-only object) has no id to re-`make-frame` against either — discard it and make a new one.
 
 !!! note "Heads-up"
 
-    `reload-images!` is the explicit knob; the automatic `reg-*` re-eval path is what you actually lean on. Save a file and the affected frames pick up the change with no call from you. Reach for `reload-images!` only when you want to swap a frame's *whole composition* deliberately — a test that re-points a running frame at a different image stack, a tool driving a frame through several configurations, a story canvas trading one deck of registrations for another.
+    Re-`make-frame`-ing is the explicit knob; the automatic `reg-*` re-eval path is what you actually lean on. Save a file and the affected frames pick up the change with no call from you. Reach for the explicit re-`make-frame` reload only when you want to swap a frame's *whole composition* deliberately — a test that re-points a running frame at a different image stack, a tool driving a frame through several configurations, a story canvas trading one deck of registrations for another.
 
 And that's the whole shape. The same boundary that lets two examples on one page each own `:counter/inc` is the boundary that survives a file save: the image is a *value*, the runtime can diff two of them, and a frame can trade one for another without forgetting what it has lived through. The script can be revised mid-run; the performance keeps its memory.
 

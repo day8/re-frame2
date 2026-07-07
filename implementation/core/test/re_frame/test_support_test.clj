@@ -480,3 +480,31 @@
         (finally
           (reset! late-bind/hooks snapshot))))))
 
+;; ---- poll-until pred-exception semantics (JVM ↔ CLJS parity) --------------
+
+(deftest poll-until-swallows-a-throwing-pred-jvm
+  (testing "a `pred` that throws transiently is a falsy probe — keep polling to
+  the deadline — matching the CLJS arm and the sibling `wait-until`. The JVM arm
+  previously propagated the throw out of poll-until on the first probe."
+    ;; Throws on the first two probes, then succeeds → must resolve, not surface
+    ;; the pred's exception.
+    (let [calls (atom 0)]
+      (is (= :ok
+             (ts/poll-until
+               (fn []
+                 (if (< (swap! calls inc) 3)
+                   (throw (ex-info "transient" {}))
+                   :ok))
+               {:timeout-ms 2000 :interval-ms 1}))
+          "throwing-then-succeeding pred resolves rather than propagating the throw")
+      (is (>= @calls 3)))
+    ;; An always-throwing pred hits the deadline and surfaces the
+    ;; poll-until-timeout discriminator — NOT the pred's own exception.
+    (let [e (try (ts/poll-until (fn [] (throw (ex-info "always" {:boom true})))
+                                {:timeout-ms 40 :interval-ms 5})
+                 nil
+                 (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? e) "poll-until throws on the deadline")
+      (is (= :rf.error/poll-until-timeout (:rf.error/id (ex-data e)))
+          "the deadline surfaces poll-until-timeout, not the pred's own throw"))))
+

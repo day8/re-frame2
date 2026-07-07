@@ -20,10 +20,6 @@
                                     (fx bodies) reg-frame mid-cascade, capture
                                     the thrown :rf.error/id into app-db at path
                                     (EP-0027 handler-time construction guard)
-    [:reset-frame-capture path frame-id]
-                                    (fx bodies) reset-frame! mid-cascade, capture
-                                    the thrown :rf.error/id into app-db at path
-                                    (EP-0027 handler-time reset guard)
 
   Control:
     [:throw msg]                    throw
@@ -464,10 +460,10 @@
                      (assoc ctx :fx (conj (or fx []) [:dispatch-sync ev])))
 
     ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): an fx body may invoke
-    ;; `reg-frame` / `reset-frame!` while the originating handler cascade is in
+    ;; `reg-frame` while the originating handler cascade is in
     ;; flight (the `do-fx` walk runs under the router's `*handler-scope*`
-    ;; binding). The construction engine rejects either LOUD —
-    ;; `:rf.error/frame-construction-in-handler` / `:rf.error/frame-reset-in-handler`.
+    ;; binding). The construction engine rejects it LOUD —
+    ;; `:rf.error/frame-construction-in-handler`.
     ;; A user fx handler throw is CAUGHT by `do-fx` (re-emitted as
     ;; `:rf.error/fx-handler-exception`, NOT the guard's own discriminator), so
     ;; the op CAPTURES the thrown `:rf.error/id` directly and the runner writes
@@ -481,11 +477,6 @@
                              cfg (resolve-value child-config ctx)]
                          (assoc ctx :fx (conj (or fx [])
                                               [:reg-frame-capture path cid cfg])))
-
-    :reset-frame-capture (let [[_ path target-id] step
-                               tid (resolve-value target-id ctx)]
-                           (assoc ctx :fx (conj (or fx [])
-                                                [:reset-frame-capture path tid])))
 
     ;; The :throw DSL op exists to surface a FIXTURE-SUPPLIED message
     ;; downstream (the runtime re-emits it as :exception-message), so —
@@ -638,11 +629,11 @@
   the surrounding handler is mid-drain; the router's `:in-drain?` guard
   surfaces `:rf.error/dispatch-sync-in-handler`.
 
-  read-db!/write-db!/dispatch!/dispatch-sync!/reg-frame!/reset-frame! are wired
+  read-db!/write-db!/dispatch!/dispatch-sync!/reg-frame! are wired
   by the runner so this namespace stays free of internal substrate / router
   deps."
   [fx-id steps {:keys [read-db! write-db! dispatch! dispatch-sync!
-                       reg-frame! reset-frame!]}]
+                       reg-frame!]}]
   (fn [{:keys [frame]} args]
     (let [db              (read-db! frame)
           synthetic-event [fx-id args]
@@ -657,12 +648,12 @@
       ;; through the helper — the router's in-drain guard surfaces the
       ;; structured error when this fires inside a handler cascade.
       ;;
-      ;; Per rf2-emqiqk the :reg-frame-capture / :reset-frame-capture pairs
-      ;; invoke `reg-frame` / `reset-frame!` mid-cascade and CAPTURE the thrown
+      ;; Per rf2-emqiqk the :reg-frame-capture pair
+      ;; invokes `reg-frame` mid-cascade and CAPTURES the thrown
       ;; `:rf.error/id` into the originating frame's app-db at `path` (the guard
       ;; throw would otherwise be swallowed into `:rf.error/fx-handler-exception`
       ;; by `do-fx`). `:rf/no-error` records a no-throw — a regression that
-      ;; re-enabled mid-cascade construction / reset.
+      ;; re-enabled mid-cascade construction.
       (doseq [pair (:fx final)]
         (cond
           (and (vector? pair) (= :dispatch (first pair)))
@@ -674,15 +665,6 @@
           (and (vector? pair) (= :reg-frame-capture (first pair)) reg-frame!)
           (let [[_ path child-id child-config] pair
                 err-id (try (reg-frame! child-id child-config) nil
-                            (catch #?(:clj clojure.lang.ExceptionInfo
-                                      :cljs cljs.core/ExceptionInfo) e
-                              (:rf.error/id (ex-data e))))]
-            (write-db! frame
-                       (assoc-in (read-db! frame) path (or err-id :rf/no-error))))
-
-          (and (vector? pair) (= :reset-frame-capture (first pair)) reset-frame!)
-          (let [[_ path target-id] pair
-                err-id (try (reset-frame! target-id) nil
                             (catch #?(:clj clojure.lang.ExceptionInfo
                                       :cljs cljs.core/ExceptionInfo) e
                               (:rf.error/id (ex-data e))))]

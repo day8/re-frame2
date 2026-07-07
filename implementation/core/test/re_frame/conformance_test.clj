@@ -718,15 +718,13 @@
            ;; fx body; the realise-fx-handler routes that pair here.
            :dispatch-sync! (fn [event frame-id]
                              (rf/dispatch-sync event {:frame frame-id}))
-           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): reg-frame /
-           ;; reset-frame! invoked from an fx body (mid-cascade, *handler-scope*
-           ;; bound) trips the construction / reset guard. The
-           ;; [:reg-frame-capture …] / [:reset-frame-capture …] fx-body ops
-           ;; call these and capture the thrown :rf.error/id into app-db.
+           ;; Per EP-0027 §Handler-time guard (rf2-emqiqk): reg-frame
+           ;; invoked from an fx body (mid-cascade, *handler-scope*
+           ;; bound) trips the construction guard. The
+           ;; [:reg-frame-capture …] fx-body op
+           ;; calls this and captures the thrown :rf.error/id into app-db.
            :reg-frame! (fn [frame-id config]
-                         (rf/reg-frame frame-id config))
-           :reset-frame! (fn [frame-id]
-                           (frame/reset-frame! frame-id))}
+                         (rf/reg-frame frame-id config))}
           fx-bodies   (get handlers-map :fx)
           fx-registry (get-in fixture [:fixture/registry :fx] {})
           all-fx-ids  (into #{} (concat (keys fx-bodies) (keys fx-registry)))]
@@ -2004,16 +2002,6 @@
             ;; flows-conformance runner's shape (rf2-gmrks).
             (contains? ev :destroy-frame)
             (rf/destroy-frame! (:destroy-frame ev))
-
-            ;; Harness re-construction step `{:reset-frame <frame-id>}` per
-            ;; Spec 002 §reset-frame! + EP-0027 §Reset (rf2-kmk9z4) — re-run
-            ;; the named frame's recorded `:initial-events` against the
-            ;; CURRENT handlers (a destroy + re-register that replays the
-            ;; durable construction config; no snapshot). Used by the
-            ;; `construction-reset-replays-initial-events` fixture to pin the
-            ;; EP-0027 reset contract host-agnostically.
-            (contains? ev :reset-frame)
-            (frame/reset-frame! (:reset-frame ev))
 
             ;; Harness re-registration step `{:reg-sub <sub-id> :body
             ;; <body>}` per Cross-Spec Interaction §18 (rf2-qei5a). The

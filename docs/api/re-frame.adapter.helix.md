@@ -1,6 +1,6 @@
 # re-frame.adapter.helix
 
-`re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`); the dependency direction is one-way — the adapter depends on `re-frame.core`, never the reverse — so a Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. The surface is hooks-first and mirrors the [UIx adapter](re-frame.adapter.uix.md) one-for-one; the two are separate artefacts only because their underlying React-substrate libraries are, not because the re-frame2 contract differs. The substrate-agnostic carry and scoping primitives (`capture-frame`, `with-frame`, `with-new-frame`) live on [`re-frame.core`](re-frame.core.md) — this namespace carries the Helix-shaped hooks, the merged `frame-provider`, the view-wrapping seam, and the adapter spec. For choosing between substrates, see [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
+`re-frame.adapter.helix` binds re-frame2 to the Helix React substrate. It ships as its own artefact (`day8/re-frame2-helix`) and depends on `re-frame.core`, never the reverse. A Helix app requires this namespace and passes its `adapter` Var into `(rf/init! ...)`. This namespace carries the Helix-shaped hooks, the merged `frame-provider`, the view-wrapping seam, and the adapter spec; the substrate-agnostic carry and scoping primitives (`capture-frame`, `with-frame`, `with-new-frame`) live on [`re-frame.core`](re-frame.core.md). The surface mirrors the [UIx adapter](re-frame.adapter.uix.md) one-for-one. For choosing between substrates, see [Use UIx, Helix, or reagent-slim](../core/how-to/use-uix-helix-or-slim.md).
 
 ```clojure
 (:require [re-frame.adapter.helix :as helix-adapter])
@@ -25,7 +25,7 @@
    :flush-render!             …
    :dispose-adapter!          …}
   ```
-- **Description**: The adapter spec passed to `(rf/init! ...)`. Implements the same adapter contract as the Reagent and UIx adapters; `:kind` is `:rf.adapter/helix`.
+- **Description**: The adapter spec passed to `(rf/init! ...)`. Implements the same adapter contract as the Reagent and UIx adapters. `:kind` is `:rf.adapter/helix`.
 
 ## Hooks
 
@@ -37,7 +37,9 @@
   (use-subscribe query-v) → current sub value
   (use-subscribe frame-kw query-v) → current sub value
   ```
-- **Description**: "Subscribe inside a Helix component." The hook-shaped equivalent of `subscribe` for Helix components. Re-renders the calling component when the sub value changes. The 1-arg form resolves the frame through the surrounding scope (dynamic-var, then React context) and raises `:rf.error/no-frame-context` when no frame is in scope; the 2-arg form pins an explicit frame id.
+- **Description**: Hook-shaped equivalent of `subscribe` for Helix components. Returns the current sub value and re-renders the calling component when it changes.
+  - 1-arg form resolves the frame through the surrounding scope (dynamic-var, then React context); raises `:rf.error/no-frame-context` when no frame is in scope.
+  - 2-arg form pins an explicit frame id.
 
 ### `use-resource-lease`
 
@@ -47,7 +49,11 @@
   (use-resource-lease descriptor) → nil
   (use-resource-lease descriptor opts) → nil
   ```
-- **Description**: Takes a resource liveness lease for the calling component's mounted lifetime: on mount dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount dispatches `:rf.resource/release-owner` for that lease. `descriptor` is the resource-instance identity `{:resource … :scope … :params …}`. `opts` keys: `:cause` (recorded on the ensure; defaults to `[:lease :mount]`) and `:frame` (pin to an explicit frame id, bypassing ambient resolution). Returns nil — the hook manages liveness only; read the data with `use-subscribe` on a `[:rf.resource/*]` query. Without a `:frame` opt the frame resolves through the same chain as `use-subscribe`, raising `:rf.error/no-frame-context` when no frame is in scope. Inert unless the resources artefact (`day8/re-frame2-resources`) is on the classpath to register the resource events.
+- **Description**: Holds a resource liveness lease for the calling component's mounted lifetime. On mount dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount dispatches `:rf.resource/release-owner` for that lease. Returns nil — manages liveness only; read the data with `use-subscribe` on a `[:rf.resource/*]` query.
+  - `descriptor` — resource-instance identity `{:resource … :scope … :params …}`.
+  - `opts` — `:cause` (recorded on the ensure; defaults to `[:lease :mount]`) and `:frame` (pin to an explicit frame id, bypassing ambient resolution).
+  - Without `:frame`, the frame resolves through the same chain as `use-subscribe`, raising `:rf.error/no-frame-context` when no frame is in scope.
+  - Inert unless the resources artefact (`day8/re-frame2-resources`) is on the classpath to register the resource events.
 - **Example**:
   ```clojure
   (use-resource-lease {:resource :my/feed :scope :rf.scope/global :params {:page 0}})
@@ -60,7 +66,7 @@
   ```clojure
   (use-current-frame) → frame-kw, or :rf.frame/no-provider when no provider is above
   ```
-- **Description**: "What frame am I in?" — the raw React-context read. Returns the surrounding `frame-provider`'s frame keyword, or the no-provider sentinel `:rf.frame/no-provider` when no frame-provider sits above (never a synthesised default). React-context tier only — it does not consult the dynamic-var tier; for the full resolution chain use `(rf/current-frame-id)`.
+- **Description**: Raw React-context read of the surrounding `frame-provider`'s frame keyword. Returns `:rf.frame/no-provider` when no frame-provider sits above (never a synthesised default). Consults the React-context tier only, not the dynamic-var tier; for the full resolution chain use `(rf/current-frame-id)`.
 
 > **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
 
@@ -74,7 +80,9 @@
   ($ helix-adapter/frame-provider {:frame :session} child…)                        ;; SCOPE an existing frame
   ($ helix-adapter/frame-provider {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
   ```
-- **Description**: The Helix-shaped merged frame provider, dispatched on the prop map: `{:frame …}` scopes an already-created frame (fails loud if absent — `:rf.error/frame-provider-frame-absent`; a nil `:frame` raises `:rf.error/no-frame-context`, a non-keyword raises `:rf.error/bad-frame-provider-arg`), `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount; a missing / nil / non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`). Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, exactly as for any other Helix component (no `:children` prop-map key).
+- **Description**: The Helix-shaped merged frame provider, dispatched on the prop map. Children ride the `$` trailing-args channel — pass them after the prop map, as for any Helix component (no `:children` prop-map key).
+  - `{:frame …}` scopes an already-created frame; fails loud if absent (`:rf.error/frame-provider-frame-absent`). A nil `:frame` raises `:rf.error/no-frame-context`; a non-keyword raises `:rf.error/bad-frame-provider-arg`.
+  - `{:id …}` ensures a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts, no destroy-on-unmount). A missing / nil / non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`.
 - **Example**:
   ```clojure
   ;; ENSURE shape at the render root: create the frame on first mount, seed it
@@ -127,7 +135,7 @@
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Description**: Install a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
+- **Description**: Installs a render-tree → HTML fn. Parity with the Reagent and UIx adapters' late-bind seam.
 - **Example**:
   ```clojure
   ;; SSR: install a render-tree → HTML emitter (normally wired for you by

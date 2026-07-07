@@ -40,8 +40,9 @@
     epochs: a cursor write in the shell + the machine cascade in the machine
     frame (observed).
   - RESTART — `:machine-epochs/restart <track-id>` RESETS the machine frame
-    (`rf/reset-frame!` = destroy + re-`reg-frame` with the same `:initial-events`,
-    so the ring clears and re-arcs from boot) and clears the track cursor.
+    (`destroy-frame!` + re-`reg-frame` with the same `:initial-events` — there is
+    no dedicated reset verb, rf2-lxwpob — so the ring clears and re-arcs from
+    boot) and clears the track cursor.
 
   ## Boot-on-select
 
@@ -298,8 +299,9 @@
 ;; A track's machine frame is created lazily on first SELECT via
 ;; `rf/reg-frame :machine/<id> {:initial-events [[<boot-event>]]}`. The boot
 ;; event runs synchronously IN the new frame, so its initial-entry cascade is
-;; the ring's FIRST observed epoch — the machine's START badge. `reset-frame!`
-;; (RESTART) re-runs the SAME `:initial-events`, so a restart re-arcs from boot.
+;; the ring's FIRST observed epoch — the machine's START badge. RESTART
+;; (destroy + re-`reg-frame`) re-runs the SAME `:initial-events`, so a restart
+;; re-arcs from boot.
 ;;
 ;; `[id [:rf.machine/start]]` is the eager kick (xstate `createActor().start()`):
 ;; per F‴ it runs the initial-entry cascade then STOPS — a PURE
@@ -618,6 +620,17 @@
 ;; `runner.core`; they REUSE its cross-frame-dispatch idiom (`{:frame …}`) as
 ;; a building block.
 
+(defn- track-frame-config
+  "The `reg-frame` config a track's `:machine/<id>` frame is (re-)created with —
+  shared by `ensure-machine-frame!` (first creation) and `restart-track!` (the
+  destroy + re-`reg-frame` RESTART composition, rf2-lxwpob — there is no
+  dedicated reset verb, so the restart re-supplies this SAME config)."
+  [track]
+  {:initial-events [[(:boot track)]]
+   :doc            (str "machine-epochs observed frame for the "
+                        (:label track) " track — owns its own "
+                        "epoch ring + machine snapshot(s).")})
+
 (defn- ensure-machine-frame!
   "LAZILY create the track's `:machine/<id>` frame if it does not yet exist,
   with the track's boot event as `:initial-events` (boot-on-select). Idempotent —
@@ -627,10 +640,7 @@
   [track]
   (let [frame-id (machine-frame-id (:id track))]
     (when-not (rf/frame-meta frame-id)
-      (rf/reg-frame frame-id {:initial-events [[(:boot track)]]
-                              :doc            (str "machine-epochs observed frame for the "
-                                                   (:label track) " track — owns its own "
-                                                   "epoch ring + machine snapshot(s).")}))
+      (rf/reg-frame frame-id (track-frame-config track)))
     frame-id))
 
 ;; SELECT — set the selected track in the SHELL, lazily create + boot its
@@ -735,8 +745,9 @@
 
 ;; RESTART (shell side) — clear the SELECTED track's cursor and re-point Xray
 ;; at its (freshly-reset) frame so the operator sees the clean re-boot arc.
-;; The actual frame RESET (`reset-frame!` = destroy + re-`reg-frame`) is NOT
-;; done here: EP-0027 forbids frame construction inside a handler cascade
+;; The actual frame RESET (destroy + re-`reg-frame` — there is no dedicated
+;; reset verb, rf2-lxwpob) is NOT done here: EP-0027 forbids frame construction
+;; inside a handler cascade
 ;; (`:rf.error/frame-construction-in-handler`), and an fx still runs inside
 ;; `*handler-scope*`. The reset happens at the TOP LEVEL in `restart-track!`
 ;; (the React `:on-click`), which dispatches THIS event afterwards. The track
@@ -755,20 +766,21 @@
            :fx [[:machine-epochs/point-xray-at frame-id]]})
         {:db db}))))
 
-;; TOP-LEVEL restart boundary — `reset-frame!` (destroy + re-`reg-frame`) must
-;; run OUTSIDE any handler cascade (EP-0027). Called from the restart button's
-;; React `:on-click` (a plain callback — `*handler-scope*` is unbound). It
-;; resets the selected track's machine frame (the ring clears and the machine
-;; re-arcs from boot via the frame's `:initial-events`; the :session track's
-;; spawned child is torn down by the `:rf.machine/destroy` cascade on frame
-;; teardown), THEN dispatches `:machine-epochs/restart` to clear the cursor and
-;; re-point Xray.
+;; TOP-LEVEL restart boundary — the destroy + re-`reg-frame` reset composition
+;; (rf2-lxwpob: no dedicated reset verb) must run OUTSIDE any handler cascade
+;; (EP-0027). Called from the restart button's React `:on-click` (a plain
+;; callback — `*handler-scope*` is unbound). It resets the selected track's
+;; machine frame (the ring clears and the machine re-arcs from boot via the
+;; frame's `:initial-events`; the :session track's spawned child is torn down
+;; by the `:rf.machine/destroy` cascade on frame teardown), THEN dispatches
+;; `:machine-epochs/restart` to clear the cursor and re-point Xray.
 (defn- restart-track! []
   (when-let [track-id (:rf.runner/selected (rf/app-db-value shell-frame))]
-    (when (track-by-id track-id)
+    (when-let [track (track-by-id track-id)]
       (let [frame-id (machine-frame-id track-id)]
         (when (rf/frame-meta frame-id)
-          (rf/reset-frame! frame-id))
+          (rf/destroy-frame! frame-id)
+          (rf/reg-frame frame-id (track-frame-config track)))
         (rf/dispatch [:machine-epochs/restart] {:frame shell-frame})))))
 
 ;; ============================================================================

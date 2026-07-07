@@ -52,7 +52,8 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 
 ;; Destroy / reset.
 (rf/destroy-frame! :frame-id)
-(rf/reset-frame!   :frame-id)        ;; destroy + re-register: clears BOTH partitions, re-dispatches :initial-events
+(do (rf/destroy-frame! :frame-id)   ;; full reset = destroy + re-register (no dedicated verb):
+    (rf/reg-frame :frame-id config)) ;; clears BOTH partitions, re-dispatches :initial-events
                                      ;; (for app-db-only reset that keeps live machines/routes: reset-app-db!)
 
 ;; Inspect.
@@ -170,7 +171,7 @@ User-supplied keys win on conflict with preset expansion.
 
 ## Common gotchas
 
-- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
+- **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). For a full destroy+recreate, compose `destroy-frame!` then re-`reg-frame`/`make-frame` with the same config — there is no dedicated reset verb.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
 - **Wrapping a plain Reagent fn in a `frame-provider` doesn't bind the frame** (§The merged `frame-provider` in views) — use `reg-view`, or capture a `capture-frame`.
@@ -185,7 +186,7 @@ same behaviour, different memory  -> same image, different frames
 different behaviour               -> different images
 ```
 
-A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped (may repeat across images); frame ids are process-local and unique. When the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames), reach for explicit `rf/image` values — the `rf/image` grammar, image-order composition (`rf/frame-shadows`), `reload-images!`, and the frame-isolation-is-everything rule live in [`images.md`](images.md).
+A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped (may repeat across images); frame ids are process-local and unique. When the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames), reach for explicit `rf/image` values — the `rf/image` grammar, image-order composition (`rf/frame-shadows`), image hot-reload via re-`make-frame`, and the frame-isolation-is-everything rule live in [`images.md`](images.md).
 
 ## Deeper material
 

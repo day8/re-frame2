@@ -93,9 +93,9 @@
 ;; fail-closed by contract (never a silent shared/global read).
 
 (rf/reg-resource-scope :tenant/scope
-  {:inputs  {:tenant [:db [:viewer :active-tenant]]}
-   :resolve (fn [{:keys [tenant]} _ctx]
-              (when tenant [:rf.scope/tenant {:tenant-id tenant}]))})
+  {:inputs {:tenant [:db [:viewer :active-tenant]]}}
+  (fn [{:keys [tenant]} _ctx]
+    (when tenant [:rf.scope/tenant {:tenant-id tenant}])))
 
 ;; ----------------------------------------------------------------------------
 ;; The tenant-scoped dashboard resource

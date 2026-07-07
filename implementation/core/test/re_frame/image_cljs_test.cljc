@@ -401,6 +401,40 @@
       (is (= :rf.error/invalid-image (:rf.error/id data)))
       (is (= entry (:entry data))))))
 
+(deftest inline-rejects-non-map-metadata-slot
+  ;; The middle slot of a 3-tuple [id metadata body] MUST be a registration
+  ;; metadata MAP (EP-0026). A non-seqable non-map (a number) previously crashed
+  ;; RAW at the `(seq metadata)` guard; a seqable non-map (a string / vector) was
+  ;; previously SILENTLY accepted and stamped as junk `:metadata`. Both must now
+  ;; fail loud with the canonical `:rf.error/invalid-image` shape.
+  (testing "a non-seqable metadata slot (a number) throws :rf.error/invalid-image, not a raw host crash"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image
+                            {:id :i
+                             :registrations {:reg-event [[:counter/inc 42 (fn [_ _] {})]]}}))))
+  (testing "a seqable non-map metadata slot (a string) throws rather than being silently accepted"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image
+                            {:id :i
+                             :registrations {:reg-event [[:counter/inc "doc" (fn [_ _] {})]]}}))))
+  (testing "a seqable non-map metadata slot (a vector) throws rather than being silently accepted"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                          #"\[:rf\.error/invalid-image\]"
+                          (image/image
+                            {:id :i
+                             :registrations {:reg-event [[:counter/inc [:x] (fn [_ _] {})]]}}))))
+  (testing "the diagnostic names the image, the section, and the offending entry"
+    (let [entry [:counter/inc "doc" (fn [_ _] {})]
+          data  (try (image/image {:id :my/image :registrations {:reg-event [entry]}})
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                       (ex-data e)))]
+      (is (= :rf.error/invalid-image (:rf.error/id data)))
+      (is (= :my/image (:image data)))
+      (is (= :reg-event (:section data)))
+      (is (= entry (:entry data))))))
+
 (deftest anonymous-image-inline-omits-image-coordinate
   (testing "anonymous image inline descriptors omit :rf.provenance/image"
     (let [v (image/image {:registrations {:reg-event [[:x {} (fn [_ _] {})]]}})

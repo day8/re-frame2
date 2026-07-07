@@ -98,6 +98,12 @@
       (is (= {:n 1} (:db acc)))
       (is (= [[:log :did-inc]] (:fx-applied acc)))
       (is (= 1 (count (:steps acc))))
+      ;; `:steps` holds the step-result MAPS (a trace of every step), not the
+      ;; bare `:rf/step` status keyword — the reducing fn conjes the step map.
+      (let [s (first (:steps acc))]
+        (is (map? s) ":steps entries are step-result maps")
+        (is (= :ok (:rf/step s)))
+        (is (= {:n 1} (:db-after s))))
       (is (= [] (:errors acc))))))
 
 (deftest sync-rf-folds-multiple-envelopes

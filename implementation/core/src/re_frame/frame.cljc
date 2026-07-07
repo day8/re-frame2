@@ -1252,7 +1252,8 @@
     ;; `:rf.frame/capabilities` config slot is gone with the image-capability
     ;; feature.)
     ;; EP-0027: `:initial-events` is DURABLE frame config — it stays in `:config`
-    ;; so `reset-frame!` can re-dispatch the recorded setup. The retired
+    ;; so a destroy + re-`reg-frame` (a full "reset" composition, rf2-lxwpob)
+    ;; can re-dispatch the recorded setup. The retired
     ;; `:rf.frame/initial-db` reserved key is dissoc'd defensively (it is no
     ;; longer threaded; `:initial-db` fails loud upstream).
     :config     (dissoc config :rf.frame/generation :rf.frame/initial-db)}))
@@ -1668,13 +1669,22 @@
        :extra    {:initial-db (:initial-db config)}})))
 
 (defn reg-frame
-  "Atomic create-and-register. Per Spec 002 §reg-frame is atomic:
+  "Atomic create-and-register — the ENGINE `re-frame.live-frame/make-frame`
+  (the public `rf/make-frame`) delegates to, and the macro spelling `rf/reg-frame`
+  documents itself as sugar for (rf2-lxwpob, Option B: `(reg-frame id metadata)`
+  ≡ `(make-frame (assoc metadata :id id))`, differing only in source-coord
+  capture — ONE semantics, not a sibling constructor with its own duplicate-id
+  story). Per Spec 002 §Frame lifecycle:
   - If the id is unregistered, create the frame container, run the
     :initial-events setup steps synchronously (EP-0027), return the keyword.
-  - If the id is already registered, perform a SURGICAL UPDATE: existing
-    runtime state (app-db, sub-cache, queue) is preserved; only the
-    metadata/config is replaced (the recorded :initial-events is REPLACED, not
-    replayed — idempotent re-registration). Hot-reload Just Works."
+  - If the id is already registered, perform a SURGICAL UPDATE / IDEMPOTENT
+    REPLACEMENT (EP-0024 §Duplicate id policy): existing runtime state
+    (app-db, sub-cache, queue) is preserved; only the metadata/config is
+    replaced (the recorded :initial-events is REPLACED, not replayed —
+    idempotent re-registration). Hot-reload Just Works. This IS re-construction
+    — the Clojure re-def model: re-declaring the same id refreshes config
+    (+ generation, when the caller threads `:rf.frame/generation`) while
+    durable state survives."
   [id metadata]
   (let [;; The registry is keyed by the bare frame-id.
         config (source-coords/merge-coords (expand-preset metadata))
@@ -1831,9 +1841,10 @@
               ;; `:initial-events` (durable frame config) lands in `:config` here,
               ;; REPLACING the prior recording (and CLEARING it when the key is
               ;; absent), while durable app-db / sub-cache / queue are preserved.
-              ;; The recorded setup is replayed ONLY by `reset-frame!` (the
-              ;; opt-in full replace), never on a surgical re-registration / a
-              ;; React remount / StrictMode double-invoke / Story re-eval.
+              ;; The recorded setup is replayed ONLY by the opt-in full-replace
+              ;; composition (`destroy-frame!` then `reg-frame`, rf2-lxwpob),
+              ;; never on a surgical re-registration / a React remount /
+              ;; StrictMode double-invoke / Story re-eval.
               stored-config (dissoc config :rf.frame/generation :rf.frame/initial-db)]
           (swap! frames update id
                  assoc :config stored-config :generation (get config :rf.frame/generation))
@@ -1929,9 +1940,9 @@
 ;; Spec-Schemas §`:rf/epoch-record` §Outcomes. The canonical snapshot unit is
 ;; the whole frame-state; the epoch derives `:db-before` from its app-db
 ;; projection.
-;; nil outside a drain (an out-of-run `destroy-frame!` — hot-reload,
-;; `reset-frame!`, REPL — commits no `:halted-destroy` record, so the slot
-;; is moot there).
+;; nil outside a drain (an out-of-run `destroy-frame!` — hot-reload, a
+;; destroy + re-`reg-frame` reset composition, REPL — commits no
+;; `:halted-destroy` record, so the slot is moot there).
 (def ^:dynamic *run-frame-state-before* nil)
 
 ;; SENSE (rf2-p4cd9c): event-pipeline-run — the run's causal time, bound
@@ -2550,84 +2561,50 @@
           ;; (after a fresh `reg-frame`) must not see a stale entry.
           (swap! destroying-frames disj id)))))))))
 
-(defn reset-frame!
-  "destroy-frame! followed by reg-frame with the same config. Per Spec 002
-  §reset-frame! — full replace, opt-in. The destroy + re-register target the
-  frame-id-keyed record directly.
+;; ---- reset-frame! — RETIRED (rf2-lxwpob) -----------------------------------
+;;
+;; `reset-frame!` (destroy-frame! + reg-frame with the same config, full
+;; replace) was RETIRED in rf2-lxwpob (API-shrink #5, frame-lifecycle
+;; collapse): one axis (create/refresh via `reg-frame` / `make-frame`, destroy
+;; via `destroy-frame!`), not three verbs. A full replace is reproducible by
+;; composition — `(destroy-frame! id) (reg-frame id config)` (or `make-frame`
+;; for an image-loaded frame, re-supplying the SAME `:images` the caller
+;; already holds so the recreated frame keeps its resolved generation). There
+;; is no internal-only survivor: the mid-cascade atomicity guard this verb
+;; offered (reject BEFORE any teardown) has no equivalent in the two-call
+;; composition and is accepted as a retired guarantee — frame
+;; construction/destruction is already a top-level/view-only operation
+;; (EP-0027), so the composition's non-atomicity only bites a call site that
+;; was already violating that rule.
+;;
+;; The name survives ONLY as a `^:no-doc` throwing stub (the project's
+;; actionable-removed-API pattern, like the EP-0018 `reg-event-db` / EP-0022
+;; `rf/path` stubs): a stale `(rf/reset-frame! …)` call site resolves to a
+;; real var and fails LOUDLY with `:rf.error/reset-frame-removed`, naming the
+;; two-call composition as the replacement. `^:no-doc` drops it from the API
+;; manifest generator + the CLJS publics probe. Plain `defn` (not
+;; macro-generated) so it compiles identically on JVM and CLJS. Aliased onto
+;; the `re-frame.core` facade in core.cljc.
 
-  EP-0027 §Reset: because the recorded `:initial-events` is DURABLE frame config
-  (it stays on `:config`), re-registering with that config RE-DISPATCHES the
-  recorded `:initial-events` — the only thing that replays the setup, in place of
-  the old `:on-create` re-fire. The replay is a BEST-EFFORT re-run through the
-  CURRENT handlers (a vector now, exactly as `:on-create` re-fired one event
-  before): no snapshot, no replay tape, no atomicity. Because construction is
-  events-only, the recorded script IS the constructed state — there is no
-  separate baseline to restore. The other app-db reset verbs
-  (`reset-app-db!` / `replace-app-db!`) are unchanged.
-
-  IMAGE-LOADED FRAMES (EP-0024, rf2-qnk02m). A frame created via
-  `make-frame {:images …}` runs against its OWN resolved image GENERATION (the
-  `:generation` slot), and that generation is the registration namespace its
-  `:initial-events` replay resolves `(kind, id)` against. The stored `:config`
-  carries NEITHER `:images` (consumed by `make-frame` BEFORE `reg-frame` saw it)
-  NOR `:rf.frame/generation` (stripped by `new-frame-record` / the re-reg path
-  into the `:generation` slot). So a naive `(reg-frame id (:config f))` recreated
-  the frame with `:generation` nil — silently DEGRADING an image-loaded frame to
-  registrar resolution: if the image carried INLINE-ONLY registrations (present
-  only in the generation, never the global registrar), the `:initial-events`
-  replay would dispatch events whose handlers no longer resolve, and
-  `dispatch-sync` TRACES-and-recovers an unregistered handler (no throw) — leaving
-  a LIVE frame in a wrong/empty state with NO loud signal.
-
-  Reset replays against the SAME resolved frame definition, so the recreated
-  frame MUST keep the same generation. We SNAPSHOT the live `:generation` BEFORE
-  `destroy-frame!` and re-thread it through the reserved `:rf.frame/generation`
-  construction key, so `new-frame-record` seats it onto the recreated record's
-  `:generation` slot BEFORE the `:initial-events` replay runs — the replay then
-  resolves through the frame's OWN image generation exactly as the original
-  construction did. An ordinary (no-image) frame carries `:generation` nil; the
-  re-thread is a no-op there (nil ⇒ registrar resolution, byte-identical to
-  before).
-
-  MID-CASCADE GUARD (EP-0027, rf2-y6uzx8). `reset-frame!` is a top-level / view
-  LIFECYCLE op, not a handler op — like construction (a handler mutates app-db;
-  views and top-level materialize / reset frames). Calling it INSIDE an event
-  handler (a cascade in flight, `trace/*handler-scope*` bound) is rejected
-  LOUD with `:rf.error/frame-reset-in-handler` BEFORE any teardown. Without
-  this preflight the sequence was: `destroy-frame!` succeeds (no handler-scope
-  guard on destroy) — the frame is GONE — then the re-`reg-frame` hits the
-  construction-in-handler guard and throws, leaving the frame
-  DESTROYED-AND-NOT-RECREATED (a half-completed reset, the live app a frame
-  short, signalled by an error naming the WRONG cause). The up-front rejection
-  is atomic: no partial teardown."
-  [id]
-  ;; EP-0027 §Reset (rf2-y6uzx8): reject a mid-cascade reset BEFORE the destroy.
-  (when trace/*handler-scope*
-    (error/throw-error!
-      :rf.error/frame-reset-in-handler
-      'rf/reset-frame!
-      (str "resetting a frame inside an event handler is not supported "
-           "(EP-0027) — got reset-frame! " (pr-str id) " while a cascade is in "
-           "flight. reset-frame! is a top-level / view LIFECYCLE op (it destroys "
-           "and re-constructs the frame, re-running :initial-events); a handler "
-           "changes app-db, and the view materializes / resets frames from it. "
-           "Move the reset to a frame-provider in the view tree, or to top-level "
-           "boot. (Rejected up front so no partial teardown is left — the frame "
-           "is untouched.)")
-      {:recovery :reset-frames-in-view-or-top-level
-       :extra    {:frame id}}))
-  (when-let [f (frame id)]
-    (let [;; Snapshot the resolved image generation BEFORE destroy so the
-          ;; recreated frame keeps the SAME image-derived registrations
-          ;; (rf2-qnk02m). nil for an ordinary configured frame — the re-thread
-          ;; is then a no-op (registrar resolution, unchanged).
-          generation (:generation f)
-          ;; Re-thread the generation via the reserved construction key only when
-          ;; present, so an ordinary frame's config is byte-identical to before.
-          config     (cond-> (:config f)
-                       (some? generation) (assoc :rf.frame/generation generation))]
-      (destroy-frame! id)
-      (reg-frame id config))))
+(defn ^:no-doc reset-frame!
+  "REMOVED in rf2-lxwpob (no alias). The dedicated reset verb is retired — a
+  full replace is `(destroy-frame! id) (reg-frame id config)`, re-supplying
+  the SAME config (and `:images`, for an image-loaded frame) the caller
+  already holds. Calling `reset-frame!` is the hard error
+  `:rf.error/reset-frame-removed`, naming that composition as the
+  replacement. See spec/002-Frames.md §Resetting a frame — destroy + reg-frame
+  and spec/API.md §Frame lifecycle."
+  [& args]
+  (error/throw-error!
+    :rf.error/reset-frame-removed
+    'rf/reset-frame!
+    (str "`reset-frame!` is REMOVED (no alias, rf2-lxwpob) — a full frame "
+         "reset is reproducible by composition: `(destroy-frame! id) "
+         "(reg-frame id config)`, re-supplying the SAME config (and "
+         "`:images`, for an image-loaded frame) you already hold. See "
+         "spec/002-Frames.md §Resetting a frame — destroy + reg-frame.")
+    {:recovery :destroy-frame-then-reg-frame-with-same-config
+     :extra    {:got args}}))
 
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
 ;;

@@ -1015,8 +1015,9 @@
 ;; frame is destroyed, every cb whose observed-frames set contains
 ;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
 ;; trace. The frame is then dropped from the cb's entry so a
-;; re-registration of a same-keyed frame (e.g. `reset-frame! :app/main`)
-;; can re-arm the silencing trace for a future destroy.
+;; re-registration of a same-keyed frame (e.g. a destroy-frame! +
+;; re-reg-frame reset of :app/main) can re-arm the silencing trace for a
+;; future destroy.
 (defonce ^:private observed-frames-by-cb
   ;; cb-id → #{frame-id ...}
   (atom {}))

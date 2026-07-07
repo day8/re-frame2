@@ -313,7 +313,7 @@ The init event from step 1 restores the saved session and classifies the token p
 
 ??? info "From re-frame v1"
 
-    There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event pipeline](../glossary.md#event-pipeline) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — call `reset-frame!` to replay the setup. (See [Frames](../frames.md).)
+    There's no `:db` config key — a frame always starts with `app-db = {}`, and you build the initial state through dispatched events (the same [event pipeline](../glossary.md#event-pipeline) that handles every later change). Events that need nothing from the world can ride the frame's `:initial-events`; one that consumes a *provided* coeffect (like `:auth/init`'s host-read token) is dispatched at the boundary instead, where its `:rf.cofx` can be supplied. If you need to seed raw state ahead of the auth read, make `[:rf/set-db {…}]` the first step; events dispatch synchronously, in order. Editing `:initial-events` after the fact doesn't re-run them on a hot save — destroy the frame and re-`reg-frame` it to replay the setup (no dedicated reset verb). (See [Frames](../frames.md).)
 
 !!! warning "Gotcha — exactly one frame owns the URL"
 
@@ -348,11 +348,10 @@ To clear *a user's* cached reads you need a way to name "this user's scope." Tha
 ;; Register once at boot. The resolver is PURE — it derives a scope from db,
 ;; it does not fetch, dispatch, or read ambient state.
 (rf/reg-resource-scope :my-app/session
-  {:inputs {:username [:db [:auth :user :username]]}
-   :resolve
-   (fn [{:keys [username]} _ctx]
-     (when username
-       [:rf.scope/session {:username username}]))})   ;; nil when logged out — fail-closed
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username
+      [:rf.scope/session {:username username}])))   ;; nil when logged out — fail-closed
 ```
 
 Now logout itself. There's one subtlety, and the ordering is the whole game: resolve the *old* scope from the coeffect `db` **before** you clear the auth slice. After the clear, the identity the scope derives from is gone.

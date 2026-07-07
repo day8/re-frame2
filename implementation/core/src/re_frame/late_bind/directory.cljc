@@ -784,7 +784,7 @@
     :description "Replace a frame's app-db partition (state injection), preserving live runtime-db."}
    {:key         :epoch/reset-app-db!
     :producer-ns 're-frame.epoch
-    :description "Reset a frame's app-db partition to {}, preserving live runtime-db (app-db sibling of reset-frame!)."}
+    :description "Reset a frame's app-db partition to {}, preserving live runtime-db (app-db sibling of a full frame reset, destroy-frame! + reg-frame)."}
    {:key         :epoch/replace-runtime-db!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-szbzei"

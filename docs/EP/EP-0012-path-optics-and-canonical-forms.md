@@ -1436,6 +1436,26 @@ dispositions and riders are inline.
    includes EP-0015's frame-config path maps and EP-0016's map-form targets
    alongside flows/schemas/routing/resources. The facade-export classification
    rule applies to each name at its graduation.
+
+   **Addendum (rf2-woxepk, 2026-07-07 — trigger re-recorded, disposition
+   unchanged: internal-only stays standing):** the two-or-more-consumers gate
+   fired — `re-frame.path` is now cited through the internal namespace by 6+
+   framework artefact families (core, flows, schemas, routing, resources,
+   machines) — but a per-op production census (excluding `path.cljc` and
+   tests) shows the gate measured the wrong population. Only the **boundary
+   validators** clear it: `normalize-concrete` (6 families) and `segment?`
+   (3). The app-usable ops the gate envisioned as public —
+   `get`/`put`/`over`/`lookup`/`compose`/`instantiate` — have 0-1 production
+   consumers each, and `docs/core/` teaches zero path ops (the migration
+   guide uses plain `assoc-in`/`get-in`/`update-in`). Publishing today would
+   ship two validators no app author calls while the ergonomic ops stayed
+   internal — a lopsided surface, so no op graduates now. The trigger is
+   re-recorded: it fires on an **app-facing** consumer — a guide, pattern, or
+   migration doc that must *teach* an op, or an external request — never on
+   framework artefact-family accumulation. If an op ever graduates, its
+   public home is the `re-frame.path` namespace, **never** `re-frame.core`,
+   and **never** the bare name `path` (EP-0022 tombstone —
+   `re-frame.core/path` already throws `:rf.error/path-removed`).
 2. Should path templates reserve only `'?name` symbols, or should they use an
    explicit data form such as `[:rf.path/param :invoice-id]` to avoid any chance
    of confusing a literal symbol segment with a template variable?

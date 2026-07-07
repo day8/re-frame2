@@ -533,7 +533,7 @@
 ;; `replace-app-db!` (per spec/API.md, Mike ruling #10) installs an
 ;; arbitrary `app-db`; its app-db-only sibling `reset-app-db!` resets the
 ;; app-db partition to `{}` while preserving live runtime-db — the app-db
-;; sibling of the whole-frame `reset-frame!`.
+;; sibling of a full frame reset (`destroy-frame!` + `reg-frame`).
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
 ;; gate as `restore-epoch!` / `register-epoch-listener!` / the rest of the
@@ -729,7 +729,8 @@
 (defn reset-app-db!
   "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
   loop, while preserving live runtime-db (machines / routes / elision /
-  SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`
+  SSR survive). The app-db-only sibling of a full frame reset
+  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope
   (EP-0001 rf2-tfepxu, Mike ruling #10). Thin wrapper over `replace-app-db!`
   with the empty-map value — same synthetic-epoch recording, same gating
   and failure modes.

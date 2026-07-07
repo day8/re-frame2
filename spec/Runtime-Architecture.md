@@ -115,7 +115,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
  :config    {...}}                   ;; the metadata reg-frame was given (incl. :preset expansion)
 ```
 
-**Inputs.** `reg-frame` (atomic create-and-register), `make-frame` (anonymous instance), `reset-frame!` (full replace, opt-in per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)), `destroy-frame!` (lifecycle teardown).
+**Inputs.** `reg-frame` (atomic create-and-register — documented sugar for `make-frame`, rf2-lxwpob), `make-frame` (the one constructor; opts + optional descriptor pool), a full replace via `destroy-frame!` + re-`reg-frame` with the same config (opt-in, per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame) — no dedicated verb), `destroy-frame!` (lifecycle teardown).
 
 **Outputs.** Frame-keyword handles. Tools query via `frame-meta`, `frame-ids`.
 

@@ -211,12 +211,13 @@ frame (`{:frame :machine/<track>}`) — two epochs: a shell cursor write
 selection live in app-db (events + subs), not Reagent atoms (rf2-5sjbg).
 
 **Restart** resets the selected track's machine frame
-(`rf/reset-frame!` = destroy + re-`reg-frame` with the same
-`:initial-events`), so the ring clears and the machine re-arcs from boot;
-the track cursor clears. Like select, the `reset-frame!` runs at the TOP
-LEVEL (a `restart-track!` boundary called from the restart button's
-`:on-click`), NOT in the `:machine-epochs/restart` handler (EP-0027 frame
-construction rule); the handler only clears the cursor and re-points Xray.
+(`destroy-frame!` + re-`reg-frame` with the same
+`:initial-events` — there is no dedicated reset verb, rf2-lxwpob), so the
+ring clears and the machine re-arcs from boot; the track cursor clears. Like
+select, the reset runs at the TOP LEVEL (a `restart-track!` boundary called
+from the restart button's `:on-click`), NOT in the `:machine-epochs/restart`
+handler (EP-0027 frame construction rule); the handler only clears the
+cursor and re-points Xray.
 The fuse track's boot-on-select THROWS (its initial `:entry` action throws
 on boot) — that is the sole machine-action-exception trigger.
 

@@ -320,7 +320,7 @@ Related: [Images](images.md).
 
 ### **generation**
 
-The sealed registration set a [frame](#frame)'s [image](#image) selection resolves into when the frame is constructed — the concrete "which handler answers this id" table the frame runs against, frozen as a value. Every `make-frame` frame carries one (the default image seals into a generation too); `reload-images!` swaps a frame onto a freshly resolved generation.
+The sealed registration set a [frame](#frame)'s [image](#image) selection resolves into when the frame is constructed — the concrete "which handler answers this id" table the frame runs against, frozen as a value. Every `make-frame` frame carries one (the default image seals into a generation too); re-calling `make-frame` against the same `:id` with a new `:images` vector swaps a frame onto a freshly resolved generation.
 
 Related: [Images](images.md).
 

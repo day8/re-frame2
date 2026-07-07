@@ -224,7 +224,7 @@ So the choice is "do I already have this frame, or do I want the provider to ens
 
     Neither shape destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway world torn down on close), make that explicit: `rf/make-frame` + `rf/destroy-frame!` (both [below](#ending-and-resetting-a-frame)), tied to the component's mount/unmount lifecycle — e.g. inside a `create-class`, where the component declares it owns the birth *and* the death.
 
-One behaviour to internalise before it surprises you: re-mounting the `{:id …}` shape is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation, a key change — the existing frame's durable state is *preserved*, not blown away. Re-mount updates the frame's config without resetting `app-db` or replaying `:initial-events`; that's what makes hot reload not blink. If you genuinely want a fresh start, that's `reset-frame!` (below), not a re-mount.
+One behaviour to internalise before it surprises you: re-mounting the `{:id …}` shape is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation, a key change — the existing frame's durable state is *preserved*, not blown away. Re-mount updates the frame's config without resetting `app-db` or replaying `:initial-events`; that's what makes hot reload not blink. If you genuinely want a fresh start, that's the destroy + re-register composition [below](#ending-and-resetting-a-frame), not a re-mount.
 
 ## The one rule: frame identity is carried, not found
 
@@ -322,16 +322,20 @@ If you feel the need for one, you've answered the discriminator question wrongly
 
 ## Ending and resetting a frame
 
-Most frames live for the whole program and you never tear them down — a UI-owned frame simply outlives its mounts, and SSR/test harnesses tear theirs down deliberately. But two verbs cover the lifetime explicitly, and you'll meet them in tests and tools:
+Most frames live for the whole program and you never tear them down — a UI-owned frame simply outlives its mounts, and SSR/test harnesses tear theirs down deliberately. One verb covers destruction; a full reset is that verb composed with re-registration — you'll meet both in tests and tools:
 
 ```clojure
 (rf/destroy-frame! :pane/left)   ;; remove it from the registry; run teardown
-(rf/reset-frame!   :pane/left)   ;; reset to "just created" — re-runs :initial-events
+
+;; Reset to "just created" — re-runs :initial-events. Not a dedicated verb:
+;; destroy, then re-register with the SAME config you built the frame with.
+(rf/destroy-frame! :pane/left)
+(rf/reg-frame :pane/left config)
 ```
 
 **`destroy-frame!`** drops the frame from the registry, disposes its sub-cache (so nothing leaks reactive listeners), stops its router (the machinery that drains its event queue), and — if you declared one — fires its `:on-destroy` event first. It accepts the frame id or the frame value. After destruction, a dispatch or subscribe still aimed at that frame doesn't throw — it **recovers**: `dispatch` quietly no-ops, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record is emitted on the always-on [error stream](glossary.md#error-record). Recovery rather than a throw is deliberate: the runtime can't tell a benign teardown/hot-reload *race* from a real use-after-destroy bug, so it stays race-safe while still surfacing the diagnostic where your error monitor will see it.
 
-**`reset-frame!`** is "I want this back to how it started." It's equivalent to a destroy followed by a fresh `reg-frame` with the same config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use it between cases; Story "reset" buttons use it. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `reset-app-db!` — but `reset-frame!` is the whole-world one.)
+**A full reset** is "I want this back to how it started." Compose `destroy-frame!` with a fresh `reg-frame` using the SAME config: `app-db` resets to `{}`, the sub-cache and router queue clear, and the recorded `:initial-events` re-run synchronously. Tests use this between cases; Story "reset" buttons use it. For an image-loaded frame, re-supply the same `:images` too (via `make-frame`), or the recreated frame loses its resolved composition. (For an `app-db`-only reset that *keeps* live runtime state, there's a lighter `reset-app-db!` — but the destroy+reg-frame composition is the whole-world one.) Unlike a single dedicated verb, this composition has no joint atomicity across the two calls — run it outside any handler, same as construction.
 
 And one construction rule, stated flat: constructing a frame inside an event handler fails loud with `:rf.error/frame-construction-in-handler`. The division is the same one this whole page rests on — a *handler* changes app-db; a *view* (or boot, or an SSR-per-request top level) materialises frames. A handler that wants a child frame to exist writes app-db to say so, and the view tree creates the frame in response (via `frame-provider`). There is no mid-run frame-creation path.
 

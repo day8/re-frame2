@@ -516,7 +516,7 @@ The locks below are inherited from the template walkthrough (Mike,
 | SSR opt-in: `:include-ssr?` | Q7 lock; shipped (rf2-675qdb; gate rf2-0m5ea cleared) | `template-fn` branch on `:include-ssr?` — Reagent-only, mutually exclusive with `:include-story?`; emits `core.cljc` + `server.clj` + `ssr_test.clj` |
 | Story opt-in: `:include-story?` | Q3/Q4 era | `template-fn` branch on `:include-story?` |
 | Xray preload (always-on) | Q9 lock | `_shared/shadow-cljs.edn` :preloads |
-| Skill install stub: `install-skills.sh` | Q9 lean A | Deferred — README mention only today (`_shared/README.md` §Future: skill install); placeholder script lands when the Claude Code skill marketplace publishes. |
+| Skill install: declarative plugin wiring | Q9 lean A, re-recorded (rf2-tqrprb, RULED B) | Deferred — README mention only today (`root/README.md:647-654` §Future: skill install); lands when day8 publishes its first marketplace-listed/installable re-frame2 plugin (requires `.claude-plugin/marketplace.json` + a release tag + skills out of pre-alpha). Deliverable is DECLARATIVE plugin wiring — emitted `.claude/settings.json` `extraKnownMarketplaces` + `enabledPlugins`, or a README `/plugin install` one-liner — NOT a copy-in `install-skills.sh` (that shape is now the anti-pattern; see `skills/README.md` link-never-copy doctrine). |
 | Layout: `src/` + `test/` + `dev/scratch.cljs` + `dev/user.clj` | Q8 lock | Unconditional under `_shared/` |
 
 Three flags total (`:include-story?`, `:css`, `:include-ssr?`). Resist
