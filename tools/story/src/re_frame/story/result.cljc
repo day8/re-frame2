@@ -278,14 +278,45 @@
   [a]
   (when (vector? a) (vec (rest a))))
 
+(def ^:private redaction-prone-assertion-ids
+  "Assertion ids whose evaluator may rebuild the run RECORD's `:payload`
+  from a REDACTED expected value for a sensitive path/sub
+  (`assertions/evaluate-path-equals` / `evaluate-sub-equals` rebuild
+  `:payload` as `[path-or-sub-vec exp-redacted]`). The compiled check
+  plan's atom, by contrast, always carries the RAW author-declared
+  expected value — plan atoms are never redacted (redaction only happens
+  at run time, against a live frame). rf2-m0cge5 finding 11: an
+  exact-payload match between the two therefore never agrees for a
+  sensitive assertion."
+  #{assertions/id-path-equals assertions/id-sub-equals})
+
 (defn- record-matches-atom?
   "True iff assertion `record` was produced by assertion `atom-v` — same
   `:rf.assert/*` id AND same payload. Pure data → data. The payload match
-  disambiguates two `:rf.assert/path-equals` against different paths within
-  one check."
+  disambiguates two atoms of the same id against different paths within
+  one check.
+
+  For the two REDACTION-PRONE ids (`redaction-prone-assertion-ids`), the
+  comparison instead uses a redaction-invariant key: only the payload's
+  FIRST element (the path / sub-vec — a structural coordinate, never
+  itself redacted by either evaluator) is compared, never the second
+  (the possibly-redacted expected value). Without this, a sensitive
+  `:rf.assert/path-equals` — whose run RECORD carries `[path
+  :rf/redacted]` while the check plan's atom still carries the raw
+  `[path <secret>]` — never matches: the record is never grouped under
+  its check, so the check's `:assertions` reads empty and aggregates
+  vacuously to `:pass` even when the sensitive assertion FAILED (the
+  run-level verdict stays correct — `records` still folds it directly —
+  but the check-level grouping lies). The path/sub-vec position stays an
+  exact, disambiguating key for every other case (two atoms of this id
+  against DIFFERENT paths in one check remain distinct)."
   [record atom-v]
-  (and (= (:assertion record) (atom-id atom-v))
-       (= (vec (:payload record)) (atom-payload atom-v))))
+  (let [id (atom-id atom-v)]
+    (boolean
+      (and (= (:assertion record) id)
+           (if (contains? redaction-prone-assertion-ids id)
+             (= (first (:payload record)) (first (atom-payload atom-v)))
+             (= (vec (:payload record)) (atom-payload atom-v)))))))
 
 (defn check-record
   "Build ONE check record (spec/017 §Run result — Check record) for
@@ -753,10 +784,21 @@
                          (remove #(contains? consumed-selectors (:selector %))))
         tape-red?      (evidence/evidence-shows-failure?
                          tape unconsumed (:effects evidence-slots) nil :unconsumed)
-        ;; The agreement floor escalates ONLY a would-be pass — a real
-        ;; :fail / :error / :cannot-run already outranks it (the floor never
-        ;; downgrades a higher verdict).
-        status         (if (and (= :pass base-status) tape-red?)
+        ;; The agreement floor escalates a would-be `:pass` OR a
+        ;; `:cannot-run` to `:fail` — a real `:error` already outranks it
+        ;; (the floor never downgrades a higher verdict), per the ONE
+        ;; precedence rule `:error` > `:fail` > `:cannot-run` > `:pass`
+        ;; (rf2-m0cge5 finding 9). Before this fix the floor lifted only
+        ;; `:pass` → `:fail`: a run that was ALSO `:cannot-run` (some
+        ;; expectation the runner could not even attempt) left `status`
+        ;; at `:cannot-run` even when the tape independently carried an
+        ;; unconsumed schema-validation failure (`tape-red?` true) — a
+        ;; MUST-fail masked by a lower-ranked refusal, the opposite of
+        ;; "never mask a real failure". `:cannot-run` and `tape-red?` are
+        ;; orthogonal signals (an unmet-requirement refusal and an
+        ;; unconsumed schema violation can both be true of the same run),
+        ;; so both floor-eligible base statuses escalate.
+        status         (if (and tape-red? (#{:pass :cannot-run} base-status))
                          :fail
                          base-status)
         identity-slots (select-keys parts [:variant/id :plan-hash :run-hash

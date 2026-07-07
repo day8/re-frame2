@@ -1472,7 +1472,25 @@
                                         :db-seed       db-seed
                                         :sub-overrides sub-overrides})
         ;; ---- runner requirement ----
-        required     (compute-required-runner setup script* assertions)
+        ;; rf2-m0cge5 finding 10: unioned across EVERY auto-run play's
+        ;; script, not just `script*` (the primary/first play alone).
+        ;; `[:world :scripts]` retains every play, and the runtime
+        ;; auto-runs each `:auto-run? true` one in order
+        ;; (`runner/auto-runnable-plays` — the single definition both
+        ;; `runtime/run-phase-4!` and `runner-events/auto-run!` delegate
+        ;; to). Runner-selection trusts `:required-runner` VERBATIM, so an
+        ;; auto-run play OTHER than the first whose step lifts capability
+        ;; (e.g. an `:assert-dom` checkpoint → `:dom`) that this slot never
+        ;; reflected let `:auto` selection pick a runner that cannot
+        ;; execute it — a spurious mid-run failure instead of an honest
+        ;; `:cannot-run` refusal at selection time. `scripts*` is the
+        ;; fully arg-substituted + folded plays vector (mirrors `script*`
+        ;; for the first play by construction), so this SUBSUMES the old
+        ;; single-play computation whenever the first play auto-runs (the
+        ;; common case) and correctly extends it to every other auto-run
+        ;; play.
+        auto-run-scripts (vec (mapcat :script (runner/auto-runnable-plays scripts*)))
+        required     (compute-required-runner setup auto-run-scripts assertions)
         ;; ---- source coords ----
         source       (:source child)
         platforms    (or (:platforms ctx) #{:client})

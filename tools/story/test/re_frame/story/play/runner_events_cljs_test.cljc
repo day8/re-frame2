@@ -843,8 +843,9 @@
 ;; ---- rf2-vkdam: the public driver OWNS the boundary reset ----------------
 ;;
 ;; `record-settle-boundary!` APPENDS a per-dispatch-step settle boundary onto
-;; the process-global `step-boundaries` atom (keyed by frame-id). Previously
-;; only the orchestrator (`runtime/run-phase-4!`) cleared, so a non-orchestrator
+;; the process-global `step-boundaries` atom (keyed by `[frame-id play-key]`
+;; — rf2-m0cge5 finding 2). Previously only the orchestrator
+;; (`runtime/run-phase-4!`) cleared, so a non-orchestrator
 ;; re-run via the public `run!` (interactive Re-run / replay-in-place) kept
 ;; accumulating boundaries until teardown — a latent hazard for any future
 ;; consumer reading `settle-boundaries` after such a run (stale offsets →
@@ -869,15 +870,69 @@
        (async/deref-blocking (story/run-variant :story.vkdam/rerun) 5000)
        ;; First public run via `run!` (NOT the orchestrator).
        (run-blocking :story.vkdam/rerun)
-       (let [after-first (count (re/settle-boundaries :story.vkdam/rerun))]
+       ;; `run-blocking` drives `run!`'s 2-arity form, which resolves to
+       ;; play-key nil (the `:play-script` variant's single default play) —
+       ;; `settle-boundaries` is keyed by `[frame-id play-key]` (rf2-m0cge5
+       ;; finding 2), so reads pass that same nil.
+       (let [after-first (count (re/settle-boundaries :story.vkdam/rerun nil))]
          (is (= 3 after-first)
              "three dispatch steps record three boundaries")
          ;; Second public run — an interactive Re-run. WITHOUT the reset this
          ;; would accumulate to six; WITH it, `run!` clears at start so the
          ;; frame again holds exactly THIS run's three boundaries.
          (run-blocking :story.vkdam/rerun)
-         (is (= 3 (count (re/settle-boundaries :story.vkdam/rerun)))
+         (is (= 3 (count (re/settle-boundaries :story.vkdam/rerun nil)))
              "the public driver reset its boundaries — no stale accumulation")))))
+
+;; ---- rf2-m0cge5 finding 2: step-boundaries keyed by [frame-id play-key] --
+;;
+;; `step-boundaries` was previously keyed by `frame-id` ALONE. A multi-play
+;; sequencer (`run-plays-sequentially!` / `runtime/run-phase-4!`) accumulates
+;; boundaries across several plays on ONE frame via `:clear-boundaries?
+;; false`; the per-`[frame play-key]` run-token guard does NOT block a
+;; CONCURRENT `run!` for a DIFFERENT play-key on that SAME frame — that
+;; concurrent call's default `:clear-boundaries? true` used to wipe the ONE
+;; shared frame-id bucket out from under the in-flight sequence. Keying by
+;; the `[frame-id play-key]` pair confines each play's boundaries to its own
+;; slot, closing the hazard.
+
+#?(:clj
+   (deftest concurrent-run-for-different-play-key-does-not-wipe-boundaries
+     (testing "a concurrent run! for a DIFFERENT play-key on the SAME frame
+              (default :clear-boundaries? true) does not wipe an in-flight
+              sequence's accumulated boundaries for ANOTHER play-key
+              (rf2-m0cge5 finding 2)"
+       (rf/reg-event :m0cge5/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+       (story/reg-variant :story.m0cge5/two-key
+         {:events []
+          :play-script {:auto-run? false :script []}})
+       ;; Allocate the frame so `run!` has a live frame to dispatch into.
+       (async/deref-blocking (story/run-variant :story.m0cge5/two-key) 5000)
+       (let [spec-a {:name "A" :auto-run? false
+                     :script [[:dispatch-sync [:m0cge5/touch]]]}
+             spec-b {:name "B" :auto-run? false
+                     :script [[:dispatch-sync [:m0cge5/touch]]]}
+             done-a (promise)
+             done-b (promise)]
+         ;; Simulate the sequencer driving play "A" WITHOUT clearing (as
+         ;; `run-plays-sequentially!` drives every play it owns).
+         (re/run! :story.m0cge5/two-key "A" spec-a (fn [_] (deliver done-a :ok))
+                  {:clear-boundaries? false})
+         (deref done-a 5000 :timeout)
+         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "A")))
+             "play A recorded its own boundary")
+         ;; A concurrent ad-hoc run for a DIFFERENT play-key "B" — e.g. an
+         ;; interactive Re-run of a different play via the toolbar dropdown —
+         ;; using the DEFAULT :clear-boundaries? true.
+         (re/run! :story.m0cge5/two-key "B" spec-b (fn [_] (deliver done-b :ok)))
+         (deref done-b 5000 :timeout)
+         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "A")))
+             "play A's boundaries are UNTOUCHED by the concurrent play B run
+              — before the fix both shared the frame-id-only key, so B's
+              default clear wiped A's entry mid-sequence")
+         (is (= 1 (count (re/settle-boundaries :story.m0cge5/two-key "B")))
+             "play B recorded its own boundary under its own key")))))
 
 ;; ---- rf2-96qsjr: narrative attribution survives epoch-ring eviction ------
 ;;
