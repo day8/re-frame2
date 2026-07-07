@@ -299,7 +299,7 @@
   context tier silently no-ops to nil.
 
   This is the canonical scope reader — `subs/subscribe`,
-  `router/dispatch*`'s frame computation, and `core/current-frame-id`
+  `router/dispatch!`'s frame computation, and `core/current-frame-id`
   delegate here so the React-context tier is single-sourced.
   Public frame-scoped operations that must have a frame call
   `require-current-frame!`, which is built on this reader."

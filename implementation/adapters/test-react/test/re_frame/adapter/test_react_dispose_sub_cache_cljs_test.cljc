@@ -81,11 +81,10 @@
     (rf/reg-sub ::n (fn [db _] (:n db)))
     (let [other (frame/make-anon-frame-record! {:doc "second frame"})]
       ;; Seed + subscribe in BOTH frames so each carries a live cache slot.
-      ;; Frame targeting rides the opts map (`:frame`) via the fn-form
-      ;; `dispatch-sync*` — the `dispatch-sync` macro has no frame-positional
-      ;; arity.
-      (rf/dispatch-sync* [::seed 1] {:frame :rf/default})
-      (rf/dispatch-sync* [::seed 2] {:frame other})
+      ;; Frame targeting rides the opts map (`:frame`), the explicit-
+      ;; override 2-arity — no frame-positional arity.
+      (rf/dispatch-sync [::seed 1] {:frame :rf/default})
+      (rf/dispatch-sync [::seed 2] {:frame other})
       (subs/subscribe [::n] {:frame :rf/default})
       (subs/subscribe [::n] {:frame other})
       (is (contains? (set (keys @(:sub-cache (frame/frame :rf/default)))) [::n])

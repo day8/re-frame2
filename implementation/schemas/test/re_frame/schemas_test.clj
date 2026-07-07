@@ -271,7 +271,7 @@
       ;; EP-0022 reference-only flip (rf2-0adhqs.9): chains carry refs only, so
       ;; the probe interceptor is registered and referenced by id rather than
       ;; dropped inline. The closures still capture the per-test atoms.
-      (rf/reg-interceptor* ::after-probe
+      (rf/reg-interceptor ::after-probe
         {:before (fn [ctx] (swap! before-calls inc) ctx)
          :after  (fn [ctx] (swap! after-calls inc) ctx)})
       (rf/reg-event :user/probe
@@ -1821,7 +1821,7 @@
       ;; so the full-context probe is registered and referenced by id alongside
       ;; the boundary ref. The missing-`:schema` rejection still fires (it runs
       ;; after the reference-shape validation, which both refs pass).
-      (rf/reg-interceptor* :api/ctx-probe {:before (fn [ctx] ctx)})
+      (rf/reg-interceptor :api/ctx-probe {:before (fn [ctx] ctx)})
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"

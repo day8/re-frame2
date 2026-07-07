@@ -91,9 +91,9 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
     (let [dispatches      (atom [])
           {:keys [event called]} (mk-context-event)]
-      (with-redefs [rf/dispatch* (fn
-                                   ([ev]       (swap! dispatches conj ev) nil)
-                                   ([ev _opts] (swap! dispatches conj ev) nil))]
+      (with-redefs [rf/dispatch-impl (fn
+                                        ([ev]       (swap! dispatches conj ev) nil)
+                                        ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
           (let [tree (shell/shell-view)
                 row  (find-by-testid tree "rf-xray-event-row-7")
@@ -131,7 +131,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       ;; Step 1: handler dispatched from right-click (verified above
-      ;; via the rf/dispatch* capture path).
+      ;; via the rf/dispatch capture path).
       (rf/dispatch-sync [:rf.xray/hide-event-type :mouse-move])
       ;; Step 2: user clicks Apply in the popup.
       (rf/dispatch-sync [:rf.xray/save-edit-popup])

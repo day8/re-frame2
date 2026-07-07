@@ -605,7 +605,7 @@
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
     ;; EP-0022 reference-only flip: chains carry references only, so register the
     ;; interceptor value then reference it by id (the value's `:id`).
-    (rf/reg-interceptor* :rf/redact-interceptor
+    (rf/reg-interceptor :rf/redact-interceptor
       (privacy/redact-interceptor [[:password] [:totp]]))
     (rf/reg-event :auth/login
       {:interceptors [:rf/redact-interceptor]}

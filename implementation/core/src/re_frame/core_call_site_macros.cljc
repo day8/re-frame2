@@ -1,9 +1,15 @@
 (ns re-frame.core-call-site-macros
   "Helpers for the call-site-capturing macros — `dispatch`,
-  `dispatch-sync`, `subscribe`. Each user-facing surface ships as a
-  macro + `*`-fn pair (Conventions §`*`-suffix naming). (`inject-cofx`
-  is REMOVED in EP-0017 — it survives only as a throwing stub macro/fn
-  pair, no longer a call-site-capturing surface.)
+  `dispatch-sync`, `subscribe`. Each user-facing macro's expansion reaches
+  straight through to its OWNING ns fn — `re-frame.router/dispatch!`,
+  `re-frame.router/dispatch-sync!`, `re-frame.subs/subscribe` — no
+  `re-frame.core` `*`-suffixed twin (rf2-m90brg retired `dispatch*` /
+  `dispatch-sync*` / `subscribe*`; the CLJS same-name `def`-alias in
+  `re-frame.core` — Convention A, per that ns's docstring — covers the HoF /
+  programmatic case). (`->interceptor` / `->interceptor*` is a SEPARATE
+  internal-lowering pair, not part of this call-site-capturing family;
+  `inject-cofx` is REMOVED in EP-0017 — it survives only as a throwing stub
+  macro/fn pair, no longer a call-site-capturing surface.)
 
   Carved out of `re-frame.core` so the public namespace stays a thin
   facade focused on user-visible Var resolution rather than macro
@@ -59,23 +65,30 @@
 
 ;; API-shrink #1 (rf2-csbbwu): the 2-arity dispatch surface is `[event-vec
 ;; opts]` ONLY — no runtime shape-discrimination, no frame-first sugar. The
-;; stamped path always keeps the 2-arity `(dispatch* event-vec (assoc opts
-;; :rf.trace/call-site cs))` shape (so every existing `(with-redefs [rf/dispatch*
-;; (fn [ev _opts] …)])` tools-test stub keeps working) — the call-site keyword
-;; stays a macro-literal, never reaching the production-reachable `*`-fn body.
-;; The debug-gate stays OUTERMOST so the whole stamped branch (the `cs` literal)
-;; DCEs under `:advanced` + `goog.DEBUG=false`. `arg1`/`arg2` are the user's two
-;; forms verbatim.
+;; stamped path always keeps the 2-arity `(dispatch! event-vec (assoc opts
+;; :rf.trace/call-site cs))` shape (so a `(with-redefs [router/dispatch!
+;; (fn [ev _opts] …)])` tools-test stub reaches every real dispatch, macro or
+;; HoF alike — rf2-m90brg moved this stub target from the retired
+;; `re-frame.core/dispatch*` facade twin to the OWNING ns fn the macro always
+;; called) — the call-site keyword stays a macro-literal, never reaching the
+;; production-reachable owning-ns fn body. The debug-gate stays OUTERMOST so
+;; the whole stamped branch (the `cs` literal) DCEs under `:advanced` +
+;; `goog.DEBUG=false`. `arg1`/`arg2` are the user's two forms verbatim.
 
 #?(:clj
    (defn- build-stamped-2
      "Emit the STAMPED dispatch-family call — ALWAYS a 2-arity `disp` call so the
      `:rf.trace/call-site` keyword literal lives ONLY in THIS debug-gated macro
-     expansion (DCE'd in production), never in the production-reachable `*`-fn
-     body. `disp-sym` is the fully-qualified `*`-fn (`dispatch*` /
-     `dispatch-sync*`). When the user wrote two args, `(disp event-vec (assoc
-     opts :rf.trace/call-site cs))`. The 1-arg case is the ambient-frame form,
-     stamped via the 2-arity opts map."
+     expansion (DCE'd in production), never in the production-reachable owning-ns
+     fn body. `disp-sym` is the fully-qualified `^:no-doc` seam var
+     (`re-frame.core/dispatch-impl` / `re-frame.core/dispatch-sync-impl` —
+     `def`-aliases of `re-frame.router/dispatch!` / `-dispatch-sync!`, NOT the
+     owning-ns fns directly: a `defn` there would let the CLJS compiler attach
+     inline fixed-arity metadata to a call site referencing it directly, so a
+     `with-redefs`'d fn whose arity set differs couldn't satisfy it). When the
+     user wrote two args, `(disp event-vec (assoc opts :rf.trace/call-site
+     cs))`. The 1-arg case is the ambient-frame form, stamped via the 2-arity
+     opts map."
      [disp-sym arg1 arg2 cs-form]
      (if arg2
        `(~disp-sym ~arg1 (assoc ~arg2 :rf.trace/call-site ~cs-form))
@@ -85,20 +98,20 @@
    (defn build-dispatch-form
      [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (build-stamped-2 're-frame.core/dispatch* arg1 arg2 cs-form)
+           stamped (build-stamped-2 're-frame.core/dispatch-impl arg1 arg2 cs-form)
            plain   (if arg2
-                     `(re-frame.core/dispatch* ~arg1 ~arg2)
-                     `(re-frame.core/dispatch* ~arg1))]
+                     `(re-frame.core/dispatch-impl ~arg1 ~arg2)
+                     `(re-frame.core/dispatch-impl ~arg1))]
        (gate stamped plain))))
 
 #?(:clj
    (defn build-dispatch-sync-form
      [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (build-stamped-2 're-frame.core/dispatch-sync* arg1 arg2 cs-form)
+           stamped (build-stamped-2 're-frame.core/dispatch-sync-impl arg1 arg2 cs-form)
            plain   (if arg2
-                     `(re-frame.core/dispatch-sync* ~arg1 ~arg2)
-                     `(re-frame.core/dispatch-sync* ~arg1))]
+                     `(re-frame.core/dispatch-sync-impl ~arg1 ~arg2)
+                     `(re-frame.core/dispatch-sync-impl ~arg1))]
        (gate stamped plain))))
 
 #?(:clj
@@ -107,20 +120,23 @@
      `query-v`; `arg2` is the optional `opts` map (may carry `{:frame
      target}`), nil for the 1-arity. The call-site coord rides a
      `trace/with-call-site` wrapper (not an opts assoc). The two forms emit
-     POSITIONALLY (`(subscribe* arg1 arg2)`), matching `subscribe*` /
+     POSITIONALLY (`(subscribe-impl arg1 arg2)`), matching
      `re-frame.subs/subscribe`'s `[query-v]` / `[query-v opts]` sig exactly.
-     The OUTERMOST debug-gate keeps the whole stamped branch DCE-able under
-     `:advanced` + `goog.DEBUG=false`."
+     Targets the `^:no-doc` `re-frame.core/subscribe-impl` seam (a `def`-alias
+     of `re-frame.subs/subscribe`) for the same with-redefs-safety reason
+     `build-dispatch-form` targets `dispatch-impl`. The OUTERMOST debug-gate
+     keeps the whole stamped branch DCE-able under `:advanced` +
+     `goog.DEBUG=false`."
      [form-meta ns-sym file arg1 arg2]
      (let [cs-form (call-site-form form-meta ns-sym file)
            stamped (if arg2
                      `(re-frame.trace/with-call-site ~cs-form
-                        (re-frame.core/subscribe* ~arg1 ~arg2))
+                        (re-frame.core/subscribe-impl ~arg1 ~arg2))
                      `(re-frame.trace/with-call-site ~cs-form
-                        (re-frame.core/subscribe* ~arg1)))
+                        (re-frame.core/subscribe-impl ~arg1)))
            plain   (if arg2
-                     `(re-frame.core/subscribe* ~arg1 ~arg2)
-                     `(re-frame.core/subscribe* ~arg1))]
+                     `(re-frame.core/subscribe-impl ~arg1 ~arg2)
+                     `(re-frame.core/subscribe-impl ~arg1))]
        (gate stamped plain))))
 
 ;; `build-inject-cofx-form` was retired with `inject-cofx` (EP-0017 slice
@@ -140,9 +156,9 @@
 ;; didn't exist — `handler-meta :interceptor` resolves nothing, interceptors
 ;; not being a registrar kind).
 ;;
-;; The fix mirrors the macro / `*`-fn pair pattern used across the facade
-;; (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`):
-;; `->interceptor` becomes a macro that captures `(meta &form)` →
+;; The fix mirrors the (historical) macro / `*`-fn pair pattern this facade
+;; used across `dispatch` / `subscribe` before rf2-m90brg retired those
+;; twins: `->interceptor` becomes a macro that captures `(meta &form)` →
 ;; `:source-coord` (riding the SAME `coords-form` / `prod-coords-form`
 ;; absolutise path — rf2-wvsxg — as every other reg-* / call-site coord)
 ;; and bakes it into the `:source-coord` kwarg of `->interceptor*`. The

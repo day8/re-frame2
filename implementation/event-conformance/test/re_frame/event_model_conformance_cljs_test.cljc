@@ -1112,7 +1112,7 @@
             the user chain BEFORE the framework wrapper; handler-meta surfaces
             both the reflection metadata and the effective chain"
     ;; EP-0022 reference-only: register the no-op interceptor, reference by id.
-    (rf/reg-interceptor* :evt-conf/noop {:before identity :after identity})
+    (rf/reg-interceptor :evt-conf/noop {:before identity :after identity})
     (rf/reg-event :evt-conf/with-icpt
       {:doc "documented" :interceptors [:evt-conf/noop]}
       (fn [{:keys [db]} _] {:db db}))
@@ -1138,8 +1138,9 @@
 (deftest reg-event-chain-references-an-interceptor-from-public-reg-interceptor
   (testing "EP-0022 public authoring surface (rf2-9g5xla): an application
             interceptor used by an event chain is registered through the PUBLIC
-            `rf/reg-interceptor` form — NOT only the programmatic
-            `rf/reg-interceptor*` helper. EP-0022 makes `reg-interceptor` the
+            `rf/reg-interceptor` form (the ONLY authoring surface on the facade
+            since rf2-m90brg retired the programmatic `reg-interceptor*`
+            fn-twin). EP-0022 makes `reg-interceptor` the
             public authoring surface (demoting `->interceptor` to an internal
             lowering constructor); this tier must exercise THAT path so a
             regression in the public facade / macro / metadata route for
@@ -1361,7 +1362,7 @@
       (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
       ;; EP-0022 reference-only: register the guard interceptor, then reference
       ;; it by id in the chain (an inline interceptor value is now rejected).
-      (rf/reg-interceptor* :evt-conf/guard
+      (rf/reg-interceptor :evt-conf/guard
         {:before
          (fn [ctx]
            ;; Capture (read the full context) + short-circuit the

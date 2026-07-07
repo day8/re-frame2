@@ -89,7 +89,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree   (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree   (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           dialog (find-by-testid tree "rf-xray-palette-dialog")]
       (is (some? dialog) "the dialog wrapper renders")
       (is (= "dialog" (:role (props dialog))))
@@ -107,7 +107,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree  (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree  (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           input (find-by-testid tree "rf-xray-palette-input")
           attrs (props input)]
       (is (some? input))
@@ -125,7 +125,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree    (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree    (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           input   (find-by-testid tree "rf-xray-palette-input")
           listbox (find-by-testid tree "rf-xray-palette-list")]
       (is (= (:aria-controls (props input))
@@ -141,7 +141,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           ul   (find-by-testid tree "rf-xray-palette-list")]
       (is (some? ul) "the list wrapper renders")
       ;; Default palette open populates results (>0 commands registered)
@@ -157,7 +157,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           rows (find-all-by-testid-prefix tree "rf-xray-palette-row-")]
       (is (seq rows) "the palette renders at least one row")
       (doseq [row rows]
@@ -176,7 +176,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           rows (find-all-by-testid-prefix tree "rf-xray-palette-row-")
           ids  (mapv (comp :id props) rows)]
       (is (= (count ids) (count (set ids)))
@@ -189,7 +189,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
-    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           rows (find-all-by-testid-prefix tree "rf-xray-palette-row-")
           selected (filter #(= "true" (:aria-selected (props %))) rows)]
       (is (= 1 (count selected))
@@ -203,7 +203,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open])
       (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
-    (let [tree     (rf/with-frame :rf/xray (view/palette-view rf/dispatch*))
+    (let [tree     (rf/with-frame :rf/xray (view/palette-view rf/dispatch))
           input    (find-by-testid tree "rf-xray-palette-input")
           rows     (find-all-by-testid-prefix tree "rf-xray-palette-row-")
           active   (some (fn [row]

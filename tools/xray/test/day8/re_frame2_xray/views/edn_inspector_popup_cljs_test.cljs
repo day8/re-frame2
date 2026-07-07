@@ -356,7 +356,7 @@
 
 (deftest close-fn-default-dispatches-close-event
   (let [captured (atom nil)]
-    (with-redefs [rf/dispatch* (fn [event-v & _]
+    (with-redefs [rf/dispatch-impl (fn [event-v & _]
                                  (reset! captured event-v))]
       (let [f (edn-inspector-popup/close-fn "m1" {})]
         (f)
@@ -400,7 +400,7 @@
                             "rf-xray-edn-inspector-popup-backdrop-m1")
         on-click (-> backdrop second :on-click)]
     (is (fn? on-click) "backdrop carries an :on-click handler")
-    (with-redefs [rf/dispatch* (fn [event-v & _]
+    (with-redefs [rf/dispatch-impl (fn [event-v & _]
                                  (reset! captured event-v))]
       (on-click #js {:stopPropagation (fn [])})
       (is (= [:rf.xray.edn-inspector-popup/close "m1"] @captured)
@@ -410,7 +410,7 @@
   ;; Esc key → :close-top event (so the topmost popup closes,
   ;; layered popups beneath survive).
   (let [captured (atom nil)]
-    (with-redefs [rf/dispatch* (fn [event-v & _]
+    (with-redefs [rf/dispatch-impl (fn [event-v & _]
                                  (reset! captured event-v))]
       (edn-inspector-popup/handle-keydown
         #js {:key "Escape"
@@ -423,7 +423,7 @@
   ;; Non-Esc keys must not dispatch — they bubble to global
   ;; keybindings (palette / etc.).
   (let [captured (atom nil)]
-    (with-redefs [rf/dispatch* (fn [event-v & _]
+    (with-redefs [rf/dispatch-impl (fn [event-v & _]
                                  (reset! captured event-v))]
       (edn-inspector-popup/handle-keydown
         #js {:key "Enter"

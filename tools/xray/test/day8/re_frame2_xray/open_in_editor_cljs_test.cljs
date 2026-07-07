@@ -797,13 +797,17 @@
             an async router drain."
     (setup!)
     (unconfigure-editor!)
-    ;; `rf/dispatch` is a compile-time MACRO that expands to a call to
-    ;; `rf/dispatch*` (the runtime fn-form), so the spy goes on
-    ;; `rf/dispatch*` — redefing the macro var (or `router/dispatch!`,
-    ;; which `dispatch*` captured at def-time) would intercept nothing.
+    ;; `chip-click!` calls the `rf/dispatch` MACRO directly (hardcoded, no
+    ;; injectable dispatch-fn seam), and the macro's expansion calls the
+    ;; `^:no-doc` `re-frame.core/dispatch-impl` seam fully-qualified
+    ;; (rf2-m90brg) — so the spy goes on `rf/dispatch-impl`; redefing
+    ;; `re-frame.router/dispatch!` directly would fail (a plain `defn`, not a
+    ;; redefinable `def`-alias — the CLJS compiler's static arity-dispatch
+    ;; optimisation bypasses `with-redefs`), and redefing `re-frame.core/
+    ;; dispatch` (the CLJS value-alias) would intercept nothing here either.
     (let [dispatched (atom [])]
-      (with-redefs [rf/dispatch* (fn [ev & opts]
-                                   (swap! dispatched conj {:event ev :opts (vec opts)}))]
+      (with-redefs [rf/dispatch-impl (fn [ev & opts]
+                                        (swap! dispatched conj {:event ev :opts (vec opts)}))]
         (open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
       (is (= 1 (count @dispatched))
           "exactly one dispatch — the hint, no navigation dispatch")

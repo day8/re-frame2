@@ -236,7 +236,7 @@
 
 ;; EP-0022 reference-only flip: chains carry references only, so register the
 ;; interceptor value and reference it by id from the event chain (button #13).
-(rf/reg-interceptor* :standard-epochs/throwing-interceptor throwing-interceptor)
+(rf/reg-interceptor :standard-epochs/throwing-interceptor throwing-interceptor)
 
 ;; Throws in :after — the handler runs to completion first, THEN this
 ;; throws on the way back out of the chain (button #14). The foil to the
@@ -253,7 +253,7 @@
 
 ;; EP-0022 reference-only flip: register the value and reference it by id from
 ;; the event chain (button #14).
-(rf/reg-interceptor* :standard-epochs/throwing-interceptor-after throwing-interceptor-after)
+(rf/reg-interceptor :standard-epochs/throwing-interceptor-after throwing-interceptor-after)
 
 ;; ============================================================================
 ;; EFFECTS

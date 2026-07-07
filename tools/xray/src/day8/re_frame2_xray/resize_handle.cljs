@@ -180,7 +180,7 @@
       ;; OUTSIDE the React render scope; dispatch through the frame-aware
       ;; `dispatch-fn` captured at `start-drag!` so the resize lands on
       ;; the surrounding instance frame, not a `{:frame :rf/xray}` literal.
-      ((or dispatch-fn rf/dispatch*) [:rf.xray/set-panel-width-px new-width]))))
+      ((or dispatch-fn rf/dispatch) [:rf.xray/set-panel-width-px new-width]))))
 
 (defn- on-document-up [^js _e]
   (detach-document-listeners!))
@@ -210,7 +210,7 @@
 
   Exposed for the shell view's `:on-pointer-down` handler AND for the
   test suite, which drives the drag lifecycle without a real DOM."
-  ([^js e current-width] (start-drag! e current-width rf/dispatch*))
+  ([^js e current-width] (start-drag! e current-width rf/dispatch))
   ([^js e current-width dispatch-fn]
   ;; Defensive: clear any stale state from a prior aborted drag.
   (detach-document-listeners!)
@@ -306,7 +306,7 @@
   the `Handle` `reg-view` body so the keyboard resize lands on the
   surrounding instance frame, not a `{:frame :rf/xray}` literal.
   Defaults to `rf/dispatch` for the test seam."
-  ([^js e current-width] (handle-keydown! e current-width rf/dispatch*))
+  ([^js e current-width] (handle-keydown! e current-width rf/dispatch))
   ([^js e current-width dispatch-fn]
   (let [key      (.-key e)
         shift?   (.-shiftKey e)
@@ -517,7 +517,7 @@
       ;; rf2-nesy9 — dispatch through the frame-aware `dispatch-fn`
       ;; captured at `start-seam-drag!` (the document-level listener fires
       ;; outside the React render scope), not a `{:frame :rf/xray}` literal.
-      ((or dispatch-fn rf/dispatch*) [:rf.xray/set-events-list-height-px new-height]))))
+      ((or dispatch-fn rf/dispatch) [:rf.xray/set-events-list-height-px new-height]))))
 
 (defn- seam-on-document-up [^js _e]
   (seam-detach-document-listeners!))
@@ -539,7 +539,7 @@
 
   Exposed for the seam view's `:on-pointer-down` handler AND for the
   test suite, which drives the lifecycle without a real DOM."
-  ([^js e current-height] (start-seam-drag! e current-height rf/dispatch*))
+  ([^js e current-height] (start-seam-drag! e current-height rf/dispatch))
   ([^js e current-height dispatch-fn]
   (seam-detach-document-listeners!)
   (let [start-y     (.-pageY e)
@@ -617,7 +617,7 @@
   `dispatch-fn` (rf2-nesy9) is the frame-aware dispatcher captured by
   the `SeamHandle` `reg-view` body. Defaults to `rf/dispatch` for the
   test seam."
-  ([^js e current-height] (handle-seam-keydown! e current-height rf/dispatch*))
+  ([^js e current-height] (handle-seam-keydown! e current-height rf/dispatch))
   ([^js e current-height dispatch-fn]
   (let [key      (.-key e)
         shift?   (.-shiftKey e)

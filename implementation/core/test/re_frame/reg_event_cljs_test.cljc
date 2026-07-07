@@ -54,7 +54,7 @@
   (testing "reg-event honours the metadata-map :interceptors superset slot —
             the user chain (a REF, EP-0022 reference-only) sits before the
             framework wrapper"
-    (rf/reg-interceptor* :reg-event-test/noop {:before identity :after identity})
+    (rf/reg-interceptor :reg-event-test/noop {:before identity :after identity})
     (rf/reg-event :reg-event-test/with-icpt
       {:doc "doc" :interceptors [:reg-event-test/noop]}
       (fn [{:keys [db]} _] {:db db}))

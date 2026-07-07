@@ -24,6 +24,7 @@
   step's behaviour is observable without standing up the async run loop."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core              :as rf]
+            [re-frame.router            :as router]
             [re-frame.frame             :as frame]
             [re-frame.registrar         :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -228,12 +229,12 @@
 (deftest wait-until-settles-when-predicate-true
   (testing "[:wait-until [:db path expected]] advances (step-skip) once the
             preceding dispatch made the predicate true"
-    (rf/dispatch-sync* [:step/set 42] {:frame step-frame})
+    (router/dispatch-sync! [:step/set 42] {:frame step-frame})
     (let [res (exec-step! step-frame 0 [:wait-until [:db [:v] 42]])]
       (is (nil? (:passed? res)) "a satisfied wait-until is a step-skip (advance)")
       (is (not (:exception res)))))
   (testing "[:wait-until [:db path :pred fn]] settles on a predicate"
-    (rf/dispatch-sync* [:step/inc] {:frame step-frame})
+    (router/dispatch-sync! [:step/inc] {:frame step-frame})
     (let [res (exec-step! step-frame 0 [:wait-until [:db [:n] :pred pos?]])]
       (is (nil? (:passed? res)))))
   (testing "[:wait-until [:queue-empty]] settles — the queue drained at the
@@ -286,7 +287,7 @@
 (deftest assert-checkpoint-records-at-this-point-in-the-script
   (testing "[:assert [:rf.assert/path-equals …]] records a PASSING assertion
             on the frame's :rf.story/assertions slot when true at this point"
-    (rf/dispatch-sync* [:step/set :ready] {:frame step-frame})
+    (router/dispatch-sync! [:step/set :ready] {:frame step-frame})
     (let [res (exec-step! step-frame 0 [:assert [:rf.assert/path-equals [:v] :ready]])]
       (is (true? (:passed? res)) "the checkpoint passed at this point")
       (let [recs (:rf.story/assertions (rf/app-db-value step-frame))]
@@ -295,14 +296,14 @@
         (is (true? (:passed? (last recs)))))))
   (testing "a FAILING checkpoint records :passed? false and surfaces a
             step-fail"
-    (rf/dispatch-sync* [:step/set :ready] {:frame step-frame})
+    (router/dispatch-sync! [:step/set :ready] {:frame step-frame})
     (let [res (exec-step! step-frame 1 [:assert [:rf.assert/path-equals [:v] :NOPE]])]
       (is (false? (:passed? res)) "the checkpoint failed at this point")
       (let [recs (:rf.story/assertions (rf/app-db-value step-frame))]
         (is (false? (:passed? (last recs)))))))
   (testing "the checkpoint records exactly ONE assertion (no double-count
             from the assertion-slot mirror bridge)"
-    (rf/dispatch-sync* [:step/set 7] {:frame step-frame})
+    (router/dispatch-sync! [:step/set 7] {:frame step-frame})
     (let [before (count (:rf.story/assertions (rf/app-db-value step-frame)))]
       (exec-step! step-frame 0 [:assert [:rf.assert/path-equals [:v] 7]])
       (is (= 1 (- (count (:rf.story/assertions (rf/app-db-value step-frame))) before))

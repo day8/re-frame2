@@ -68,7 +68,7 @@
 
 (deftest reg-event-full-context-interceptor-captures-form-source
   (testing "rf2-xgfuy: reg-event with a full-context interceptor stamps :rf.handler/source on JVM"
-    (rf/reg-interceptor* :rf2-xgfuy/ctx-probe {:before (fn [ctx] ctx)})
+    (rf/reg-interceptor :rf2-xgfuy/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-xgfuy/event-ctx-sample
                   {:interceptors [:rf2-xgfuy/ctx-probe]}
                   (fn [_ _] {}))
@@ -99,7 +99,7 @@
     ;; reference it by id, so this round-trip test no longer depends on a
     ;; framework-owned value. Only the metadata `:interceptors` chain needs to
     ;; round-trip into the source string — the interceptor's :before is a no-op.
-    (rf/reg-interceptor* :app/unwrap
+    (rf/reg-interceptor :app/unwrap
                          (interceptor/->interceptor* :id :app/unwrap
                                                      :before identity))
     (rf/reg-event :rf2-xgfuy/event-with-icpts

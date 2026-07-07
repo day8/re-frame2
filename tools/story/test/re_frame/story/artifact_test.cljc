@@ -216,9 +216,9 @@
   (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
             fx-decisions are present — the fx reapplication WRAPS the supplied
             :dispatch! and routes the overrides through it, rather than
-            short-circuiting to dispatch-sync* directly (rf2-y5396).
+            short-circuiting to dispatch-sync! directly (rf2-y5396).
 
-            Pre-fix: replay-flush-hooks called dispatch-sync* directly on the
+            Pre-fix: replay-flush-hooks called dispatch-sync! directly on the
             fx-decisions branch and never touched `inner`, so a richer
             (:dom / :cljs-reactive) adapter's enqueue + flush path was
             silently skipped — this probe would record no call. Post-fix: the
@@ -258,7 +258,7 @@
         (is (= :pass (:status res)))
         (is (= [[:rep/fire]] @dispatch-calls)
             "the supplied richer :dispatch! WAS invoked — the fx reapplication
-             wrapped it instead of bypassing it with a direct dispatch-sync*")
+             wrapped it instead of bypassing it with a direct dispatch-sync!")
         (is (= [:stub] @fx-hits)
             "the fx override still rode the wrapped dispatch path (real → stub)")
         (is (= [{:rf.cofx/mint-policy :strict}] @dispatch-opts)

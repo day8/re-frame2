@@ -88,7 +88,7 @@
 
 (deftest reg-event-with-interceptor-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-event with a full-context interceptor emits a real :file under CLJS"
-    (rf/reg-interceptor* :rf2-mdjp/ctx-probe {:before (fn [ctx] ctx)})
+    (rf/reg-interceptor :rf2-mdjp/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-mdjp/reg-event-ctx-sample
                   {:interceptors [:rf2-mdjp/ctx-probe]}
                   (fn [_ _] {}))

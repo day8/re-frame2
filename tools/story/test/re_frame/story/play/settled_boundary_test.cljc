@@ -292,7 +292,7 @@
 
 (deftest drain-sync-settles-synchronous-redispatch
   (testing "drain-sync! (the named headless boundary) is the framework
-            dispatch-sync* drain — re-dispatched events settle before return"
+            dispatch-sync! drain — re-dispatched events settle before return"
     (rf/reg-event :seed/start
       (fn [{:keys [db]} _]
         {:db (assoc db :n 0)

@@ -7,9 +7,10 @@
   `(rf/dispatch ...)`, `(rf/subscribe ...)`, or `(rf/dispatch-sync ...)`
   call that produced (or routed to) the error.
 
-  Q1=C — existing-name macro + `*` fn variant (`dispatch` is the macro;
-         `dispatch*` is the fn). The macro stamps the call-site; the
-         fn-form skips stamping.
+  Q1=C — macro vs owning-ns fn (`dispatch` is the macro; the fn-form is
+         `re-frame.router/dispatch!` — rf2-m90brg retired the
+         `re-frame.core/dispatch*` facade twin the macro used to target).
+         The macro stamps the call-site; the fn-form skips stamping.
   Q2=A — flat `:rf.trace/call-site {:ns :file :line :column}` as a
          top-level sibling of `:rf.trace/trigger-handler`. Not nested.
   Q3=B — dev-only elision. Stripped from `:advanced` + `goog.DEBUG=
@@ -25,6 +26,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
+            [re-frame.router :as router]
+            [re-frame.subs :as subs]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -85,7 +88,7 @@
     (is (string? (:file cs)) ":file is a string")
     (is (integer? (:line cs)) ":line is an integer")))
 
-;; ---- Q1 — dispatch-sync macro stamps; dispatch-sync* fn does NOT ----------
+;; ---- Q1 — dispatch-sync macro stamps; router/dispatch-sync! fn does NOT --
 
 (deftest dispatch-sync-macro-stamps-call-site-on-no-such-handler
   (testing ":rf.error/no-such-handler from dispatch-sync macro carries the call site"
@@ -100,17 +103,18 @@
       (is (some? miss) "no-such-handler trace fired")
       (assert-call-site-shape miss))))
 
-(deftest dispatch-sync-star-fn-omits-call-site-on-no-such-handler
-  (testing "the fn-form `dispatch-sync*` does NOT carry a call site"
+(deftest dispatch-sync-owning-fn-omits-call-site-on-no-such-handler
+  (testing "the owning-ns fn-form `re-frame.router/dispatch-sync!` does NOT
+   carry a call site (the macro is the ONLY stamping surface)"
     (let [evs (record-traces
                (fn []
-                 (rf/dispatch-sync* [:rf2-ts1a/no-such-event])))
+                 (router/dispatch-sync! [:rf2-ts1a/no-such-event])))
           [miss] (errors-of evs :rf.error/no-such-handler)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))
           ":rf.trace/call-site omitted on the fn-form path"))))
 
-;; ---- subscribe / subscribe* -----------------------------------------------
+;; ---- subscribe / re-frame.subs/subscribe -----------------------------------
 
 (deftest subscribe-macro-stamps-call-site-on-no-such-sub
   (testing ":rf.error/no-such-sub from subscribe macro carries the call site"
@@ -121,11 +125,12 @@
       (is (some? miss) "no-such-sub trace fired")
       (assert-call-site-shape miss))))
 
-(deftest subscribe-star-fn-omits-call-site
-  (testing "the fn-form `subscribe*` does NOT carry a call site"
+(deftest subscribe-owning-fn-omits-call-site
+  (testing "the owning-ns fn-form `re-frame.subs/subscribe` does NOT carry a
+   call site (the macro is the ONLY stamping surface)"
     (let [evs (record-traces
                (fn []
-                 (rf/subscribe* [:rf2-ts1a/no-such-sub])))
+                 (subs/subscribe [:rf2-ts1a/no-such-sub])))
           [miss] (errors-of evs :rf.error/no-such-sub)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))
@@ -143,7 +148,7 @@
 ;; `re-frame.cofx/inject-cofx` and is pinned in `re-frame.cofx-test`. The
 ;; dispatch / subscribe call-site stamping (above) is unaffected.
 
-;; ---- dispatch-sync / dispatch-sync* --------------------------------------
+;; ---- dispatch-sync / router/dispatch-sync! ---------------------------------
 
 (deftest dispatch-sync-macro-stamps-call-site-on-handler-exception
   (testing "dispatch-sync macro stamps the call-site through the envelope
@@ -158,18 +163,19 @@
       (is (some? exc))
       (assert-call-site-shape exc))))
 
-(deftest dispatch-sync-star-fn-omits-call-site-on-handler-exception
-  (testing "the fn-form `dispatch-sync*` does NOT carry a call site"
+(deftest dispatch-sync-owning-fn-omits-call-site-on-handler-exception
+  (testing "the owning-ns fn-form `re-frame.router/dispatch-sync!` does NOT
+   carry a call site"
     (rf/reg-event :rf2-ts1a/throws-fn
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces
                (fn []
-                 (rf/dispatch-sync* [:rf2-ts1a/throws-fn])))
+                 (router/dispatch-sync! [:rf2-ts1a/throws-fn])))
           [exc] (errors-of evs :rf.error/handler-exception)]
       (is (some? exc))
       (is (not (contains? exc :rf.trace/call-site))
-          ":rf.trace/call-site omitted on the dispatch-sync* fn-form path"))))
+          ":rf.trace/call-site omitted on the fn-form path"))))
 
 ;; ---- top-level placement (Q2=A) ------------------------------------------
 

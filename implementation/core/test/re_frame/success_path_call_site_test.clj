@@ -25,6 +25,7 @@
   JVM-only — the dynamic-var binding mechanism is platform-agnostic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -100,13 +101,13 @@
           ":rf.trace/call-site does NOT live under :tags"))))
 
 (deftest event-dispatched-fn-form-omits-call-site
-  (testing "the fn-form `dispatch-sync*` does NOT stamp a call-site,
-   so :rf.event/dispatched carries no slot — better no-data than
-   poison-data (mirrors the error-path contract)"
+  (testing "the owning-ns fn-form `re-frame.router/dispatch-sync!` does NOT
+   stamp a call-site, so :rf.event/dispatched carries no slot — better
+   no-data than poison-data (mirrors the error-path contract)"
     (rf/reg-event :rf2-twt7m/fn-form (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn []
-                        (rf/dispatch-sync* [:rf2-twt7m/fn-form])))
+                        (router/dispatch-sync! [:rf2-twt7m/fn-form])))
           [enqueue] (events-of evs :rf.event/dispatched)]
       (is (some? enqueue) ":rf.event/dispatched fired")
       (is (not (contains? enqueue :rf.trace/call-site))

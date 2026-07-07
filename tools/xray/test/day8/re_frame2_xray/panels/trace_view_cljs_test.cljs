@@ -637,7 +637,7 @@
                                :dispatch-id 42 :frame :rf/default})])])
       (focus! 42)
       (let [dispatches (atom [])]
-        (with-redefs [rf/dispatch* (fn
+        (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
           (let [tree    (trace/Panel)
@@ -785,7 +785,7 @@
       (focus! 1)
       (let [dispatches (atom [])
             stop-evt   (atom nil)]
-        (with-redefs [rf/dispatch* (fn
+        (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
           (let [tree    (trace/Panel)

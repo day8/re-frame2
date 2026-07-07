@@ -443,8 +443,8 @@
                      ;; list, App-DB diff and downstream subs all flip
                      ;; in one frame.
                      ;;
-                     ;; `dispatch-sync` (rather than `dispatch*`) so the
-                     ;; slot is observable immediately — the watcher
+                     ;; `dispatch-sync` (rather than the async `dispatch`)
+                     ;; so the slot is observable immediately — the watcher
                      ;; runs outside any event-handler / drain cycle
                      ;; (it's an atom-watch callback on the shell
                      ;; ratom), so the in-drain guard does not apply.

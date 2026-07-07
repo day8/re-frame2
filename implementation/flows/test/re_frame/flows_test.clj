@@ -1504,7 +1504,7 @@
     (let [seen-db (atom :unset)]
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
       ;; EP-0022 reference-only: register the capture interceptor, reference by id.
-      (rf/reg-interceptor* :test/capture-after
+      (rf/reg-interceptor :test/capture-after
         {:after (fn [ctx]
                   (reset! seen-db (get-in ctx [:effects :db]))
                   ctx)})

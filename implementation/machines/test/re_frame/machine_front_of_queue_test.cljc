@@ -19,6 +19,7 @@
   which pops them in queue order. Run-order is recorded into an atom."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
             [re-frame.machines]
             [re-frame.machines.test-support :as mtest]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -56,8 +57,8 @@
       (fn [_ _]
         (log! :seed)
         ;; Machine event queued FIRST, external event SECOND.
-        (rf/dispatch* [:rf2-j20a7/leapfrog [:go]] {})
-        (rf/dispatch* [:ext] {})
+        (router/dispatch! [:rf2-j20a7/leapfrog [:go]] {})
+        (router/dispatch! [:ext] {})
         {}))
     (rf/dispatch-sync [:seed])
     (is (= [:seed :machine-action :cont :ext] @run-log)
@@ -83,8 +84,8 @@
         ;; Both are EXTERNAL dispatches (origin = this plain handler's fx
         ;; emit). The machine event is queued first; targeting a machine
         ;; must NOT move it relative to the later plain event.
-        (rf/dispatch* [:rf2-j20a7/fifo-target [:go]] {})
-        (rf/dispatch* [:plain] {})
+        (router/dispatch! [:rf2-j20a7/fifo-target [:go]] {})
+        (router/dispatch! [:plain] {})
         {}))
     (rf/dispatch-sync [:seed])
     (is (= [:seed :machine-ran :plain] @run-log)
@@ -106,7 +107,7 @@
     (rf/reg-event :cont-1
       (fn [_ _]
         (log! :cont-1)
-        (rf/dispatch* [:cont-2] {}) ;; plain origin → back of queue
+        (router/dispatch! [:cont-2] {}) ;; plain origin → back of queue
         {}))
     (reg-marker :cont-2)
     (rf/reg-machine :rf2-j20a7/quiesce
@@ -120,8 +121,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (rf/dispatch* [:rf2-j20a7/quiesce [:go]] {})
-        (rf/dispatch* [:ext] {})
+        (router/dispatch! [:rf2-j20a7/quiesce [:go]] {})
+        (router/dispatch! [:ext] {})
         {}))
     (rf/dispatch-sync [:seed])
     ;; Trace through the queue:

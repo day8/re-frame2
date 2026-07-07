@@ -153,7 +153,7 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-settings-dialog"
                              "Settings popup")))
 
@@ -162,7 +162,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))
+    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           close (find-by-testid tree "rf-xray-settings-close")]
       (is (string? (:aria-label (props close)))
           "Settings close ✕ carries an aria-label"))))
@@ -173,7 +173,7 @@
 
 (deftest mute-manager-carries-dialog-contract
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-mute-manager-dialog"
                              "Mute manager")))
 
@@ -186,7 +186,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-edit-popup-dialog"
                              "Filter edit-popup")))
 
@@ -247,13 +247,13 @@
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
                               "Settings popup")))
 
 (deftest mute-manager-attaches-focus-ref
   (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (spine-filters/dialog rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
                               "Mute manager")))
 
@@ -262,7 +262,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch*))]
+  (let [tree (rf/with-frame :rf/xray (edit-popup/popup-view rf/dispatch))]
     (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
                               "Filter edit-popup")))
 

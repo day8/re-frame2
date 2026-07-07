@@ -77,9 +77,11 @@ How re-frame2's API reaches a cell:
   `reg-*` registration (the macro forms are JVM-only and only add source-coord
   capture, which a browser cell does not need), so `sci/copy-ns` exposes them
   under their plain names.
-- `dispatch` / `dispatch-sync` / `subscribe` are macro-only on the public
-  surface (the fns are `dispatch*` / … / `subscribe*`), so the SCI config adds
-  those names explicitly, bound to the `*`-fns.
+- `dispatch` / `dispatch-sync` / `subscribe` are macro-in-call-position /
+  fn-in-value-position on CLJS (Convention A), so `sci/copy-ns` already
+  brings the plain-fn form in under their own names; the SCI config still
+  overrides those three entries with playground-local wrappers so every
+  cell dispatch/subscribe defaults to the playground's single frame.
 
 **React 19 is bundled, not global.** reagent2 targets React 19, which **dropped
 its UMD build** — so the Phase-2 global-`React`-from-CDN trick is unavailable.

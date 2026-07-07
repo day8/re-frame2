@@ -588,11 +588,11 @@
   ;; `:rf.probe/override-summary-replaced-ic`) flow into the gated run-start
   ;; override-summary tag construction; under DEBUG=true they reach the trace
   ;; data, under DEBUG=false the construction DCEs.
-  (rf/reg-interceptor* :rf.probe/override-summary-removed-ic
+  (rf/reg-interceptor :rf.probe/override-summary-removed-ic
     {:before (fn [ctx] ctx)})
-  (rf/reg-interceptor* :rf.probe/override-summary-replaced-ic
+  (rf/reg-interceptor :rf.probe/override-summary-replaced-ic
     {:before (fn [ctx] ctx)})
-  (rf/reg-interceptor* :rf.probe/override-summary-stub-ic
+  (rf/reg-interceptor :rf.probe/override-summary-stub-ic
     {:before (fn [ctx] ctx)})
   (rf/reg-event :rf.probe/override-summary-event
     {:interceptors [:rf.probe/override-summary-removed-ic

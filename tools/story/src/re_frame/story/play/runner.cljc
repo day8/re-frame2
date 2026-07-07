@@ -122,7 +122,7 @@
   queued effects drain before the next step runs.
 
   `:dispatch` is not in this set: a `[:dispatch …]` step settles through
-  `settled-boundary` (spec/017) — in headless the `dispatch-sync*`
+  `settled-boundary` (spec/017) — in headless the `dispatch-sync!`
   run-to-fixed-point drain — so it is synchronous at the step boundary,
   exactly like `:dispatch-sync`. Yielding between synchronous steps would
   let concurrent `auto-run!` calls interleave and overshoot counter

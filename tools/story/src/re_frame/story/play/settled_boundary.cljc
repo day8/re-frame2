@@ -12,8 +12,8 @@
 
   - `:headless` — the variant frame's event queue is drained AND all
     synchronous re-dispatches have settled. This is the existing
-    `re-frame.core/dispatch-sync*` (= `router/dispatch-sync!`)
-    run-to-fixed-point drain, projected under a name — not reimplemented.
+    `re-frame.router/dispatch-sync!` run-to-fixed-point drain, projected
+    under a name — not reimplemented.
   - `:cljs-reactive` — the headless boundary AND reaction recomputation
     has flushed.
   - `:dom` — the above AND the adapter's `act()` / microtask flush has
@@ -47,11 +47,11 @@
   single flush fn that hangs forever (that needs the caller's own
   thread/timeout box — out of scope for this host-free contract ns). With
   no `:timeout-ms` the flush phase is unbounded (the headless default, whose
-  only flush is the synchronous `dispatch-sync*` drain, cannot time out).
+  only flush is the synchronous `dispatch-sync!` drain, cannot time out).
 
   `headless-flush-hooks` is the default the JVM / node-runtime headless
   runner uses: `:provides :headless`, `:dispatch!` and the `:headless`
-  flush both routed through `re-frame.core/dispatch-sync*` so a queued
+  flush both routed through `re-frame.router/dispatch-sync!` so a queued
   `[:dispatch …]` step settles to fixed point synchronously, named and
   deterministic.
 
@@ -71,12 +71,12 @@
   a silent pass.
 
   This namespace is `.cljc` and stays free of `re-frame` view / DOM
-  requires beyond the framework `dispatch-sync*` alias, so the contract +
-  the headless boundary are JVM-runnable and unit-testable. The richer
+  requires beyond the framework `re-frame.router/dispatch-sync!` fn, so the
+  contract + the headless boundary are JVM-runnable and unit-testable. The richer
   flush fns are injected by adapter callers; this ns only *names* the
   ladder, *routes* a dispatch through the supplied hooks, and *refuses*
   when the supplied boundary is too weak."
-  (:require [re-frame.core   :as rf]
+  (:require [re-frame.router :as router]
             [re-frame.interop :as interop]))
 
 ;; ---- the boundary ladder -------------------------------------------------
@@ -184,7 +184,7 @@
 (defn drain-sync!
   "The headless `settled-boundary`: dispatch `event-vector` into
   `frame-id` and drain the router to fixed point — synchronous
-  re-dispatches included. This is `re-frame.core/dispatch-sync*` projected
+  re-dispatches included. This is `re-frame.router/dispatch-sync!` projected
   under the boundary name; it is the SAME run-to-fixed-point drain the
   framework already owns (Spec 002 §dispatch-sync), not a new scheduler.
 
@@ -200,13 +200,13 @@
   ([frame-id event-vector]
    (drain-sync! frame-id event-vector nil))
   ([frame-id event-vector opts]
-   (rf/dispatch-sync* event-vector (merge {:frame frame-id} opts))
+   (router/dispatch-sync! event-vector (merge {:frame frame-id} opts))
    nil))
 
 (def headless-flush-hooks
   "Default flush-hooks map for the headless runner (JVM + node-runtime).
   `:provides :headless`; both `:dispatch!` and the `:headless` flush route
-  through the framework `dispatch-sync*` drain (`drain-sync!`), so a
+  through the framework `dispatch-sync!` drain (`drain-sync!`), so a
   `[:dispatch …]` step settles to fixed point synchronously and
   deterministically.
 

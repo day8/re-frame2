@@ -160,9 +160,9 @@
 (deftest override-matches-bare-keyword-ref
   (testing "a bare-keyword override removes the matching bare ref"
     (let [log (atom [])]
-      (rf/reg-interceptor* :ov/auth
+      (rf/reg-interceptor :ov/auth
         {:before (fn [ctx] (swap! log conj :auth) ctx)})
-      (rf/reg-interceptor* :ov/audit
+      (rf/reg-interceptor :ov/audit
         {:before (fn [ctx] (swap! log conj :audit) ctx)})
       (rf/reg-event :ov/run
         {:interceptors [:ov/auth :ov/audit]}
@@ -174,9 +174,9 @@
 (deftest override-bare-keyword-replaces-with-ref
   (testing "a bare-keyword override REPLACES with another ref"
     (let [log (atom [])]
-      (rf/reg-interceptor* :ov/real
+      (rf/reg-interceptor :ov/real
         {:before (fn [ctx] (swap! log conj :real) ctx)})
-      (rf/reg-interceptor* :ov/stub
+      (rf/reg-interceptor :ov/stub
         {:before (fn [ctx] (swap! log conj :stub) ctx)})
       (rf/reg-event :ov/run
         {:interceptors [:ov/real]}
@@ -188,7 +188,7 @@
 (deftest override-matches-exact-parameterized-ref-not-a-sibling
   (testing "a parameterized [id arg] override matches ONLY the exact reference"
     ;; A logging factory keyed by its arg so we can observe which instances ran.
-    (rf/reg-interceptor* :ov/tag
+    (rf/reg-interceptor :ov/tag
       {:factory (fn [tag]
                   {:before (fn [ctx]
                              (update-in ctx [:coeffects :db ::seen]
@@ -206,7 +206,7 @@
 
 (deftest override-parameterized-does-not-match-different-arg
   (testing "an [id arg] override does NOT match an [id other-arg] reference"
-    (rf/reg-interceptor* :ov/tag2
+    (rf/reg-interceptor :ov/tag2
       {:factory (fn [tag]
                   {:before (fn [ctx]
                              (update-in ctx [:coeffects :db ::seen2]
@@ -222,7 +222,7 @@
 
 (deftest override-parameterized-canonical-arg-identity
   (testing "exact-ref matching is by CANONICAL arg identity (map-key order ignored)"
-    (rf/reg-interceptor* :ov/cfg
+    (rf/reg-interceptor :ov/cfg
       {:factory (fn [_cfg]
                   {:before (fn [ctx] (assoc-in ctx [:coeffects :db ::cfg-ran?] true))})})
     (rf/reg-event :ov/runc
@@ -236,7 +236,7 @@
 
 (deftest override-malformed-key-is-structured-error
   (testing ":rf.error/interceptor-override-invalid for a malformed override key"
-    (rf/reg-interceptor* :ov/ok {:before identity})
+    (rf/reg-interceptor :ov/ok {:before identity})
     (rf/reg-event :ov/run3
       {:interceptors [:ov/ok]}
       (fn [{:keys [db]} _] {:db db}))
@@ -284,7 +284,7 @@
       ;; the reg-interceptor boundary (the authoring input accepts a value),
       ;; then reference it by id. The lowering constructor still produces a
       ;; chain-executable value; it just reaches the chain via a ref now.
-      (rf/reg-interceptor* :lower/test icpt)
+      (rf/reg-interceptor :lower/test icpt)
       (rf/reg-event :lower/run
         {:interceptors [:lower/test]}
         (fn [{:keys [db]} _] {:db db}))
@@ -314,7 +314,7 @@
   (testing "reg-interceptor — NOT ->interceptor — is the public authoring surface"
     ;; The public form names + registers the interceptor so it is referenced by id.
     (is (= :pub/authored
-           (rf/reg-interceptor* :pub/authored {:doc "public form"} {:before identity})))
+           (rf/reg-interceptor :pub/authored {:doc "public form"} {:before identity})))
     (is (some? (rf/handler-meta :interceptor :pub/authored))
         "reg-interceptor produced a registered, addressable program member")
     ;; The manifest demotes ->interceptor / ->interceptor* off the public-
@@ -442,7 +442,7 @@
 
 (deftest resolve-factory-wraps-plain-throw-as-factory-arity
   (testing "(a) a custom :factory throwing a PLAIN exception is wrapped as :rf.error/interceptor-factory-arity"
-    (rf/reg-interceptor* :fac/boom
+    (rf/reg-interceptor :fac/boom
       {:factory (fn [_arg] (throw (ex-info "kaboom" {:not-an-rf-error true})))})
     (let [ex (try (icpt-reg/resolve-ref [:fac/boom :x])
                   nil
@@ -457,7 +457,7 @@
   (testing "(b) a custom :factory throwing a structured :rf.error/* propagates VERBATIM (generic, not path-specific)"
     ;; A custom error id distinct from :rf.error/path-interceptor-bad-path proves
     ;; the discrimination is generic — any :rf.error/* passes through untouched.
-    (rf/reg-interceptor* :fac/custom-err
+    (rf/reg-interceptor :fac/custom-err
       {:factory (fn [_arg]
                   (throw (ex-info ":rf.error/my-custom-factory-error"
                                   {:rf.error/id :rf.error/my-custom-factory-error
@@ -481,14 +481,14 @@
 (deftest resolve-factory-non-descriptor-non-value-return-rejected
   (testing "a :factory returning a non-descriptor/non-value is :rf.error/interceptor-factory-arity"
     ;; A keyword return — neither interceptor-value? nor static-descriptor?.
-    (rf/reg-interceptor* :fac/garbage-kw {:factory (fn [_] :garbage)})
+    (rf/reg-interceptor :fac/garbage-kw {:factory (fn [_] :garbage)})
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/interceptor-factory-arity"
                           (icpt-reg/resolve-ref [:fac/garbage-kw :x]))
         "a keyword return falls to the :else arm")
 
     ;; A number return.
-    (rf/reg-interceptor* :fac/garbage-num {:factory (fn [_] 42)})
+    (rf/reg-interceptor :fac/garbage-num {:factory (fn [_] 42)})
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/interceptor-factory-arity"
                           (icpt-reg/resolve-ref [:fac/garbage-num :x]))
@@ -496,7 +496,7 @@
 
     ;; An EMPTY map {} — a map, but with no :before/:after/:id, so neither
     ;; interceptor-value? nor static-descriptor? — the most adversarial leg.
-    (rf/reg-interceptor* :fac/garbage-empty {:factory (fn [_] {})})
+    (rf/reg-interceptor :fac/garbage-empty {:factory (fn [_] {})})
     (let [ex (try (icpt-reg/resolve-ref [:fac/garbage-empty :x])
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]

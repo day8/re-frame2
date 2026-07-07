@@ -85,7 +85,7 @@
   ([frame-id] (capture-coeffects frame-id nil))
   ([frame-id opts]
    (let [captured (atom nil)]
-     (rf/reg-interceptor* :capture/probe
+     (rf/reg-interceptor :capture/probe
        {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
      (rf/reg-event :capture
        {:interceptors [:capture/probe]}

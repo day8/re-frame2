@@ -43,9 +43,9 @@ Each `patterns/*.md` opens with load triggers, gives the canonical mini-declarat
 
 Application keywords use the app's own namespace (`:cart/`, `:auth/`); `:rf/*` and `:rf.machine/*` / `:rf.epoch/*` / `:rf.http/*` / `:rf.error/*` are framework-owned. This rule lands in SKILL.md cardinal rules so it's read on every load.
 
-### L7 — `reg-*` macros over the `*`-suffixed runtime fns
+### L7 — `reg-*` macros over the runtime-fn forms
 
-The macros capture source-coords that Xray and re-frame2-pair rely on. The functional counterparts (`reg-view*`, `reg-machine*`, `reg-interceptor*`, …) exist for programmatic / generated cases; recipes always reach for the macro.
+The macros capture source-coords that Xray and re-frame2-pair rely on. The functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — exist for programmatic / generated cases; recipes always reach for the macro.
 
 ### L8 — Frames before globals
 

@@ -68,7 +68,7 @@
     (let [captured (atom nil)]
       ;; A full-context interceptor :before so we read the FULL coeffect map the
       ;; handler saw — :rf.cofx is a framework coeffect alongside :db / :event.
-      (rf/reg-interceptor* :wi.clk/capture-probe
+      (rf/reg-interceptor :wi.clk/capture-probe
         {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
       (rf/reg-event :wi.clk/capture
         {:interceptors [:wi.clk/capture-probe]}
