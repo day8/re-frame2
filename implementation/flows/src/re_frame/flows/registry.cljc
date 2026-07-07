@@ -1364,7 +1364,23 @@
            (fn []
              (when-let [flow (get-in @flows [frame-id id])]
                (let [path (:output-path flow)]
-                 (vacate-output-path! frame-id path)
+                 ;; Same in-drain hazard `reg-flow`'s `:output-path`-move
+                 ;; branch guards against (see the comment above its
+                 ;; `record-abandoned-output-path!` call): a `clear-flow`
+                 ;; issued OUT of a drain can vacate `path` directly — there
+                 ;; is no pending commit to clobber it. But a `clear-flow`
+                 ;; issued IN a drain (reentrant from an event handler body /
+                 ;; `:rf.fx/clear-flow`) races the SAME deferred `:db`
+                 ;; commit: a direct write here would be overwritten by the
+                 ;; handler's returned `:db` (which still carries the
+                 ;; cleared flow's last value at `path`), resurrecting it.
+                 ;; So RECORD the abandoned path instead; the current
+                 ;; drain's `run-flows-on-db` dissocs it from the PENDING
+                 ;; `:db` before the flow walk, riding the same value the
+                 ;; deferred commit publishes.
+                 (if (frame/in-drain? frame-id)
+                   (record-abandoned-output-path! frame-id path)
+                   (vacate-output-path! frame-id path))
                  ;; Spec 015 §7: drop this flow's output data-classification
                  ;; declarations from the frame's app-db elision registry so a
                  ;; deregistered flow leaves no orphaned redaction behind.

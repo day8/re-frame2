@@ -543,7 +543,30 @@
   per-frame-independence invariant (Spec 002 rule 1 / Spec 013
   §Frame-scoping) holds by construction, not by careful keying."
   [frame-id db runtime-db]
-  (let [flow-map (get (registry/flows-snapshot) frame-id)]
+  (let [flow-map (get (registry/flows-snapshot) frame-id)
+        ;; DRAIN (read-and-clear) this frame's pending abandoned output
+        ;; paths — recorded by an IN-DRAIN same-frame `reg-flow`
+        ;; `:output-path` move OR an IN-DRAIN `clear-flow` (either would have
+        ;; a direct app-db write clobbered by the deferred commit).
+        ;; `abandoned-before` is the snapshot the catch / post-commit
+        ;; rollback re-records (the move re-attempts next drain if the event
+        ;; aborts); `abandoned-paths` is the SAME set, consumed here exactly
+        ;; once.
+        ;;
+        ;; Computed and vacated from the pending `:db` UNCONDITIONALLY —
+        ;; BEFORE the empty-`flow-map` early return below. An in-drain
+        ;; `clear-flow` that removed the frame's LAST flow leaves `flow-map`
+        ;; empty here, but the abandoned path it recorded still must be
+        ;; dissoc'd from the pending `:db`: the early return has no flow
+        ;; walk to carry that dissoc, so skipping it would let the deferred
+        ;; commit publish the handler's returned `:db` — which still carries
+        ;; the cleared flow's stale value at the abandoned path —
+        ;; resurrecting it. Frame-scoped.
+        abandoned-before (registry/abandoned-output-paths-snapshot frame-id)
+        abandoned-paths  (registry/drain-abandoned-output-paths! frame-id)
+        ;; Each `vacate-path-in-db` is a pure `db → db` LEAF dissoc
+        ;; (no-op-safe). No-op set ⇒ `db` unchanged.
+        db (reduce registry/vacate-path-in-db db abandoned-paths)]
     (if-not (seq flow-map)
       db
       (let [ordered (topo/topo-sort flow-map)
@@ -553,20 +576,7 @@
             ;; survive (their outputs were never installed). Scoped to
             ;; `frame-id` so a concurrently-draining sibling frame is
             ;; structurally untouched. Restored in the catch below.
-            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)
-            ;; DRAIN (read-and-clear) this frame's pending abandoned output
-            ;; paths — recorded by an IN-DRAIN same-frame `reg-flow`
-            ;; `:output-path` move (a direct app-db write would be clobbered by
-            ;; the deferred commit). `abandoned-before` is the snapshot the
-            ;; catch / post-commit rollback re-records (the move re-attempts
-            ;; next drain if the event aborts); `abandoned-paths` is the SAME
-            ;; set, consumed here exactly once. They are dissoc'd from the
-            ;; pending `:db` below, BEFORE the flow walk, so the vacate rides
-            ;; the value the deferred commit publishes (the handler's returned
-            ;; `:db` cannot resurrect the old path) and the new flow's
-            ;; recompute lands on a clean slot. Frame-scoped.
-            abandoned-before   (registry/abandoned-output-paths-snapshot frame-id)
-            abandoned-paths    (registry/drain-abandoned-output-paths! frame-id)]
+            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
         ;; EP-0025: a flow's EXPLICIT output data-classification declarations are
         ;; installed at `reg-flow` time (not drain time) and there is NO
         ;; input->output propagation, so there is no drain-time mark-mutation
@@ -585,16 +595,10 @@
           ;; (the per-flow `:rf.flow/skip` / `:rf.flow/computed` traces carry
           ;; the dirty/clean signal tools actually read).
           (loop [remaining ordered
-                 ;; Vacate the IN-DRAIN abandoned output paths from the pending
-                 ;; `:db` FIRST — before any flow computes — so the
-                 ;; old path is gone from the value the deferred commit
-                 ;; publishes (the handler's returned `:db` carried it, but this
-                 ;; transform is applied to that SAME value, so it cannot
-                 ;; resurrect it) and a flow newly owning the slot recomputes
-                 ;; onto a clean base. Each `vacate-path-in-db` is a pure
-                 ;; `db → db` LEAF dissoc (no-op-safe). No-op set ⇒ `db`
-                 ;; unchanged. (`abandoned-paths` was read-and-cleared above.)
-                 db        (reduce registry/vacate-path-in-db db abandoned-paths)]
+                 ;; `db` already carries the abandoned-paths vacate applied
+                 ;; above (before any flow computes), so a flow newly owning
+                 ;; a moved-to slot recomputes onto a clean base.
+                 db        db]
             (if (empty? remaining)
               db
               (let [flow         (flow-map (first remaining))
