@@ -409,6 +409,11 @@
   Responses:
     200 `{\"ok\":true,\"file\":\"<abs>\"}`        — editor launched.
     400 `{\"ok\":false,\"error\":\"missing-file\"}` — no `file` param.
+    400 `{\"ok\":false,\"error\":\"malformed-query\"}` — undecodable percent-escape
+        in the query string (e.g. a lone `%` or `%` not followed by two hex
+        digits — `URLDecoder/decode` throws `IllegalArgumentException` on
+        these; caught here so a malformed query answers cleanly instead of
+        throwing into the shadow-cljs `:dev-http` Ring plumbing).
     403 `{\"ok\":false,\"error\":\"forbidden\"}`    — non-loopback / cross-origin.
     405 `{\"ok\":false,\"error\":\"method-not-allowed\"}` — not POST.
     422 `{\"ok\":false,\"error\":\"<msg>\"}`       — launch failed."
@@ -436,18 +441,27 @@
         (json-resp 405 ao {:ok false :error "method-not-allowed"})
 
         :else
-        (let [q      (parse-query query-string)
-              file   (get q "file")
-              line   (->int (get q "line"))
-              column (->int (get q "column"))
-              cmd    (editor-hint (get q "editor"))]
-          (if (str/blank? file)
-            (json-resp 400 ao {:ok false :error "missing-file"})
-            (let [abs-path (resolve-file file)
-                  {:keys [ok message]} (launch! abs-path line column cmd)]
-              (if ok
-                (json-resp 200 ao {:ok true :file abs-path})
-                (json-resp 422 ao {:ok false :error (or message "launch-failed")})))))))))
+        ;; `parse-query` URL-decodes every key/value; a malformed percent-escape
+        ;; (a lone `%`, or `%` not followed by two hex digits) makes
+        ;; `URLDecoder/decode` throw `IllegalArgumentException`. Every other
+        ;; error path on this endpoint answers a clean JSON response — this
+        ;; one must too, so the decode is caught here rather than left to
+        ;; propagate uncaught into the Ring boundary.
+        (try
+          (let [q      (parse-query query-string)
+                file   (get q "file")
+                line   (->int (get q "line"))
+                column (->int (get q "column"))
+                cmd    (editor-hint (get q "editor"))]
+            (if (str/blank? file)
+              (json-resp 400 ao {:ok false :error "missing-file"})
+              (let [abs-path (resolve-file file)
+                    {:keys [ok message]} (launch! abs-path line column cmd)]
+                (if ok
+                  (json-resp 200 ao {:ok true :file abs-path})
+                  (json-resp 422 ao {:ok false :error (or message "launch-failed")})))))
+          (catch IllegalArgumentException _
+            (json-resp 400 ao {:ok false :error "malformed-query"})))))))
 
 (defn handler
   "The shadow-cljs `:dev-http` `:handler` entry-point. A not-found
