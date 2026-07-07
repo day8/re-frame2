@@ -57,17 +57,14 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 
 ## Images and frames (EP-0023, `re-frame.core`)
 
-The public multi-frame model is `image -> frame -> event stream`: an image is the selected registration set a frame runs, a frame is the isolated execution context, the event stream is the program. A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame resolves the implicit *default image* over it. Reach for explicit images only when the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames).
+The public composition model is `image → frame → event stream`; there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade, and a registrar-query map is ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). Model, grammar detail, and the isolation story: [`../fundamentals/images.md`](../fundamentals/images.md#frame-isolation-is-the-whole-isolation-story).
 
 | Surface | Shape |
 |---|---|
 | `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → **inert image value** (pure data, no registrar side effect). `:select-ns :include` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match include pattern fails image assembly; `:exclude` subtracts. Supplied to a frame via the `:images` vector — composition resolves by **image order** (the later image wins; assert on shadows via `rf/frame-shadows`). There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud. |
+| `rf/reload-images!` | frame-targeted; swaps a live frame's image generation while preserving its memory |
 
-`make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts (`:id` / `:initial-events` / `:on-destroy` / …) in one call and returns the live frame **value** (read its id via `frame-value->id`; `dispatch` / `subscribe` / `destroy-frame!` take the value or its id). A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. Construct image *values* with `rf/image`; for a callable frame at the app root, `reg-frame` it and scope with `frame-provider {:frame …}` (see [`../fundamentals/frames.md`](../fundamentals/frames.md)); for a per-mount lifetime use `frame-provider {:id …}` (ensure) or explicit `make-frame` + `destroy-frame!`.
-
-## Composition: `image → frame → event stream`
-
-The public composition model is `image → frame → event stream` (`rf/image` + `rf/make-frame`); there is **no realm / app / module composition vocabulary** on the `re-frame.core` facade. A registrar-query map is ALWAYS frame-targeted (`(rf/registrations {:frame f :kind k})` — a map without `:frame` is an error). Frame isolation plus image assembly are the whole composition story — see [`../fundamentals/frames.md` §Frame isolation is the whole isolation story](../fundamentals/frames.md#frame-isolation-is-the-whole-isolation-story). There is no `rf/migration-map` / `rf/migration-explain` facade read — those names do not exist.
+`make-frame` is the **one** EP-0024 constructor — accepts image-selection (`:images`) AND record-config opts in one call and returns the live frame **value** (see the §Dispatch, subscribe, frames row above).
 
 ## Routing — `day8/re-frame2-routing`
 

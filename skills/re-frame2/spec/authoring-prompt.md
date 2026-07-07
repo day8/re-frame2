@@ -37,6 +37,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── flows.md             (reg-flow, materialised computed state, flow-vs-sub)
 > │   │   ├── schemas.md           (reg-app-schema, boundary validation)
 > │   │   ├── frames.md            (frame ids, default frame, per-frame config)
+> │   │   ├── images.md            (rf/image, image-order composition, EP-0023)
 > │   │   ├── event-state-cycle.md (the 12-step walk)
 > │   │   └── project-structure.md (source-tree conventions)
 > │   ├── state-machines/
