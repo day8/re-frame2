@@ -154,7 +154,7 @@
 (deftest drag-move-dispatches-set-width
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/start-drag! (stub-event 1000) 480)
@@ -173,7 +173,7 @@
 (deftest drag-right-narrows-panel
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/start-drag! (stub-event 1000) 800)
@@ -220,9 +220,9 @@
 (deftest double-click-handler-dispatches-reset
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+    (with-redefs [rf/dispatch-impl (fn
+                                      ([ev]       (swap! dispatches conj ev) nil)
+                                      ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
         (let [tree    (resize-handle/Handle :inline)
               handler (:on-double-click (second tree))]
@@ -245,7 +245,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowLeft" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -256,7 +256,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowRight" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -267,7 +267,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowLeft" true)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -278,7 +278,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Home" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -289,7 +289,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "End" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -300,7 +300,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -311,7 +311,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event " " false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
@@ -322,7 +322,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Tab" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (is (false? (resize-handle/handle-keydown! event 500))

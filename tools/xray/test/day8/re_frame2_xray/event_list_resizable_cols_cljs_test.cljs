@@ -216,7 +216,7 @@
 (deftest drag-right-narrows-col-and-tracks-cursor
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-start-drag! (stub-event 1000) :source 52)
@@ -239,7 +239,7 @@
 (deftest drag-left-widens-col-and-tracks-cursor
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-start-drag! (stub-event 1000) :timestamp 200)
@@ -314,7 +314,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowRight" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-handle-keydown! event :source 60))
@@ -326,7 +326,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowLeft" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-handle-keydown! event :timestamp 100))
@@ -338,7 +338,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowRight" true)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-handle-keydown! event :duration 60))
@@ -350,7 +350,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (shell/col-divider-handle-keydown! event :source 200))
@@ -370,9 +370,9 @@
   (setup!)
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+    (with-redefs [rf/dispatch-impl (fn
+                                      ([ev]       (swap! dispatches conj ev) nil)
+                                      ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
         (let [tree    (shell/shell-view)
               divider (find-by-testid

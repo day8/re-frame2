@@ -174,6 +174,34 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; `dispatch-impl` / `dispatch-sync-impl` / `subscribe-impl` are `^:no-doc`
+;; `def` ALIASES (not direct `defn`s) to the owning-ns fns — platform-neutral
+;; so both the JVM macro-expansion target and the CLJS Convention-A value-
+;; alias below resolve the SAME var. `^:no-doc` strips them from the API
+;; manifest / generated docs (the same mechanism `reg-event-db` etc. use) —
+;; they are NOT a public facade surface, just the shared internal seam the
+;; `dispatch` / `dispatch-sync` / `subscribe` macro's expansion AND
+;; `make-capture-frame`'s injected ops both call through, so a SINGLE
+;; `with-redefs` on one of these (or the CLJS value-alias, which aliases the
+;; SAME var) intercepts every real dispatch, macro-driven or reg-view-
+;; injected alike (rf2-m90brg — API-shrink #2 retired the PUBLIC `dispatch*` /
+;; `dispatch-sync*` / `subscribe*` facade twins; this is their non-public
+;; replacement, not a re-introduction of the twin).
+;;
+;; The alias-`def` is DELIBERATE, exactly as the retired `dispatch*` was: a
+;; direct `defn` here would let the CLJS compiler attach inline fixed-arity
+;; metadata to the var, so callers would emit a STATIC
+;; `.cljs$core$IFn$_invoke$arity$N` dispatch that a `with-redefs`'d fn whose
+;; arity set differs cannot satisfy ("arity$N is not a function") — this is
+;; NOT `:advanced`-only; shadow-cljs's `:node-test` build already does it.
+;; Call-site stamping is the MACRO's job (debug-gated, DCE'd in prod) and
+;; reaches these via the 2-arity opts map, so NO `:rf.trace/call-site`
+;; literal lives in these production-reachable bodies (the elision probe
+;; asserts the keyword is ABSENT from the prod bundle).
+(def ^:no-doc dispatch-impl      router/dispatch!)
+(def ^:no-doc dispatch-sync-impl router/dispatch-sync!)
+(def ^:no-doc subscribe-impl     subs/subscribe)
+
 ;; ---- CLJS fn-aliases for registration ------------------------------------
 ;;
 ;; Source-coord capture on CLJS rides the JVM-emitted macros above. The
@@ -264,7 +292,46 @@
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
   See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
   §Registration."}
-       reg-app-schemas rf-schemas/reg-app-schemas)))
+       reg-app-schemas rf-schemas/reg-app-schemas)
+     (def ^{:doc "Fn-alias of the `dispatch` macro for HoF / programmatic
+  dispatch (no call-site source-coord capture). Appends `event-vec` to the
+  target frame's router queue; returns nil.
+
+    (dispatch event-vec)         — ambient frame (carried scope).
+    (dispatch event-vec opts)    — `opts` may carry `:frame` (a frame-id
+                                   keyword OR a live frame value) — the
+                                   explicit OVERRIDE intent.
+
+  See `re-frame.router/dispatch!` and spec/API.md §Dispatch and subscribe
+  (rf2-m90brg)."
+       :arglists '([event-vec] [event-vec opts])}
+       dispatch        dispatch-impl)
+     (def ^{:doc "Fn-alias of the `dispatch-sync` macro for HoF / programmatic
+  synchronous dispatch (no call-site source-coord capture). Mirrors
+  `dispatch`'s forms:
+
+    (dispatch-sync event-vec)         — ambient frame.
+    (dispatch-sync event-vec opts)    — `opts` may carry `:frame`.
+
+  Processes `event-vec` end-to-end synchronously, then drains to fixed
+  point. For tests / REPL / bootstrap only. See
+  `re-frame.router/dispatch-sync!` and spec/API.md §Dispatch and subscribe
+  (rf2-m90brg)."
+       :arglists '([event-vec] [event-vec opts])}
+       dispatch-sync   dispatch-sync-impl)
+     (def ^{:doc "Fn-alias of the `subscribe` macro for HoF / programmatic
+  subscription (no call-site source-coord capture). Returns a reaction
+  whose value is the registered sub's current output for `query-v`; deref
+  to read.
+
+    (subscribe query-v)         — ambient frame (carried scope).
+    (subscribe query-v opts)    — `opts` may carry `:frame` (a frame-id
+                                  keyword OR a live frame value).
+
+  See `re-frame.subs/subscribe` and spec/API.md §Dispatch and subscribe
+  (rf2-m90brg)."
+       :arglists '([query-v] [query-v opts])}
+       subscribe       subscribe-impl)))
 ;; `reg-machine*` (the plain-fn machine-registration surface) is NO LONGER a
 ;; `re-frame.core` façade export (rf2-wad2fl — front-porch shrink); reach it
 ;; through `re-frame.machines/reg-machine*`. The `reg-machine` / `defmachine`
@@ -896,68 +963,27 @@
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
-;; Each surface ships as a macro + `*`-fn pair. The macros expand to
-;; `re-frame.core/dispatch*` / `subscribe*` etc., so those defs must
-;; live here.
+;; Each surface ships as a JVM-only macro (`dispatch` / `dispatch-sync` /
+;; `subscribe`, captures call-site coords) whose expansion reaches straight
+;; through to the OWNING ns fn (`re-frame.router/dispatch!` /
+;; `-dispatch-sync!`, `re-frame.subs/subscribe`) — Convention A (rf2-m90brg):
+;; on CLJS the SAME base name also carries a same-name `def`-alias to that
+;; owning fn (above, in the `#?(:cljs (do ...))` block) for HoF / programmatic
+;; callers, mirroring `reg-event` / `reg-sub` / etc. There is no `*`-suffixed
+;; twin — a with-redefs stub reaches `re-frame.router/dispatch!` /
+;; `-dispatch-sync!` / `re-frame.subs/subscribe` directly (the macro
+;; expansion's actual call target), not a `re-frame.core` indirection.
 
 ;; API-shrink #1 (rf2-csbbwu): frame targeting is exactly THREE intents —
 ;; ambient SCOPE (no `:frame` opt; reads the carried `with-frame` /
 ;; frame-provider / captured `*current-frame*` stamp), explicit OVERRIDE
 ;; (`{:frame target}`, `target` a frame-id keyword OR a live frame value), and
 ;; HOLD (`capture-frame`, below). The EP-0023-era frame-FIRST positional
-;; 2-arity — `(dispatch* frame event-vec)` — is DELETED: every sig is
+;; 2-arity — `(dispatch frame event-vec)` — is DELETED: every sig is
 ;; `[payload]` / `[payload opts]`, no `vector?` shape-discrimination on the
 ;; first arg. `re-frame.router/build-envelope` still normalizes an object
 ;; `:frame` opt to its runnable-id via `frame/frame-target->id`, so a value or
 ;; a keyword target both route correctly.
-
-;; `dispatch*` / `dispatch-sync*` are `def` ALIASES (not direct `defn`s) to
-;; `-impl` fns. The alias-`def` is DELIBERATE: it keeps the public `*`-fns
-;; RE-DEFINABLE under `with-redefs` from the tools tests (Xray/Story stub
-;; `rf/dispatch*`). A direct `defn` here would let the CLJS compiler attach
-;; inline fixed-arity metadata to `re-frame.core/dispatch*`, so the macro call
-;; sites would emit a STATIC `.cljs$core$IFn$_invoke$arity$N` dispatch that a
-;; `with-redefs`'d fn whose arity set differs cannot satisfy ("arity$N is not
-;; a function"). Call-site stamping is the MACRO's job (debug-gated, DCE'd in
-;; prod) and reaches these via the 2-arity opts map, so NO
-;; `:rf.trace/call-site` literal lives in these production-reachable bodies
-;; (the elision probe asserts the keyword is ABSENT from the prod bundle).
-
-(defn- dispatch*-impl
-  ([event-vec]      (router/dispatch! event-vec))
-  ([event-vec opts] (router/dispatch! event-vec opts)))
-
-(defn- dispatch-sync*-impl
-  ([event-vec]      (router/dispatch-sync! event-vec))
-  ([event-vec opts] (router/dispatch-sync! event-vec opts)))
-
-(def ^{:doc "Fn-form of `dispatch` for HoF / programmatic dispatch — no
-  call-site source-coord capture.
-
-    (dispatch* event-vec)              — ambient frame (carried scope).
-    (dispatch* event-vec opts)         — `opts` may carry `:frame` (a
-                                         frame-id keyword OR a live frame
-                                         value) — the explicit OVERRIDE
-                                         intent.
-
-  Appends `event` to the target frame's router queue; returns nil. Per
-  spec/API.md §Dispatch and subscribe (rf2-ts1a)."
-       :arglists '([event-vec] [event-vec opts])}
-  dispatch*       dispatch*-impl)
-
-(def ^{:doc "Fn-form of `dispatch-sync` for HoF / programmatic sync dispatch — no
-  call-site source-coord capture. Mirrors `dispatch*`'s forms:
-
-    (dispatch-sync* event-vec)         — ambient frame.
-    (dispatch-sync* event-vec opts)    — `opts` may carry `:frame` (a
-                                         frame-id keyword OR a live frame
-                                         value).
-
-  Processes `event` end-to-end synchronously, then drains to fixed point.
-  For tests / REPL / bootstrap only. Per spec/API.md §Dispatch and
-  subscribe (rf2-ts1a)."
-       :arglists '([event-vec] [event-vec opts])}
-  dispatch-sync*  dispatch-sync*-impl)
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
   then unsubscribes. Does NOT retain a cache reference. Use in handler
@@ -998,20 +1024,6 @@
   cached value via `subscribe` / `subscribe-once`. Per rf2-7t1a6."}
   compute-sub     subs/compute-sub)
 
-(defn subscribe*
-  "INTERNAL (EP-0024 Open Issue #8, rf2-5vla7c — `:tier :implementation`).
-  Runtime-callable fn form of the `subscribe` macro; the macro's expansion
-  reaches it fully-qualified across a namespace boundary (see
-  `re-frame.core-call-site-macros/build-subscribe-form`). NOT an app-facing
-  surface — the public read shapes are `subscribe`, `subscribe-once`, or the
-  `:subscribe` op from a `capture-frame`. Arities mirror
-  `re-frame.subs/subscribe`: `(subscribe* query-v)` — ambient frame — and
-  `(subscribe* query-v opts)`, `opts` may carry `{:frame target}` (a
-  frame-id keyword OR a live frame value); mirrors `dispatch*`."
-  {:arglists '([query-v] [query-v opts])}
-  ([query-v]      (subs/subscribe query-v))
-  ([query-v opts] (subs/subscribe query-v opts)))
-
 ;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017,
 ;; rf2-w9xyx1). The interceptor idiom was removed; coeffect delivery is
 ;; declared with `:rf.cofx/requires`. The migration alarm survives as the
@@ -1027,7 +1039,9 @@
      "Enqueue `event-vec` on the target frame's router; returns nil
      immediately, BEFORE the handler runs. Captures call-site coords
      (rf2-ts1a) for error-trace attribution. For HoF / programmatic use
-     call `dispatch*`. Per Spec 002 §Routing.
+     (no call-site capture) call the value-position `dispatch` alias
+     (CLJS) or `re-frame.router/dispatch!` directly (JVM). Per Spec 002
+     §Routing.
 
      Two public arities:
 
@@ -1058,7 +1072,9 @@
      fixed point. For tests / REPL / bootstrap only — never call from
      inside a running event handler (raises `:rf.error/dispatch-sync-
      in-handler`). Captures call-site coords (rf2-ts1a). For HoF /
-     programmatic use call `dispatch-sync*`. Per Spec 002 §dispatch-sync.
+     programmatic use (no call-site capture) use the value-position
+     `dispatch-sync` alias (CLJS) or `re-frame.router/dispatch-sync!`
+     directly (JVM). Per Spec 002 §dispatch-sync.
 
      Two public arities:
 
@@ -1101,7 +1117,7 @@
                                 arg1 arg2))))
 
 ;; (`inject-cofx` macro removed from the public facade — rf2-w9xyx1; see the
-;; comment by `subscribe*` above.)
+;; comment above, by `dispatch-sync`.)
 
 ;; ---- capture-frame (the keystone) + frame-aware closures ------------------
 ;;
@@ -1178,19 +1194,19 @@
   {:frame frame
    :dispatch
    (fn dispatch-fn
-     ([event]      (dispatch* event (merge dispatch-opts {:frame frame})))
-     ([event opts] (dispatch* event (merge dispatch-opts opts {:frame frame}))))
+     ([event]      (dispatch-impl event (merge dispatch-opts {:frame frame})))
+     ([event opts] (dispatch-impl event (merge dispatch-opts opts {:frame frame}))))
    :dispatch-sync
    (fn dispatch-sync-fn
-     ([event]      (dispatch-sync* event (merge dispatch-opts {:frame frame})))
-     ([event opts] (dispatch-sync* event (merge dispatch-opts opts {:frame frame}))))
+     ([event]      (dispatch-sync-impl event (merge dispatch-opts {:frame frame})))
+     ([event opts] (dispatch-sync-impl event (merge dispatch-opts opts {:frame frame}))))
    :subscribe
    (fn subscribe-fn
      [query-v]
      (if (and subscribe-call-site interop/debug-enabled?)
        (trace/with-call-site subscribe-call-site
-         (subs/subscribe query-v {:frame frame}))
-       (subs/subscribe query-v {:frame frame})))})
+         (subscribe-impl query-v {:frame frame}))
+       (subscribe-impl query-v {:frame frame})))})
 
 (defn capture-frame
   "Return a frame api — the keystone affordance for
@@ -2002,15 +2018,13 @@
 ;; frame target with a new `:images` vector (rf2-lxwpob).
 
 ;; ---- interceptors --------------------------------------------------------
-
-(def ^{:doc "Programmatic / REPL form of `reg-interceptor` (the `*`-suffix
-  fn, per Conventions §`*`-suffix naming) — no macro source-coordinate
-  capture. Register an interceptor DESCRIPTOR (`{:before}` / `{:after}` /
-  `{:before :after}` / `{:factory}`) under `id` (arities `(id descriptor)` /
-  `(id metadata descriptor)`). The public ergonomic surface is the
-  `reg-interceptor` macro (captures source coords). Per EP-0022 and
-  spec/API.md §Registration."}
-  reg-interceptor* icpt-reg/reg-interceptor*)
+;;
+;; `reg-interceptor*` (the programmatic/REPL fn-twin) is RETIRED from the
+;; facade (rf2-m90brg — API-shrink #2). The `reg-interceptor` macro (above)
+;; already delegates straight to `icpt-reg/reg-interceptor*`, and the CLJS
+;; same-name `def`-alias in the Convention-A block near the top of this ns
+;; covers the HoF / programmatic case — reach the owning ns directly
+;; (`re-frame.interceptor-registry/reg-interceptor*`) from JVM code.
 
 (def ^{:doc "INTERNAL lowering constructor (EP-0022) — NOT the public
   application-authoring surface; author interceptors with `reg-interceptor`

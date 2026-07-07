@@ -69,7 +69,7 @@
     (rf/reg-event :ctx/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:ctx/seed {:user/id 42}] {:frame :ctx/db-is-app-db})
     (let [captured (atom nil)]
-      (rf/reg-interceptor* :ctx/capture-probe
+      (rf/reg-interceptor :ctx/capture-probe
         {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
       (rf/reg-event :ctx/capture
         {:interceptors [:ctx/capture-probe]}
@@ -89,7 +89,7 @@
   (testing ":rf.db/runtime and :rf.frame/id are threaded into the event context"
     (rf/reg-frame :ctx/partitions {:doc "ctx"})
     (let [captured (atom nil)]
-      (rf/reg-interceptor* :ctx/capture-probe
+      (rf/reg-interceptor :ctx/capture-probe
         {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
       (rf/reg-event :ctx/capture
         {:interceptors [:ctx/capture-probe]}
@@ -309,7 +309,7 @@
           bad-fx   (after-icpt ::bad-fx
                                (fn [ctx]
                                  (interceptor/assoc-effect ctx :fx :oops)))]
-      (rf/reg-interceptor* ::bad-fx bad-fx)
+      (rf/reg-interceptor ::bad-fx bad-fx)
       (rf/reg-event :ctx/writes-db
         {:interceptors [::bad-fx]}
         (fn [{:keys [db]} _] {:db (assoc db :committed? true)
@@ -336,7 +336,7 @@
           foreign  (after-icpt ::foreign
                                (fn [ctx]
                                  (interceptor/assoc-effect ctx :http {:url "/api"})))]
-      (rf/reg-interceptor* ::foreign foreign)
+      (rf/reg-interceptor ::foreign foreign)
       (rf/reg-event :ctx/writes-db2
         {:interceptors [::foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
@@ -360,7 +360,7 @@
                                  (let [db (interceptor/get-effect ctx :db)]
                                    (interceptor/assoc-effect
                                      ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
-      (rf/reg-interceptor* ::legacy legacy)
+      (rf/reg-interceptor ::legacy legacy)
       (rf/reg-event :ctx/clean-db
         {:interceptors [::legacy]}
         (fn [{:keys [db]} _] {:db (assoc db :user/id 7)}))
@@ -391,7 +391,7 @@
   (testing "a full-context interceptor whose context carries a non-sequential :fx is policed at the boundary"
     (rf/reg-frame :ctx/ctx-bad-fx {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-bad-fx)]
-      (rf/reg-interceptor* :ctx/ctx-writes-probe
+      (rf/reg-interceptor :ctx/ctx-writes-probe
         {:before
          (fn [ctx]
            (-> ctx
@@ -412,7 +412,7 @@
   (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
     (rf/reg-frame :ctx/ctx-foreign {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-foreign)]
-      (rf/reg-interceptor* :ctx/ctx-foreign-writes-probe
+      (rf/reg-interceptor :ctx/ctx-foreign-writes-probe
         {:before
          (fn [ctx]
            (-> ctx

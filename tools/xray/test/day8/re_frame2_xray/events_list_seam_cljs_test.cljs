@@ -196,7 +196,7 @@
 (deftest seam-drag-down-grows-list
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/start-seam-drag! (stub-event 500) 200)
@@ -215,7 +215,7 @@
 (deftest seam-drag-up-shrinks-list
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/start-seam-drag! (stub-event 500) 250)
@@ -290,9 +290,9 @@
 (deftest double-click-handler-dispatches-reset
   (setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
+    (with-redefs [rf/dispatch-impl (fn
+                                      ([ev]       (swap! dispatches conj ev) nil)
+                                      ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
         (let [tree    (resize-handle/SeamHandle)
               handler (:on-double-click (second tree))]
@@ -315,7 +315,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowDown" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -326,7 +326,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowUp" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -337,7 +337,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "ArrowDown" true)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -348,7 +348,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Home" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -359,7 +359,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "End" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -370,7 +370,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -381,7 +381,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event " " false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
@@ -392,7 +392,7 @@
   (setup!)
   (let [dispatches (atom [])
         {:keys [event]} (stub-key-event "Tab" false)]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (is (false? (resize-handle/handle-seam-keydown! event 200))

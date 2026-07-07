@@ -12,7 +12,7 @@
   (`helix_use_resource_lease_dom_cljs_test`) exercises the same fn through
   the Helix re-export, so a gap on one substrate is a gap on both.
 
-  ASYNC: the hook dispatches through the QUEUED path (`dispatch*` — the
+  ASYNC: the hook dispatches through the QUEUED path (`dispatch` — the
   correct choice for a lifecycle effect), which drains on the router's
   next-tick. Each test mounts / unmounts under `act`, then awaits a
   macrotask so the enqueued ensure / release has drained before asserting.

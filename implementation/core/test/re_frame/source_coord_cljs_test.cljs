@@ -8,6 +8,8 @@
   regression."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
+            [re-frame.subs :as subs]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -43,11 +45,12 @@
         (is (not (contains? (:tags miss) :rf.trace/call-site))
             ":rf.trace/call-site lives at top level, not under :tags")))))
 
-(deftest cljs-dispatch-star-fn-omits-call-site
-  (testing "CLJS: dispatch-sync* fn-form does NOT stamp"
+(deftest cljs-dispatch-owning-fn-omits-call-site
+  (testing "CLJS: the owning-ns fn-form re-frame.router/dispatch-sync! does
+   NOT stamp"
     (let [evs (record-traces
                (fn []
-                 (rf/dispatch-sync* [:rf2-ts1a/missing])))
+                 (router/dispatch-sync! [:rf2-ts1a/missing])))
           [miss] (errors-of evs :rf.error/no-such-handler)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))
@@ -61,11 +64,12 @@
       (is (some? miss))
       (is (some? (:rf.trace/call-site miss))))))
 
-(deftest cljs-subscribe-star-fn-omits-call-site
-  (testing "CLJS: subscribe* fn-form does NOT stamp"
+(deftest cljs-subscribe-owning-fn-omits-call-site
+  (testing "CLJS: the owning-ns fn-form re-frame.subs/subscribe does NOT
+   stamp"
     (let [evs (record-traces
                (fn []
-                 (rf/subscribe* [:rf2-ts1a/missing-sub])))
+                 (subs/subscribe [:rf2-ts1a/missing-sub])))
           [miss] (errors-of evs :rf.error/no-such-sub)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))

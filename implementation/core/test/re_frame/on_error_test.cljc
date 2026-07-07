@@ -462,7 +462,7 @@
                        :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
       (rf/register-listener! :errors :test/recorder
                              (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor* :n4x74b/boom-after boom-after)
+      (rf/reg-interceptor :n4x74b/boom-after boom-after)
       (rf/reg-event :n4x74b/with-throwing-interceptor
                     {:interceptors [:n4x74b/boom-after]}
                     (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
@@ -489,7 +489,7 @@
                         :before (fn [_ctx] (throw (ex-info "before boom" {}))))]
       (rf/register-listener! :errors :test/recorder
                              (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor* :n4x74b/boom-before boom-before)
+      (rf/reg-interceptor :n4x74b/boom-before boom-before)
       (rf/reg-event :n4x74b/before-throws
                     {:interceptors [:n4x74b/boom-before]}
                     (fn [{:keys [db]} _] {:db db}))
@@ -693,7 +693,7 @@
                        :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
       ;; EP-0022 reference-only flip: register the interceptor VALUE under its
       ;; own id and reference it from the chain.
-      (rf/reg-interceptor* :test/boom-after boom-after)
+      (rf/reg-interceptor :test/boom-after boom-after)
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:seeded 1}}))
       (rf/dispatch-sync [:seed])
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")

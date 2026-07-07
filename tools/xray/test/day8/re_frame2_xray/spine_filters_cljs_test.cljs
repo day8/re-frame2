@@ -377,9 +377,10 @@
 
 (deftest end-to-end-mute-from-context-menu
   (testing "open menu → click 'Mute' fires both the mute dispatch +
-            the close-menu dispatch. We replace `rf/dispatch*` with a
-            capturing fn so the test sees the dispatch payloads
-            without depending on async drain timing; the real flow
+            the close-menu dispatch. We replace `re-frame.core/dispatch-impl`
+            (the `^:no-doc` seam the row on-click's `rf/dispatch` macro call
+            expands to) with a capturing fn so the test sees the dispatch
+            payloads without depending on async drain timing; the real flow
             replays both dispatches via dispatch-sync to assert the
             downstream effects (row dropped, menu closed, indicator
             visible)."
@@ -391,7 +392,7 @@
         (rf/dispatch-sync [:rf.xray/open-row-context-menu
                            {:event-id :user/mouse-move :x 50 :y 50}])
         ;; Capture dispatches from the on-click handler.
-        (with-redefs [rf/dispatch* (fn
+        (with-redefs [rf/dispatch-impl (fn
                                      ([ev]      (swap! dispatches conj ev) nil)
                                      ([ev _o]   (swap! dispatches conj ev) nil))]
           (let [tree     (shell/shell-view)

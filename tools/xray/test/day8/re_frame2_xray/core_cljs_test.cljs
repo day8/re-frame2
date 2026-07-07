@@ -112,11 +112,15 @@
 
 (deftest set-target-frame!-dispatches-set-target-frame
   (testing "set-target-frame! dispatches :rf.xray/set-target-frame into :rf/xray"
-    ;; The `rf/dispatch` macro expands to `re-frame.core/dispatch*`, so
-    ;; with-redefs the underlying fn — redef'ing the macro Var would have
-    ;; no effect on already-compiled call sites.
+    ;; The `rf/dispatch` macro's expansion calls the `^:no-doc`
+    ;; `re-frame.core/dispatch-impl` seam directly (rf2-m90brg retired the
+    ;; `re-frame.core/dispatch*` facade twin), so with-redefs THAT seam —
+    ;; redef'ing `re-frame.router/dispatch!` directly would fail (a plain
+    ;; `defn`'s static arity-dispatch bypasses `with-redefs`), and redef'ing
+    ;; `re-frame.core/dispatch` (the CLJS value-alias) would have no effect
+    ;; on the already-compiled macro call site inside `core.cljs` either.
     (let [seen (atom [])]
-      (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
+      (with-redefs [rf/dispatch-impl (fn [ev & _opts] (swap! seen conj ev))]
         (core/set-target-frame! :app/main))
       (is (= [[:rf.xray/set-target-frame :app/main]] @seen)
           "facade dispatches the right event with the right arg"))))
@@ -171,7 +175,7 @@
     ;; `set-target-frame-wires-target-frame` above.
     (setup-xray-frame!)
     (let [seen (atom [])]
-      (with-redefs [rf/dispatch* (fn [ev & _opts] (swap! seen conj ev))]
+      (with-redefs [rf/dispatch-impl (fn [ev & _opts] (swap! seen conj ev))]
         (core/init! {:target-frame :app/main}))
       (is (some #(= [:rf.xray/set-target-frame :app/main] %) @seen)
           "init! dispatched :rf.xray/set-target-frame with :target-frame"))))

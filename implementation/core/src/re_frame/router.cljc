@@ -195,8 +195,10 @@
                         emitted from inside another event's processing
     :call-site          compile-time-captured invocation coord stamped by
                         the `dispatch` / `dispatch-sync` macro.
-                        nil for the fn-form path (`dispatch*` etc.) and
-                        under `goog.DEBUG=false` advanced builds."
+                        nil for the direct HoF fn-form path (calling this
+                        fn, or the CLJS same-name `dispatch` value-alias,
+                        directly) and under `goog.DEBUG=false` advanced
+                        builds."
   [event opts]
   (let [dispatch-id        (when interop/debug-enabled? (next-dispatch-id))
         parent-dispatch-id (when interop/debug-enabled?
@@ -369,8 +371,8 @@
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
       ;; `call-site` above is gated on interop/debug-enabled? so this
       ;; branch and its keyword literal DCE under :advanced +
-      ;; goog.DEBUG=false. fn-form callers (`dispatch*`) supply nil
-      ;; and the key is omitted.
+      ;; goog.DEBUG=false. Direct HoF fn-form callers supply nil and the
+      ;; key is omitted.
       call-site          (assoc :call-site         call-site)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
@@ -3255,11 +3257,13 @@
   but originates from user code / the UI / a non-machine effect stays
   FIFO at the back.
 
-  Per rf2-ts1a: the runtime-callable fn form (`re-frame.core/dispatch*`
-  in public API terms). The macro form `re-frame.core/dispatch` stamps
-  an `:rf.trace/call-site` onto `opts` at compile time; from there it
-  rides the envelope and gets bound around the handler chain's
-  invocation in `process-event!`.
+  Per rf2-ts1a: the runtime-callable fn form (rf2-m90brg: THIS fn is now
+  also the direct public-API-terms target — the `dispatch` macro's
+  expansion calls it fully-qualified, and the CLJS same-name `dispatch`
+  `def`-alias in `re-frame.core` points straight here). The macro form
+  `re-frame.core/dispatch` stamps an `:rf.trace/call-site` onto `opts` at
+  compile time; from there it rides the envelope and gets bound around the
+  handler chain's invocation in `process-event!`.
 
   Canonical `event` shape is `[<id>]`, `[<id> <single-scalar>]`, or
   `[<id> <map>]` — best practice, not enforced. Variadic vectors are

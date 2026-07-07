@@ -72,7 +72,7 @@
          (rf/unregister-listener! :trace ::cap))))))
 
 (defn- reg-noop-ic! [id]
-  (rf/reg-interceptor* id {:before (fn [ctx] ctx)}))
+  (rf/reg-interceptor id {:before (fn [ctx] ctx)}))
 
 ;; ---- absent when no override fires ----------------------------------------
 

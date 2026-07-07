@@ -1865,8 +1865,9 @@
       ;;
       ;; The recorder emits `:dispatch` (ASYNC) steps (per
       ;; play-export/event->step), and on the JVM run-variant queues them
-      ;; via `rf/dispatch*` without an inter-step yield (runner_events
-      ;; run-loop! :clj branch). The single-threaded interop executor
+      ;; via `re-frame.router/dispatch!` without an inter-step yield
+      ;; (runner_events run-loop! :clj branch). The single-threaded interop
+      ;; executor
       ;; drains the router queue asynchronously, so the `:app-db` slot
       ;; in `run-variant`'s wire response captures the value at the
       ;; moment the play-promise resolves — which can race the async

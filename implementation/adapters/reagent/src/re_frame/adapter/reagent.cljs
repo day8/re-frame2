@@ -6,7 +6,7 @@
   (:require [reagent.core :as r]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+            [re-frame.router :as router]
             [re-frame.frame :as frame]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.substrate.spine :as spine]
@@ -188,15 +188,17 @@
          ;; Stash the per-instance lease + frame so unmount releases exactly
          ;; this instance's lease into the same frame.
          (set! (.-rf2ResourceLease this) #js {:frame frame-id :lease lease})
-         (rf/dispatch* [:rf.resource/ensure
-                        {:resource resource :scope scope :params params
-                         :owner lease :cause cause}]
-                       {:frame frame-id})))
+         ;; Direct owning-ns dispatch (not the `rf/dispatch` macro) —
+         ;; framework-internal plumbing, not an application call site.
+         (router/dispatch! [:rf.resource/ensure
+                            {:resource resource :scope scope :params params
+                             :owner lease :cause cause}]
+                           {:frame frame-id})))
      :component-will-unmount
      (fn [^js this]
        (when-let [held (.-rf2ResourceLease this)]
-         (rf/dispatch* [:rf.resource/release-owner {:owner (.-lease held)}]
-                       {:frame (.-frame held)})))
+         (router/dispatch! [:rf.resource/release-owner {:owner (.-lease held)}]
+                           {:frame (.-frame held)})))
      :reagent-render
      (fn [_descriptor & args]
        ((:body (lease-args (cons _descriptor args)))))}))

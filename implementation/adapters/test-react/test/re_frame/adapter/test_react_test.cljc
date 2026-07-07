@@ -247,13 +247,14 @@
     (try
       ;; Seed app-db = {:n 1} and materialise a sub-cache entry by subscribing.
       ;; Both the dispatch and the subscribe pin `:rf/default` explicitly: per
-      ;; EP-0002 there is no ambient `:rf/default` floor, so the macro forms
-      ;; (`rf/dispatch-sync` / the `subscribe` macro) would resolve a render-
-      ;; time frame context this headless test does not establish and raise
-      ;; `:rf.error/no-frame-context`. Use the explicit-frame fn form
-      ;; `rf/dispatch-sync*` (and `subs/subscribe` below) which carry the
-      ;; target frame directly.
-      (rf/dispatch-sync* [::seed 1] {:frame :rf/default})
+      ;; EP-0002 there is no ambient `:rf/default` floor, so the AMBIENT
+      ;; 1-arity form (no `:frame` opt) would resolve a render-time frame
+      ;; context this headless test does not establish and raise
+      ;; `:rf.error/no-frame-context`. Use the explicit-frame 2-arity opts
+      ;; form (and `subs/subscribe` below) which carries the target frame
+      ;; directly — an explicit `:frame` opt always wins over ambient scope
+      ;; (Spec 002 §Frame target resolution), macro or fn-form alike.
+      (rf/dispatch-sync [::seed 1] {:frame :rf/default})
       (let [r (subs/subscribe [::n] {:frame :rf/default})]
         (is (= 1 @r) "sub reads the seeded value")
         (is (contains? (default-sub-cache-keys) [::n])
@@ -276,7 +277,7 @@
       ;; pre-fix slot had survived, the re-subscribe would have aliased the old
       ;; reaction and the isolation guarantee would be broken.
       (substrate-adapter/install-adapter! test-react/adapter)
-      (rf/dispatch-sync* [::seed 99] {:frame :rf/default})
+      (rf/dispatch-sync [::seed 99] {:frame :rf/default})
       (let [r2 (subs/subscribe [::n] {:frame :rf/default})]
         (is (= 99 @r2)
             "re-subscribe after reinstall recomputed from the CURRENT app-db")

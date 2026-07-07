@@ -60,8 +60,8 @@
     release-owner drops that one lease. So the mount→cleanup→mount cycle
     settles to exactly one held lease, matching the committed instance."
   (:require ["react" :as React]
-            [re-frame.core  :as rf]
-            [re-frame.frame :as frame]))
+            [re-frame.frame  :as frame]
+            [re-frame.router :as router]))
 
 (defonce ^:private lease-token-counter
   ;; Monotone per-runtime counter minting a UNIQUE lease token per mounted
@@ -135,15 +135,18 @@
          deps-key  (pr-str [frame-id token resource scope params cause])]
      (React/useEffect
        (fn arm-lease []
-         (rf/dispatch* [:rf.resource/ensure
-                        {:resource resource
-                         :scope    scope
-                         :params   params
-                         :owner    lease
-                         :cause    cause}]
-                       {:frame frame-id})
+         ;; Direct owning-ns dispatch (not the `rf/dispatch` macro) —
+         ;; this is framework-internal plumbing, not an application call
+         ;; site, so it deliberately carries no `:rf.trace/call-site`.
+         (router/dispatch! [:rf.resource/ensure
+                            {:resource resource
+                             :scope    scope
+                             :params   params
+                             :owner    lease
+                             :cause    cause}]
+                           {:frame frame-id})
          (fn release-lease []
-           (rf/dispatch* [:rf.resource/release-owner {:owner lease}]
-                         {:frame frame-id})))
+           (router/dispatch! [:rf.resource/release-owner {:owner lease}]
+                             {:frame frame-id})))
        #js [deps-key])
      nil)))

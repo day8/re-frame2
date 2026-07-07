@@ -7,9 +7,9 @@
 
   - `:dispatch` → dispatch + settle through `settled-boundary`
     (`boundary/dispatch-and-settle!`) against the variant's
-    frame; in headless this drains via `dispatch-sync*` to a fixed point
+    frame; in headless this drains via `dispatch-sync!` to a fixed point
     (richer runners supply reactive / DOM flushes through flush-hooks).
-    `:dispatch-sync` → the low-level `rf/dispatch-sync*` escape.
+    `:dispatch-sync` → the low-level `re-frame.router/dispatch-sync!` escape.
   - `:wait` ms → JS `setTimeout` (CLJS) or `Thread/sleep` (JVM).
   - `:assert-db` path value → read from `rf/app-db-value` and compare.
   - `:assert-db` path :pred fn-or-sym → invoke the predicate. A FN
@@ -38,6 +38,7 @@
   cascade."
   (:refer-clojure :exclude [run!])
   (:require [re-frame.core              :as rf]
+            [re-frame.router            :as router]
             [re-frame.frame             :as frame]
             #?(:cljs [reagent.core      :as r])
             [re-frame.story.assertions  :as assertions]
@@ -462,7 +463,7 @@
 ;; `[:dispatch event-vector]` settles through `settled-boundary` (spec/017
 ;; §Script and `settled-boundary`). The runner takes its flush-hooks from
 ;; the adapter-aware caller via the `:settled-boundary-hooks` late-bind
-;; slot; the default is the headless hooks (`dispatch-sync*` drain). Story
+;; slot; the default is the headless hooks (`dispatch-sync!` drain). Story
 ;; core never reaches for `dispatch-sync` directly — the boundary ns owns
 ;; the drain, the hooks own the richer reactive / DOM flushes.
 
@@ -549,7 +550,7 @@
 (defn- exec-dispatch!
   "Execute a `:dispatch` step — dispatch the event and settle through
   `settled-boundary` (spec/017 §Script and `settled-boundary`).
-  In headless this is the `dispatch-sync*` run-to-fixed-point drain,
+  In headless this is the `dispatch-sync!` run-to-fixed-point drain,
   named via `settled-boundary`; richer runners
   supply reactive / DOM flushes through their flush-hooks. The runner
   NEVER hard-codes `dispatch-sync` — it routes through the boundary's
@@ -606,7 +607,7 @@
                  (and (map? cofx) (seq cofx)) (assoc :rf.cofx cofx))
         prev   (assertion-count frame-id)
         result (try
-                 (rf/dispatch-sync* evec opts)
+                 (router/dispatch-sync! evec opts)
                  nil
                  (catch #?(:clj Throwable :cljs :default) e
                    (runner/step-exception idx step

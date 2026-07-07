@@ -51,7 +51,7 @@
 
 (deftest reg-event-with-interceptor-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-interceptor* :rf2-xgfuy.cljs/ctx-probe {:before (fn [ctx] ctx)})
+    (rf/reg-interceptor :rf2-xgfuy.cljs/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-xgfuy.cljs/event-ctx
                   {:interceptors [:rf2-xgfuy.cljs/ctx-probe]}
                   (fn [_ _] {}))

@@ -860,7 +860,7 @@
     (let [captured (atom nil)
           ;; render-node accepts an explicit dispatch-fn so tests
           ;; can intercept the toggle dispatch without redef'ing
-          ;; the global rf/dispatch* (which is what the prior shape
+          ;; the global rf/dispatch (which is what the prior shape
           ;; did before the reg-view fix). The :dispatch-fn slot is
           ;; the same closure the reg-view'd outer body threads to
           ;; carry frame context.

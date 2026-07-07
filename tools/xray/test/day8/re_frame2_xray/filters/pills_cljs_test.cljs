@@ -79,7 +79,7 @@
 
 (deftest empty-filters-render-empty-cluster
   (xray-setup!)
-  (let [tree (pills/pills-view rf/dispatch* {:filters {:in [] :out []}})]
+  (let [tree (pills/pills-view rf/dispatch {:filters {:in [] :out []}})]
     (is (some? (find-by-testid tree "rf-xray-ribbon-filters"))
         "cluster element always present")
     (is (nil? (find-by-testid tree "rf-xray-filter-add"))
@@ -89,7 +89,7 @@
 
 (deftest add-pill-renders-standalone
   (xray-setup!)
-  (let [tree (pills/add-pill rf/dispatch*)]
+  (let [tree (pills/add-pill rf/dispatch)]
     (is (some? (find-by-testid tree "rf-xray-filter-add"))
         "add-pill renders the `[ + ]` affordance standalone (bar-1 mount)")))
 
@@ -101,7 +101,7 @@
   (xray-setup!)
   (let [filters {:in  [{:pattern ":auth/*"} {:pattern ":order/*"}]
                  :out [{:pattern ":mouse-move"}]}
-        tree    (pills/pills-view rf/dispatch* {:filters filters})]
+        tree    (pills/pills-view rf/dispatch {:filters filters})]
     (is (some? (find-by-testid tree "rf-xray-filter-pill-in-0")))
     (is (some? (find-by-testid tree "rf-xray-filter-pill-in-1")))
     (is (some? (find-by-testid tree "rf-xray-filter-pill-out-0")))
@@ -110,7 +110,7 @@
 
 (deftest in-pill-shows-pattern-text
   (xray-setup!)
-  (let [tree (pills/pills-view rf/dispatch* {:filters {:in [{:pattern ":auth/*"}]
+  (let [tree (pills/pills-view rf/dispatch {:filters {:in [{:pattern ":auth/*"}]
                                           :out []}})
         pill (find-by-testid tree "rf-xray-filter-pill-in-0")]
     (is (some? pill))
@@ -125,7 +125,7 @@
             with `+` or `×`; the trailing remove-button is its own element
             (`-remove` testid) and is unaffected."
     (xray-setup!)
-    (let [tree    (pills/pills-view rf/dispatch*
+    (let [tree    (pills/pills-view rf/dispatch
                     {:filters {:in  [{:pattern ":auth/*"}]
                                :out [{:pattern ":mouse-move"}]}})
           in-body (find-by-testid tree "rf-xray-filter-pill-in-0-body")
@@ -151,7 +151,7 @@
             tone-coloured border + a remove `×`, per the authority
             reference events-ribbon."
     (xray-setup!)
-    (let [tree   (pills/pills-view rf/dispatch* {:filters {:in  [{:pattern ":auth/*"}]
+    (let [tree   (pills/pills-view rf/dispatch {:filters {:in  [{:pattern ":auth/*"}]
                                               :out [{:pattern ":mouse-move"}]}})
           in     (find-by-testid tree "rf-xray-filter-pill-in-0")
           out    (find-by-testid tree "rf-xray-filter-pill-out-0")
@@ -184,10 +184,10 @@
 (deftest pill-body-click-opens-edit-popup
   (xray-setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
-      (let [tree (pills/pills-view rf/dispatch* {:filters {:in [{:pattern ":auth/*"}]
+      (let [tree (pills/pills-view rf/dispatch {:filters {:in [{:pattern ":auth/*"}]
                                               :out []}})
             body (find-by-testid tree "rf-xray-filter-pill-in-0-body")
             handler (:on-click (second body))]
@@ -210,10 +210,10 @@
 (deftest pill-remove-button-dispatches-remove-filter
   (xray-setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
-      (let [tree (pills/pills-view rf/dispatch* {:filters {:in  []
+      (let [tree (pills/pills-view rf/dispatch {:filters {:in  []
                                               :out [{:pattern ":mouse-move"}
                                                     {:pattern ":anim-frame"}]}})
             x (find-by-testid tree "rf-xray-filter-pill-out-1-remove")
@@ -229,11 +229,11 @@
 (deftest add-pill-click-opens-empty-edit-popup
   (xray-setup!)
   (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch* (fn
+    (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       ;; rf2-3f2di A5 — the add-pill is now a standalone bar-1 affordance.
-      (let [tree (pills/add-pill rf/dispatch*)
+      (let [tree (pills/add-pill rf/dispatch)
             add  (find-by-testid tree "rf-xray-filter-add")
             handler (:on-click (second add))]
         (is (some? add))
@@ -252,7 +252,7 @@
 
 (deftest cluster-tooltip-shows-counts
   (xray-setup!)
-  (let [tree (pills/pills-view rf/dispatch* {:filters {:in  [{:pattern ":a"}
+  (let [tree (pills/pills-view rf/dispatch {:filters {:in  [{:pattern ":a"}
                                                 {:pattern ":b"}
                                                 {:pattern ":c"}]
                                           :out [{:pattern ":d"}]}})
@@ -284,7 +284,7 @@
                 (reset! prompt-called? true)
                 (throw (js/Error. "window.prompt called — stub regression")))))
       (try
-        (let [tree (pills/pills-view rf/dispatch* {:filters {:in [] :out []}})
+        (let [tree (pills/pills-view rf/dispatch {:filters {:in [] :out []}})
               add  (find-by-testid tree "rf-xray-filter-add")
               handler (:on-click (second add))]
           (when handler (handler nil)))

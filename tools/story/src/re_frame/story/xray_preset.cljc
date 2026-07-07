@@ -368,7 +368,7 @@
      [panel]
      (when panel
        (safe-call! ":rf.xray/select-panel"
-                   rf/dispatch* [:rf.xray/select-panel panel] {:frame :rf/xray}))))
+                   rf/dispatch [:rf.xray/select-panel panel] {:frame :rf/xray}))))
 
 #?(:cljs
    (defn- apply-filters!
@@ -398,7 +398,7 @@
      [focus]
      (when (and (map? focus) (:event-pos focus))
        (safe-call! ":rf.xray/focus-event"
-                   rf/dispatch*
+                   rf/dispatch
                    [:rf.xray/focus-event {:event-pos (:event-pos focus)}]
                    {:frame :rf/xray}))))
 

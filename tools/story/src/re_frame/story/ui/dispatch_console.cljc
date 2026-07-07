@@ -48,10 +48,13 @@
     `:rf.cofx` so a handler declaring a PROVIDED recordable fact is
     satisfied; omitting it for such a handler fails visibly with
     `:rf.error/missing-required-cofx`.
-  - `[Dispatch]` enqueues asynchronously via `rf/dispatch*` with
-    `{:frame variant-id}` (+ any `:rf.cofx`); `[Dispatch-sync]` runs
-    synchronously via `rf/dispatch-sync*` so the user sees app-db updates
-    IMMEDIATELY in other inspector panels.
+  - `[Dispatch]` enqueues asynchronously via `re-frame.router/dispatch!`
+    with `{:frame variant-id}` (+ any `:rf.cofx`); `[Dispatch-sync]` runs
+    synchronously via `re-frame.router/dispatch-sync!` so the user sees
+    app-db updates IMMEDIATELY in other inspector panels. The owning-ns fn
+    is called directly (not the `rf/dispatch` macro) — this is the
+    console's OWN dispatch, not an authored application call site, so it
+    deliberately carries no `:rf.trace/call-site`.
   - `[Reset]` clears the inputs but does NOT clear history.
   - **History** is per-variant + persisted to localStorage under
     `story.dispatch-history/<variant-id>` (capped at 20 entries). A row
@@ -85,7 +88,7 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             #?(:cljs [reagent.core            :as r])
-            #?(:cljs [re-frame.core           :as rf])
+            #?(:cljs [re-frame.router         :as router])
             #?(:cljs [re-frame.story.config   :as config])
             #?(:cljs [re-frame.story.local-storage :refer [safe-local-storage]])
             #?(:cljs [re-frame.story.ui.dispatch-console-events :as events])
@@ -247,8 +250,9 @@
      (seq cofx) (assoc :cofx cofx))))
 
 (defn build-dispatch-opts
-  "Build the dispatch-opts map threaded into `rf/dispatch*` /
-  `rf/dispatch-sync*` for `variant-id`. Pure data → data; JVM-testable.
+  "Build the dispatch-opts map threaded into `re-frame.router/dispatch!` /
+  `re-frame.router/dispatch-sync!` for `variant-id`. Pure data → data;
+  JVM-testable.
 
   Always carries `:frame` (the variant's frame, per Spec 002 §Routing).
   When `cofx` (the flat `:rf.cofx` map, EP-0017) is non-empty it rides
@@ -473,8 +477,9 @@
      can drive the panel without DOM interaction.
 
      The dispatched event reaches the variant's frame via the
-     `{:frame variant-id}` opts on `rf/dispatch*` /
-     `rf/dispatch-sync*` (per Spec 002 §Routing).
+     `{:frame variant-id}` opts on `re-frame.router/dispatch!` /
+     `re-frame.router/dispatch-sync!` — the owning-ns fn directly, no
+     `rf/dispatch` macro capture needed here — per Spec 002 §Routing.
 
      `cofx` (EP-0017, optional) is the flat `:rf.cofx` map of supplied
      recordable facts threaded into the dispatch opts so a provided-fact
@@ -491,8 +496,8 @@
             opts     (build-dispatch-opts variant-id cofx strict?)]
         (try
           (case kind
-            :dispatch      (rf/dispatch*      event-vec opts)
-            :dispatch-sync (rf/dispatch-sync* event-vec opts))
+            :dispatch      (router/dispatch!      event-vec opts)
+            :dispatch-sync (router/dispatch-sync! event-vec opts))
           (append-history!
             variant-id
             (build-history-entry event-id payload kind (now-ms) cofx))

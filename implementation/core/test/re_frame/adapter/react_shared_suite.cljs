@@ -925,7 +925,7 @@
 ;; `:interceptors` chain now throws `:rf.error/inline-interceptor-removed` at
 ;; registration — chain entries must be REFERENCES. The formerly-inline
 ;; `:test/noop` (and the `:test/ctx-probe` `->interceptor` value) are registered
-;; up front via `reg-interceptor*` and referenced by their bare keyword ids in
+;; up front via `reg-interceptor` and referenced by their bare keyword ids in
 ;; the chains below. The chain is stored UNRESOLVED in handler-meta, so a
 ;; referenced entry reads back as its bare keyword (NOT a resolved map) — hence
 ;; `chain-id`, which returns the keyword itself for a ref entry and `:id` for
@@ -947,8 +947,8 @@
   of the framework wrapper. Pins the registrar + trace tier compose with the
   React adapter's late-bind hook stack."
   [{:keys [substrate-kw name]}]
-  (rf/reg-interceptor* :test/noop {:before identity :after identity})
-  (rf/reg-interceptor* :test/ctx-probe {:before identity})
+  (rf/reg-interceptor :test/noop {:before identity :after identity})
+  (rf/reg-interceptor :test/ctx-probe {:before identity})
   (let [db-id  (mint-kw substrate-kw "events-db-super")
         fx-id  (mint-kw substrate-kw "events-fx-super")
         ctx-id (mint-kw substrate-kw "events-ctx-super")]

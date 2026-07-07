@@ -329,10 +329,10 @@
       ;; into), surfaced rather than silently picking a side.
       (validate-payload-frame-id! frame payload)
       ;; HOT PATH — seed app-db from the server's slice BEFORE first render.
-      ;; `router/dispatch-sync!` is the fn-form `re-frame.core` re-exports
-      ;; as `dispatch-sync*` (no call-site source-coord capture — this is
-      ;; programmatic boot, not a hand-written call site). Requiring the
-      ;; router directly keeps `boot` on the granular-require convention
+      ;; `router/dispatch-sync!` is the owning-ns fn-form the `dispatch-sync`
+      ;; macro itself calls through to (no call-site source-coord capture —
+      ;; this is programmatic boot, not a hand-written call site). Requiring
+      ;; the router directly keeps `boot` on the granular-require convention
       ;; the other ssr sub-namespaces follow (frame/events/trace, never
       ;; the `re-frame.core` public façade).
       (router/dispatch-sync! [:rf/hydrate payload] {:frame frame})

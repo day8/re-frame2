@@ -19,7 +19,7 @@ Every row carries:
 - a **status** — `v1` (stable), `v1 (dev-only)` (elided in `:advanced` + `re-frame.story.config/enabled?=false`)
 - an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
 
-Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
+Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention `re-frame.core` uses for `reg-view` / `reg-machine` (its two surviving `*`-partnered macros post rf2-m90brg): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
 
 ## Where surfaces live
 

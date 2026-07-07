@@ -27,12 +27,15 @@
       survive only as `^:no-doc` throwing stubs, so a stale cell calling
       one raises `:rf.error/reg-event-*-removed` — the intended signal.)
 
-    - `dispatch` / `dispatch-sync` / `subscribe` are macro-only on the
-      public surface (no same-named fn-alias — the fns are
-      `dispatch*` / `dispatch-sync*` / `subscribe*`). We add explicit
-      `dispatch` / `dispatch-sync` / `subscribe` entries to the SCI
-      `re-frame.core` namespace bound to those `*` fns, so cells call
-      `rf/dispatch` / `rf/subscribe` exactly as in real code.
+    - `dispatch` / `dispatch-sync` / `subscribe` are macro-in-call-
+      position / fn-in-value-position on CLJS (Convention A, rf2-m90brg
+      — same-named `def`-aliases to `re-frame.router/dispatch!` /
+      `-dispatch-sync!` / `re-frame.subs/subscribe`), so `sci/copy-ns`
+      already brings the plain fn form in. We still override the three
+      entries below with playground-local wrappers — not because no
+      fn-alias exists, but so every cell dispatch/subscribe defaults to
+      `{:frame app-frame}` (a bare cell call has no dynamic `with-frame`
+      scope to resolve against).
 
   Rendering: re-frame2 renders through reagent2 with a substrate adapter
   installed (`re-frame.adapter.reagent-slim/adapter` via `rf/init!`).
@@ -62,6 +65,8 @@
   rather than the macro-less `reg-machine*` variant."
   (:require [sci.core :as sci]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
+            [re-frame.subs :as subs]
             [re-frame.views]
             [re-frame.machines]
             ;; flows artefact (Spec 007): required for its late-bind hooks so
@@ -94,17 +99,21 @@
 ;; `{:frame app-frame}` opts form for the deferred / non-render case (the
 ;; render-time `subscribe` is already scoped by the `with-frame` binding
 ;; `frame-bind-component` re-establishes on every call).
+;; Direct owning-ns calls (not the `rf/dispatch` macro) — a macro call here
+;; would capture THIS file's call-site, not the cell's, which is misleading
+;; (and the whole point of these wrappers is to inject the default `:frame`,
+;; not to author a real application call site).
 (defn- playground-dispatch
-  ([event]      (rf/dispatch* event {:frame app-frame}))
-  ([event opts] (rf/dispatch* event (merge {:frame app-frame} opts))))
+  ([event]      (router/dispatch! event {:frame app-frame}))
+  ([event opts] (router/dispatch! event (merge {:frame app-frame} opts))))
 
 (defn- playground-dispatch-sync
-  ([event]      (rf/dispatch-sync* event {:frame app-frame}))
-  ([event opts] (rf/dispatch-sync* event (merge {:frame app-frame} opts))))
+  ([event]      (router/dispatch-sync! event {:frame app-frame}))
+  ([event opts] (router/dispatch-sync! event (merge {:frame app-frame} opts))))
 
 (defn- playground-subscribe
-  ([query-v]      (rf/subscribe* query-v {:frame app-frame}))
-  ([query-v opts] (rf/subscribe* query-v (merge {:frame app-frame} opts))))
+  ([query-v]      (subs/subscribe query-v {:frame app-frame}))
+  ([query-v opts] (subs/subscribe query-v (merge {:frame app-frame} opts))))
 
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
@@ -152,10 +161,12 @@
 
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
 ;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
-;; reg-cofx, ...), plus init!, configure, clear-event,
-;; current-frame-id, capture-frame, app-db-value, etc.
-;; The macro-only public names (dispatch/dispatch-sync/subscribe) have no
-;; same-named runtime var so they are NOT in the copy; we add them below.
+;; reg-cofx, ...) AND, since rf2-m90brg, the dispatch/dispatch-sync/
+;; subscribe fn-aliases (Convention A), plus init!, configure,
+;; clear-event, current-frame-id, capture-frame, app-db-value, etc.
+;; We still override dispatch/dispatch-sync/subscribe below with the
+;; playground-local default-frame wrappers (see `playground-dispatch`
+;; et al. above) — the `merge` below wins over `copy-ns`'s entries.
 ;; (`inject-cofx` was removed from the public facade in EP-0017 / rf2-w9xyx1
 ;; — coeffect delivery is the `:rf.cofx/requires` declaration — so there is
 ;; no public surface for a cell to reach and no SCI binding for it.)

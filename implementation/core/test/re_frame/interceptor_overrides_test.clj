@@ -59,7 +59,7 @@
 ;; `id` (the chain REF). Chains carry refs; override keys/replacements are refs.
 
 (defn- reg-logger! [log id]
-  (rf/reg-interceptor* id
+  (rf/reg-interceptor id
     {:before (fn [ctx] (swap! log conj [id :before]) ctx)
      :after  (fn [ctx] (swap! log conj [id :after]) ctx)})
   id)
@@ -87,7 +87,7 @@
   (testing "per-call {:ref <other-ref>} replaces the interceptor"
     (let [log (atom [])]
       (reg-logger! log ::log-x)
-      (rf/reg-interceptor* ::stub-x
+      (rf/reg-interceptor ::stub-x
         {:before (fn [ctx] (swap! log conj [::stub :fired]) ctx)})
       (rf/reg-event :test/run
         {:interceptors [::log-x]}
@@ -140,9 +140,9 @@
   (testing "when the same ref appears in per-call AND per-frame overrides, per-call wins"
     (let [log (atom [])]
       (reg-logger! log ::log)
-      (rf/reg-interceptor* ::frame-stub
+      (rf/reg-interceptor ::frame-stub
         {:before (fn [ctx] (swap! log conj :frame-stub) ctx)})
-      (rf/reg-interceptor* ::call-stub
+      (rf/reg-interceptor ::call-stub
         {:before (fn [ctx] (swap! log conj :call-stub) ctx)})
       (rf/reg-frame :test/scoped
         {:interceptor-overrides {::log ::frame-stub}})

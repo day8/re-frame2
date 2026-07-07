@@ -34,7 +34,7 @@
     (is (true? (runner/async-yield? [:wait 100]))))
   (testing "sync-class steps must NOT yield — that's the bug the race
             fix corrects. :dispatch (now settled through settled-boundary
-            — the dispatch-sync* drain, rf2-5x1wt.2), :dispatch-sync,
+            — the dispatch-sync! drain, rf2-5x1wt.2), :dispatch-sync,
             :assert-db, :assert-dom are synchronous at the step boundary
             on CLJS; yielding between them allowed concurrent runs to
             interleave and overshoot counter incs."

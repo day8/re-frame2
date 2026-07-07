@@ -374,7 +374,7 @@
 ;;
 ;; Idiom mirrors `edn_inspector_popup_cljs_test`: pull the rendered
 ;; dialog node's `:on-key-down` (exercising the actual wiring at the
-;; bug site), redef `rf/dispatch*` to capture the dispatched event, fire
+;; bug site), redef `rf/dispatch` to capture the dispatched event, fire
 ;; a fake Escape keydown through it, and assert the close event was
 ;; dispatched. With the BUILT handler the close event is captured; with
 ;; the bare builder the call returns an inner fn and dispatches NOTHING
@@ -401,7 +401,7 @@
             captured (atom nil)]
         (is (some? dialog) "dialog node rendered")
         (is (fn? on-key) "dialog carries an :on-key-down handler")
-        (with-redefs [rf/dispatch* (fn [event-v & _] (reset! captured event-v))]
+        (with-redefs [rf/dispatch-impl (fn [event-v & _] (reset! captured event-v))]
           (on-key (fake-keydown-event "Escape")))
         (is (= [:rf.xray/cancellation-cascade-close] @captured)
             "Esc on the dialog dispatched the close event (built handler invoked)")))))
@@ -416,7 +416,7 @@
             dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
             on-key   (:on-key-down (second dialog))
             captured (atom nil)]
-        (with-redefs [rf/dispatch* (fn [event-v & _] (reset! captured event-v))]
+        (with-redefs [rf/dispatch-impl (fn [event-v & _] (reset! captured event-v))]
           (on-key (fake-keydown-event "Enter")))
         (is (nil? @captured)
             "Enter on the dialog dispatched nothing")))))

@@ -187,7 +187,7 @@
 (defn- replay-flush-hooks
   "Build the settled-boundary flush-hooks for a replay (spec/017 §Script
   and `settled-boundary`). It starts from `base-hooks` (the headless hooks
-  by default — `:provides :headless`, `dispatch-sync*` drain) and WRAPS
+  by default — `:provides :headless`, `dispatch-sync!` drain) and WRAPS
   `:dispatch!` so every replayed dispatch carries the artifact's
   `fx-decisions` as the per-call `:fx-overrides`.
 
@@ -197,7 +197,7 @@
   path the inner hook owns picks the overrides up at envelope-build time
   (precedence: per-call opt > lexical `with-fx-overrides` > per-frame
   `:fx-overrides`, Spec 002 §`:fx-overrides`). For the headless default
-  `inner` is `drain-sync!` (`dispatch-sync*` drain) and the overrides ride
+  `inner` is `drain-sync!` (`dispatch-sync!` drain) and the overrides ride
   its envelope; for a richer adapter caller that passes its own
   `base-hooks` (declaring `:provides :dom`, etc. with an enqueue +
   `act()` / microtask `:dispatch!`) the SAME adapter dispatch path runs

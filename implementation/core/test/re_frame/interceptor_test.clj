@@ -97,7 +97,7 @@
       ;; AFTER path's :before, so the context it sees must carry the stash
       ;; under the reserved :rf.interceptor.path/stack — not a bare key.
       (rf/reg-event :path-ns/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
-      (rf/reg-interceptor* :path-ns/spy
+      (rf/reg-interceptor :path-ns/spy
                            {:before (fn [ctx]
                                       (reset! seen-keys (set (keys ctx)))
                                       ctx)})
@@ -162,7 +162,7 @@
       ;; Sandwich-spy that captures the effects map produced by the
       ;; handler-side chain — i.e. AFTER the handler ran and BEFORE the
       ;; path interceptor's :after re-runs.
-      (rf/reg-interceptor* :path-noop/spy
+      (rf/reg-interceptor :path-noop/spy
                            {:after (fn [ctx]
                                      (reset! final-ctx ctx)
                                      ctx)})
@@ -297,7 +297,7 @@
   (testing "a project-registered :app/unwrap replaces the :event coeffect with
             the payload map from the canonical [event-id payload-map] shape."
     (let [seen-event (atom ::not-set)]
-      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
+      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-test/consume
                        {:interceptors [:app/unwrap]}
                        ;; With unwrap, the second arg is the payload map
@@ -324,7 +324,7 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! :trace ::unwrap-bad (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
+      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/consume
                        {:interceptors [:app/unwrap]}
                        (fn [_cofx event-arg]
@@ -360,7 +360,7 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! :trace ::unwrap-arity (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
+      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/arity
                        {:interceptors [:app/unwrap]}
                        (fn [_cofx event-arg]
@@ -379,7 +379,7 @@
     ;; coverage above is genuinely catching the negative branch.
     (let [traces (atom [])]
       (rf/register-listener! :trace ::unwrap-ok (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
+      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/ok
                        {:interceptors [:app/unwrap]}
                        (fn [_ _] {}))
@@ -441,7 +441,7 @@
           ;; (chains are reference-only) `mk` REGISTERS the interceptor under
           ;; its tag id and RETURNS the id keyword for the chain to reference.
           mk (fn [tag]
-               (rf/reg-interceptor*
+               (rf/reg-interceptor
                  tag
                  {:before (fn [ctx]
                             (swap! trail conj [:before tag])
@@ -799,7 +799,7 @@
   ;; throwing supplier no longer rides the interceptor classification path.
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
-    (rf/reg-interceptor* :mszrz/before-icpt
+    (rf/reg-interceptor :mszrz/before-icpt
                          {:before (fn [_] (throw (ex-info "before blew up" {})))})
     (rf/reg-event :mszrz/before-boom
                      {:interceptors [:mszrz/before-icpt]}
@@ -819,7 +819,7 @@
     ;; The :after chain runs after the handler; an :after throw must
     ;; attribute to the interceptor (phase :after), not the handler — the
     ;; collapse rf2-mszrz explicitly fixes for the :after side too.
-    (rf/reg-interceptor* :mszrz/after-icpt
+    (rf/reg-interceptor :mszrz/after-icpt
                          {:after (fn [_] (throw (ex-info "after blew up" {})))})
     (rf/reg-event :mszrz/after-boom
                      {:interceptors [:mszrz/after-icpt]}
@@ -884,7 +884,7 @@
     ;; the descriptor (the registration boundary accepts an interceptor value),
     ;; so the :source-coord the macro captured from `(meta &form)` rides
     ;; through resolution onto the trace. Then reference it by id.
-    (rf/reg-interceptor* :siheh/before-icpt
+    (rf/reg-interceptor :siheh/before-icpt
                          (rf/->interceptor
                            :id     :siheh/before-icpt
                            :before (fn [_] (throw (ex-info "before blew up" {})))))
@@ -906,7 +906,7 @@
     ;; The fn-built (`->interceptor*`) value carries NO :source-coord;
     ;; register it verbatim + reference it so the "no coord" intent rides
     ;; through resolution.
-    (rf/reg-interceptor* :siheh/fn-before-icpt
+    (rf/reg-interceptor :siheh/fn-before-icpt
                          (interceptor/->interceptor*
                            :id     :siheh/fn-before-icpt
                            :before (fn [_] (throw (ex-info "fn before blew up" {})))))

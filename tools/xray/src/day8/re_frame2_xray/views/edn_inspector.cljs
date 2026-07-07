@@ -2326,8 +2326,8 @@
         ;; the toggle dispatch carries the surrounding frame. Tests
         ;; that drive render-node directly without mounting fall back
         ;; to the global dispatcher's fn form (`rf/dispatch` is a
-        ;; macro — use `rf/dispatch*` for HoF callers).
-        dispatch-fn   (or dispatch-fn rf/dispatch*)
+        ;; macro — use `rf/dispatch` for HoF callers).
+        dispatch-fn   (or dispatch-fn rf/dispatch)
         ;; rendered-expanded? is the visible state at this node —
         ;; the depth-capped placeholder is always shown collapsed
         ;; (▸), and we use the computed `expanded?` for the rest.
@@ -3095,12 +3095,12 @@
   (which would entrench the singleton: two shells on one page would both
   write the global zoom-slot and clobber each other).
 
-  `dispatch-fn` falls back to `rf/dispatch*` when absent (pure-render
+  `dispatch-fn` falls back to `rf/dispatch` when absent (pure-render
   tests that drive the gesture without a `reg-view` ancestor).
 
   Public so unit tests can drive the gesture without mounting."
   [{:keys [panel-id mount-id absolute-path dispatch-fn]}]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+  (let [dispatch-fn (or dispatch-fn rf/dispatch)
         path        (vec absolute-path)
         zoom!       (fn []
                       ;; rf2-r0o63 — dispatch through the captured
@@ -3195,7 +3195,7 @@
   full widget."
   [{:keys [panel-id mount-id zoom-path home-label dispatch-fn testid-prefix]}]
   (when (seq zoom-path)
-    (let [dispatch-fn   (or dispatch-fn rf/dispatch*)
+    (let [dispatch-fn   (or dispatch-fn rf/dispatch)
           testid-prefix (or testid-prefix "rf-xray-edn-inspector-breadcrumbs")
           home-content  (cond
                           (nil? home-label)    "root"
@@ -3271,14 +3271,14 @@
   (two shells would share one global popup-stack and clobber each
   other). Capturing the dispatcher keeps N instances isolated.
 
-  `dispatch-fn` falls back to `rf/dispatch*` when absent (pure-render
+  `dispatch-fn` falls back to `rf/dispatch` when absent (pure-render
   tests that drive the button without a `reg-view` ancestor; some tests
   pass a stub to capture the event vector).
 
   Public so unit tests can drive the button without spinning up the
   router."
   [dispatch-fn popup-mount-id value opts]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)]
+  (let [dispatch-fn (or dispatch-fn rf/dispatch)]
    [:button
     {:data-testid             (str "rf-xray-edn-inspector-popup-affordance-"
                                    popup-mount-id)

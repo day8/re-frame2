@@ -1294,11 +1294,11 @@
   without triggering the warning surface.
 
   This is the runtime-callable fn form. The macro form
-  `re-frame.core/subscribe` captures `(meta &form)` and delegates here
-  through `re-frame.core/subscribe*`, wrapping the call in
-  `trace/with-call-site` so any error emitted inside the synchronous
-  miss path (`:rf.error/no-such-sub`, `:rf.error/frame-destroyed`)
-  carries the invocation coord."
+  `re-frame.core/subscribe` captures `(meta &form)` and calls straight
+  through to THIS fn (rf2-m90brg — no `re-frame.core/subscribe*` facade
+  indirection), wrapping the call in `trace/with-call-site` so any error
+  emitted inside the synchronous miss path (`:rf.error/no-such-sub`,
+  `:rf.error/frame-destroyed`) carries the invocation coord."
   ([query-v]
    ;; EP-0002 §Subscriptions And Read Helpers — the carried-invariant
    ;; read. The 1-arity ambient form resolves the frame through the

@@ -416,7 +416,7 @@
   ;; document-level move handler fires after render unwinds, so it reads
   ;; the closure back rather than dispatching to a `:rf/xray` literal.
   ;; The dispatch lands on the instance frame the divider was rendered
-  ;; under. Falls back to `rf/dispatch*` defensively (test-driven drags
+  ;; under. Falls back to `rf/dispatch` defensively (test-driven drags
   ;; that bypassed `start-drag!`).
   (when-let [{:keys [col-id start-x start-width dispatch-fn]} @col-divider-drag-state]
     ;; rf2-8i1tg3 — every divider sits to the LEFT of the column named
@@ -438,7 +438,7 @@
     ;; position moves by exactly `+dx`, matching the pointer 1:1.
     (let [dx        (- (.-pageX e) start-x)
           new-width (- start-width dx)]
-      ((or dispatch-fn rf/dispatch*)
+      ((or dispatch-fn rf/dispatch)
        [:rf.xray/set-event-list-col-width col-id new-width]))))
 
 (defn- col-divider-on-up [^js _e]
@@ -458,9 +458,9 @@
   the surrounding `reg-view` body — stashed in the drag-state so the
   document-level move handler (which fires after render unwinds) lands
   its width writes on the instance frame, not a `:rf/xray` literal.
-  Defaults to `rf/dispatch*` for the test-driven lifecycle."
+  Defaults to `rf/dispatch` for the test-driven lifecycle."
   ([^js e col-id current-width]
-   (col-divider-start-drag! e col-id current-width rf/dispatch*))
+   (col-divider-start-drag! e col-id current-width rf/dispatch))
   ([^js e col-id current-width dispatch-fn]
   (col-divider-detach-listeners!)
   (let [start-x     (.-pageX e)
@@ -534,9 +534,9 @@
 
   `dispatch-fn` (rf2-r0o63) is the frame-aware dispatcher captured by
   the surrounding `reg-view` body so the keyboard resize lands on the
-  instance frame; defaults to `rf/dispatch*` for the test lifecycle."
+  instance frame; defaults to `rf/dispatch` for the test lifecycle."
   ([^js e col-id current-width]
-   (col-divider-handle-keydown! e col-id current-width rf/dispatch*))
+   (col-divider-handle-keydown! e col-id current-width rf/dispatch))
   ([^js e col-id current-width dispatch-fn]
    (let [key      (.-key e)
          shift?   (.-shiftKey e)
@@ -576,7 +576,7 @@
   width write lands on the instance frame, not a `:rf/xray` literal."
   [{:keys [col-id col-px row-height dispatch-fn]}]
   (let [floor    (get config/event-list-col-min-widths col-id)
-        dispatch-fn (or dispatch-fn rf/dispatch*)
+        dispatch-fn (or dispatch-fn rf/dispatch)
         col-label (name col-id)]
     [:div {:data-testid           (str "rf-xray-event-list-col-divider-" col-label)
            :data-rf-xray-col-id   col-label
@@ -1508,7 +1508,7 @@
   ONCE per paint and threads the resolved map through props so each
   row doesn't re-subscribe per render."
   [{:keys [event-bundle focused-id auto-track? now-ms col-widths dispatch-fn]}]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+  (let [dispatch-fn (or dispatch-fn rf/dispatch)
         id          (:dispatch-id event-bundle)
         focused?    (= id focused-id)
         ;; rf2-ad7zx.12 — the Figma `source` column tag (source name as
@@ -1928,7 +1928,7 @@
   the `event-list` reg-view body, threaded to each divider so resize
   writes land on the instance frame."
   [col-widths dispatch-fn]
-  (let [dispatch-fn (or dispatch-fn rf/dispatch*)
+  (let [dispatch-fn (or dispatch-fn rf/dispatch)
         cell {:color       (:text-tertiary tokens)
               :font-family sans-stack
               :font-size   (:caption type-scale)
@@ -2189,7 +2189,7 @@
   [{:keys [id label mnem active? dispatch-fn]}]
   (let [;; rf2-plajx — stable per-tab id so the controlled L4 panel's
         ;; `aria-labelledby` resolves to this button's accessible name.
-        dispatch-fn (or dispatch-fn rf/dispatch*)
+        dispatch-fn (or dispatch-fn rf/dispatch)
         tab-id   (str "rf-xray-tab-button-" (name id))
         panel-id (str "rf-xray-tabpanel-" (name id))]
     [:button {:data-testid   (str "rf-xray-tab-" (name id))

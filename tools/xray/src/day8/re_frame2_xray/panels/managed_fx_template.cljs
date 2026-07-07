@@ -339,7 +339,7 @@
   `panels/ManagedFxList` `reg-view` body, threaded to the header /
   handler affordances. Defaults to `rf/dispatch` so the test seam (and
   any pre-sweep caller) renders without a captured dispatcher."
-  ([record] (record-panel rf/dispatch* record))
+  ([record] (record-panel rf/dispatch record))
   ([dispatch record]
   [:section {:data-testid (str "rf-xray-managed-fx-record-"
                                (name (:surface record))
@@ -388,7 +388,7 @@
 
   `dispatch` (rf2-nesy9) is the frame-aware dispatcher threaded to each
   `record-panel`. Defaults to `rf/dispatch` for the test seam."
-  ([records] (records-list rf/dispatch* records))
+  ([records] (records-list rf/dispatch records))
   ([dispatch records]
   (when (seq records)
     [:div {:data-testid "rf-xray-managed-fx-list"

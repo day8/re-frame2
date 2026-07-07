@@ -265,7 +265,7 @@ Render trees invoke a registered view by **Var-reference**: `[my-view args]`. Th
 
 The keyword id assigned to a view by `reg-view` (or `reg-view*`) is reserved for **runtime lookup and introspection**: trace events, devtools, error frames, `(rf/view id)` lookups, registry-only views without a Var binding.
 
-This is the family-asymmetry rule applied to views: **render trees use Vars; runtime lookups use ids.** `reg-view` bridges them — auto-defs the symbol AND auto-derives the registry id. See [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule) and [Cross-Spec-Interactions §21](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-and-reg-interceptor-have-a-macro-tier).
+This is the family-asymmetry rule applied to views: **render trees use Vars; runtime lookups use ids.** `reg-view` bridges them — auto-defs the symbol AND auto-derives the registry id. See [Conventions §`reg-view` auto-id derivation rule](Conventions.md#reg-view-auto-id-derivation-rule) and [Cross-Spec-Interactions §21](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-keeps-a--suffixed-fn-partner).
 
 ```clojure
 (rf/reg-view counter [label] [:button label])

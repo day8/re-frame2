@@ -36,7 +36,7 @@
 
   See `panels/shared/coord_chip.cljs` for the icon-only sibling and
   spec/021 §9.1.6.2 for the contract."
-  (:require [re-frame.core :as rf]
+  (:require [re-frame.router :as router]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]))
 
@@ -46,15 +46,20 @@
   "Fallback dispatcher for the shared open-in-editor affordances when a
   call-site supplies no captured `dispatch-fn` (rf2-r0o63). Pins to the
   PRODUCTION singleton shell frame (`defaults/default-frame-id`) rather
-  than `rf/dispatch*`'s `:rf/default` resolution — the open-in-editor
+  than the ambient `:rf/default` resolution — the open-in-editor
   event-fx is frame-agnostic, but a host frame whose flows throw on
   every event (the deliberate-throw testbed) would entangle the
   dispatch, and the editor-bridge expects it on Xray's frame. NOT a
   bare `{:frame :rf/xray}` literal — the frame is the named
   `default-frame-id` Var, so the singleton guard passes; migrated panel
-  call-sites override with the captured instance dispatcher."
-  ([event-v] (rf/dispatch event-v {:frame defaults/default-frame-id}))
-  ([event-v opts] (rf/dispatch event-v (assoc opts :frame defaults/default-frame-id))))
+  call-sites override with the captured instance dispatcher.
+
+  Calls the owning-ns `re-frame.router/dispatch!` directly (not the
+  `rf/dispatch` macro) — this fn's OWN definition site would otherwise be
+  the captured call-site for every caller, which is not useful click-to-
+  source info (the real click lives in the PANEL, not here)."
+  ([event-v] (router/dispatch! event-v {:frame defaults/default-frame-id}))
+  ([event-v opts] (router/dispatch! event-v (assoc opts :frame defaults/default-frame-id))))
 
 (defn open-in-editor!
   "Dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`, stopping
@@ -125,7 +130,7 @@
     - `:dispatch-fn`    — (rf2-r0o63) the frame-aware dispatcher
                           captured by the surrounding `reg-view` body so
                           the open-in-editor click lands on the instance
-                          frame. Defaults to `rf/dispatch*`."
+                          frame. Defaults to `default-dispatch`."
   ([coord label testid]
    (coord-link coord label testid nil))
   ([coord label testid {:keys [style plain-style glyph-leading? glyph? dispatch-fn]

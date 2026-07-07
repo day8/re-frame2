@@ -43,36 +43,36 @@
 
 (deftest reg-interceptor-each-descriptor-form
   (testing ":before-only descriptor"
-    (rf/reg-interceptor* :t/before {:doc "b"} {:before (fn [ctx] ctx)})
+    (rf/reg-interceptor :t/before {:doc "b"} {:before (fn [ctx] ctx)})
     (let [m (rf/handler-meta :interceptor :t/before)]
       (is (some? m))
       (is (contains? (:rf/interceptor-descriptor m) :before))))
 
   (testing ":after-only descriptor"
-    (rf/reg-interceptor* :t/after {:after (fn [ctx] ctx)})
+    (rf/reg-interceptor :t/after {:after (fn [ctx] ctx)})
     (is (some? (rf/handler-meta :interceptor :t/after))))
 
   (testing ":before + :after descriptor"
-    (rf/reg-interceptor* :t/both {:before (fn [ctx] ctx) :after (fn [ctx] ctx)})
+    (rf/reg-interceptor :t/both {:before (fn [ctx] ctx) :after (fn [ctx] ctx)})
     (let [d (:rf/interceptor-descriptor (rf/handler-meta :interceptor :t/both))]
       (is (and (contains? d :before) (contains? d :after)))))
 
   (testing ":factory descriptor (one-arg factory)"
-    (rf/reg-interceptor* :t/factory
+    (rf/reg-interceptor :t/factory
       {:factory (fn [arg] {:before (fn [ctx] (assoc ctx :arg arg))})})
     (let [d (:rf/interceptor-descriptor (rf/handler-meta :interceptor :t/factory))]
       (is (contains? d :factory))))
 
   (testing "reg-interceptor* returns its id"
-    (is (= :t/ret (rf/reg-interceptor* :t/ret {:before identity}))))
+    (is (= :t/ret (rf/reg-interceptor :t/ret {:before identity}))))
 
   (testing "malformed descriptor is :rf.error/invalid-interceptor"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
-                          (rf/reg-interceptor* :t/bad {:doc "no executable slot"})))
+                          (rf/reg-interceptor :t/bad {:doc "no executable slot"})))
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
-                          (rf/reg-interceptor* :t/bad2 :not-a-map))))
+                          (rf/reg-interceptor :t/bad2 :not-a-map))))
 
   ;; rf2-pot53n — a descriptor carrying BOTH :factory AND a static slot
   ;; (:before / :after) is AMBIGUOUS and rejected. valid-descriptor?'s
@@ -83,7 +83,7 @@
   (testing "ambiguous :factory + :before descriptor is :rf.error/invalid-interceptor"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
-                          (rf/reg-interceptor* :t/ambig
+                          (rf/reg-interceptor :t/ambig
                             {:factory (fn [_] {:before identity})
                              :before  (fn [ctx] ctx)}))
         ":factory + :before in the same map is ambiguous — rejected"))
@@ -91,7 +91,7 @@
   (testing "ambiguous :factory + :after descriptor is :rf.error/invalid-interceptor"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
-                          (rf/reg-interceptor* :t/ambig2
+                          (rf/reg-interceptor :t/ambig2
                             {:factory (fn [_] {:after identity})
                              :after   (fn [ctx] ctx)}))
         ":factory + :after in the same map is ambiguous — rejected"))
@@ -99,12 +99,12 @@
   (testing "migration boundary: interceptor VALUE with mismatched :id is rejected"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
-                          (rf/reg-interceptor* :t/x
+                          (rf/reg-interceptor :t/x
                             (interceptor/->interceptor* :id :different :before identity)))))
 
   (testing "migration boundary: interceptor VALUE with matching :id is accepted"
     (is (= :t/legacy
-           (rf/reg-interceptor* :t/legacy
+           (rf/reg-interceptor :t/legacy
              (interceptor/->interceptor* :id :t/legacy :before identity))))))
 
 ;; ---------------------------------------------------------------------------
@@ -115,11 +115,11 @@
   (testing "a chain of [bare-keyword-ref [id arg]-factory-ref] runs in declaration order"
     (let [log (atom [])]
       ;; A bare-keyword static interceptor that logs.
-      (rf/reg-interceptor* :order/log-a
+      (rf/reg-interceptor :order/log-a
         {:before (fn [ctx] (swap! log conj [:a :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:a :after]) ctx)})
       ;; A project factory interceptor referenced as [:order/log-factory tag].
-      (rf/reg-interceptor* :order/log-factory
+      (rf/reg-interceptor :order/log-factory
         {:factory (fn [tag]
                     {:before (fn [ctx] (swap! log conj [tag :before]) ctx)
                      :after  (fn [ctx] (swap! log conj [tag :after]) ctx)})})
@@ -182,7 +182,7 @@
                    :id     :mix/inline
                    :before (fn [ctx] ctx)
                    :after  (fn [ctx] ctx))]
-      (rf/reg-interceptor* :mix/ref
+      (rf/reg-interceptor :mix/ref
         {:before (fn [ctx] ctx)
          :after  (fn [ctx] ctx)})
       (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -195,10 +195,10 @@
 (deftest registered-then-referenced-runs
   (testing "the EP-0022 path: register the formerly-inline interceptor, then reference it by id — both run"
     (let [log (atom [])]
-      (rf/reg-interceptor* :was-inline/log
+      (rf/reg-interceptor :was-inline/log
         {:before (fn [ctx] (swap! log conj [:inline :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:inline :after]) ctx)})
-      (rf/reg-interceptor* :mix/ref
+      (rf/reg-interceptor :mix/ref
         {:before (fn [ctx] (swap! log conj [:ref :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:ref :after]) ctx)})
       (rf/reg-event :mix/run
@@ -215,10 +215,10 @@
 (deftest frame-level-interceptor-ref-chain
   (testing "a frame-level :interceptors ref chain prepends to the event chain"
     (let [log (atom [])]
-      (rf/reg-interceptor* :frame/log
+      (rf/reg-interceptor :frame/log
         {:before (fn [ctx] (swap! log conj [:frame :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:frame :after]) ctx)})
-      (rf/reg-interceptor* :evt/log
+      (rf/reg-interceptor :evt/log
         {:before (fn [ctx] (swap! log conj [:event :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:event :after]) ctx)})
       (rf/reg-frame :test/framed {:interceptors [:frame/log]})
@@ -247,7 +247,7 @@
 
 (deftest bare-ref-to-factory-rejected
   (testing "a bare-keyword ref to a :factory interceptor is :rf.error/interceptor-factory-arity"
-    (rf/reg-interceptor* :fac/only {:factory (fn [_] {:before identity})})
+    (rf/reg-interceptor :fac/only {:factory (fn [_] {:before identity})})
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/interceptor-factory-arity"
                           (rf/reg-event :bad/fac
@@ -256,7 +256,7 @@
 
 (deftest factory-ref-to-static-rejected
   (testing "an [id arg] ref to a STATIC interceptor is :rf.error/interceptor-factory-arity"
-    (rf/reg-interceptor* :static/only {:before identity})
+    (rf/reg-interceptor :static/only {:before identity})
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/interceptor-factory-arity"
                           (rf/reg-event :bad/static
@@ -266,13 +266,13 @@
 (deftest hot-reload-picks-up-new-descriptor
   (testing "re-registering an interceptor descriptor is picked up on the next dispatch (resolution at assembly)"
     (let [log (atom [])]
-      (rf/reg-interceptor* :hot/log {:before (fn [ctx] (swap! log conj :v1) ctx)})
+      (rf/reg-interceptor :hot/log {:before (fn [ctx] (swap! log conj :v1) ctx)})
       (rf/reg-event :hot/run
         {:interceptors [:hot/log]}
         (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:hot/run])
       ;; hot reload — re-register WITHOUT re-registering the event
-      (rf/reg-interceptor* :hot/log {:before (fn [ctx] (swap! log conj :v2) ctx)})
+      (rf/reg-interceptor :hot/log {:before (fn [ctx] (swap! log conj :v2) ctx)})
       (rf/dispatch-sync [:hot/run])
       (is (= [:v1 :v2] @log)
           "the next dispatch used the re-registered descriptor"))))
@@ -282,7 +282,7 @@
     ;; Register :rsa/icpt ONLY in a separate realm registrar atom.
     (let [realm-reg (atom {})]
       (binding [registrar/*registrar* realm-reg]
-        (rf/reg-interceptor* :rsa/icpt {:before identity}))
+        (rf/reg-interceptor :rsa/icpt {:before identity}))
       ;; In the DEFAULT realm, :rsa/icpt is absent — resolution fails.
       (is (nil? (registrar/lookup :interceptor :rsa/icpt))
           "default realm does not see the realm-scoped interceptor")
@@ -302,7 +302,7 @@
           log       (atom [])]
       ;; Seat both the interceptor AND the event into the realm registrar.
       (binding [registrar/*registrar* realm-reg]
-        (rf/reg-interceptor* :rint/log
+        (rf/reg-interceptor :rint/log
           {:before (fn [ctx] (swap! log conj :realm-icpt) ctx)})
         ;; reg-event's registration-time ref validation must resolve through
         ;; the realm registrar too (the ref lives only there).

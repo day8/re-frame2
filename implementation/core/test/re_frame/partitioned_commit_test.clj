@@ -485,7 +485,7 @@
       ;; event — out-of-band (`:source :machine`), after `runtime-before` was
       ;; captured. This is the load-bearing positive case the source-aware
       ;; restore preserves.
-      (rf/reg-interceptor* :pc/subsystem-mark-writer
+      (rf/reg-interceptor :pc/subsystem-mark-writer
         {:after (fn [ctx]
                   (elision/swap-elision-slot! :pc/rb-subsys
                     (fn [reg]
@@ -527,7 +527,7 @@
       ;; An :after interceptor MOVES the flow's output-path mid-cascade (a
       ;; reentrant reg-flow), so the LIVE registry drops the OLD-path mark and
       ;; installs a NEW-path one — BEFORE the post-commit schema rejection.
-      (rf/reg-interceptor* :pc/flow-mover
+      (rf/reg-interceptor :pc/flow-mover
         {:after (fn [ctx]
                   (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:new :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
                   ctx)})

@@ -8,8 +8,9 @@
   `re-frame.machines` stamps onto machine-originated child dispatches
   (covered end-to-end in
   `re-frame.machine-front-of-queue-test` in the machines artefact). Here
-  we drive `dispatch*` with the flag set explicitly so the queue-
-  insertion semantics are tested in isolation:
+  we drive `re-frame.router/dispatch!` directly (the fn-form; call-site
+  capture is irrelevant to queue-order semantics) with the flag set
+  explicitly so the queue-insertion semantics are tested in isolation:
 
     1. a flagged dispatch leap-frogs an already-queued external event;
     2. an unflagged dispatch (even one targeting the same handler) stays
@@ -27,12 +28,13 @@
 
   EP-0002 (rf2-9wa0lf): the top-level seed dispatch carries an explicit
   `{:frame :rf/default}` (the shared fixture registers `:rf/default` as
-  an ordinary frame). The CHILD `dispatch*` calls inside the seed handler
+  an ordinary frame). The CHILD `dispatch!` calls inside the seed handler
   inherit the handler's frame binding, so they need no explicit frame —
   only the rootless top-level seed does (the carried-invariant contract:
   no synthesised default floor)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.router :as router]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
@@ -62,8 +64,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (rf/dispatch* [:ext] {})
-        (rf/dispatch* [:cont] {:rf.machine/internal? true})
+        (router/dispatch! [:ext] {})
+        (router/dispatch! [:cont] {:rf.machine/internal? true})
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :cont :ext] @run-log)
@@ -80,8 +82,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (rf/dispatch* [:ext] {})
-        (rf/dispatch* [:plain] {}) ;; NOT machine-internal
+        (router/dispatch! [:ext] {})
+        (router/dispatch! [:plain] {}) ;; NOT machine-internal
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :ext :plain] @run-log)
@@ -100,12 +102,12 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (rf/dispatch* [:ext] {})
+        (router/dispatch! [:ext] {})
         ;; Two machine-internal continuations, emitted :a then :b. Each
         ;; front-inserts onto the head of the EXISTING queue, so the net
         ;; head order is [:a :b ...], not the reversed [:b :a ...].
-        (rf/dispatch* [:a] {:rf.machine/internal? true})
-        (rf/dispatch* [:b] {:rf.machine/internal? true})
+        (router/dispatch! [:a] {:rf.machine/internal? true})
+        (router/dispatch! [:b] {:rf.machine/internal? true})
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :a :b :ext] @run-log)
@@ -134,9 +136,9 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (rf/dispatch* [:ext] {})
-        (rf/dispatch* [:c1] {:rf.machine/internal? true})
-        (rf/dispatch* [:c2] {:rf.machine/internal? true})
+        (router/dispatch! [:ext] {})
+        (router/dispatch! [:c1] {:rf.machine/internal? true})
+        (router/dispatch! [:c2] {:rf.machine/internal? true})
         {}))
     (let [seen (atom [])]
       (rf/register-listener! :trace ::epoch-rec (fn [ev] (swap! seen conj ev)))

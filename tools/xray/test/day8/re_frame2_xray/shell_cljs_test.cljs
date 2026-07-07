@@ -321,7 +321,7 @@
             mount directly — mirrors the close-icon → close-shell shape."
     (xray-setup!)
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -619,7 +619,7 @@
             it does NOT reimplement the hide logic."
     (xray-setup!)
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -636,7 +636,7 @@
             dropdown dispatches `:rf.xray/set-mode :static`."
     (xray-setup!)
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -670,7 +670,7 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -844,7 +844,7 @@
   (testing "spec/018 §5 — clicking a tab fires :rf.xray/select-tab"
     (xray-setup!)
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -1347,7 +1347,7 @@
                                  :operation :sub/registered
                                  :tags {:rf.sub/id :foo/bar}})
       (let [dispatches (atom [])]
-        (with-redefs [rf/dispatch* (fn
+        (with-redefs [rf/dispatch-impl (fn
                                      ([ev]       (swap! dispatches conj ev) nil)
                                      ([ev _opts] (swap! dispatches conj ev) nil))]
           (rf/with-frame :rf/xray
@@ -1368,7 +1368,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -1733,7 +1733,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -1850,7 +1850,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -1879,7 +1879,7 @@
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:cart/add-item]))
     (let [dispatches (atom [])]
-      (with-redefs [rf/dispatch* (fn
+      (with-redefs [rf/dispatch-impl (fn
                                    ([ev]       (swap! dispatches conj ev) nil)
                                    ([ev _opts] (swap! dispatches conj ev) nil))]
         (rf/with-frame :rf/xray
@@ -2698,7 +2698,7 @@
         (is (= :rf/default observed) "observed frame is the inspected app frame")
         (is (= "epoch-1" epoch-id) "the focused cascade's epoch-id resolves")
         (let [dispatches (atom [])]
-          (with-redefs [rf/dispatch* (fn
+          (with-redefs [rf/dispatch-impl (fn
                                        ([ev]       (swap! dispatches conj ev) nil)
                                        ([ev _opts] (swap! dispatches conj ev) nil))]
             (let [tree    (shell/shell-view)

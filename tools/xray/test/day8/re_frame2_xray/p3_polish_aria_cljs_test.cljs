@@ -185,7 +185,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree   (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))
+    (let [tree   (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           strip  (find-by-testid tree "rf-xray-settings-tab-strip")
           attrs  (props strip)]
       (is (= "tablist" (:role attrs))
@@ -200,7 +200,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree     (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))
+    (let [tree     (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           ;; Theme tab removed rf2-ou3pn; Filters tab removed
           ;; rf2-wknb3. The four remaining tabs each carry the full
           ;; WAI-ARIA tab contract.
@@ -235,7 +235,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))
+    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           body  (find-by-testid tree "rf-xray-settings-body")
           attrs (props body)]
       (is (= "tabpanel" (:role attrs))
@@ -257,7 +257,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/settings-open]))
-    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))
+    (let [tree  (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch))
           input (find-by-testid tree "rf-xray-settings-epoch-history-input")
           ;; The label sits in the same <div> field; find by html-for.
           label (some (fn [node]

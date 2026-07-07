@@ -85,7 +85,7 @@
   EP-0022 reference-only: chains carry refs, so tests that just need a
   populated chain register + reference rather than dropping an inline value."
   [id]
-  (rf/reg-interceptor* id {:before identity :after identity})
+  (rf/reg-interceptor id {:before identity :after identity})
   id)
 
 (defn- chain-ids
@@ -140,7 +140,7 @@
     (let [order (atom [])
           reg-ord! (fn [tag]
                      (let [id (keyword "test.bpmszk" (str "ord-" (name tag)))]
-                       (rf/reg-interceptor* id
+                       (rf/reg-interceptor id
                          {:before (fn [ctx] (swap! order conj [:before tag]) ctx)
                           :after  (fn [ctx] (swap! order conj [:after tag]) ctx)})
                        id))]
@@ -514,7 +514,7 @@
   ;; and set a :db effect via the public interceptor API, threaded ahead of the
   ;; one `:rf/event-handler` wrapper.
   (testing "an interceptor :before reads :db coeffect and sets the :db effect"
-    (rf/reg-interceptor* :test.fuudi/ctx-marker
+    (rf/reg-interceptor :test.fuudi/ctx-marker
       {:before (fn [ctx]
                  (let [db (interceptor/get-coeffect ctx :db)]
                    (interceptor/assoc-coeffect
@@ -646,7 +646,7 @@
   and its schemas-late-bind dance into this core test. EP-0022 reference-only:
   the boundary interceptor is attached by REF, never as an inline value."
   []
-  (rf/reg-interceptor* :rf.schema/at-boundary {:before identity :after identity})
+  (rf/reg-interceptor :rf.schema/at-boundary {:before identity :after identity})
   :rf.schema/at-boundary)
 
 (deftest at-boundary-without-schema-rejected-at-registration

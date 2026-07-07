@@ -215,7 +215,7 @@ Each `clear-*` removes an entry from the registrar; the no-arg form clears the w
 
 These are the two verbs that drive the pipeline.
 
-`dispatch` and `dispatch-sync` come in macro + fn pairs. The **macro** form (`dispatch`, `dispatch-sync`, `subscribe`) captures the call-site source coords so tools like Xray can navigate from a trace event back to the originating expression. The **`*` fn** form (`dispatch*`, `dispatch-sync*`) skips the stamping — needed when you compose dispatch through a higher-order function (`(map dispatch* events)`) where a macro can't sit. Both route through the same dispatcher; only the trace stamping differs.
+`dispatch`, `dispatch-sync`, and `subscribe` are macro-in-call-position / fn-in-value-position on CLJS (Convention A — the same pattern `reg-event` / `reg-sub` / etc. use). In call position the **macro** form captures the call-site source coords so tools like Xray can navigate from a trace event back to the originating expression. In value position — an argument, a `let`-binding, `(or dispatch-fn rf/dispatch)` — the SAME name resolves to a plain-fn value instead, which composes through a higher-order function (`(map dispatch events)`) where a macro can't sit; that path skips the stamping. Both route through the same dispatcher; only the trace stamping differs. There is no `*`-suffixed twin.
 
 **The `opts` map.** `dispatch` and `subscribe` accept a uniform opts map: `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:source`. Target a non-default frame via `(rf/dispatch [::save x] {:frame :todo})`; the frame **id** is the public routing address.
 
@@ -233,20 +233,7 @@ These are the two verbs that drive the pipeline.
   [:button {:on-click #(rf/dispatch [:counter/inc])} "+"]
   ```
 
-### `dispatch*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (dispatch* event)
-  (dispatch* event opts)
-  ```
-- **Description**: Fn variant of `dispatch`; skips call-site stamping, so it composes through `map` / `comp` / `partial`. `opts` may carry `:frame` (a frame-id keyword or a live frame value). Returns `nil`.
-- **Example**:
-  ```clojure
-  ;; A plain fn value — pass it through a HoF where the dispatch macro can't sit.
-  (run! rf/dispatch* events)
-  ```
+- **Fn form**: in VALUE position (not called directly — e.g. `(run! rf/dispatch events)`), `dispatch` resolves to the plain-fn value instead of expanding as a macro; it skips call-site stamping, so it composes through `map` / `comp` / `partial`. `opts` may carry `:frame` (a frame-id keyword or a live frame value). Returns `nil`. (A JVM programmatic caller reaches `re-frame.router/dispatch!` directly.)
 
 ### `dispatch-sync`
 
@@ -262,21 +249,13 @@ These are the two verbs that drive the pipeline.
   (rf/dispatch-sync [:counter/initialise])   ;; one-shot app-boot event
   ```
 
-### `dispatch-sync*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (dispatch-sync* event)
-  (dispatch-sync* event opts)
-  ```
-- **Description**: Fn variant of `dispatch-sync`. Mirrors `dispatch*`'s forms — `opts` may carry `:frame` (a frame-id keyword or a live frame value).
-- **Example**:
+- **Fn form**: in VALUE position, `dispatch-sync` resolves to the plain-fn value. Mirrors `dispatch`'s value-position forms — `opts` may carry `:frame` (a frame-id keyword or a live frame value).
   ```clojure
   ;; Fn-form — drive a sequence of events synchronously from runner / test code.
   (doseq [evec events]
-    (rf/dispatch-sync* evec {:frame :app/main}))
+    (rf/dispatch-sync evec {:frame :app/main}))
   ```
+  (A JVM programmatic caller reaches `re-frame.router/dispatch-sync!` directly.)
 
 ### `subscribe`
 
@@ -288,21 +267,11 @@ These are the two verbs that drive the pipeline.
   ```
 - **Description**: The reactive handle. Returns a reaction whose value is the registered sub's current output; recomputes when upstreams change. Valid inside views, inside other subs, and (via the cofx wrapper) inside event handlers.
   - Target a non-ambient frame via the `{:frame …}` opt — `(rf/subscribe [:counter/value] {:frame :other})`; `:other` may be a frame-id keyword or a live frame value.
-  - The `subscribe*` fn form is internal, not app-facing.
+  - In VALUE position, `subscribe` resolves to the plain-fn value (Convention A) for HoF / programmatic reads — no call-site capture. A JVM programmatic caller reaches `re-frame.subs/subscribe` directly.
 - **Example**:
   ```clojure
   [:span @(rf/subscribe [:counter/value])]
   ```
-
-### `subscribe*`
-
-- **Kind**: function (internal — `:tier :implementation`, EP-0024)
-- **Signature**:
-  ```clojure
-  (subscribe* query-v)
-  (subscribe* query-v opts)
-  ```
-- **Description**: **Not an app-facing surface.** The runtime-callable fn form of the `subscribe` macro; the macro's expansion reaches it fully-qualified across a namespace boundary. The public read shapes are `subscribe`, `subscribe-once`, or the `:subscribe` op from a `capture-frame`.
 
 ### `subscribe-once`
 
@@ -547,7 +516,7 @@ The effect map is **closed**: app handlers return `:db` + `:fx` only (a third re
 
 ### `reg-interceptor`
 
-- **Kind**: macro (with `reg-interceptor*` as the programmatic `*`-twin)
+- **Kind**: macro (with a same-name plain-fn value on CLJS, Convention A — no `*`-suffixed twin; a JVM programmatic caller reaches `re-frame.interceptor-registry/reg-interceptor*` directly)
 - **Signature**:
   ```clojure
   (reg-interceptor id {:keys [before after]})
@@ -570,16 +539,6 @@ The effect map is **closed**: app handlers return `:db` + `:fx` only (a third re
     (fn [cofx _]
       {:db (assoc (:db cofx) :cart/saving? true)}))
   ```
-
-### `reg-interceptor*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-interceptor* id descriptor)
-  (reg-interceptor* id metadata descriptor)
-  ```
-- **Description**: The programmatic `*`-twin of `reg-interceptor` (EP-0022). Same registration, minus the macro's definition-site source-coord capture. Use from HoF / code-gen / REPL callers where a macro can't sit.
 
 ### `->interceptor`
 

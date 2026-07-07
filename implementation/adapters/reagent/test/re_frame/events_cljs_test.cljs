@@ -45,7 +45,7 @@
 
 (deftest reg-event-metadata-interceptors-threads-the-chain
   (testing "metadata-map :interceptors threads the chain under the Reagent adapter"
-    (rf/reg-interceptor* :test/noop {:before identity :after identity})
+    (rf/reg-interceptor :test/noop {:before identity :after identity})
     (rf/reg-event :test.bpmszk.cljs/super
       {:doc "Superset form." :interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
@@ -77,7 +77,7 @@
 
 (deftest metadata-interceptors-under-reagent
   (testing "{:interceptors [i]} registers the effective chain"
-    (rf/reg-interceptor* :test/noop {:before identity :after identity})
+    (rf/reg-interceptor :test/noop {:before identity :after identity})
     (rf/reg-event :test.bpmszk.cljs/via-map
       {:interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
