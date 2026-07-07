@@ -67,21 +67,17 @@
 (defn- malli-validate-fn
   "Return the malli validate fn or nil.
 
-  Per rf2-t0hq — CLJS has no runtime `resolve`, so the lookup order on
-  CLJS is: late-bind hook then nil. Returning nil is treated as
-  soft-pass by callers ('cannot disprove, treat as valid').
+  Looks up the late-bind hook `:schemas/malli-validate`, published by
+  `re-frame.schemas.malli` when loaded — the only lookup step, on both
+  CLJ and CLJS. Per rf2-qyfie, `re-frame.schemas.validator` dropped its
+  JVM-only `(requiring-resolve 'malli.core/validate)` fallback for
+  contract symmetry between runtimes; this fn mirrors that shape rather
+  than the pre-rf2-qyfie two-step lookup.
 
-  Lookup order matches `re-frame.schemas/default-malli-validate`:
-    1. Late-bind hook `:schemas/malli-validate` (published by
-       `re-frame.schemas.malli` when loaded).
-    2. JVM only — fall back to `(requiring-resolve 'malli.core/validate)`.
-    3. Return nil (soft-pass — the schema-validate-ok? caller treats
-       a nil validate fn as 'cannot disprove, treat as valid')."
+  Returning nil (hook unbound) is treated as soft-pass by callers —
+  'cannot disprove, treat as valid' — unchanged from before rf2-qyfie."
   []
-  (or (late-bind/get-fn :schemas/malli-validate)
-      #?(:clj  (try (requiring-resolve 'malli.core/validate)
-                    (catch Throwable _ nil))
-         :cljs nil)))
+  (late-bind/get-fn :schemas/malli-validate))
 
 (defn- registered-app-schemas
   "Return the {path → schema-meta} map registered against the named
