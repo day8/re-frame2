@@ -15,7 +15,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-frame` | `(id metadata-map)` |
 | `rf/reg-app-schema` | `(path {:schema schema :frame frame?})` — schema rides `:schema`, optional frame target rides `:frame`; boundary validation; needs `day8/re-frame2-schemas` |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
-| `rf/reg-flow` | `(flow-map opts?)` — needs `day8/re-frame2-flows` |
+| `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / `:schema` / `:frame`. A `:derive` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`). Needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map path)` — path is the third positional arg; needs `day8/re-frame2-routing` |
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
@@ -28,8 +28,8 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 |---|---|
 | `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.cofx` (EP-0017 recordable coeffects — a flat `fact-name → value` map; pin durable `:rf/time-ms` and other recordable facts; runtime stamps `:rf/time-ms` when omitted). There is no `:rf.world/inputs` opt — a draft-only name, so passing it rides the generic `:rf.warning/unknown-dispatch-opt` warning with a did-you-mean naming `:rf.cofx` |
 | `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.cofx` opt |
-| `rf/subscribe` | `(query-v)` / `(frame-id query-v)` → reaction |
-| `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
+| `rf/subscribe` | `(query-v)` / `(query-v opts)` → reaction — `opts` may carry `:frame` (mirrors `dispatch`); there is no frame-first `(frame-id query-v)` public form |
+| `rf/subscribe-once` | `(query-v)` / `(query-v opts)` — one-shot: materialise + deref + unsubscribe; same `:frame` opt |
 | `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
 | `rf/compute-sub` | `(query-v db)` — pure; bypass cache (preferred in tests) |
 | `rf/with-frame` | `(frame-id body)` — pin `body` to an existing frame (lexical scope) |
@@ -51,7 +51,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/machine-has-tag?` | `(machine-id tag)` → reaction (boolean) |
 | `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/machine-by-system-id` | `(system-id)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade |
-| `re-frame.machines/dispatch-to-system` | `(system-id event)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade; the canonical action-side messaging surface is the reserved fx `[:rf.machine/dispatch-to-system system-id event]` |
+| `re-frame.machines/dispatch-to-system` | `(system-id event)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade; the canonical action-side messaging surface is the reserved fx `[:rf.machine/dispatch-to-system [system-id event]]` (args are the one 2-element pair) |
 | `re-frame.machines/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/make-machine-handler` | `(machine)` → event-fx handler — owned-ns surface, **not** on the `rf/` façade |
 
@@ -185,7 +185,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
 | `rf/frame-ids` / `rf/view` | registry reads |
 | `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:sensitive` `:large` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. **No `:on-error` recovery-policy slot** — recovery is framework-owned |
-| `rf/sub-cache` (CLJS) / `rf/sub-topology` | dynamic / static sub graph reads |
+| `re-frame.subs.tooling/sub-cache-snapshot` / `sub-topology` | dynamic / static sub graph reads — subscription-tooling surfaces, **not** on the `rf/` façade |
 
 Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (registrations / writes) or degrade to `nil`/`[]`/`false` (read-only queries) when the artefact is absent.
 

@@ -85,10 +85,10 @@ The shape is identical; the registration surface differs by adapter (cross-ref t
 | Adapter | Ordinary (Form-1) view | Lifecycle-bearing view |
 |---|---|---|
 | **Reagent** / **Reagent-slim** | `reg-view` (defn-shape, Form-1) | `reg-view*` + `create-class` (Form-3) |
-| **UIx** | `reg-view` (plain `defui`-style fn) | same fn + `use-effect` (deps vector) |
-| **Helix** | `reg-view` (plain `defnc`-style fn) | same fn + `use-effect` (deps vector first) |
+| **UIx** | `reg-view*` on a `defui` component | same + `use-effect` (deps vector) |
+| **Helix** | `reg-view*` on a `defnc` component | same + `use-effect` (deps vector first) |
 
-UIx / Helix read a parameterised sub through the adapter's `use-subscribe` hook rather than the injected `subscribe`; only the surrounding component wrapper differs.
+The `reg-view` macro (and its injected locals) is **Reagent-only** — it does not cover UIx / Helix (spec 004, Decision 4). UIx / Helix components register with `reg-view*` when they need registry-keyed view addressing, read subs through the adapter's `use-subscribe` hook (no injected `subscribe`), and dispatch via `(:dispatch (rf/capture-frame))` captured above the callback.
 
 ## Common gotchas
 

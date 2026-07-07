@@ -34,7 +34,7 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 - `restore-epoch` calls that fail with one of the named `:rf.epoch/restore-*` modes (`restore-unknown-epoch`, `restore-schema-mismatch`, `restore-missing-handler`, `restore-version-mismatch`, `restore-during-drain`, `restore-non-ok-record`) — plus unknown-frame riding `:rf.error/no-such-handler` (kind `:frame`) — without a clear next-best-action
 - silent loss of history because `:epoch-history :depth` is too low for the user's workflow, with no warning when the target epoch ages out
 - stale or empty result because the build is `:advanced` (production-elided): the trace surface, schema validation, and epoch machinery are gated by `re-frame.interop/debug-enabled?` and elide entirely
-- source-coordinate workflows that assume `data-rf2-source-coord` is present when the runtime opt is off
+- source-coordinate workflows that assume `data-rf2-source-coord` is present when it cannot be — the build is production-elided (`:advanced` + `goog.DEBUG=false`), the view is unregistered (anonymous, no `reg-view`), or the root falls under the Fragment / non-DOM-root exemption (annotation is mandatory in dev builds, gated on `interop/debug-enabled?` — there is no runtime opt-in/opt-out)
 - private-namespace reach-through (`re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`) — these are off-contract per Tool-Pair §REPL-eval and may move
 - hot-swap that fired but the user could not tell because `:rf.registry/handler-replaced` was not surfaced
 - dispatch correlation gaps: cascade walks where `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id` were available but the tool did not stitch them

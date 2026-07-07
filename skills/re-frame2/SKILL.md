@@ -76,7 +76,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (Repo: `examples/**`; consumer app: the relevant pattern/fundamentals leaf plus any reference views your project follows.)
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
 7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
-8. **`reg-*` macros over `register-*` functions.** Macros capture source coordinates that tools rely on; functional registrations are for advanced cases only.
+8. **`reg-*` macros over the `*`-suffixed runtime fns.** Macros capture source coordinates that tools rely on; the functional counterparts (`reg-view*`, `reg-machine*`, `reg-interceptor*`, …) are for advanced/programmatic cases only.
 9. **Pillar 4 — assume training knowledge.** Teach the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering.
 
 ## Decision shortcuts

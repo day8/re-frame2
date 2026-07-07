@@ -46,7 +46,7 @@ Path-pattern grammar:
 The runtime maintains one slice in the runtime-db partition at `[:rf.runtime/routing :current]` (a reserved `:rf.runtime/*` key — framework state, not app-db); the consumer-facing sub-id `:rf/route` reads it back:
 
 ```clojure
-{:id         :route/article-detail
+{:route-id   :route/article-detail   ;; the slice key is :route-id (NOT :id)
  :params     {:id "intro"}
  :query      {:tab :comments}
  :fragment   "section-2"        ;; URL #fragment, or nil

@@ -23,18 +23,21 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 
 ```clojure
 (rf/reg-view add-to-cart-form [item-id]
-  (let [draft      @(rf/subscribe [:form.cart-add/draft])
-        qty-error  @(rf/subscribe [:form.cart-add/field-error :quantity])
-        csrf-token @(rf/subscribe [:app.csrf/token])]      ;; app-owned — re-frame2 ships no :rf.csrf/* surface
+  ;; `subscribe` / `dispatch` below are reg-view's INJECTED locals (frame-aware).
+  ;; A bare rf/dispatch in these callbacks would fire on a fresh stack with no
+  ;; frame scope and raise :rf.error/no-frame-context (EP-0002).
+  (let [draft      @(subscribe [:form.cart-add/draft])
+        qty-error  @(subscribe [:form.cart-add/field-error :quantity])
+        csrf-token @(subscribe [:app.csrf/token])]         ;; app-owned — re-frame2 ships no :rf.csrf/* surface
     [:form {:method    "POST"
             :action    "/cart/add"
             :on-submit (fn [e] (.preventDefault e)
-                         (rf/dispatch [:cart/add-item (assoc draft :item-id item-id)]))}
+                         (dispatch [:cart/add-item (assoc draft :item-id item-id)]))}
      [:input {:type "hidden" :name "csrf-token" :value csrf-token}]
      [:input {:type "hidden" :name "item-id"    :value item-id}]
      [:input {:type "number" :name "quantity" :value (or (:quantity draft) 1) :min 1 :max 99
-              :on-change #(rf/dispatch [:form.cart-add/edit-field :quantity
-                                        (-> % .-target .-value js/parseInt)])}]
+              :on-change #(dispatch [:form.cart-add/edit-field :quantity
+                                     (-> % .-target .-value js/parseInt)])}]
      (when qty-error [:p.error qty-error])
      [:button {:type "submit"} "Add to cart"]]))
 ```

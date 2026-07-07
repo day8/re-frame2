@@ -85,7 +85,7 @@ A boot sequence is many requests, but it is not "multiple RemoteData slices". Bo
 - **Visible progress** — the user wants to see "Loading profile…" then "Connecting…".
 - **One-shot per app load** — re-booting is unusual; hot-reload must not re-trigger boot.
 
-If the boot graph is ≤3 steps with no error states and no progress UI, chain events directly (the Boot leaf's "simple form"). Once any of those conditions break, lift the boot into a state machine — the Boot leaf names the canonical state set (`:reading-config → :authenticating → :loading-profile → :hydrating → :resolving-route → :ready | :failed`).
+If the boot graph is ≤3 steps with no error states and no progress UI, chain events directly (the Boot leaf's "simple form"). Once any of those conditions break, lift the boot into a state machine — the Boot leaf names the canonical state set (`:configuring → :authenticating → :loading-profile → :hydrating → :routing → :ready`, with per-phase terminal error states `:auth-failed` / `:profile-failed` / `:fatal-error`).
 
 ### NineStates vs RemoteData/Forms
 

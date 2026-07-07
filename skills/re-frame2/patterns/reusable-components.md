@@ -34,10 +34,12 @@ The whole pattern is **identity-as-argument** — the slice lookup happens *insi
 
 ```clojure
 (rf/reg-view customer-card [id]
-  (let [customer @(rf/subscribe [:customer id])]
+  ;; `subscribe` / `dispatch` are reg-view's injected, frame-aware locals —
+  ;; a bare rf/dispatch in the :on-click would raise :rf.error/no-frame-context.
+  (let [customer @(subscribe [:customer id])]
     [:div.customer-card
      [:h3 (:name customer)]
-     [:button {:on-click #(rf/dispatch [:customer/edit id])} "Edit"]]))
+     [:button {:on-click #(dispatch [:customer/edit id])} "Edit"]]))
 ```
 
 Callers splice `[customer-card 42]` and `[customer-card 43]` into the render tree; both render simultaneously.
@@ -61,12 +63,12 @@ Views that need **more than one id** (a transfer screen with source + destinatio
 
 ```clojure
 (rf/reg-view account-transfer [source-id dest-id]
-  (let [source @(rf/subscribe [:account source-id])
-        dest   @(rf/subscribe [:account dest-id])]
+  (let [source @(subscribe [:account source-id])          ;; injected locals again
+        dest   @(subscribe [:account dest-id])]
     [:div.transfer
      [:div.from [:h3 (:name source)] [:p (:balance source)]]
      [:div.to   [:h3 (:name dest)]   [:p (:balance dest)]]
-     [:button {:on-click #(rf/dispatch [:account/transfer source-id dest-id 100])}
+     [:button {:on-click #(dispatch [:account/transfer source-id dest-id 100])}
       "Transfer $100"]]))
 ```
 

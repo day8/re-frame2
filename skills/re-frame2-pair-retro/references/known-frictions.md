@@ -145,12 +145,12 @@ Typical improvements:
 
 Signals:
 - "where in the source did this come from?" returned nothing
-- `data-rf2-source-coord` annotation is off because it is opt-in
+- `data-rf2-source-coord` is absent because the build is production-elided (`interop/debug-enabled?` false), the element was not produced by a registered view (anonymous/unregistered fn — only registered-view ROOT elements carry the attribute; for a descendant node the tool walks up to the nearest annotated ancestor), or the view root is a Fragment / non-DOM exemption — the annotation is mandatory in dev builds per Spec 006 §Source-coord annotation, not opt-in
 - the user expected DOM-to-source even though re-frame2 commits to the attribute, not the helpers
 
 Typical improvements:
-- preflight that reports whether source-coord annotation is enabled
-- include the recipe for turning it on at startup
+- preflight that reports build mode (dev vs production-elided) and registered-view coverage — `discover-app`'s `:coord-annotation-enabled?` field already reports this (heuristic: any element on the page carries `data-rf2-source-coord` or `data-rc-src`)
+- recipe for switching to a dev build and/or registering the view via `reg-view` (with re-com's `data-rc-src` / `:src (at)` as the fallback source-coord source)
 - recipe for parsing the attribute via the host's DOM access (CDP, querySelector, Playwright locator)
 
 ### Private-namespace reach-through
