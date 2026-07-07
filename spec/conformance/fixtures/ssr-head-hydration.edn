@@ -1,15 +1,15 @@
 ;; Conformance fixture: ssr/head-hydration
-;; The hydration payload carries the server's render-hash (which in v1
-;; covers both head and body — head-mismatch detection rides on the
-;; unified :rf/render-hash channel and the runtime discriminates head
-;; vs body via :failing-id). The client recomputes the same hash; no
-;; :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch)
-;; emitted. Per [011 §Mismatch detection — head].
+;; The hydration payload carries a BODY-ONLY :rf/render-hash AND a SEPARATE
+;; :rf/head-hash over the canonical head model (rf2-1oxjxk, Option B). The
+;; client recomputes both hashes (body via :render-tree-fn; head via
+;; active-head against the hydrated state) and they match — no
+;; :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted.
+;; Per [011 §Mismatch detection — head].
 
 {:fixture/id           :ssr/head-hydration
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :ssr/head-contract :ssr/hydration}
- :fixture/doc          "Hydration payload carries the unified :rf/render-hash; the client recomputes the same hash; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted. A separate :rf/head / :rf/head-hash payload channel is reserved for the post-v1 reg-head extension."
+ :fixture/doc          "Hydration payload carries a BODY-ONLY :rf/render-hash and a SEPARATE :rf/head-hash over the canonical head model (rf2-1oxjxk); the client recomputes both and they match; no :rf.ssr/hydration-mismatch (failing-id :rf.ssr/head-mismatch) emitted. The head channel is omitted for explicit-:head-STRING requests."
 
  :fixture/registry
  {:event {:rf/hydrate {:doc "Standard hydration handler."}}
@@ -44,14 +44,20 @@
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
                                                   :summary "How re-frame2 ships SSR"}}}
                 :rf/runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
-                :rf/render-hash "render-hash-server-A"}]]
+                ;; rf2-1oxjxk: BODY-ONLY :rf/render-hash + a SEPARATE
+                ;; :rf/head-hash over the canonical head model.
+                :rf/render-hash "render-hash-server-A"
+                :rf/head-hash   "head-hash-server-A"}]]
 
  :fixture/render-after-hydrate
- ;; Harness simulates the client recomputing the render-tree (head + body)
- ;; to the same hash. No mismatch trace. Per Spec 011 §Mismatch detection —
- ;; head: head-mismatch and body-mismatch share the :rf/render-hash channel
- ;; in v1; the discriminator is :failing-id.
- {:simulated-client-render-hash "render-hash-server-A"}
+ ;; Harness simulates the client recomputing BOTH channels to the same
+ ;; hashes: the BODY render-tree (via :render-tree-fn) matches
+ ;; :rf/render-hash, and the head model (recomputed via active-head against
+ ;; the hydrated state) matches :rf/head-hash. No mismatch trace. Per Spec
+ ;; 011 §Mismatch detection — head: body and head ride SEPARATE channels
+ ;; (rf2-1oxjxk); a host attributes a head-only mismatch via :failing-id.
+ {:simulated-client-render-hash "render-hash-server-A"
+  :simulated-client-head-hash   "head-hash-server-A"}
 
  :fixture/expect
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"

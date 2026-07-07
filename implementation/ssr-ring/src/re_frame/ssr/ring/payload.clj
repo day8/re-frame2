@@ -27,7 +27,11 @@
 (defn build-payload
   "Per Spec 011 §The hydration payload — emit the four canonical keys
   (`:rf/version`, `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`)
-  plus the optional `:rf/runtime-db` and `:rf/schema-digest`. Schema-digest is supplied
+  plus the optional `:rf/runtime-db`, `:rf/schema-digest`, and
+  `:rf/head-hash` (rf2-1oxjxk — the separate client-reconstructible
+  head-model hash; pass it through `policy-opts`' `:head-hash` key,
+  computed via `re-frame.ssr.ring.lifecycle/render-head-hash`; nil
+  omits the key). Schema-digest is supplied
   by the caller when their app participates in the schema-digest
   check; nil otherwise. Version source-of-truth:
   `re-frame.ssr.payload-policy/resolve-version` — caller opt wins,

@@ -649,14 +649,16 @@
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
   hydration payload — the four canonical keys (`:rf/version`,
   `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`) plus the optional
-  `:rf/runtime-db` and `:rf/schema-digest`.
+  `:rf/runtime-db`, `:rf/schema-digest`, and `:rf/head-hash`.
 
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
   rf2-gtgf9) and hand the result here. `:rf/version` is resolved via
   `resolve-version` (caller's `:version` opt → `:rf2/runtime-version`
-  hook → v1 stamp). Schema-digest is supplied by the caller when their
-  app participates in the schema-digest check; nil otherwise.
+  hook → v1 stamp). `render-hash` is the BODY-ONLY structural hash
+  (rf2-1oxjxk Option B) — see `re-frame.ssr.ring.lifecycle/render-document-
+  hash`. Schema-digest is supplied by the caller when their app
+  participates in the schema-digest check; nil otherwise.
 
   EP-0001 (rf2-30kzz2): the optional `:runtime-db` opt carries the
   already-projected SERIALIZABLE runtime-db slice (callers run
@@ -665,14 +667,22 @@
   `:rf/hydrate` handler installs a coherent frame-state (app-db + runtime-db);
   nil omits the optional key (the client-only / no-server-runtime shape).
 
+  rf2-1oxjxk — the optional `:head-hash` opt carries the SEPARATE
+  client-reconstructible head-model hash (`re-frame.ssr.ring.lifecycle/
+  render-head-hash`), NOT covered by `render-hash`. It rides the payload
+  as `:rf/head-hash` when the caller supplied one; omitted (no key) when
+  nil — the explicit-`:head`-STRING or degraded-head-resolution shape
+  where the server knows the head is not client-reconstructible.
+
   Shared verbatim by both SSR paths (rf2-8wrzz.4): the non-streaming
   `re-frame.ssr.ring.payload/build-payload` and the streaming
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
   they source `app-db` + runtime-db before projecting them."
-  [frame-id db-slice render-hash {:keys [version schema-digest runtime-db]}]
+  [frame-id db-slice render-hash {:keys [version schema-digest runtime-db head-hash]}]
   (cond-> {:rf/version     (resolve-version version)
            :rf/frame-id    frame-id
            :rf/app-db      db-slice
            :rf/render-hash render-hash}
     (some? runtime-db) (assoc :rf/runtime-db runtime-db)
-    schema-digest      (assoc :rf/schema-digest schema-digest)))
+    schema-digest      (assoc :rf/schema-digest schema-digest)
+    head-hash          (assoc :rf/head-hash head-hash)))

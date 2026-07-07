@@ -646,6 +646,13 @@
   late-bind hook so server and client read from the same source
   (rf2-via0g, mirroring the non-streaming rf2-asmj1 S8 fix).
 
+  `render-hash` is BODY-ONLY (rf2-1oxjxk Option B — see
+  `re-frame.ssr.ring.lifecycle/render-document-hash`). `policy-opts` may
+  carry an optional `:head-hash` — the SEPARATE client-reconstructible
+  head-model hash (`re-frame.ssr.ring.lifecycle/render-head-hash`) —
+  which rides the assembled payload as `:rf/head-hash` when present (see
+  `payload-policy/build-payload`).
+
   The `:rf/app-db` slice is projected per the explicit, fail-closed
   policy in `re-frame.ssr.payload-policy/apply-policy` (rf2-gtgf9,
   rf2-pffil single-opt consolidation): callers MUST declare `:payload`
