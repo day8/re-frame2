@@ -525,9 +525,17 @@
     ;; `use-subscribe` hook and the `(rf/capture-frame)` capture in `login-form`
     ;; resolve to it. The provider is required — without it those reads raise
     ;; `:rf.error/no-frame-context`.
+    ;;
+    ;; `:initial-events` seeds the form slice ([:auth.login/initialise-form]) to
+    ;; its empty shape, so the controlled inputs read an empty draft — not nil —
+    ;; on that first render. Skip it and each input's `:value` reads `(:email
+    ;; nil)` = nil on first paint, which React treats as an UNCONTROLLED input,
+    ;; then flips to controlled the moment the slice is seeded — the exact
+    ;; warning this seeding avoids.
     (.render @react-root
              ($ helix-adapter/frame-provider
-                {:id           :rf/default
-                 :doc          "Login (Helix) demo frame."
-                 :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}}
+                {:id             :rf/default
+                 :doc            "Login (Helix) demo frame."
+                 :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
+                 :initial-events [[:auth.login/initialise-form]]}
                 ($ root-view)))))
