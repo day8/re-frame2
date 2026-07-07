@@ -369,14 +369,27 @@
 
        :else
        (let [sorted   (vec (sort-by #(pr-str (patch-path %)) patches))
-             clusters (group-by-ancestor sorted max-coalesce-depth)]
-         (mapv (fn [cluster]
-                 (let [{:keys [prefix patches]} (promote-singleton cluster)]
-                   {:section-path prefix
-                    :section-kind (section-kind prefix patches
-                                                (container-existed? prefix))
-                    :patches      patches}))
-               clusters))))))
+             clusters (group-by-ancestor sorted max-coalesce-depth)
+             sections (mapv (fn [cluster]
+                               (let [{:keys [prefix patches]} (promote-singleton cluster)]
+                                 {:section-path prefix
+                                  :section-kind (section-kind prefix patches
+                                                              (container-existed? prefix))
+                                  :patches      patches}))
+                             clusters)]
+         ;; Coalescing (`group-by-ancestor`) and singleton-promotion both
+         ;; NARROW a cluster's prefix to a shorter ancestor path — which
+         ;; changes its sort key. `pr-str` of a vector closes with `]`
+         ;; (char 93) but separates elements with a space (char 32), so
+         ;; an ancestor's `pr-str` always sorts AFTER its own descendants
+         ;; — e.g. `(compare (pr-str [:cart]) (pr-str [:cart-items]))` is
+         ;; positive. The walk-order sort above is only a determinism aid
+         ;; for the coalescence pass; it does NOT double as the final
+         ;; section order once prefixes have moved. Re-sort by the
+         ;; resulting `:section-path` so the contract in §Ordering
+         ;; (`spec/section-grouping.md`) — sections sort by `:section-path`,
+         ;; lexicographic `pr-str`-keyed — holds post-coalescing too.
+         (vec (sort-by #(pr-str (:section-path %)) sections)))))))
 
 ;; ---- decoder helper ----------------------------------------------------
 
