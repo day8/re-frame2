@@ -188,12 +188,22 @@
 
     {:head-html  \"<title>…</title><meta …>…\"   ;; inner-head fragment
      :html-attrs {…} or nil                       ;; stamped on <html>
-     :body-attrs {…} or nil}                      ;; stamped on <body>
+     :body-attrs {…} or nil                       ;; stamped on <body>
+     :head-model {…} or nil}                      ;; the RAW model (rf2-1oxjxk)
 
   The two attribute bags ride alongside the rendered fragment because
   `head-model->html` deliberately drops them (Spec 011 §Default flow
   step 4: `:html-attrs` populate `<html>`; `:body-attrs` populate
   `<body>` — the host shell stamps them, not the head emitter).
+
+  `:head-model` (rf2-1oxjxk) is the RAW model `rf/active-head` returned —
+  BEFORE `head-model->html` renders it to a string. It is the input to
+  the separate `render-head-hash` channel (below): the client
+  reconstructs the SAME model by calling `(rf/active-head frame-id)`
+  itself against the just-hydrated state (Spec 011 §Default flow step
+  5), so hashing the model — never the emitted HTML — is what makes the
+  channel client-reconstructible at all. nil on the caught-throw fallback
+  below (a degraded empty head carries no reconstructible model either).
 
   Exceptions during resolution degrade gracefully — empty fragment,
   no attrs — so a buggy head fn can't take down the request. The trace
@@ -224,7 +234,8 @@
     (let [model (rf/active-head frame-id)]
       {:head-html  (rf/head-model->html model)
        :html-attrs (:html-attrs model)
-       :body-attrs (:body-attrs model)})
+       :body-attrs (:body-attrs model)
+       :head-model model})
     (catch Throwable t
       (trace/emit-error! :rf.error/ssr-head-resolution-failed
                          {:frame     frame-id
@@ -245,42 +256,63 @@
          :time      (interop/now-ms)
          :exception t
          :recovery  :no-recovery})
-      {:head-html "" :html-attrs nil :body-attrs nil})))
+      {:head-html "" :html-attrs nil :body-attrs nil :head-model nil})))
 
 (defn render-document-hash
-  "The canonical structural hash for the FULL SSR document state — body
-  render tree PLUS the resolved head fragment (`:head-html`) and the
-  `<html>`/`<body>` attribute bags (`:html-attrs` / `:body-attrs`).
+  "The canonical structural hash for the SSR **body** render tree — the
+  wire hash carried as the root element's `data-rf-render-hash` marker and
+  the payload's `:rf/render-hash` (Spec 011 §Hydration-mismatch detection).
 
-  Per Spec 011 §Head/meta contract and §Mismatch detection — head: in v1
-  the head rides the UNIFIED `:rf/render-hash` channel; the server-rendered
-  HTML carries a single structural hash covering both head and body, so the
-  bundled v1 hydration-mismatch detector cannot tell a head-only divergence
-  from a body-only one but DOES detect either. Hashing only the body (the
-  prior shape) silently accepted a head-only mismatch — a contract drift
-  against §624-626/§648-650 (rf2-9fw2de).
+  rf2-1oxjxk (Option B, reverting rf2-9fw2de): this hash is BODY-ONLY
+  again. rf2-9fw2de folded the resolved head fragment + `:html-attrs` /
+  `:body-attrs` into a `[:rf/ssr-document body head-bag]` wrapper so a
+  head-only divergence would move the hash too — but the CLIENT half of
+  that change was never made: the documented client boot
+  (`re-frame.ssr.boot/hydrate!`, `:render-tree-fn #((rf/view :app/root))`)
+  hashes the BARE body tree the view returns, never a document wrapper.
+  `render-tree-hash([:rf/ssr-document body {}])` never equals
+  `render-tree-hash(body)`, so every SSR page fired a spurious
+  `:rf.ssr/hydration-mismatch` under the unified channel. The wire hash
+  MUST match what the documented client actually hashes — body-only.
 
-  `head-bag` is the map returned by `resolve-head` (or the explicit-`:head`
-  shape `{:head-html <string> :html-attrs nil :body-attrs nil}`). We wrap
-  the body tree and the head fragment in a self-describing canonical vector
-  and hand it to `render-tree-hash`:
+  Head divergence is NOT silently dropped by the revert: it rides the
+  SEPARATE `:rf/head-hash` channel (`render-head-hash` below), which is
+  client-reconstructible (unlike a document wrapper straddling body +
+  head) because it hashes the same CANONICAL HEAD MODEL the client can
+  recompute via `(rf/active-head frame-id)`."
+  [body-hiccup]
+  (rf/render-tree-hash body-hiccup))
 
-    [:rf/ssr-document <body-hiccup> {:head-html  <string-or-nil>
-                                     :html-attrs <map-or-nil>
-                                     :body-attrs <map-or-nil>}]
+(defn render-head-hash
+  "The canonical structural hash for the CLIENT-RECONSTRUCTIBLE head
+  model — a SEPARATE channel from the body's `render-document-hash`
+  (rf2-1oxjxk Option B). Carried as the `<head>` element's
+  `data-rf-head-hash` wire marker and the payload's optional
+  `:rf/head-hash` key.
 
-  `render-tree-hash`'s canonical-EDN walk sorts map keys and prunes nil
-  values (`hash.cljc`), so the wrapper is deterministic and byte-identical
-  across JVM/CLJS — the same cross-runtime contract the body-only hash
-  honoured. The `:rf/ssr-document` tag keeps the head channel structurally
-  distinct from any body subtree that might happen to be a 3-element vector,
-  so a body-only change and a head-only change can never collide."
-  [body-hiccup {:keys [head-html html-attrs body-attrs]}]
-  (rf/render-tree-hash
-    [:rf/ssr-document body-hiccup
-     {:head-html  head-html
-      :html-attrs html-attrs
-      :body-attrs body-attrs}]))
+  `head-model` is the RAW model `resolve-head` attaches under
+  `:head-model` — the map `rf/active-head` (or a registered `reg-head` fn)
+  returns (`{:title :meta :link :script :json-ld :html-attrs
+  :body-attrs}`), NOT the rendered `:head-html` string. Hashing the model
+  (not emitted HTML) is what makes the channel client-reconstructible at
+  all: the client calls the SAME `(rf/active-head frame-id)` against the
+  just-hydrated app-db + the route slice carried in `:rf/runtime-db`
+  (Spec 011 §Default flow step 5) and hashes the resulting model the
+  identical way — `render-tree-hash`'s canonical-EDN walk is deterministic
+  and byte-identical across JVM/CLJS (`hash.cljc`).
+
+  Returns nil when `head-model` is nil — the explicit-`:head`-STRING
+  request shape (`resolve-head`'s caller-supplied-string branch, and the
+  degraded-empty-head fallback on a throwing head fn). In both cases the
+  server knows the head is NOT client-reconstructible (an explicit string
+  has no model to recompute; a degraded head's model was never produced),
+  so the channel is OMITTED rather than shipping a hash the client could
+  never match — a graceful degrade that avoids a guaranteed false-positive
+  mismatch, mirroring the `resolve-head` docstring's degrade-gracefully
+  posture."
+  [head-model]
+  (when head-model
+    (rf/render-tree-hash head-model)))
 
 (defn resolve-initial-events!
   "Resolve the caller's `:initial-events` opt to the EP-0027 setup vector

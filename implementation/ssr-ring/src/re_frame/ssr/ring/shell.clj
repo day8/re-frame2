@@ -108,7 +108,12 @@
     opts — the caller's adapter opts (merged with any per-request
            overrides); standard keys :head / :html-attrs / :body-attrs
            / :body-end / :script-src / :app-element-id / :lang
-           influence the envelope.
+           influence the envelope. `:head-hash` (rf2-1oxjxk, optional)
+           stamps `data-rf-head-hash` on the `<head>` element — the
+           SEPARATE client-reconstructible head-model hash channel
+           (Spec 011 §Mismatch detection — head), distinct from the
+           body's `data-rf-render-hash` on the `#app` root div. Omitted
+           when nil (the explicit-`:head`-STRING / degraded-head shape).
 
   Trusted-string contract — per Spec 011 §Trusted shell hook contract
   (rf2-o6ndb, attribute/content split rf2-7x0qk), the four shell opts
@@ -139,14 +144,20 @@
   itself is the caller's. Audit rf2-asmj1 R12 / cluster rf2-sljs1 /
   rf2-o6ndb."
   [body-html payload-edn
-   {:keys [head html-attrs body-attrs body-end script-src app-element-id lang]
+   {:keys [head html-attrs body-attrs body-end script-src app-element-id lang head-hash]
     :or   {app-element-id  "app"
            script-src      "/main.js"
            lang            "en"}}]
   (let [attr-bag (html-attr-bag html-attrs lang)]
     (str "<!DOCTYPE html>"
          "<html" (html/attr-string attr-bag) ">"
-         "<head>"
+         "<head"
+         ;; rf2-1oxjxk — the SEPARATE client-reconstructible head-model
+         ;; hash, distinct from the body's data-rf-render-hash on #app.
+         ;; Omitted when nil (no value needs no escaping — an 8-char hex
+         ;; FNV output, same shape as the render-hash marker).
+         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
+         ">"
          "<meta charset=\"utf-8\">"
          (or head "")
          "</head>"

@@ -9,7 +9,8 @@
   Each test resets the runtime via the artefact-local
   `re-frame.ssr.ring.test-support/reset-runtime` (registrar snapshot/
   restore + SSR adapter install + SSR side-channel atom clears)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -669,21 +670,25 @@
             "side-effect counter confirms the fn was invoked exactly once")))))
 
 ;; ===========================================================================
-;; ssr-handler — the unified render hash folds in the HEAD fragment
-;; (rf2-9fw2de)
+;; ssr-handler — BODY-ONLY :rf/render-hash + a SEPARATE :rf/head-hash channel
+;; (rf2-1oxjxk, Mike-RULED Option B — reverting rf2-9fw2de)
 ;;
-;; Spec 011 §Head/meta contract (§624-626) and §Mismatch detection — head
-;; (§648-650) lock head + body onto the UNIFIED `:rf/render-hash` channel:
-;; the server-rendered HTML carries a single structural hash that covers
-;; BOTH head and body, so the bundled v1 hydration-mismatch detector cannot
-;; tell a head-only divergence from a body-only one but DOES catch either.
+;; rf2-9fw2de folded the resolved head fragment (+ :html-attrs / :body-attrs)
+;; into a UNIFIED `:rf/render-hash` channel so a head-only divergence would
+;; move the hash too. But the CLIENT half of that change was never made: the
+;; documented client boot (`ssr/hydrate!`'s `:render-tree-fn`, per Spec 011
+;; §Client-side hydration boot helper) only ever hashes the BARE body tree a
+;; registered view returns — never a document wrapper. Folding the head in
+;; server-side therefore made `:rf/render-hash` (and the wire
+;; `data-rf-render-hash`) NEVER equal the client's hash — a spurious
+;; :rf.ssr/hydration-mismatch on EVERY SSR page.
 ;;
-;; The bug (rf2-9fw2de): the hash was computed over the BODY tree alone, so
-;; a server/client divergence that changed only reg-head output / route head
-;; attrs / explicit head content left `:rf/render-hash` (and the wire
-;; `data-rf-render-hash`) unchanged — the detector silently accepted a head
-;; mismatch. These tests pin the fix: two renders with an IDENTICAL body but
-;; a DIFFERENT head produce DIFFERENT `:rf/render-hash` (and wire) values.
+;; The fix (Option B): revert the wire hash to BODY-ONLY (these tests pin
+;; that a head-only change does NOT move :rf/render-hash / data-rf-render-
+;; hash), and carry head divergence on a SEPARATE :rf/head-hash /
+;; data-rf-head-hash channel — a structural hash over the CANONICAL HEAD
+;; MODEL (not emitted HTML), client-reconstructible via `(rf/active-head
+;; frame-id)` (Spec 011 §Default flow step 5).
 ;; ===========================================================================
 
 (defn- extract-wire+payload-hash
@@ -703,10 +708,27 @@
                                        payload-edn)))]
     {:wire wire :payload payload}))
 
-(deftest ssr-handler-explicit-head-folds-into-render-hash
-  (testing "rf2-9fw2de: identical body + DIFFERENT explicit :head → DIFFERENT
-            :rf/render-hash. The head rides the unified hash channel (Spec
-            011 §624-626/§648-650); a head-only change MUST move the hash."
+(defn- extract-head-hash
+  "Pull the wire `data-rf-head-hash` AND the payload `:rf/head-hash` out of
+  a rendered SSR document body string. Returns `{:wire <hex-or-nil> :payload
+  <hex-or-nil>}` — both nil when the channel is omitted (no reconstructible
+  head, e.g. an explicit `:head` string)."
+  [body]
+  (let [wire        (second (re-find #"data-rf-head-hash=\"([0-9a-f]{8})\"" body))
+        payload-edn (second (re-find
+                              #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                              body))
+        payload     (when payload-edn
+                      (second (re-find #":(?:rf/)?head-hash \"([0-9a-f]{8})\""
+                                       payload-edn)))]
+    {:wire wire :payload payload}))
+
+(deftest ssr-handler-explicit-head-string-does-not-move-render-hash
+  (testing "rf2-1oxjxk: identical body + DIFFERENT explicit :head string →
+            SAME :rf/render-hash / data-rf-render-hash. The wire hash is
+            BODY-ONLY (Option B); a head-only change must NOT move it, or
+            the documented client :render-tree-fn (which hashes the bare
+            body tree) would mismatch on every page."
     (rf/reg-event :init/noop-head (fn [{:keys [db]} _] {:db db}))
     (rf/reg-view* :pages/fixed-body (fn [] [:div.body "identical body"]))
 
@@ -720,27 +742,37 @@
           body-b  (:body ((mk "<title>Beta</title>")  {:uri "/" :request-method :get}))
           ha      (extract-wire+payload-hash body-a)
           hb      (extract-wire+payload-hash body-b)]
-      ;; Sanity: both bodies carry the SAME body content.
+      ;; Sanity: both bodies carry the SAME body content but DIFFERENT heads.
       (is (str/includes? body-a "identical body"))
       (is (str/includes? body-b "identical body"))
-      ;; Wire == payload within each render (single canonical document hash).
+      (is (str/includes? body-a "<title>Alpha</title>"))
+      (is (str/includes? body-b "<title>Beta</title>"))
+      ;; Wire == payload within each render (one canonical body-only hash).
       (is (some? (:wire ha)) "render A carries a wire hash")
       (is (some? (:payload ha)) "render A carries a payload hash")
       (is (= (:wire ha) (:payload ha))
-          "render A: wire data-rf-render-hash == payload :rf/render-hash
-           (both derive from the same canonical full-document hash)")
-      (is (= (:wire hb) (:payload hb))
-          "render B: wire == payload")
-      ;; The load-bearing assertion: a head-only divergence MOVES the hash.
-      (is (not= (:payload ha) (:payload hb))
-          "rf2-9fw2de: identical body but different head → DIFFERENT
-           :rf/render-hash (head folded into the unified hash channel —
-           a head mismatch is no longer silently accepted)"))))
+          "render A: wire data-rf-render-hash == payload :rf/render-hash")
+      (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
+      ;; THE LOAD-BEARING ASSERTION (rf2-1oxjxk): a head-only divergence
+      ;; must NOT move the body-only wire hash.
+      (is (= (:payload ha) (:payload hb))
+          "rf2-1oxjxk: identical body + different head → SAME :rf/render-hash
+           (body-only wire hash; head no longer folds in)")
+      ;; An explicit :head STRING carries no reconstructible model — the
+      ;; :rf/head-hash / data-rf-head-hash channel is OMITTED entirely
+      ;; (graceful degrade, no guaranteed false-positive).
+      (let [head-a (extract-head-hash body-a)
+            head-b (extract-head-hash body-b)]
+        (is (nil? (:wire head-a)) "explicit :head string omits data-rf-head-hash")
+        (is (nil? (:payload head-a)) "explicit :head string omits :rf/head-hash")
+        (is (nil? (:wire head-b)) "explicit :head string omits data-rf-head-hash (B)")
+        (is (nil? (:payload head-b)) "explicit :head string omits :rf/head-hash (B)")))))
 
-(deftest ssr-handler-route-head-folds-into-render-hash
-  (testing "rf2-9fw2de: identical body + DIFFERENT route-driven reg-head
-            output → DIFFERENT :rf/render-hash. Covers the route-head path
-            (not just explicit :head)."
+(deftest ssr-handler-route-head-moves-head-hash-not-render-hash
+  (testing "rf2-1oxjxk: identical body + DIFFERENT route-driven reg-head
+            output → :rf/render-hash STAYS THE SAME (body-only) while the
+            SEPARATE :rf/head-hash / data-rf-head-hash channel DIFFERS.
+            Covers the route-head path (not just explicit :head)."
     (rf/reg-head :head/variant-a (fn [_db _route] {:title "Route head A"}))
     (rf/reg-head :head/variant-b (fn [_db _route] {:title "Route head B"}))
     (rf/reg-route :route/head-a {:doc "A" :head :head/variant-a} "/")
@@ -761,19 +793,31 @@
           body-a  (:body ((mk :init/seed-head-a) {:uri "/" :request-method :get}))
           body-b  (:body ((mk :init/seed-head-b) {:uri "/" :request-method :get}))
           ha      (extract-wire+payload-hash body-a)
-          hb      (extract-wire+payload-hash body-b)]
+          hb      (extract-wire+payload-hash body-b)
+          head-a  (extract-head-hash body-a)
+          head-b  (extract-head-hash body-b)]
       (is (str/includes? body-a "<title>Route head A</title>"))
       (is (str/includes? body-b "<title>Route head B</title>"))
       (is (= (:wire ha) (:payload ha)) "render A: wire == payload")
       (is (= (:wire hb) (:payload hb)) "render B: wire == payload")
-      (is (not= (:payload ha) (:payload hb))
-          "rf2-9fw2de: different reg-head title (identical body) → DIFFERENT
-           :rf/render-hash"))))
+      (is (= (:payload ha) (:payload hb))
+          "rf2-1oxjxk: different reg-head title (identical body) → SAME
+           :rf/render-hash (body-only)")
+      ;; The SEPARATE head-hash channel DOES carry the divergence.
+      (is (some? (:payload head-a)) "render A carries :rf/head-hash")
+      (is (some? (:payload head-b)) "render B carries :rf/head-hash")
+      (is (= (:wire head-a) (:payload head-a))
+          "render A: wire data-rf-head-hash == payload :rf/head-hash")
+      (is (= (:wire head-b) (:payload head-b)) "render B: wire == payload")
+      (is (not= (:payload head-a) (:payload head-b))
+          "rf2-1oxjxk: different reg-head title (identical body) → DIFFERENT
+           :rf/head-hash (the separate channel attributes head divergence)"))))
 
-(deftest ssr-handler-html-body-attrs-fold-into-render-hash
-  (testing "rf2-9fw2de: the head model's :html-attrs / :body-attrs are part
-            of the canonical document hash — a change to them (identical body
-            + identical title) moves :rf/render-hash."
+(deftest ssr-handler-html-body-attrs-move-head-hash-not-render-hash
+  (testing "rf2-1oxjxk: the head model's :html-attrs / :body-attrs are part
+            of the SEPARATE head-hash channel, not the body-only
+            :rf/render-hash — a change to them (identical body + identical
+            title) moves :rf/head-hash but leaves :rf/render-hash unchanged."
     (rf/reg-head :head/attrs-a
                  (fn [_db _route] {:title "T" :html-attrs {:lang "en"}}))
     (rf/reg-head :head/attrs-b
@@ -793,13 +837,111 @@
                       {:initial-events [[init]]
                        :root-view [:pages/attrs-body]
                        :payload   :rf.ssr.payload/whole-app-db}))
-          ha      (extract-wire+payload-hash
-                    (:body ((mk :init/seed-attrs-a) {:uri "/" :request-method :get})))
-          hb      (extract-wire+payload-hash
-                    (:body ((mk :init/seed-attrs-b) {:uri "/" :request-method :get})))]
-      (is (not= (:payload ha) (:payload hb))
-          "rf2-9fw2de: differing :html-attrs (identical body + title) →
-           DIFFERENT :rf/render-hash"))))
+          body-a  (:body ((mk :init/seed-attrs-a) {:uri "/" :request-method :get}))
+          body-b  (:body ((mk :init/seed-attrs-b) {:uri "/" :request-method :get}))
+          ha      (extract-wire+payload-hash body-a)
+          hb      (extract-wire+payload-hash body-b)
+          head-a  (extract-head-hash body-a)
+          head-b  (extract-head-hash body-b)]
+      (is (= (:payload ha) (:payload hb))
+          "rf2-1oxjxk: differing :html-attrs (identical body + title) →
+           SAME :rf/render-hash (body-only)")
+      (is (not= (:payload head-a) (:payload head-b))
+          "rf2-1oxjxk: differing :html-attrs (identical body + title) →
+           DIFFERENT :rf/head-hash (attr bags are part of the head model)"))))
+
+;; ===========================================================================
+;; rf2-1oxjxk — MANDATORY REGRESSION: a REAL server render -> real wire
+;; payload -> ssr/hydrate! with the DOCUMENTED :render-tree-fn must NOT fire
+;; a spurious :rf.ssr/hydration-mismatch, even under :on-mismatch
+;; :hard-error (which THROWS on any mismatch).
+;;
+;; Per the rf2-lo28u lesson: a hand-built payload literal / pre-computed
+;; hash would NOT have caught the original bug (the divergence was between
+;; the REAL server pipeline's hash input and the REAL client's hash input,
+;; not a value either side could fake in isolation). This test drives the
+;; ACTUAL failing path end-to-end: a real `ssr-handler` renders a REAL head
+;; fragment (route-driven `reg-head`, the original bug's trigger) into the
+;; response body, the REAL `__rf_payload` is parsed off the wire, and
+;; `ssr/hydrate!` is called with the documented expanded
+;; `:render-tree-fn #((rf/view :app/root))` form — the exact shape Spec 011's
+;; worked example uses. Pre-fix (the unified full-document hash), this
+;; throws on every single call.
+;; ===========================================================================
+
+(deftest ssr-handler-hydrate-no-spurious-mismatch-under-hard-error
+  (testing "rf2-1oxjxk: real render -> real payload -> ssr/hydrate! with
+            :render-tree-fn #((rf/view :app/root)) completes with NO
+            spurious :rf.ssr/hydration-mismatch, even under the strict
+            :on-mismatch :hard-error posture."
+    (rf/reg-event :rf.test.regression/init
+      (fn [{:keys [db]} _] {:db (assoc db :count 7)}))
+    (rf/reg-event :rf.test.regression/seed-route
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                   {:route-id :route/regression})}))
+    (rf/reg-head :head/regression
+      (fn [_db _route] {:title "Regression Page"
+                        :meta  [{:name "description" :content "rf2-1oxjxk"}]}))
+    (rf/reg-route :route/regression {:doc "Regression" :head :head/regression} "/regression")
+    ;; A pure static view (no subscribe/dispatch) so it can be called
+    ;; directly via `(rf/view :app/root)` outside an explicit `with-frame`
+    ;; scope on the CLIENT side — mirroring the documented
+    ;; `:render-tree-fn #((rf/view :app/root))` boot-helper contract, which
+    ;; calls the fn with no frame binding of its own (Spec 011 §Client-side
+    ;; hydration boot helper).
+    (rf/reg-view* :app/root
+      (fn [] [:div.app [:h1 "Regression"] [:p "count is stable"]]))
+
+    (let [handler     (ssr-ring/ssr-handler
+                        {:initial-events [[:rf.test.regression/init]
+                                          [:rf.test.regression/seed-route]]
+                         ;; Documented EXPANDED :root-view form — symmetric
+                         ;; with the client's :render-tree-fn
+                         ;; #((rf/view :app/root)) (Spec 011 §Hydration
+                         ;; equivalence rule / rf2-1kqvbx).
+                         :root-view (fn [] ((rf/view :app/root)))
+                         :payload   :rf.ssr.payload/whole-app-db})
+          response    (handler {:uri "/regression" :request-method :get})
+          body        (:body response)
+          payload-edn (second (re-find
+                                #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                                body))
+          ;; The server stamps its OWN per-request gensym'd frame-id into the
+          ;; payload's `:rf/frame-id`; dispatching that into a fresh client
+          ;; frame would trip the ORTHOGONAL frame-id-isolation guard
+          ;; (rf2-nv3mua). Strip it — an absent `:rf/frame-id` is the
+          ;; documented no-conflict shape — so this test isolates the HASH
+          ;; path (the rf2-1oxjxk concern), exactly as the sibling
+          ;; hydration tests do.
+          payload     (dissoc (edn/read-string payload-edn) :rf/frame-id)
+          client-frame (frame/make-anon-frame-record!
+                         {:doc      "rf2-1oxjxk regression client frame"
+                          :platform :client
+                          :ssr      {:on-mismatch :hard-error}})]
+      (is (= 200 (:status response)) "the server render succeeds")
+      (is (some? payload-edn) "the response carries a __rf_payload script")
+      (is (str/includes? body "<title>Regression Page</title>")
+          "sanity: the server actually rendered a real route-driven head
+           fragment (the original bug's trigger) alongside the body")
+      ;; The REAL wire payload carries a body-only :rf/render-hash AND a
+      ;; separate :rf/head-hash (the route-driven head is reconstructible).
+      (is (some? (:rf/render-hash payload)) "payload carries :rf/render-hash")
+      (is (some? (:rf/head-hash payload))
+          "payload carries the separate :rf/head-hash (route-driven head is
+           client-reconstructible)")
+
+      ;; THE REGRESSION — must NOT throw. Pre-fix (rf2-9fw2de's unified
+      ;; full-document hash), the payload's :rf/render-hash covered body +
+      ;; head while the documented :render-tree-fn only ever hashes the
+      ;; body, so this call threw :rf.ssr/hydration-mismatch on every
+      ;; single SSR page — even here under :on-mismatch :hard-error.
+      (is (= payload
+             (ssr/hydrate! {:frame          client-frame
+                            :payload        payload
+                            :render-tree-fn #((rf/view :app/root))}))
+          "rf2-1oxjxk: hydrate! completes without a spurious mismatch throw
+           and returns the applied payload"))))
 
 ;; ===========================================================================
 ;; ssr-handler — Ring → :rf.server/request cofx (rf2-afxhv)

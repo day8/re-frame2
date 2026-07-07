@@ -350,7 +350,7 @@
         ;; resolution (`rf/active-head` reads the frame's route registry),
         ;; AND the hydration-payload build. One push/pop per request.
         explicit-head (:head opts)
-        {:keys [head-html html-attrs body-attrs body-html rf-payload]}
+        {:keys [head-html html-attrs body-attrs body-html head-hash rf-payload]}
         ;; rf2-bzw8gd / rf2-tqjc7h: pin `*current-frame*` to the request frame
         ;; for the whole render walk (`rf/with-frame`), established ONCE per
         ;; request. The scope covers resolve-root-view, render-to-string's
@@ -367,29 +367,35 @@
                 ;; §Default flow step 4. Callers that supplied an
                 ;; explicit :head string take precedence — they chose to
                 ;; bypass route-driven head resolution, and an explicit
-                ;; string carries no attr-bag sidechannel.
-                ;;
-                ;; rf2-9fw2de: head is resolved BEFORE the hash so the
-                ;; structural hash can fold the head fragment in — Spec
-                ;; 011 §624-626/§648-650 lock head + body onto the unified
-                ;; `:rf/render-hash` channel.
+                ;; string carries no attr-bag sidechannel (nor a
+                ;; reconstructible `:head-model` — rf2-1oxjxk).
                 head-bag  (if explicit-head
                             {:head-html explicit-head
                              :html-attrs nil
                              :body-attrs nil}
                             (lifecycle/resolve-head frame-id))
-                ;; rf2-i15nh / rf2-atmvj: compute the structural hash
-                ;; ONCE per request. rf2-9fw2de: the canonical hash input
-                ;; is the FULL document state (body tree + resolved head
-                ;; fragment + html/body attr bags), not body alone, so a
-                ;; head-only server/client divergence changes the hash and
-                ;; the bundled v1 mismatch detector catches it. The same
-                ;; hex feeds the root-element `data-rf-render-hash` (via
-                ;; render-to-string's `:render-hash` opt) AND the payload's
-                ;; `:rf/render-hash`, so the canonical-EDN walk runs once
-                ;; per request. When `:emit-hash?` is false the hash is
-                ;; still needed for the payload slot.
-                hash-str  (lifecycle/render-document-hash hiccup head-bag)
+                ;; rf2-i15nh / rf2-atmvj: compute the structural hash ONCE
+                ;; per request. rf2-1oxjxk (Option B, reverting rf2-9fw2de):
+                ;; the wire hash is BODY-ONLY again — the documented client
+                ;; boot (`ssr/hydrate!`'s `:render-tree-fn`) only ever hashes
+                ;; the bare body tree, so folding the head fragment in here
+                ;; fired a spurious mismatch on EVERY page (the client half
+                ;; of rf2-9fw2de was never made). The same hex feeds the
+                ;; root-element `data-rf-render-hash` (via render-to-string's
+                ;; `:render-hash` opt) AND the payload's `:rf/render-hash`, so
+                ;; the canonical-EDN walk runs once per request. When
+                ;; `:emit-hash?` is false the hash is still needed for the
+                ;; payload slot.
+                hash-str  (lifecycle/render-document-hash hiccup)
+                ;; Head divergence rides its OWN channel (rf2-1oxjxk): a
+                ;; separate structural hash over the CANONICAL HEAD MODEL
+                ;; (never emitted HTML), client-reconstructible via
+                ;; `(rf/active-head frame-id)` (Spec 011 §Default flow step
+                ;; 5). nil when the head is not client-reconstructible (an
+                ;; explicit `:head` string, or a degraded/failed head
+                ;; resolution) — `render-head-hash` OMITS the channel rather
+                ;; than ship a hash the client could never match.
+                head-hash (lifecycle/render-head-hash (:head-model head-bag))
                 body-html (ssr/render-to-string
                             hiccup
                             {:doctype?    false
@@ -421,15 +427,22 @@
                 rf-payload (payload/build-payload frame-id app-db runtime-db hash-str
                                                   {:version       version
                                                    :schema-digest schema-digest
-                                                   :payload       payload})]
+                                                   :payload       payload
+                                                   :head-hash     head-hash})]
             (assoc head-bag
                    :body-html  body-html
+                   :head-hash  head-hash
                    :rf-payload rf-payload)))
         payload-edn (pr-str rf-payload)
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs
-                           :body-attrs  body-attrs)
+                           :body-attrs  body-attrs
+                           ;; The WIRE `data-rf-head-hash` marker is gated by
+                           ;; `:emit-hash?`, mirroring `data-rf-render-hash`
+                           ;; (the payload's `:rf/head-hash` stays unconditional
+                           ;; — see `rf-payload` above).
+                           :head-hash   (when emit-hash? head-hash))
         html        (html-shell body-html payload-edn shell-opts)
         ;; rf2-c0bq1 — RE-FLUSH after the render walk. The `resp` arg was
         ;; read at `ring.clj:343` (the single `get-response`) BEFORE the
