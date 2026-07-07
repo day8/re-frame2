@@ -36,6 +36,7 @@
   cluster item 3e (audit rf2-i0veg §3e)."
   (:require [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.install :as install]
+            [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             ;; rf2-e8330v (xxo3zz F3) — per-panel test-override seams.
@@ -52,11 +53,12 @@
             [day8.re-frame2-xray.static.schemas.panel :as static-schemas-panel]))
 
 (defn reset-sentinels!
-  "Reset ONLY the install + registry idempotency sentinels, in
+  "Reset ONLY the install + registry + mount idempotency sentinels, in
   dependency order:
 
       install/reset-for-test!  ; trace-cb + epoch-cb reg flags
       registry/reset-for-test! ; per-panel reg-event/reg-sub flags
+      mount/reset-for-test!    ; ensure-xray-frame! run-once guard (rf2-n4p5it)
 
   Does NOT touch the trace-collector rings or the settings atom — safe
   to call MID-setup (after frames are registered) because it only flips
@@ -64,6 +66,7 @@
   []
   (install/reset-for-test!)
   (registry/reset-for-test!)
+  (mount/reset-for-test!)
   nil)
 
 (defn reset-all!

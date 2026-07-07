@@ -1798,3 +1798,98 @@
           ":target-frame stays on the head frame — no spurious re-key")
       (is (= [:e1 :e2 :e3] (mapv :epoch-id history))
           ":epoch-history is still the head frame's full ring"))))
+
+;; -------------------------------------------------------------------------
+;; (13) rf2-j5xjvt — spine STEP cross-frame reseeds :epoch-history
+;;
+;; Section (12) covers the CLICK handlers (focus-event, focus-epoch,
+;; select-dispatch-id) re-seeding `:epoch-history` onto a non-target
+;; frame's row before resolving its settling epoch (rf2-q8hvw /
+;; rf2-o1c3r). The STEP handlers (`:rf.xray/focus-event-prev` / `-next`,
+;; the `j` / `k` keys) had no equivalent: they resolved epoch-id against
+;; whatever `:epoch-history` ring happened to be current, so a step that
+;; lands in a frame other than the current `:target-frame` resolved
+;; `:epoch-id` to nil even though that frame's ring genuinely holds a
+;; settling epoch for the stepped row. Unlike section (12)'s fixture,
+;; `:target-frame` / `[:focus :frame]` are deliberately left UNSET here
+;; — a set `[:focus :frame]` scopes the step walk to one frame
+;; (rf2-oziyr picker-scoping), which would prevent the walk from ever
+;; crossing frames in the first place. A genuinely untouched picker
+;; (never seeded, or seeded then explicitly cleared) is what lets a
+;; single step land in a different frame — the repro this section
+;; drives.
+;; -------------------------------------------------------------------------
+
+(defn- mount-multi-frame-picker-never-touched! []
+  ;; Fresh framework rings — the runtime-reset fixture does NOT clear
+  ;; the epoch histories, so wipe them so this test owns the slot state.
+  (epoch-api/clear-history!)
+  (setup-xray-frame!)
+  (seed-framework-epoch-ring! :rf/default  [{:epoch-id :e1 :dispatch-id :c1}
+                                            {:epoch-id :e2 :dispatch-id :c2}
+                                            {:epoch-id :e3 :dispatch-id :c3}])
+  (seed-framework-epoch-ring! :cart-frame  [{:epoch-id :cart-e9 :dispatch-id :cart-c9}])
+  (seed-cascades! multi-frame-cascades)
+  ;; Deliberately no `:rf.xray/set-target-frame` dispatch — `:target-
+  ;; frame` and `[:focus :frame]` stay absent, so the step walk spans
+  ;; every frame (the true "picker never touched" state).
+  )
+
+(deftest focus-step-prev-cross-frame-reseeds-epoch-history-rf2-j5xjvt
+  (testing "rf2-j5xjvt — stepping PREV from the head lands on a
+            :cart-frame row (the whole-buffer walk, picker never
+            touched); the step must re-seed :epoch-history onto
+            :cart-frame BEFORE resolving the stepped row's settling
+            epoch, exactly as the click handlers do."
+    (mount-multi-frame-picker-never-touched!)
+    ;; RED baseline: with the slot never seeded, the cart cascade's
+    ;; epoch is absent from whatever (empty) ring the pre-fix reducer
+    ;; would have resolved against.
+    (let [boot-history (rf/with-frame :rf/xray
+                         @(rf/subscribe [:rf.xray/epoch-history]))]
+      (is (empty? boot-history)
+          "precondition: :epoch-history was never seeded")
+      (is (nil? (spine/epoch-id-for-event-bundle boot-history :cart-c9))
+          "RED baseline: resolving against the un-reseeded (empty) slot
+           yields nil (the bug)"))
+    ;; The actual failing path: dispatch the real step event.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event-prev]))
+    ;; GREEN: the spine focus now carries the stepped row's epoch.
+    (let [r (focus-sub)]
+      (is (= :cart-c9 (:dispatch-id r))
+          "stepping prev from the head :c3 lands on :cart-c9 — the
+           previous row in the whole-buffer walk, settled in :cart-frame")
+      (is (= :cart-frame (:frame r)))
+      (is (= :cart-e9 (:epoch-id r))
+          "the stepped row's settling epoch resolves — was nil pre-fix"))
+    ;; The slot itself is now re-keyed onto the stepped row's frame.
+    (let [target  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
+          history (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
+      (is (= :cart-frame target)
+          ":target-frame re-keyed onto the stepped row's frame")
+      (is (= [:cart-e9] (mapv :epoch-id history))
+          ":epoch-history is the stepped frame's ring contents"))))
+
+(deftest focus-step-same-frame-leaves-slot-untouched-rf2-j5xjvt
+  (testing "rf2-j5xjvt — stepping WITHIN the current target frame (the
+            picker/focus already scoped to :rf/default) is a no-op for
+            the :epoch-history slot — the re-seed only fires on an
+            actual frame change, mirroring the click handlers' same-
+            frame no-op (rf2-q8hvw)."
+    (mount-multi-frame-picker-untouched!)
+    ;; [:focus :frame] is pinned to :rf/default by the boot seed, so the
+    ;; step walk is scoped to :rf/default cascades only (rf2-oziyr) —
+    ;; stepping prev from head :c3 lands on :c2, same frame.
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/focus-event-prev]))
+    (let [r       (focus-sub)
+          target  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame]))
+          history (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/epoch-history]))]
+      (is (= :c2 (:dispatch-id r)))
+      (is (= :e2 (:epoch-id r))
+          "same-frame step resolves the head frame's epoch unchanged")
+      (is (= :rf/default target)
+          ":target-frame stays on the head frame — no spurious re-key")
+      (is (= [:e1 :e2 :e3] (mapv :epoch-id history))
+          ":epoch-history is still the head frame's full ring"))))

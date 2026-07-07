@@ -1077,6 +1077,90 @@
                     "app-db container preserved across re-register")))))))))
 
 ;; -------------------------------------------------------------------------
+;; (8c) rf2-n4p5it — ensure-xray-frame! run-once guard
+;; -------------------------------------------------------------------------
+;;
+;; `popout!` calls `(ensure-xray-frame!)` with no arg — the SAME default
+;; `frame-id` the inline shell already seeded via `open!`. Pre-fix the
+;; hook fan-out was unguarded, so this second call re-ran
+;; `::seed-trace-and-target-frame`, which re-derives the seed frame from
+;; the CURRENT head focusable event-bundle and re-dispatches
+;; `:rf.xray/set-target-frame` — reverting `:target-frame` back to the
+;; head frame even after the user had already picked a different frame
+;; via the L1 switcher. This test drives `ensure-xray-frame!` directly a
+;; second time (exactly what `popout!` does under the hood) rather than
+;; standing up a real second `window.open` — mirrors the direct-call
+;; pattern `init_filter_reset_cljs_test.cljs` uses for the same fn.
+
+(deftest ensure-xray-frame-does-not-reseed-target-frame-on-second-call-rf2-n4p5it
+  (testing "rf2-n4p5it — a second `ensure-xray-frame!` call for the SAME
+            frame-id must NOT re-run the first-mount hook fan-out, so a
+            user-picked `:target-frame` survives a pop-out remount"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn
+                        rf/epoch-history (fn [frame-id]
+                                           (case frame-id
+                                             :cart-frame [{:epoch-id :e-cart :frame :cart-frame
+                                                           :db-before {} :db-after {:k 1}
+                                                           :trigger-event [:cart/add]
+                                                           :event-id :cart/add
+                                                           :trace-events []}]
+                                             []))]
+            ;; Pre-mount traffic on :cart-frame — the head focusable
+            ;; event-bundle's frame, so the FIRST ensure-xray-frame!
+            ;; (inside open!) seeds :target-frame to :cart-frame.
+            (trace-collector/seed-trace-for-test!
+              (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
+            (mount/open!)
+            (rf/with-frame :rf/xray
+              (is (= :cart-frame @(rf/subscribe [:rf.xray/target-frame]))
+                  "precondition: first mount seeded :target-frame from the
+                   head focusable event-bundle's frame"))
+            ;; The user picks a DIFFERENT frame — e.g. via the L1 frame
+            ;; switcher, which drives :target-frame in lockstep with
+            ;; :epoch-history exactly like the seed hook does.
+            (rf/with-frame :rf/xray
+              (rf/dispatch-sync [:rf.xray/set-target-frame :other-frame]))
+            (rf/with-frame :rf/xray
+              (is (= :other-frame @(rf/subscribe [:rf.xray/target-frame]))
+                  "precondition: user's picker choice is now :other-frame"))
+            ;; popout! calls (ensure-xray-frame!) again with the same
+            ;; default frame-id — simulate that second call directly.
+            (mount/ensure-xray-frame!)
+            (rf/with-frame :rf/xray
+              (is (= :other-frame @(rf/subscribe [:rf.xray/target-frame]))
+                  "rf2-n4p5it — the second ensure-xray-frame! call must NOT
+                   revert :target-frame back to the head frame; the
+                   user's picker choice survives the remount"))))))))
+
+(deftest ensure-xray-frame-reset-for-test-restores-fresh-first-mount-pass
+  (testing "rf2-n4p5it — `mount/reset-for-test!` clears the run-once
+            guard so a subsequent `ensure-xray-frame!` call performs a
+            fresh first-mount seed again (the fixture-reset contract
+            every Xray test fixture relies on via
+            `test-support/reset-sentinels!`)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render render-fn
+                        rf/epoch-history (fn [_] [])]
+            (mount/open!)
+            (rf/with-frame :rf/xray
+              (rf/dispatch-sync [:rf.xray/set-target-frame :other-frame]))
+            ;; Without a reset, a second call is a guarded no-op (proven
+            ;; by the sibling test above).
+            (mount/reset-for-test!)
+            (mount/ensure-xray-frame!)
+            (rf/with-frame :rf/xray
+              (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
+                  "post-reset, ensure-xray-frame! re-ran the seed hook —
+                   cold start (no pre-mount cascades) seeds :target-frame
+                   back to UNSELECTED (nil), proving the hook actually
+                   re-fired rather than staying guarded"))))))))
+
+;; -------------------------------------------------------------------------
 ;; (9) Teardown covers both mount singletons (rf2-yudol, rf2-sbfb7)
 ;; -------------------------------------------------------------------------
 ;;

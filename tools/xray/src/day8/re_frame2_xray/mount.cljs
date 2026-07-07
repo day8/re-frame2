@@ -341,6 +341,35 @@
   ;; registrations).
   (atom []))
 
+(defonce ^:private seeded-frame-ids
+  ;; rf2-n4p5it — the set of frame-ids whose first-mount hooks have
+  ;; already fired at least once. `ensure-xray-frame!` fans the hook
+  ;; table out UNGUARDED prior to this fix: `popout!` calls
+  ;; `(ensure-xray-frame!)` with no arg, defaulting to the SAME
+  ;; `shell/default-frame-id` the inline shell already seeded, so a
+  ;; pop-out remount re-ran EVERY first-mount hook — including
+  ;; `::seed-trace-and-target-frame`, which re-derives the seed frame
+  ;; from the CURRENT head focusable event-bundle and re-dispatches
+  ;; `:rf.xray/set-target-frame`. That reverted `:target-frame` (and
+  ;; the `:epoch-history` ring keyed on it) back to the head frame
+  ;; even when the user had already picked a different frame via the
+  ;; L1 switcher — the inline shell's App-DB / Epoch panels jumped off
+  ;; the user's choice the instant they popped the shell out. Spec
+  ;; 011 §Pop-out: the pop-out shares the opener's runtime and frame —
+  ;; reflecting it, not resetting it.
+  ;;
+  ;; This is bookkeeping for the HOOK FAN-OUT ONLY — `image-reads/seat-
+  ;; xray-frame!` keeps its own independent idempotency check
+  ;; (`xray-frame-seated?`, queried against the live frame registry)
+  ;; and always runs; a re-seat is a cheap no-op when already seated.
+  ;;
+  ;; `defonce` so the guard survives shadow-cljs `:after-load` (a hot-
+  ;; reload of an already-open shell must not re-seed it either).
+  ;; Test-only escape hatch: `reset-for-test!` below clears this so
+  ;; fixtures that wipe the frame registry between tests also get a
+  ;; fresh first-mount pass.
+  (atom #{}))
+
 (defn- register-first-mount-hook!
   "Register a 1-ary fn `(fn [frame-id] …)` to run on first
   `ensure-xray-frame!` after the shell's frame is registered. Hooks
@@ -363,11 +392,29 @@
 
 (defn ensure-xray-frame!
   "Register the shell frame if not already registered, then run each
-  registered first-mount hook in insertion order. Idempotent via
-  `reg-frame`'s surgical-update-on-re-register semantics (per Spec
-  002 §reg-frame) — first call creates the frame and seeds, subsequent
-  calls are surgical no-ops on the frame side and (per each hook's own
-  idempotency contract) no-ops on the hook side.
+  registered first-mount hook — but ONLY on the first call for a given
+  `frame-id`. Idempotent via `reg-frame`'s surgical-update-on-re-
+  register semantics (per Spec 002 §reg-frame) on the frame side, AND
+  via the `seeded-frame-ids` run-once guard on the hook side (rf2-
+  n4p5it) — first call creates the frame and seeds; every subsequent
+  call for the SAME `frame-id` is a surgical no-op on the frame side
+  and skips the hook fan-out entirely.
+
+  ## rf2-n4p5it — run-once guard
+
+  Pre-fix the hook fan-out ran UNGUARDED on every call — harmless for
+  the inline shell (`open!` only calls this once, before the frame
+  exists), but `popout!` also calls `(ensure-xray-frame!)` with the
+  SAME default `frame-id` the inline shell already seeded. Without a
+  guard, popping out re-ran `::seed-trace-and-target-frame`, which
+  re-derives the seed frame from the CURRENT head focusable event-
+  bundle and re-dispatches `:rf.xray/set-target-frame` — reverting
+  `:target-frame` (and the `:epoch-history` ring keyed on it) back to
+  the head frame even when the user had already picked a different
+  frame via the L1 switcher. The pop-out is supposed to REFLECT the
+  opener's already-running instance, not reset it (Spec 011 §Pop-out).
+  See `seeded-frame-ids` above for the guard's contract, including the
+  test-only `reset-for-test!` escape hatch.
 
   EP-0023 §Xray Beside The Target (rf2-32siq3.36): the production singleton is
   SEATED in its OWN image-loaded frame via `image_view_reads/seat-xray-frame!`
@@ -483,8 +530,25 @@
    ;; through `host-registry` (generation-bypassing) so the inspector still sees
    ;; the inspected app's registrar, not its own image's — see that ns.
    (image-reads/seat-xray-frame! frame-id)
-   (doseq [{:keys [handler]} @first-mount-hooks]
-     (handler frame-id))))
+   ;; rf2-n4p5it — run the hook fan-out only on the FIRST call for this
+   ;; `frame-id`. `seat-xray-frame!` above stays unconditional (its own
+   ;; `xray-frame-seated?` check makes a re-seat a cheap no-op); it's
+   ;; the SEED/HYDRATE hook table that must not re-fire on a same-
+   ;; frame-id remount (popout! after inline open!, or a repeat
+   ;; ensure-xray-frame! call generally).
+   (when-not (contains? @seeded-frame-ids frame-id)
+     (swap! seeded-frame-ids conj frame-id)
+     (doseq [{:keys [handler]} @first-mount-hooks]
+       (handler frame-id)))))
+
+(defn reset-for-test!
+  "Reset the `ensure-xray-frame!` run-once guard (rf2-n4p5it) so test
+  fixtures that wipe the frame registry between tests also get a
+  fresh first-mount hook pass on the next `ensure-xray-frame!` call.
+  Test-only — never call from production code."
+  []
+  (reset! seeded-frame-ids #{})
+  nil)
 
 ;; ---- first-mount hook registrations -------------------------------------
 ;;

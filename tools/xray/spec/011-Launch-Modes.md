@@ -338,6 +338,25 @@ via `window.opener`. The pop-out renders into the new window but
 — no `BroadcastChannel`, no `postMessage`, no structured-clone
 serialisation. Same JS realm, no protocol cost.
 
+**Pop-out REFLECTS the opener's already-running instance; it must not
+RESET it (rf2-n4p5it).** `popout!` calls `mount/ensure-xray-frame!`
+with no arg — the SAME default `frame-id` the inline shell already
+seeded. `ensure-xray-frame!` gates its first-mount hook fan-out (trace-
+buffer seed, `:target-frame` + `:epoch-history` seed, transient-filter
+reset, column-width hydrate, mode hydrate, auto-open-watcher install)
+behind a `seeded-frame-ids` run-once guard keyed on `frame-id`: the
+FIRST call for a frame-id runs every hook; every subsequent call for
+that SAME frame-id is a no-op on the hook side (the frame
+(re-)registration itself stays idempotent via `reg-frame`'s surgical-
+update-on-re-register semantics regardless). Without the guard, a
+pop-out re-ran `::seed-trace-and-target-frame`, which re-derives the
+seed frame from the CURRENT head focusable event-bundle and
+re-dispatches `:rf.xray/set-target-frame` — reverting `:target-frame`
+(and the `:epoch-history` ring keyed on it) back to the head frame even
+when the user had already picked a different frame via the L1
+switcher, jumping the inline shell's App-DB / Epoch panels off the
+user's choice the instant the shell was popped out.
+
 **Styling (the second-window stylesheet hand-off).** The pop-out window
 is a distinct `document` whose `<head>` does NOT inherit the opener's
 injected Xray stylesheet. The shell's inline styles and class rules all
