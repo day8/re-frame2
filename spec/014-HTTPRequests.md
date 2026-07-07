@@ -136,14 +136,14 @@ The `:rf.http/managed` fx accepts a single args map. The reference card below li
 | `:request` | required | The wire envelope — `:method` / `:url` / `:headers` / `:params` / `:body` / `:request-content-type` / `:credentials` / `:mode` / `:redirect` / `:cache` / `:referrer` / `:integrity` / `:sensitive?`. See [§Request envelope](#request-envelope). | A bad envelope surfaces as `:rf.http/transport`, `:rf.http/cors`, `:rf.http/http-4xx`, or `:rf.http/http-5xx` depending on how the host rejects it. |
 | `:decode` | `:auto` | Response-body decoder: a Malli schema, a fn `(response-text headers → decoded)`, or one of `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data` / `:auto`. Runs only on 2xx. See [§Decoding](#decoding). | `:rf.http/decode-failure` (schema reject, JSON parse, custom-fn throw). |
 | `:accept` | `{:ok decoded}` | Post-decode normaliser `(decoded → {:ok v} | {:failure m})` — lets a structurally-valid 200 surface as a domain failure. Runs only after a successful 2xx decode (non-2xx classifies by status before decode, so `:accept` never sees it). See [§`:accept` — domain-failure normalisation](#accept--domain-failure-normalisation). | `:rf.http/accept-failure` (the user map rides at `:detail`). |
-| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at registration / dispatch time. Retries exhaust → the final failure category. |
+| `:retry` | no retry | Retry policy `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` is a closed subset of `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. See [§Retry and backoff](#retry-and-backoff). | Invalid `:retry :on` member → `:rf.error/http-bad-retry-on` at fx-call time. Retries exhaust → the final failure category. |
 | `:timeout-ms` | `30000` | Per-attempt wall-clock timeout in ms. `nil` or `0` opts out (no timeout). See [§`:timeout-ms` security defaults](#timeout-ms-security-defaults). | `:rf.http/timeout` when the budget elapses. |
 | `:on-success` | originating event id with `:rf/reply` merged | Where to dispatch the success reply. See [§Reply addressing](#reply-addressing). | — (`:on-success` does not itself fail.) |
 | `:on-failure` | originating event id with `:rf/reply` merged | Where to dispatch the failure reply. `nil` swallows silently. See [§Reply addressing](#reply-addressing). | — (`:on-failure` does not itself fail; it routes the reply.) |
 | `:request-id` | none | Stable `=`-comparable id for abort + correlation. Keywords / strings / vectors / uuids all work. See [§`:request-id` (internal)](#request-id-internal). | Superseded by a later request with the same id → in-flight request aborts with `:rf.http/aborted :reason :request-id-superseded` on the trace stream. |
 | `:abort-signal` | none | External `AbortController.signal` handle. **May be supplied together with `:request-id`** — both attach a cancellation source to the one managed request, and the once-only finalisation CAS guarantees exactly one terminal outcome (per [§`:abort-signal` (external)](#abort-signal-external)). CLJS-only; on the JVM the external signal is ignored, so only the `:request-id` path is portable there. See [§`:abort-signal` (external)](#abort-signal-external). | `:rf.http/aborted :reason :user` when the host fires the signal. |
 | `:sensitive?` | `false` | Marks the request body / headers / params / decoded value as sensitive for the trace stream. Honours [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces). May also be set under `:request`; the top-level slot is sugar. See [§Privacy](#privacy). | — (privacy flag; does not affect classification.) |
-| `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
+| `:rf.http/max-decoded-keys` | `10000` | Per-request cap on the number of unique JSON object keys the decoder will intern. Second line of defence after `:decode :text` for untrusted-origin payloads. See [§Keyword-interning cap](#keyword-interning-cap). | `:rf.http/decode-failure :cause :too-many-keys` on overflow. |
 
 Stub-mode slots (`:rf.http/canned-success` / `:rf.http/canned-failure` and the `with-managed-request-stubs` family) live in the sibling `re-frame.http.test-support` namespace and are documented in [§Testing](#testing); they are not part of the production args-map surface.
 
@@ -189,7 +189,7 @@ A related but distinct JVM degradation is **shape**, not silent no-op: a binary 
 |---|---|---|
 | `:blob` / `:array-buffer` / `:form-data` | args map (top-level) | **Honoured, shape-degraded.** `jvm-fetch` reads `ofByteArray` and rides the raw bytes, so the decode is NOT ignored — but the returned value is a `byte[]`, not the native browser `Blob` / `ArrayBuffer` / `FormData` object the CLJS Fetch path yields. An EXPLICIT binary `:decode` emits one `:rf.http/binary-decode-degraded-on-jvm` warning trace per occurrence (`:auto` is not flagged — it resolves to `:blob` from the response Content-Type, unknown at dispatch time). Per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). |
 
-`:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is populated on BOTH hosts with the same semantics: a **measured wall-clock delta** captured across the attempt. The JVM uses a monotonic `System/nanoTime` start mark (`run-attempt!`); CLJS uses a `performance.now()` (or `Date.now()` fallback) delta stamped on the synthetic timeout rejection (`cljs-fetch`). On both hosts `:elapsed-ms` is therefore `>= :limit-ms` by the scheduling margin, so a consumer may compute overshoot (`(- :elapsed-ms :limit-ms)`) portably. (Prior to this, CLJS reported a synthetic constant always `== :limit-ms` — shape-parity, not value-parity; the divergence is now closed.)
+`:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is populated on BOTH hosts with the same semantics: a **measured wall-clock delta** captured across the attempt. The JVM uses a monotonic `System/nanoTime` start mark (`run-attempt!`); CLJS uses a `performance.now()` (or `Date.now()` fallback) delta stamped on the synthetic timeout rejection (`cljs-fetch`). On both hosts `:elapsed-ms` is therefore `>= :limit-ms` by the scheduling margin, so a consumer may compute overshoot (`(- :elapsed-ms :limit-ms)`) portably.
 
 ### Body encoding
 
@@ -285,11 +285,11 @@ For handlers that issue multiple `:rf.http/managed` requests with different sche
 
 JSON object keys are decoded as Clojure keywords. On the JVM, keywords are interned and never garbage-collected — a compromised upstream returning N unique-key JSON per response would permanently burn N keyword slots per response. Long-running JVMs (SSR, webhook receivers, agent-controlled fetches) are the worst case.
 
-The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow throws `:rf.http/decode-failure` with `:reason :too-many-keys` and the configured `:limit`.
+The decoder enforces a per-request cap on the number of unique object keys decoded. Overflow throws `:rf.http/decode-failure` with `:cause :too-many-keys` and the configured `:limit`.
 
 | Args-map key | Default | Notes |
 |---|---|---|
-| `:rf.http/max-decoded-keys` | 10000 | Per-request cap on unique JSON object keys. Throws `:rf.http/decode-failure :reason :too-many-keys` on overflow. |
+| `:rf.http/max-decoded-keys` | 10000 | Per-request cap on unique JSON object keys. Throws `:rf.http/decode-failure :cause :too-many-keys` on overflow. |
 
 The cap applies to both the Cheshire path and the pure-Clojure fallback reader. 10000 is generous — legitimate APIs typically expose tens to low-hundreds of distinct key names per response. Apps that knowingly consume larger-cardinality payloads can raise the cap per request:
 
@@ -305,7 +305,7 @@ The cap is the SECOND line of defence; the FIRST line is `:request-content-type`
 > Cross-reference: see [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) and [Security.md §DoS by input](Security.md#dos-by-input) for the framework-wide posture this section grounds.
 
 ### JSON decoder hardening
-The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader: the project's hand-rolled JSON fallback was deleted in favour of the hardened dep; the framework does not own a parser it would have to keep hardened against malformed-input classes.
+The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire on the JVM; the host's native `JSON.parse` on the browser) rather than a hand-rolled reader: the framework owns no JSON parser — decoding depends on a hardened host parser (native `JSON.parse` on the browser; a hardened dep on the JVM) so there is no framework-owned surface to keep hardened against malformed-input classes.
 
 Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
 
@@ -370,7 +370,7 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 | Key | Type | Purpose |
 |---|---|---|
 | `:on` | set of retryable-category keywords | Which failure categories trigger a retry. **Closed set** — must be drawn exclusively from the *retryable* subset of [§Failure categories](#failure-categories-closed-set): `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Common defaults: `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`. See [§Closed-set `:retry :on` validation](#closed-set-retry-on-validation) below. |
-| `:max-attempts` | int | Total attempts including the first. `1` = no retry. Default: 1. |
+| `:max-attempts` | int | Total attempts including the first. `1` = no retry. Absent ⇒ no retry (equivalently `1`). |
 | `:backoff` | map | Exponential backoff config. |
 | `:backoff.:base-ms` | int | Initial delay (ms). |
 | `:backoff.:factor` | num | Multiplier per attempt. |
@@ -511,16 +511,16 @@ The category vocabulary is **closed for v1** — additions require a Spec change
 
 #### CORS classification — heuristic emission
 
-`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
+Browsers surface CORS rejections opaquely, so the category is heuristic: the CLJS reference emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
 
 > Cross-reference: see [Security.md §What is explicitly out of scope](Security.md#what-is-explicitly-out-of-scope) — CORS itself is a host-platform concern; the framework classifies the rejection but does not configure CORS.
 
 ### Reply payload shape — the one canonical envelope
 
-There is **one** reply shape. Every managed-HTTP completion delivers the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) (Managed-Effects property 9; [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record) directly to the app reply target — there is no second `{:kind :success/:failure}` dialect, and no compat reshape (retired per rf2-ibksxg). One HTTP attempt produces one **canonical reply map** with a single closed `:status`:
+There is **one** reply shape. Every managed-HTTP completion delivers the framework-wide [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope) (Managed-Effects property 9; [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) is the rationale record) directly to the app reply target — there is no second `{:kind :success/:failure}` dialect, and no compat reshape — every completion delivers the single canonical envelope. One HTTP attempt produces one **canonical reply map** with a single closed `:status`:
 
 ```clojure
-{:status       :ok            ;; one of :ok | :error | :cancelled
+{:status       :ok            ;; one of :ok | :error | :cancelled | :stale (:stale is a suppression outcome — never delivered to an app target; see §Actor-destroyed suppression)
  :value        <decoded-and-accepted-payload>   ;; on :ok
  :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled — the classified failure map, verbatim
  :work/id      [:rf.work/http logical-id issuance attempt] ;; the attempt identity
@@ -687,7 +687,7 @@ When the request's reply target is **obsolete** — its event-id names the destr
 3. a `:rf.http/stale-suppressed` reply-envelope trace records the carried correlation joined to `:work/id` (`:recovery :actor-destroyed-target-obsolete`) — the same canonical stale row a [supersession](#request-id-internal) emits;
 4. the `:rf.http/aborted` trace still fires (the abort is observable); only the app **reply delivery** is suppressed.
 
-This replaces the earlier accidental no-op (a dispatch to an unregistered handler that silently dropped): the suppression is now an explicit, data-shaped `:status :stale` outcome that tooling and conformance pin, exactly as supersession already does. Explicit `:user` aborts always stay live `:cancelled`.
+The suppression is an explicit, data-shaped `:status :stale` outcome that tooling and conformance pin, exactly as supersession does — never a silent drop. Explicit `:user` aborts always stay live `:cancelled`.
 
 #### Multiple in-flight requests per actor
 
@@ -794,7 +794,7 @@ Pair tools and 10x panels see exactly two traces per request-side interceptor fa
 
 ### Clearing
 
-`(rf/clear-http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear-http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — rf2-bfadc6 / EP-0024 / rf2-f28bno). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The 2-arity is **shape-discriminated on the second arg**: an opts map (a non-frame-value map) is the public `(id {:frame …})` form; anything else is the *internal* frame-first `(frame id)` plumbing (retained for implementation / test / tooling reach, e.g. the `:rf.fx/clear-http-interceptor` fx). This closes the silent-no-op misbind the old public frame-first arity carried — `(clear-http-interceptor id {:frame f})`, the natural guess from the `reg` shape, used to bind `id` as the frame and `{:frame f}` as the interceptor-id (a clear of an interceptor that never existed, no-op with nothing to name the mistake).
+`(rf/clear-http-interceptor id)` resolves the frame through the ambient scope chain; `(rf/clear-http-interceptor id {:frame frame-id})` names a specific frame — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface — rf2-bfadc6 / EP-0024 / rf2-f28bno). The single-arity is the common case (single-frame apps); the opts form is unambiguous for multi-frame. The 2-arity is **shape-discriminated on the second arg**: an opts map (a non-frame-value map) is the public `(id {:frame …})` form; anything else is the *internal* frame-first `(frame id)` plumbing (retained for implementation / test / tooling reach, e.g. the `:rf.fx/clear-http-interceptor` fx). A frame-first positional spelling would misbind — `(clear-http-interceptor id {:frame f})` must always read `id` as the interceptor-id and `{:frame f}` as the opts map; there is no public frame-first arity to guess at.
 
 Hot-reload tools that re-evaluate registration call sites get the right behaviour automatically: re-`reg-http-interceptor` of an existing id replaces the slot in place.
 
@@ -1087,7 +1087,7 @@ Loading `re-frame.http.test-support` registers `:rf.http/managed-canned-success`
 - on JVM / SSR the canned-stub fx ids are unregistered (classpath absence through the normal artefact require boundary), so any handler that tries `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}` will surface the framework's no-such-fx error; the `rf/with-managed-request-stubs` / `rf/with-managed-request-stubs*` call sites raise `:rf.error/http-artefact-missing` through `re-frame.core-http`'s defwrapper surface (the hook is nil), while direct `re-frame.http.test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` calls raise unresolved-symbol because the namespace was never required;
 - on CLJS `:advanced + goog.DEBUG=false` the test-support module is unreferenced from any production module, so the compiler trims it wholesale (the canned-stub fx-id keyword string fragments do not appear in the production bundle — pinned by `scripts/check-elision.cjs`).
 
-Earlier the gate was `(when interop/debug-enabled? ...)` inside `re-frame.http.managed` itself; on the JVM that gate folded to `true`, leaving the canned-stub fx ids reachable as production-default API. Per's audit and the remediation, the gate moved to the require boundary so the absence is enforced on every host. Per (audit-of-audits #15) the stub macros consolidated into `re-frame.http.test-support` alongside the canned-stub fxs — one namespace, one require, the namespace name finally matches its content.
+The gate is the require boundary: the canned-stub fxs and the stub macros live together in `re-frame.http.test-support`, so their absence is enforced on every host — the JVM has no reachable production-default path to them. One namespace, one require.
 
 For test suites that exercise many requests, a higher-level helper ships:
 

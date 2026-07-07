@@ -325,7 +325,7 @@ Whatever the call-site shape, `(rf/view :counter)` is the **canonical lookup** f
 
 **Bare `[:counter "Hello"]` in raw hiccup** (where Reagent itself would have to interpret the keyword as a registered view) is **not supported in v1**. It requires modifying or extending Reagent's keyword-tag interpretation, which is deferred to the substrate-decoupling work in Spec 006 / [011](011-SSR.md). It can ship later as a non-breaking addition once the substrate decision is settled.
 
-## Plain Reagent fns: staged adoption (the footgun is now a loud error)
+## Plain Reagent fns: no frame injection
 
 Plain Reagent fns (`(defn my-view [args] ...)`) continue to work in re-frame2. They are not registered, so they do not get frame-injection — they carry no `:contextType` wiring, so a plain fn **cannot read the surrounding frame scope from React context** (whether that scope was established by a `with-frame` or a `frame-provider`).
 
@@ -333,7 +333,7 @@ Under the carried invariant ([002 §Frame target resolution](002-Frames.md#frame
 
 A plain fn is therefore only safe when it establishes its own frame scope — inside an explicit `with-frame`, or by capturing a `(rf/capture-frame)` at render time and using its bound ops (see §Affordance for plain fns below). A single-frame app keeps working by establishing exactly **one** root `frame-provider` / `with-frame`; *inside that scope* registered views (`reg-view`) pick up the frame ergonomically.
 
-### The footgun is now `:rf.error/no-frame-context`
+### A frame-dependent plain fn raises `:rf.error/no-frame-context`
 
 The error rides the always-on error axis (surface #4 per [009 §What IS available in production](009-Instrumentation.md#what-is-available-in-production)), so it is observable in production where dev traces are elided. A representative payload:
 

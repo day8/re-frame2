@@ -89,8 +89,8 @@ conventional default. This is the whole rule; everything below is its shape.
 
 Frame identity reaches an operation through exactly the three intents the Views
 chapter already teaches ([`docs/api/re-frame.core.md`](../docs/api/re-frame.core.md)). There is
-**no separate priority-list of "ambient places to search"** — that was the old
-four-tier chain, and removing its `:rf/default` floor is what this EP does.
+**no separate priority-list of "ambient places to search"**, no ambient search
+chain, and no `:rf/default` floor: absence is `:rf.error/no-frame-context`.
 
 | Intent | Surfaces | What it is |
 |---|---|---|
@@ -121,10 +121,10 @@ for the worked patterns.
 ### One carrier, one name — the frame stamp
 
 Frame identity travels under **one canonical, inspectable shape** wherever a causal
-token flows: the **frame stamp**. The historically fragmented spellings — `:frame`
-(dispatch opt), `:rf.frame/id` (event context, per EP-0001), `:rf/frame-id` (SSR
-payload), and the tooling keys `url-owner-frame-id` / `:target-frame` /
-`:own-frame` / `default-target-frame` — are unified into this one carrier. The two
+token flows: the **frame stamp**. It has exactly two public spellings — `:frame`
+(the dispatch/subscribe opt and the envelope key) and `:rf.frame/id` (the
+event-context coeffect spelling); role-qualified stamps carry the URL-owner /
+inspected-target / tool-own cases. The two
 public spellings users type are unchanged: **`:frame`** is the dispatch/subscribe
 **opt**; **`:rf.frame/id`** is its event-context spelling. Both name the same
 stamp.
@@ -266,9 +266,9 @@ second, softer fallback.
 ;; the frame stamp, or raises/emits :rf.error/no-frame-context
 ```
 
-Public frame-scoped operations that resolve ambiently — `rf/dispatch`,
-`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/capture-frame`, no-arg
-`rf/frame-bound-fn*`, and the context-defaulting read/clear helpers — call the
+Frame-scoped operations that resolve ambiently — `rf/dispatch`,
+`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/capture-frame`, the internal
+no-arg `frame-bound-fn*`, and the context-defaulting read/clear helpers — call the
 *require* helper and fail outside context. The no-arg *hold*-capture forms
 (`capture-frame`, `frame-bound-fn*`) capture **only** when a real scope exists at
 capture time; capturing outside any scope is `:rf.error/no-frame-context`, never a
@@ -327,13 +327,13 @@ Three observations:
 <a id="frames-reference-realms"></a>
 ### Frame addressing — the frame id is the whole public address
 
-> **Public model: `image → frame → event stream` ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)).** A frame is addressed by its **id alone** — there is no second routing coordinate. There is no `(realm, frame)` two-part address and no multi-realm installation substrate; there is no realm constructor / install / query facade. The frame record keys by its bare frame-id, and the dispatch envelope carries `:rf.frame/id` only.
+> **Public model: `image → frame → event stream` ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)).** A frame is addressed by its **id alone** — there is no second routing coordinate. There is no `(realm, frame)` two-part address and no multi-realm installation substrate; there is no realm constructor / install / query facade. The frame record keys by its bare frame-id, and the dispatch envelope carries the frame stamp under `:frame` — nothing else.
 
 **Public frame ids are unique in the one process-local frame-id space** ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) §Id Spaces) — the frame id is the whole public address. A migrating codebase whose frames shared an id across containers gives its live frames distinct public ids (`rf/assert-process-local-frame-id!` surfaces the collision — see [EP-0023 §Backwards Compatibility](../docs/EP/EP-0023-image-loaded-frames.md)).
 
 **Resolution is process-global.** When an event is dispatched to (or a subscription resolved against) a frame, the runtime resolves the **event handler, every coeffect supplier, every effect, AND every subscription** from the **one process-global registrar** — coherently, all from the same table. A frame supplies the *state* (which app-db / runtime-db the resolved handlers run against) and the *resolved image generation* it was assembled with; it does not supply a separate registrar. There is no per-frame handler routing: two frames running the same app resolve identical handlers and differ only in their state.
 
-What a frame **is** carried for is its [resolved image generation](Conventions.md#frame-vocabulary--one-name-per-frame-fact) — the registration set the frame was assembled against. The frame target follows the carried invariant **verbatim**: a frame is carried (an explicit `:frame` dispatch argument, the carried frame value, or inherited by a child dispatch from its parent's envelope) or scoped by an explicitly established frame scope — **never resolved from a dynamic binding** as an ambient default (see [§Frame target resolution](#frame-target-resolution--the-carried-invariant)). The frame stamp is `:rf.frame/id`, carried on the dispatch envelope — see [§The frame stamp on the envelope](#routing-the-dispatch-envelope).
+What a frame **is** carried for is its [resolved image generation](Conventions.md#frame-vocabulary--one-name-per-frame-fact) — the registration set the frame was assembled against. The frame target follows the carried invariant **verbatim**: a frame is carried (an explicit `:frame` dispatch argument, the carried frame value, or inherited by a child dispatch from its parent's envelope) or scoped by an explicitly established frame scope — **never resolved from a dynamic binding** as an ambient default (see [§Frame target resolution](#frame-target-resolution--the-carried-invariant)). On the dispatch envelope the frame stamp rides under `:frame`; inside a handler's event context it is spelled `:rf.frame/id` — see [§The frame stamp on the envelope](#routing-the-dispatch-envelope).
 
 ### The two-partition frame contract
 
@@ -351,7 +351,7 @@ A **frame-state** value is the coherent projection of both:
  :rf.db/runtime <runtime-db>}
 ```
 
-This split removes the v1→early-v2 ownership footgun where framework runtime state sat under a `:rf/runtime` root *inside* user app-db, so an ordinary fresh `:db` return could silently delete machine, routing, elision, or SSR state. Under the partition, an ordinary `:db` effect replaces **only** app-db — runtime-db is a partition the handler never holds. The footgun is structurally gone, not merely warned against.
+Under the split an ordinary `:db` effect replaces **only** app-db; runtime-db is a partition the handler never holds, so a fresh `:db` return cannot delete machine, routing, elision, or SSR state. Under the partition, an ordinary `:db` effect replaces **only** app-db — runtime-db is a partition the handler never holds. The footgun is structurally gone, not merely warned against.
 
 The split is also an **AI-legibility win**: once app-db holds nothing but app data, `reg-app-schema` describes a *pure* application contract an agent can read without framework noise — the spec-is-the-artefact payoff (per [Principles.md](Principles.md)).
 
@@ -819,7 +819,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
    [counter-view label]])
 ```
 
-`opts` is a **map** — a non-map `opts` (`nil`, a keyword, a vector, …) is rejected at the public boundary with `:rf.error/make-frame-bad-opts` (the all-defaults frame is `(make-frame {})`, never `(make-frame nil)`). The opts map accepts **image-selection** keys — `:images` (a **non-empty** vector — the assembled registration set the frame resolves against; `:images []` is an error and **omitting `:images` resolves the default image** over the whole source store, see [§Image resolution and composition](#image-resolution-and-composition)), `:id` (optional — registers the frame in the one live-frame registry; duplicate-id is **idempotent replacement**, not a blanket fail-loud — see [§Duplicate id](#duplicate-id--idempotent-replacement)), and `:adapter` — **and** the **record-config** keys `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, `:interceptors`, `:drain-depth`, in the same call. (There is no `:capabilities` image-selection key — image-declared host capabilities are not supported ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md)); a `:capabilities` key is not special-cased and flows through as ordinary record-config.) A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
+`opts` is a **map** — a non-map `opts` (`nil`, a keyword, a vector, …) is rejected at the public boundary with `:rf.error/make-frame-bad-opts` (the all-defaults frame is `(make-frame {})`, never `(make-frame nil)`). The opts map accepts **image-selection** keys — `:images` (a **non-empty** vector — the assembled registration set the frame resolves against; `:images []` is an error and **omitting `:images` resolves the default image** over the whole source store, see [§Image resolution and composition](#image-resolution-and-composition)), `:id` (optional — registers the frame in the one live-frame registry; duplicate-id is **idempotent replacement**, not a blanket fail-loud — see [§Duplicate id](#duplicate-id--idempotent-replacement)), and `:adapter` — **and** the **record-config** keys `:initial-events` (seed app-db via a leading `[:rf/set-db {…}]` step), `:fx-overrides`, `:platform`, `:ssr`, `:doc`, `:preset`, `:tags`, `:interceptors`, `:drain-depth`, in the same call. (There is no `:capabilities` image-selection key — image-declared host capabilities are not supported ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md)); a `:capabilities` key is not special-cased and flows through as ordinary record-config.) A second arity `(make-frame opts descriptors)` resolves `:images` against an explicit descriptor pool instead of the live source store (tests / harnesses / a pre-snapshotted store). A frame created **without** an `:id` is a direct local reference that bypasses the registry — appropriate for local tests and harnesses where the frame is created, used, and discarded in one scope (per [EP-0023 §Frame](../docs/EP/EP-0023-image-loaded-frames.md): a registration id like `:counter/inc` can be reused across images; a live frame id cannot name two live registered frames at once).
 
 **The frame value's representation is hidden; route by id.** `make-frame` returns the value, but the public routing address is the frame **id** — read it from the value via the one accessor (`rf/frame-value->id`) and pass the id to `dispatch` / `subscribe` / providers / tools. Internal normalization may accept a frame value where it is useful for tests or tools, but the API teaches one routing address: the frame id (per [EP-0024 §Operation target grammar](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#operation-target-grammar)).
 
@@ -843,7 +843,7 @@ Tests use the direct-constructor pattern as their fixture lifecycle:
 
 #### Duplicate id — idempotent replacement
 
-`make-frame` (and `reg-frame`) with an `:id` that already names a live frame performs **idempotent replacement** (EP-0024): re-evaluating the same frame declaration updates frame configuration and the resolved image generation **without destroying durable state**, unless the caller explicitly asks for `reset-frame!` or `destroy-frame!`. This is hot-reload-friendly and Story-re-evaluation-friendly — re-mounting under the same id preserves the live app-db and runtime-db. Conflict cases that cannot be reconciled still **fail loud**.
+`make-frame` (and `reg-frame`) with an `:id` that already names a live frame performs **idempotent replacement** (EP-0024): re-evaluating the same frame declaration updates frame configuration and the resolved image generation **without destroying durable state**, unless the caller explicitly asks for `reset-frame!` or `destroy-frame!`. This is hot-reload-friendly and Story-re-evaluation-friendly — re-mounting under the same id preserves the live app-db and runtime-db.
 
 > **Note.** Idempotent replacement here is the same contract the UI-owned `frame-provider` relies on for its idempotent re-mount (per [EP-0024 §Duplicate id policy](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md#duplicate-id-policy)).
 
@@ -904,13 +904,13 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :frame        :todo                   ;; resolved frame keyword
  :fx-overrides {:my-app/http stub-fn}  ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
- :source       :ui                     ;; trigger kind — the canonical closed enum lives on `:rf/dispatch-envelope`'s `:source` row in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (the single source of the value set); defaults to `:unknown` (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`). See [§Dispatch origin tagging](#dispatch-origin-tagging) below for the `:source` vs `:origin` distinction and the full inventory.
+ :source       :ui                     ;; trigger kind — the canonical closed enum lives on `:rf/dispatch-envelope`'s `:source` row in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (the single source of the value set); defaults to `:unknown`; substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`). See [§Dispatch origin tagging](#dispatch-origin-tagging) below for the `:source` vs `:origin` distinction and the full inventory.
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
  :rf.cofx      {:rf/time-ms 1781078400123} ;; recordable coeffects (flat, fact-name→value) — see §Recordable coeffects
  }
 ```
 
-> **The envelope carries `:rf.frame/id` only — there is no second routing coordinate.** The frame id is the whole address ([§Frame addressing](#frames-reference-realms)). There is no `:rf.realm/id` realm stamp and no multi-realm substrate ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)): event / subscription / fx / cofx handlers all resolve from the one process-global registrar, and the frame supplies state and its resolved image generation, not a separate registrar. `:rf.frame/id` rides on the envelope **beside** the shipped causal-token carriers (EP-0010 replay records, EP-0011 reply maps, EP-0016 continuation payloads), and the frame is **carried** — an explicit `:frame` dispatch opt, the carried frame value, or inherited by a child dispatch — never inferred from ambient process state (the EP-0002 carried invariant; there is no `with-realm`).
+> **The envelope carries the frame stamp under `:frame` — there is no second routing coordinate.** The frame id is the whole address ([§Frame addressing](#frames-reference-realms)); `:rf.frame/id` is the event-context spelling of the same stamp. There is no `:rf.realm/id` realm stamp and no multi-realm substrate ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md)): event / subscription / fx / cofx handlers all resolve from the one process-global registrar, and the frame supplies state and its resolved image generation, not a separate registrar. The frame stamp rides on the envelope **beside** the shipped causal-token carriers (EP-0010 replay records, EP-0011 reply maps, EP-0016 continuation payloads), and the frame is **carried** — an explicit `:frame` dispatch opt, the carried frame value, or inherited by a child dispatch — never inferred from ambient process state (the EP-0002 carried invariant; there is no `with-realm`).
 
 The envelope is just a map. Any field can be set by:
 
@@ -1333,8 +1333,8 @@ A React onClick / onKeyDown / onChange callback is built during render but fires
 | Pattern | Where the frame is captured | Best for |
 |---|---|---|
 | `(rf/capture-frame)` / `(rf/capture-frame frame-id)` | creation time | the common case — `:dispatch` / `:subscribe` ops handed to a callback or async library |
-| `(rf/frame-bound-fn* frame-id f)` | wrap-time, explicit frame-id | top-level utilities (install! routines, module helpers); wrapping a fn whose body re-establishes the frame |
-| `(rf/frame-bound-fn [args] body)` | lex-binding moment | when you want `(fn ...)` syntax and frame-capture in one form |
+| `(frame-bound-fn* frame-id f)` — internal tier; prefer `capture-frame` in app code | wrap-time, explicit frame-id | framework-internal utilities; wrapping a fn whose body re-establishes the frame |
+| `(frame-bound-fn [args] body)` — internal tier | lex-binding moment | `(fn ...)` syntax and frame-capture in one form, inside framework code |
 | `(rf/dispatch [...] {:frame :id})` | dispatch call time, explicit envelope | one-off dispatches where wrapping the whole callback would be heavier than threading a single opt |
 
 All four feed `:frame` into the dispatch envelope synchronously (during the capture window). The router queue carries `:frame` on the envelope through the microtask boundary — the drain reads frame off the envelope, never re-resolves the dynamic var at drain time — so the dispatch is routed correctly even after React has popped its render and unwound the binding.
@@ -1615,7 +1615,7 @@ For async closures that fire after the body returns, capture the frame explicitl
 
 #### Calling `dispatch-sync` *inside* a handler is an error
 
-Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-dispatch-drain-semantics)), the drain is already running synchronously, so `dispatch-sync` from inside a handler conveys no extra meaning over `dispatch`. Calling `dispatch-sync` inside an event handler's interceptor pipeline is **rejected**: the runtime emits `:rf.error/dispatch-sync-in-handler` (per [009 §Error contract](009-Instrumentation.md#error-contract)) and the call is dropped (default recovery `:no-recovery`).
+Under run-to-completion (per [§Run-to-completion dispatch](#run-to-completion-dispatch-drain-semantics)), the drain is already running synchronously, so `dispatch-sync` from inside a handler conveys no extra meaning over `dispatch`. Calling `dispatch-sync` against the caller's **own** frame from inside an event handler's interceptor pipeline is **rejected** (the cross-frame case interleaves instead — see below): the runtime emits `:rf.error/dispatch-sync-in-handler` (per [009 §Error contract](009-Instrumentation.md#error-contract)) and the call is dropped (default recovery `:no-recovery`).
 
 The shape that drains as part of the surrounding run is `:fx [[:dispatch event]]` in the effect map. See [MIGRATION.md §M-9](../migration/from-re-frame-v1/README.md) for the migration rule.
 
@@ -1689,7 +1689,7 @@ A drain runs to **fixed point** in one go: once engaged, the outer loop dequeues
 
 Under run-to-completion, a dispatched event runs synchronously *before* the originator returns; views do not render any intermediate state of the drain. Render happens once, after the drain settles. (Code that requires a render between two events in a drain is incompatible with this contract — see [MIGRATION.md](../migration/from-re-frame-v1/README.md).)
 
-`dispatch-sync` means "skip the router queue when called from outside any handler." Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync) above); the in-handler shape is `[[:dispatch event]]` under `:fx`.
+`dispatch-sync` means "skip the router queue when called from outside any handler." Calling it from inside a handler against the caller's own frame raises `:rf.error/dispatch-sync-in-handler` (per [§dispatch-sync](#dispatch-sync) above); the in-handler shape is `[[:dispatch event]]` under `:fx`.
 
 ### Render safety under concurrent React
 
@@ -1994,9 +1994,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; inherited either —
 ;; each child dispatch's `:source` reflects its IMMEDIATE trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the queueing fx
-;; handler. Inheriting `:source` mis-attributed every fx-emitted dispatch
-;; as carrying the originating user-event's trigger (e.g. a `:dispatch` fx
-;; deep in a drain kept reporting `:source :ui`).
+;; handler — a child dispatch never reports the originating user-event's trigger.
 (def ^:private inheritable-envelope-keys
   [:frame :fx-overrides :interceptor-overrides :trace-id :origin])
 
@@ -2042,7 +2040,7 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ms)))
 ```
 
-For machine events, `process-event!` step 1 lands inside the machine handler. From the outer drain's perspective the machine handler is **just a handler**: it returns an effects-map like any other, and steps 2–3 above process it unchanged. What runs *inside* that one handler call — the raise drain, the `:always` microstep loop, and the single `:rf.db/runtime` snapshot commit at `[:rf.runtime/machines :snapshots <id>]` — is the **Level-3 cascade**, and **[005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event) is its single normative description**. This spec does not restate the loop: the raise-before/-after-`:always` ordering, the FIFO raise-queue, the microstep fixed point, the depth limits, and the atomic post-drain commit all live in 005 (an earlier draft duplicated the loop here in pseudocode that encoded the *retired* raise-before-`:always` order, contradicting 005 and the [`always-settles-before-raise`](conformance/fixtures/always-settles-before-raise.edn) fixture — collapsed to this pointer per the [spec/README drift rule](README.md#ownership-matrix)).
+For machine events, `process-event!` step 1 lands inside the machine handler. From the outer drain's perspective the machine handler is **just a handler**: it returns an effects-map like any other, and steps 2–3 above process it unchanged. What runs *inside* that one handler call — the raise drain, the `:always` microstep loop, and the single `:rf.db/runtime` snapshot commit at `[:rf.runtime/machines :snapshots <id>]` — is the **Level-3 cascade**, and **[005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event) is its single normative description**. This spec does not restate the loop: the raise-before/-after-`:always` ordering, the FIFO raise-queue, the microstep fixed point, the depth limits, and the atomic post-drain commit all live in 005 (the ordering is `:always`-settles-before-`:raise`, pinned by the [`always-settles-before-raise`](conformance/fixtures/always-settles-before-raise.edn) fixture).
 
 Only the drain-integration facts 002 owns are stated here: the whole macrostep — raise drain, microstep loop, snapshot commit — appears as **one logical step (one epoch)** to external observers, so sub-cache invalidation fires **once** (in `process-event!` step 2 after the macrostep commits), not on every microstep. Machine snapshots are runtime-db, so the commit is an `:rf.db/runtime` partition write, authorised by the machine registrar's `:rf/machine?` stamp (see [§Minting framework-write authority](#minting-framework-write-authority)); it is never an app-db `:db` write. Continuation events the machine dispatches from *inside* that macrostep — `:fx [[:dispatch …]]` — front-insert on the router queue per the `do-fx :dispatch` origin branch above and [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime).
 
@@ -2194,7 +2192,7 @@ Each behaviour is registered once with `reg-interceptor` ([001 §Interceptors](0
 
 All three override types propagate transitively through any depth of `:fx [:dispatch ...]` child dispatches. When a handler returns an effect map containing `:dispatch`, the dispatched child inherits the parent envelope's overrides (and `:frame`, `:trace-id`, `:origin`). One mechanism: envelope-field-copying when queueing children; same as `:frame` propagation.
 
-`:source` is **excluded from the inheritance set** — each child dispatch's `:source` reflects its *immediate* trigger. The `:dispatch` fx handler stamps `:source :fx-dispatch`; the `:dispatch-later` fx handler stamps `:source :fx-dispatch-later`. Inheriting `:source` mis-attributed every fx-emitted dispatch as carrying the originating user event's trigger (a `:dispatch` fx deep in a drain kept reporting `:source :ui`). The actor-identity axis (`:origin`) still propagates so post-mortem filters like "show me only the dispatches I (the pair tool) issued" remain effective end-to-end.
+`:source` is **excluded from the inheritance set** — each child dispatch's `:source` reflects its *immediate* trigger. The `:dispatch` fx handler stamps `:source :fx-dispatch`; the `:dispatch-later` fx handler stamps `:source :fx-dispatch-later` — a child dispatch never reports the originating user event's trigger. The actor-identity axis (`:origin`) still propagates so post-mortem filters like "show me only the dispatches I (the pair tool) issued" remain effective end-to-end.
 
 ### Discoverability
 
