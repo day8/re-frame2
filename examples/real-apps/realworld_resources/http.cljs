@@ -234,11 +234,20 @@
       (and (= method :post) (str/ends-with? u "/users/login")) {:user demo-user}
       (and (= method :post) (str/ends-with? u "/users"))       {:user demo-user}
 
-      ;; GET /user — session restore. We return an empty payload on purpose: the
-      ;; decode fails into the failure branch, so the demo always starts
-      ;; unauthenticated and never auto-restores a session. PUT /user is the
-      ;; settings update (a mutation).
-      (and (= method :get) (str/ends-with? u "/user"))  {}
+      ;; GET /user — session restore. We deliberately synthesise a DECODE
+      ;; FAILURE (not a success with an empty body): a real backend returning
+      ;; `{}` would fail `:decode schema/UserResponse`'s schema validation, and
+      ;; `:begin-restore`'s `:on-failure` would fire. The canned-success stub
+      ;; never runs `:decode`, though — an empty-map *success* reply would
+      ;; land in `:on-success` instead, taking the auth machine to `:authed`
+      ;; with a nil `:user` (a broken, half-authenticated state). The
+      ;; `::decode-failure` sentinel (handled by the `:realworld-resources.demo/
+      ;; http-stub` fx below) routes this through
+      ;; `:rf.http/managed-canned-failure` instead, reproducing the real
+      ;; failure path — the demo always starts unauthenticated and never
+      ;; auto-restores a session. PUT /user is the settings update (a
+      ;; mutation).
+      (and (= method :get) (str/ends-with? u "/user"))  ::decode-failure
       (and (= method :put) (str/ends-with? u "/user"))  {:user demo-user}
 
       ;; --- write mutations -------------------------------------------------
@@ -316,9 +325,23 @@
                It delegates to the framework-shipped
                `:rf.http/managed-canned-success` with the per-URL payload plus
                `:after-ms` — the deferred reply rides `:dispatch-later`, so it's
-               tape-visible and time-travel-safe, not a raw `js/setTimeout`."
+               tape-visible and time-travel-safe, not a raw `js/setTimeout`.
+
+               `demo-payload-for-args` signals a genuine failure (rather than
+               a payload) with the `::decode-failure` sentinel — GET /user's
+               session-restore stub is the one route the demo wants to FAIL,
+               so it delegates to `:rf.http/managed-canned-failure` instead of
+               `-success`. `:rf.http/managed-canned-success` never runs
+               `:decode`, so handing it an empty body would incorrectly land
+               on the `:on-success` branch."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
-    (let [payload (demo-payload-for-args args-map)
-          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
+    (let [payload (demo-payload-for-args args-map)]
+      (if (= ::decode-failure payload)
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+          (stub frame-ctx (assoc args-map
+                                  :after-ms demo-reply-delay-ms
+                                  :kind     :rf.http/decode-failure
+                                  :tags     {:schema-validation-failure? true})))
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))))
