@@ -387,6 +387,64 @@ function assertOk(resp, name) {
   }
 }
 
+// Extract the `:declared` slot's rendered VALUE (the text of the map
+// literal / `nil` immediately following the key) from an eval-cljs
+// response's text — one level of brace-nesting, matching the shape
+// `re-frame.elision/sensitive-declarations` actually returns: a map from
+// classified PATH VECTOR to a decl map, e.g.
+// `{[:rf-conformance/secret] {:source :effect}}`, or `{}` when nothing is
+// classified. Returns `null` if `:declared` is absent entirely (a
+// malformed / unexpected eval return — the caller treats that as a
+// precondition failure too).
+function declaredValueText(text) {
+  // The closing `\}` alternative deliberately carries NO trailing `\b`:
+  // a map literal is almost always followed by another non-word char
+  // (`,` / `}` / end-of-string), and `\b` never matches between two
+  // non-word characters — a boundary assertion there would silently
+  // fail to match the common case. `nil(?!\w)` gets the equivalent
+  // "don't swallow a longer identifier" guard the word-boundary was
+  // after, scoped to the one alternative that actually needs it.
+  const m = /:declared\s+(\{(?:[^{}]|\{[^{}]*\})*\}|nil(?!\w))/.exec(text);
+  return m ? m[1] : null;
+}
+
+// The load-bearing seed/declare precondition: `:declared` must be a
+// NON-EMPTY map whose keys include the path THIS step just classified —
+// `pathLiteral` is the rendered path vector, e.g. `[:rf-conformance/secret]`.
+//
+// rf2-9mj9i5: `:declared` is a literal key written into every SEED_FORM /
+// INNER_DECLARE_FORM return map (`:declared (re-frame.elision/sensitive-
+// declarations fid)`), so the substring `:declared` (or
+// `sensitive-declarations`) appears in the pr-str on ANY successful eval —
+// classified or not. A bare key-PRESENCE check is a tautology that can
+// never fail: it only proves the eval didn't error, never that the
+// classification actually landed. If the EP-0025 commit-plane `:sensitive`
+// effect silently failed to register the declaration (the bypass class
+// rf2-2h7153 flags), `sensitive-declarations` would return `{}` / `nil`
+// and the old check would still pass.
+//
+// This asserts the VALUE instead: non-empty (rejects the `{}` / `nil`
+// shape `sensitive-declarations` returns when nothing is classified) AND
+// containing the exact classified-path literal — so a silently-failed
+// classification effect trips this precondition rather than passing it
+// unnoticed (today the downstream sentinel/redaction assertions still
+// catch the leak; this closes the defense-in-depth hole so the
+// precondition itself is real).
+function assertDeclared(text, pathLiteral, label) {
+  const value = declaredValueText(text);
+  if (value === null || value === 'nil' || value === '{}' || !value.includes(pathLiteral)) {
+    throw new Error(
+      label + ' did not confirm the sensitive declaration landed — ' +
+        '`:declared` MUST be a non-empty map containing the classified ' +
+        'path ' + pathLiteral + ' (a bare key-presence check is a ' +
+        'tautology — `:declared` is a literal key in the eval form\'s ' +
+        'return value and renders on ANY successful eval, rf2-9mj9i5); ' +
+        'got :declared value: ' + JSON.stringify(value) + '. Full: ' +
+        text.slice(0, 300),
+    );
+  }
+}
+
 // Read the `:dropped-sensitive` count off the envelope text. The pull-mode
 // epoch tools surface a `:dropped-sensitive N` indicator (the count of
 // whole epoch records `strip-sensitive` dropped on egress). Returns the
@@ -537,12 +595,7 @@ async function seedRuntime(client, label) {
         'would be vacuous. Got: ' + seedText.slice(0, 300),
     );
   }
-  if (!seedText.includes('sensitive-declarations') && !seedText.includes(':declared')) {
-    throw new Error(
-      label + ' eval-cljs seed did not confirm the sensitive declaration ' +
-        'landed; got: ' + seedText.slice(0, 300),
-    );
-  }
+  assertDeclared(seedText, '[' + SECRET_KEY + ']', label + ' eval-cljs seed');
   return seed;
 }
 
@@ -648,12 +701,7 @@ async function runInnerProjectionArm() {
     const declare = await client.callTool({ name: 'eval-cljs', arguments: { form: INNER_DECLARE_FORM } });
     assertOk(declare, 'inner eval-cljs declare-sensitive');
     const declareText = responseText(declare);
-    if (!declareText.includes('sensitive-declarations') && !declareText.includes(':declared')) {
-      throw new Error(
-        'inner eval-cljs declare did not confirm the sensitive declaration ' +
-          'landed; got: ' + declareText.slice(0, 300),
-      );
-    }
+    assertDeclared(declareText, '[' + INNER_SECRET_KEY + ']', 'inner eval-cljs declare');
     // The stamped rollup on the recorded epoch MUST STILL be false after
     // the declaration — `sensitive-rollup` runs once at assembly and is
     // not recomputed. This is the load-bearing precondition: the OUTER

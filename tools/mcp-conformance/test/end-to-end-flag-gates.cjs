@@ -33,11 +33,16 @@
 //      is the security-critical claim: a fresh / CI boot cannot mutate the
 //      registry by ANY gated path. Probing all three default-off means a
 //      dropped gate-check on any of them turns RED.
-//   1b. Boot WITHOUT the flag (well, WITH it to seed a fixture, then) ⇒
-//      `record-as-variant` WITHOUT `:write-back` SUCCEEDS — the
-//      intentionally UNGATED snippet-only recording path. Together with
-//      probe 1's write-back:true refusal this pins the gating boundary
-//      exactly on `:write-back`.
+//   1b. Boot WITHOUT the flag, with the target variant pre-registered via
+//      a boot-time `-e` seed (in-process `story/reg-variant*`, NOT the
+//      gated MCP `register-variant` surface) ⇒ `record-as-variant`
+//      WITHOUT `:write-back` SUCCEEDS — the intentionally UNGATED
+//      snippet-only recording path, genuinely exercised under a
+//      gate-CLOSED boot. A regression that added an unconditional gate
+//      check to `record-as-variant` (dropping the `(when write-back? …)`
+//      guard) turns RED here (rf2-j5ixcg). Together with probe 1's
+//      write-back:true refusal this pins the gating boundary exactly on
+//      `:write-back`.
 //   2. Boot WITH `--allow-writes` ⇒ `register-variant` succeeds
 //      (`isError: false`, registered) — the positive control proving the
 //      flag spelling NAMING.md pins is the one the parser actually wires.
@@ -152,12 +157,17 @@ const WATCHDOG_MS = Number(process.env.FLAG_GATE_WATCHDOG_MS) || 300000;
 // `runWithWatchdog`, which these callers bypass.)
 let activeFlagGateClient = null;
 
-async function withStoryServer(extraArgs, body) {
+// Shared spawn+connect+teardown ceremony. `clojureArgs` is the FULL arg
+// vector after `clojure` (both `withStoryServer`'s `-M -m … extraArgs` form
+// and `withGateClosedSeededStoryServer`'s `-M -e seedForm -m …` form route
+// through here) so the watchdog-handle capture + teardown logic has one
+// home.
+async function bootStoryServer(clojureArgs, body) {
   const { client } = await connectServer({
     clientName: 'mcp-conformance-flag-gates',
     transportSpec: {
       command: CLOJURE,
-      args: ['-M', '-m', 're-frame.story-mcp.server', ...extraArgs],
+      args: clojureArgs,
       cwd: STORY_MCP_CWD,
       env: { ...process.env },
     },
@@ -174,6 +184,45 @@ async function withStoryServer(extraArgs, body) {
     await closeQuietly(client);
     activeFlagGateClient = null;
   }
+}
+
+async function withStoryServer(extraArgs, body) {
+  return bootStoryServer(['-M', '-m', 're-frame.story-mcp.server', ...extraArgs], body);
+}
+
+// rf2-j5ixcg: boot the server with the write gate CLOSED (no
+// `--allow-writes`, no sysprop, no env var) but with `FIXTURE_VARIANT`
+// ALREADY REGISTERED — seeded via a `clojure -e` form evaluated BEFORE
+// `-main` runs, calling `story/reg-variant*` directly. `reg-variant*` is
+// the registrar's in-process primitive; the write GATE
+// (`write/assert-writes-allowed`) lives only in the MCP tool layer
+// (`write.cljc` / `recorder.cljc`), never in the registrar itself — so
+// seeding this way is a legitimate boot-time fixture, genuinely
+// independent of `--allow-writes`, NOT a detour around the contract this
+// harness exists to pin.
+//
+// This is what makes `assertSnippetOnlyRecordIsUngated` discriminating: a
+// registered target under a CLOSED gate is unreachable through the MCP
+// surface alone (`register-variant` is itself gated), which is exactly
+// why an earlier version of that probe seeded the fixture by booting
+// gate-OPEN — indistinguishable from a regression that gated
+// `record-as-variant` unconditionally, since `assert-writes-allowed`
+// passes identically whether skipped or invoked-and-open. Seeding
+// out-of-band gives the probe a registered target UNDER A CLOSED GATE,
+// so the real guard (`(when write-back? …)`) is what determines the
+// outcome.
+function seedVariantEvalForm() {
+  return (
+    "(require '[re-frame.story :as story]) " +
+    '(story/reg-variant* :' + FIXTURE_VARIANT + ' ' + FIXTURE_BODY_EDN + ')'
+  );
+}
+
+async function withGateClosedSeededStoryServer(body) {
+  return bootStoryServer(
+    ['-M', '-e', seedVariantEvalForm(), '-m', 're-frame.story-mcp.server'],
+    body,
+  );
 }
 
 function callRegisterVariant(client) {
@@ -277,49 +326,60 @@ async function assertWriteGateClosedByDefault() {
 // This probe + `assertRecordAsVariantWriteBackGate` together pin the
 // gating boundary EXACTLY on `:write-back`:
 //
-//   - write-back:FALSE ⇒ ALWAYS succeeds, snippet only, NO mutation
-//     (this probe).
+//   - write-back:FALSE ⇒ ALWAYS succeeds, snippet only, NO mutation,
+//     REGARDLESS of the write gate's boot posture (this probe).
 //   - write-back:TRUE  ⇒ requires the gate open; gate-closed refuses
 //     once a target is registered (the other probe).
 //
-// We need a registered target to record against, which a gate-OFF boot
-// cannot create through the MCP surface, so this boots WITH --allow-writes
-// to seed the fixture; the load-bearing claim is that the write-back:FALSE
-// call succeeds and reports `:written-back? false` (no registry mutation)
-// — proving the snippet-only path is gated by NOTHING, exactly the spec
-// contract.
+// rf2-j5ixcg: an earlier version of this probe booted WITH
+// `--allow-writes` to seed the fixture (`register-variant` itself needs
+// the gate open to register through the MCP surface), then called
+// `record-as-variant` under that SAME gate-open boot. That made the probe
+// blind to its own regression: `write/assert-writes-allowed` returns nil
+// (pass) whenever the gate is open, identically whether
+// `tool-record-as-variant` correctly SKIPS the check for `write-back:
+// false` or a regression added an UNCONDITIONAL gate check — under a
+// gate-OPEN boot the two are indistinguishable, so a dropped
+// `(when write-back? …)` guard would have shipped green.
+//
+// Fix (bead option (b) — the gate-closed fixture path IS feasible): seed
+// the target variant via `withGateClosedSeededStoryServer`, which
+// registers it in-process via `story/reg-variant*` through a boot-time
+// `-e` form, BEFORE `-main` ever runs — bypassing the gated MCP
+// `register-variant` tool entirely. The server then boots with the write
+// gate CLOSED (no `--allow-writes`), and this probe calls
+// `record-as-variant` WITHOUT `:write-back` against the pre-seeded
+// target. Now a regression that added an unconditional gate check DOES
+// turn this probe RED (the closed gate refuses), while the correct
+// `(when write-back? …)` guard still lets it through — the probe is
+// finally discriminating on the exact regression it claims to net.
 async function assertSnippetOnlyRecordIsUngated() {
-  await withStoryServer(['--allow-writes'], async (client) => {
-    // Seed a fixture to record against (needs a registered variant).
-    const seed = await client.callTool({
-      name: 'register-variant',
-      arguments: { 'variant-id': FIXTURE_VARIANT, body: FIXTURE_BODY_EDN },
-    });
-    if (seed.isError) {
-      throw new Error(
-        'snippet-only-ungated setup: register-variant failed: ' +
-          JSON.stringify(seed),
-      );
-    }
-    // Snippet-only record: NO `:write-back` — the ungated path. MUST
-    // succeed and return a `:play-snippet`, and MUST NOT report a
-    // write-back (`:written-back? false`).
+  await withGateClosedSeededStoryServer(async (client) => {
+    // Snippet-only record: NO `:write-back` — the ungated path, probed
+    // against a GATE-CLOSED boot (the target was seeded in-process, not
+    // through the gated MCP surface). MUST succeed and return a
+    // `:play-snippet`, and MUST NOT report a write-back
+    // (`:written-back? false`).
     const rec = await client.callTool({
       name: 'record-as-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
     });
     if (rec.isError) {
       throw new Error(
-        'record-as-variant snippet-only (no :write-back) MUST succeed — it ' +
-          'is the INTENTIONALLY UNGATED recording path (spec/003 §"What\'s ' +
-          'gated"); got isError: ' + JSON.stringify(rec),
+        'record-as-variant snippet-only (no :write-back) MUST succeed even ' +
+          'with the write gate CLOSED — it is the INTENTIONALLY UNGATED ' +
+          'recording path (spec/003 §"What\'s gated"); a regression that ' +
+          'added an unconditional gate check to record-as-variant ' +
+          '(dropping the `(when write-back? …)` guard — rf2-j5ixcg) would ' +
+          'surface here as isError; got: ' + JSON.stringify(rec),
       );
     }
     const struct = structured(rec);
     if (struct.gated === true) {
       throw new Error(
-        'record-as-variant snippet-only MUST NOT be gated (write-back absent); ' +
-          'got a gated envelope: ' + JSON.stringify(rec),
+        'record-as-variant snippet-only MUST NOT be gated (write-back ' +
+          'absent) even with the write gate CLOSED; got a gated envelope: ' +
+          JSON.stringify(rec),
       );
     }
     if (typeof struct['play-snippet'] !== 'string') {
@@ -336,17 +396,12 @@ async function assertSnippetOnlyRecordIsUngated() {
     }
     console.log(
       'OK   story-mcp record-as-variant snippet-only (no --write-back) -> ' +
-        'ungated success + :play-snippet, :written-back? false',
+        'ungated success + :play-snippet, :written-back? false (write gate ' +
+        'CLOSED — genuinely discriminating, rf2-j5ixcg)',
     );
-    // Symmetric teardown.
-    try {
-      await client.callTool({
-        name: 'unregister-variant',
-        arguments: { 'variant-id': FIXTURE_VARIANT },
-      });
-    } catch (_e) {
-      // best-effort; fresh-JVM-per-boot makes a stray registration harmless.
-    }
+    // No teardown: the gate is closed (unregister-variant is itself
+    // gated), and the fresh-JVM-per-boot shape means the seeded
+    // registration dies with this process.
   });
 }
 
