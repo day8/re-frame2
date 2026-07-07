@@ -225,10 +225,11 @@
 ;;   - per-step `:label` — `(pr-str (first event))` for a compact tick
 ;;     title; tooltip text the CLJS renderer wires onto each tick.
 ;;
-;;   - the trailing epoch-id slice — the last `count(play-events)` epoch-ids
-;;     pulled from the variant frame's history. The CLJS side captures
-;;     this on `run-variant` resolve so a later epoch (e.g. a Re-run on
-;;     a different tab) can't drift the scrubber's mapping.
+;;   - the epoch-id alignment (`epoch-id-slice`, below) — one epoch-id per
+;;     dispatch-only play event, matched against the run's OWN `:epoch-tape`
+;;     by `:trigger-event` identity rather than a positional trailing-N
+;;     slice (rf2-4e545l finding 4 — see that fn's docstring for why
+;;     position alone misaligns on a mixed `:click`+`:dispatch` script).
 ;;
 ;; All four helpers are pure data → data and JVM-testable.
 
@@ -300,20 +301,53 @@
                  (inc step-idx)))))))
 
 (defn epoch-id-slice
-  "Pure: given the variant frame's full `history` vector (oldest-first)
-  + the count `n` of play events, return the trailing `n` `:epoch-id`s
-  (in play-step order, oldest-first). Returns `[]` when the history
-  has fewer than `n` records (production / ring-buffer-trimmed contexts
-  — the scrubber gracefully degrades to no ticks rather than mis-mapping
-  steps to wrong epochs).
+  "Pure: given `epoch-tape` (the run's OWN ordered `:rf/epoch-record`
+  vector — `result :epoch-tape`, each record carrying the literal
+  dispatched `:trigger-event` vector) and `play-events` (the DISPATCH-ONLY
+  event-vecs `play/variant-play-events` extracts from the `:script` —
+  `:dispatch` / `:dispatch-sync` steps only), return the epoch-id the
+  scrubber should restore to for EACH play event, in play-event order.
+
+  rf2-4e545l finding 4: a `:click` / `:type` / `:focus` step has no
+  event-vector representation in `play-events` (`variant-play-events`
+  skips every non-dispatch step type) — but running it may STILL commit
+  an epoch, e.g. a `:click` whose DOM handler dispatches. The prior
+  implementation took a positional trailing-N slice of the FRAME's whole
+  epoch-history (`n` = `(count play-events)`); a non-dispatch step that
+  ALSO committed an epoch then interleaves an epoch the position-only
+  slice never accounted for, so ticks/labels attribute to the WRONG
+  epoch and clicking one restores the WRONG app-db.
+
+  This walks `epoch-tape` in order instead, matching each record's
+  `:trigger-event` against the next UNCONSUMED play-event: a match
+  consumes both and contributes that record's `:epoch-id`; a non-match
+  (a non-dispatch-step epoch, or any other epoch not among the
+  dispatch-only steps) is skipped rather than consumed. The result stays
+  aligned to the dispatch-only steps regardless of what interleaves
+  between them. (A `:click`/`:type` step whose OWN side-effecting
+  dispatch happens to carry the identical event vector as an upcoming
+  `:dispatch` step is the one residual ambiguity this can't disambiguate
+  — ordinary event-vector identity carries no per-invocation identity.)
+
+  Returns `[]` (never a partial or misaligned vector) when the tape runs
+  out before every play-event is matched — production / ring-buffer-
+  trimmed contexts, or a run whose tape doesn't carry the expected
+  events. The scrubber gracefully degrades to 'no epoch buffer' rather
+  than guessing.
 
   Pure data → data; JVM-testable."
-  [history n]
-  (let [hv (vec (or history []))]
-    (cond
-      (not (pos-int? n))    []
-      (< (count hv) n)      []
-      :else                 (mapv :epoch-id (subvec hv (- (count hv) n))))))
+  [epoch-tape play-events]
+  (let [tape (vec (or epoch-tape []))
+        evs  (vec (or play-events []))]
+    (if (empty? evs)
+      []
+      (loop [ti 0 ei 0 acc []]
+        (cond
+          (= ei (count evs))  acc
+          (= ti (count tape)) []
+          (= (:trigger-event (nth tape ti)) (nth evs ei))
+          (recur (inc ti) (inc ei) (conj acc (:epoch-id (nth tape ti))))
+          :else (recur (inc ti) ei acc))))))
 
 ;; ===========================================================================
 ;; UNIFIED RUN-RESULT PROJECTION  (tools/story/spec/021 §1)
