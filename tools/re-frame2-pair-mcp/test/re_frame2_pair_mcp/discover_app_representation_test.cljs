@@ -93,3 +93,67 @@
                 (is (str/includes? (tu/extract-text result) ":build-id :examples/step-deck")
                     "rendered with its colon in the canonical text"))
               (done)))))))
+
+(deftest discover-app-unhealthy-runtime-is-isError
+  ;; rf2-acckgr regression: an unhealthy runtime (`:ok? false` from
+  ;; `runtime-health!`) is a known-tool failure per spec/003's universal
+  ;; isError rule, not a success carrying bad news. It used to ride back
+  ;; as ok-text (isError: false), masking the failure as a success.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime! conn :examples/step-deck)
+          args (tu/args->js {:build "examples/step-deck"})
+          unhealthy {:ok?    false
+                     :reason :rf.error/some-runtime-fault
+                     :hint   "the runtime reported a fault"}]
+      (-> (tu/with-stubbed-eval! unhealthy
+            (fn [] (discover-app/discover-app conn args)))
+          (.then
+            (fn [result]
+              (is (tu/error? result)
+                  "an unhealthy runtime MUST be isError: true")
+              (let [edn (tu/extract-edn result)]
+                (is (false? (:ok? edn)))
+                (is (= :rf.error/some-runtime-fault (:reason edn))))
+              (done)))))))
+
+(deftest discover-app-debug-disabled-is-isError
+  ;; rf2-acckgr regression: `:debug-disabled` is a tool-built `:ok?
+  ;; false` precondition failure — same universal isError rule as the
+  ;; unhealthy-runtime branch above. It used to ride back as ok-text.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime! conn :examples/step-deck)
+          args (tu/args->js {:build "examples/step-deck"})
+          debug-off {:ok? true :debug-enabled? false :frames [:rf/default]}]
+      (-> (tu/with-stubbed-eval! debug-off
+            (fn [] (discover-app/discover-app conn args)))
+          (.then
+            (fn [result]
+              (is (tu/error? result)
+                  "a debug-disabled build MUST be isError: true")
+              (let [edn (tu/extract-edn result)]
+                (is (false? (:ok? edn)))
+                (is (= :debug-disabled (:reason edn))))
+              (done)))))))
+
+(deftest discover-app-no-frames-registered-is-isError
+  ;; rf2-acckgr regression: `:no-frames-registered` is likewise a
+  ;; tool-built `:ok? false` precondition failure that used to ride
+  ;; back as ok-text.
+  (async done
+    (let [conn (fresh-conn)
+          _    (prime! conn :examples/step-deck)
+          args (tu/args->js {:build "examples/step-deck"})
+          no-frames {:ok? true :debug-enabled? true
+                     :coord-annotation-enabled? true :frames []}]
+      (-> (tu/with-stubbed-eval! no-frames
+            (fn [] (discover-app/discover-app conn args)))
+          (.then
+            (fn [result]
+              (is (tu/error? result)
+                  "no frames registered MUST be isError: true")
+              (let [edn (tu/extract-edn result)]
+                (is (false? (:ok? edn)))
+                (is (= :no-frames-registered (:reason edn))))
+              (done)))))))

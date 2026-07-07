@@ -113,6 +113,12 @@
                 (-> (tail/tail-build-tool nil (tu/args->js {:probe "(some-stuck-form)"
                                                             :wait-ms 250}))
                     (.then (fn [result]
+                             ;; rf2-acckgr regression: a timed-out probe wait
+                             ;; is a known-tool failure (:ok? false) and MUST
+                             ;; ride as isError: true per spec/003's universal
+                             ;; isError rule — not a success carrying bad news.
+                             (is (tu/error? result)
+                                 "a timed-out tail-build MUST be isError: true")
                              (let [edn (tu/extract-edn result)]
                                (is (false? (:ok? edn)))
                                (is (= :timed-out (:reason edn)))
@@ -137,6 +143,11 @@
               (-> (tail/tail-build-tool nil (tu/args->js {:probe "(zorp)"
                                                           :wait-ms 250}))
                   (.then (fn [result]
+                           ;; rf2-acckgr regression: :probe-errored is a
+                           ;; known-tool failure and MUST ride as
+                           ;; isError: true, not a masked ok-text success.
+                           (is (tu/error? result)
+                               "a :probe-errored tail-build MUST be isError: true")
                            (let [edn (tu/extract-edn result)]
                              (is (false? (:ok? edn)))
                              (is (= :probe-errored (:reason edn))

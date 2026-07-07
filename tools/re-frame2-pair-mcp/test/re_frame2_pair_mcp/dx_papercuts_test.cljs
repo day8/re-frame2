@@ -202,6 +202,28 @@
                      (is (false? (get-in edn [:results [:missing :k] :exists?]))))
                    (done)))))))
 
+(deftest get-path-blank-runtime-result-is-isError
+  ;; rf2-acckgr regression: a nil / non-map envelope back from the
+  ;; runtime (e.g. a dead runtime after a page reload answering blank)
+  ;; must NOT silently ship as ok-text. `(:ok? nil)` is `nil`, not
+  ;; `false`, so the old `(if (false? (:ok? rebuilt)) err-text ok-text)`
+  ;; check let a nil envelope fall through to ok-text — masking the
+  ;; failure as a success.
+  (async done
+    (let [conn (fresh-conn)
+          _    (swap! conn update :probed-builds (fnil conj #{}) :app)]
+      (-> (tu/with-stubbed-eval! nil
+            (fn []
+              (get-path/get-path-tool
+                conn (tu/args->js {:path "[:cart :total]" :frame ":rf/default"}))))
+          (.then (fn [r]
+                   (is (tu/error? r)
+                       "a blank/non-map eval result MUST be isError: true")
+                   (let [edn (tu/extract-edn r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :blank-eval-result (:reason edn))))
+                   (done)))))))
+
 ;; ===========================================================================
 ;; Papercut 4 — snapshot full-mode epoch overflow.
 ;; ===========================================================================

@@ -168,15 +168,24 @@
         (.then
           (fn [health]
             (cond
+              ;; rf2-acckgr: an unhealthy runtime (`:ok? false`) is a
+              ;; known-tool failure per spec/003's universal isError
+              ;; rule, not a success carrying bad news — err-text (not
+              ;; ok-text) so the host surfaces it as a failure and the
+              ;; response cache never masks it.
               (not (:ok? health))
-              (js/Promise.resolve (wire/ok-text health))
+              (js/Promise.resolve (wire/err-text health))
 
+              ;; rf2-acckgr: same universal isError rule — a
+              ;; precondition failure (`:ok? false`) built by the tool
+              ;; itself is still a known-tool failure, not a success
+              ;; carrying bad news.
               (not (:debug-enabled? health))
               (js/Promise.resolve
-                (wire/ok-text {:ok? false :reason :debug-disabled
-                               :hint (str "re-frame.interop/debug-enabled? is false. "
-                                          "This is a production build (or goog.DEBUG was "
-                                          "forced off). Trace and epoch surfaces are elided.")}))
+                (wire/err-text {:ok? false :reason :debug-disabled
+                                :hint (str "re-frame.interop/debug-enabled? is false. "
+                                           "This is a production build (or goog.DEBUG was "
+                                           "forced off). Trace and epoch surfaces are elided.")}))
 
               (empty? (:frames health))
               (js/Promise.resolve
@@ -187,11 +196,11 @@
                 ;; own frame explicitly (`reg-frame` / a root provider), so
                 ;; the hint points at app boot / explicit registration
                 ;; rather than teaching `init!` as a way to create a default.
-                (wire/ok-text {:ok? false :reason :no-frames-registered
-                               :hint (str "No frames registered yet. Wait for the app to boot, "
-                                          "or register a frame explicitly "
-                                          "(`re-frame.core/reg-frame` / a root frame-provider). "
-                                          "`rf/init!` installs adapters but does NOT create a frame.")}))
+                (wire/err-text {:ok? false :reason :no-frames-registered
+                                :hint (str "No frames registered yet. Wait for the app to boot, "
+                                           "or register a frame explicitly "
+                                           "(`re-frame.core/reg-frame` / a root frame-provider). "
+                                           "`rf/init!` installs adapters but does NOT create a frame.")}))
 
               (:ambiguous-frame? health)
               (do

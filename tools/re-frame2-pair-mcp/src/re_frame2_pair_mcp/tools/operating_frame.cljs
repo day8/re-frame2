@@ -231,10 +231,15 @@
     (probe/eval-after-runtime!
       conn build-id form :reset-operating-frame-failed
       (fn [v]
-        (wire/ok-text
-          (if (map? v)
-            v
-            {:ok? false :reason :unexpected-shape :value v}))))))
+        ;; rf2-acckgr: `frames-list` (via `select-frame!` here) always
+        ;; answers `:ok? true` against a live runtime, so a non-map `v`
+        ;; means the eval came back blank/degraded — a known-tool
+        ;; failure, not a success carrying bad news. err-text (not
+        ;; ok-text), mirroring the sibling guard in
+        ;; `set-operating-frame-tool`.
+        (if (map? v)
+          (wire/ok-text v)
+          (wire/err-text {:ok? false :reason :unexpected-shape :value v}))))))
 
 (def operating-frame-mutating-tools
   "Tool names whose successful invocation changes the session's operating
@@ -271,7 +276,10 @@
     (probe/eval-after-runtime!
       conn build-id form :get-operating-frame-failed
       (fn [v]
-        (wire/ok-text
-          (if (map? v)
-            v
-            {:ok? false :reason :unexpected-shape :value v}))))))
+        ;; rf2-acckgr: `frames-list` always answers `:ok? true` against
+        ;; a live runtime, so a non-map `v` means the eval came back
+        ;; blank/degraded — a known-tool failure, not a success carrying
+        ;; bad news. err-text (not ok-text).
+        (if (map? v)
+          (wire/ok-text v)
+          (wire/err-text {:ok? false :reason :unexpected-shape :value v}))))))

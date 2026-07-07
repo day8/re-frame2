@@ -183,31 +183,47 @@
           (probe/eval-after-runtime-signalled!
             conn build-id form :get-path-failed
             (fn [envelope]
-              (let [server-elided (when (:ok? envelope) (:elided-count envelope))
-                    {:keys [value indicators]}
-                    (wp/run-wire-pipeline
-                      (pluck envelope)
-                      {:kind :scalar-value
-                       :server-elided server-elided})
-                    {:keys [elided]} indicators
-                    rebuilt (wire/with-indicators
-                              (rebuild (dissoc envelope :elided-count) value)
-                              {:elided elided})]
-                ;; A known-tool runtime failure (`:ok? false`, e.g. a
-                ;; singular `:path-not-found` miss) MUST ride back as an
-                ;; `isError` envelope, per the published wire
-                ;; contract (spec/001-Wire-Protocol.md, API.md
-                ;; §isError) and the dispatch/read-sub
-                ;; no-silent-success parity model. An `ok-text`
-                ;; wrapper would let the failure cache as a normal
-                ;; success (cache eligibility keys off `isError`, not
-                ;; `:ok?`) and read as green by the MCP host. The
-                ;; `:wholesale-read-of-reserved-frame` refusal is
-                ;; built upstream as its own `err-text` and never
-                ;; reaches this tail.
-                (if (false? (:ok? rebuilt))
-                  (wire/err-text rebuilt)
-                  (wire/ok-text rebuilt))))))]
+              ;; rf2-acckgr: a nil / non-map `envelope` (a dead runtime
+              ;; after a page reload, answering blank) must NOT fall
+              ;; through to the `:ok? false` check below — `(:ok?
+              ;; nil)` is `nil`, not `false`, so `(false? (:ok?
+              ;; rebuilt))` would silently pass and ship an ok-text
+              ;; envelope built from a nil `rebuilt`. Guard it up front,
+              ;; mirroring `read-sub`'s `(and (map? envelope) (:ok?
+              ;; envelope))` non-map guard.
+              (if-not (map? envelope)
+                (wire/err-text {:ok?    false
+                                :reason :blank-eval-result
+                                :value  envelope
+                                :hint   (str "get-path got a blank/non-map result from the "
+                                             "runtime — likely a page reload dropped the "
+                                             "connection mid-read. Retry; if it persists, "
+                                             "call discover-app to confirm the runtime is live.")})
+                (let [server-elided (when (:ok? envelope) (:elided-count envelope))
+                      {:keys [value indicators]}
+                      (wp/run-wire-pipeline
+                        (pluck envelope)
+                        {:kind :scalar-value
+                         :server-elided server-elided})
+                      {:keys [elided]} indicators
+                      rebuilt (wire/with-indicators
+                                (rebuild (dissoc envelope :elided-count) value)
+                                {:elided elided})]
+                  ;; A known-tool runtime failure (`:ok? false`, e.g. a
+                  ;; singular `:path-not-found` miss) MUST ride back as an
+                  ;; `isError` envelope, per the published wire
+                  ;; contract (spec/001-Wire-Protocol.md, API.md
+                  ;; §isError) and the dispatch/read-sub
+                  ;; no-silent-success parity model. An `ok-text`
+                  ;; wrapper would let the failure cache as a normal
+                  ;; success (cache eligibility keys off `isError`, not
+                  ;; `:ok?`) and read as green by the MCP host. The
+                  ;; `:wholesale-read-of-reserved-frame` refusal is
+                  ;; built upstream as its own `err-text` and never
+                  ;; reaches this tail.
+                  (if (false? (:ok? rebuilt))
+                    (wire/err-text rebuilt)
+                    (wire/ok-text rebuilt)))))))]
     (cond
       ;; Server-side backstop: refuse a WHOLESALE root read
       ;; (`path: []`, or a `[]` element in a batch `paths`) of a reserved

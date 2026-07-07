@@ -317,6 +317,26 @@
   [result-map]
   (boolean (some-> result-map meta ::codec-error)))
 
+(defn mark-codec-error
+  "Stamp `result-map` with the same `::codec-error` metadata
+  `envelope->result` attaches to its own `:eval-error` /
+  `:unserializable` / unknown-tag projections, so `error?` treats it as
+  a genuine transport/codec-level fault (routes to `wire/err-text`)
+  rather than a legitimate `on-value` structured answer (`wire/
+  ok-text`).
+
+  For a tool's OWN `on-value` shaper to reach for when it detects a
+  shape the runtime should never produce against a healthy build — e.g.
+  `handler-meta`'s `:unexpected-shape` (a non-map meta-map back from an
+  otherwise-successful eval) — that isn't one of `envelope->result`'s
+  own tagged outcomes but IS a defect signal, not a miss like
+  `:not-registered`. rf2-acckgr: without this stamp such a map lacks
+  the `::codec-error` meta `error?` keys off, so it silently rode back
+  as `wire/ok-text` despite carrying `:ok? false` — masking the defect
+  as a success per spec/003's universal isError rule."
+  [result-map]
+  (with-meta result-map {::codec-error true}))
+
 ;; `truncate-preview` (the test-only preview-shape helper) lives in
 ;; `re-frame2-pair-mcp.test-utils/truncate-preview` — the
 ;; MCP server never calls it; only tests assert the preview contract.

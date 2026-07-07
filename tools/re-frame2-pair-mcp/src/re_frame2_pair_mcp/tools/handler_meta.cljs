@@ -316,9 +316,17 @@
                       ;;     healthy runtime): surface :unexpected-shape.
                       (stamp-frame
                         (cond
+                          ;; rf2-acckgr: a genuine shape defect (should
+                          ;; not happen against a healthy runtime) —
+                          ;; NOT a legitimate structured miss like
+                          ;; :not-registered below. Stamp it with the
+                          ;; codec's own error meta so `renv/error?`
+                          ;; routes it through `wire/err-text` instead
+                          ;; of silently riding back as ok-text.
                           (not (map? meta-map))
-                          {:ok? false :reason :unexpected-shape
-                           :kind kind :id id-val :value meta-map}
+                          (renv/mark-codec-error
+                            {:ok? false :reason :unexpected-shape
+                             :kind kind :id id-val :value meta-map})
 
                           (false? (:ok? meta-map))
                           (assoc meta-map :kind kind :id id-val)

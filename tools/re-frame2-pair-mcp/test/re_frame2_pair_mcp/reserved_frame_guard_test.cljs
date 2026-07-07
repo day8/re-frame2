@@ -193,6 +193,48 @@
                    (is (empty? @seen))
                    (done)))))))
 
+(deftest snapshot-wholesale-mode-full-no-path-is-refused
+  ;; rf2-brpc6v regression: `mode "full"` + no `path` is the OTHER
+  ;; wholesale shape the guard exists to catch (docs at
+  ;; `reserved-frame-guard.cljs` name it explicitly), independent of
+  ;; `path: []`. The bug routed the parsed `:epochs-mode` (default
+  ;; `:diff`) into the guard instead of the parsed slice `mode`
+  ;; (`:summary`/`:full`), so this exact shape sailed through to the
+  ;; eval round-trip and shipped the full unelided :rf/xray state. Assert
+  ;; the refusal fires BEFORE the eval — the huge canned payload never
+  ;; crosses.
+  (async done
+    (let [seen (atom [])]
+      (stub-eval! seen {:value huge-xray-snapshot :elided-count 0 :tool-frames-excluded []})
+      (-> (snapshot/snapshot-tool (fresh-conn) (tu/args->js {:frames #js [":rf/xray"] :mode "full"}))
+          (.then (fn [r]
+                   (is (tu/error? r) "mode full + no-path read of :rf/xray is refused")
+                   (let [edn (tu/extract-edn r)]
+                     (is (= :wholesale-read-of-reserved-frame (:reason edn)))
+                     (is (re-find #":rf/xray" (:frame edn)))
+                     (is (re-find #"orient" (:hint edn)) "redirects to orient"))
+                   (is (empty? @seen)
+                       "the snapshot read eval was NEVER reached — refused before the round-trip")
+                   (done)))))))
+
+(deftest snapshot-epochs-mode-full-alone-does-not-trip-the-guard
+  ;; Negative guard, other half of the rf2-brpc6v fix: the OBSCURE
+  ;; `:epochs-mode full` arg (unrelated to the wholesale slice mode) must
+  ;; NOT spuriously trip the guard when the documented `:mode` stays at
+  ;; its `:summary` default and no `path` narrows the read. Before the
+  ;; fix this shape was (wrongly) refused because the guard received
+  ;; epochs-mode instead of slice-mode.
+  (async done
+    (let [seen (atom [])]
+      (stub-eval! seen {:value {:rf/xray {:epochs [{:idx 0}]}}
+                        :elided-count 0 :tool-frames-excluded []})
+      (-> (snapshot/snapshot-tool (fresh-conn) (tu/args->js {:frames #js [":rf/xray"] :epochs-mode "full"}))
+          (.then (fn [r]
+                   (is (not (tu/error? r)) "epochs-mode full alone (summary slice mode, no path) is allowed")
+                   (is (true? (:ok? (tu/extract-edn r))))
+                   (is (seq @seen) "the read eval WAS reached")
+                   (done)))))))
+
 (deftest snapshot-sliced-rf-xray-succeeds
   ;; Negative guard: a SLICED read of :rf/xray reaches the eval and
   ;; returns ok — don't over-block.
