@@ -29,13 +29,27 @@
      immediately and serves from cache. Stale, redacted, or omitted entries
      refetch — because for those the client has nothing usable in hand.
 
-   This drives the real server path, not a stand-in. It drains the blocking
-   page resource before rendering (`ssr/drain-blocking-resources!`) and ships
-   only the allowed runtime-db projection (`payload-policy/project-runtime-db`)
-   under `:rf/runtime-db` — never the full cache. The `:rf/app-db` slice goes
-   through the same fail-closed allowlist (`apply-policy`) the production Ring
-   host uses. The static `index.html` next to this file carries a pre-baked payload
-   so the browser side runs without a Clojure server in the box.
+   This drives the real server path, not a stand-in. It blocks on the
+   preloaded page resource before rendering (`await-resource-loaded!`,
+   server entry point below) and ships only the allowed runtime-db
+   projection (`payload-policy/project-runtime-db`) under `:rf/runtime-db` —
+   never the full cache. The `:rf/app-db` slice goes through the same
+   fail-closed allowlist (`apply-policy`) the production Ring host uses. The
+   static `index.html` next to this file carries a pre-baked payload so the
+   browser side runs without a Clojure server in the box.
+
+   One wrinkle worth calling out: this page has no route table (no
+   `reg-route`, no router install) — it renders unconditionally, the
+   simplest possible SSR shape. The framework's own SSR blocking-drain
+   (`re-frame.ssr/drain-blocking-resources!`) is ROUTE-blocking-keyed — it
+   waits only on resources a `reg-route` on-route-entry plan enqueued for
+   the current nav-token, so on a route-free page it has nothing to read and
+   returns settled immediately without ever looking at `:articles/list`.
+   There is no non-route blocking-drain surface to reach for instead (Spec
+   016 §SSR and hydration ties blocking to the route resource plan), so this
+   example polls the one resource it cares about directly via the public
+   `rf/resource-state` introspection read — see `await-resource-loaded!`
+   below.
 
    For the full picture see [Resources: SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration)
    and [Server-side rendering](../../../docs/ssr/concepts.md).
@@ -162,22 +176,77 @@
   [(rf/view :pages/articles)])
 
 ;; ============================================================================
+;; DIRECT RESOURCE-PRELOAD POLL (route-free — no `reg-route` in this example)
+;; ============================================================================
+;;
+;; The framework's `ssr/drain-blocking-resources!` is ROUTE-blocking-keyed:
+;; it drains only the resources a `reg-route` on-route-entry plan enqueued
+;; for the CURRENT nav-token (`[:rf.runtime/routing :resource-blocking
+;; <nav-token>]`, written by the routing artefact). This page has no route
+;; table at all — see the ns docstring — so the `[:ssr request-id nav-token]`
+;; owner `:rf/server-init` ensures under never registers there, and
+;; `drain-blocking-resources!` would return `{:settled? true}` immediately,
+;; whether or not `:articles/list` had actually resolved (this is the bug
+;; this example previously shipped — rf2-u64kc8).
+;;
+;; For a route-free SSR page there is no non-route blocking-drain surface to
+;; reach for instead (Spec 016 §SSR and hydration ties blocking to the route
+;; resource plan). So `await-resource-loaded!` polls the ONE resource this
+;; page cares about directly, via the public `rf/resource-state`
+;; introspection read — the same bounded-yield-then-recheck shape the
+;; framework's own drain loop uses internally (`re-frame.ssr`'s
+;; `default-blocking-pump!`), just keyed on a single scoped resource instead
+;; of a route's blocking set. Unlike the framework's route-blocking-timeout
+;; policy, a deadline here does not settle the entry to a structured
+;; first-load failure — it simply stops waiting and lets the render proceed
+;; with whatever status the entry is already in.
+
+#?(:clj
+   (def ^:private preload-deadline-ms
+     "Wall-clock render-deadline budget for `await-resource-loaded!` —
+      mirrors the framework's own SSR blocking-drain default
+      (`re-frame.ssr`'s `default-ssr-blocking-timeout-ms`)."
+     5000))
+
+#?(:clj
+   (defn- await-resource-loaded!
+     "Poll a resource's runtime entry (`rf/resource-state`) until its
+      `:status` reaches a terminal `:loaded` / `:error`, or
+      `preload-deadline-ms` elapses. Yields the JVM thread between checks
+      (`Thread/sleep`) so the managed-HTTP transport's async reply lands and
+      its reply event dispatches — the JVM transport issues requests via
+      `HttpClient/sendAsync`, so nothing settles the entry synchronously
+      inside the `:rf.resource/ensure` dispatch itself."
+     [{:keys [resource scope params frame]}]
+     (let [deadline (+ (System/currentTimeMillis) preload-deadline-ms)]
+       (loop []
+         (let [entry (rf/resource-state {:resource resource :scope scope
+                                          :params params :frame frame})]
+           (if (or (contains? #{:loaded :error} (:status entry))
+                   (>= (System/currentTimeMillis) deadline))
+             entry
+             (do (Thread/sleep 5)
+                 (recur))))))))
+
+;; ============================================================================
 ;; SERVER ENTRY POINT
 ;; ============================================================================
 ;;
 ;; This is one request, start to finish: mint a per-request frame whose
-;; `:initial-events` fire `:rf/server-init`, drain the blocking page resource,
-;; render to a string, and build a hydration payload carrying the allowed
-;; resource projection under `:rf/runtime-db`. The frame is torn down in a
-;; `finally` on every exit path — success or throw — so a request can never
-;; leak a frame and slowly drown the JVM.
+;; `:initial-events` fire `:rf/server-init`, block on the preloaded page
+;; resource, render to a string, and build a hydration payload carrying the
+;; allowed resource projection under `:rf/runtime-db`. The frame is torn
+;; down in a `finally` on every exit path — success or throw — so a request
+;; can never leak a frame and slowly drown the JVM.
 ;;
 ;; Two steps are what make this the real server path rather than a toy:
 ;;
-;;   1. `ssr/drain-blocking-resources!` waits for the `[:ssr …]`-owned ensure to
-;;      settle — reach `:loaded`, or time out into a structured first-load
-;;      failure — before we walk the tree. So the render never catches the page
-;;      mid-fetch with a `:loading` skeleton frozen into the HTML.
+;;   1. `await-resource-loaded!` waits for the `[:ssr …]`-owned ensure to
+;;      settle — reach `:loaded` / `:error` — before we walk the tree. So
+;;      the render never catches the page mid-fetch with a `:loading`
+;;      skeleton frozen into the HTML. See the DIRECT RESOURCE-PRELOAD POLL
+;;      section above for why this page polls directly instead of calling
+;;      `ssr/drain-blocking-resources!`.
 ;;   2. `payload-policy/project-runtime-db` boils the runtime-db down to just
 ;;      what's safe to serialize: the durable `:rf.runtime/resources`
 ;;      `:entries`, with `:sensitive?` values redacted, `:large?` values
@@ -200,10 +269,12 @@
          (rf/with-frame f
            ;; (1) Settle the blocking page resource before we render a thing.
            ;; The `[:ssr …]`-owned ensure that `:rf/server-init` kicked off has
-           ;; to land on a terminal status (:loaded / :error), or time out into
-           ;; a settled first-load failure, so the render walk works with real
-           ;; data instead of an in-flight guess.
-           (ssr/drain-blocking-resources! f)
+           ;; to land on a terminal status (:loaded / :error) before the render
+           ;; walk works with real data instead of an in-flight guess.
+           (await-resource-loaded! {:resource :articles/list
+                                     :scope    :rf.scope/global
+                                     :params   {}
+                                     :frame    f})
            (let [final-db      (rf/app-db-value f)
                  final-runtime (rf/runtime-db-value f)   ;; this is where :rf.runtime/resources lives
                  hiccup        ((rf/view :app/root))

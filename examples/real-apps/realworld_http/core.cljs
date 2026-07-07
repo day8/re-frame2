@@ -389,13 +389,20 @@
       (and (= method :post) (str/ends-with? u "/users"))
       {:user demo-user}
 
-      ;; GET /user — session restore on boot. We return an empty payload on
-      ;; purpose: it fails the schema decode, drops into the failure branch,
-      ;; and the auth machine settles back to :idle. Net effect — the demo
-      ;; always opens logged-out, so you get to click "Sign in" and watch the
-      ;; flow rather than arriving mysteriously authenticated.
+      ;; GET /user — session restore on boot. We deliberately synthesise a
+      ;; DECODE FAILURE (not a success with an empty body): a real backend
+      ;; returning `{}` would fail `:decode schema/UserResponse`'s schema
+      ;; validation, and `:begin-restore`'s `:on-failure` would fire. The
+      ;; canned-success stub never runs `:decode`, though — an empty-map
+      ;; *success* reply would land in `:on-success` instead, taking the auth
+      ;; machine to `:authed` with a nil `:user` (a broken, half-authenticated
+      ;; state). Routing this through `:rf.http/managed-canned-failure` (see
+      ;; the `::decode-failure` sentinel below) reproduces the real failure
+      ;; path. Net effect — the demo always opens logged-out, so you get to
+      ;; click "Sign in" and watch the flow rather than arriving mysteriously
+      ;; (and brokenly) authenticated.
       (and (= method :get) (str/ends-with? u "/user"))
-      {}
+      ::decode-failure
 
       ;; POST /articles/:slug/comments — synthesise the saved Comment
       ;; the optimistic submit path expects.
@@ -439,12 +446,26 @@
                then defers the reply via `:dispatch-later`, so it shows up in
                the trace and survives time-travel instead of being a raw
                `js/setTimeout`. The little delay is what makes the `:loading`
-               state actually visible."
+               state actually visible.
+
+               `demo-payload-for-args` signals a genuine failure (rather than
+               a payload) with the `::decode-failure` sentinel — GET /user's
+               session-restore stub is the one route the demo wants to FAIL,
+               so it delegates to `:rf.http/managed-canned-failure` instead of
+               `-success`. `:rf.http/managed-canned-success` never runs
+               `:decode`, so handing it an empty body would incorrectly land
+               on the `:on-success` branch."
    :platforms #{:server :client}}
   (fn fx-managed-demo-stub [frame-ctx args-map]
-    (let [payload (demo-payload-for-args args-map)
-          stub    (registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
+    (let [payload (demo-payload-for-args args-map)]
+      (if (= ::decode-failure payload)
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+          (stub frame-ctx (assoc args-map
+                                  :after-ms demo-reply-delay-ms
+                                  :kind     :rf.http/decode-failure
+                                  :tags     {:schema-validation-failure? true})))
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))))
 
 ;; The React root lives in an atom and gets created lazily inside `run`, so
 ;; that merely loading this namespace touches no DOM. That restraint earns

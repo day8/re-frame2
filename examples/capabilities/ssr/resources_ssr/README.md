@@ -61,10 +61,15 @@ per-request, and the wire payload stays minimal.
   resource under an `[:ssr request-id nav-token]`
   [owner](../../../../docs/resources/glossary.md#owner--cause) with
   [cause](../../../../docs/resources/glossary.md#owner--cause)
-  `:ssr-preload`. Then `handle-request` calls
-  `ssr/drain-blocking-resources!` to **wait** for that ensure to settle —
-  reach `:loaded`, or time out into a structured first-load failure —
-  before the render runs. The
+  `:ssr-preload`. This page has no route table at all — the simplest
+  possible SSR shape — so `handle-request` can't reach for the framework's
+  `ssr/drain-blocking-resources!`: that drain is ROUTE-blocking-keyed, it
+  waits only on resources a `reg-route` on-route-entry plan enqueued for the
+  current nav-token, and a route-free `[:ssr …]`-owned ensure never
+  registers there. Instead `handle-request` calls `await-resource-loaded!`
+  (defined alongside it), which polls the resource's own runtime entry
+  directly via the public `rf/resource-state` introspection read until it
+  reaches `:loaded` / `:error`, or a render-deadline budget elapses. The
   [view](../../../../docs/core/glossary.md#view) reads through the passive
   `[:rf.resource/state …]`
   [subscription](../../../../docs/core/glossary.md#subscription), and by the
@@ -115,7 +120,7 @@ per-request, and the wire payload stays minimal.
   explicit, checkable statement that this handoff is safe.
 
 The SSR-resource runtime is **real**: `handle-request` drives the actual
-server path, not a skeleton stand-in. The blocking drain, the per-entry
+server path, not a skeleton stand-in. The blocking poll, the per-entry
 projection (redaction / omission / scoped-key privacy / index omission),
 and the client hydration reconcile + refetch plan all run end-to-end.
 

@@ -55,7 +55,7 @@ Every write is a `reg-mutation` — most in `mutations.cljs`, with the editor's 
 | `:realworld/follow` / `:realworld/unfollow` | POST/DELETE `/profiles/:username/follow` | populates the profile banner from the reply; invalidates `[:profile username]` |
 | `:realworld/post-comment` | POST `/articles/:slug/comments` | invalidates `[:comments slug]`, so the mounted page's comments refetch |
 | `:realworld/delete-comment` | DELETE `/articles/:slug/comments/:id` | invalidates `[:comments slug]` |
-| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the global lists (and the article's own detail, on edit) **and** the session feed |
+| `:realworld/save-article` | POST `/articles` (create) / PUT `/articles/:slug` (edit) | invalidates the global lists (and the article's own detail, on edit), the session feed, **and** the author's own My Articles cache (`[:author-articles username]`, keyed off the reply, since a create has no prior slug to key against) |
 | `:realworld/delete-article` | DELETE `/articles/:slug` | invalidates the article, the lists, **and** the session feed |
 | `:realworld/update-settings` | PUT `/user` | invalidates `[:profile username]` so a later profile visit re-reads the new bio |
 
@@ -138,7 +138,7 @@ The Conduit list endpoints page with `limit`/`offset`. The UI is 1-indexed with 
 
 The create/edit page (`article_editor.cljs`) is the app's most form-heavy surface. It is a good tour because it composes three different contracts in one place:
 
-- **The write is the `:realworld/save-article` mutation.** One mutation handles both create (POST) and edit (PUT), branching on whether the draft carries a `:slug`. Its `:invalidates` makes the lists and the feed stale (and, on edit, the article's own detail), so navigating to the saved article reads fresh data with nothing more to arrange. Delete is the sibling `:realworld/delete-article`.
+- **The write is the `:realworld/save-article` mutation.** One mutation handles both create (POST) and edit (PUT), branching on whether the draft carries a `:slug`. Its `:invalidates` makes the lists and the feed stale (and, on edit, the article's own detail), so navigating to the saved article reads fresh data with nothing more to arrange. It also stales the author's own My Articles cache — keyed off `result`, the decoded reply, since a *create* has no prior `:slug` to key an invalidation descriptor against. Delete is the sibling `:realworld/delete-article`.
 - **The can-submit gate is a [Spec 013 flow](../../../spec/013-Flows.md).** `:editor/can-submit?` materialises "the draft is valid **and** dirty" into `app-db` at `[:editor :can-submit?]`. Why a flow and not a subscription? Because the *submit handler* needs to read it as plain app-db data to gate the submit, and a subscription's value is only available to views, not to event handlers. The submit button reads the same materialised value through an ordinary subscription over the flow's output path. (Materialising a derived value so a *handler* can read it is exactly what flows are for.)
 - **A `:can-leave` navigation guard.** The editor routes declare `:can-leave [:editor/can-leave?]`. So a dirty draft parks a navigate-away as *pending*, and the app shell renders a "discard changes?" dialog off the `:rf/pending-navigation` subscription. Saving re-seeds the baseline, so the just-saved navigate is not itself blocked.
 

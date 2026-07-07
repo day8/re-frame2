@@ -160,12 +160,22 @@
    ;; anyway. The session feed lives in the session scope, so it gets its own
    ;; per-target descriptor naming `{:from-db :realworld/session}`: one mutation,
    ;; reaching across both scopes.
-   :invalidates   (fn [{:keys [slug]} _result]
+   ;;
+   ;; A third descriptor stales the author's OWN `:realworld/author-articles`
+   ;; (My Articles) cache, keyed off the reply's `:article :author :username` —
+   ;; the fact the decoded result carries, not `params` (a create has no `:slug`
+   ;; to key against, and `[:article-list]` above only reaches the global feed's
+   ;; list-identity tag, which `:realworld/author-articles` never carries — see
+   ;; its `:tags` fn in resources.cljs). Without this, a freshly-created article
+   ;; is invisible on My Articles until its cached page naturally goes stale.
+   :invalidates   (fn [{:keys [slug]} result]
                     [{:scope :rf.scope/global
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
                      {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])}
+                      :tags  #{[:feed]}}
+                     {:scope :rf.scope/global
+                      :tags  #{[:author-articles (get-in result [:article :author :username])]}}])}
   (fn [{:keys [slug] :as draft} _ctx]
     {:request {:method (if slug :put :post)
                :url    (rh/full-url (if slug
