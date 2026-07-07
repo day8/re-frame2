@@ -5,10 +5,10 @@ The consumer-facing recipe for filing a GitHub issue out of a finding (a retro, 
 **Scope.** This recipe applies to every consumer whose `allowed-tools` grant a `Bash(gh issue …)` surface that can write (i.e. `Bash(gh issue *)` or `Bash(gh issue create *)`). The current consumers are:
 
 - [`re-frame2-pair-retro`](../re-frame2-pair-retro/SKILL.md) — links this leaf as the canonical recipe (§Filing improvements is its specialisation).
-- [`re-frame-migration`](../re-frame-migration/SKILL.md) — cardinal rule 7 files an upstream `day8/re-frame2` issue on an ambiguous migration rule; links this leaf and the README baseline.
+- [`re-frame-migration`](../re-frame-migration/SKILL.md) — cardinal rule 1 files an upstream `day8/re-frame2` issue on an ambiguous migration rule; links this leaf and the README baseline.
 - [`re-frame2-implementor`](../re-frame2-implementor/SKILL.md) — cardinal rule 8 files an upstream `day8/re-frame2` spec-gap issue; carries its own `--body-file` recipe in `references/cardinal-rules.md`, kept deliberately in sync with the shell-safety core here.
 
-Improver-style consumers (e.g. [`re-frame2-improver`](../re-frame2-improver/SKILL.md)) delegate filing and grant no write surface, so they never reach this branch. A new published skill that grants a `gh issue` write surface either links this leaf or carries the same title/body shell-safety clauses intentionally — and that either/or is enforced structurally by the `skills-structural` MCP-drift gate (`scripts/check_skill_mcp_drift.py`): its `BASH_RULES` table checks that a `gh issue`-writing skill's body and `Bash(...)` allow-list agree, and its `TITLE_SAFETY_RULES` table checks that **every** consumer listed in the §Scope table above either links this leaf or pins the local body+title clauses (`missing-title-safety` drift otherwise — the all-consumers backstop). The security-policy single source for the shell-safety pattern is [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy); this leaf is the consumer-facing recipe that cites it.
+Improver-style consumers (e.g. [`re-frame2-improver`](../re-frame2-improver/SKILL.md)) delegate filing and grant no write surface, so they never reach this branch. A new published skill that grants a `gh issue` write surface must either link this leaf or pin the same title/body shell-safety clauses locally (CI-enforced in the monorepo by the skills-structural drift gate). The security-policy single source for the shell-safety pattern is [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy); this leaf is the consumer-facing recipe that cites it.
 
 ## File only after explicit user approval
 
@@ -16,7 +16,7 @@ Drafting issue text is always fine; running `gh issue create` is gated on a fres
 
 ## Tracker boundary
 
-Skills file **GitHub issues** against the appropriate target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills — a published skill runs in a *consumer* repo and must not assume the monorepo's tracker exists. Which repo a finding files against is consumer-specific: `re-frame-migration` and `re-frame2-implementor` file *upstream* findings against `day8/re-frame2` (the repo that ships the spec / migration doc they consume); `re-frame2-pair-retro` files both pair-tool and upstream Tool-Pair friction against `day8/re-frame2`, distinguished by label (pair-tool friction carries the `pair-mcp` label, upstream Tool-Pair friction does not). The shell-safety core below is identical regardless of target repo.
+Skills file **GitHub issues** against the appropriate target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills — a published skill runs in a *consumer* repo and must not assume the monorepo's tracker exists. Which repo a finding files against is consumer-specific: `re-frame-migration` and `re-frame2-implementor` file *upstream* findings against `day8/re-frame2` (the repo that ships the spec / migration doc they consume); `re-frame2-pair-retro` files both pair-tool and upstream Tool-Pair friction against `day8/re-frame2`, distinguished in the **title + body** (a `--label` such as `pair-mcp` is optional taxonomy, added only after `gh label list` confirms the repo defines it — see the README baseline). The shell-safety core below is identical regardless of target repo.
 
 ## Search before filing
 
@@ -73,6 +73,6 @@ The body skeleton is **consumer-specific** — the shell-safety core above is sh
 
 - `re-frame2-pair-retro` — [`references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) (problem / evidence / why-the-tool-was-not-enough / proposed-improvement / expected-impact / open-questions).
 - `re-frame2-implementor` — the spec-gap body in [`references/cardinal-rules.md` §8](../re-frame2-implementor/references/cardinal-rules.md) (cites `spec/`, names the EP / fixture / capability; **public evidence only** — no private port source).
-- `re-frame-migration` — the ambiguous-rule body in [cardinal rule 7](../re-frame-migration/SKILL.md) (names the unmatched call site shape and the candidate `M-`/`O-` rule).
+- `re-frame-migration` — no dedicated template; [cardinal rule 1](../re-frame-migration/SKILL.md) files the ambiguous-rule issue, and the body names the unmatched call-site shape and the candidate `M-`/`O-` rule.
 
 Whatever the template, it MUST be composed with the `Write` tool and passed via `--body-file` per §Shell-safety above; never inline transcript-/evidence-derived text.

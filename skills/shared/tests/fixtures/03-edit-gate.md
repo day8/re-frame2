@@ -197,7 +197,7 @@ the audit; the split exists to make both regressions visible.
 - `re-frame2-pair-retro` does not currently carry `Edit` in its
   `allowed-tools` (its `allowed-tools:` frontmatter block in
   `skills/re-frame2-pair-retro/SKILL.md` grants only Read / Grep /
-  Glob / `gh issue`), so the gate-split applies only to
+  Glob / Write / `gh issue` — no `Edit`), so the gate-split applies only to
   `re-frame2-improver` among current consumers. If a future consumer
   adds `Edit`, this fixture's expected behaviour applies to it too.
 - The Scenario A "pricing exception" framing intentionally invites

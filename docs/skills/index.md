@@ -4,7 +4,7 @@
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
-re-frame2 ships eight skills, colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each one is self-contained: its own `SKILL.md`, its own `reference/` leaves, its own packaging metadata.
+re-frame2 ships eight skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
 
 ## How to load a skill
 
@@ -34,7 +34,7 @@ The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKI
 
 ## Picking the right one
 
-A quick decision flow:
+A quick decision flow (human-facing rendering of [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source) — edit routing there first):
 
 - **Starting from nothing?** → `re-frame2-setup`. When the counter mounts, switch to `re-frame2`.
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
@@ -45,7 +45,7 @@ A quick decision flow:
 - **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
 - **Just finished a pairing session and noticed friction?** → `re-frame2-pair-retro`.
 
-If a question spans more than one skill, pick the one whose **entry trigger** matches and let it route — every skill has a *"when NOT to use this"* table that hands off cleanly.
+If a question spans more than one skill, pick the one whose **entry trigger** matches and let it route — routing is single-sourced in [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source), which every skill points at for its hand-offs.
 
 ## Where each one lives
 

@@ -34,11 +34,14 @@ file contents). The behavioural fixtures are document-runnable; see
 
 ## Why this directory exists
 
-The corpus convention is that **only `re-frame2-pair/` and `shared/`
-ship a `tests/` directory** — see `skills/README.md` §"Test-fixture
-discipline." `re-frame2-pair/` qualifies because it drives a live
-runtime (nREPL attach, app-db mutation, epoch reads), so its surface is
-testable in the conventional sense.
+The corpus convention is that **only `re-frame2-pair/`, `shared/`, and
+`re-frame2-setup/` ship a `tests/` directory** — see `skills/README.md`
+§"Test-fixture discipline." `re-frame2-pair/` qualifies because it
+drives a live runtime (nREPL attach, app-db mutation, epoch reads), so
+its surface is testable in the conventional sense;
+`re-frame2-setup/` because its prose is a contract boundary with the
+generator template (`tests/setup_drift_test.clj` pins the load-bearing
+coordinates).
 
 `skills/shared/` (this directory) is the second exception, and it earns
 it for a different reason: `retro-protocol.md` is a **security
@@ -93,9 +96,9 @@ manual/diagnostic; they are intentionally not required PR coverage.
 
 - [`../retro-protocol.md`](../retro-protocol.md) — the protocol leaf under test.
 - [`../../README.md`](../../README.md) §"Test-fixture discipline" —
-  documents why `re-frame2-pair/` is the only other skill with a
-  `tests/` dir, and the carve-out this directory takes for security
-  boundaries.
+  documents which skills ship a `tests/` dir (`re-frame2-pair/`,
+  `shared/`, `re-frame2-setup/`), and the carve-out this directory
+  takes for security boundaries.
 - `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj` —
   the corpus's other prose-regression suite (recipe-shape drift
   detector); this suite mirrors its substrate.
