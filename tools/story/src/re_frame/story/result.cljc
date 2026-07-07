@@ -826,7 +826,19 @@
   positive signal (the vacuous-green duality). A run whose verdict is
   worse than any single assertion (the tape floor flipped a green
   assertion set to `:fail`) emits a run-level report carrying the floor
-  failure so the test surfaces it."
+  failure so the test surfaces it.
+
+  A `:cannot-run` verdict driven by a RUN-LEVEL refusal (`:cannot-run` on
+  the result — a `requirement-refusal` the runner could not even attempt,
+  e.g. `:rf.assert/visual-snapshot` under `:headless`) never lands in
+  `:assertions` — it is a run-level slot, not a per-assertion record — so
+  gating the run-level report on `(empty? assertions)` let a run with
+  >= 1 PASSING assertion alongside the refusal fall through every branch
+  and read false-GREEN (rf2-l3lyal: the refusal never reached
+  `clojure.test`). The gate is instead 'no per-assertion report already
+  conveys the refusal' — `(not-any? #(= :fail (:type %)) per-assertion)` —
+  so a mixed run (an unrelated passing assertion + a run-level refusal)
+  still gets the run-level `:cannot-run` report."
   [{:keys [status assertions schema-violations cannot-run] :as _result}]
   (let [per-assertion (mapv assertion->report assertions)
         worst         (requirements/aggregate-status assertions cannot-run)
@@ -843,7 +855,8 @@
             :expected :rf.story/clean-tape
             :actual   (or (seq schema-violations) :rf.story/tape-failure)}]
 
-          (and (= :cannot-run status) (empty? assertions))
+          (and (= :cannot-run status)
+               (not-any? #(= :fail (:type %)) per-assertion))
           [{:type :fail
             :message "run :cannot-run — the runner could not attempt this plan"
             :expected :rf.story/runnable

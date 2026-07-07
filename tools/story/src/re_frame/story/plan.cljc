@@ -1488,8 +1488,13 @@
         ;; plan the single source of truth, so the canvas + render-variant
         ;; resolve the identical stack. Each layer falls through to `[]`
         ;; when absent — the empty-collection concat is render-transparent.
-        story-decos  (vec (when-let [sid (args/parent-story-id id)]
-                            (story-deco-lk sid)))
+        ;; The parent story id (nil for an inline plan-map target with no
+        ;; `:variant/id`, or any id outside the variant-id grammar). Bound
+        ;; ONCE here — both the story-decorator lookup below AND the
+        ;; `:story/id` stamp on the returned plan (rf2-xk8oz4) read this
+        ;; SAME resolution, so they can never disagree about the parent.
+        sid          (args/parent-story-id id)
+        story-decos  (vec (when sid (story-deco-lk sid)))
         full-decos   (vec (concat global-decos
                                   story-decos
                                   frag-decorators
@@ -1637,6 +1642,16 @@
                                       #{} bodies)
              :explain         explain}
       source (assoc :source source)
+      ;; The parent story id (rf2-xk8oz4). `plan-hash-input-keys` includes
+      ;; `:story/id` SPECIFICALLY so two variants under different stories
+      ;; with otherwise-identical bodies do not collide — but this stamp
+      ;; is the only site that ever populates the slot the hash reads,
+      ;; and it was missing: `select-keys` silently dropped the absent
+      ;; key, so `plan-hash` was actually taken over `[:world :script
+      ;; :expect :required-runner :tags]` alone. Present only when a
+      ;; parent resolves (an inline plan-map target with no `:variant/id`
+      ;; carries no slot — render-transparent).
+      sid    (assoc :story/id sid)
       ;; The RAW (pre-`[:arg]`-substitution) sub-overrides.
       ;; A SIBLING of `:world` (NOT inside it) so it stays OUT of
       ;; `plan-hash-input-keys` — it is fully derivable from the resolved

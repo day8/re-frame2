@@ -11,6 +11,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.story.assertions :as assertions]
+            [re-frame.story.fingerprint :as fingerprint]
             [re-frame.story.plan :as plan]
             [re-frame.story.sub-overrides :as sub-overrides]))
 
@@ -74,6 +75,54 @@
       (is (= [[:dispatch [:b]]] (:script p)))
       (is (= [nil] (:source-chain p))
           "the single anonymous body is the whole source chain"))))
+
+;; ---- :story/id stamp — plan-hash's cross-story collision guard (rf2-xk8oz4)
+
+(deftest compiled-plan-is-stamped-with-parent-story-id
+  (testing "a registered variant's compiled plan carries :story/id (the
+            variant's namespace) — fingerprint's plan-hash-input-keys
+            includes :story/id SPECIFICALLY so two variants under
+            different stories with identical bodies do not collide, but
+            compile-body never stamped it (rf2-xk8oz4): select-keys
+            silently dropped the absent key, so plan-hash was actually
+            taken over [:world :script :expect :required-runner :tags]
+            alone"
+    (let [m {:story.counter/at-five
+             {:setup  [[:dispatch [:counter/init 5]]]
+              :script [[:dispatch [:counter/inc]]]}}
+          p (plan-of :story.counter/at-five m)]
+      (is (= :story.counter (:story/id p))
+          "the parent story id is derived from the variant id's namespace")))
+  (testing "an inline map target with NO :variant/id stamps no :story/id
+            (nothing to derive it from — render-transparent)"
+    (let [p (plan/variant-plan {:setup [[:dispatch [:a]]]})]
+      (is (not (contains? p :story/id))))))
+
+(deftest identical-variant-bodies-under-different-stories-do-not-collide
+  (testing "rf2-xk8oz4 — two variants with STRUCTURALLY IDENTICAL bodies
+            (same :world / :script / :expect / :required-runner / :tags)
+            registered under DIFFERENT parent stories compile to DIFFERENT
+            plan-hashes, driving the REAL compiler (not a hand-stamped
+            plan — the test gap the bead called out). Pre-fix, compile-body
+            never populated :story/id, so plan-hash's :story/id input was
+            always absent and these collided."
+    (let [body {:setup      [[:dispatch [:counter/init 5]]]
+                :script     [[:dispatch [:counter/inc]]]
+                :assertions [[:rf.assert/path-equals [:count] 6]]}
+          m    {:story.a/same body :story.b/same body}
+          pa   (plan-of :story.a/same m)
+          pb   (plan-of :story.b/same m)]
+      (is (= :story.a (:story/id pa)))
+      (is (= :story.b (:story/id pb)))
+      ;; every plan-hash-input-keys slot but :story/id is identical
+      (is (= (:world pa) (:world pb)))
+      (is (= (:script pa) (:script pb)))
+      (is (= (:expect pa) (:expect pb)))
+      (is (= (:required-runner pa) (:required-runner pb)))
+      (is (= (:tags pa) (:tags pb)))
+      (is (not= (fingerprint/plan-hash pa) (fingerprint/plan-hash pb))
+          "the cross-story collision guard is now LIVE — identical bodies
+           under different stories hash DIFFERENTLY"))))
 
 ;; ---- args + [:arg key] substitution -------------------------------------
 

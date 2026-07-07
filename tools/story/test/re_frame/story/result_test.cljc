@@ -652,6 +652,28 @@
       (is (= :fail (:type (first reports))))
       (is (re-find #":cannot-run" (:message (first reports)))))))
 
+(deftest result->reports-mixed-run-cannot-run-does-not-mask-refusal
+  (testing "rf2-l3lyal — a MIXED run (a passing assertion + a run-level
+            :cannot-run refusal) must NOT read false-GREEN: the refusal
+            lives in the run-level :cannot-run slot, never in
+            :assertions, so gating the run-level report on
+            (empty? assertions) let the passing assertion's report stand
+            alone and mask the refusal"
+    (let [refusal (requirements/requirement-refusal
+                    #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
+                    :runner-lacks-capability :headless)
+          r       (result/run-result
+                    {:assertions [{:assertion :rf.assert/path-equals :passed? true}]
+                     :unmet      [refusal]})
+          reports (result/result->reports r)]
+      (is (= :cannot-run (:status r)) "the run verdict is :cannot-run")
+      (is (= 2 (count reports))
+          "one per-assertion pass + one run-level :cannot-run — not just the pass")
+      (is (= :pass (:type (first reports))))
+      (is (= :fail (:type (last reports)))
+          "the run-level report surfaces the refusal as a failure, never masked")
+      (is (re-find #":cannot-run" (:message (last reports)))))))
+
 (deftest result->reports-zero-assertion-pass-emits-one-pass
   (testing "a vacuous-green run emits ONE run-level pass so the test sees a
             positive signal"
