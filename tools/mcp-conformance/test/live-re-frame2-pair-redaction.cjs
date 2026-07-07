@@ -170,8 +170,11 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // already loads (transitively via re-frame.core). `reg-event` is the one
 // public event form after EP-0018 (semantically reg-event-fx): the handler
 // takes the coeffects map and returns a closed effects map (`{:db ...}`).
-// dispatch uses the fn-form `re-frame.core/dispatch-sync*` (the macro's
-// runtime counterpart).
+// dispatch uses the owning-ns fn `re-frame.router/dispatch-sync!` — the
+// same runtime counterpart `dispatch-sync-impl` aliases in re-frame.core
+// post-rf2-m90brg (API-shrink #2 retired the PUBLIC `dispatch-sync*` twin;
+// a runtime cljs-eval form still cannot expand the `dispatch-sync` macro,
+// so it reaches the router fn directly, same as a JVM programmatic caller).
 //
 // Epoch recording must be ACTIVE for the pull-mode tools to have a record
 // to egress. The tiny fixture (`counter.core`) neither requires
@@ -226,7 +229,7 @@ const SEED_FORM = `
     (fn [{:keys [db]} _]
       {:db (assoc db ${SECRET_KEY} "${SENTINEL}")
        :sensitive [[${SECRET_KEY}]]}))
-  (re-frame.core/dispatch-sync* [:rf-conformance/write-secret] {:frame fid})
+  (re-frame.router/dispatch-sync! [:rf-conformance/write-secret] {:frame fid})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
    :epoch-count (count (re-frame.core/epoch-history fid))
@@ -342,7 +345,7 @@ const INNER_WRITE_FORM = `
                (dissoc ${SECRET_KEY})
                (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))
        :clear-sensitive [[${SECRET_KEY}]]}))
-  (re-frame.core/dispatch-sync* [:rf-conformance/write-inner-secret] {:frame fid})
+  (re-frame.router/dispatch-sync! [:rf-conformance/write-inner-secret] {:frame fid})
   {:frame fid
    :rollup-at-assembly
    ;; The STAMPED rollup on the just-recorded (HEAD) epoch — MUST be
