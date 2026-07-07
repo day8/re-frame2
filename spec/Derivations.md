@@ -438,11 +438,10 @@ The clearest illustration of the algebra: the *same* whole-value function, expre
   (fn [[items discounts] _] (sum-cart items discounts)))
 
 ;; Source form B — a flow, same function
-(rf/reg-flow
-  {:id :cart/materialized-total
-   :inputs [[:cart :items] [:pricing :discounts]]
-   :derive (fn [items discounts] (sum-cart items discounts))
-   :output-path [:cart :total]})
+(rf/reg-flow :cart/materialized-total
+  {:inputs [[:cart :items] [:pricing :discounts]]
+   :output-path [:cart :total]}
+  (fn [items discounts] (sum-cart items discounts)))
 ```
 
 Their algebra views differ only in output, storage, evaluation, and lifecycle:
@@ -535,13 +534,13 @@ The same ephemeral-derivation classifications as an ordinary subscription; the o
 
 ```clojure
 ;; SOURCE FORM                              ;; ALGEBRA VIEW
-(rf/reg-flow                                 {:id          :cart/materialized-total
-  {:id     :cart/materialized-total           :kind        :derivation
-   :inputs [[:cart :items]                    :source-form {:kind :reg-flow
-            [:pricing :discounts]]                          :id   :cart/materialized-total}
-   :derive (fn [items discounts]              :inputs      [[:db [:cart :items]]
-             (sum-cart items discounts))                    [:db [:pricing :discounts]]]
-   :output-path [:cart :total]})              :output      [:db [:cart :total]]
+(rf/reg-flow :cart/materialized-total        {:id          :cart/materialized-total
+  {:inputs [[:cart :items]                    :kind        :derivation
+            [:pricing :discounts]]            :source-form {:kind :reg-flow
+   :output-path [:cart :total]}                             :id   :cart/materialized-total}
+  (fn [items discounts]                       :inputs      [[:db [:cart :items]]
+    (sum-cart items discounts)))                            [:db [:pricing :discounts]]]
+                                              :output      [:db [:cart :total]]
                                               :storage     :app-db
                                               :evaluation  :after-event
                                               :lifecycle   :frame
