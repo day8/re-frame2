@@ -1753,9 +1753,13 @@ condition with a distinct verbatim placeholder.
 ## Accessibility
 
 The state-chart is a graph, which is hard for screen readers. v1.0
-ships **without** a chart alt-view; the alt-view is a v1.1 commitment.
-Until then, the transition-history ribbon and the machines picker are
-the accessible surfaces — both are text-heavy and reach the same data.
+ships **without** a chart alt-view; the alt-view is a COMMITMENT,
+re-anchored to first external alpha (or earlier if the first external
+consumer needs assistive-tech access to chart topology) — see
+[`tools/machines-viz/spec/000-Vision.md`](../../machines-viz/spec/000-Vision.md#committed-with-a-trigger)
+§Committed with a trigger. Until then, the transition-history ribbon
+and the machines picker are the accessible surfaces — both are
+text-heavy and reach the same data.
 
 ## The bug catalogue
 

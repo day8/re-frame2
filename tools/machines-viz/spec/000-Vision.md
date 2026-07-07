@@ -274,8 +274,10 @@ emitter**:
    machine's transitions inline with the prose. v1.0 covers
    embedding a registered machine from a docs-time `reg-machine`
    form. **Klipse-style paste-and-render (an arbitrary EDN
-   pasted into a page that renders without registration) is
-   deferred to v1.1** per
+   pasted into a page that renders without registration) is a
+   candidate-on-demand, not a committed version** — trigger = a
+   real user / docs workflow asks to paste + render an external
+   machine spec (none has appeared); firing the trigger reopens
    [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #1 (no
    visualiser-as-product); the v1.0 docs-cell surface uses the
    chart against a registered machine, not pasted text.
@@ -715,10 +717,13 @@ implementation-state list.
   as event-nodes per rf2-qo5xy, so a clickable event-node label
   fires `:on-edge-click` — there is no `:on-transition-click`).
 - Accessibility: SVG `<title>` / `<desc>` + machine summary text
-  alternative. **Full chart alt-view defers to v1.1** (same
-  posture Xray 003 §Accessibility takes — the transition-history
-  ribbon + machine picker on the host side carry the accessible
-  surface in v1.0).
+  alternative today; the transition-history ribbon + machine picker
+  on the host side carry the accessible surface in v1.0 (same
+  posture Xray 003 §Accessibility takes). **Full chart alt-view
+  (keyboard-reachable states/transitions, a screen-reader tree view)
+  is a COMMITMENT, re-anchored to first external alpha** — or earlier
+  if the first external consumer needs assistive-tech access to
+  chart topology. See §Committed with a trigger below.
 
 ### What v1.0 does NOT do
 
@@ -734,11 +739,13 @@ does **not** include:
   not contested.
 - **No paste-and-render at v1.0.** Pasting arbitrary EDN into a
   page that renders without registration (Klipse-style live
-  evaluation) is **deferred to v1.1**. The v1.0 docs-cell surface
-  renders against a registered machine; the v1.0 viewer page
-  renders against a share-URL payload (also a registered shape,
-  just encoded for transit). The Klipse-style affordance is a
-  candidate, not a commitment.
+  evaluation) is a **candidate-on-demand, not a commitment, no
+  version** — trigger = a real user / docs workflow asks for it
+  (none has appeared); firing the trigger reopens
+  [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #1. The v1.0
+  docs-cell surface renders against a registered machine; the v1.0
+  viewer page renders against a share-URL payload (also a registered
+  shape, just encoded for transit).
 - **No editor surface.** `MachineChart` is a read-only renderer.
   Machines are authored in code via `reg-machine`; the EDN in
   source files is the source of truth. There is no canvas-driven
@@ -751,15 +758,40 @@ does **not** include:
   (JointJS / GoJS); no SaaS-only rendering services; no
   Day8-hosted infrastructure in the dependency graph.
 
-### v1.1 candidates (not committed)
+### Committed with a trigger
 
-- Chart alt-view for screen readers (the v1 commitment deferred
-  from accessibility).
-- "Paste a machine definition" web playground hosted under the
-  viewer page (Stately-Visualizer-style onboarding flow).
+- **Chart alt-view for screen readers.** COMMITMENT, not a
+  candidate — accessibility promises don't dangle. Re-anchored off
+  the stale "v1.1" label (the v1.1 window shipped SCXML, per §v1.1
+  shipped below, without ruling on this item) to a real, checkable
+  trigger: **first external alpha**, or earlier if the first
+  external consumer needs assistive-tech access to chart topology.
+  Design should be informed by a real accessibility pass rather than
+  built speculatively now. Joint wording with rf2-a0t1z5 (the
+  deferred `:pixels`/`:a11y-engine` browser-tier CI gate trigger): if
+  this alt-view ships, an axe-style `:rf.assert/a11y` variant over it
+  would be the first real `:a11y-engine` consumer for that gate — the
+  two triggers cite each other rather than inventing two vocabularies
+  for "when a11y gets real."
+
+### Candidates on demand
+
+- **"Paste a machine definition" web playground** hosted under the
+  viewer page (Stately-Visualizer-style onboarding flow). Demoted
+  from "deferred to v1.1" to candidate-on-demand: trigger = a real
+  user / docs workflow asks to paste + render an external machine
+  spec (none has appeared). Firing the trigger explicitly REOPENS
+  [`DESIGN-RATIONALE.md`](./DESIGN-RATIONALE.md) §Lock #1
+  (component-not-product) — paste-a-spec-and-watch-it-render is the
+  exact product shape Lock #1 rejected as product-shaped; Mermaid
+  already covers static paste and the share-URL viewer already covers
+  interactive sharing. Technically small now (`MachineChart` + viewer
+  + validated decode path all shipped) but still a scope carve-out,
+  so it stays out of the committed roadmap.
 - D2 / `xstate-json` emitters alongside Mermaid (the topology fn
   generalises; D2 + xstate-json are different output grammars over
   the same input). Per [Spec 005 §Future §Diagram export](../../../spec/005-StateMachines.md#diagram-export-from-transition-tables).
+  Stays a plain candidate — no trigger recorded.
 
 ### v1.1 shipped (rf2-1bncf + rf2-6urjd, 2026-05-21)
 
@@ -822,8 +854,9 @@ Where Machines-Viz **wins** against the peer set (per
 
 Where Machines-Viz **defers** to peers:
 
-- Paste-and-render onboarding — v1.1 candidate; the v1 share-URL
-  viewer is the closest thing.
+- Paste-and-render onboarding — candidate-on-demand, no version
+  (firing the trigger reopens §Lock #1); the v1 share-URL viewer is
+  the closest thing today.
 - Statechart-from-non-machine code — Stately Studio's lane.
 
 ## See also
