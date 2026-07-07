@@ -20,7 +20,7 @@ The `re-frame2-pair` skill's `allowed-tools` (per SKILL.md frontmatter) pulls in
 | `mcp__re-frame2-story-mcp__read-failures` | Diagnostic over the variant's `:rf.story/assertions` accumulator (no re-run) | `{:variant-id :status :total :failures :assertions}` (each record carries a derived `:status`) |
 | `mcp__re-frame2-story-mcp__snapshot-identity` | Content hash of `(variant × args × decorators × loaders × substrate × modes)` | `{:identity <hash>}` — use to skip cells unchanged since a prior run |
 | `mcp__re-frame2-story-mcp__read-a11y-violations` | axe-core results for the variant's rendered DOM | `{:violations [...]}` (JVM-standalone hosts return `[]` + a hint) |
-| `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back` re-registers | `{:snippet <string> :events <vector>}` |
+| `mcp__re-frame2-story-mcp__record-as-variant` | Records dispatches into the variant's frame for `:duration-ms`, returns a `(reg-variant ...)` snippet via `gen-play-snippet`; optional `:write-back` re-registers | `{:play-snippet <string> :captured [<event-vec>...]}` |
 
 `record-as-variant` is the only one whose read-only path is ungated; the write-back branch needs `re-frame.story-mcp.config/allow-writes?` truthy, same gate as `register-variant`. See `tools/story-mcp/spec/002-Tool-Registry.md` for full I/O schemas.
 

@@ -33,7 +33,7 @@ The runtime maintains a derived `:tags` slot on the snapshot — the **union** o
 
 - **Flat machine** — the single active state's `:tags` set.
 - **Compound (hierarchical)** — the union along the path from root to active leaf.
-- **Parallel-region machine** — the union across every active state in every region (`compute-tags` in `re-frame.machines.parallel`).
+- **Parallel-region machine** — the union across every active state in every region (`compute-tags-parallel` in `re-frame.machines.parallel`, which calls `compute-tags` per region).
 
 If the union is empty the slot is **elided** entirely (snapshot-size optimisation, `commit-tags` in `re-frame.machines.transition`). The `:rf/machine-snapshot` schema marks `:tags` as `{:optional true}` — both presence (with non-empty set) and absence are valid.
 
@@ -48,45 +48,16 @@ If the union is empty the slot is **elided** entirely (snapshot-size optimisatio
 
 The sub is **derived directly off the snapshot's `:tags` slot** — a view that only cares about whether a specific tag is present re-renders only when the containment-bit flips, not on every snapshot mutation. `reg-sub`'s built-in equality dedup carries it.
 
-## Canonical worked example
+## Consuming the tag union
 
-From `examples/patterns/nine_states/core.cljs` (the `render-priority` table + `:ui/render` sub) — a render-priority table consults the tag union and resolves to one render-model keyword:
-
-```clojure
-(def render-priority
-  [{:tag :mode/done       :render :done}             ;; mode region wins outright
-   {:tag :form/success    :render :correct}          ;; form's transient acks next
-   {:tag :form/invalid    :render :incorrect}
-   {:tag :data/loading    :render :loading}          ;; data region's lifecycle
-   {:tag :data/error      :render :error}
-   {:tag :data/empty      :render :empty}
-   {:tag :data/some       :render :some}])
-
-(rf/reg-sub :ui/render
-  :<- [:rf/machine :ui/nine-states]
-  (fn sub-ui-render [snap _]
-    (let [tags (:tags snap)]
-      (some (fn [{:keys [tag render]}]
-              (when (contains? tags tag) render))
-            render-priority))))
-
-;; The root view: one `case`, not nine boolean discriminator subs + a cond.
-(case @(subscribe [:ui/render])
-  :done    [view-done]
-  :loading [view-loading]
-  :error   [view-error]
-  ;; ...
-  )
-```
-
-The render-priority table is plain data — adding a tenth case is one row.
+The tag union lets one selector sub resolve the whole active configuration to a single render-model keyword: a **render-priority table** (plain `[{:tag :render} …]` data) consulted in order inside a `reg-sub` over `[:rf/machine <id>]`, so the root view branches with one `case` instead of nine boolean discriminator subs + a `cond`. Adding a tenth case is one data row. The full worked render-priority pattern is the sole carrier at [`../../patterns/nine-states.md`](../../patterns/nine-states.md) (`examples/patterns/nine_states/core.cljs`).
 
 ## Common gotchas
 
-- **Tags are **sets of keywords** on state nodes — not on transitions, not on the snapshot's `:data`.** A vector or single keyword is coerced to a set (`compute-tags` in `re-frame.machines.transition`), but the canonical form is `#{:foo :bar}`.
+- **Tags are **sets of keywords** on state nodes — not on transitions, not on the snapshot's `:data`.** Only `#{...}` is accepted: a vector or single keyword is **not** coerced — registration (`validate-tags!`) rejects any non-set value fail-loud with `:rf.error/machine-bad-tags`.
 - **The state declares intent, not identity.** `:tags #{:loading}` is OK; `:tags #{:my-feature/loading-state}` is overkill. Use the **per-axis** intent (`:data/loading`, `:form/in-flight`, `:mode/read-only`) so views can ask one tag-question that spans multiple states.
 - **Tags compose, but state-keywords don't.** Two states in different regions can both carry `:in-flight` — the union picks them up correctly. Don't try to query the **state-keyword** directly across regions; the snapshot's `:state` is a region-name → state-keyword map (parallel machines) or a single keyword (flat), and view code shouldn't branch on either shape. Branch on tags.
-- **`machine-has-tag?` is a subscription.** Inside a view it's `@(rf/machine-has-tag? ...)`. Inside an event handler it's a `subscribe` deref or a `compute-sub` call (in tests). The snapshot is **not** in `db` (app-db) — it's in the runtime-db partition. To branch inside an event, use a `reg-event` handler and read from the `:rf.db/runtime` coeffect: `(get-in runtime-db [:rf.runtime/machines :snapshots machine-id :tags])`.
+- **`machine-has-tag?` is a subscription.** Inside a view it's `@(rf/machine-has-tag? ...)`. Inside an event handler use the one-shot non-reactive read `subscribe-once` (never a bare reactive `subscribe` deref — that leaks a reaction), or `compute-sub` in tests. The snapshot is **not** in `db` (app-db) — it's in the runtime-db partition, so the direct branch is a `reg-event` handler reading the `:rf.db/runtime` coeffect: `(get-in runtime-db [:rf.runtime/machines :snapshots machine-id :tags])`.
 - **No empty `:tags` slot needed.** A state that doesn't carry tags just omits the key. The runtime elides the snapshot's `:tags` when the union is empty — a snapshot's `(contains? snap :tags)` may be `false` even after the machine has settled.
 - **`:rf/*` and `:rf.machine/*` keyword namespaces are reserved.** Application tag keywords use a feature prefix: `:auth/required`, `:cart/dirty`, `:ws/disconnected`. Don't tag with `:rf/anything`.
 
@@ -102,4 +73,4 @@ For the full state-tags contract — declaration shape, snapshot semantics, the 
 
 ---
 
-*Derived from `re-frame.machines.transition` / `re-frame.machines.parallel` (`compute-tags`, `commit-tags`, parallel-tag-union), the `:rf/machine-has-tag?` sub in `re-frame.machines`, and `re-frame.core-machines` (`machine-has-tag?` sugar) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split); re-verify after tag-union or `machine-has-tag?` changes.*
+*Derived from `re-frame.machines.transition` (`compute-tags` / `commit-tags`) and `re-frame.machines.parallel` (`compute-tags-parallel` — the cross-region union), the `:rf/machine-has-tag?` sub in `re-frame.machines`, and `re-frame.core-machines` (`machine-has-tag?` sugar) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split); re-verify after tag-union or `machine-has-tag?` changes.*

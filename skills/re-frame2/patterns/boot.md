@@ -2,7 +2,7 @@
 
 Application boot as a chained-async sequence — the canonical state-machine shape for "read config → authenticate → load profile → hydrate → resolve route → ready".
 
-Boot composes two **managed external effect** surfaces: state-machine `:spawn` (per-phase actors) and `:rf.http/managed` (per-phase fetches). Both inherit the nine-property umbrella contract — framework-owned lifecycle, structured failure taxonomy, retry/abort/teardown, trace-bus observability, uniform reply envelope — which lets the boot machine reason about per-phase failure uniformly. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names how to *sequence* the phases.
+Boot composes two **managed external effect** surfaces — state-machine `:spawn` (per-phase actors) and `:rf.http/managed` (per-phase fetches) — so the boot machine reasons about per-phase failure uniformly (umbrella: [`managed-http.md`](managed-http.md)). This leaf names how to *sequence* the phases.
 
 > **Worked example:** `examples/patterns/boot/` ships the canonical machine — `:configuring → :loading-deps → :hydrating → :ready` with one `:spawn`'d loader and a fan-out `:spawn-all` parallel-load step.
 

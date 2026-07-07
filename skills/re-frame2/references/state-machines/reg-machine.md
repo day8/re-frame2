@@ -2,45 +2,22 @@
 
 ## When to load
 
-Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:spawn`, history states, or cancellation, see the sibling leaves (`regions.md`, `tags.md`, `spawn.md`, `history.md`, `cancellation.md`).
+Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For the full xstate→re-frame2 translation catalogue see [`xstate-translation.md`](xstate-translation.md); for the machine `:schemas` contract + snapshot redaction, [`machine-schemas.md`](machine-schemas.md). For parallel regions, tags, `:spawn`, history states, or cancellation, see the sibling leaves (`regions.md`, `tags.md`, `spawn.md`, `history.md`, `cancellation.md`).
 
 ## Mental model — think in xstate, then map onto re-frame2
 
-**Standing advice for every machine: sketch it the xstate way (states, transitions, guards, actions, `context`, `invoke`, parallel states, final states), then translate each piece into its re-frame2 equivalent.** xstate is the widely-known JS FSM model and well-represented in your training data.
+**Standing advice for every machine: sketch it the xstate way (states, transitions, guards, actions, `context`, `invoke`, parallel states, final states), then translate each piece into its re-frame2 equivalent.** xstate is the widely-known JS FSM model and well-represented in your training data. Parity target is XState **v6** semantics (EP-0029), not exact compat with an alpha — many re-frame2 divergences are *toward* v6 (it dropped the v5 helper creators `assign` / `sendTo` / `raise` / `and`/`or`/`not` and the `setup()` registry, which re-frame2 never had).
 
-> **Parity reference is the XState v6 direction (EP-0029)**, not v5. v6 is on the `alpha` dist-tag but its alpha.1/alpha.2 surface is settled enough to act on. The posture is **directional, not exact-alpha-chasing**: re-frame2 aims at v6's design principles (plain functions over declarative topology, broader optional schemas, explicit timeouts, choice states, internal events) and rejects exact compat with an alpha. Many re-frame2 divergences are *toward* v6 — it removes the v5 helper creators (`assign`, `sendTo`, `raise`, `enqueueActions`, `and`/`or`/`not`/`stateIn`) and the `setup()` registry, which re-frame2 never had. When your training recalls a v5 helper creator, reach for the re-frame2 data-first form below, not a Clojure clone.
+Most concepts map cleanly. The flags below are where xstate-trained intuition steers you wrong — re-frame2 **renames or omits** the slot:
 
-Most concepts map cleanly. A handful of slots re-frame2 **renames or omits** — exactly where xstate-trained intuition steers you wrong. The table below is the translation key; watch the flagged divergence rows.
+- **`context` → `:data`.** No `context` slot; the machine's private map is `:data`.
+- **`assign({...})` → an action returning `{:data new-data}`** (and/or `{:fx [...]}`). No `[:assign …]` form; symmetric with `reg-event`'s `{:db :fx}` return.
+- **`invoke` → `:spawn`** (and `:spawn-all` for fan-out-and-join). One `:spawn` per state (xstate admits a vector); `invoke onError` → `:spawn`'s `:on-error` transition. See [`spawn.md`](spawn.md).
+- **No action-vectors, no `{and: [...]}` compound-guard data.** One fn or one named registered compound per `:action` / `:guard` slot.
+- **`setup({actors, guards, actions})` → per-machine `:guards` / `:actions` maps.** Machine-scoped, not globally registered; cross-machine reuse is via plain Clojure vars.
+- **Timeouts are integer-ms or ISO-8601 (`"PT5S"`), never the `"5s"` shorthand.** `:internal-events` is a **set** (`#{:tick}`), not an array.
 
-| xstate concept | re-frame2 equivalent | Notes / divergence |
-|---|---|---|
-| **states** (`state.value`) | `:states` map + the snapshot's `:state` slot | Flat → single keyword; compound → vector path; parallel → region-name→keyword map. Convergence. |
-| **transitions** (`on: { EVENT: ... }`) | `:on {event-keyword transition-spec}` on a state node | Convergence. Bare-target / explicit-map / guarded-vector forms. |
-| **guards** (`guard` / named guards) | `:guard` on a transition + the top-level `:guards` map | Convergence on the *name*. **Divergence:** no `{and: [...]}` compound-guard data form — compose with one fn or one named registered compound. Guards receive one context map `{:keys [data event state meta]}` and destructure what they need. |
-| **actions** (`actions` / named actions) | `:action` / `:entry` / `:exit` + the top-level `:actions` map | Convergence on the *name*. **Divergence:** no action-vector `[a1 a2 a3]` per slot — one fn or one named registered compound. `:entry`/`:exit` are a single fn or single keyword, never vectors. |
-| **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event`'s `{:db :fx}` return. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
-| **`context`** (extended state) | `:data` (the machine's private map, distinct from `app-db`) | **Divergence (name):** re-frame2 calls the slot `:data` — there is no `context` slot. |
-| **typed `context`** (v6 `schemas`) | `[:schemas :data]` (the machine-level `:schemas` map's data-context schema; EP-0029 A3) | Convergence on the role — both declare the context's shape and make it tool-renderable. **Divergence (enforcement):** XState's typed context is compile-time-only and erased at runtime; re-frame2's `[:schemas :data]` is an *actually-running* validation in dev (via the optional registered validator, e.g. Malli; and an opt-in at production boundaries), at zero production cost. **Divergence (name):** re-frame2 calls the slot `:data` (not `context`), so the schema lives at `[:schemas :data]`. See §Declaring a `[:schemas :data]` schema. |
-| **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the slot is `:spawn`, aligned with the imperative `:rf.machine/spawn` fx — there is no `:invoke`. No `:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
-| **`invoke onError`** (child→parent failure **transition**) | `:spawn`'s `:on-error` transition + `:error? true` final leaf | Convergence — re-frame2 ships `invoke onError` first-class as a control-flow **transition** (not observability-only). The child designates an error terminal with `:final? true :error? true`; the parent's `:spawn` declares `:on-error` (an `:on`-shaped transition spec). See `spawn.md` §`:on-error`. |
-| **`onDone`** (child→parent completion) | `:final?` leaf + parent `:spawn`'s `:on-done` + `:output-key` | Convergence — re-frame2 ships first-class final-state-with-parent-notification. See `spawn.md`. |
-| **`output`** (typed completion output) | `[:schemas :output]` validating the `:output-key` payload (EP-0029 A8) | Convergence on the role — both declare the completion-output shape. **Divergence:** re-frame2 keeps completion *event-shaped* (no long-lived `snapshot.output`); `[:schemas :output]` validates the `:output-key` payload *as it flows* at finalize time, best-effort fail-loud (`:where :machine-output`, `:rollback? false`). See §Declaring a `[:schemas :output]` schema. |
-| **parallel states** (`type: 'parallel'`) | `:type :parallel` + `:regions {...}` | Convergence (name + concept). `:data` shared; `:tags` is the union across active regions. See `regions.md`. |
-| **history states** (`type: 'history'`, `history: 'deep'`) | `:type :history` pseudo-state under a compound's `:states` (`:deep?` / `:default-target`) | Convergence (name + concept). Shallow by default; `:deep? true` for deep. Recording rides the snapshot's `:rf/history` slot — so undo / time-travel / SSR get it free. See `history.md`. |
-| **final states** (`type: 'final'`) | `:final? true` on a leaf state | Convergence on the concept. **Note the divergence:** a `:final?` singleton (or every-region-final parallel machine) **auto-destroys** — "final means final." Omit `:final?` for a persistent terminal state. See `spawn.md`. |
-| **tags** (`tags: [...]`) | `:tags #{...}` on a state node + `machine-has-tag?` | Convergence. See `tags.md`. |
-| **eventless / always transitions** | `:always [{:guard ... :target ...} ...]` | Convergence (re-frame2's term for xstate/SCXML transient transitions). |
-| **delayed transitions** (`after`) | `:after {<ms> transition-spec}` | Convergence on the name. No recurring timers / pause-resume in v1. |
-| **state / actor timeouts** (`timeout` / `onTimeout`) | `:timeout <ms-or-ISO-8601>` + `:on-timeout <transition>` on a state, or on a `:spawn` spec | Convergence on the concept (a named deadline that lowers onto `:after`). **Divergence:** the duration is integer-ms **or** an ISO-8601 string (`"PT5S"`); the XState `"5s"`/`"10ms"` readable shorthand is **rejected**. |
-| **choice / transient states** (`type: 'choice'`) | `:type :choice` + `:choice [{:guard ... :target ...} ... {:target <default>}]` on a state | Convergence on the concept (an immediate decision node that resolves on entry to the first guard-passing candidate; lowers onto `:always`). **Divergence:** the routing is a declarative candidate **array**, NOT XState's `choice`-*function* (a function may never be the edge). A choice state must include an unguarded default candidate and only routes (no `:entry` / `:on` / `:after` / `:timeout` / `:spawn` / …). |
-| **`raise` (self-event)** | `:raise` inside an action's `:fx` | **Divergence:** sugar for atomic self-dispatch — there is no per-actor mailbox to insert in front of. |
-| **internal events** (v6 `internalEvents`) | top-level `:internal-events #{:tick …}` (a **set** of event-ids) | Convergence on the concept (private events the machine raises + handles itself; an external dispatch of one is refused at the machine dispatch boundary, while an internal `:raise` of it is handled normally). **Divergence:** the declaration is a Clojure **set** (`#{:tick}`), NOT XState's array — membership is the natural shape, order irrelevant, duplicates impossible. A reserved framework event (e.g. the synthetic creation marker) cannot be declared internal. |
-| **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
-| **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `(subscribe [:rf/machine <id>])`. |
-| **`setup({actors, guards, actions})`** | per-machine `:guards` / `:actions` maps in the spec | **Divergence:** machine-scoped (not globally registered) — each machine has its own guard/action namespace, validated at registration; cross-machine reuse is via plain Clojure vars. |
-| **three creation modes** (`createActor` / `invoke` / `spawn`) | one mechanism, two patterns: singleton via `reg-event`, dynamic via `:spawn` / `[:rf.machine/spawn ...]` | **Divergence:** lifetime is encoded by the snapshot's presence in the runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) + registration lifetime, not by which constructor you call. |
-
-The divergence rows are catalogued in Spec 005 §Lessons from xstate and §Deliberate omissions vs xstate (and the full table in CP-5-MachineGuide §Lessons from xstate). When you reach for an xstate slot that isn't in the table — an action vector, `{and: [...]}`, multiple `:invoke` per state — that's a signal to stop and check the divergence rows rather than assume parity. (`invoke onError` *is* in the table — it maps to `:spawn`'s `:on-error` transition; don't hand-roll a dispatch-back where the declarative transition fits.)
+The full 27-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
 
 ## Canonical signature
 
@@ -99,7 +76,7 @@ The basic (non-parallel, non-hierarchical) form:
 (rf/dispatch [:my/feature [:start]])
 ```
 
-The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see §Declaring a `[:schemas :data]` schema), `:guards` and `:actions` (named lookup tables), `:states` (the transition table), and the optional `:internal-events` set (see §Private `:internal-events`). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
+The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see [`machine-schemas.md`](machine-schemas.md)), `:guards` and `:actions` (named lookup tables), `:states` (the transition table), and the optional `:internal-events` set (see §Private `:internal-events`). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
 
 ## Private `:internal-events`
 
@@ -176,77 +153,9 @@ Every callback receives **one context map** — `(fn [{:keys [data event state m
 
 There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch** — the runtime always delivers the full context map and the destructure pattern decides what's bound. `:state` and `:meta` are available for introspection with no flag (Spec 005 §Snapshot introspection — `:state` / `:meta`). The uniform single-map shape avoids the paste-from-`:guard`-into-`:on-spawn` trap (an `id` silently bound to the event vector, or vice-versa).
 
-## Declaring a `[:schemas :data]` schema
+## Machine schemas and snapshot redaction
 
-A machine's `:data` slot is its *context* in xstate terms — the value it carries across transitions. A machine spec MAY declare an optional machine-level **`:schemas`** map (EP-0029 A3); its **`[:schemas :data]`** entry is the validator for that `:data`. The map is unqualified, like `:data` / `:guards` / `:actions`:
-
-```clojure
-(def AuthData
-  [:map
-   [:retries :int]
-   [:token   {:sensitive? true} [:maybe :string]]])
-
-(rf/reg-machine :session/auth
-  {:initial :anon
-   :data    {:retries 0 :token nil}
-   :schemas {:data AuthData}
-   :states  {:anon           {:on {:login :authenticating}}
-             :authenticating {...}
-             :authed         {...}}})
-```
-
-The data-context schema lives at `[:schemas :data]` (not XState v6's `schemas.context`) because re-frame2 calls the slot `:data`, not `context` — the schema names exactly what it validates. The schema governs the user-domain `:data` only: the snapshot's `:state` is validated structurally at registration (an unknown transition target fails with `:rf.error/machine-unresolved-target`), and the reserved `:rf/*` snapshot slots are framework-owned.
-
-`:schemas` is a **closed** sub-key map. `:data` and `:output` are the live, wired categories; `:events`, `:tags`, and `:meta` are accepted declaration-only categories (abstract values, no wired behaviour yet). An unknown sub-key — including `:input` — fails loud at registration with `:rf.error/machine-bad-schemas-key`; a non-map `:schemas` fails with `:rf.error/machine-bad-schemas`.
-
-**Validation is optional and schema-library-agnostic.** The `[:schemas :data]` value is opaque: machine core requires neither Malli nor any other schema library. Validation runs through an optional registered validator adapter (Malli is the framework default); a project with no adapter still uses the `:schemas` grammar at zero validation cost.
-
-**What it buys you — two things (and a third surface declares snapshot redaction):**
-
-1. **Validation.** In dev builds (`re-frame.interop/debug-enabled?` true) the runtime validates `:data` against the schema at every macrostep-commit boundary, at bootstrap, and at spawn. A violation emits `:rf.error/schema-validation-failure` with `:where :machine-data` and rolls back the whole cascade (same lifecycle position and rollback as the `:where :app-db` check). Under `:advanced` + `goog.DEBUG=false` the validation site DCEs to a no-op — dev-only by default; for production validation at a system boundary (e.g. an SSR-hydrate restoring a machine snapshot from the wire) reach for the `:rf.schema/at-boundary` interceptor on that event.
-
-2. **Declared context shape.** With `[:schemas :data]` present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState's typed context (Stately's `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial map can mislead.
-
-> **The `[:schemas :data]` `:sensitive?` prop does NOT redact snapshot egress.** A `:sensitive?` / `:large?` Malli prop on a `:data` slot drives **only** the schema's own *validation-failure-trace* redaction — when a `:rf.error/schema-validation-failure` record ships, the marked slot is redacted in *that record*. It does **not** redact `:data` in the `:before` / `:after` / `:snapshot` slots of a normal transition trace. Durable machine `:data` snapshot redaction is declared on the machine definition (below).
-
-### Declaring a `[:schemas :output]` schema — the completion payload
-
-The other wired `:schemas` category is **`:output`** — it validates a machine's **completion-output payload**: the value a finishing machine selects from its final state's `:data` via `:output-key` (the `result` its parent's `:spawn :on-done` receives). This is the xstate **`output`** concept (v6 `schemas.output`), but re-frame2 keeps completion *event-shaped* — there is **no** long-lived `snapshot.output` slot — so `[:schemas :output]` schemas the value *as it flows*, validated at the moment the machine reaches its final state:
-
-```clojure
-(rf/reg-machine :auth-flow
-  {:initial :running
-   :schemas {:output :string}                 ;; the :output-key payload must be a string
-   :states  {:running {:on {:ok {:target :done
-                                  :action (fn [{data :data ev :event}]
-                                            {:data (assoc data :token (second ev))})}}}
-             :done    {:final?     true
-                       :output-key :token}}})  ;; ← this :token value is validated
-```
-
-Unlike the `:data` boundary, output validation is **best-effort fail-loud**: the machine has *already* finished when its output is checked, so a violation emits `:rf.error/schema-validation-failure` with `:where :machine-output` (and `:phase :completion`) **loudly**, but the completion still flows with **nothing to roll back** (`:rollback? false`) — a schema typo surfaces without deadlocking a finishing machine. Same dev-only posture as `:data` (`debug-enabled?`-gated, DCE'd in production) and the same optional validator adapter. A machine with no `[:schemas :output]` reports its `:output-key` payload unvalidated.
-
-### Redacting `:data` at snapshot egress — the machine declaration
-
-Durable machine `:data` classification travels with the **machine definition**, declared as top-level `:sensitive` / `:large` keys on the `reg-machine` spec, **projection-relative to one actor snapshot's `:data`**:
-
-```clojure
-(rf/reg-machine :session/auth
-  {:sensitive [[:data :token]]        ;; redacts :token in every actor's snapshot egress
-   :large     [[:data :avatar]]
-   :initial   :anon
-   :data      {:retries 0 :token nil}
-   :schemas   {:data AuthData}        ;; still VALIDATES :data (and drives validation-FAILURE-trace redaction)
-   :states    {...}})
-```
-
-The runtime **lowers** each declared path per spawned actor at spawn / first-boot — re-rooting `[:data :token]` to the instance's absolute snapshot path in the per-frame elision registry — and **drops** it on destroy (any cause). So a `:spawn`-generated `<type>#n` is classified with **zero per-instance author code**, exactly as XState carries `context` shape on the definition and applies it per actor. The marked slot renders as `:rf/redacted` (sensitive) or `:rf.size/large-elided` (large) in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` egress (the `:before` / `:after` / `:snapshot` slots) before crossing the trace bus / epoch-capture / AI-MCP boundary. A malformed declaration is rejected fail-loud with `:rf.error/invalid-machine-classification`.
-
-The `:sensitive` / `:large` declaration is a **top-level key on the machine spec map** — projection-relative, value-independent, per-instance. There is no framework-wide handler-metadata `:sensitive?` annotation stamping a whole cascade — classification is path-based, owner-declared. Classification is **fail-open**: an undeclared `:data` slot ships raw, and there is no propagation, so a secret a guard copies into another slot ships raw until you declare *that* slot. Full model: [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md).
-
-A machine with **no** `[:schemas :data]` schema is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
-
-See Spec 005 §Schema validation and §`[:schemas :data]` is the re-frame2 analog of XState typed context for the full contract.
+A machine spec MAY declare an optional machine-level **`:schemas`** map (EP-0029 A3) — `[:schemas :data]` validates the `:data` context (the re-frame2 analog of XState typed context), `[:schemas :output]` validates the `:output-key` completion payload. Durable `:data` egress redaction is a **separate** surface: top-level `:sensitive` / `:large` path vectors on the spec, projection-relative to one actor's snapshot. (The Malli `:sensitive?` *prop* inside `[:schemas :data]` redacts only validation-failure traces, not normal snapshot egress.) The full contract — declaration grammar, dev-only validation lifecycle, best-effort output validation, and per-instance classification lowering — is the sole carrier at [`machine-schemas.md`](machine-schemas.md).
 
 ## Subscribing to a machine
 

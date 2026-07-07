@@ -16,8 +16,7 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Scope a React subtree to an **existing** frame | `frame-provider {:frame …}` (SCOPE-only) |
 | Ensure a **named** frame for a subtree (create-if-absent, reuse-no-reseed) | `frame-provider {:id …}` (ENSURE) |
 | Hold a frame's ops as a value (async / closures) | `capture-frame` — the one public carry primitive |
-| One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
-| One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
+| One-off explicit routing (`dispatch` / `subscribe`) | `{:frame …}` trailing opt — `(rf/dispatch [:foo] {:frame …})` / `(rf/subscribe query-v {:frame …})` (same shape both sides) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 | Read a frame's runtime-db / whole frame-state (tools, SSR) | `runtime-db-value` / `frame-state-value` |
 | Install state from outside a cascade (tools, tests, SSR) | `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` |
@@ -105,7 +104,7 @@ When you `setTimeout` or hand a callback to a promise, the frame scope (dynamic 
 
 ## Canonical mini-example
 
-Per-test isolated frame, from `examples/core/login/core.cljs`:
+Per-test isolated frame (the shape tests and harnesses use):
 
 ```clojure
 (with-new-frame [f (rf/make-frame
@@ -174,7 +173,7 @@ User-supplied keys win on conflict with preset expansion.
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:initial-events`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
 - **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
-- **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `capture-frame`.
+- **Wrapping a plain Reagent fn in a `frame-provider` doesn't bind the frame** (§The merged `frame-provider` in views) — use `reg-view`, or capture a `capture-frame`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
 ## Images, frames, and the event stream (EP-0023 — the multi-frame public model)
@@ -197,7 +196,7 @@ You almost certainly do not need to name an image. The two facts an author shoul
 
 > **The landed public surface.** `rf/image` is exported on `re-frame.core` today: `(rf/image {:select-ns {:include [<ns-glob> …]}})` returns an **inert image value** — pure data, no registrar, no side effect. `:select-ns :include` selects already-loaded registrations by their *source* namespace (`:rf.provenance/ns`), not by the registration-id namespace; the glob grammar is `*` (one segment) / `**` (zero or more), case-sensitive, whole-namespace match, and a pattern that matches **zero** descriptors fails image assembly loud; the optional `:exclude` leg subtracts. Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …) round out the spec map — `:id` / `:select-ns` / `:registrations` are the only three public keys (EP-0026). Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs; composition resolves by **image order** (the later image wins; read what it shadowed via `rf/frame-shadows`), and reload swaps that generation while preserving frame memory. There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud.
 >
-> **`make-frame` is one constructor returning the frame value (EP-0024).** It accepts image-selection opts (`:images`) AND record-config opts (`:id` / `:initial-events` / `:fx-overrides` / …) in one call and **returns the live frame value** (a lifecycle token; read its id via `frame-value->id`). The advanced `re-frame.frame/make-frame` is internal. A frame-targeted `reload-images!` swaps a live frame's image generation while preserving its memory. For a callable frame at the app root, `reg-frame` it and scope with `frame-provider {:frame …}`; construct image *values* with `rf/image`; for a view-driven named-frame lifetime use `frame-provider {:id …}` (ensure), or explicit `make-frame` + `destroy-frame!` when a component must own teardown.
+> **Constructing image-loaded frames.** `make-frame` takes `:images` (a vector of `rf/image` values) alongside its record-config opts (§Canonical signatures); `reload-images!` swaps a live frame's image generation in place, preserving memory. Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (§The merged `frame-provider` in views).
 
 ### Frame isolation is the whole isolation story
 

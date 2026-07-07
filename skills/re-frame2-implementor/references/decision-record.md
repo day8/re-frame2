@@ -51,7 +51,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | **Q7 — AI-Audit grading** | <yes / no> | |
 | **Q8 — Flows (013)** | <yes / no> | gates the `:flow/*` conformance family |
 | **Q9 — Managed HTTP (014)** | <yes / no> | gates the `:rf.http/managed` conformance family |
-| **Q10 — Resources (016)** | <yes / no> | post-v1; **presupposes Q9** (resource/mutation `:request` lowers onto `:rf.http/managed`). Gates the `:rf.resource/*` / `:rf.mutation/*` family — **corpus-behind** (spec-mandated but no fixtures yet; verify against `spec/016-Resources.md` + own unit tests). usually no for v1 |
+| **Q10 — Resources (016)** | <yes / no> | post-v1; **presupposes Q9** (resource/mutation `:request` lowers onto `:rf.http/managed`). Gates the `:resources/*` conformance family (six `resources-*.edn` fixtures); the mutation half is corpus-behind (spec-mandated, no fixtures yet — verify against `spec/016-Resources.md` + own unit tests). usually no for v1 |
 
 ## D4. Always-required realisation decisions
 
@@ -161,7 +161,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 #### E2 Error reporting to tools
 
 - **Recovery:** <framework-owned typed per-category default — NO app-steering recovery policy; genuine recovery is local-at-source (managed-HTTP retry, optional-read fallback)>
-- **Production error path — frame-owned sink (normal) vs corpus-wide listener (advanced):** <the NORMAL off-box error path is the frame-owned `:observability :errors` sink declared on `reg-frame` + wired with `register-observability-sink!` (already-PROJECTED records — Sentry / Rollbar / SSR fail-closed); the ADVANCED corpus-wide hook is `register-listener! :errors`, fanning `:rf.error/*` records across EVERY frame UNPROJECTED (`:exception` RAW) for a cross-frame post-mortem shipper. Both survive production elision, exception-isolated — the single error-observability substrate, NOT only via the dev-elided trace stream (T1). The public verb is `register-listener!`; there are no `register-(event|error)-listener!` facade functions — those bare names are internal `re-frame.event-emit` / `re-frame.error-emit` fns only.>
+- **Production error path:** <mechanism for the two consumers — the normal frame-owned `:observability :errors` sink (`register-observability-sink!`, projected records) vs the advanced corpus-wide `register-listener! :errors` hook (unprojected). Full contract: [`phase-1-decisions.md` §E2](phase-1-decisions.md) → [`phase-2-impl-order.md` §EP 009](phase-2-impl-order.md#ep-009--instrumentation).>
 
 ## D5. Schema mechanism
 
@@ -172,12 +172,14 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 ## D5b. Data classification (Sensitive + Large) — v1-required (not D3-gated)
 
-- **Event-owned durable app-db classification:** <where the four commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`, each a vector of `:rf/path` vectors) a handler returns alongside `:db` land and how — e.g. "folded into the per-frame elision registry `[:rf.runtime/elision …]` at the COMMIT point, NOT a post-commit `:fx`"; value-independent; the two axes clear independently; a malformed payload fails loud PRE-COMMIT (`:rf.error/classification-effect-shape`, no `:db` commit). There is NO frame `:sensitive {:app-db …}` annotation (a `reg-frame` `:sensitive` carrying an `:app-db` block is rejected fail-loud), NO schema-prop route to durable app-db, and NO `add-marks` / `set-marks` / `clear-app-db-marks!` / `declare-sensitive-header!` / `declare-sensitive-query-param!` API.>
-- **Subsystem projection-relative classification:** <confirm machine / resource durable classification is declared via top-level `:sensitive` / `:large` keys on the `reg-machine` / `reg-resource` definition, PROJECTION-RELATIVE to one instance's shape (e.g. `[:data :token]`), lowered per instance into the per-frame registry at spawn/fetch and dropped on teardown; a malformed declaration fails loud at registration (`:rf.error/invalid-machine-classification`). Machine `:data` SNAPSHOT egress is the machine declaration — NOT the machine's `[:schemas :data]` schema. That schema's `:sensitive?` / `:large?` props drive ONLY the schema's own validation-FAILURE-trace redaction (a different axis); the same `:sensitive?` prop on a resource's `:data-schema` / `:params-schema` or an HTTP request's `:decode` schema is the transient-body route. The machine data schema is declared at `[:schemas :data]` (there is no `:data-schema` key — EP-0029 — see Spec 015 §Subsystem / Spec 005 §Privacy).>
-- **Registration-owned transient classification:** <confirm `reg-event` (the one public event registrar — EP-0018) / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` accept `{:sensitive [paths] :large [paths]}` indexing into that registration's primary shape (`[[]]` marks the whole shape); a malformed path vector / declaration is rejected fail-loud at registration>
-- **No propagation:** <classification does NOT propagate — there is no input→output inheritance through subs/flows, no value-match/taint engine, and no `:rf.egress/output-sensitivity` declassification claim (silently ignored if present). A derived secret is classified by classifying the OUTPUT path directly; a re-keyed/unclassified path ships RAW (fail-open). Arbitrary handler-body provenance is NOT tracked.>
-- **Boundary projection — `project-egress`:** <the one public record-level boundary primitive every off-box sink routes through — it dispatches on a record's `:kind` to a private per-kind projector, delegates tree-shaped slots to the low-level `elide-wire-value` walker, and takes an `:rf.egress/profile` from the closed six-member enum (`:rf.egress/off-box-observability` / `off-box-tool` / `local-redacted` / `local-raw` / `ssr-hydration` / `public-error`). The wire markers it writes are `:rf/redacted` (sensitive) and `:rf.size/large-elided {:bytes N …}` (large) per Spec 009 — the `:rf/large {:bytes N :head}` / `:rf/redacted {:bytes N}` forms are the Spec 015 *display* renderings layered on top, not the wire shape; sensitive wins over large; real values flow through the runtime unchanged>
-- **Frame-owned observability + fail-closed:** <how production sinks are wired — the frame's `:observability` policy + `register-observability-sink!`, always-on (survives `:advanced` + `goog.DEBUG=false`), sinks consume already-projected records (no sink-local redaction); routing/projection fail closed — an unresolved frame or frameless projection redacts rather than leaks, never synthesizing `:rf/default` (EP-0002)>
+Record the mechanism for each declaration surface. The full contract is the canonical statement in [`phase-1-decisions.md` §D5b](phase-1-decisions.md) → [`phase-2-impl-order.md` §EP 015 — Data Classification](phase-2-impl-order.md#ep-015--data-classification-sensitive--large); don't re-derive it here.
+
+- **Durable app-db classification:** <mechanism for the four commit-plane effects (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`) folded at the commit point into `[:rf.runtime/elision …]`>
+- **Subsystem projection-relative classification:** <mechanism for machine / resource instance-data declaration; the machine `:data` snapshot egress rides the definition, not the `[:schemas :data]` schema (no `:data-schema` key — EP-0029)>
+- **Registration-owned transient classification:** <mechanism for `{:sensitive [paths] :large [paths]}` on `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow`>
+- **No propagation:** <confirm no input→output inheritance / taint engine; a re-keyed/unclassified path ships raw (fail-open)>
+- **Boundary projection — `project-egress`:** <mechanism for the record-level boundary + the closed six `:rf.egress/*` profiles; wire markers (`:rf/redacted` / `:rf.size/large-elided`) vs the Spec 015 display sentinels>
+- **Frame-owned observability + fail-closed:** <mechanism for `register-observability-sink!` + fail-closed routing (no `:rf/default` synthesis)>
 
 ## D6. Integration story
 
@@ -202,6 +204,9 @@ The set of capability tags this port claims:
 :fsm/final-states <yes / no>
 :fsm/history      <yes / no — yes if you implement :type :history pseudo-states (shallow / deep / default-target); first-class v1 capability per Spec 005>
 :fsm/registration-validation <yes / no — yes if you validate machine specs at registration time>
+:fsm/choice       <yes / no — yes if you implement :type :choice transient states (lowering onto :always); EP-0029>
+:fsm/internal-events <yes / no — yes if you implement the public/private dispatch-boundary refusal; EP-0029>
+:fsm/timeout      <yes / no — yes if you implement state+spawn :timeout / :on-timeout (lowering onto :after); EP-0029>
 :actor/own-state  <yes / no>
 :actor/spawn-destroy <yes / no>
 :actor/cross-actor-fx <yes / no>
@@ -213,15 +218,14 @@ The set of capability tags this port claims:
 :routing/*        <yes / no>
 :ssr/*            <yes / no>
 :schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism; a static yes-via-host-types host puts the runtime-trace sub-tags (:schemas/runtime, :schemas/event-payload) on known-skipped-capabilities — the :fixture/dynamic-host-only? fixtures can't produce a runtime trace. See conformance.md §Static hosts and dynamic-host-only fixtures>
-:rf.resource/*    <yes / no — yes if D3 Q10 = yes (presupposes Q9). CORPUS-BEHIND: spec-mandated but no fixtures yet; verify against spec/016-Resources.md + own unit tests, claim when fixtures land>
-:rf.mutation/*    <yes / no — yes if D3 Q10 = yes; the named-causal-write half of Resources>
+:resources/*      <yes / no — yes if D3 Q10 = yes (presupposes Q9). Resources reads: six resources-*.edn fixtures (:resources/ensure / dedupe / stale-suppression / scope-fail-closed / lease-gc / keep-previous). The mutation half is corpus-behind — spec-mandated, no fixtures yet; verify against spec/016-Resources.md + own unit tests until they land. (:rf.resource/* / :rf.mutation/* are the reserved event/sub id namespaces, distinct from this capability vocabulary.)>
 :derivation/algebra-graph                <yes / no — yes if D3 Q6 = yes AND you ship the full subs/flows/resources/routes/machines graph>
 :derivation/algebra-graph-subs-machines  <yes / no — the subs+machines static subset; a graph host spanning only those claims this and known-skips the broad :derivation/algebra-graph>
 ```
 
-> **The derivation/process algebra (EP-0014) mints no authoring capability — only an optional graph-inspection one.** [`spec/Derivations.md`](https://day8.github.io/re-frame2/spec/Derivations/) names the one view subs / flows / resources / routes / machines lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`) — but it mints **no new authoring primitive** and **no public accessor**, so there is no `:derivation/*` tag for the *algebra behaviour* itself. That behaviour is verified *through* the source-form families you already claim (`:core/*` subs, `:flow/*`, resources / `:routing/*` / `:fsm/*`). The **one** EP-0014-specific conformance surface is the optional **graph-inspection** check, and it DOES carry concrete fixture tags — the split pair `:derivation/algebra-graph` (broad) + `:derivation/algebra-graph-subs-machines` (subs+machines subset) listed above. Claim them only if D3 Q6 = yes (you ship Tool-Pair inspection); if you ship no inspection surface, record a `known-skipped-capabilities` reason rather than a claimed tag. A graph host spanning only subs+machines claims the subset and known-skips the broad one (so a host cannot overclaim the EP-0014 graph surface).
+> **The derivation/process algebra (EP-0014) mints no authoring capability — only an optional graph-inspection one:** the split pair `:derivation/algebra-graph` (broad) + `:derivation/algebra-graph-subs-machines` (subs+machines subset), claimed only if D3 Q6 = yes; a host with no inspection surface records a `known-skipped-capabilities` reason. See [`conformance.md` §Capability tagging](conformance.md#capability-tagging).
 
-The capability families above track the **conformance corpus** (the `spec/conformance/fixtures/*` files, which are the acceptance test). Both the Implementor-Checklist's family list and the conformance README's prose enumeration usually lag the fixtures (they omit `:flow/*` and its sub-tags, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`); when a prose list and the fixtures diverge **for scoring** — what actually runs — the fixtures win. **But the divergence can go the other way for the *vocabulary*:** `:actor/*` is corpus-behind — `spec/conformance/README.md` + Spec 005 declare six actor tags, the fixtures back only four (`:actor/own-state` and `:actor/cross-actor-fx` are spec-mandated but fixture-less today). So `grep`-the-fixtures *under-claims* the actor axis; enumerate `:actor/*` from the README + Spec 005, and a fixture-less spec capability goes on `known-skipped-capabilities` only if you don't implement it. Enumerate the rest of the claimable vocabulary from `spec/conformance/fixtures/*` at the pinned commit (`grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u`, same for `:flow/`), cross-checked against the README capability table.
+Enumerate the claimable vocabulary per [`conformance.md` §Capability tagging](conformance.md#capability-tagging) at the pinned commit: the fixtures score (what runs), the conformance README + owning Spec define the vocabulary (what exists to claim), and the two diverge either way — the common corpus-ahead case, plus the corpus-behind `:actor/*` exception.
 
 Score reporting: this port's score is `passed / claimed-applicable` against the above set. A capability the port deliberately doesn't claim goes on the harness's `known-skipped-capabilities` allowlist (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)); a fixture carrying a capability in neither the claim nor the allowlist must FAIL the suite, not skip silently.
 
@@ -266,10 +270,4 @@ This costs ~30 minutes when caught early. Skipping the revise step and patching 
 
 ## Why the record matters
 
-Three reasons:
-
-1. **Phase 2 context.** Every Phase 2 step asks "given Phase 1, what does EP N look like in this port?" Without the record written down, the engineer (or their Claude session) re-derives the answer every time — and the answer can drift across sessions.
-2. **Onboarding context.** Future contributors to the port read `DECISIONS.md` before reading code. The decisions are how the code makes sense.
-3. **Conformance reporting.** The port's conformance score is *against the claimed capability set*. The claimed set lives in D7 of this record; the score has no meaning without it.
-
-The record is the contract between Phase 1 and Phase 2.
+The record is the contract between Phase 1 and Phase 2: it stops per-session re-derivation and cross-session drift, orients future contributors before they read code, and pins the D7 claimed-capability set the conformance score is measured against.

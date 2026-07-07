@@ -29,7 +29,6 @@
     "README.md",
     "LICENSE",
     "references/",
-    "evals/",
     ".claude-plugin/"
   ],
   "publishConfig": {

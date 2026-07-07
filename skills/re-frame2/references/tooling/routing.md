@@ -25,7 +25,7 @@ The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.cor
 
 The 4-arity `route-url` appends the `#fragment` part. A `nil` (or empty-string) fragment is **omitted** from the URL — `route-url` percent-encodes a present fragment, `match-url` decodes it back and normalises absence to `nil`, so the fragment round-trips lawfully (EP-0012 route-prism law). Build fragment links through this arity; do **not** hand-concatenate `(str url "#" frag)`.
 
-The path is the **third positional arg**, not a `:path` metadata key (`:path` stays in the accepted bare-key set for tolerance, but the positional arg is canonical). The **routing-owned** reserved bare `metadata` keys (all optional): `:doc :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave`. The runtime also accepts route-owned **data-classification** keys `:sensitive` / `:large` (EP-0025 — projection-relative, lowered into the per-frame elision registry at activation; see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)). Bare keys outside the accepted set throw `:rf.error/route-bad-metadata` at registration — **except** the late-bound cross-feature keys other artefacts publish:
+The path is the **third positional arg**, not a `:path` metadata key (`:path` stays in the accepted bare-key set for tolerance, but the positional arg is canonical). The **routing-owned** reserved bare `metadata` keys (all optional): `:doc :params :query :query-defaults :query-retain :tags :parent :on-match :on-error :scroll :can-leave :can-enter`. The runtime also accepts route-owned **data-classification** keys `:sensitive` / `:large` (EP-0025 — projection-relative, lowered into the per-frame elision registry at activation; see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)). Bare keys outside the accepted set throw `:rf.error/route-bad-metadata` at registration — **except** the late-bound cross-feature keys other artefacts publish:
 
 - `:resources` — owned by the Resources artefact (route-owned server-state; see [`../../patterns/resources.md`](../../patterns/resources.md)). Accepted only when the Resources artefact is loaded.
 - `:head` — owned by SSR (names which head/meta block the route uses).
@@ -134,11 +134,13 @@ A route may declare a leave-guard sub. The sub returns `true` when leaving is OK
   (fn [dirty? _] (not dirty?)))              ;; true means "OK to leave"
 ```
 
+`:can-enter` is the first-class mirror of `:can-leave` — an enter-guard sub declared on the **target** route. The gate runs leave-then-enter: the current route's `:can-leave` first, then the target's `:can-enter`; a `false` from either blocks the navigation (a blocked enter dispatches `:rf.route/entry-blocked`, and `:rf.route/continue` re-runs `:can-enter`).
+
 Flow on `:rf/url-requested`:
 
 1. Runtime evaluates the **current** route's `:can-leave` sub.
 2. **`true`** → proceed; new URL becomes active; `:on-match` runs; nav-token allocates.
-3. **`false`** → block: write the pending-nav slot at `[:rf.runtime/routing :pending-navigation]` with `{:id "pn-N" :request {...}}`; emit `:rf.route/navigation-blocked` trace; do NOT push the URL or update the slice.
+3. **`false`** → block: write the pending-nav slot at `[:rf.runtime/routing :pending-navigation]` with `{:id "pn-N" :requested-url … :requested-by-event … :reason … :direction … :rejecting-route … :rejecting-guard …}`; emit `:rf.route/navigation-blocked` trace; do NOT push the URL or update the slice.
 4. UI subscribes to `:rf/pending-navigation` (the framework-shipped sub over the slot), renders a confirm dialog.
 5. User dispatches `[:rf.route/continue pn-id]` (re-issues the original nav, bypassing the guard for this one shot) or `[:rf.route/cancel pn-id]` (clears the slot).
 

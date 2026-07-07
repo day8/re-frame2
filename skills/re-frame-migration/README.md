@@ -66,6 +66,7 @@ skills/re-frame-migration/
 │   ├── async-flow-to-machines.md  # O-16: async-flow-fx async sequences → reg-machine state machines
 │   ├── http-fx-to-managed-http.md # O-17: http-fx / :http-xhrio → :rf.http/managed
 │   ├── sequencing.md              # Recommended rule order
+│   ├── orchestrating-a-large-migration.md # Opt-in: large-migration partition + wave sequencing
 │   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
 │   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
 │   ├── guided-handlers-state.md   # Type B: handler / view / db-seeding walkthroughs

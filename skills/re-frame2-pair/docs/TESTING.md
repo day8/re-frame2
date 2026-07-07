@@ -1,6 +1,6 @@
 # Testing plan
 
-Four surfaces need coverage at different fidelities. See `docs/initial-spec.md` §9 for the architectural split.
+Four surfaces need coverage at different fidelities.
 
 > **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport, and it carries its own test suite under that directory (`shadow-cljs compile server-test`). The surfaces below cover the skill's **runtime preload** + **structural docs** + the **retained bash shims** (now harness/ad-hoc-only, not reachable from the skill's `allowed-tools:`). §2 in particular exercises the retained shims for the project's own e2e harness — it is not the skill's live transport.
 
@@ -15,7 +15,8 @@ for run instructions.
 
 `tests/runtime/*.clj` cover the pure fns in
 `preload/re_frame2_pair/runtime.cljs` via bb-mirrored copies of the
-parser logic:
+parser logic. A representative sample (see `tests/runtime/` for the
+full, growing set):
 
 - `parse_rf2_coord_test.clj` — `parse-rf2-coord`
 - `parse_view_id_test.clj` — `parse-view-id` (`data-rf-view` reader)
@@ -43,7 +44,7 @@ Failing points to flag on first run:
 
 ## 2. Bash-shim integration (`tests/shim/`) — retained harness only
 
-**Status: scaffolded — 7 tests, 28 assertions, runs in changed-surface PR CI.**
+**Status: scaffolded — see `tests/shim/` for the current deftests; runs in changed-surface PR CI.**
 
 > The bash shims this suite drives are **retired from the skill surface** —
 > they are not reachable from `allowed-tools:`. This suite is retained because
@@ -114,7 +115,7 @@ Future specs to add: `dom/source-at` against the annotated DOM,
 
 ## 4. Skill-prompt regression (`tests/prompts/`)
 
-**Status: scaffolded — 8 tests, 27 assertions, runs in changed-surface PR CI.**
+**Status: scaffolded — see `tests/prompts/prompt_regression_test.clj` for the current deftests; runs in changed-surface PR CI.**
 
 Table-driven structural regression against `references/recipes.md`,
 `references/ops.md` (which now also carries the hot-reload-coordination

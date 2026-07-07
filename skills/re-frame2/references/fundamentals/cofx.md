@@ -88,9 +88,7 @@ The framework ships exactly **one** registration: `:rf/time-ms` — recordable, 
 
 1. **Derive from recorded state** where possible (e.g. a monotone counter already in a snapshot). No new fact recorded.
 2. **Ride the event payload** where the dispatch site owns the fact's meaning (an optimistic-create id the view must render now).
-3. **Recorded coeffect** — `:rf/time-ms` for time, or a **`reg-cofx` recordable generator** for an app-owned world-read (a minted id, a localStorage read) that feeds durable state — for genuinely fold-internal facts the app owns but cannot pin at the call site.
-
-Recorded coeffects are the *last* rung, not the default — but when you do need a world-read for a durable write, the recordable generator is the canonical way an app supplies it.
+3. **Recorded coeffect** — `:rf/time-ms` for time, or a **`reg-cofx` recordable generator** for an app-owned world-read (a minted id, a localStorage read) that feeds durable state — for genuinely fold-internal facts the app owns but cannot pin at the call site. The *last* rung, not the default.
 
 ## Canonical mini-example — an app-owned recordable generator
 
@@ -119,8 +117,6 @@ And the handler that ingests it — it declares the id and reads it flat, exactl
 ```
 
 The dispatch site is **plain** — `(rf/dispatch [:todo/initialise])`. It carries no cofx: the registered generator is the supplier, so the boot dispatch does not stamp the value. (`examples/patterns/websocket`, `examples/real-apps/realworld_http`, and `examples/patterns/nine_states` all ship this generator shape for their app-owned recordable ids.)
-
-> **Why a generator, not an ambient read or a dispatch-site value?** The boot read decides a durable write (`:db`), and **durable state folds facts, never reads** — a live re-read at replay / SSR hydration would diverge from the recorded epoch. An *ambient* supplier re-runs on every replay (wrong for durable). A value on the *dispatch* (`{:rf.cofx {:todo.storage/todos …}}`) is a **unit-test stub**, not production. The recordable **generator** is the one production answer: registered by the app, run once at processing-start, recorded, replayed verbatim.
 
 ## Decision tree — how does my handler get a world fact?
 
@@ -196,8 +192,7 @@ The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); sup
 - **`reg-cofx` is value-returning now.** `(fn [] value)` or `(fn [arg] value)`. A ctx→ctx supplier (`(fn [ctx] (assoc-in ctx ...))`) is wrong shape — the returned ctx would be delivered as the value.
 - **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event :id {:rf.cofx/requires [...]} handler)`). Actual interceptor chains also live in that map under `:interceptors`.
 - **Declared-only delivery is about USER leaves.** You receive exactly the *user* coeffects you declare; an undeclared user leaf on the token is never staged — destructuring it gives `nil`. The base framework coeffects (`:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`, and the whole `:rf.cofx` map) are **always staged** on top of that and need no declaration — but they are filtered out of the Xray COEFFECTS lens, which shows only handler-declared leaves.
-- **A durable write folds facts.** A timestamp / generated id / persisted host fact written into app-db must be a recorded fact (`:rf/time-ms`, the event payload, or a **`reg-cofx` recordable generator**) — never an ambient read, and never a value stamped on a production dispatch. Diagnostic / host-transient reads (deciding no durable write) stay ambient.
-- **Production dispatches carry no cofx.** The `:rf.cofx` dispatch opt is a **unit-test stub seam** only. If you find yourself stamping a coeffect value onto a production `dispatch`, register a `reg-cofx` supplier instead — a recordable generator for an app-owned world-read, a provided registration for a boundary fact its owner stamps. The supplier is the coeffect source; the dispatch just names the event.
+- **A durable write folds facts; production dispatches carry no cofx.** A timestamp / generated id / persisted host fact written into app-db must come from a recorded fact (`:rf/time-ms`, the event payload, or a **`reg-cofx` recordable generator**), never an ambient read. The `:rf.cofx` dispatch opt is a **unit-test stub seam** only — if you catch yourself stamping a coeffect onto a production `dispatch`, register a `reg-cofx` supplier instead. Diagnostic / host-transient reads (no durable write) stay ambient.
 - **`:platforms #{:client}` skips the supplier under an SSR-server frame** (`:rf.cofx/skipped-on-platform` warning trace). The declaring handler sees no value for that id. Check this first if a server-side cofx mysteriously delivers nothing. Spec: `spec/011-SSR.md`.
 - **A declared id with no registration is `:rf.error/unregistered-cofx`** (the typo case). A declared **provided** fact absent from the token is `:rf.error/missing-required-cofx` in every mode. A supplier that throws emits `:rf.error/coeffect-exception` and the handler is skipped.
 

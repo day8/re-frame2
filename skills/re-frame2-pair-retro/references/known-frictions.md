@@ -121,25 +121,43 @@ Typical improvements:
 
 Signals:
 - the trace stream, epoch history, or schema reflection returned empty and the user thought the tool was broken
-- the build is `:advanced` and `goog.DEBUG=false`, so the **dev-gated** Tool-Pair surfaces elide — the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. This is NOT a total wall: `orient` still returns registry/frame shape (built from `health` + frame ids + app-db top keys + registry counts, none dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on event/error-emit substrate (the `:events` / `:errors` streams of `register-listener!`, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone teaches an agent to abandon usable probes.
+- a production-elided build (`:advanced` + `goog.DEBUG=false`) darkened the dev-gated surfaces and the user read the partial result as everything-gone
 - the user cannot tell whether they hit an elision wall or a tool bug
+
+Background: production elision is NOT a total wall. Only the **dev-gated** surfaces elide under `re-frame.interop/debug-enabled?` false — the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. `orient` still returns registry/frame shape (built from `health` + frame ids + app-db top keys + registry counts, none dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on event/error-emit substrate (the `:events` / `:errors` streams of `register-listener!`, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone abandons usable probes.
 
 Typical improvements:
 - preflight check that reads `re-frame.interop/debug-enabled?` and reports the answer
 - make "I am attached to a production-elided build" a first-class result state, distinguishing the dev-only surfaces that go dark (trace / epoch / schema / source-coord) from the surfaces that still answer (orientation, registry/frame shape, the direct-read primitives, and the always-on event/error-emit listeners — observability, not an app-steerable recovery policy)
 - recipe for switching to a dev build before continuing
 
+### Error observability and recovery-model confusion
+
+Applies when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected.
+
+Signals:
+- the agent or user expected an app-level error policy to swallow or substitute a result and was confused the framework applied its typed default — there is no app-steering recovery policy and no per-frame `:on-error` slot
+- the session looked for a per-frame `:on-error` slot — there is none
+- the agent assumed the error-emit listener elides in a CLJS production build and dismissed a production error report
+
+Background: recovery is framework-owned (the typed per-category default); observability is the **always-on** error-emit listener — `(rf/register-listener! :errors id listener-fn)`, the `:errors` stream of the stream-parameterized listener verb. It is NOT gated by `re-frame.interop/debug-enabled?` and survives `:advanced` + `goog.DEBUG=false` for every catalogued production-reachable `:rf.error/*` (per `spec/009-Instrumentation.md` §Production elision) — registered listeners DO fire in prod. Only dev-side enrichments elide: the `:rf.trace/dispatch-id` / `:rf.trace/trigger-handler` source-coord correlation and the retain-N ring buffer ride the dev trace surface. Genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), not an app-steerable policy.
+
+Typical improvements:
+- turn a silent runtime fallback into a louder warning the agent can route to the user
+- prefer a recipe over a doc paragraph when the friction is "I didn't know how to pull recent errors at the REPL"
+- route the fix: an unrecognised error category or unclear inspection recipe → improve the pair tool's error catalogue (`re-frame2-pair/references/errors.md`); a gap in the runtime's behaviour itself (a category the always-on substrate doesn't cover, missing structured `:tags`) → file upstream against `re-frame2`, cross-linking `spec/009-Instrumentation.md §Error observability`
+
 ### Tool-catalogue / build-capability uncertainty
 
 Signals:
 - the retrospective is unsure whether a tool the user "should have reached for" was actually exposed by the running re-frame2-pair-mcp build, or whether it was reasoning from stale docs
-- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that doc can drift from the live tool catalogue the running re-frame2-pair-mcp server actually exposes (the build's pair-MCP conformance corpus — the test suite that pins each tool's wire shape against the Tool-Pair contract — is the drift gate, but it does not catch a recipe citing a tool that the running build never exposed; the authoritative live catalogue is whatever the attached server returns from `tools/list`)
+- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that doc can drift from the live catalogue the running server exposes (the authoritative live catalogue is whatever the attached server returns from `tools/list`; the pair-MCP conformance corpus pins each tool's wire shape but does not catch a recipe citing a tool the build never exposed)
 - a "why didn't they use tool X?" thread surfaces with no way to confirm X was actually callable in that session
 
 Typical improvements:
-- when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached AND the user has confirmed a probe, `mcp__re-frame2-pair__discover-app` MAY be invoked to capture the live build's id, health, and session sentinel — confirms the runtime the user was operating against and (with the server's `tools/list`, an MCP protocol method available whenever any MCP tool is granted) sanity-checks "tool X was actually available". This is the **single** re-frame2-pair MCP tool the allow-list grants, **opt-in only**: recap-only or offline retros never probe. If the probe would need any other live tool (dispatch, app-db read, epoch walk), that is live pair-programming — route to the `re-frame2-pair` skill, do not widen this grant. Absent a confirmed probe, reason from the transcript alone.
-- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone (same opt-in gate applies — only when runtime access is already part of the conversation)
-- if `discover-app` was invoked and itself fails, branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here" — each reason points at a different next step (start the build, reload the tab, fix nREPL), so collapsing them yields generic "add the preload" advice when the real fix differs. The ladder reasons (per `probe.cljs`, pinned by the conformance corpus): `:nrepl-unreachable` (shadow-cljs nREPL down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (build runs but no browser tab attached — open/reload the tab, or pick the correct build), `:runtime-loaded-but-preload-missing` (runtime live but the re-frame2-pair preload absent — add the preload). `:runtime-not-preloaded` is the **degradation fallback** the ladder emits when it cannot otherwise classify ("the environment never had the surface") — last-resort, not the normal-case verdict.
+- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone (opt-in probe only — see SKILL.md §Guard rails)
+
+If `discover-app` was run (opt-in and use-gated — see SKILL.md §Guard rails): it captures the live build's id, health, and session sentinel, and with the server's `tools/list` sanity-checks "tool X was actually available". If the probe itself fails, branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here" — each reason points at a different next step, so collapsing them yields generic "add the preload" advice when the real fix differs. The ladder reasons (per `probe.cljs`, pinned by the conformance corpus): `:nrepl-unreachable` (shadow-cljs nREPL down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (build runs but no browser tab attached — open/reload the tab, or pick the correct build), `:runtime-loaded-but-preload-missing` (runtime live but the re-frame2-pair preload absent — add the preload). `:runtime-not-preloaded` is the **degradation fallback** the ladder emits when it cannot otherwise classify — last-resort, not the normal-case verdict.
 
 ### Source-coordinate availability
 

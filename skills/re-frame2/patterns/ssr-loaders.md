@@ -92,7 +92,7 @@ The loader machine fans out three fetches, joins, writes on `:ready`, and stamps
     {:db (assoc-in db [:pdp :error] reason)}))
 ```
 
-The per-fetch child is a thin shared machine — one state spawns `:rf.http/managed`; terminal states dispatch the success keyword (`[:pdp/load [:pdp/child-loaded :product {…}]]` carrying the payload, plus the join keyword `[:pdp/load [:pdp/child-done :product]]`) or `:pdp/child-error` back to the parent (the parent-id is stamped at spawn time and read from the child's `:data :env`). Only the spawn-spec `:data` fn differs per sibling.
+The per-fetch child is a thin shared machine — one state spawns `:rf.http/managed`; terminal states dispatch the success keyword (`[:pdp/load [:pdp/child-loaded :product {…}]]` carrying the payload, plus the join keyword `[:pdp/load [:pdp/child-done :product]]`) or `:pdp/child-error` back to the parent (the parent-id is stamped at spawn time under the reserved `:rf/parent-id` key in the child's `:data` — there is no `:env` slot). Only the spawn-spec `:data` fn differs per sibling.
 
 > **Why two keywords per child.** `:on-child-done` / `:on-child-error` are REQUIRED keyword slots on `:spawn-all` (omitting either throws `:rf.error/machine-spawn-all-bad-shape`). The runtime *intercepts* events whose inner-event-id matches those keywords to drive the join count — so the join keyword carries no usable payload to the parent's `:on` table. To thread each child's result in, the child dispatches a SECOND, non-intercepted keyword (`:pdp/child-loaded`) the parent stages via an internal self-transition, as the boot example (`examples/patterns/boot/boot.cljs`) does.
 

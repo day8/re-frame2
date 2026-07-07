@@ -8,7 +8,7 @@ Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, h
 
 ## The guarantee
 
-When the runtime destroys a spawned actor by **any** trigger, every in-flight `:rf.http/managed` request the actor had issued is aborted. The trigger list (Spec 005 §Cancellation cascade §The contract, `spec/005-StateMachines.md:3504`):
+When the runtime destroys a spawned actor by **any** trigger, every in-flight `:rf.http/managed` request the actor had issued is aborted. The trigger list (Spec 005 §Cancellation cascade §The contract):
 
 1. **Parent state exit** — any transition out of the `:spawn`-bearing state.
 2. **Parent's `:after` firing** — wall-clock timeout exits the state; same cascade as (1).
@@ -27,7 +27,7 @@ A trace event `:rf.http/aborted-on-actor-destroy` fires per cancelled request, c
 
 ## What "in-flight inside an actor" means
 
-A request is in-flight inside actor `<spawned-id>` iff its originating event vector's first element was `<spawned-id>`. The http fx records the `(request-id, actor-id)` tuple in its in-flight registry alongside the abort handle (`spec/005-StateMachines.md:3519`).
+A request is in-flight inside actor `<spawned-id>` iff its originating event vector's first element was `<spawned-id>`. The http fx records the `(request-id, actor-id)` tuple in its in-flight registry alongside the abort handle (Spec 005 §What is "in-flight inside an actor").
 
 A request issued **directly from an ordinary `reg-event` handler** — not via a spawned actor — is NOT tracked by actor-id and is NOT aborted by any state machine destroy: an ordinary handler has no analogous lifecycle peg. If you want HTTP requests bound to a state's lifetime, the answer is **to spawn a child machine that issues them** — the `:spawn` declaration is the explicit binding.
 

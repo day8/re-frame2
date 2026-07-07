@@ -80,7 +80,7 @@ When a widget is distributed as a *library* across host apps, the slice path may
 
 - Within a frame, document the slice the widget reads from, or accept a `:base-path` argument. The documented-slice convention is shorter than threading a base-path through every call.
 - Across frames, per-frame `app-db` isolation removes one collision class: two cards in two frames against the same id render two independent views. The id selects within a frame; the frame selects which `app-db`.
-- Host apps that already store the entity elsewhere project into the documented slice via a `reg-flow` (see `references/fundamentals/flows.md`) rather than reaching across a foreign boundary.
+- Host apps that already store the entity elsewhere project into the documented slice via a `reg-flow` (see [`../references/fundamentals/flows.md`](../references/fundamentals/flows.md)) rather than reaching across a foreign boundary.
 
 ## Substrate-agnostic
 

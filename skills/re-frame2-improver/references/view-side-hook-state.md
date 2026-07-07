@@ -80,4 +80,4 @@ Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source 
 - **Genuinely render-local UI** — hover state, focus-within bookkeeping, drag-and-drop in-flight offsets, transient animation values that no other component consults. These can stay as `reagent/atom` or `useState`.
 - **Performance-critical render-loop state** that would cause `app-db` churn at every frame (60fps animation cursors). Promote to `app-db` only when another part of the app needs to read it.
 - **Form-draft state in tightly-scoped one-shot forms** that don't need Xray/re-frame2-pair debugging or replay. Once the form gets non-trivial, move it to `app-db` behind a state machine — see [`skills/re-frame2/patterns/forms.md`](../../re-frame2/patterns/forms.md).
-- **Component-local refs to DOM nodes** (`useRef`, `(r/create-ref)`) — these hold a *handle*, not domain state. Not in scope.
+- **Component-local refs to DOM nodes** (`useRef`, a callback ref, `(react/createRef)`) — these hold a *handle*, not domain state. Not in scope.

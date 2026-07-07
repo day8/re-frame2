@@ -97,17 +97,9 @@ This question only applies after Step 1 picked slice.
 - **Feature-prefix?** Otherwise, the slice belongs at `[:<feature-prefix> ...]` per [`spec/Conventions.md` §Feature-modularity prefix convention](../../../spec/Conventions.md). Pick a feature keyword for the app's namespace; never start with `:rf/` (reserved).
 - **Schema?** Register a schema for the slice via `reg-app-schema` only if the slice crosses a trust boundary (incoming HTTP payload, persisted state on restore). Don't schema-fence every internal key (per SKILL.md cardinal rule 4).
 
-## Step 4 — the four tells, restated as a worked checklist
+## Step 4 — the prompt-language tie-breaker
 
-Run through the four tells in order and answer yes/no for the feature at hand. The first yes settles the question.
-
-1. **Multi-step async with phase-distinct transitions?** → machine.
-2. **Cancellation cascade matters?** → machine.
-3. **Terminal-state matters?** → machine.
-4. **Orthogonal axes?** → parallel-region machine.
-5. None of the above? → slice.
-
-If you're between slice and machine and none of the four tells clearly fire, the prompt's *language* is the tie-breaker:
+The four tells (Step 1, in dominance order) are the checklist: the first yes settles the question, none-fire ⇒ slice. If you're between slice and machine and none clearly fire, the prompt's *language* breaks the tie:
 
 - "Transitions", "modes", "phases", "lifecycle", "can't happen during X", "while connecting", "after submit" → machine.
 - "Field", "value", "filter", "counter", "flag", "current selection", "this list" → slice.

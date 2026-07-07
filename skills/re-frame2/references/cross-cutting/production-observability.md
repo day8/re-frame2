@@ -134,7 +134,7 @@ In **development** the per-hook detail still surfaces as `:rf.warning/teardown-h
 
 ### The promoted-SSR records: `:rf.error/ssr-*` (non-event)
 
-The production-reachable **SSR error categories** ride this same always-on axis (EP-0008). On a long-lived JVM SSR host, a shipper registered via `register-listener! :errors` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
+The production-reachable **SSR error categories** ride this same always-on axis (EP-0008). On a long-lived JVM SSR host, a shipper registered via `register-listener! :errors` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The seven categories:
 
 - **`:rf.error/ssr-render-failed`** — a render-time `Throwable` while building the response body (slots: `:frame`, `:exception`, `:exception-message`, `:ex-class`). Projection-eligible (the wire status is stamped), so promotion does not double-stamp.
 - **`:rf.error/ssr-streaming-writer-failed`** — a streaming-SSR writer thread threw on a post-commit chunk (slots: `:frame`, `:exception`, `:ex-class`, `:phase`, `:boundary-id` on continuation phases, `:committed? true`). Non-projecting (the 200 already committed).
@@ -142,6 +142,7 @@ The production-reachable **SSR error categories** ride this same always-on axis 
 - **`:rf.error/ssr-head-resolution-failed`** — the active route's `:head` fn threw; the host degrades to an empty head fragment (slots: `:frame`, `:exception`). Recoverable-degradation, non-projecting (still 200).
 - **`:rf.error/sanitised-on-projection`** — the error projector itself threw / returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 (slots: `:projector-id`, `:original-operation`, `:projection-failure-reason`). Non-projecting + re-entry-guarded (one-shot, never re-projects).
 - **`:rf.error/ssr-ring-error-view-failed`** — a caller-supplied `:error-view` threw; the host falls back to its locked default error template (slots: `:frame`, `:exception`, `:ex-class`). Non-projecting.
+- **`:rf.error/hydration-frame-id-mismatch`** — the `:rf/hydrate` handler's direct-`dispatch-sync` guard: a payload `:rf/frame-id` present-and-different from the frame being hydrated into fails **closed** (app-db + runtime-db left unchanged, no compatibility-check fxs) and emits this record (slots: `:where`, `:frame`, `:failing-id` `:rf/hydrate`, `:target-frame`, `:payload-frame-id`, `:reason`). Non-projecting.
 
 **These are NON-EVENT records — none carries `:event` / `:event-id`, and some (the frameless hydration-parse path) carry `:frame nil`.** A listener that assumes the per-event shape NPEs; branch on `(:error record)` and read each category's own slots. The recoverable-degradation members (`:rf.error/ssr-head-resolution-failed`, `:rf.error/ssr-ring-error-view-failed`) and the post-commit members (`:rf.error/ssr-streaming-writer-failed`, `:rf.error/sanitised-on-projection`) are **non-projecting** — their riding the always-on axis changes what off-box shippers see, never the wire outcome. (Keep these distinct from the `:rf.ssr/*` *compatibility* diagnostics — version/digest/hydration mismatch — which stay trace-channel and do NOT ride this axis. See [`ssr-authoring.md`](ssr-authoring.md).)
 
@@ -169,7 +170,7 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 ## Why production has no trace bus
 
-`re-frame.trace/emit!` and the `register-listener! :trace` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings (~12-15 KB gzipped) and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
+`re-frame.trace/emit!` and the `register-listener! :trace` plumbing are gated by `re-frame.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`, the Closure compiler DCEs the entire trace surface — registrations, the ring buffer, the per-event allocation, every `tag/value` map. The bundle savings and per-event allocation savings are part of re-frame2's "production debugging is opt-out, not opt-in" stance.
 
 The two always-on listener streams (`:events` / `:errors`) carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 

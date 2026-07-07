@@ -28,7 +28,7 @@ Most ops wrap a call into `re-frame2-pair.runtime`; for those the MCP form is `e
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `app/orient` | `mcp__re-frame2-pair__orient {}` | **App-shape orientation summary in one round-trip** — first-contact on an unfamiliar app. Composes the existing introspection surfaces: `{:ok? true :liveness {...} :frames {:all [...] :app [...] :operating <id>} :app-db-top-keys {<app-frame> [<top-level key>...]} :registry {:counts {<kind> N...} :events [...] :subs [...] :fx [...]} :machines [...]}`. Compact by construction (counts + navigable ids + per-frame top-keys, NOT the full app-db); reserved `:rf/*` tool frames are excluded from `:app-db-top-keys`. Drill via `list-handlers` / `list-subscriptions` / `snapshot` / `get-path` / `read-sub`. *(runtime fn: `re-frame2-pair.runtime/orient`.)* |
+| `app/orient` | `mcp__re-frame2-pair__orient {}` | **App-shape orientation summary in one round-trip** — your first read on an unfamiliar app (see SKILL.md §Orient before you drill for the rule + drill table). Returns `{:ok? true :liveness {...} :frames {:all :app :operating} :app-db-top-keys {...} :registry {:counts :events :subs :fx} :machines [...]}` — compact by construction (counts + ids + per-frame top-keys, not the full app-db; reserved `:rf/*` tool frames excluded). *(runtime fn: `re-frame2-pair.runtime/orient`.)* |
 | `app-db/snapshot` | `mcp__re-frame2-pair__snapshot {}` | Current app-db value for the operating frame (via `rf/app-db-value`). **A drill-in, not an orientation tool — `orient` (top of this table) is your first read; reach for `snapshot` only to narrow into a known sub-tree.** Defaults to **`:summary` mode** (top-level shape only) + supports `:path`-slicing — see [`mcp-transport.md` §:app-db slice modes](mcp-transport.md#when-to-use-snapshot-vs-the-per-op-reads). `path: "[]"` (full, unsliced) is a **last resort** (large on any real app frame) and the server REFUSES it against a reserved `:rf/*` tool frame with `{:ok? false :reason :wholesale-read-of-reserved-frame ...}` (a *sliced* read of a tool frame is unaffected) — see SKILL.md §Orient before you drill for why. The underlying runtime form is `(re-frame2-pair.runtime/snapshot)`. |
 | `app-db/get` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-at [:path :to :value])"}` | Path-scoped value (via `rf/snapshot-of`). For targeted reads, prefer the `get-path` tool below — single round-trip, structured `{:exists?}` answer, shared `:path` vocabulary with `snapshot`. |
 | `app-db/get-path` | `mcp__re-frame2-pair__get-path {path: "[:cart :items 0 :sku]"}` | Targeted read at `path`. `{:ok? true :exists? true :value <subtree>}` on hit; `{:ok? false :reason :path-not-found :deepest-valid-prefix [...]}` on miss. `:exists?` distinguishes a path that points at `nil` from a missing path. A root `path: "[]"` against a reserved `:rf/*` tool frame (e.g. `frame ":rf/xray"`) is REFUSED by the same server backstop — slice it instead. |
@@ -107,7 +107,7 @@ Read-only from the trace stream + epoch history.
 
 ## DOM source bridge
 
-**Why this family matters — read first.** In a debug build, re-frame2 injects a `data-rf2-source-coord` attribute on every **registered view's** root DOM element pointing back to the registration that produced it (mandatory per Tool-Pair §Source-mapping / Spec 006 §Source-coord annotation, gated on `interop/debug-enabled?` — **no** `configure!` knob, not user-enabled). The value resolves via `re-frame2-pair.runtime/parse-rf2-coord` to a structured `{:ns ... :line ... :file ...}` map keyed off the registration's source coords (auto-captured by `reg-*` macros, per Spec 001 §Source-coordinate capture) — a direct two-way bridge between a live DOM element and the exact source line that rendered it.
+**Why this family matters — read first.** In a debug build, re-frame2 injects a `data-rf2-source-coord` attribute on every **registered view's** root DOM element pointing back to the registration that produced it (mandatory per Tool-Pair §Source-mapping / Spec 006 §Source-coord annotation, gated on `interop/debug-enabled?` — **no** `configure!` knob, not user-enabled). `re-frame2-pair.runtime/parse-rf2-coord` parses that attribute into `{:ns :handler-id :line :col}` (the registration's source coords, auto-captured by `reg-*` macros per Spec 001 §Source-coordinate capture) — a direct two-way bridge between a live DOM element and the exact source line that rendered it. (`:file` is not on the raw attribute; it arrives only when the coord is enriched through `handler-meta`, as `read-ui`'s `:source-coord` does.)
 
 **Two attribute formats are recognised:**
 
@@ -123,7 +123,7 @@ Read-only from the trace stream + epoch history.
 
 | Op | Invocation | Returns |
 |---|---|---|
-| `dom/source-at` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-source-at \"#save-button\")"}` (or `(... :last-clicked)`) | `{:ns :line :file}` for a CSS selector, or for the most recently clicked element |
+| `dom/source-at` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-source-at \"#save-button\")"}` (or `(... :last-clicked)`) | `{:ok? true :src <coord>}` for a CSS selector (or the most recently clicked element) — `:src` is `{:ns :handler-id :line :col}` when the re-frame2 attribute matched, `{:file :line :column}` on the re-com `data-rc-src` fallback |
 | `dom/find-by-src` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-find-by-src \"view.cljs\" 84)"}` | Live DOM elements rendered by that source line |
 | `dom/fire-click-at-src` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-fire-click \"view.cljs\" 84)"}` | Synthesise a click on the element rendered by that line |
 | `dom/describe` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/dom-describe \"#save-button\")"}` | Tag, classes, both source-coord attributes, and any registration metadata they resolve to |
@@ -188,7 +188,7 @@ The tool's accepted args (`:additionalProperties false` — anything else is rej
 
 Predicate keys (any combination, inside `pred`): `event-id`, `event-id-prefix`, `effects`, `timing-ms` (e.g. `">100"`), `touches-path`, `sub-ran`, `render`, `origin` (`:app|:pair|:story|:test`), `frame`.
 
-Each call tracks the last seen `:epoch-id` in the operating frame's history via `since-id` and returns everything matching since. See `docs/initial-spec.md` §4.4.
+Each call tracks the last seen `:epoch-id` in the operating frame's history via `since-id` and returns everything matching since.
 
 ## Signal recording + blocking waits
 
@@ -279,4 +279,4 @@ If you're coming from the v1 `re-frame-pair` skill, a few of its surfaces have n
 - **`trace-enabled?` discovery check** — use `interop/debug-enabled?` (the `goog.DEBUG` mirror per Spec 009 §Production builds).
 - **Version-floor enforcement against re-frame-10x / re-com / re-frame** — there is none (no re-frame-10x dependency; re-com is optional; re-frame2's version is implicit in the loaded ns).
 
-If during real-world use a surface re-frame2 lacks would unblock a recipe (e.g. successful-fx attribution in the `:effects` projection, or a stable `:render-key` shape), raise it against the re-frame2 spec rather than working around it in this skill.
+If during real-world use a surface re-frame2 lacks would unblock a recipe, raise it against the re-frame2 spec rather than working around it in this skill.

@@ -8,7 +8,7 @@ The design rationale and locked decisions for the `re-frame2-setup` skill. A fut
 
 Help an author **bootstrap a fresh re-frame2 ClojureScript project**. The author starts with nothing — or close to it — and ends with a working browser app that compiles under `shadow-cljs watch` and mounts a counter. From there, the author switches to the main `re-frame2` skill for application-code authoring.
 
-The success criterion: `npx shadow-cljs watch app` compiles cleanly, the browser shows a counter, clicking `+` / `-` updates it. The skill stops at that point — anything beyond setup is another skill's job.
+The success criterion: `npx shadow-cljs watch app` compiles cleanly, the browser shows a counter, clicking `+1` increments it. The skill stops at that point — anything beyond setup is another skill's job.
 
 ## 2. Pillars (locked, derived from `re-frame2`'s four pillars)
 
@@ -37,7 +37,7 @@ The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reage
 
 ### L4 — The Reagent adapter is the default reference substrate; UIx/Helix get the two-substitution recipe
 
-Unless the author explicitly says UIx or Helix, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a full multi-substrate decision tree at greenfield, but it **does** cover UIx/Helix greenfield: `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions (deps swap + entry-ns root API) plus a worked UIx `core.cljs`, and points at the generator template's complete `_uix/` / `_helix/` variants. SKILL.md cardinal rule 4 and README.md §"What it deliberately does NOT cover" carry the same pointer. (Shipped — this updates the earlier "Reagent-only at greenfield" framing; see OQ1.)
+Unless the author explicitly says UIx or Helix, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a full multi-substrate decision tree at greenfield, but it **does** cover UIx/Helix greenfield: `references/entry-namespace.md` §UIx / Helix greenfield gives the adapter substitutions (deps swap + entry-ns root API + substrate views) plus worked UIx/Helix code, and points at the generator template's complete `_uix/` / `_helix/` variants. SKILL.md cardinal rule 4 and README.md §"What it deliberately does NOT cover" carry the same pointer.
 
 ### L5 — Don't write tests for the author
 
@@ -59,9 +59,9 @@ Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` 
 
 The first-counter recipe imports `re-frame.core` as `rf` and `re-frame.adapter.reagent` as `reagent-adapter`. No private-namespace requires; no `re-frame.db` style reach-ins. The contract the author starts with is the contract the main `re-frame2` skill enforces from there on.
 
-### L10 — Routing table for "anything beyond setup"
+### L10 — Clean hand-off on exit; cross-skill routing is single-sourced in `skills/README.md`
 
-SKILL.md ends with an explicit "When the author asks anything beyond setup" routing table. Every adjacent skill is listed by name. The author leaves this skill confidently for the next one rather than stretching this skill to cover authoring questions.
+SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-frame2-xray` for the panel, `re-frame2-pair` for live REPL) plus an "anything else → `re-frame2` / `SKILL-REDIRECT.md`" line. It carries **no** per-skill routing table — cross-skill routing is single-sourced in [`skills/README.md` §Skill routing](../../README.md#skill-routing--single-source) per the family convention. The author leaves this skill confidently for the next one rather than stretching it to cover authoring questions.
 
 ## 4. Audience and scope
 
@@ -70,7 +70,7 @@ SKILL.md ends with an explicit "When the author asks anything beyond setup" rout
 - Authors starting a new directory (or an existing CLJS project) that needs re-frame2 wiring.
 - The seven canonical steps: discover versions → `deps.edn` → `package.json` → `shadow-cljs.edn` → entry ns → first counter → run.
 - Reagent v2 as the default substrate.
-- Troubleshooting the four most common build failures (classpath miss, missing react, missing `rf/init!`, missing `<div id="app">`).
+- Troubleshooting the common build failures (SKILL.md's Troubleshooting section: missing `.cljs` namespace vs missing npm React, missing `rf/init!`, missing `<div id="app">`, `:init-fn` mismatch, Xray host missing, and more).
 
 ### Out of scope
 
@@ -85,45 +85,57 @@ SKILL.md ends with an explicit "When the author asks anything beyond setup" rout
 
 ```
 skills/re-frame2-setup/
-├── SKILL.md                       (router; ~170 lines)
+├── SKILL.md                       (router; the seven-step canonical path)
 ├── README.md                      (human-facing intro)
 ├── LICENSE                        (MIT)
 ├── package.json                   (npm metadata)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
-│   ├── deps-versions.md           (~120 lines; lockstep VERSION discipline)
-│   ├── shadow-cljs.md             (~100 lines; build shape, index.html)
-│   ├── entry-namespace.md         (~120 lines; rf/init! + Reagent root contract)
-│   └── first-counter.md           (~110 lines; end-to-end worked example)
+│   ├── deps-versions.md           (lockstep VERSION discipline; deps.edn / package.json)
+│   ├── shadow-cljs.md             (build shape, index.html, CSP)
+│   ├── entry-namespace.md         (rf/init! + Reagent root contract + UIx/Helix greenfield)
+│   └── first-counter.md           (end-to-end worked example)
 ├── spec/
 │   ├── design.md                  (this file)
 │   ├── inputs.md                  (canonical inputs)
 │   └── authoring-prompt.md        (one-shot reauthor prompt)
+├── tests/
+│   └── setup_drift_test.clj       (structural drift guard; Babashka)
 └── evals/
     └── evals.json                 (trigger-accuracy fixture)
 ```
 
-SKILL.md (~170) + 4 reference leaves (~450) + 3 spec files (~250) ≈ ~870 LoC across 10 files, plus the `evals/evals.json` trigger fixture. Typical greenfield session reads SKILL.md + 2 reference leaves = ~370 LoC. `spec/` and `evals/` are excluded from the npm `files` array by design.
+Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)); `entry-namespace.md` runs slightly over because it carries the full UIx/Helix greenfield recipe, which the `check_skill_setup_counter_drift.py` guard pins to that file (so it cannot be split into its own leaf). A typical greenfield session reads SKILL.md + 2 reference leaves. `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists every greenfield-trigger phrase: *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"add re-frame2 to my repo"*, *"give me a hello-world re-frame2 app"*. The description explicitly handles off-task routing: once the counter mounts, the author switches to `re-frame2` for code-writing or `re-frame2-pair` for live pair-programming.
+The `description` is "pushy" and lists the greenfield-trigger phrases the shipped frontmatter carries: *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"hello-world re-frame2 app"*, *"new re-frame2 app"*, plus a build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring. It explicitly handles off-task routing: once the counter mounts, the author switches to `re-frame2` for code-writing or `re-frame2-pair` for live pair-programming. (It deliberately omits the ambiguous *"add re-frame2 to my repo"* — that phrasing also matches the non-trivial-existing-app case the skill routes away.)
 
 ## 7. Anti-patterns the skill explicitly resists
 
 - **Hardcoding artefact versions in suggestions** — L1 cardinal rule.
 - **Mixing versions across the eleven artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts defensively** — L3 cardinal rule + `references/deps-versions.md`'s "pay-as-you-go" framing.
-- **Branching into UIx/Helix at greenfield** — L4. Substrate-switch is a separate conversation.
+- **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx/Helix are a documented two-substitution delta, not a branching interview.
 - **Writing tests for the author** — L5 cardinal rule.
-- **Drifting into application-code authoring** — L10 routing table at the end of SKILL.md.
+- **Drifting into application-code authoring** — L5/L10; the exit hand-off routes past-setup work to `re-frame2`.
 
 ## 8. Why this design diverges from `re-frame2`
 
 - **No patterns/ directory.** Setup is one workflow, not a library of recipes.
 - **No decision-trees/ directory.** The only decision is "which per-feature artefacts do I need on day one?" and lives inline in `references/deps-versions.md`.
 - **No examples-map.md.** The one example is the first counter, inlined in `references/first-counter.md`.
-- **Routing table at the end of SKILL.md.** The skill is the *entry point* into the family — the explicit routing-on-exit table tells the author where to go next.
+- **A clean exit hand-off, not a per-skill routing table.** The skill is the *entry point* into the family; SKILL.md ends with a hand-off paragraph pointing at the next skill, while cross-skill routing is single-sourced in `skills/README.md` (see L10).
+
+## 9a. Testing & drift guards
+
+The skill's load-bearing snippets are compile-tested and drift-guarded in re-frame2's CI:
+
+- **`setup-skill-scaffold-compiles-test`** (`tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj`) — materialises the fenced code blocks straight from the skill markdown (`references/first-counter.md` → `src/your_app/core.cljs`; `references/shadow-cljs.md` → `shadow-cljs.edn` + `index.html` + `css/app.css`), rewrites framework coords to `:local/root`, links `node_modules`, and runs `clojure -M:shadow compile app`. Behind the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate (runs in the `jvm-tools-template` CI job). It proves the snippets compile against in-repo coords — **not** that a published Clojars/git coordinate resolves from a fresh project (that buildability gate stays deferred to publication).
+- **`scripts/check_skill_setup_counter_drift.py`** — repo-level Python gate (`verify-skill-mcp-drift` CI job): counter-id vocabulary containment (first-counter.md ↔ entry-namespace.md ↔ template), the `:init-fn` hot-reload lifecycle wording, and Spec 006 adapter-key vocabulary.
+- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): locks the build-discipline framing, UIx/Helix template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload, the user-run-generator framing, and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
+
+Both prose guards assert the skill teaches the right shapes; broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`).
 
 ## 9. Open questions (deferred to Mike)
 

@@ -30,8 +30,6 @@
     "README.md",
     "LICENSE",
     "references/",
-    "spec/",
-    "evals/",
     ".claude-plugin/"
   ],
   "publishConfig": {

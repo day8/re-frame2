@@ -1,7 +1,7 @@
 {
   "name": "@day8/re-frame2-pair-retro",
   "version": "0.1.0-alpha.1",
-  "description": "Analyze re-frame2-pair sessions for friction and propose concrete product improvements.",
+  "description": "Retrospect on a re-frame2-pair session, identify workflow friction, and propose prioritised improvements — optionally drafting a GitHub issue to file.",
   "keywords": [
     "claude-code",
     "claude-code-skill",

@@ -1,6 +1,6 @@
 # Stories — re-frame2 binding
 
-> Authoring `reg-story` / `reg-variant` (and the five other Story `reg-*` macros). Assumes you already know what a component playground / story is — this leaf only covers re-frame2's specific declarations.
+> Authoring `reg-story` / `reg-variant` (and the seven other Story `reg-*` macros). Assumes you already know what a component playground / story is — this leaf only covers re-frame2's specific declarations.
 
 ## Mental model: think in Storybook, map onto Story
 
@@ -12,15 +12,15 @@
 | **args** | `:args` | Same concept, same name. Five layers compose by deep-merge (global → story → mode → variant → live cell-override); vectors replace. Matches Storybook's merge convention. |
 | **argTypes** | `:argtypes` — but rarely written | Story auto-derives the controls panel from the view's **Malli schema**. Write `[:int {:min 0 :max 100}]` once on the view and every story gets the slider. `:argtypes` is only the per-key override channel for what the schema can't say. |
 | **controls** | the controls panel | Schema-derived (see above). `:string`→text, bounded `:int`→slider, `[:enum …]`→select, `[:map …]`→nested group, `[:vector X]`→repeater. |
-| **play function** | `:script` (phase 4) | A vector of TAGGED steps (`[:dispatch-sync ev]` / `[:click sel]` / `[:type sel txt]` / `[:wait ms]` / …), NOT a closure. Assertions ride `[:dispatch-sync [:rf.assert/* …]]`. **Key divergence:** `:rf.assert/*` events *record* into `:assertions` and continue — Storybook's play throws on first failure; Story collects every mismatch. (`:play-script` is the transitional spelling the registrar still lowers; author against `:script` — spec/017 §Public vocabulary.) |
+| **play function** | `:script` (phase 4) | A vector of TAGGED steps (`[:dispatch-sync ev]` / `[:click sel]` / `[:type sel txt]` / `[:wait ms]` / …), NOT a closure. Assertions ride `[:dispatch-sync [:rf.assert/* …]]`. **Key divergence:** `:rf.assert/*` events *record* into `:assertions` and continue — Storybook's play throws on first failure; Story collects every mismatch. |
 | **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators go in the one-arg map `configure!` under `{:rf.story/global-decorators […]}` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook. |
 | **globals / globalTypes toolbar** (theme · viewport · locale · backgrounds) **+ Chromatic Modes** | `reg-mode` (saved arg tuples) | One primitive collapses all four Storybook toolbar addons. `(reg-mode :Mode.theme/dark {:axis :theme :args {:theme :dark}})` is the theme switcher; `:viewport` / `:locale` / `:background` axes cover the rest. Each `(variant × mode)` cell is independently snapshot-able — that's the Chromatic-Modes combinatorial-matrix idea, native. |
 | **tags** (`autodocs` / `test` / `dev`, `!`-removal) | `:tags` + `reg-tag` | Same inclusion-and-filter role; same `!`-prefix removal (`:!dev` drops an inherited tag). The seven canonical tags auto-register. |
-| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. (The codegen emits the PUBLIC `:script` slot directly; the registrar still lowers `:play-script` if hand-written.) See `story-recorder.md`. |
+| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. The codegen emits the PUBLIC `:script` slot directly. See `story-recorder.md`. |
 
 **Where Story has NO Storybook equivalent (read these as the payoff, not a gap):**
 
-- **CSF itself / the default-export + named-export file format.** Story is EDN-first: the seven `reg-*` macros, pure data, no `:render` fn-slot. The combined Form-B `(reg-story id {:variants {…}})` is the closest *shape* to CSF's default-export-plus-named-exports, but a variant body round-trips as data (over the wire, into the MCP pipeline, to a visual-regression server) in a way CSF's inline-JSX bodies cannot.
+- **CSF itself / the default-export + named-export file format.** Story is EDN-first: the nine `reg-*` macros, pure data, no `:render` fn-slot. The combined Form-B `(reg-story id {:variants {…}})` is the closest *shape* to CSF's default-export-plus-named-exports, but a variant body round-trips as data (over the wire, into the MCP pipeline, to a visual-regression server) in a way CSF's inline-JSX bodies cannot.
 - **The render fn / `useArgs()` / `useState()`** — and the hooks-inside-stories re-render gotcha that comes with them. Every variant IS its own re-frame frame with its own `app-db`; stateful stories are the default, driven by `:setup` (preconditions) and `:script` (post-render behaviour) and read with subs. No render fn means no place for a hook to break.
 - **A first-party visual-regression service** (Chromatic / Percy). Story ships the `snapshot-identity` hook for downstream services to consume; it is not in the pixel-capture/baseline-storage business.
 
@@ -38,11 +38,13 @@ Do **not** load this leaf to learn what a story is — that is training knowledg
 
 ## Canonical signatures
 
-All seven macros live in `re-frame.story`. All elide to `nil` under `:advanced`.
+All nine macros live in `re-frame.story`. All elide to `nil` under `:advanced`.
 
 ```clojure
 (story/reg-story     id metadata)   ; parent — inherits down to variants
 (story/reg-variant   id metadata)   ; one cell — pure-data body, no fn slots
+(story/reg-fragment  id metadata)   ; reusable setup/script/world mixin, composed via :compose
+(story/reg-check     id metadata)   ; named reusable assertion pack, composed via :compose
 (story/reg-workspace id metadata)   ; layout over N variants (:grid / :variants-grid / :prose / :tabs / :custom)
 (story/reg-decorator id metadata)   ; :hiccup | :frame-setup | :fx-override
 (story/reg-story-panel id metadata) ; right/left/bottom/top pane in the shell
@@ -129,7 +131,7 @@ Distilled from `tools/story/testbeds/counter_with_stories/stories.cljs` — ever
 - **Component is an id, not a fn.** `:component :app.views/counter-card` — the keyword id of a `reg-view`. Story consults the view's registered Malli schema (Spec 010) to auto-derive `:argtypes` for the controls panel — see Schema-derivation pipeline below; supplying `:argtypes` overrides per-key.
 - **Reference events / views / decorators by id; require their namespaces only to trigger registration.** The stories namespace does not `:refer` view fns — it `:require`s `[app.events] [app.views]` for side-effect loading and uses the keyword ids.
 - **`:rf.assert/*` events record, they do not throw.** The seven canonical assertions append a record to `:assertions` rather than aborting the play sequence. The verdict is the unified run-result's top-level `:status` ∈ `{:pass :fail :cannot-run :error}` — read `(story/result-status result)` (or `(story/result-passed? result)`) from a test runner; `(story/run-variant variant-id)` returns the unified result and `(story/read-assertions variant-id)` returns the raw accumulator records. See `tools/story/spec/004-Assertions.md` and `tools/story/spec/017-Testing-Story.md` §Run result.
-- **`:extends` is resolved at registration time.** A variant inheriting from another merges the parent's body once; cycles raise `:rf.error/extends-cycle` at `reg-variant` time, not at render.
+- **`:extends` is stored raw at registration, resolved by the plan compiler.** A variant inheriting from another has its `:extends` stored intact (parents unmerged) at `reg-variant` time; the plan compiler — the single merge authority — resolves it once when the variant is first compiled (preview / run / render). Cycles raise `:rf.error/story-extends-cycle` at compile time, not at `reg-variant` time.
 - **Loaders run before setup, in their own phase.** Phase 1 (`:loaders`) seeds remote-data or installs long-lived fx (websocket subscriptions, firestore listeners) *before* phase-2 `:setup`. The runtime waits for `:loaders-complete-when` (default: HTTP fx complete on response-event dispatch; long-lived fx on first inbound message) before draining `:setup`; override it with an event id or a literal vector-of-event-vectors. Phase 3 renders; phase 4 runs `:script`. So: fixture seeds in `:loaders`, pre-render preconditions in `:setup`, user interactions to assert against in `:script`.
 - **Modes multiply snapshot identity; args precedence is strict.** Each `(variant × mode)` cell has an independent `snapshot-identity` — visual-regression services iterate cells, not variants. Effective args compose in this order (later wins): global `configure!` args → story `:args` → mode `:args` (deep-merge of nested maps, replace for vectors) → variant `:args` → cell-local overrides from the controls panel (`:story/set-arg`).
 - **Combined form (Form B).** `(reg-story id {:variants {:a {...} :b {...}}})` desugars at macro-expansion time to one `reg-story*` + N `reg-variant*` top-level forms — hot-reload-by-variant still works. The `*`-suffixed runtime helpers are public for programmatic / MCP-driven registration.

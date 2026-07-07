@@ -34,7 +34,7 @@ Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :nam
 > invocation is forward-correct and will work once the repo split and first
 > release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
 
-The two routes are complementary, not redundant — and they are run by different actors. **The template is a user-run command**: the author invokes `clojure -Tnew create …` in their own shell. **This skill executes the manual seven-step scaffold** instead — its `allowed-tools` grant covers `clojure -Stree`, npm, and `shadow-cljs watch`/`compile`, but deliberately *not* `clojure -Tnew create`. So when the skill steers an author toward the one-command generator, it hands them the command to run; it does not invoke `-Tnew` on their behalf (it couldn't pre-publish anyway — the published coordinate doesn't resolve and the `:local/root` dev form needs a reviewed monorepo checkout). Both routes land on the same canonical scaffold.
+The two routes are complementary, not redundant, and run by different actors: the **template** is a user-run `clojure -Tnew create …` command; **this skill** executes the manual seven-step scaffold instead (its `allowed-tools` deliberately exclude `-Tnew`). When it steers you toward the generator it hands you the command to run — see [`SKILL.md` cardinal rule 5](SKILL.md). Both routes land on the same canonical scaffold.
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
@@ -71,14 +71,7 @@ The canonical seven-step greenfield path:
 
 ## Status
 
-Pre-alpha. The skill is authored and its hand-written scaffold is exercised by an opt-in real compile: `setup-skill-scaffold-compiles-test` in `tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj` materialises the load-bearing fenced code blocks straight from this skill's markdown (`references/first-counter.md` → `src/your_app/core.cljs`; `references/shadow-cljs.md` → `shadow-cljs.edn` + `index.html` + `css/app.css`), rewrites the framework coords to `:local/root`, links `node_modules`, and runs `clojure -M:shadow compile app` (asserting the Xray preload + `[data-rf-xray-host]` host column are wired and a non-empty bundle is emitted). It rides the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate, so it stays out of the fast local loop but runs in the `jvm-tools-template` CI job. The remaining pre-publish caveat is narrower than a missing end-to-end smoke: the fixture proves the skill's own snippets compile against in-repo `:local/root` coords, **not** that a published Clojars/git coordinate resolves from a fresh project outside the monorepo. That published-coordinate buildability gate stays deferred to publication. The structure mirrors the `re-frame2-pair` skill in this same repo. The content is grounded against the canonical example in `examples/core/counter/core.cljs` and the deps shapes from `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, and `implementation/shadow-cljs.edn`.
-
-**Drift guards (what's tested today).** Two cheap prose/structural layers run on every relevant change (the real compile above is opt-in behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`):
-
-- `scripts/check_skill_setup_counter_drift.py` — repo-level gate (Python). Guards counter-id vocabulary, the `:init-fn` hot-reload lifecycle wording (the `:browser` module `:init-fn` re-runs after each hot reload — fails if the retired "one-time startup hook, add an `^:dev/after-load` render hook" framing reappears), and the Spec 006 adapter-key vocabulary. Runs in the `verify-skill-mcp-drift` CI job.
-- `tests/setup_drift_test.clj` — skill-local structural guard (Babashka). Locks the build-discipline lockstep framing, UIx/Helix template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the substrate-views path, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload in the canonical `shadow-cljs.edn` block, the user-run-generator framing, and the public entry-ramp docs (the docs-site setup page's eleven-artefact lockstep count + plural `references/` link, and the top-level skills index's pre-split `:local/root` template caveat — read off disk, no network). Run locally with `bb tests/setup_drift_test.clj` (from `skills/re-frame2-setup/`); in CI it is gated by the `skills-structural` job (fires on any `skills/re-frame2-setup/**` change).
-
-Both of these two are *prose/structural* drift guards, not buildability checks — they assert the skill teaches the right shapes. The buildability gap they leave is closed by the opt-in `setup-skill-scaffold-compiles-test` described under §Status (a real `compile app` of the skill's own snippets against in-repo coords). Broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`).
+Pre-alpha. The skill's load-bearing code snippets are compile-tested and drift-guarded in re-frame2's CI: an opt-in real `compile app` of the skill's own fenced blocks (`setup-skill-scaffold-compiles-test`, behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`), plus two cheap prose/structural guards on every relevant change — `scripts/check_skill_setup_counter_drift.py` (counter vocabulary + `:init-fn` hot-reload lifecycle wording) and `tests/setup_drift_test.clj` (the build-discipline, UIx/Helix template-pin, Xray-host, CSP dev/prod, and publication-state contracts; run locally with `bb tests/setup_drift_test.clj`). The prose guards assert the skill teaches the right shapes; the opt-in compile closes the buildability gap for in-repo coords (a published-coordinate buildability gate stays deferred to publication). The content is grounded against `examples/core/counter/core.cljs` and the deps shapes in `implementation/`. Fuller test-infra notes: [`spec/design.md` §Testing & drift guards](spec/design.md).
 
 ## Layout
 
@@ -99,11 +92,13 @@ skills/re-frame2-setup/
 │   ├── design.md
 │   ├── inputs.md
 │   └── authoring-prompt.md
+├── tests/
+│   └── setup_drift_test.clj
 └── evals/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs (not loaded during normal operation), and `evals/` holds the trigger-accuracy fixture. Both are excluded from the npm `files` array by design.
+`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all excluded from the npm `files` array by design.
 
 ## Install the skill in Claude Code
 
@@ -136,7 +131,7 @@ The skill's description auto-matches when you talk about starting a new re-frame
 >
 > Scaffold the smallest working re-frame2 app I can extend.
 
-(Adding re-frame2 to a **non-trivial** existing app — one that already has substantial code or other state management — is authoring, not greenfield setup: that routes to the [`re-frame2`](../re-frame2) skill.)
+(Adding re-frame2 to a **non-trivial** existing app is authoring, not greenfield setup — see the relationship table above.)
 
 ### Explicit — slash command
 

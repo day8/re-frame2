@@ -5,7 +5,7 @@
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
 1. **How do I launch Xray?** — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
-2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 9 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Modules** tab (rendered in the tab bar as **Frames**) is its EP-0023 `image -> frame -> event stream` lens (which image loaded which frame, how a frame resolves its registrations — no realm / app / module browse dimension; an L4-only tab — focusable, no standalone mount facade). The underlying graph accessor stays internal (no `re-frame.core` facade export).
+2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 9 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules) and the 5 Static registry-browse tabs. The **Graph** tab is Xray's UI over the EP-0014 derivation/process graph; the **Modules** tab (rendered in the tab bar as **Frames**) is its EP-0023 `image -> frame` lens — which image loaded which frame, and how a frame resolves its registrations.
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope — see `SKILL.md` §Out of scope for what to do when one of those comes up.
@@ -38,7 +38,7 @@ This skill does **not** depend on or reference `re-frame-10x` — Xray is its st
 
 ## Status
 
-Pre-alpha. Some tabs are partial: the Machines tab renders through the shared xyflow styling under `panels/machines/` (still stabilising); Schemas / Hydration only render when the relevant feature is wired into the host; the Static Machines Sim engine is still stabilising. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly: when a user asks about an in-progress surface it says so and points at the spec.
+Pre-alpha; some surfaces are still stabilising — the Machine tab renders through the shared machines-viz **MachineChart** mounted via `panels/machine_canvas.cljs`; the Static Machines Sim engine; and the schema / hydration inline rows, which populate only when the host wired those features. The Static catalogues themselves are full registry browsers, not stubs. The skill hedges accordingly — see `SKILL.md` §Style guidance (Pre-alpha hedge).
 
 There is no `re-frame2-xray-implementor` sibling skill; for implementing Xray itself, the spec is the answer.
 

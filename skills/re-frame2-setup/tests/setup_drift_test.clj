@@ -755,7 +755,9 @@
 ;;     `io.github.day8/re-frame2-template` `-Tnew create` form can't resolve
 ;;     pre-split (the external repo doesn't exist yet; the working route is
 ;;     `:local/root`, per tools/template/README.md + the setup skill's own
-;;     cardinal rule 4).
+;;     cardinal rule 5). NOTE: the index was later slimmed to point at
+;;     tools/template/README.md rather than inline the full invocation, so the
+;;     guard keys off the surviving `tools/template` + `:local/root` mentions.
 ;;
 ;; These guards read the two public files off disk (no network) and fail if
 ;; any of the three drifts appears while check_doc_slugs.py stays green.
@@ -802,34 +804,36 @@
                "path (rf2-79gtjr).")))))
 
 (deftest skills-index-template-form-carries-pre-split-caveat
-  (testing "skills/README.md does not present the io.github template form without a pre-split caveat"
+  (testing "skills/README.md pairs any generator mention with a pre-split caveat + the working :local/root route"
     (let [body @skills-index-md]
-      ;; Premise guard: if the io.github form is gone entirely this lock is
-      ;; moot, but it must fail loudly so the caveat requirement is revisited
-      ;; deliberately rather than silently passing on an absent string.
-      (is (str/includes? body "io.github.day8/re-frame2-template")
-          (str "skills/README.md no longer mentions the "
-               "`io.github.day8/re-frame2-template` generator coord. If the "
-               "form was removed deliberately, revisit Lock 13 (the "
-               "pre-split-caveat guard assumes the form is present) "
-               "(rf2-79gtjr)."))
+      ;; Premise guard: the index must still reference the generator template
+      ;; (tools/template). If that reference is gone entirely this lock is moot;
+      ;; fail loudly so the caveat requirement is revisited deliberately rather
+      ;; than silently passing on an absent string. (The index no longer inlines
+      ;; the full `io.github.day8/re-frame2-template -Tnew create` invocation —
+      ;; it now points at tools/template/README.md for the working route — so the
+      ;; guard keys off the surviving `tools/template` reference instead.)
+      (is (str/includes? body "tools/template")
+          (str "skills/README.md no longer references the generator template "
+               "(tools/template). If it was removed deliberately, revisit "
+               "Lock 13 (the pre-split-caveat guard assumes the generator is "
+               "mentioned) (rf2-79gtjr)."))
+      ;; Any generator mention must carry the pre-split caveat: the published
+      ;; :template / io.github coord can't resolve pre-split.
       (is (contains-any? body ["Pre-split" "pre-split" "isn't published yet"
-                               "not published yet" ":local/root"])
-          (str "skills/README.md presents the published "
-               "`io.github.day8/re-frame2-template` `-Tnew create` form with "
-               "NO pre-split caveat. That coord can't resolve pre-split (the "
-               "external repo doesn't exist yet); the index must label it "
-               "post-split/future-only and/or give the working `:local/root` "
-               "route, matching tools/template/README.md and the setup "
-               "skill's cardinal rule 4 (rf2-79gtjr)."))
-      ;; The working pre-split route must actually appear (not just the word
-      ;; "pre-split"), so a future edit can't keep the caveat noun while
-      ;; dropping the runnable alternative.
-      (is (str/includes? body ":local/root \"tools/template\"")
-          (str "skills/README.md no longer gives the working pre-split "
-               "`:local/root \"tools/template\"` generator invocation. The "
-               "caveat must be paired with the route that actually works "
-               "today (rf2-79gtjr).")))))
+                               "not published yet" "can't resolve"])
+          (str "skills/README.md mentions the generator template with NO "
+               "pre-split caveat. The published coord can't resolve pre-split "
+               "(the external repo doesn't exist yet); the index must say so, "
+               "matching tools/template/README.md and the setup skill's "
+               "cardinal rule 5 (rf2-79gtjr)."))
+      ;; …and must point at the working `:local/root` route — inline, or via a
+      ;; pointer to tools/template/README.md — so the caveat isn't a dead end.
+      (is (str/includes? body ":local/root")
+          (str "skills/README.md gives the pre-split caveat but not the "
+               "working `:local/root` route (inline, or via a pointer to "
+               "tools/template/README.md). The caveat must be paired with the "
+               "route that actually works today (rf2-79gtjr).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 8 — the manual boot seed matches the generator's reset-boundary

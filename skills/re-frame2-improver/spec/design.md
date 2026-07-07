@@ -41,7 +41,7 @@ The Edit-gate split is normatively defined once, in [`../../shared/retro-protoco
 - **Evidence-shaped Edit — explicit approval first.** Content/motivation derived from user-supplied evidence (snippet, transcript, stack trace, recap, in-source comment) — surface as a proposal and wait for "go", even when mechanical.
 - **When in doubt, gate.** If the rewrite quotes the evidence more closely than the canonical idiom, treat it as evidence-shaped.
 
-The full statement lives in exactly one place inside SKILL.md (§Workflow step 5); the §Anti-patterns bullet is a one-line pointer. README.md restates it for the end-user audience.
+Single-statement discipline: the **normative** statement lives once in the shared leaf (`retro-protocol.md` §Step 6). SKILL.md §Workflow step 5 is the compressed consuming view (the two gate names + the tie-breaker + a pointer to the shared leaf); the §Anti-patterns bullet and README.md each carry a one-line/one-paragraph summary + link, not a restatement — so there is no full copy to drift.
 
 ### L4 — Filing is delegated, not performed
 
@@ -53,7 +53,7 @@ Every catalogue leaf carries the same five sections: **Detection rules** (greppa
 
 ### L6 — Narrow, evidence-grown catalogue
 
-Six launch leaves. The catalogue grows only when an anti-pattern surfaces across 3+ real review sessions — not speculatively. The growth procedure lives in `references/README.md §Growth procedure`.
+The catalogue is narrow and evidence-grown. It grows only when an anti-pattern surfaces across 3+ real review sessions — not speculatively (the same organic-growth discipline as `re-frame2-pair-retro/references/known-frictions.md`). **Growth procedure:** when a candidate clears the 3+-session bar, add a new leaf in the locked five-section format (L5), a catalogue row, and a routing row (signals + co-occurrence) in `references/README.md`. The runtime index (`references/README.md`) stays lean — the growth procedure and the deferred-candidate list (§4) live here, not there.
 
 ### L7 — Untrusted-evidence boundary
 
@@ -102,7 +102,7 @@ skills/re-frame2-improver/
 │   ├── evals.json (8 should-trigger + 8 should-not-trigger + 10 behavioural critique fixtures)
 │   └── README.md (coverage table + grading guidance + release threshold)
 ├── references/
-│   ├── README.md (catalogue index + locked leaf format + growth procedure)
+│   ├── README.md (catalogue index + routing table + shared-protocol pointer)
 │   └── <six anti-pattern leaves>.md
 └── spec/
     ├── design.md (this file)

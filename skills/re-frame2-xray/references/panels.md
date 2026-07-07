@@ -16,12 +16,9 @@ declaratively via `reg-l4-tab!` `:order`, rendered by `shell.cljs`
 (Dynamic) / `static/shell.cljs` (Static). Live Dynamic `:order` values:
 Epoch `-1` · app-db `1` · Views `2` · Trace `3` · Machine `4` · Routes `6`
 · Resources `7` · Graph `8` · Modules `9` — nine in all (`:order 5`
-unallocated). The canonical inventory is
-`focus.cljc`'s `valid-panels` def (`#{:epoch :app-db :views :trace
-:machines :routing :resources :derivation-graph :module-view}`), which
-mirrors the live `panel-registry/tab-ids-for-mode :dynamic` set — a
-cross-check test fails the build if they drift, so that def is the
-authoritative count when this leaf and the source disagree.
+unallocated). The authoritative inventory (`focus.cljc`'s `valid-panels`
+def) + the build-time cross-check that guards it live in
+[`../evals/README.md` §Keeping the tab inventory in sync](../evals/README.md).
 
 ## Two modes
 
@@ -32,26 +29,29 @@ the per-panel tour: the 9 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — every Dynamic L4 tab is a lens on
 the one focused epoch; aggregate signal lives on L2 badges only (§021
-§1.2 — binding). There is **no Issues tab** — issues surface inline (the
-Epoch cascade's per-step ✓/✗ + the shared Exception card), via the L2
-pink-wash, and via the always-on `:rf.xray/issues-ribbon` signal
-(see §What's deliberately NOT here).
+§1.2 — binding). There is **no Issues tab** — issues surface inline (see
+§Issues — not a Dynamic tab below).
 
 ### L2 timeline grammar
 
 The L2 timeline above the panels carries:
 
-- **Dispatch-origin prefix glyph** per row — one of
- `:user :router :websocket :http :ssr :fx-emit :timer :test-harness :tool :internal`
- (per Spec 002; §021 §1.5 is the universal classifier).
+- **Dispatch-origin prefix glyph** per row — the live classifier
+ (`l2_timeline.cljc` `source->bucket`) renders a glyph for `:router` (R) ·
+ `:http` (🌐) · `:ssr` (💧) · `:fx-emit` (⚡) · `:timer` (⏲) · `:test` (T) ·
+ `:tool` (🔧) · `:machine-spawn` (i) · `:websocket`, and renders **no
+ prefix** for app-code origins (`:ui`/`:unknown`/`:other`/`:repl`/
+ `:frame-init` → silent, the common case). *(Impl note — pre-alpha drift:
+ the ten-value `:user … :internal` list in §021 §1.5 is spec vocabulary the
+ shipped classifier does not yet match; the live buckets above are
+ authoritative.)*
 - **Activity badge cluster** per row (live impl `l2_timeline.cljc`
  `activity-badge-glyphs`, render order issue → machine → HTTP → fx-emit →
  timer): `⚠` issue (error) · `◆` machine transition · `🌐` HTTP activity ·
  `⚡` fx-emit child dispatch · `⏲` timer-triggered. HCM remap is automatic
- (colour is never alone). *(Spec §021 §17.1.5's row-badge table also
- documents `💧` SSR-hydration + `🌊` flow-recomputed as normative-but-not-
- yet-in-the-cluster, and maps `🌐`/`⚡` to route/HTTP — a pre-alpha spec-vs-
- impl drift; the live tool above is authoritative.)*
+ (colour is never alone). *(Impl note — pre-alpha drift: §021 §17.1.5's
+ row-badge table documents a richer set (adds `💧` SSR-hydration, `🌊`
+ flow-recomputed); the live cluster above is authoritative.)*
 - **Issue pink-wash** per row — a cascade carrying an issue
  washes its whole L2 row with the `:bg-issue-row` light-pink token. The
  wash is driven by `cascade-has-issue?`, which reuses the same
@@ -71,13 +71,13 @@ own lens. Cross-epoch signals belong on L2 badges, never inside L4.
 
 ### Inspection vs Rewind
 
-Clicking an L2 row is **INSPECTION** — L4 panels rebind to that epoch's
-captured snapshots; the live frame is NOT rolled back. Rewind is a separate,
-explicit affordance — the **`Reset` button** on the far-right of the L3
-tab-bar ribbon, which reinstalls the observed frame's WHOLE frame-state —
-both app-db AND runtime-db — from the focused epoch's `:frame-state-after`
+Clicking an L2 row is **INSPECTION** (L4 panels rebind to that epoch's
+captured snapshots; the live frame is NOT rolled back). Live rewind is the
+separate, explicit **`Reset` button** on the L3 tab-bar ribbon. The full
+mechanism — the whole frame-state (both app-db AND runtime-db) reinstalled
 via `restore-epoch!` / `replace-frame-state!`, not the `:db-after`
-projection alone (`002-Time-Travel.md`).
+projection alone — is the owning home in chrome.md §Time-travel
+(`002-Time-Travel.md`).
 
 ## Panel-by-panel (Dynamic mode)
 
@@ -115,19 +115,32 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
 
 1. **DISPATCH** — always present (every epoch starts here). Event vector,
  origin tag, call-site (open-in-editor).
-2. **COEFFECT** — **one numbered step per handler-declared coeffect**
- (the framework defaults `:db / :event / :source / :trace-id /
- :rf.db/runtime / :rf.frame/id / :rf.cofx` are filtered at projection
- time, so the lens shows only declared leaves). A cofx supplier that
- threw while delivering its value gets a synthesised placeholder step so
- its exception card has a home.
-3. **INTERCEPTOR** — **conditional, exception-only**: rendered ONLY when a
- user interceptor threw this cascade (the substrate emits no
- per-interceptor "ran" trace, so a clean chain shows nothing). One row
- per throwing interceptor — id + `:before` / `:after` phase chip + the
- shared Exception card. Sits between COEFFECTS and HANDLER (the chain's
- cascade position).
-4. **EVENT HANDLER** — always present; body adapts to **what the handler
+2. **RECORDABLE COEFFECTS** — **conditional**: the dispatch envelope's flat
+ `:rf.cofx` map (`:rf/time-ms` + owner-qualified recordable leaves,
+ privacy-summarized), filtered to the handler's **declared** recordable
+ cofx ids via the panel's registry resolver (EP-0010 · EP-0017 §9).
+ Omitted when the envelope carried no `:rf.cofx` map.
+3. **COEFFECT** — **one numbered step per handler-declared coeffect** (the
+ framework defaults `:db / :event / :frame / :source / :trace-id` are
+ filtered at projection time, so the lens shows only declared leaves). A
+ cofx supplier that threw while delivering its value gets a synthesised
+ placeholder step so its exception card has a home.
+4. **INTERCEPTORS** — **conditional**: the **authored** interceptor chain
+ read from the registry (`handler-meta :event`, threaded in by the
+ composite sub as `:resolve-event-interceptors`; EP-0022 §11), rendered
+ whenever the event carries authored (non-`:rf/default?`) interceptor
+ refs — clean or throwing. Rows carry resolved metadata
+ (`:before?`/`:after?`/factory/doc/coord), per-dispatch override
+ substitutions (the `:rf.interceptor/override-summary` tag off
+ `:rf.event/run-start`), and missing-ref rows. The substrate emits no
+ per-interceptor "ran" trace — the chain comes from the **registry**, not
+ the trace stream.
+5. **INTERCEPTOR** — **conditional, exception-only**: one row per
+ **throwing** interceptor (id + phase chip + the shared Exception card),
+ **phase-split** around the handler — a `:before` throw renders BEFORE the
+ handler, an `:after` throw renders AFTER it. A clean chain shows nothing
+ here (it renders under INTERCEPTORS above).
+6. **EVENT HANDLER** — always present; body adapts to **what the handler
  returned**, not to a registrar flavour (there is one public
  `reg-event` and the registry kind is simply `:event` — no `:db`-vs-`:fx`
  sub-discriminator): a returned map carrying only `:db` → `:db` diff · a
@@ -136,13 +149,13 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  as **SKIPPED** (⊘) when an upstream `:before`-chain throw — a coeffect
  supplier that threw while delivering, or a `:before` interceptor —
  aborted the cascade before the handler ran (NOT "ran, returned no :db").
-5. **FLOW** — one numbered step per flow that fired (the t1→t2 reshape as
+7. **FLOW** — one numbered step per flow that fired (the t1→t2 reshape as
  the flow's own `:db` diff). Only when flows fired.
-6. **EFFECT HANDLERS** — a flat per-effect ledger (see §EFFECT HANDLERS below).
+8. **EFFECT HANDLERS** — a flat per-effect ledger (see §EFFECT HANDLERS below).
  Only when a side effect occurred; equally SKIPPED when an upstream
  throw aborted the cascade.
-7. **SUBSCRIPTIONS** — only when subs recomputed.
-8. **VIEWS** — only when views re-rendered.
+9. **SUBSCRIPTIONS** — only when subs recomputed.
+10. **VIEWS** — only when views re-rendered.
 
 **Per-step status + inline exceptions.** Every step header carries a
 status glyph off the shared `step-status` primitive — `✓` (`:ok`) / `✗`
@@ -154,11 +167,14 @@ the step where it occurred via the shared **"Exception Thrown"** card
 settled `:error` (trace-derived, NOT the framework epoch-record `:outcome`
 slot). Schema violations attach inline the same way.
 
-**Badge taxonomy** (the inventory `badge-set` enforces; `badge.cljc`):
-DISPATCH (`:text-tertiary`) · COEFFECT (`:magenta`) · INTERCEPTOR
-(`:accent`) · EVENT HANDLER (`:accent`) · FLOW (`:accent`) · EFFECT HANDLERS
-(`:orange`) · SUBSCRIPTIONS (`:magenta-pink`) · VIEWS (`:success`). (The
-view's colour resolver bails to `:text-tertiary` on an unknown badge.)
+**Badge taxonomy** (the binding inventory is `badge->token-key` /
+`badge->label` in `badge.cljc` — the view never paints a badge outside this
+map): DISPATCH (`:text-tertiary`) · RECORDABLE COEFFECTS
+(`:text-secondary`) · COEFFECT (`:magenta`) · INTERCEPTORS (`:accent`) ·
+INTERCEPTOR (`:accent`) · EVENT HANDLER (`:accent`) · FLOW (`:accent`) ·
+EFFECT HANDLERS (`:orange`) · SUBSCRIPTIONS (`:magenta-pink`) · VIEWS
+(`:success`) · SCHEMA HOT-RELOAD (`:warning`). (The view's colour resolver
+bails to `:text-tertiary` on an unknown badge.)
 
 **Open when:** "what did this event do?", "where did the cascade fail?",
 "what fx fired?", "did the flow recompute?"
@@ -345,17 +361,19 @@ BLANK when the focused event had no machine activity, and renders one
 per-machine section (topology + transition highlight + guards + actions +
 cancellation cascade + `:after` rings) when it does. Per-machine
 prev/next nav walks the spine to the next event that touched that
-machine. (To browse a machine's *full* topology regardless of the focused
-event, flip to **Static mode** and open its Machines tab — its Topology
-sub-mode is the spine-INDEPENDENT canvas browser.)
+machine.
 
 Topology-plus-overlay (§021 §6 + §17.4). Each machine renders as an
-xyflow canvas with Xray-palette styling (§021 §6.0) — not Stately Inspect,
-not native Reagent. Nodes, edges,
-current-state pulse, parallel-region containers, final-state double-rings
-all render through
+xyflow canvas through the shared machines-viz **MachineChart**
+(`day8.re-frame2-machines-viz.chart`), mounted via the Xray-side
+[`panels/machine_canvas.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/machine_canvas.cljs)
+wrapper (per §021 §6.0) — not Stately Inspect, not native Reagent. Nodes,
+edges, current-state pulse, parallel-region containers, and final-state
+double-rings all come from that chart, which carries its own styling.
 [`panels/machines/xyflow_style.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs)
-(per §021 §17.4.5).
+(+ `machines/topology.cljs`) is the self-contained, JVM-portable,
+unit-tested fallback projector / style catalogue — **not** on the live
+render path.
 
 **Current-state precedence** — a 4-source walk-back resolves the
 machine's current state for the focused epoch:
@@ -382,12 +400,10 @@ Per-canvas footer lists guards / actions / cancellation cascade chips
 inline (no modal, no popout). When the focused event had **no machine
 activity** the panel is **truly blank** — a single calm placeholder line,
 **no per-machine topology** (no topology renders on a non-machine epoch).
-To browse a machine's topology
-cold — without picking a machine-active event — flip to **Static mode**'s
-Machines tab (the spine-INDEPENDENT canvas browser). (The live panel
-gates topology on machine activity; the "topology always visible on a
-no-activity epoch" treatment in §021 §6.2 Case B is **not** the live
-behaviour.)
+*(Impl note — pre-alpha drift: the live panel gates topology on machine
+activity; §021 §6.2 Case B's "topology always visible on a no-activity
+epoch" is not the live behaviour. Browse-all topology lives in Static mode
+— see the callout below.)*
 
 **Open when:** "what state is my checkout machine in?", "what
 transition fired this epoch?", "what guards passed / failed?"
@@ -431,9 +447,9 @@ Reads the focused cascade's routing trace ops (correlated by
 `:rf.route/navigation-blocked`, and `:rf.route/fragment-changed`, and the
 active-tree traversal markers read `:rf.route/deactivated` +
 the navigate / `:rf.route/transitioned` ops (`panels/routing_helpers.cljc`).
-(Spec §021 §7's `:rf.route/can-leave` / `:rf.route/can-enter` /
-`:rf.route/on-match` op names are normative-spec naming; the live panel
-correlates the ops just listed.)
+*(Impl note — pre-alpha drift: §021 §7's `:rf.route/can-leave` /
+`:can-enter` / `:on-match` op names are spec naming; the live panel
+correlates the ops listed above.)*
 
 **Open when:** "what route am I on?", "what params did the nav-token
 resolve?", "did the route change this epoch?"
@@ -711,10 +727,9 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
  and Modules each register their own cross-feature tab — but there is
  no separate Subs lens.)
 - **No Chrome A11y tab.** A11y dogfooding is Story's domain.
-- **No standalone Dynamic "Machines Canvas" tab.**
- The spine-INDEPENDENT browse-all machine canvas lives under Static
- mode's Machines tab (Topology sub-mode). The Dynamic Machine tab is
- purely the event-driven lens.
+- **No standalone Dynamic "Machines Canvas" tab** — the spine-INDEPENDENT
+ browse-all canvas lives under Static mode's Machines tab (see the
+ §Machine Browse-all callout).
 - **No cross-epoch Dynamic L4 views.** Aggregate signals live on L2
  badges only.
 - **No pattern-view.**

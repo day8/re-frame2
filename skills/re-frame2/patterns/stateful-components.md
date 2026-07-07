@@ -65,9 +65,9 @@ Pseudo-code; library calls are illustrative. Substitute D3 / Three.js / CodeMirr
          :reagent-render
          (fn [_pos] [:div {:ref #(reset! el-ref %) :style {:height "400px"}}])}))))
 
-;; Outer — Form-1, reads subs, hands props to the inner.
+;; Outer — Form-1, reads subs (injected `subscribe`), hands props to the inner.
 (rf/reg-view map-panel []
-  (let [pos @(rf/subscribe [:current-position])]
+  (let [pos @(subscribe [:current-position])]
     [(rf/view :my-app.map/map-inner) pos]))
 ```
 

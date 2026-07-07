@@ -4,7 +4,7 @@ The standard request-lifecycle convention. A 5-key slice (or one machine region)
 
 > **Mental-model anchor:** this is the **SWR / React-Query "stale-while-revalidate"** shape — the `:loading` vs `:fetching` split IS the SWR distinction (show a spinner on an empty page; keep stale data visible while refreshing). Map that intuition onto the re-frame2 slice below.
 
-RemoteData is the **app-side** lifecycle slice on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any managed surface, framework-shipped (state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs) or app/library-built (request-reply over a WebSocket connection you build per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md) — re-frame2 ships **no** `:rf.ws/*`). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names what the *receiving* state looks like once the reply lands.
+RemoteData is the **app-side** lifecycle slice on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any managed surface. The umbrella (shared properties, the reply envelope, the "no `:rf.ws/*`" rule) lives in [`managed-http.md`](managed-http.md); this leaf names what the *receiving* state looks like once the reply lands.
 
 ## When to load
 
@@ -131,7 +131,7 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
                :on   {:fetch-started {:target :loading  :action :bump-attempt}}}}})
 ```
 
-The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `(rf/machine-has-tag? :realworld/tags :tags/loading)` / `(rf/machine-has-tag? :realworld/tags :tags/in-flight)`.
+The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `@(rf/machine-has-tag? :realworld/tags :tags/loading)` / `@(rf/machine-has-tag? :realworld/tags :tags/in-flight)` (the sub returns a reaction — deref it, or an underef'd call reads truthy).
 
 ## When to choose each form
 
@@ -161,7 +161,7 @@ The split exists for one reason: an empty page mid-load shows a spinner; a page 
 
 ## When a resource fits better
 
-This leaf is the **hand-rolled** slice (or machine region). If the same fetch is **shared across views**, needs **freshness / TTL / fresh-skip**, must be **invalidated after a write** (list ⇄ detail), or wants **tenant/user scoping** as a fail-closed boundary, reach instead for the declarative [`patterns/resources.md`](resources.md) (`reg-resource`, optional `day8/re-frame2-resources`) — the TanStack-Query-shaped layer that owns identity, scope, staleness, dedupe, invalidation, GC, and SSR preload for you. Resources lower onto the same managed-HTTP transport; you stop hand-writing the lifecycle. Use this RemoteData slice when the fetch is a one-off with no sharing or invalidation story.
+This leaf is the **hand-rolled** slice (or machine region). Shared across views / needs freshness-TTL-fresh-skip / must be invalidated after a write / wants fail-closed tenant-user scoping → reach for the declarative [`patterns/resources.md`](resources.md) instead (it lowers onto the same managed-HTTP transport, so you stop hand-writing the lifecycle). One-off private fetch with no sharing or invalidation story → stay on this slice. The full chooser lives in [`../decision-trees/pick-a-pattern.md` §Resources vs RemoteData](../decision-trees/pick-a-pattern.md).
 
 ## Deeper pointers
 

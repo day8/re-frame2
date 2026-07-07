@@ -91,20 +91,23 @@ After this single dispatch:
 
 ## Errors carry the triggering handler's source-coord
 
-Every `:rf.error/*` trace event emitted from inside a running handler — event, sub, fx, cofx, view, interceptor `:before` / `:after`, late-bind hook — carries `:rf.trace/trigger-handler` with the source-coord of *that* handler:
+Every `:rf.error/*` trace event emitted while a registered handler is executing — event, sub, fx, cofx, view, machine, flow, route — carries `:rf.trace/trigger-handler` with the source-coord of *that* handler:
 
 ```clojure
-{:rf/op :rf.error/no-such-cofx
- :rf.error/data {:cofx-id :user/profile}
+{:operation :rf.error/unregistered-cofx
+ :op-type   :error
  :rf.trace/trigger-handler {:kind         :event
                             :id           :user/save
                             :source-coord {:ns     "myapp.events"
                                            :file   "src/myapp/events.cljs"
                                            :line   142
-                                           :column 3}}}
+                                           :column 3}}
+ :tags      {:category   :rf.error/unregistered-cofx
+             :failing-id :user/profile
+             :reason     "no coeffect registered for :user/profile"}}
 ```
 
-`:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-handler`, where no handler is yet in scope.
+`:kind` is the registry kind — one of the closed set `#{:event :sub :fx :cofx :view :machine :flow :route :error-projector}`; `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. (An interceptor `:before`/`:after` or late-bind-hook exception is attributed by `:tags`'s `:failing-id`, not a `:kind` of its own.) The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-handler`, where no handler is yet in scope.
 
 **`:rf.trace/trigger-handler` rides the trace surface, so it is production-elided** — the whole trace emit compiles out under `:advanced` + `goog.DEBUG=false`. Production-surviving source coordinates come from a **separate always-on channel**: the error-emit record carries a tight `:source-coord` from the always-on `error-coords-by-id` registry (via `rf/register-listener!` on `:errors` — see `cross-cutting/production-observability.md`). So in dev read the coord off `:rf.trace/trigger-handler`; in production off the error-emit record's `:source-coord` (macro-registered handlers only). Do not expect the trace field in production. (Spec 009 §What is NOT available in production.)
 

@@ -120,7 +120,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/project-error` | `(frame-id trace-event)` → public-error-map |
 | `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
 | `rf/render-head` | `(head-id frame-id)` / `(head-id {:frame :route})` → produced `:rf/head-model` for a frame's app-db + active route |
-| `rf/active-head` | `()` / `(frame-id)` → the active route's `:head` model (or the default head when none configured) |
+| `rf/active-head` | `(frame-id)` → the active route's `:head` model (or the default head when none configured). Frame is **carried, not ambient** — the no-arg form was removed (EP-0002); a `nil` frame raises `:rf.error/no-frame-context` |
 | `rf/head-model->html` | `(head-model)` → inner-head HTML fragment in canonical order |
 | `rf/head-snapshot` | `(frame-id)` → `{head-id → last-produced head-model}` (`{}` if none); tests / tools |
 
@@ -157,7 +157,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | Surface | Shape |
 |---|---|
 | `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing |
-| `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
+| `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — **JVM-only aliases**; CLJS callers use `re-frame.trace.tooling/trace-buffer` / `clear-trace-buffer!` directly (core trace tooling, not the epoch artefact) |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
 | `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
@@ -181,10 +181,10 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
 | `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
-| `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` |
+| `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` `:resources` |
 | `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
 | `rf/frame-ids` / `rf/view` | registry reads |
-| `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:sensitive` `:large` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. **No `:on-error` recovery-policy slot** — recovery is framework-owned |
+| `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:initial-events` `:on-destroy` `:observability` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta`. `:observability` is the sole surviving frame-owned classification key (`:sensitive` / `:large` retired, EP-0025). **No `:on-error` recovery-policy slot** — recovery is framework-owned |
 | `re-frame.subs.tooling/sub-cache-snapshot` / `sub-topology` | dynamic / static sub graph reads — subscription-tooling surfaces, **not** on the `rf/` façade |
 
 Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (registrations / writes) or degrade to `nil`/`[]`/`false` (read-only queries) when the artefact is absent.

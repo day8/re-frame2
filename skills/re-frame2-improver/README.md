@@ -4,25 +4,17 @@
 
 `re-frame2-improver` is a Claude Code **critique-mode skill** for **existing** re-frame2 ClojureScript code. It reviews a body of source files (or a user-supplied snippet) against a small catalogue of re-frame2 anti-patterns, surfaces concrete findings cross-linked to canonical idioms under `skills/re-frame2/patterns/`, and — subject to the Edit-gate split — may propose or apply inline fixes.
 
-This skill is the on-demand **complement** to [`re-frame2`](../re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. Activates only on explicit pull — *"review my re-frame2 code"*, *"any anti-patterns?"*, *"audit against best practices"* — and only when a body of re-frame2 source is in scope.
-
-## Three filters must hold to trigger
-
-1. **Explicit pull.** The user used review / audit / critique / improvements / anti-pattern phrasing about their own re-frame2 code.
-2. **Source-in-scope.** At least one `.cljs` / `.cljc` file has been read or edited in this conversation, OR the user supplied a snippet inline, OR the user named a concrete `.cljs` / `.cljc` file or directory to review (the skill reads it before critiquing).
-3. **Not a sibling skill's job.** See [`skills/README.md` §Skill routing](../README.md#skill-routing--single-source) for the full disambiguation matrix.
-
-If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path — the skill declines and asks for a snippet or a path rather than fabricating findings.
+This skill is the on-demand **complement** to [`re-frame2`](../re-frame2): re-frame2 authors new code from canonical idioms; re-frame2-improver retrospectively critiques existing code against the same idioms. It activates only on explicit pull — *"review my re-frame2 code"*, *"any anti-patterns?"*, *"audit against best practices"* — and only when a body of re-frame2 source is in scope (a `.cljs` / `.cljc` file read or edited in the conversation, a pasted snippet, or a named path the skill reads). Vocabulary alone does not trigger it. The three activation filters and the not-for routing are stated once in [`SKILL.md` §Trigger semantics](SKILL.md#trigger-semantics-locked).
 
 ## Repo contents
 
-- `SKILL.md` — the skill itself
-- `references/` — the anti-pattern catalogue. Each leaf carries detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/` or `spec/`.
-- `evals/evals.json` — eval fixtures: 26 total — 16 trigger fixtures (8 should-trigger + 8 should-not-trigger, per skill-creator's description-optimisation contract) plus 10 behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance.
-- `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
-- `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
+- `SKILL.md` — the skill itself (trigger semantics, workflow, output shape, self-anti-patterns).
+- `references/` — the anti-pattern catalogue + routing table. Each leaf carries a detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/` or `spec/`.
+- `evals/evals.json` — eval fixtures: trigger fixtures (should-trigger + should-not-trigger, per skill-creator's description-optimisation contract) plus behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance.
+- `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata.
+- `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill).
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) that let a future pass re-author the skill from committed inputs. Not loaded during normal operation.
-- `../shared/retro-protocol.md` — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Consumed jointly by this skill and `re-frame2-pair-retro`.
+- `../shared/retro-protocol.md` — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing, opt-in issue-filing). Consumed jointly by this skill and `re-frame2-pair-retro`.
 
 ## Relationship to other skills
 
@@ -30,30 +22,10 @@ If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path —
 - [`re-frame2-pair`](../re-frame2-pair) — pair-programs with a **running** re-frame2 application. The improver is **static** — it never attaches to a runtime; if the user wants live inspection, route to re-frame2-pair.
 - [`re-frame2-pair-retro`](../re-frame2-pair-retro) — retros on a re-frame2-pair session. Shares the `../shared/retro-protocol.md` leaf with this skill (diagnosis-first discipline, untrusted-evidence boundary, Edit-gate split).
 
-## Edit-gate split
+## How it works, in brief
 
-The improver applies `Edit` under a two-tier gate (the normative statement is `../shared/retro-protocol.md` §Step 6):
-
-- **Canonical-idiom-shaped Edit — unrestricted.** When the rewrite is identical to a pattern documented under `skills/re-frame2/patterns/` or `spec/` — the evidence's only role was to identify *where* the anti-pattern occurs, and the new shape comes verbatim from the catalogue — the agent may apply `Edit` when confident.
-- **Evidence-shaped Edit — explicit approval first.** When the rewrite's content or motivation is derived from user-supplied evidence (a pasted snippet, transcript, stack trace, recap, or in-source comment), surface the proposed `Edit` as a finding with old/new shape and wait for "go".
-- **When in doubt, gate.** If the rewrite quotes the evidence (variable names, strings, structure) more closely than it quotes the canonical idiom, treat it as evidence-shaped.
-
-Higher-leverage redesigns always stay as suggestions.
-
-## Typical output
-
-A good critique produces:
-
-1. `Scope` — the files / namespaces under review
-2. `Observed shape` — short structural read of the code
-3. `Pattern findings` — numbered list with concrete file/line evidence + canonical idiom cross-link + suggested rewrite
-4. `Higher-leverage redesigns` — for credible reshape options worth separating from grounded fixes
-5. `Inline fixes applied` — list of `Edit` operations performed (when applicable)
-6. `Open questions` — ambiguities needing author input
-
-## Status
-
-Pre-alpha. The references catalogue has 6 leaves; it grows as more anti-patterns surface from real-world re-frame2 sessions.
+- **Edit-gate split.** Canonical-idiom-shaped rewrites (the new shape comes verbatim from the catalogue) may be applied directly; evidence-shaped rewrites (content derived from a pasted snippet, transcript, or in-source comment) are surfaced as proposals awaiting explicit approval. When in doubt, gate. Full statement: [`SKILL.md` §Workflow step 5](SKILL.md#workflow) and its normative source [`../shared/retro-protocol.md` §Step 6](../shared/retro-protocol.md#the-seven-step-protocol).
+- **Output shape.** A critique produces `Scope` → `Observed shape` → `Pattern findings` (severity-ordered, each with file/line evidence + cross-link + rewrite) → `Higher-leverage redesigns` → `Inline fixes applied` → `Open questions`. Detailed in [`SKILL.md` §Output format](SKILL.md#output-format).
 
 ## Install
 

@@ -29,15 +29,9 @@ allowed-tools:
   # (Q14 lock — see spec/design.md L3). The skill stops at writing the
   # code; the author runs the tests, the compiler, the app. Running gates
   # is general software practice, not a re-frame2 binding the skill teaches.
-  # story-mcp authoring-side tools (HYBRID split): re-frame2 owns the
-  # AUTHOR/REFINE side — write/refine a variant body (register/unregister),
-  # preview one render (preview-variant), and read it back (get-variant /
-  # explain-variant). re-frame2-pair owns the RUN side — execute against a
-  # live runtime and self-heal off the failures (run-variant / read-failures
-  # / record-as-variant / read-a11y-violations / snapshot-identity). The run loop is a
-  # HANDOFF to re-frame2-pair, not a loop this skill executes. Per
-  # tools/story-mcp/spec/002-Tool-Registry.md; pinned by
-  # scripts/check_skill_mcp_drift.py.
+  # story-mcp author/refine tools only; the run-side tools (run-variant /
+  # read-failures / record-as-variant / …) live in re-frame2-pair. Split
+  # pinned by scripts/check_skill_mcp_drift.py; see references/tooling/story-mcp-loop.md.
   - mcp__re-frame2-story-mcp__get-story-instructions
   - mcp__re-frame2-story-mcp__list-stories
   - mcp__re-frame2-story-mcp__get-story
@@ -71,7 +65,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 1. **Implementation is ground truth.** When spec and `implementation/**` disagree, the implementation wins. Recipes here are verified against `implementation/**` and `examples/**`.
 2. **Recipes over explanations.** Use the canonical shape; do not re-derive from first principles.
-3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md). Standing mental model for machines: **think in xstate, then map onto re-frame2** — most concepts translate cleanly (`:type :parallel`, `:tags`, `:guards`/`:actions`, `:always`, `:after`, final states); a handful re-frame2 renames or omits (`invoke`→`:spawn`, `context`→`:data`, no `assign`/action-vectors/compound-guard-data) — those divergences are the trap. Translation key + divergence flags: [`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md).
+3. **Distinguish orchestration from state.** State machines for *modes* (legal-transitions-depend-on-current-state); slices for *fields*. See [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md). Standing mental model for machines: **think in xstate, then map onto re-frame2** — most concepts translate cleanly; a handful re-frame2 renames or omits, and those divergences are the trap. Translation catalogue: [`references/state-machines/xstate-translation.md`](references/state-machines/xstate-translation.md); declaration grammar + divergence flags: [`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md).
 4. **Schemas at boundaries.** `reg-app-schema` for paths that cross trust boundaries (HTTP payloads, persisted state, snapshot restores). Do not schema-fence every internal key.
 5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (Repo: `examples/**`; consumer app: the relevant pattern/fundamentals leaf plus any reference views your project follows.)
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
@@ -88,8 +82,8 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 | Need | Pattern leaf |
 |---|---|
 | HTTP request with request/response lifecycle | `patterns/remote-data.md` |
-| Cached server-state shared across views, with invalidation (TanStack-Query-shaped) | `patterns/resources.md` |
-| Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, or a reusable session/tenant scope (`reg-resource-scope`) | `patterns/resources.md` |
+| Cached server-state shared across views, with invalidation, or a reusable session/tenant scope (`reg-resource-scope`) — read/cache side (TanStack-Query-shaped) | `patterns/resources.md` |
+| Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, optimistic writes | `patterns/resources-mutations.md` |
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
 | Form input with validation and submit | `patterns/forms.md` |
 | Long-running browser-side work | `patterns/long-running-work.md` |
@@ -116,19 +110,19 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 ## Testing your views
 
-To test a re-frame2 view — "does the screen show the right thing?", "does the button dispatch the right event?" — use the **hiccup-walk pattern** (call the view-fn, walk the returned hiccup by `:data-testid` with `re-frame.test-helpers`), not a browser-mount: state-only assertions miss the view-broken and wrong-frame-dispatch bugs the walk catches. Full recipe (`with-app-fixture` / `expect-text` / `wait-until` trio, the walk helpers, single-frame discipline, the `h/testid` helper): [`references/cross-cutting/testing.md`](references/cross-cutting/testing.md).
+"Does the screen show the right thing? Does the button dispatch the right event?" — use the **hiccup-walk pattern** (walk the view-fn's returned hiccup by `:data-testid`, not a browser-mount; state-only assertions miss the view-broken and wrong-frame-dispatch bugs the walk catches). Recipe: [`references/cross-cutting/testing.md`](references/cross-cutting/testing.md).
 
 ## Where the depth lives
 
 Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
 
-**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md` (value-returning `reg-cofx` + `:rf.cofx/requires`, EP-0017; durable facts from recordable coeffects/`:rf/time-ms` or the payload, ambient cofx only for diagnostics; `inject-cofx` removed), `subs.md`, `views.md` (`reg-view` defn-shape macro, auto-injected `dispatch`/`subscribe`, `reg-view`-vs-`reg-view*`, the plain-fn `:rf.error/no-frame-context` trap), `flows.md` (`reg-flow` materialised state; flow-vs-sub), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
+**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md` (value-returning `reg-cofx`, `:rf.cofx/requires`), `subs.md`, `views.md` (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), `flows.md` (`reg-flow`, flow-vs-sub), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
-**State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key + divergence flags), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing model across all: think in xstate, then map onto re-frame2.
+**State machines — `references/state-machines/`**: `reg-machine.md` (declaration, guards/actions, divergence flags), `xstate-translation.md` (the full xstate→re-frame2 catalogue), `machine-schemas.md` (`:schemas` `:data`/`:output` + snapshot redaction), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing model across all: think in xstate, then map onto re-frame2.
 
-**Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script` body), `story-mcp-loop.md` (story-mcp **author/refine** side this skill owns; **handoff** to `re-frame2-pair` for the run/self-heal loop), `xray.md` (devtools panel — mount, launch modes, host-CSS resize, popout, suppress-auto-open). Standing model for Story: think in Storybook JS, then map onto Story (`stories.md` has the concept map).
+**Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script`), `story-mcp-loop.md` (story-mcp **author/refine** side; run-loop **handoff** to `re-frame2-pair`), `xray.md` (devtools panel mount + launch modes). Standing model for Story: think in Storybook JS, then map onto Story (`stories.md` has the concept map).
 
-**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub), `api-cheatsheet.md`, `privacy-and-elision.md` (path-based fail-open egress: owner classifies / framework projects / sinks consume — `:sensitive`/`:large` commit-plane effects for durable app-db, projection-relative on subsystems, registration `:sensitive`, per-slot schema `:sensitive?` for `:decode` bodies, the six `:rf.egress/*` profiles + `project-egress`; no propagation), `production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md` (`reg-head`/`render-head`/`active-head`/`head-model->html` + `:rf.ssr/check-version`/`:rf.ssr/check-schema-digest` fxs), `path-and-identity.md` (the one `:rf/path` algebra + canonical EDN identity: root `[]`, segment domain, overlap, `[:rf.path/param …]` templates, `CEDN-1`, fail-closed host values, digest-as-derived).
+**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub, view-tree walk), `api-cheatsheet.md` (one-page `reg-*` signature index), `privacy-and-elision.md` (path-based fail-open egress: owner classifies / framework projects / sinks consume; the six `:rf.egress/*` profiles), `production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md` (`reg-head`/`render-head`/`active-head` + the `:rf.ssr/check-*` fxs), `path-and-identity.md` (the `:rf/path` algebra + canonical EDN identity).
 
 **Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each opens with load triggers, the canonical mini-declaration, the features it uses, trade-offs, and the worked-example link. Pattern → example app: `examples-map.md`.
 

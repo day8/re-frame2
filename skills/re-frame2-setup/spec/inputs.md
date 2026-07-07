@@ -26,7 +26,7 @@ Used for *why*, not *what*. Cited by name in design rationale; not quoted in use
 
 - **`spec/000-Vision.md`** — the AI-first design principles; backs the skill's discipline of minimal scaffolding.
 - **`spec/002-Frames.md`** — frame identity is carried, not found (EP-0002): `init!` creates no frame, so the setup skill teaches registering one app frame (`reg-frame`) and scoping it at the root with the merged `frame-provider`'s `{:frame …}` SCOPE-only shape — the frame already exists from `reg-frame`. There is no implicit `:rf/default`.
-- **`spec/Pattern-Boot.md`** — the canonical boot pattern; relevant once the author moves past first-counter (the SKILL.md routing table points there).
+- **`spec/Pattern-Boot.md`** — the canonical boot pattern; relevant once the author moves past first-counter (SKILL.md's exit hand-off routes past-setup work to the `re-frame2` skill, which owns boot patterns).
 
 ## 4. Authoring-discipline inputs
 
@@ -34,7 +34,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 
 - **`skills/re-frame2/spec/design.md`** — the parent skill's locked design. This skill inherits the four pillars, the Q14 lock, the cardinal-rules format, the single-import contract (L9 here, L8 there).
 - **`skills/re-frame-migration/SKILL.md`** + **`skills/re-frame-migration/spec/`** — the closest structural sibling that already has a `spec/` triad. Voice / shape match this.
-- **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for deep-dive content; the skill's routing-on-exit table cross-references it.
+- **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table for deep-dive content; SKILL.md's exit hand-off cross-references it.
 - Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy" with explicit "use this skill whenever..." framing; SKILL.md under 500 lines; leaves one level deep; avoid time-sensitive content (deferred to `references/deps-versions.md` lookup rather than hardcoded VERSIONs).
 
 ## 5. What the skill does NOT consume
@@ -50,7 +50,7 @@ These shape the skill's voice and structure but aren't quoted directly.
 When the artefact set or the greenfield contract changes:
 
 1. **A new artefact is split out** (e.g. a future `day8/re-frame2-stories`) → add a row to `references/deps-versions.md`'s pay-as-you-go table; mention in SKILL.md if it's commonly needed on day one.
-2. **An existing artefact is renamed or merged** → grep `references/` for the old name and update; verify the routing table at the end of SKILL.md still resolves correctly.
+2. **An existing artefact is renamed or merged** → grep `references/` for the old name and update; verify SKILL.md's Reference-files list still resolves correctly.
 3. **`re-frame.adapter.reagent`'s adapter contract changes** (e.g. new keys in the adapter spec map) → update `references/entry-namespace.md`'s canonical shape; verify `references/first-counter.md` still compiles.
 4. **`shadow-cljs.edn` greenfield shape changes** (rare — `:target :browser` is very stable) → update `references/shadow-cljs.md`.
 5. **`rf/init!` signature changes** → update SKILL.md's Step 5 framing and `references/entry-namespace.md`.

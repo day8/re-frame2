@@ -34,11 +34,7 @@ The skill is structured around the **spec corpus** at [`spec/`](https://github.c
 - Walks the EP corpus in dependency order during Phase 2.
 - Frames the conformance corpus as the acceptance test for "this is a re-frame2 implementation".
 
-It does **not** duplicate spec content. Each reference in the skill cites the spec section or chapter; the full text is read directly from `spec/`.
-
-## Status
-
-Pre-alpha. The skill is authored; it has not yet been exercised end-to-end against a real port. The structure mirrors the other skills in this repo. The content is grounded against `spec/`, `spec/Implementor-Checklist.md`, and `spec/conformance/README.md`.
+It does **not** duplicate spec content. Each reference in the skill cites the spec section or chapter; the full text is read directly from `spec/`. The content is grounded against `spec/`, `spec/Implementor-Checklist.md`, and `spec/conformance/README.md`.
 
 ## Layout
 

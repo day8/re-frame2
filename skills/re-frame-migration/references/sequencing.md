@@ -122,7 +122,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 28 | **M-13** | `reg-event-error-handler` removed; no app-steering recovery policy in v2. Type B. Detail in [`guided-handlers-state.md` §M-13](guided-handlers-state.md#m-13--reg-event-error-handler). |
 | 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. |
 | 29b | **M-71** | v1 signal-function `reg-sub` form → v2 `input-fn`. Sits with the other sub rewrites (M-18). Type B (silent-fail). Three return shapes rewrite differently — detail in [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). |
-| 30 | **M-42** | React-19-removed Reagent surfaces (throw-on-call shims under the slim adapter). A/B split (mount-path Type A; `dom-node` / `force-update-all` Type B). Detail in [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). |
+| 30 | **M-42** | React-19-removed Reagent surfaces — **absent** on the slim adapter (compile-time unresolved-var); on the bridge the `render` call site still needs the `create-root` rewrite (React 19 removed `react-dom/render`). A/B split (mount-path Type A; `dom-node` / `force-update-all` Type B). Detail in [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). |
 
 ### Group 8 — Per-feature artefact splits (dep-only adds; pair with the feature-trigger rules)
 

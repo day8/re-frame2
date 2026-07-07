@@ -2,7 +2,7 @@
 
 Cancellable spawn-and-join coordination via `:spawn-all` — one parent coordinates N parallel children that yield to the browser between chunks.
 
-State-machine `:spawn` / `:spawn-all` is one of the four shipped instances of the **managed external effect** umbrella — alongside `:rf.http/managed`, `:rf.server/*`, `:rf.flow/*` (a WebSocket connection is the app/library-built case; re-frame2 ships **no** `:rf.ws/*`). The runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work is also a **property-9** async-reply-envelope family (alongside managed HTTP, resources, mutations, route loaders — *not* the synchronous `:rf.server/*` / `:rf.flow/*`): a child reports completion through `:on-child-done` / `:on-done`, which lower to the framework reply target, with a late completion for a superseded actor suppressed as `:status :stale` (correlated by the child's `:work/id`) — which makes the spawn-and-join shape below correctness-by-construction. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md); this leaf names the *coordination* shape on top.
+State-machine `:spawn` / `:spawn-all` is one of the shipped **managed external effect** surfaces (umbrella: [`managed-http.md`](managed-http.md)): the runtime owns child lifetime (spawn on entry, teardown on exit, abort on parent transition), failure classification under `:rf.machine/*`, and trace-bus observability. Machine async work also completes through the uniform reply envelope — a child reports via `:on-child-done` / `:on-done`, and a late completion for a superseded actor is suppressed as `:status :stale` (correlated by the child's `:work/id`) — which makes the spawn-and-join shape below correctness-by-construction. This leaf names the *coordination* shape on top.
 
 ## When to load
 
@@ -146,7 +146,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 ## Worked example
 
-`examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it; `test/long_running_work/worker_test.cljs` is the CLJS unit test.
+`examples/patterns/long_running_work/` — three parallel `:work/processor` children coordinated by `:work/flow` via `:spawn-all`. The Show / Hide wrapper's `r/with-let` cleanup dispatches `[:work/flow [:cancel]]`. The machines live in `worker.cljs`; `core.cljs` / `schema.cljs` / `views.cljs` complete it. The CLJS unit test lives under the reagent adapter tests (`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`) — examples are test-free.
 
 ## Pointers
 

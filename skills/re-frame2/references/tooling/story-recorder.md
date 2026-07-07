@@ -55,7 +55,7 @@ The privacy contract classifies at the **owner of the data** — the three-owner
 
 So to get a recorded login / 2FA / API-key flow suppressed, classify the secret's *path* at its owner (see the three-owner table): a durable app-db secret via the writing event's `:sensitive` classification effect, or a payload-only secret in the submit handler's registration `:sensitive` metadata. Either route stamps the trace event and triggers whole-row redaction. The contract is **fail-open** — a path you never classify ships its row verbatim.
 
-> **Surfaces that do not exist.** `rf/redact-interceptor [[:path]]` (a positional payload scrubber), `re-frame.marks` / `rf/add-marks` (imperative app-db marks), and a frame `:sensitive {:app-db …}` durable annotation are not part of the API — reaching for them is a wrong turn. Use registration `:sensitive` metadata in place of `redact-interceptor`; use the `:sensitive` classification effect a handler returns alongside `:db` in place of the marks API and the frame annotation. None of these names resolves to a public var.
+> **Surfaces that do not exist.** The non-existent-API list (`redact-interceptor` / `add-marks` / frame `:sensitive {:app-db …}` and what to use instead) is owned by [`../cross-cutting/privacy-and-elision.md` §Surfaces that do not exist](../cross-cutting/privacy-and-elision.md#surfaces-that-do-not-exist--use-the-model) — reaching for any of them is a wrong turn; classify the secret's *path* at its owner instead.
 
 When the runtime *has* stamped the event sensitive, it still appears in the recording — as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. The row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text:
 
@@ -120,7 +120,7 @@ The story-mcp `record-as-variant` tool calls the same public surface through the
 
 **The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:script` body. The tool also never accepts a `:rf.privacy/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
 
-Authoring rule for tools consuming `gen-play-snippet` output (or calling `record-as-variant`): treat any `[:rf/redacted]` slot as a non-reproducible step — do not auto-commit a `:script` body containing one; ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording. Normative contract: [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder.
+Authoring rule for tools consuming `gen-play-snippet` output (or calling `record-as-variant`): treat any `[:rf/redacted]` slot as a non-reproducible step — do not auto-commit a `:script` body containing one; ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording. Normative contract: [`../cross-cutting/privacy-and-elision.md` §Where you declare it: the three-owner table](../cross-cutting/privacy-and-elision.md#where-you-declare-it-the-three-owner-table).
 
 ## Deeper material
 

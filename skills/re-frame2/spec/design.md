@@ -12,7 +12,7 @@ Help an AI write working re-frame2 ClojureScript application code while spending
 
 1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **Q14 lock applies: NO verification module** — no `references/verify.md`, no "verify before claiming done" hard rule. The author runs tests; the skill stops at writing the code.
 2. **Idiomaticness — verified against `implementation/**` + `examples/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
-3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~300-400 lines (under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
+3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~180 lines (well under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
 4. **Assume training knowledge — teach only the re-frame2 binding.** The AI already knows what WebSockets, FSMs, optimistic updates, and HTTP retry are. The skill's job is to bridge that to the specific re-frame2 features (`reg-machine`, `:rf.http/managed`, `:fsm/parallel-regions`, etc.). The **cut-test**: if a sentence could be written about React, Vue, or Elm unchanged, it belongs in training data, not this skill.
 
 ## 3. Locked decisions
@@ -68,7 +68,7 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 ### In scope
 
 - ClojureScript application authors writing re-frame2 code.
-- The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
+- The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-interceptor`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-resource`, `reg-mutation`.
 - The canonical patterns — RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection.
 - Frames, regions, tags, machine snapshots, the event-state cycle.
 - Test-authoring (`make-reset-runtime-fixture`, `dispatch-sync`, `compute-sub`, `with-frame`).
@@ -93,7 +93,7 @@ skills/re-frame2/
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
 │   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, event-state-cycle, project-structure)
-│   ├── state-machines/          (reg-machine, regions, tags, spawn, history, cancellation)
+│   ├── state-machines/          (reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
 │   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
 ├── patterns/                    (one leaf per canonical pattern)
