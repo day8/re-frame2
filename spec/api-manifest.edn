@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 496,
+ :var-count 495,
  :tier-vocab
  [:front-porch
   :advanced
@@ -117,6 +117,7 @@
   {:namespace "re-frame.core", :var "frame-shadows", :tier :tooling, :kind :fn, :owner "002", :status "EP-0026", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-state-value", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "frame-value->id", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "generation-diff", :tier :tooling, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "group-by-event", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "group-by-event-with-events", :tier :tooling, :kind :fn, :owner "009", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "handler-ids", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
@@ -164,7 +165,6 @@
   {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reload-images!", :tier :advanced, :kind :fn, :owner "002", :status "EP-0023", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-url-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
@@ -176,7 +176,6 @@
   {:namespace "re-frame.core", :var "replace-runtime-db!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "require-feature!", :tier :advanced, :kind :fn, :owner "Conventions", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reset-app-db!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reset-frame!", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "resolve-resource-scope", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "resource-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "resource-state", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}

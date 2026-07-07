@@ -991,92 +991,87 @@
     (is (nil? (rf/frame-meta :short-lived))
         "frame-meta on a destroyed frame returns nil (no resurrection)")))
 
-;; ---- rf2-mwrh: reset-frame! partial-state preservation contract -----------
+;; ---- rf2-mwrh: full-reset (destroy-frame! + reg-frame) preservation contract
 ;;
-;; Per test-coverage-review-2026-05-12 P3-27: `rf/reset-frame!` is re-exported
-;; (core.cljc:438 → frame/reset-frame!) but no test pins what it does. The
-;; impl is `destroy-frame! followed by reg-frame with the same config` —
-;; this test pins the contract that flows from that definition:
+;; Per test-coverage-review-2026-05-12 P3-27 (originally pinning the now-
+;; retired `rf/reset-frame!` — rf2-lxwpob deleted that verb since it was
+;; nothing but `destroy-frame! followed by reg-frame with the same config`,
+;; a composition with a single caller, not a surface): this test pins the
+;; contract that flows from that composition:
 ;;   - app-db is reset (fresh container).
 ;;   - sub-cache is cleared (sub re-registers against the fresh frame).
-;;   - The config metadata is preserved (same :doc, same :initial-events, etc.).
+;;   - The config metadata is preserved (same :doc, same :initial-events, etc.)
+;;     because the caller re-supplies it.
 ;;   - :initial-events re-runs (the new frame is freshly booted; EP-0027).
 ;;   - The frame is still queryable (not in the destroyed state).
 
 (deftest reset-frame-preserves-config-resets-app-db
-  (testing "rf/reset-frame!: app-db is reset, config metadata is preserved,
-            :initial-events re-runs, frame remains queryable (EP-0027)"
+  (testing "destroy-frame! + re-reg-frame with the SAME config: app-db is reset,
+            config metadata is preserved, :initial-events re-runs, frame remains
+            queryable (EP-0027)"
     (let [boot-count (atom 0)]
       (rf/reg-event :seed
         (fn [{:keys [db]} [_ payload]]
           (swap! boot-count inc)
           {:db {:booted? true :payload payload :extra :seeded}}))
-      (rf/reg-frame :app/main
-                    {:doc            "frame with initial-events"
-                     :initial-events [[:seed {:hello "world"}]]
-                     :fx-overrides {:custom :value}})
-      ;; First setup dispatch increments the counter.
-      (is (= 1 @boot-count) ":initial-events ran once at reg-frame time")
-      (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
-             (rf/app-db-value :app/main))
-          "app-db reflects the setup commit")
-
-      ;; Mutate app-db: a subsequent event extends the value.
-      (rf/reg-event :extend (fn [{:keys [db]} _] {:db (assoc db :runtime-write? true)}))
-      (rf/dispatch-sync [:extend] {:frame :app/main})
-      (is (true? (:runtime-write? (rf/app-db-value :app/main)))
-          "mutation is visible before reset-frame!")
-
-      ;; Capture the original frame record so we can compare.
-      (let [orig-record    (frame/frame :app/main)
-            orig-app-db    (:app-db orig-record)
-            orig-sub-cache (:sub-cache orig-record)
-            orig-router    (:router orig-record)]
-
-        ;; Reset.
-        (rf/reset-frame! :app/main)
-
-        ;; After reset: the frame is queryable.
-        (let [new-record (frame/frame :app/main)]
-          (is (some? new-record)
-              "the frame still exists post-reset (not destroyed)")
-          ;; Config metadata preserved: same :doc, same :initial-events,
-          ;; same :fx-overrides.
-          (is (= "frame with initial-events" (get-in new-record [:config :doc]))
-              ":config :doc preserved across reset")
-          (is (= [[:seed {:hello "world"}]]
-                 (get-in new-record [:config :initial-events]))
-              ":config :initial-events preserved across reset")
-          (is (= {:custom :value} (get-in new-record [:config :fx-overrides]))
-              ":config :fx-overrides preserved across reset")
-          ;; The slot identity-replaceable parts are FRESH containers.
-          (is (not (identical? orig-app-db (:app-db new-record)))
-              "app-db container is a fresh allocation post-reset")
-          (is (not (identical? orig-sub-cache (:sub-cache new-record)))
-              "sub-cache atom is fresh post-reset")
-          (is (not (identical? orig-router (:router new-record)))
-              "router atom is fresh post-reset"))
-
-        ;; :initial-events re-ran on the fresh frame: counter incremented.
-        (is (= 2 @boot-count)
-            ":initial-events re-dispatches against the freshly-registered frame")
-
-        ;; The runtime mutation is gone — fresh app-db reflects only
-        ;; the setup's commit, not the prior :extend.
+      (let [config {:doc            "frame with initial-events"
+                    :initial-events [[:seed {:hello "world"}]]
+                    :fx-overrides {:custom :value}}]
+        (rf/reg-frame :app/main config)
+        ;; First setup dispatch increments the counter.
+        (is (= 1 @boot-count) ":initial-events ran once at reg-frame time")
         (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
                (rf/app-db-value :app/main))
-            "app-db is reset to the :initial-events state; runtime writes are gone")
-        (is (nil? (:runtime-write? (rf/app-db-value :app/main)))
-            "the :extend handler's write is absent — reset wiped runtime state")))))
+            "app-db reflects the setup commit")
 
-(deftest reset-frame-on-missing-id-is-noop
-  (testing "rf/reset-frame! against an unregistered frame is a silent no-op"
-    ;; frame/reset-frame! only fires when (frame id) returns non-nil.
-    ;; Calling against an unknown id must not throw.
-    (is (nil? (rf/reset-frame! :no/such-frame))
-        "reset-frame! on a missing id returns nil without throwing")
-    (is (nil? (frame/frame :no/such-frame))
-        "the missing frame is still absent")))
+        ;; Mutate app-db: a subsequent event extends the value.
+        (rf/reg-event :extend (fn [{:keys [db]} _] {:db (assoc db :runtime-write? true)}))
+        (rf/dispatch-sync [:extend] {:frame :app/main})
+        (is (true? (:runtime-write? (rf/app-db-value :app/main)))
+            "mutation is visible before the reset")
+
+        ;; Capture the original frame record so we can compare.
+        (let [orig-record    (frame/frame :app/main)
+              orig-app-db    (:app-db orig-record)
+              orig-sub-cache (:sub-cache orig-record)
+              orig-router    (:router orig-record)]
+
+          ;; Reset — destroy + re-reg-frame with the SAME config.
+          (rf/destroy-frame! :app/main)
+          (rf/reg-frame :app/main config)
+
+          ;; After reset: the frame is queryable.
+          (let [new-record (frame/frame :app/main)]
+            (is (some? new-record)
+                "the frame still exists post-reset (not destroyed)")
+            ;; Config metadata preserved: same :doc, same :initial-events,
+            ;; same :fx-overrides.
+            (is (= "frame with initial-events" (get-in new-record [:config :doc]))
+                ":config :doc preserved across reset")
+            (is (= [[:seed {:hello "world"}]]
+                   (get-in new-record [:config :initial-events]))
+                ":config :initial-events preserved across reset")
+            (is (= {:custom :value} (get-in new-record [:config :fx-overrides]))
+                ":config :fx-overrides preserved across reset")
+            ;; The slot identity-replaceable parts are FRESH containers.
+            (is (not (identical? orig-app-db (:app-db new-record)))
+                "app-db container is a fresh allocation post-reset")
+            (is (not (identical? orig-sub-cache (:sub-cache new-record)))
+                "sub-cache atom is fresh post-reset")
+            (is (not (identical? orig-router (:router new-record)))
+                "router atom is fresh post-reset"))
+
+          ;; :initial-events re-ran on the fresh frame: counter incremented.
+          (is (= 2 @boot-count)
+              ":initial-events re-dispatches against the freshly-registered frame")
+
+          ;; The runtime mutation is gone — fresh app-db reflects only
+          ;; the setup's commit, not the prior :extend.
+          (is (= {:booted? true :payload {:hello "world"} :extra :seeded}
+                 (rf/app-db-value :app/main))
+              "app-db is reset to the :initial-events state; runtime writes are gone")
+          (is (nil? (:runtime-write? (rf/app-db-value :app/main)))
+              "the :extend handler's write is absent — reset wiped runtime state"))))))
 
 ;; ---- rf2-r1ciy: :on-destroy handler throw semantics ----------------------
 ;;

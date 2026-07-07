@@ -361,7 +361,7 @@
 (deftest reset-app-db-resets-app-db-only-via-core-facade
   (testing "rf/reset-app-db! resets the app-db partition to {} while live
             runtime-db survives (EP-0001 rf2-tfepxu, Mike ruling #10 — the
-            app-db sibling of whole-frame reset-frame!)"
+            app-db sibling of a full frame reset, destroy-frame! + reg-frame)"
     (rf/reg-frame :pp/reset-app {:doc "reset-app"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})

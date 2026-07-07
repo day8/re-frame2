@@ -20,8 +20,8 @@ and the supersession table (EP-0023:1670) maps the retired construction +
 install + inspection family — `rf/install!`, `rf/reinstall!`, `rf/realm`,
 `rf/dispose-realm!`, `rf/installed-app`, `rf/realm-ids`, `rf/frame-realm`,
 `rf/app-registrations`, `rf/app-owns`, `rf/app-requires`, `rf/module`,
-`rf/app` — onto the public `rf/image` + `rf/make-frame` + `rf/reload-images!`
-+ `rf/destroy-frame!` model. EP-0024 then DELETED the substrate that carried
+`rf/app` — onto the public `rf/image` + `rf/make-frame` (re-construction folds
+image hot-reload in, rf2-lxwpob) + `rf/destroy-frame!` model. EP-0024 then DELETED the substrate that carried
 the realm machinery, so there is no retained-internal realm surface to read.
 
 So a retired composition spelling is legitimate ONLY where the SUBJECT is the

@@ -120,7 +120,8 @@
 (defwrapper reset-app-db!
   "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
   loop, while preserving live runtime-db (machines / routes / elision /
-  SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`
+  SSR survive). The app-db-only sibling of a full frame reset
+  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope
   (EP-0001 rf2-tfepxu, Mike ruling #10). Equivalent to
   `(replace-app-db! frame-id {})` — same synthetic-epoch recording, same
   gating and failure modes.

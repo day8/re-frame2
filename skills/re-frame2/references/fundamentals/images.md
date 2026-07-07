@@ -2,7 +2,7 @@
 
 ## When to load
 
-Deciding whether a multi-surface page, tool-beside-target mount, progressive doc example, library package, or isolated test/story frame needs an explicit `rf/image`; authoring `rf/image` values, `make-frame :images`, or `reload-images!`; or answering "can two frames share registration ids?". For frame lifetimes, scoping, and the `frame-provider` shapes, see [`frames.md`](frames.md) — this leaf covers the *registration-set* half of the multi-frame story.
+Deciding whether a multi-surface page, tool-beside-target mount, progressive doc example, library package, or isolated test/story frame needs an explicit `rf/image`; authoring `rf/image` values, `make-frame :images`, or an image hot-reload (re-`make-frame`); or answering "can two frames share registration ids?". For frame lifetimes, scoping, and the `frame-provider` shapes, see [`frames.md`](frames.md) — this leaf covers the *registration-set* half of the multi-frame story.
 
 ## The mental model: `image -> frame -> event stream`
 
@@ -38,7 +38,7 @@ You almost certainly do not need to name an image. The two facts an author shoul
 - Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …) round out the spec map — `:id` / `:select-ns` / `:registrations` are the only three public keys (EP-0026).
 - There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud.
 
-**Constructing image-loaded frames.** Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs. Composition resolves by **image order** — the later image wins; read what it shadowed via `rf/frame-shadows`. `make-frame` takes `:images` alongside its record-config opts; `reload-images!` swaps a live frame's image generation in place, preserving frame memory. Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (see [`frames.md` §The merged `frame-provider` in views](frames.md#the-merged-frame-provider-in-views-ep-0024)).
+**Constructing image-loaded frames.** Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs. Composition resolves by **image order** — the later image wins; read what it shadowed via `rf/frame-shadows`. `make-frame` takes `:images` alongside its record-config opts; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation in place, preserving frame memory (no dedicated reload verb, rf2-lxwpob). Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (see [`frames.md` §The merged `frame-provider` in views](frames.md#the-merged-frame-provider-in-views-ep-0024)).
 
 ## Frame isolation is the whole isolation story
 
@@ -53,8 +53,8 @@ Frame ids are **process-local and unique** — two live frames may not both clai
 
 ## Deeper material
 
-The image-generation seal, `reload-images!` semantics under hot reload, and the EP-0026 spec-map contract: `SKILL-REDIRECT.md` → **EP — Image-loaded frames (023)**, **EP — Image spec (026)**.
+The image-generation seal, re-`make-frame` hot-reload semantics, and the EP-0026 spec-map contract: `SKILL-REDIRECT.md` → **EP — Image-loaded frames (023)**, **EP — Image spec (026)**.
 
 ---
 
-*Derived from `re-frame.core` (`image`, `make-frame`, `frame-shadows`, `reload-images!`) @ main `89bd9c3`. Re-verify after image-assembly or frame-constructor changes.*
+*Derived from `re-frame.core` (`image`, `make-frame`, `frame-shadows`, `generation-diff`) @ main `89bd9c3`. Re-verify after image-assembly or frame-constructor changes.*

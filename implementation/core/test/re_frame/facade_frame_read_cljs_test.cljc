@@ -4,7 +4,7 @@
   The EP-0023 model promised a public READ over a frame's resolved image
   generation (\"target frame -> resolved image generation -> registration
   resolution\"), but the graduated facade exported only the constructors /
-  mutators (`rf/image`, `rf/make-frame`, `rf/reload-images!`). This errata-class
+  mutators (`rf/image`, `rf/make-frame`). This errata-class
   forward-extension ships the read:
 
     * a `{:frame f :kind k …}` map ARITY on each of the three existing public
@@ -171,7 +171,7 @@
 
 (deftest frame-arity-accepts-a-direct-frame-object
   (testing ":frame is EITHER a registered frame id OR a direct frame object (the
-            same target shapes rf/reload-images! accepts) — a no-id direct object
+            same target shape rf/frame-generation accepts) — a no-id direct object
             resolves through its own generation"
     (let [blue-obj (rf/make-frame {:images [blue-img]} blue-pool)]
       (is (not-any? public-id? (lf/live-frame-ids))

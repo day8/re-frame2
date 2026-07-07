@@ -1,26 +1,32 @@
 (ns re-frame.live-frame-reload-cljs-test
   "EP-0023 §Hot Reload / §Default Image Semantics — the IMAGE HOT-RELOAD slice
-  (rf2-32siq3.10): `rf/reload-images!` swaps the generation a frame runs WHILE
-  PRESERVING FRAME MEMORY, and a source-store change reprojects affected
-  EXPLICIT-image frames (not only default-image frames).
+  (rf2-32siq3.10, folded into re-construction by rf2-lxwpob): re-calling
+  `make-frame` against the SAME `:id` with a new `:images` vector swaps the
+  generation a frame runs WHILE PRESERVING FRAME MEMORY, and a source-store
+  change reprojects affected EXPLICIT-image frames (not only default-image
+  frames).
 
   Pins the bead's enumerated coverage:
 
-    * `reload-images!` swaps the generation but PRESERVES frame memory — EP-0024
+    * re-`make-frame` swaps the generation but PRESERVES frame memory — EP-0024
       (rf2-tu2vr7): the generation lives on the frame record in the ONE
       `frame/frames` registry (the `:generation` slot), swapped by id via
-      `frame/set-generation!`; app-db / durable state continue, the id keeps
-      naming the same live context, and the returned `:rf.frame/frame` is a fresh
-      frame VALUE for that id (compare by `rf/frame-value->id`, not `identical?`);
+      `frame/set-generation!` (reached through `reg-frame`'s surgical-update
+      path); app-db / durable state continue, the id keeps naming the same
+      live context, and the returned frame VALUE names that id (compare by
+      `rf/frame-value->id`, not `identical?`);
     * resolution AFTER reload uses the NEW image (the swapped generation resolves
       the new descriptor; the old is gone / changed);
-    * the reload REPORT names the added/changed/removed/retained `[kind id]` diff;
+    * the added/changed/removed/retained `[kind id]` diff is a READ
+      (`generation-diff` over two `frame-generation` values), not a bespoke
+      verb's report;
     * reload is FRAME-TARGETED — reloading one registered frame does not move a
       sibling that previously shared a generation object;
     * an `:id`-bearing reload updates the registry slot IN PLACE (the id keeps
       naming the same live context, now running the new generation);
-    * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`),
-      and an unknown target FAILS LOUD (`:rf.error/reload-no-such-frame`);
+    * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`) —
+      the SAME guard `make-frame` always enforces, since reload is just
+      re-construction;
     * a source-store `reg-*` change reprojects an EXPLICIT-`:include-ns` frame —
       `reproject-live-frames!` re-resolves it and swaps the new generation.
 
@@ -28,7 +34,7 @@
   message bytes — Spec 009 §The thrown-error shape rule 3).
 
   The reload/diff tests resolve against an explicit synthetic descriptor pool
-  (the `reload-images!` 3-arity), so there is no live source-store wiring — the
+  (`make-frame`'s 2-arity), so there is no live source-store wiring — the
   same decoupling idiom `live-frame-cljs-test` / `image-assembly-cljs-test` use.
   The reprojection test exercises the LIVE source store and so SNAPSHOTS +
   RESTORES it around the case (NOT `registrar/clear-all!`, which would wipe the
@@ -113,19 +119,20 @@
 
 ;; One image selects "counter.core"; the reload changes only the descriptor POOL
 ;; (the source store), not the image composition — exactly as a same-namespace
-;; reg-* re-eval does. (reload-images! also replaces composition; the diff is
-;; over the resolved generations either way.)
+;; reg-* re-eval does. (Re-`make-frame`-ing also replaces composition; the diff
+;; is over the resolved generations either way.)
 (def ^:private img (image/image {:id :counter/img :select-ns {:include ["counter.core"]}}))
 
 ;; ===========================================================================
-;; 1. reload-images! swaps the generation but PRESERVES frame memory
+;; 1. Re-`make-frame` swaps the generation but PRESERVES frame memory
 ;; ===========================================================================
 
 (deftest reload-swaps-generation-preserving-frame-memory
-  (testing "reload-images! swaps ONLY the resolved generation on the frame's
-            record; the id keeps naming the same live context and durable frame
-            MEMORY (app-db) continues unchanged (EP-0024 §One live frame registry
-            / EP-0023 §Hot Reload — not a teardown/recreate)"
+  (testing "re-`make-frame`-ing against the SAME `:id` swaps ONLY the resolved
+            generation on the frame's record; the id keeps naming the same live
+            context and durable frame MEMORY (app-db) continues unchanged
+            (EP-0024 §One live frame registry / EP-0023 §Hot Reload — not a
+            teardown/recreate)"
     ;; EP-0027 (rf2-7ae2to): this case seeds via `:initial-events [[:rf/set-db
     ;; {:count 7}]]`, which resolves the framework-standard `:rf/set-db` through
     ;; the sealed generation (the image standard registry). The ns fixture's
@@ -140,8 +147,7 @@
                                     :adapter ::reagent}
                                    pool-v1)
           old-gen (lf/frame-generation frame-val)
-          report  (lf/reload-images! :counter/main {:images [img]} pool-v2)
-          reloaded (:rf.frame/frame report)]
+          reloaded (lf/make-frame {:id :counter/main :images [img]} pool-v2)]
       (testing "a NEW generation is on the record (read by id) after the swap"
         (is (not (identical? old-gen (lf/frame-generation reloaded))))
         (is (not= old-gen (lf/frame-generation reloaded))))
@@ -164,7 +170,7 @@
             kept its memory)"
     (let [frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)
           gen-v1   (lf/frame-generation frame)
-          reloaded (:rf.frame/frame (lf/reload-images! :counter/main {:images [img]} pool-v2))
+          reloaded (lf/make-frame {:id :counter/main :images [img]} pool-v2)
           gen-v2   (lf/frame-generation reloaded)]
       (testing "the v1 generation resolved the v1 impl (control)"
         (is (= ::inc-v1 (:handler-fn (asm/resolve-descriptor gen-v1 :event :counter/inc)))))
@@ -184,14 +190,20 @@
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
-;; 3. The reload REPORT names a concrete added/changed/removed/retained diff
+;; 3. generation-diff over before/after generations names a concrete
+;;    added/changed/removed/retained diff (rf2-lxwpob: a READ, not a bespoke
+;;    reload-report verb)
 ;; ===========================================================================
 
 (deftest reload-report-names-a-concrete-diff
-  (testing "reload-images! returns a diff of [kind id] sets (EP-0023 §Hot
-            Reload — \"A good reload result should be a concrete diff\")"
+  (testing "generation-diff over the pre/post-reload generations names a diff of
+            [kind id] sets (EP-0023 §Hot Reload — \"A good reload result should
+            be a concrete diff\")"
     (let [frame  (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          {diff :rf.reload/diff} (lf/reload-images! :counter/main {:images [img]} pool-v2)]
+          before (lf/frame-generation frame)
+          _      (lf/make-frame {:id :counter/main :images [img]} pool-v2)
+          after  (lf/frame-generation :counter/main)
+          diff   (lf/generation-diff before after)]
       (testing ":added names the v2-only id"
         (is (contains? (:added diff) [:event :counter/reset])))
       (testing ":changed names the id whose impl changed (v1 → v2)"
@@ -209,28 +221,31 @@
     (let [narrow (image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
           pool-n [(reg-desc "counter.narrow" :event :counter/inc ::inc-n)]
           frame  (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          {diff :rf.reload/diff} (lf/reload-images! :counter/main {:images [narrow]} pool-n)]
+          before (lf/frame-generation frame)
+          _      (lf/make-frame {:id :counter/main :images [narrow]} pool-n)
+          after  (lf/frame-generation :counter/main)
+          diff   (lf/generation-diff before after)]
       (is (contains? (:removed diff) [:sub :counter/value])
           ":counter/value is gone after reloading to the narrower image")
       (is (contains? (:changed diff) [:event :counter/inc])
           ":counter/inc survives with a different impl → changed"))))
 
 (deftest reload-report-carries-the-shadow-report
-  (testing "the reload report carries :rf.reload/shadows — the NEW generation's
-            cross-image SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j)"
+  (testing "after a reload, frame-shadows reads the NEW generation's cross-image
+            SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — an ordinary
+            read, not a bespoke reload-report field"
     (let [override (image/image {:id :counter/override
                                  :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}})
-          frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          ;; Reload to a composition where a later override image shadows img's
-          ;; selected :counter/inc.
-          report   (lf/reload-images! :counter/main {:images [img override]} pool-v1)]
-      (testing "the pre-reload composition had no shadows; post-reload one entry"
+          frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)]
+      (testing "the pre-reload composition had no shadows"
+        (is (empty? (lf/frame-shadows :counter/main))))
+      ;; Reload to a composition where a later override image shadows img's
+      ;; selected :counter/inc.
+      (lf/make-frame {:id :counter/main :images [img override]} pool-v1)
+      (testing "post-reload frame-shadows names the one cross-image override"
         (is (= [{:registration [:event :counter/inc]
                  :image        :counter/img
                  :shadowed-by  :counter/override}]
-               (:rf.reload/shadows report))))
-      (testing "it mirrors the new generation's :rf.gen/shadows"
-        (is (= (:rf.reload/shadows report)
                (lf/frame-shadows :counter/main)))))))
 
 ;; ===========================================================================
@@ -244,7 +259,7 @@
     (let [left  (lf/make-frame {:id :counter/left  :images [img]} pool-v1)
           right (lf/make-frame {:id :counter/right :images [img]} pool-v1)
           right-gen-before (lf/frame-generation right)]
-      (lf/reload-images! :counter/left {:images [img]} pool-v2)
+      (lf/make-frame {:id :counter/left :images [img]} pool-v2)
       (testing "right's generation is UNTOUCHED (still resolves v1)"
         (is (identical? right-gen-before (lf/frame-generation (lf/live-frame :counter/right))))
         (is (= ::inc-v1 (:handler-fn (asm/resolve-descriptor
@@ -256,58 +271,31 @@
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
-;; 5. A direct (no-id) frame object reloads too — caller holds the copy
+;; 5. A direct (no-id) frame object has no `:id` to reload against (rf2-lxwpob)
+;;
+;; The retired `reload-images!` accepted a direct frame VALUE as a target
+;; (reloading it in place, keyed by its private runnable-id). Re-`make-frame`
+;; has no equivalent for a no-id frame: calling `make-frame` again with no
+;; `:id` creates ANOTHER new anonymous frame, it does not update the existing
+;; one in place — there is no id to key a re-construction on. A no-id frame
+;; is LOCAL-ONLY (per `make-frame`'s own docstring); refreshing one means
+;; discarding it and making a new one, not reloading it. This capability gap
+;; is an accepted, deliberate consequence of the facade collapse (rf2-lxwpob).
 ;; ===========================================================================
 
-(deftest reload-a-direct-frame-object
-  (testing "reload-images! accepts a direct frame VALUE as the target; the
-            reloaded value is returned for the caller to hold AND the swap lands
-            on the record keyed by the value's PRIVATE runnable-id. A no-id frame
-            contributes no PUBLIC id, but its record DOES carry a generation — and
-            dispatch/subscribe re-resolve the generation FROM that record by id,
-            so the swap must move it to v2 (rf2-3az1vn P1 / EP-0024: the
-            generation lives on the ONE record, read by id)"
-    (let [frame    (lf/make-frame {:images [img]} pool-v1)
-          runnable (:rf.frame/runnable-id frame)
-          reloaded (:rf.frame/frame (lf/reload-images! frame {:images [img]} pool-v2))]
-      (is (not-any? #(not= "rf.frame" (namespace %)) (lf/live-frame-ids))
-          "a no-id frame contributes no PUBLIC id (its private :rf.frame/<gensym>
-           id carries a generation and so appears in live-frame-ids — EP-0024)")
-      (testing "the record keyed by the gensym runnable-id now resolves the
-                RELOADED (v2) generation, not the stale v1 one"
-        (is (some? runnable) "a no-id value still carries a private runnable-id")
-        (is (= runnable (rf/frame-value->id (lf/live-frame runnable)))
-            "(live-frame runnable-id) reconstructs the value for the same record")
-        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
-                                       (lf/frame-generation (lf/live-frame runnable))
-                                       :event :counter/inc)))
-            "(live-frame runnable-id) resolves the v2 image — the record is no
-             longer stale"))
-      (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
-                                     (lf/frame-generation reloaded) :event :counter/inc))))
-      (testing "the ORIGINAL handle also resolves v2: under EP-0024 both handles
-                collapse to the same runnable-id, whose ONE record now holds the
-                reloaded generation (no stale-handle divergence — the generation
-                is read from the record by id, never embedded on the value)"
-        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
-                                       (lf/frame-generation frame) :event :counter/inc))))))))
-
 ;; ===========================================================================
-;; 6. Fail-loud — bad :images and unknown target
+;; 6. Fail-loud — bad :images (the same make-frame guard; reload is just
+;;    re-construction, so there is no separate "unknown target" failure mode —
+;;    an unknown id is simply a fresh creation, per make-frame's own contract)
 ;; ===========================================================================
 
 (deftest reload-non-vector-images-rejected
-  (testing "reload-images! :images must be a VECTOR (the one spelling), exactly
-            as make-frame; a bare image map throws :rf.error/make-frame-bad-images"
+  (testing "re-`make-frame`-ing with a non-vector :images (the one spelling)
+            throws the SAME :rf.error/make-frame-bad-images make-frame always
+            enforces — reload is just re-construction, not a separate guard"
     (let [_ (lf/make-frame {:id :counter/main :images [img]} pool-v1)]
       (is (= :rf.error/make-frame-bad-images
-             (err-id #(lf/reload-images! :counter/main {:images img} pool-v2)))))))
-
-(deftest reload-unknown-target-fails-loud
-  (testing "reloading a target that names no live frame throws
-            :rf.error/reload-no-such-frame (fail-loud — reload targets ONE frame)"
-    (is (= :rf.error/reload-no-such-frame
-           (err-id #(lf/reload-images! :counter/nope {:images [img]} pool-v2))))))
+             (err-id #(lf/make-frame {:id :counter/main :images img} pool-v2)))))))
 
 ;; ===========================================================================
 ;; 7. generation-diff is pure and correct in isolation
@@ -599,7 +587,7 @@
                 (is (contains? moved :auto/main))
                 (is (contains? (:changed (get moved :auto/main)) [:event :auto/inc]))))
             (testing "the live frame now resolves the RE-EVAL'd impl through its
-                      swapped generation — automatically, no reload-images! call"
+                      swapped generation — automatically, no re-`make-frame` call"
               (is (= ::auto-v2
                      (:handler-fn (asm/resolve-descriptor
                                     (lf/frame-generation (lf/live-frame :auto/main))

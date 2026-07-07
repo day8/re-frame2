@@ -339,7 +339,7 @@ Devtools subscribe to this event and refresh their view (handler list, source-co
 ### Edge cases
 
 - **Re-registering a sub mid-cascade.** If a re-registration arrives while a drain cycle is in flight (host-async event delivered between dequeues), the cache invalidation fires, but already-computed values for the in-flight event remain bound to that event's effect map. The next dequeue sees the new sub.
-- **Re-registering a frame's `:initial-events`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:initial-events` are recorded but do not re-fire. Use `reset-frame!` if you want the new setup to run.
+- **Re-registering a frame's `:initial-events`.** Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update), the new `:initial-events` are recorded but do not re-fire. Compose `destroy-frame!` + re-`reg-frame` ([002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame)) if you want the new setup to run.
 - **Re-registering a destroyed frame's keyword.** Treated as a fresh `reg-frame`; new frame container is created; `:initial-events` fire.
 - **Hot-reload in production builds.** Production builds typically have no save-triggered reload. The path is still legal (REPL re-evaluation, plugin systems) but rare.
 

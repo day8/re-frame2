@@ -12,11 +12,14 @@
       registered);
     * RETIREMENT — a supplied `:on-create` / `:initial-db` fails loud
       (`:rf.error/on-create-retired` / `:rf.error/initial-db-retired`);
-    * RESET — `reset-frame!` re-dispatches the recorded `:initial-events`
-      (durable frame config, best-effort, no snapshot); repeated reset is
-      idempotent (rf2-060di5); an IMAGE-loaded frame keeps its resolved image
-      generation across reset, so an INLINE-only registration still resolves on
-      replay (rf2-qnk02m — the silent registrar-degrade guard);
+    * RESET — `destroy-frame!` + re-`reg-frame` with the SAME config
+      re-dispatches the recorded `:initial-events` (durable frame config,
+      best-effort, no snapshot) — there is no dedicated reset verb (rf2-lxwpob
+      retired `reset-frame!`; a full replace is this two-call composition);
+      repeated reset is idempotent (rf2-060di5); an IMAGE-loaded frame keeps its
+      resolved image generation across reset when the caller re-supplies the
+      SAME `:images`, so an INLINE-only registration still resolves on replay
+      (rf2-qnk02m — the silent registrar-degrade guard);
     * RE-REGISTRATION — an idempotent re-`reg-frame` RE-RECORDS but does NOT
       REPLAY the setup (durable app-db preserved);
     * TEARDOWN (STRICT construction, EP-0027 §Failure / rf2-vw5h1r) — ANY setup-
@@ -294,105 +297,75 @@
     (is (nil? (frame/frame :ret/idb)) "no frame left registered")))
 
 ;; ===========================================================================
-;; 5. Reset — reset-frame! re-dispatches the recorded :initial-events
+;; 5. Reset — destroy-frame! + re-reg-frame replays the recorded :initial-events
+;;    (rf2-lxwpob: there is no dedicated reset verb; a full replace is this
+;;    two-call composition, re-supplying the SAME config the caller holds)
 ;; ===========================================================================
 
 (deftest reset-frame-replays-recorded-initial-events
-  (testing "reset-frame! re-dispatches the recorded :initial-events through the
-            CURRENT handlers (best-effort; durable config replayed)"
+  (testing "destroy-frame! + re-reg-frame with the SAME config re-dispatches the
+            recorded :initial-events through the CURRENT handlers (best-effort;
+            durable config replayed)"
     (reg-test-events!)
-    (rf/reg-frame :reset/main
-      {:initial-events [[:test/set-db {:n 0}]
-                        [:test/inc]]})
-    (is (= 1 (:n (rf/app-db-value :reset/main))) "construction settled to n=1")
-    ;; Mutate away from the constructed state.
-    (rf/dispatch-sync [:test/inc] {:frame :reset/main})
-    (rf/dispatch-sync [:test/inc] {:frame :reset/main})
-    (is (= 3 (:n (rf/app-db-value :reset/main))) "runtime moved it to n=3")
-    ;; Reset re-runs the recorded setup: seed {:n 0} then one :test/inc ⇒ n=1.
-    (frame/reset-frame! :reset/main)
-    (is (= 1 (:n (rf/app-db-value :reset/main)))
-        "reset-frame! replayed the recorded :initial-events, back to n=1")))
+    (let [config {:initial-events [[:test/set-db {:n 0}]
+                                   [:test/inc]]}]
+      (rf/reg-frame :reset/main config)
+      (is (= 1 (:n (rf/app-db-value :reset/main))) "construction settled to n=1")
+      ;; Mutate away from the constructed state.
+      (rf/dispatch-sync [:test/inc] {:frame :reset/main})
+      (rf/dispatch-sync [:test/inc] {:frame :reset/main})
+      (is (= 3 (:n (rf/app-db-value :reset/main))) "runtime moved it to n=3")
+      ;; Reset re-runs the recorded setup: seed {:n 0} then one :test/inc ⇒ n=1.
+      (frame/destroy-frame! :reset/main)
+      (rf/reg-frame :reset/main config)
+      (is (= 1 (:n (rf/app-db-value :reset/main)))
+          "destroy + re-reg-frame replayed the recorded :initial-events, back to n=1"))))
 
 (deftest reset-frame-repeated-reset-is-idempotent
-  (testing "rf2-060di5: reset-frame! is idempotent across repeated resets — reset
-            twice in a row equals one reset, and a reset → mutate → reset returns
-            to the recorded seed. reset is itself a destroy + re-register that
-            re-records its own :initial-events, so a regression that cleared or
-            double-applied the recorded setup during reset would pass the single-
-            reset test but fail HERE."
+  (testing "rf2-060di5: destroy + re-reg-frame is idempotent across repeated
+            resets — reset twice in a row equals one reset, and a reset → mutate
+            → reset returns to the recorded seed. reset is itself a destroy +
+            re-register that re-records its own :initial-events, so a regression
+            that cleared or double-applied the recorded setup during reset would
+            pass the single-reset test but fail HERE."
     (reg-test-events!)
-    (rf/reg-frame :reset/idem
-      {:initial-events [[:test/set-db {:n 0}]
-                        [:test/inc]]})
-    (is (= 1 (:n (rf/app-db-value :reset/idem))) "construction settled to n=1")
-    ;; Mutate away, then reset TWICE in a row.
-    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
-    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
-    (is (= 3 (:n (rf/app-db-value :reset/idem))) "runtime moved it to n=3")
-    (frame/reset-frame! :reset/idem)
-    (let [after-one (:n (rf/app-db-value :reset/idem))]
-      (is (= 1 after-one) "first reset replayed the recorded setup ⇒ n=1")
-      ;; A SECOND reset with no intervening mutation must land on the SAME value —
-      ;; reset re-records its own :initial-events on each re-register, so a
-      ;; double-apply / clear regression would diverge here.
-      (frame/reset-frame! :reset/idem)
-      (is (= after-one (:n (rf/app-db-value :reset/idem)))
-          "a second reset (no intervening mutation) equals the first — idempotent"))
-    ;; reset → mutate → reset returns to the recorded seed.
-    (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
-    (is (= 2 (:n (rf/app-db-value :reset/idem))) "mutated back up to n=2")
-    (frame/reset-frame! :reset/idem)
-    (is (= 1 (:n (rf/app-db-value :reset/idem)))
-        "reset → mutate → reset returns to the recorded seed (n=1) every time")))
-
-(deftest reset-frame-mid-cascade-fails-loud-without-teardown
-  (testing "rf2-y6uzx8: reset-frame! called INSIDE an event handler (mid-cascade)
-            fails loud :rf.error/frame-reset-in-handler BEFORE any teardown, so
-            the frame is left ALIVE and UNCHANGED — not destroyed-and-not-
-            recreated. Without the up-front guard the destroy would succeed and
-            the re-construction would then hit the construction-in-handler guard,
-            leaving the frame gone and signalled by an error naming the wrong
-            cause."
-    (reg-test-events!)
-    (let [caught (atom ::not-run)]
-      ;; A handler that tries to reset its own frame mid-cascade. Capture the
-      ;; error id inside the handler so we can assert it regardless of how
-      ;; dispatch-sync surfaces the throw.
-      (rf/reg-event :handler/resets-frame
-        (fn [{:keys [db]} _]
-          (reset! caught
-                  (err-id #(frame/reset-frame! :reset/in-handler)))
-          {:db db}))
-      (rf/reg-frame :reset/in-handler
-        {:initial-events [[:test/set-db {:n 0}]
-                          [:test/inc]]})
-      (is (= 1 (:n (rf/app-db-value :reset/in-handler)))
-          "construction settled to n=1")
-      ;; Move it off the constructed state so we can prove reset did NOT replay
-      ;; (it must be rejected before any teardown).
-      (rf/dispatch-sync [:test/inc] {:frame :reset/in-handler})
-      (is (= 2 (:n (rf/app-db-value :reset/in-handler))) "runtime moved it to n=2")
-      (rf/dispatch-sync [:handler/resets-frame] {:frame :reset/in-handler})
-      (is (= :rf.error/frame-reset-in-handler @caught)
-          "a reset-frame! inside a handler fails loud with the dedicated id —
-           NOT the construction-in-handler id that names the wrong cause")
-      (is (some? (frame/frame :reset/in-handler))
-          "the frame is LEFT ALIVE — the reset was rejected before destroy-frame!")
-      (is (= 2 (:n (rf/app-db-value :reset/in-handler)))
-          "app-db is UNTOUCHED (still n=2) — no partial teardown, no replay"))))
+    (let [config {:initial-events [[:test/set-db {:n 0}]
+                                   [:test/inc]]}
+          reset! (fn [] (frame/destroy-frame! :reset/idem) (rf/reg-frame :reset/idem config))]
+      (rf/reg-frame :reset/idem config)
+      (is (= 1 (:n (rf/app-db-value :reset/idem))) "construction settled to n=1")
+      ;; Mutate away, then reset TWICE in a row.
+      (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+      (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+      (is (= 3 (:n (rf/app-db-value :reset/idem))) "runtime moved it to n=3")
+      (reset!)
+      (let [after-one (:n (rf/app-db-value :reset/idem))]
+        (is (= 1 after-one) "first reset replayed the recorded setup ⇒ n=1")
+        ;; A SECOND reset with no intervening mutation must land on the SAME value —
+        ;; reset re-records its own :initial-events on each re-register, so a
+        ;; double-apply / clear regression would diverge here.
+        (reset!)
+        (is (= after-one (:n (rf/app-db-value :reset/idem)))
+            "a second reset (no intervening mutation) equals the first — idempotent"))
+      ;; reset → mutate → reset returns to the recorded seed.
+      (rf/dispatch-sync [:test/inc] {:frame :reset/idem})
+      (is (= 2 (:n (rf/app-db-value :reset/idem))) "mutated back up to n=2")
+      (reset!)
+      (is (= 1 (:n (rf/app-db-value :reset/idem)))
+          "reset → mutate → reset returns to the recorded seed (n=1) every time"))))
 
 (deftest reset-frame-image-loaded-keeps-generation-inline-resolves
   (testing "rf2-qnk02m (the test that CATCHES the bug): an IMAGE-loaded frame
             whose image carries INLINE-only registrations — present ONLY in the
             resolved generation, NEVER the global registrar — must keep its
-            resolved generation across reset-frame!, so the :initial-events replay
-            resolves the INLINE handlers. Before the fix, reset recreated the
-            frame from a :config with :generation stripped + :images consumed, so
-            the frame silently degraded to registrar resolution: the inline-only
+            resolved generation across a destroy + re-`make-frame` reset when the
+            caller re-supplies the SAME `:images`, so the :initial-events replay
+            resolves the INLINE handlers. If the caller instead recreated the
+            frame from a bare `:config` with `:images` omitted, the frame would
+            silently degrade to registrar resolution: the inline-only
             :counter/seed handler no longer resolved, dispatch-sync TRACED-and-
-            recovered (no throw), and the replay left the frame in a wrong/empty
-            state with NO loud signal."
+            recovered (no throw), and the replay would leave the frame in a
+            wrong/empty state with NO loud signal."
     ;; A GLOBAL :counter/seed the cascade would (wrongly) run if it resolved
     ;; through the global registrar after a generation-losing reset. It writes a
     ;; DISTINCT marker so a degrade is unambiguous, NOT merely an empty db.
@@ -425,8 +398,15 @@
       (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
       (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
       (is (= 3 (:n (rf/app-db-value :reset/inline))) "runtime moved it to n=3")
-      ;; THE RESET — the recreated frame MUST keep the image generation.
-      (frame/reset-frame! :reset/inline)
+      ;; THE RESET — destroy + re-`make-frame`, re-supplying the SAME `:images`
+      ;; the caller already holds (`img`), so the recreated frame keeps the
+      ;; image generation.
+      (frame/destroy-frame! :reset/inline)
+      (lf/make-frame {:id :reset/inline
+                      :images [img]
+                      :initial-events [[:counter/seed 0]
+                                       [:counter/inc]]}
+                     [])
       ;; (1) the generation survived — the recreated record still carries it.
       (is (some? (frame/frame-generation :reset/inline))
           "(1) reset preserved the resolved image generation — the recreated frame
@@ -460,14 +440,16 @@
     (rf/dispatch-sync [:test/inc] {:frame :remount/main})
     (is (= 2 (:n (rf/app-db-value :remount/main))) "runtime moved to n=2")
     ;; Re-register with a DIFFERENT :initial-events.
-    (rf/reg-frame :remount/main
-      {:initial-events [[:test/set-db {:n 999}]]})
-    (is (= 2 (:n (rf/app-db-value :remount/main)))
-        "re-registration did NOT replay the new setup — durable app-db preserved")
-    ;; The recording IS replaced: a subsequent reset replays the NEW setup.
-    (frame/reset-frame! :remount/main)
-    (is (= 999 (:n (rf/app-db-value :remount/main)))
-        "reset-frame! after re-reg replays the RE-RECORDED setup (n=999)")))
+    (let [new-config {:initial-events [[:test/set-db {:n 999}]]}]
+      (rf/reg-frame :remount/main new-config)
+      (is (= 2 (:n (rf/app-db-value :remount/main)))
+          "re-registration did NOT replay the new setup — durable app-db preserved")
+      ;; The recording IS replaced: a subsequent destroy + re-reg-frame replays
+      ;; the NEW setup.
+      (frame/destroy-frame! :remount/main)
+      (rf/reg-frame :remount/main new-config)
+      (is (= 999 (:n (rf/app-db-value :remount/main)))
+          "destroy + re-reg-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
 
 ;; ===========================================================================
 ;; 7. Teardown — STRICT construction: ANY setup-step failure destroys the partial

@@ -16,7 +16,7 @@ The concrete API for testing, satisfying [Goal 11 (Deterministic, testable runti
 
 | Namespace | Role | Surfaces |
 |---|---|---|
-| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `reset-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `subscribe-once`, `sub-topology`, `compute-sub`, `machine-transition` |
+| `re-frame.core` | Production primitives, also the testing entry points | `make-frame`, `destroy-frame!`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `subscribe-once`, `sub-topology`, `compute-sub`, `machine-transition` |
 | `re-frame.test-support` | Test-only fixture machinery + test-flavoured helpers (runtime-state axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `snapshot-registrar`, `restore-registrar!`, `with-fresh-registrar`, `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals`, `assert-db-equals`, `poll-until` |
 | `re-frame.test-helpers` | View-assertion helpers (hiccup-walk + `testid` authoring) + single-frame e2e fixture (view-tree axis — see [§Audience-split](#audience-split--re-frametest-support-vs-re-frametest-helpers)) | `expand-tree`, `find-by-attr` / `find-all-by-attr` / `find-by-attr-prefix`, `find-by-testid` / `find-all-by-testid` / `find-by-testid-prefix`, `attrs`, `children`, `text-content`, `extract-handler`, `invoke-handler`, `testid`, `with-app-fixture`, `expect-text`, `wait-until` |
 
@@ -93,7 +93,7 @@ Both macros are part of the normative test surface; tests, fixtures, and helper 
 
 Every entry in the table above is JVM-runnable, with the exceptions listed below — this is the single authoritative statement of the test-surface's JVM/CLJS split, per [C2](000-Vision.md#c2-cross-platform-jvm-interop-preserved):
 
-- ✓ `make-frame` / `destroy-frame!` / `reset-frame!` / `with-frame` / `with-new-frame`
+- ✓ `make-frame` / `destroy-frame!` / `with-frame` / `with-new-frame`
 - ✓ `dispatch-sync` and the entire dispatch pipeline (router, drain, interceptors)
 - ✓ All `reg-event-*` handler invocation
 - ✓ Override application (`:fx-overrides`, `:interceptor-overrides`, `:interceptors`)
@@ -147,20 +147,23 @@ For tests that don't need explicit teardown logic, `with-new-frame` handles the 
 For test groups that share setup, register a named test frame once and reset between tests:
 
 ```clojure
+(def test-fixture-config {:initial-events [[:auth/init-idle]]})
+
 (use-fixtures :each
   (fn [test-fn]
-    (rf/reg-frame :test-fixture {:initial-events [[:auth/init-idle]]})   ;; create once
+    (rf/reg-frame :test-fixture test-fixture-config)   ;; create once
     (try
       (test-fn)
       (finally
-        (rf/reset-frame! :test-fixture)))))                          ;; reset between tests
+        (rf/destroy-frame! :test-fixture)               ;; reset between tests — destroy +
+        (rf/reg-frame :test-fixture test-fixture-config)))))  ;; re-reg-frame, no dedicated verb (rf2-lxwpob)
 
 (deftest one-thing
   (rf/dispatch-sync [:auth/login-pressed] {:frame :test-fixture})
   (is (= :validating (get-in (rf/app-db-value :test-fixture) [:auth :state]))))
 ```
 
-`reset-frame!` (per [002 §reset-frame!](002-Frames.md#reset-frame--full-replace-opt-in)) resets the frame and re-dispatches the recorded `:initial-events`. State is fresh between tests; the registration cost is paid once.
+The `destroy-frame!` + re-`reg-frame` composition (per [002 §Resetting a frame](002-Frames.md#resetting-a-frame--destroy--reg-frame)) resets the frame and re-dispatches the recorded `:initial-events`. State is fresh between tests; the registration cost is paid once.
 
 ### Pattern 4 — pure machine simulation (no frame)
 
@@ -976,7 +979,7 @@ The canonical helper inventory is the union of three namespaces:
 
 | Helper | Namespace | Purpose |
 |---|---|---|
-| `with-frame`, `make-frame`, `destroy-frame!`, `reset-frame!`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `subscribe-once`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). `subscribe-once` is the **canonical read-then-discard primitive** — `(rf/subscribe-once [:query])` returns the current sub value and synchronously disposes its ref-count contribution (per [006 §`subscribe-once`](006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)). Use it from JVM SSR pre-hydration assertions and CLJS post-hydration assertions alike: same call shape, same semantics, no live ratom returned. Pairs with `compute-sub` (pure / cache-bypassing JVM unit-test form) — pick `subscribe-once` when you want what the running frame would see right now (cache-aware), `compute-sub` when you want to assert sub-body correctness against an explicit `app-db` snapshot. |
+| `with-frame`, `make-frame`, `destroy-frame!`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `snapshot-of`, `subscribe-once`, `compute-sub`, `sub-topology`, `machine-transition` | `re-frame.core` | Production primitives, also the testing entry points. Same defs the rest of the framework uses; tests reach them through `re-frame.core` (no re-export shim). `subscribe-once` is the **canonical read-then-discard primitive** — `(rf/subscribe-once [:query])` returns the current sub value and synchronously disposes its ref-count contribution (per [006 §`subscribe-once`](006-ReactiveSubstrate.md#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value)). Use it from JVM SSR pre-hydration assertions and CLJS post-hydration assertions alike: same call shape, same semantics, no live ratom returned. Pairs with `compute-sub` (pure / cache-bypassing JVM unit-test form) — pick `subscribe-once` when you want what the running frame would see right now (cache-aware), `compute-sub` when you want to assert sub-body correctness against an explicit `app-db` snapshot. |
 | `dispatch-sequence` | `re-frame.test-support` | `(dispatch-sequence events)` / `(dispatch-sequence events opts)` — fires each event via `dispatch-sync` in order against the resolved frame. Returns the final `app-db` value. Optional `:after-each (fn [db ev] ...)` runs after each event's drain settles, useful for capturing intermediate state. Optional `:frame` defaults to `(current-frame-id)` (typically `:rf/default`). Equivalent to a `doseq` of `dispatch-sync` calls; reads better in tests. |
 | `assert-path-equals` / `assert-db-equals` | `re-frame.test-support` | `(assert-path-equals path expected-val)` for a path check, `(assert-db-equals expected-db)` for a full-db check. Both shapes accept a trailing `{:frame ...}` opt. Mismatch fires a `clojure.test/is`-style failure (delivered via `do-report`). **The `assert-*-equals` fn-family shares a name root with the `:rf.assert/*` event-vector family** (`:rf.assert/path-equals`, `:rf.assert/sub-equals`, …) used inside a Story `:script` block — that surface lives in Spec 007 §Play functions (`:rf.assert/*` is registered, enumerable, and reserved under `:rf.assert/*` per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The fn-side is the in-process `clojure.test` sync surface (reports via `do-report`); the event-side is dispatches handled by the story library's test runner (rendered as a checked-step list in dev/docs, fail loudly in test mode, simulation breakpoints in agent mode). Same intent (db-shape assertion), shared `path-equals` root so a reader navigating between the two surfaces does not need a translation table — see [007 §Play functions](007-Stories.md#play-functions). |
 | `poll-until` | `re-frame.test-support` | `(poll-until pred)` / `(poll-until pred opts)` — bounded-deadline poll for `(pred)` to be truthy. JVM returns the truthy value synchronously (throws `ex-info` carrying `:rf.error/id` `:rf.error/poll-until-timeout`, the canonical discriminator per [Spec 009](009-Instrumentation.md), on timeout); CLJS returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (string/keyword for the timeout message). Replaces incidental fixed `Thread/sleep N` / `js/setTimeout` whose intent is "wait for an observable state change" — NOT for timer-semantics tests (grace-period elapse, throttle/debounce window, "prove a thing did NOT happen within window N"); those should keep their sleep and annotate that intent locally. |

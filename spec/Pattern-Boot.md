@@ -431,7 +431,7 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 In dev, hot-reload re-evaluates `reg-event` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
-This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `reset-frame!` (which re-dispatches the recorded `:initial-events`) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
+This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `destroy-frame!` + re-`reg-frame` with the same config (which re-dispatches the recorded `:initial-events` — no dedicated reset verb, rf2-lxwpob) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
 
 ### Re-boot semantics
 

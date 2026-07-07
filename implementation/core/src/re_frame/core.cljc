@@ -103,21 +103,25 @@
             ;; code.
             [re-frame.image :as image]
             ;; EP-0023 collapse slice 2 (rf2-32siq3.32): the runnable-object
-            ;; live-frame ns. Required for its PUBLIC hot-reload export
-            ;; `reload-images!` (re-exported below as `rf/reload-images!`) — the
-            ;; frame-targeted, composition-replacing image reload that preserves
-            ;; frame memory (EP-0023 §Hot Reload / §Public API). The ns is
-            ;; ALREADY in the core spine transitively (router / subs / frame /
+            ;; live-frame ns. Required for the ONE public frame constructor
+            ;; `make-frame` (re-exported below as `rf/make-frame`) plus its
+            ;; generation reads `frame-generation` / `frame-shadows` /
+            ;; `generation-diff` (EP-0023 §Hot Reload / §Public API — rf2-lxwpob
+            ;; folded the dedicated `reload-images!` verb into re-`make-frame`-ing
+            ;; an `:id`-bearing frame with a new `:images` vector; a caller that
+            ;; wants the reload DIFF reads `frame-generation` before/after and
+            ;; diffs with `generation-diff`, a pure read, not a bespoke verb). The
+            ;; ns is ALREADY in the core spine transitively (router / subs / frame /
             ;; registrar require it for the `{:frame object}` resolution seam), so
             ;; this adds no new load edge; it pulls only `re-frame.image-assembly`
             ;; + `re-frame.registrar` + `re-frame.frame` + `re-frame.late-bind` +
             ;; `re-frame.error` (the core spine), so it is bundle-isolation
-            ;; neutral. An app that never hot-reloads leaves `rf/reload-images!`
-            ;; (and the live-frame reload fns) as Closure-DCE dead code — the
-            ;; elision probe deliberately does NOT root the image-loading path
-            ;; (see elision_probe.cljs). EP-0023 collapse FINALE (rf2-32siq3.48):
-            ;; the OBJECT-returning `live-frame/make-frame` IS now the backing of
-            ;; the facade `rf/make-frame` (repointed off the EP-0013 RECORD
+            ;; neutral. An app that never hot-reloads leaves the live-frame
+            ;; reload fns as Closure-DCE dead code — the elision probe
+            ;; deliberately does NOT root the image-loading path (see
+            ;; elision_probe.cljs). EP-0023 collapse FINALE (rf2-32siq3.48): the
+            ;; OBJECT-returning `live-frame/make-frame` IS now the backing of the
+            ;; facade `rf/make-frame` (repointed off the EP-0013 RECORD
             ;; constructor once every record caller was migrated).
             [re-frame.live-frame :as live-frame]
             [re-frame.substrate.adapter :as adapter]
@@ -210,8 +214,13 @@
   §Registration."}
        reg-interceptor  icpt-reg/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-frame` macro for HoF / programmatic
-  registration (no source-coord capture). Atomically create + register
-  a frame under `id` with the given metadata. See
+  registration (no source-coord capture). `reg-frame` is the macro spelling of
+  `make-frame` (rf2-lxwpob, Option B: documented sugar, ONE semantics —
+  `(reg-frame id metadata)` ≡ `(make-frame (assoc metadata :id id))`,
+  differing only in source-coord capture). Atomically create + register a
+  frame under `id` with the given metadata — an unregistered id creates; an
+  already-registered id is IDEMPOTENT REPLACEMENT (EP-0024 §Duplicate id
+  policy), not a sibling constructor with its own duplicate-id story. See
   `re-frame.frame/reg-frame` and spec/API.md §Registration."}
        reg-frame       frame/reg-frame)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
@@ -369,7 +378,11 @@
        {:arglists '([id descriptor] [id metadata descriptor])})
 
      (rm/defreg-macro reg-frame frame/reg-frame
-       "Register a frame. Captures source-coords (Spec 001) at this
+       "Register a frame — the macro spelling of `make-frame` (rf2-lxwpob,
+       Option B: documented sugar, ONE semantics — `(reg-frame id metadata)`
+       ≡ `(make-frame (assoc metadata :id id))`, differing only in
+       source-coord capture; NOT a sibling constructor with its own
+       duplicate-id story). Captures source-coords (Spec 001) at this
        call site. See `re-frame.frame/reg-frame` for the full
        signature."
        {:arglists '([id metadata])})
@@ -743,9 +756,15 @@
                    under this id; re-`make-frame`-ing the same id is IDEMPOTENT
                    REPLACEMENT (config + generation refresh, durable state
                    preserved — hot-reload / Story-friendly, EP-0024 §Duplicate id
-                   policy). When ABSENT, the frame is LOCAL-ONLY — keep the
-                   returned value and pass it (or its id) to dispatch / subscribe
-                   / test helpers.
+                   policy). This IS re-construction — the Clojure re-def model
+                   (there is no `redef!` / `reset-def!` / `reload-def!`): image
+                   hot-reload is re-`make-frame`-ing the SAME `:id` with a NEW
+                   `:images` vector (rf2-lxwpob folded the dedicated
+                   `reload-images!` verb into this — diff the swap by reading
+                   `frame-generation` before/after and comparing with
+                   `generation-diff`). When ABSENT, the frame is LOCAL-ONLY —
+                   keep the returned value and pass it (or its id) to
+                   dispatch / subscribe / test helpers.
     :adapter       the active-substrate adapter binding/configuration (optional).
 
   (EP-0026, rf2-dlvmpc: the `:capabilities` key is RETIRED — image-declared host
@@ -774,27 +793,38 @@
   ([opts]             (live-frame/make-frame opts))
   ([opts descriptors] (live-frame/make-frame opts descriptors)))
 
-(def ^{:doc "Hot-reload ONE frame's whole image composition, PRESERVING FRAME
-  MEMORY (EP-0023 §Hot Reload / §Public API). `target` is EITHER a frame id
-  (looked up in the process-local live-frame registry) OR a direct live frame
-  OBJECT (`re-frame.live-frame/make-frame`'s return value); `opts` takes the same
-  `:images` VECTOR shape as the object constructor. Reload is composition-
-  REPLACING (it replaces the whole `:images` vector, not one member) and frame-
-  targeted: it re-assembles `:images` into a fresh sealed generation and SWAPS
-  only `:rf.frame/generation` onto the frame — app-db, runtime-db, caches,
-  lifecycle, and every other frame slot continue unchanged (\"hot reload must not
-  be implemented by tearing down and recreating the frame\"). It does NOT move
-  sibling frames that previously shared the generation. Returns the reload REPORT
-  `{:rf.frame/frame <reloaded object> :rf.reload/diff {:added … :changed …
-  :removed … :retained …}}`. For an `:id`-bearing frame the registry slot is
-  updated in place. A NEW export (non-breaking); the EP-0023 hot-reload public
-  path. See `re-frame.live-frame/reload-images!`."}
+;; ---- reload-images! / reset-frame! — RETIRED (rf2-lxwpob) ------------------
+;;
+;; API-shrink #5 (frame-lifecycle collapse, rf2-lxwpob): the lifecycle
+;; vocabulary is `make-frame` + `destroy-frame!` (+ `frame-provider` /
+;; `with-new-frame` sugar), not five verbs across three return types.
+;;   * `reload-images!` is FOLDED into re-construction — re-call `make-frame`
+;;     against the SAME `:id` with a NEW `:images` vector; it swaps the
+;;     generation while preserving frame memory. Diff the swap by reading
+;;     `frame-generation` before/after and comparing with `generation-diff`
+;;     (§Public registrar query API, below).
+;;   * `reset-frame!` is DELETED — a full replace is reproducible by
+;;     composition: `(destroy-frame! id) (reg-frame id config)`, re-supplying
+;;     the SAME config (and `:images`, for an image-loaded frame) the caller
+;;     already holds.
+;; Both names survive ONLY as `^:no-doc` throwing stubs (the retired-API
+;; pattern — like the EP-0018 `reg-event-db` / EP-0022 `rf/path` stubs): a
+;; stale call site resolves to a real var and fails LOUDLY, naming the
+;; replacement. `^:no-doc` drops them from the API manifest generator + the
+;; CLJS publics probe. See `re-frame.live-frame/reload-images!` and
+;; `re-frame.frame/reset-frame!`.
+(def ^{:no-doc true
+       :doc "REMOVED in rf2-lxwpob (no alias). Calling `reload-images!` raises
+  `:rf.error/reload-images-removed`, naming re-`make-frame`-ing the SAME `:id`
+  with a new `:images` vector as the replacement. See
+  `re-frame.live-frame/reload-images!` and spec/002-Frames.md."}
   reload-images! live-frame/reload-images!)
 
-(def ^{:doc "Atomic `destroy-frame!` + `reg-frame` with the same config —
-  full replace (opt-in). Per Spec 002 §reset-frame!. Use sparingly:
-  destroy is the normative teardown boundary, so per-feature artefacts
-  hang their cleanup off this call."}
+(def ^{:no-doc true
+       :doc "REMOVED in rf2-lxwpob (no alias). Calling `reset-frame!` raises
+  `:rf.error/reset-frame-removed`, naming `(destroy-frame! id) (reg-frame id
+  config)` as the replacement. See `re-frame.frame/reset-frame!` and
+  spec/002-Frames.md §Resetting a frame — destroy + reg-frame."}
   reset-frame!   frame/reset-frame!)
 
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Runs
@@ -1690,16 +1720,16 @@
 ;; to a live frame carrying a generation throws `:rf.error/frame-no-generation`
 ;; (NO fallback to the default registrar — the read needs a live EP-0023 frame).
 ;; `:frame` accepts a REGISTERED FRAME ID (keyword, looked up in the
-;; process-local live-frame registry — the same path `reload-images!` uses) OR a
-;; direct live frame OBJECT (`make-frame`'s return value).
+;; process-local live-frame registry — the same path `frame-generation` uses)
+;; OR a direct live frame OBJECT (`make-frame`'s return value).
 
 (defn- resolve-live-frame-object
   "Resolve a `:frame` target to the LIVE frame OBJECT it names — verifying the
   object carries a sealed image generation — or FAIL LOUD
   (`:rf.error/frame-no-generation`). `frame-target` is a REGISTERED frame id
-  (keyword, looked up in the process-local live-frame registry — the same path
-  `rf/reload-images!` uses) OR a direct live frame OBJECT — the same target
-  shapes `rf/reload-images!` accepts. NO fallback to the default/realm registrar:
+  (keyword, looked up in the process-local live-frame registry) OR a direct
+  live frame OBJECT — the same target shapes `rf/frame-generation` accepts.
+  NO fallback to the default/realm registrar:
   a frame-targeted read needs a live EP-0023 frame that carries a generation, so
   an id that names no live frame, a non-frame value, or a frame object with no
   `:rf.frame/generation` slot is an error naming the bad target. Returns the
@@ -1768,7 +1798,7 @@
 
   `frame-target` is a REGISTERED frame id (keyword, looked up in the process-
   local live-frame registry) OR a direct live frame OBJECT (`rf/make-frame`'s
-  return value) — the same target shapes `rf/reload-images!` accepts.
+  return value).
 
   Returns the generation map with the documented stable public keys (EP-0023
   §Specification Summary; `re-frame.image-assembly`):
@@ -1803,8 +1833,7 @@
 
   `frame-target` is a REGISTERED frame id (keyword, looked up in the process-local
   live-frame registry) OR a direct live frame VALUE (`rf/make-frame`'s return
-  value) — the same target shapes `rf/frame-generation` / `rf/reload-images!`
-  accept.
+  value) — the same target shape `rf/frame-generation` accepts.
 
   Returns a FLAT vector, one entry per cross-image shadow — three keys, nothing
   else (no winner descriptor, image index, tier, source namespace, or scope tag):
@@ -1845,6 +1874,31 @@
       (live-frame/frame-resolution-generation)
       (:rf.gen/shadows)))
 
+(def ^{:doc "Compute the DIFF between two sealed image generations as four
+  `[kind id]` sets (EP-0023 §Hot Reload — \"A good reload result should be a
+  concrete diff\"). PURE — a function of the two generation VALUES, not a
+  frame target: read `rf/frame-generation` before and after a re-`make-frame`
+  call and diff the two (rf2-lxwpob folded the dedicated `reload-images!`
+  verb's report into this — a read, not a bespoke verb):
+
+    (let [before (rf/frame-generation :my/frame)
+          _      (rf/make-frame {:id :my/frame :images new-images})
+          after  (rf/frame-generation :my/frame)]
+      (rf/generation-diff before after))
+      ;; => {:added #{[kind id] …} :changed #{…} :removed #{…} :retained #{…}}
+
+    :added    keys present in `after` but not `before`
+    :removed  keys present in `before` but not `after`
+    :changed  keys present in BOTH whose resolved descriptor is not `=`
+    :retained keys present in BOTH whose resolved descriptor IS `=`
+
+  \"changed\" is by descriptor value equality, so an unchanged registration
+  selected by a different image composition is `:retained`, not `:changed` —
+  that lets a caller invalidate only what actually changed. See
+  `re-frame.live-frame/generation-diff` and spec/002-Frames.md §Image
+  resolution and composition."}
+  generation-diff live-frame/generation-diff)
+
 (defn registrations
   "Return all ids registered under `kind` with their metadata — the
   introspection workhorse used by tools, agents, and storybook resolution.
@@ -1865,7 +1919,7 @@
                                      the resolved descriptors carry. `:frame` is
                                      a REGISTERED frame id (keyword) OR a direct
                                      live frame OBJECT (the same target shapes
-                                     `rf/reload-images!` accepts). An optional
+                                     `rf/frame-generation` accepts). An optional
                                      `:pred` filters by metadata as above. FAILS
                                      LOUD when `:frame` does not resolve to a live
                                      frame generation (`:rf.error/frame-no-
@@ -1916,7 +1970,7 @@
       replacement/standard facts the resolved descriptor carries), or `nil` when
       that frame's image carries no such `[k id]`. `:frame` is a REGISTERED frame
       id (keyword) OR a direct live frame OBJECT (the same target shapes
-      `rf/reload-images!` accepts). The frame form is for the REGISTRAR kinds
+      `rf/frame-generation` accepts). The frame form is for the REGISTRAR kinds
       (the machine kinds are not registrar kinds and are not in the generation
       resolver — a machine kind through the frame form is `nil`). FAILS LOUD when
       `:frame` does not resolve to a live frame generation
@@ -1969,7 +2023,7 @@
       the id set under `:kind` resolved through live frame `:frame`'s OWN sealed
       image generation — only the ids that frame's image carries. `:frame` is a
       REGISTERED frame id (keyword) OR a direct live frame OBJECT (the same
-      target shapes `rf/reload-images!` accepts). FAILS LOUD when `:frame` does
+      target shape `rf/frame-generation` accepts). FAILS LOUD when `:frame` does
       not resolve to a live frame generation (`:rf.error/frame-no-generation` —
       NO default fallback).
 
@@ -2082,8 +2136,8 @@
 ;; `:include-ns` provenance glob, so there is no separate module/app composition
 ;; noun. The public model targets a FRAME (a process-local frame id, or a direct
 ;; frame object for tests) whose image generation determines registration
-;; resolution; the public hot-reload path is `reload-images!` against a frame
-;; target.
+;; resolution; the public hot-reload path is re-`make-frame`-ing an `:id`-bearing
+;; frame target with a new `:images` vector (rf2-lxwpob).
 
 ;; ---- interceptors --------------------------------------------------------
 
@@ -2553,7 +2607,8 @@
 ;;   (rf2-tfepxu, bead 9). Same synthetic-epoch recording, gating, and
 ;;   failure modes; a db-shaped name never silently replaces runtime-db.
 ;; - `reset-app-db!` resets the app-db partition to `{}` while preserving
-;;   live runtime-db — the app-db sibling of the whole-frame `reset-frame!`.
+;;   live runtime-db — the app-db-only sibling of a full frame reset
+;;   (`destroy-frame!` + `reg-frame`, rf2-lxwpob), narrower in scope.
 ;; - `replace-runtime-db!` / `replace-frame-state!` are epoch-backed
 ;;   Tool-Pair injection writes (rf2-szbzei): each records a synthetic
 ;;   `:rf/epoch-record` so `restore-epoch!` can rewind past the injection,
@@ -2583,14 +2638,15 @@
 
 (def ^{:doc "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the
   dispatch loop, while preserving live runtime-db (machines / routes /
-  elision / SSR survive). The app-db-only sibling of the whole-frame
-  `reset-frame!` (EP-0001 rf2-tfepxu, Mike ruling #10). Equivalent to
-  `(replace-app-db! frame-id {})` — same synthetic-epoch recording, gating,
-  and failure modes. Returns `true` on success, `false` on a documented
-  failure. Dev-only (gated on `interop/debug-enabled?`). Raises
-  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent. Per
-  Spec 002 §reset-frame! and API.md `reset-app-db!`. Late-bound via
-  `:epoch/reset-app-db!`."}
+  elision / SSR survive). The app-db-only sibling of a full frame reset
+  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope: it never
+  touches runtime-db or the frame's registration/lifecycle (EP-0001 rf2-tfepxu,
+  Mike ruling #10). Equivalent to `(replace-app-db! frame-id {})` — same
+  synthetic-epoch recording, gating, and failure modes. Returns `true` on
+  success, `false` on a documented failure. Dev-only (gated on
+  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing` when the
+  epoch artefact is absent. Per Spec 002 §Frame-state value accessors and
+  mutators and API.md `reset-app-db!`. Late-bound via `:epoch/reset-app-db!`."}
   reset-app-db!    rf-epoch/reset-app-db!)
 
 (def ^{:doc "Replace ONLY `frame-id`'s `runtime-db` partition with

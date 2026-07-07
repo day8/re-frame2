@@ -638,20 +638,20 @@ A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Mos
      [counter-view label]])
   ```
 
-### `reset-frame!`
+### Resetting a frame — destroy + reg-frame
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reset-frame! frame-id)
-  ```
-- **Description**: Atomic `destroy-frame!` + `reg-frame` with the **same config** — a full frame replace (opt-in). It tears the frame down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources) and re-registers it fresh, so machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the registered config. Use sparingly. To wipe just the `app-db` partition while keeping live runtime-db, reach for `reset-app-db!` instead. There is **no** `:initial-db` config key — seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]`.
-- **Example**:
-  ```clojure
-  ;; Full frame replace (destroy + re-reg with the SAME config).
-  ;; Must run OUTSIDE any handler run — e.g. a restart button's :on-click.
-  (rf/reset-frame! :app/main)
-  ```
+There is no dedicated "reset" function (`reset-frame!` was retired in rf2-lxwpob — a full replace is reproducible by composing the two lifecycle primitives, not a third verb). To fully replace a frame — tearing it down through the normative `destroy-frame!` boundary (running `:on-destroy`, releasing per-feature resources) and re-registering it fresh, so machine snapshots, the route slice, flows, and `app-db` are all rebuilt from the registered config — compose:
+
+```clojure
+;; Full frame replace (destroy + re-reg with the SAME config).
+;; Must run OUTSIDE any handler run — e.g. a restart button's :on-click.
+(rf/destroy-frame! :app/main)
+(rf/reg-frame :app/main config)   ;; re-supply the SAME config you built the frame with
+```
+
+For an image-loaded frame, re-supply the SAME `:images` vector too (via `make-frame`, not bare `reg-frame`), or the recreated frame degrades to the default image generation. To wipe just the `app-db` partition while keeping live runtime-db, reach for `reset-app-db!` instead. There is **no** `:initial-db` config key — seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]`.
+
+**Unlike the retired `reset-frame!`, this composition is not atomic across a handler-cascade boundary** — `destroy-frame!` has no handler-scope guard, so calling it from inside a handler destroys the frame before the following `reg-frame` hits its own construction-in-handler guard and throws, leaving the frame destroyed-and-not-reconstructed. Frame construction/destruction are already top-level/view-only operations, so this only bites a call site that was already violating that rule.
 
 ### `destroy-frame!`
 
@@ -715,14 +715,32 @@ A frame is the scoping unit for `app-db`, the event queue, and the pipeline. Mos
   ```
 - **Description**: Construct an **image** value — a selected registration-set value, as inert data (EP-0023 / EP-0026). `spec` carries exactly three public keys: `:id` (optional), `:select-ns` (an `{:include [globs] :exclude [globs]}` selection map over registered descriptors' provenance namespaces), and `:registrations` (inline registrar-keyed sections). Pure — no registrar, no side effect. The result is the assembled registration set a frame resolves against (passed to `make-frame` / `frame-provider` under `:images`).
 
-### `reload-images!`
+### Image hot-reload — re-`make-frame`
+
+There is no dedicated "reload" function (`reload-images!` was folded into re-construction in rf2-lxwpob). Re-calling `make-frame` against the SAME `:id` with a NEW `:images` vector re-seals the frame's `(kind, id)` resolver after handler/sub/view source changes, preserving frame memory — `reg-frame`'s surgical-update path swaps only the generation; app-db, runtime-db, caches, and lifecycle continue unchanged:
+
+```clojure
+(rf/make-frame {:id :my/frame :images [new-image]})
+```
+
+Composition-replacing — it replaces the whole `:images` vector, not one member; a non-vector raises `:rf.error/make-frame-bad-images`. Frame-targeted (the swap affects only the named frame's generation, not siblings sharing an image). To read the diff the old `reload-images!` report carried, call `frame-generation` before and after the call and diff the two values with `generation-diff`:
+
+```clojure
+(let [before (rf/frame-generation :my/frame)
+      _      (rf/make-frame {:id :my/frame :images [new-image]})
+      after  (rf/frame-generation :my/frame)]
+  (rf/generation-diff before after))
+  ;; => {:added #{[kind id] …} :changed #{…} :removed #{…} :retained #{…}}
+```
+
+### `generation-diff`
 
 - **Kind**: function (EP-0023)
 - **Signature**:
   ```clojure
-  (reload-images! target opts) → reload report
+  (generation-diff before after) → diff map
   ```
-- **Description**: Hot-reload one frame's whole image composition, preserving frame memory — the seam that re-seals a frame's `(kind, id)` resolver after handler/sub/view source changes. `target` is a frame id **or** a frame value (`make-frame`'s return token); `opts` carries `:images`, a **vector** of image values forming the frame's new, complete composition (composition-replacing — it replaces the whole `:images` vector, not one member; a non-vector raises `:rf.error/make-frame-bad-images`). Only the frame's generation is swapped — app-db, runtime-db, caches, and lifecycle continue unchanged. Frame-targeted (reload affects only the named frame's generation, not siblings sharing an image). Returns the reload report `{:rf.frame/frame <frame value> :rf.reload/diff {:added … :changed … :removed … :retained …} :rf.reload/shadows [<shadow entry> …]}`.
+- **Description**: A PURE diff between two sealed image generations — `{:added #{[kind id] …} :changed #{…} :removed #{…} :retained #{…}}`. Replaces the report the retired `reload-images!` verb used to return; read `frame-generation` before/after a re-`make-frame` reload and diff the two.
 
 ### `frame-bound-fn`
 
@@ -1173,7 +1191,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (reset-app-db! frame-id) → boolean
   ```
-- **Description**: Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch loop, while preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of the whole-frame `reset-frame!`. Equivalent to `(replace-app-db! frame-id {})` — same synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on a documented failure. Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
+- **Description**: Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch loop, while preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of a full frame reset (`destroy-frame!` + `reg-frame`) — narrower in scope. Equivalent to `(replace-app-db! frame-id {})` — same synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on a documented failure. Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
 
 ### `replace-runtime-db!`
 

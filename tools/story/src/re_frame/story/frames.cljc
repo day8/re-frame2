@@ -5,7 +5,12 @@
   Each rendered variant is its own re-frame frame (spec/002), allocated
   fresh on `run-variant` and torn down by the caller via
   `destroy-variant!`. Story does NOT introduce a new frame substrate —
-  it consumes `re-frame.core/reg-frame` / `destroy-frame!` / `reset-frame!`.
+  it consumes `re-frame.core/make-frame` / `destroy-frame!`. (The framework's
+  own `reset-frame!` was retired in rf2-lxwpob — a full replace is now
+  `destroy-frame!` + `reg-frame`/`make-frame` composed by the caller; this
+  ns's OWN `reset-frame!` below, defined the same way, predates and already
+  matches that shape — it is a Story-local convenience wrapper, not a call
+  onto the removed framework verb.)
 
   ## Frame config
 
@@ -1004,9 +1009,11 @@
 ;; ---- destroy + re-allocate -----------------------------------------------
 
 (defn reset-frame!
-  "Destroy the variant frame and re-allocate it. Mirrors the framework's
-  `re-frame.core/reset-frame!` naming (aligning Story's
-  frame helpers with the framework `*-frame!` convention). The caller
+  "Destroy the variant frame and re-allocate it. Named for the framework's
+  `*-frame!` convention (Story-local — the framework's own `re-frame.core/
+  reset-frame!` was retired in rf2-lxwpob; this predates and already matches
+  its replacement shape, `destroy-frame!` + re-`reg-frame`/`make-frame`
+  composed by the caller, so no change was needed here). The caller
   is responsible for re-running the four-phase lifecycle (loaders →
   events → render → play) after.
 
