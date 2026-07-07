@@ -523,15 +523,11 @@
   ["re-frame.core" "mutation-meta"]       {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutation-state"]      {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ;; Named reactive-read sugar over the canonical `[:rf.mutation/state …]` /
-  ;; `[:rf.resource/state …]` subscription vectors. Unlike the wrappers above
-  ;; these live ONLY on the `re-frame.resources` façade (NOT re-frame.core),
-  ;; the resources peer of routing's `sub-route`, so a non-resources app's
-  ;; production bundle carries no resource/mutation keyword strings. The home
-  ;; ns is not whole-namespace introspected, so the generator names them via
-  ;; `extra-vars`; advanced tier like `sub-route` + the resources read surfaces.
-  ["re-frame.resources" "sub-mutation"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
-  ["re-frame.resources" "sub-resource"]   {:tier :advanced :owner "016" :status "v1 (optional capability)"}
+  ;; The `sub-mutation` / `sub-resource` reactive-read sugar fns were REMOVED
+  ;; (rf2-il99l3, reversing rf2-2cmcas): a resource / mutation state read is
+  ;; the `[:rf.resource/state <query>]` / `[:rf.mutation/state {:instance …}]`
+  ;; subscription VECTOR — one read grammar. (Also dropped from the generator's
+  ;; `extra-vars`.)
   ;; Named resource-scope resolvers — the third resources kind (rf2-hls77w,
   ;; Spec 016 §Named resource-scope resolvers / EP-0016 D3 slice 2). The
   ;; inverse of slice-1's spec-ahead reservation: these now ship as live
@@ -763,13 +759,10 @@
   ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
   ;; (`machines`, `machine-meta`, `machine-by-system-id`, `machine-transition`,
   ;; `make-machine-handler`) are no longer façade exports — reach them through
-  ;; `re-frame.machines` (already classified below). `machine-has-tag?` (a
-  ;; subscription sugar with no owned-ns peer) stays on the façade.
-  ["re-frame.core" "machine-has-tag?"]     {:tier :advanced :owner "005" :status "v1"}
-  ;; Named machine-snapshot read sugar over the canonical `[:rf/machine id]`
-  ;; subscription vector — a plain fn over `subscribe`, mirroring
-  ;; `machine-has-tag?` (owner 005, advanced). Re-exported from the façade.
-  ["re-frame.core" "sub-machine"]          {:tier :advanced :owner "005" :status "v1"}
+  ;; `re-frame.machines` (already classified below). The `machine-has-tag?` /
+  ;; `sub-machine` subscription-sugar fns were REMOVED (rf2-il99l3, reversing
+  ;; rf2-2cmcas): a machine read is the `[:rf/machine-has-tag? id tag]` /
+  ;; `[:rf/machine id]` subscription VECTOR — one read grammar.
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
@@ -1069,17 +1062,10 @@
   ;; frame-config / read surfaces.
   ["re-frame.routing" "history-url-strategy"]   {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "hash-url-strategy"]      {:tier :advanced :owner "012" :status "v1"}
-  ;; Named route-slice read sugar over the canonical `[:rf/route]`
-  ;; subscription vector. Routing-façade home (NOT re-frame.core) so a
-  ;; non-routing app carries no route keyword strings in its production
-  ;; bundle — the routing bundle-isolation invariant. Advanced tier like its
-  ;; sibling read surfaces (`match-url` / `route-url`).
-  ["re-frame.routing" "sub-route"]              {:tier :advanced :owner "012" :status "v1"}
-  ;; Named pending-navigation read sugar over the canonical
-  ;; `[:rf/pending-navigation]` subscription vector — the pending-nav peer of
-  ;; `sub-route`. Routing-façade home (NOT re-frame.core) for the same
-  ;; bundle-isolation reason; advanced tier like its sibling read surfaces.
-  ["re-frame.routing" "sub-pending-navigation"] {:tier :advanced :owner "012" :status "v1"}
+  ;; The `sub-route` / `sub-pending-navigation` reactive-read sugar fns were
+  ;; REMOVED (rf2-il99l3, reversing rf2-2cmcas): the route and pending-nav
+  ;; reads are the `[:rf/route]` / `[:rf/pending-navigation]` subscription
+  ;; VECTORS — one read grammar.
   ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}

@@ -38,14 +38,14 @@ The blocked navigation lands in `:rf/pending-navigation`. Subscribe to it: when 
 
 ```clojure
 (rf/reg-view leave-guard-dialog []
-  (when-let [pending @(routing/sub-pending-navigation)]
+  (when-let [pending @(rf/subscribe [:rf/pending-navigation])]
     [:div.modal
      [:p "You have unsaved changes. Leave anyway?"]
      [:button {:on-click #(dispatch [:rf.route/cancel])}   "Stay"]
      [:button {:on-click #(dispatch [:rf.route/continue])} "Discard & leave"]]))
 ```
 
-(`routing/sub-pending-navigation` is read sugar from the routing namespace — add `[re-frame.routing :as routing]` to your ns. The vector form `@(subscribe [:rf/pending-navigation])` reads the same slot.)
+(`@(subscribe [:rf/pending-navigation])` reads the pending-nav slot — an ordinary framework subscription, no extra require needed.)
 
 The reader's choice is itself a dispatch:
 
@@ -81,12 +81,12 @@ Because the whole flow is events and a subscription, the test needs no browser, 
 ;; Try to leave — it should be blocked and parked, not committed.
 (rf/dispatch-sync [:rf.route/navigate :app/home])
 (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))     ;; still here
-(is (some?                  @(routing/sub-pending-navigation)))  ;; parked
+(is (some?                  @(rf/subscribe [:rf/pending-navigation])))  ;; parked
 
 ;; The reader confirms — now it goes through.
 (rf/dispatch-sync [:rf.route/continue])
 (is (= :app/home @(rf/subscribe [:rf.route/id])))
-(is (nil?        @(routing/sub-pending-navigation)))
+(is (nil?        @(rf/subscribe [:rf/pending-navigation])))
 ```
 
 That's the payoff of a guard that's *state*, not a side effect: every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an assertion.

@@ -3,13 +3,15 @@
 State machines, per Spec 005. A machine is registered with one macro (`reg-machine`) and *is* an event handler: the transition table — a map of `:states`, `:on`, `:entry`, `:exit`, `:after` — compiles into a `reg-event` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade. The same trace bus, time-travel, and override surfaces that work for plain handlers work for machines.
 
 ```clojure
-(:require [re-frame.core     :as rf]        ;; reg-machine / defmachine / machine-has-tag? / sub-machine — the facade macros + sub sugar
+(:require [re-frame.core     :as rf]        ;; reg-machine / defmachine — the facade registration macros
           [re-frame.machines :as machines]) ;; engine, query, transition, tooling, runtime helpers
 ```
 
+A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the snapshot, `@(rf/subscribe [:rf/machine-has-tag? machine-id tag])` for a `:tags`-membership predicate. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
+
 Surfaces split two ways:
 
-- **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` macros and the `machine-has-tag?` / `sub-machine` subscription sugar.
+- **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` registration macros.
 - **Owned by `re-frame.machines`** (reach as `re-frame.machines/<name>`, not `rf/<name>`): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`, `machine-meta`, `machine-by-system-id`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
 
 The canonical action-side cross-machine messaging surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
@@ -70,7 +72,7 @@ A minimal machine:
 (rf/dispatch [:session [:login {:user "alice" :pass "correct-horse"}]])
 ```
 
-The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription vector (or the `rf/sub-machine` read sugar over it), or directly with `subscribe-once`.
+The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame's **runtime-db** partition (not app-db). The shape is `{:state :anonymous :data {...}}` (plus framework-managed slots for `:after` timer epochs and tags). Read it via the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription vector — `@(rf/subscribe [:rf/machine machine-id])` — or directly with `subscribe-once`.
 
 ### `defmachine`
 
@@ -205,47 +207,13 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```
 - **Description**: Reverse-lookup: given a `system-id`, returns the spawned-machine id bound to it, or `nil`.
     - The single-arity resolves the frame from the ambient scope, raising `:rf.error/no-frame-context` under no scope.
-    - The opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly — the trailing `{:frame …}` opts map, the same public-frame-targeting shape `sub-machine` takes.
+    - The opts form `(machine-by-system-id system-id {:frame target})` names a frame explicitly — the trailing `{:frame …}` opts map, the same public-frame-targeting shape `subscribe`'s frame-first arity takes.
     - The 2-arity is shape-discriminated on the second arg: an opts map is the public form; a bare frame target is the *internal* frame-last plumbing.
 - **Example**:
   ```clojure
   ;; Resolve a :system-id-bound actor, then address it directly.
   (when-let [actor (machines/machine-by-system-id :notifier)]
     (rf/dispatch [actor [:notify "hello"]]))
-  ```
-
-### `machine-has-tag?`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (machine-has-tag? machine-id tag) → reaction
-  ```
-- **Description**: Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])`. A reactive predicate over the machine's snapshot's `:tags` set. Reached on the `re-frame.core` facade as `rf/machine-has-tag?`.
-- **Example**:
-  ```clojure
-  ;; Ask by state-tag, not exact state name — disable inputs while a request is in flight.
-  (let [busy? @(rf/machine-has-tag? :auth.login/flow :auth/busy)]
-    [:button {:disabled busy?} "Sign in"])
-  ```
-
-### `sub-machine`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sub-machine machine-id) → reaction
-  (sub-machine machine-id opts) → reaction
-  ```
-- **Description**: Sugar over `(subscribe [:rf/machine machine-id])`. Returns a reaction whose value is the snapshot map `{:state :data :tags}`, or `nil` before the machine's first event.
-    - The 2-arity `opts` map carries the `{:frame target}` capability the underlying subscription vector accepts — `target` is a frame-id keyword or a live frame value.
-    - The `sub-` prefix is the subscription-family verb; it does not denote a child-machine relationship.
-    - The `[:rf/machine machine-id]` vector form remains the canonical registered sub.
-    - Reached on the `re-frame.core` facade as `rf/sub-machine`.
-- **Example**:
-  ```clojure
-  (let [{:keys [state]} @(rf/sub-machine :auth.login/flow)]
-    [:div "State: " (name state)])
   ```
 
 ## Keyword surfaces
@@ -259,7 +227,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf/machine machine-id]
   ```
-- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The `re-frame.core` `sub-machine` fn is read sugar over this vector. The [machines concept guide](../machines/concepts.md#registering-and-running-it) walks through subscribing to a snapshot and chaining named projections off it.
+- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The [machines concept guide](../machines/concepts.md#registering-and-running-it) walks through subscribing to a snapshot and chaining named projections off it.
 - **Example**:
   ```clojure
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
@@ -273,7 +241,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf/machine-has-tag? machine-id tag]
   ```
-- **Description**: Returns `true` iff the named machine's current snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). A *derived* sub: it reads the snapshot's containment-bit directly rather than chaining off `:rf/machine`, so a view that only cares about one tag re-renders only when that bit flips. The `re-frame.core` `machine-has-tag?` sugar fn wraps this vector.
+- **Description**: Returns `true` iff the named machine's current snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). A *derived* sub: it reads the snapshot's containment-bit directly rather than chaining off `:rf/machine`, so a view that only cares about one tag re-renders only when that bit flips.
 - **Example**:
   ```clojure
   @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])  ;; => true / false

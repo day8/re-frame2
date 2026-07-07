@@ -38,7 +38,7 @@ See [The same flow as a transition table](concepts.md#the-same-flow-as-a-transit
 A [machine](#machine)'s live value at any moment — which state it's in, plus its `:data`. It lives in [runtime-db](../core/glossary.md#runtime-db), and you read it through a [subscription](../core/glossary.md#subscription) addressed by the machine's id.
 
 ```clojure
-@(rf/sub-machine :auth.login/flow)   ;; {:state :authed :data {...}}
+@(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
 ```
 
 The snapshot is a plain, printable value (no functions or atoms), so [undo, time-travel](../core/glossary.md#time-travel), persistence, and SSR hydration all work on machines for free. Its `:state` takes one of three forms: a single keyword (flat machine), a vector path (`[:authenticated :cart :browsing]`, a [compound](#compound-state) machine), or a region → state map (a [parallel](#parallel-state) machine).
@@ -249,7 +249,7 @@ See [When the machine grows](concepts.md#when-the-machine-grows).
 
 ### **state tag**
 
-A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](../core/glossary.md#view) can ask "is it busy?" ([`machine-has-tag?`](../api/re-frame.machines.md#machine-has-tag)) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes. Across [parallel regions](#region), every active state's tags union onto the one snapshot.
+A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](../core/glossary.md#view) can ask "is it busy?" ([`[:rf/machine-has-tag? …]`](../api/re-frame.machines.md#rfmachine-has-tag-machine-id-tag)) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes. Across [parallel regions](#region), every active state's tags union onto the one snapshot.
 
 ```clojure
 (when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])

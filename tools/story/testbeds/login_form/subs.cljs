@@ -2,7 +2,7 @@
   "Login-form testbed subs.
 
   Four named subs project out the convenient pieces of the machine's
-  current snapshot; the view also uses two `rf/machine-has-tag?` framework
+  current snapshot; the view also uses two `[:rf/machine-has-tag? …]` framework
   subs for `:auth/busy` and `:auth/authenticated`. Per Spec 005 §State
   tags, the tag queries express the busy/authenticated discriminators
   declaratively.

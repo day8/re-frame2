@@ -162,8 +162,8 @@
   frame-id keyword or a live frame value.
 
   Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second arg,
-  mirroring `sub-machine`'s `{:frame …}` opts form (and the rf2-bfadc6
-  `subscribe-once` disposition): an OPTS MAP (a non-frame-value map) ⇒ the
+  mirroring `subscribe`'s frame-first arity `{:frame …}` opts form (and the
+  rf2-bfadc6 `subscribe-once` disposition): an OPTS MAP (a non-frame-value map) ⇒ the
   public `(machine-by-system-id system-id {:frame target})` form (`:frame`
   absent ⇒ ambient); anything else ⇒ the INTERNAL frame-last
   `(machine-by-system-id system-id frame-target)` plumbing (a frame-id
@@ -348,7 +348,7 @@
 ;; Per Spec 005 §Subscribing to machines via the :rf/machine sub: the
 ;; framework ships `:rf/machine` as the canonical entry point — read a
 ;; machine's snapshot with the subscription vector `(subscribe [:rf/machine
-;; id])`, or the `sub-machine` read-sugar fn over it.
+;; id])`.
 ;;
 ;; Registered at the façade (rather than in `re-frame.machines.lifecycle-
 ;; fx`) so the smoke-test fixture's `(require 're-frame.machines :reload)`

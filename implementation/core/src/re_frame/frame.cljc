@@ -796,7 +796,7 @@
   "Return the runtime-db **projection reaction** for the frame — the
   read-only derived value `(make-derived-value [frame-state] :rf.db/runtime)`
   over the one physical frame-state container. Framework subs
-  (`sub-machine`, `[:rf.route/*]`) read it as their signal source; an
+  (`[:rf/machine …]`, `[:rf.route/*]`) read it as their signal source; an
   app-only commit leaves `:rf.db/runtime` `=`, so the projection does not
   propagate and framework subs are untouched.
 

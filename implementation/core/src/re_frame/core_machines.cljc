@@ -5,16 +5,17 @@
 
   `reg-machine` / `reg-machine*` keep a bespoke shape (they share the
   `:where`-symbol parameter via `reg-machine-impl` so the macro and the
-  plain-fn surface raise with their own faithful `:where` symbol). The
-  `machine-has-tag?` sugar fn is not a late-bind surface — it layers over
-  `subs/subscribe`. (The `dispatch-to-system` FN was demoted off the
-  facade and relocated to `re-frame.machines` — rf2-gkt25a / rf2-80mmlf.)"
+  plain-fn surface raise with their own faithful `:where` symbol). (The
+  `dispatch-to-system` FN was demoted off the facade and relocated to
+  `re-frame.machines` — rf2-gkt25a / rf2-80mmlf. The `machine-has-tag?` /
+  `sub-machine` subscription-sugar fns were removed — rf2-il99l3, reversing
+  rf2-2cmcas — leaving the `[:rf/machine-has-tag? …]` / `[:rf/machine …]`
+  subscription vectors as the one machine-read grammar.)"
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]))
+            [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -61,8 +62,8 @@
   target})` to name a frame explicitly (async callbacks / tools /
   cross-frame lookups); `target` is a frame-id keyword or a live frame
   value. Per rf2-f28bno the 2-arity is SHAPE-DISCRIMINATED on the second
-  arg (mirroring `sub-machine`): an opts map ⇒ the public form; a bare
-  frame target ⇒ the internal frame-last plumbing.
+  arg (mirroring `subscribe`'s frame-first arity): an opts map ⇒ the public
+  form; a bare frame target ⇒ the internal frame-last plumbing.
 
   Per Spec 005 §Named addressing via :system-id + Spec 002 §Resolver
   surface. Returns nil when the machines artefact is not on the classpath."
@@ -209,57 +210,17 @@
   ([machine-id opts machine]
    (reg-machine-impl 'rf/reg-machine machine-id opts machine)))
 
-;; ---- sugar surfaces — not late-bind wrappers -----------------------------
+;; ---- dispatch-to-system relocation note ----------------------------------
 ;;
 ;; The `dispatch-to-system` FN was DEMOTED off the `re-frame.core` facade
 ;; (rf2-gkt25a / rf2-80mmlf — exactly one in-repo caller) and RELOCATED to
 ;; `re-frame.machines` (the optional machines artefact ns) as an
 ;; implementation-tier helper. The canonical action-side surface is the
 ;; reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
-
-(defn machine-has-tag?
-  "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Sugar
-  over `(subscribe [:rf/machine-has-tag? machine-id tag])`. Returns a
-  reaction whose value is `true` iff the machine's current
-  snapshot's `:tags` set contains `tag` — `false` for an unknown or
-  not-yet-initialised machine.
-
-  Per Spec 005 §State tags (rf2-ee0d / Nine States Stage 1).
-
-  Composable with the rest of the sub graph (a Layer-3 sub may chain
-  off this one) and elides on production builds the same way every
-  framework sub does — the underlying registration is a standard
-  `reg-sub`, no new registry."
-  [machine-id tag]
-  (subs/subscribe [:rf/machine-has-tag? machine-id tag]))
-
-(defn sub-machine
-  "Subscribe to a machine's snapshot. Sugar over `(subscribe [:rf/machine
-  machine-id])`. Returns a reaction whose value is the snapshot map
-  `{:state <kw> :data <map> :tags <set>}`, or nil before the machine's
-  first event (not yet initialised).
-
-  The `sub-` prefix is re-frame's subscription-family verb (sibling of
-  `subscribe` / `subscribe-once`); it does NOT denote a child-machine
-  relationship — declarative child-machine binding uses `:spawn`.
-
-  The 1-arity primary form resolves the ambient frame through the carried
-  scope/hold chain, exactly like the bare `(subscribe [:rf/machine
-  machine-id])`. The 2-arity `opts` map carries the same `{:frame
-  <target>}` capability the underlying subscription vector accepts —
-  `<target>` is a frame-id keyword or a live frame object — so a read can
-  target an explicit frame from outside an established scope (async
-  callbacks, tools, tests).
-
-  The `[:rf/machine machine-id]` vector form remains the canonical
-  registered sub; this is ergonomic read sugar over it. Composable with
-  the rest of the sub graph and elides on production builds the same way
-  every framework sub does — the underlying registration is a standard
-  runtime-db `reg-sub`, no new registry. Per Spec 005 §Subscribing to
-  machines via the :rf/machine sub."
-  ([machine-id] (subs/subscribe [:rf/machine machine-id]))
-  ([machine-id opts]
-   (if-let [frame (:frame opts)]
-     (subs/subscribe frame [:rf/machine machine-id])
-     (subs/subscribe [:rf/machine machine-id]))))
+;;
+;; The `machine-has-tag?` / `sub-machine` subscription-sugar fns that once
+;; lived here were REMOVED (rf2-il99l3, reversing rf2-2cmcas). A machine read
+;; is a subscription VECTOR — `(subscribe [:rf/machine-has-tag? machine-id
+;; tag])` / `(subscribe [:rf/machine machine-id])` — one read grammar; the
+;; `{:frame …}` target is carried by `subscribe`'s own frame-first arity.
 

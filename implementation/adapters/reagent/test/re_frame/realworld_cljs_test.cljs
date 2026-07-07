@@ -468,7 +468,7 @@
 
 (defn- settings-machine-has-tag?
   "Read the :settings/form machine's :tags union against a frame's app-db
-   (browserless form of `rf/machine-has-tag?`)."
+   (browserless form of the `[:rf/machine-has-tag? …]` sub)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
                   (rf/frame-state-value frame)))
@@ -628,7 +628,7 @@
 
 (defn- tags-machine-has-tag?
   "Read the :realworld/tags machine's :tags union against a frame's app-db
-   (browserless form of `rf/machine-has-tag?`)."
+   (browserless form of the `[:rf/machine-has-tag? …]` sub)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
                   (rf/frame-state-value frame)))

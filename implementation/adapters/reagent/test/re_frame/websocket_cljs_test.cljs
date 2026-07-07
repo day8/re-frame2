@@ -71,8 +71,8 @@
    namespaces call `re-frame.registrar/clear-all!` without restoring,
    which wipes the ns-load-time registrations in `re-frame.machines`.
    Without these in place declarative `:spawn` silently no-ops and
-   `rf/machine-has-tag?` returns false even when the tag is in the
-   snapshot."
+   the `:rf/machine-has-tag?` sub returns false even when the tag is in
+   the snapshot."
   []
   (when-let [spawn-fx (late-bind/get-fn :machines/spawn-fx)]
     (fx/reg-fx :rf.machine/spawn spawn-fx))

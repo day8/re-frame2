@@ -152,7 +152,7 @@
       (let [ambient (machines/machine-by-system-id :fa/named)]
         (is (= :fa/proc#1 ambient)
             "ambient 1-arity resolves the spawned id under the :rf/default scope")
-        ;; (1) PUBLIC opts form — the canonical public shape (mirrors sub-machine).
+        ;; (1) PUBLIC opts form — the canonical public shape (mirrors subscribe's frame-first arity).
         (is (= ambient (machines/machine-by-system-id :fa/named {:frame :rf/default}))
             "opts form {:frame :rf/default} binds the same frame and resolves the same id")
         ;; (2) INTERNAL frame-last plumbing — a bare frame-id keyword still resolves.

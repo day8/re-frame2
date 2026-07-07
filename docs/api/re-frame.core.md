@@ -1493,21 +1493,7 @@ A state machine is registered with one call and *is* an event handler; the trans
 - **Signature**: `(defmachine name ?docstring machine-spec)`
 - The `def`-shape companion to `reg-machine` — defines the machine-spec value, binding `name`, with per-element source captured at the definition site so a later `(reg-machine :id name)` retains it. (The plain-fn `reg-machine*` is **not** on the facade — it lives in `re-frame.machines`.) Full contract in [re-frame.machines.md](re-frame.machines.md).
 
-#### `machine-has-tag?`
-
-- **Kind**: function
-- **Signature**: `(machine-has-tag? machine-id tag) → reaction`
-- Sugar over `(subscribe [:rf/machine-has-tag? machine-id tag])` — a reactive predicate over the machine snapshot's `:tags` set, for rendering on state-tag membership. Full contract in [re-frame.machines.md](re-frame.machines.md).
-
-#### `sub-machine`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (sub-machine machine-id) → reaction
-  (sub-machine machine-id opts) → reaction
-  ```
-- Subscribe to a machine's snapshot — sugar over `(subscribe [:rf/machine machine-id])`. The reaction's value is the snapshot map `{:state :data :tags}`, or `nil` before the machine's first event. The 2-arity `opts` map carries the `{:frame <target>}` capability the underlying subscription vector accepts. The `[:rf/machine machine-id]` vector form remains the canonical registered sub. Full contract in [re-frame.machines.md](re-frame.machines.md).
+A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the whole `{:state :data :tags}` snapshot, `@(rf/subscribe [:rf/machine-has-tag? machine-id tag])` for a reactive `:tags`-membership predicate. Full contract in [re-frame.machines.md](re-frame.machines.md).
 
 ### Routing → [re-frame.routing.md](re-frame.routing.md)
 

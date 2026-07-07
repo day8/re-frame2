@@ -48,8 +48,8 @@ at it, poke here.
   decision reads the machine's
   [snapshot](../../../../docs/machines/glossary.md#snapshot) through
   [subscriptions](../../../../docs/core/glossary.md#subscription). The view asks
-  *what tag is active*, not *which exact state*. `(rf/machine-has-tag?
-  :auth.login/flow :auth/busy)` disables the inputs and re-labels the button
+  *what tag is active*, not *which exact state*. `@(rf/subscribe
+  [:rf/machine-has-tag? :auth.login/flow :auth/busy])` disables the inputs and re-labels the button
   while a request is in flight; `:auth/locked` swaps the form for a lockout
   panel. That is *ask, don't tell*: the view never names a state keyword, so
   adding a sixth busy state wouldn't touch it. The demo wires the request to
