@@ -8,7 +8,7 @@
 
 re-frame2 separates the dataflow core from the reactivity / rendering **substrate** — the abstract surface this spec defines. The substrate-agnostic core — registrar, frames, drain, dispatch envelope, subscription topology, sub computation, effect-map interpretation, trace stream — is JVM-runnable and has no dependency on Reagent, React, or DOM. A pluggable **adapter** (each implementation of the substrate contract) supplies the reactive container for `app-db`, the change-tracking that drives view re-renders, and the render-tree → surface step.
 
-> **Substrate scope: React + VDOM.** re-frame2 commits to **React + VDOM** as the rendering substrate. The adapter contract has *two* parts. The **reactive-container** half (entries 1-5 + 9 of [§The adapter API contract](#the-adapter-api-contract): `make-state-container`, `read-container`, `replace-container!`, `subscribe-container`, `make-derived-value`, `dispose-adapter!`) is *substrate-agnostic in shape* — its description does not mention React; it would generalise to any reactive primitive. The **render-side** half (entries 6-8: `render`, `render-to-string`, `register-context-provider`) is **React-shaped**: `render` mounts via `react-dom/client.createRoot`, `render-to-string` walks a hiccup-or-equivalent virtual-DOM tree to HTML (the contract for SSR ([Spec 011](011-SSR.md))), and `register-context-provider` returns a `React.createContext`-style provider. Ports are scoped to the eight JS-cross-compile-to-React-binding languages enumerated in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) are out of scope; substrate-agnostic shape on the reactive-container side reflects "the contract generalises if we ever wanted it to," not "we ship adapters for them."
+> **Substrate scope: React + VDOM.** re-frame2 commits to **React + VDOM** as the rendering substrate. The adapter contract has *two* parts. The **reactive-container** half (entries 1-5 + 9 of [§The adapter API contract](#the-adapter-api-contract): `make-state-container`, `read-container`, `replace-container!`, `subscribe-container`, `make-derived-value`, `dispose-adapter!`) is *substrate-agnostic in shape* — its description does not mention React; it would generalise to any reactive primitive. The **render-side** half (entries 6-8 + the optional `flush-render!`: `render`, `render-to-string`, `register-context-provider`, `flush-render!`) is **React-shaped**: `render` mounts via `react-dom/client.createRoot`, `render-to-string` walks a hiccup-or-equivalent virtual-DOM tree to HTML (the contract for SSR ([Spec 011](011-SSR.md))), and `register-context-provider` returns a `React.createContext`-style provider. Ports are scoped to the eight JS-cross-compile-to-React-binding languages enumerated in [000 §The pattern](000-Vision.md#the-pattern-js-cross-compile-language-agnostic). Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) are out of scope; substrate-agnostic shape on the reactive-container side reflects "the contract generalises if we ever wanted it to," not "we ship adapters for them."
 
 > **Terminology.** Throughout this spec, "**substrate**" names the abstract contract — the closed set of functions an adapter must implement. "**Adapter**" names each implementation: the Reagent adapter, the UIx adapter, the Helix adapter, the plain-atom adapter. The implementation directory is `implementation/adapters/`, the CLJS namespaces are `re-frame.adapter.<name>`, and the Maven artefacts are `day8/re-frame2-<name>`.
 
@@ -102,7 +102,7 @@ Every adapter implements the surface below. The contract is **closed for v1** �
 
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
 
-The adapter surface is **six required functions, three optional functions, and one lifecycle function** — ten entries in total. The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
+The adapter surface is **six required functions, three optional functions, and one lifecycle function** — ten fns in total (the adapter **spec map** additionally carries the `:kind` discriminator, so it has eleven entries — API.md's "11-key adapter spec map"). The Normative contract section below specifies the call-shape for each; [§Operational semantics](#subscription-cache--contract-and-operational-semantics) covers cache-invalidation behaviour the adapter must respect; [§CLJS reference: Reagent as default adapter](#cljs-reference-reagent-as-default-adapter) covers reference-host implementation notes.
 
 ### Normative contract
 
@@ -232,7 +232,7 @@ Optional. **Synchronously** commits the substrate's pending renders to the surfa
 
 **Why this is a contract fn, not a test helper.** The reference substrates schedule re-renders through a `requestAnimationFrame`-style tick that fires *after* an evaluated `dispatch` returns and is throttled to ~never in a backgrounded / unfocused tab. A tool that drives `dispatch` and then wants to observe the *rendered* result therefore cannot rely on the scheduled commit ever arriving. `flush-render!` runs through the host's **synchronous-commit** API (it is NOT rAF-scheduled), so it fires even headless and even when the tab is backgrounded — letting headless tooling drive a `dispatch → flush-render! → observe-settled-DOM` loop deterministically. This is the framework capability the Tool-Pair headless view-lifecycle driving depends on (see [Tool-Pair §Driving the render](Tool-Pair.md), consumed by the pair MCP's *dispatch-and-settle* op).
 
-This is **distinct** from a test-only flush. The CLJS reference also ships `flush-views!` on the React-hook adapters — a wrapper around React's `act()` intended for test code; `flush-render!` is the production-grade contract surface every adapter implements, callable from app or tooling code with no `act()` test-environment opt-in.
+This is **distinct** from a test-only flush. The CLJS reference also ships `flush-views!` on every React-substrate adapter (Reagent, reagent-slim, UIx, Helix) — a wrapper around React's `act()` intended for test code; `flush-render!` is the production-grade contract surface every adapter implements, callable from app or tooling code with no `act()` test-environment opt-in.
 
 `flush-render!` must be **no-op-safe**: calling it when nothing is pending does no harm and returns `nil`. An adapter that renders without a live host commit (the plain-atom / SSR adapters render to a string, never to a live surface) ships no `flush-render!` at all; the core's delegation then no-ops.
 
@@ -706,7 +706,7 @@ Static `:<-` is exactly a **constant** `input-fn`. `(reg-sub :vis :<- [:items] :
 
 The graph stays dynamic at the **view boundary**, where React already manages subscription lifecycle; each concrete `[:article/page article-id]` cache entry keeps stable dependencies for its lifetime. (This is why a v1 signal function returning live reactions, or an `input-fn` reading `app-db`, are both rejected — see [Backwards compatibility / migration](../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).)
 
-**Frame resolution.** Input query vectors are frame-agnostic data. The runtime resolves them in the **same frame** as the outer subscription; the `input-fn` does not receive a frame argument and must not search for one. Per the Explicit Frame Target Resolution EP, frame identity is carried by the outer subscription operation and every realized input inherits that frame.
+**Frame resolution.** Input query vectors are frame-agnostic data. The runtime resolves them in the **same frame** as the outer subscription; the `input-fn` does not receive a frame argument and must not search for one. Frame identity is carried by the outer subscription operation and every realized input inherits that frame.
 
 ### Reference counting and disposal
 
@@ -766,7 +766,7 @@ The **one-shot, non-reactive read** of a subscription's current value. `subscrib
 (subscribe-once query-v {:frame f})                   ;; → value (explicit-frame opts form)
 ```
 
-**Call-shape parallel with `subscribe` (rf2-bfadc6).** The 2-arity is **shape-discriminated on the first arg**, exactly as [`subscribe`](API.md#dispatch-and-subscribe): a query-vector first ⇒ the public `(subscribe-once query-v opts)` form (`opts` may carry `{:frame f}`; ambient when absent); a frame target first ⇒ the internal frame-first `(subscribe-once frame-id query-v)` plumbing, retired from the taught app grammar but retained for implementation / test / tooling reach. `f` is a frame-id keyword or a live frame object. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — closing the same misbinding footgun EP-0024 closed for `subscribe` (`[:x]` would otherwise bind as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately does **not** gain an opts-map form — it is pure teardown, never a hot in-view call, so the frame-first form is the sole explicit-frame shape.
+**Call-shape parallel with `subscribe`.** The 2-arity is **shape-discriminated on the first arg**, exactly as [`subscribe`](API.md#dispatch-and-subscribe): a query-vector first ⇒ the public `(subscribe-once query-v opts)` form (`opts` may carry `{:frame f}`; ambient when absent); a frame target first ⇒ the internal frame-first `(subscribe-once frame-id query-v)` plumbing, retired from the taught app grammar but retained for implementation / test / tooling reach. `f` is a frame-id keyword or a live frame object. Because `subscribe-once` shares `subscribe`'s exact call shape, an author who learned `(subscribe [:x] {:frame f})` writes the same `(subscribe-once [:x] {:frame f})` and the runtime binds the frame correctly — closing the same misbinding footgun EP-0024 closed for `subscribe` (`[:x]` would otherwise bind as frame-id and `{:frame f}` as query-v). `unsubscribe` (below) deliberately does **not** gain an opts-map form — it is pure teardown, never a hot in-view call, so the frame-first form is the sole explicit-frame shape.
 
 Semantically, `subscribe-once` is `subscribe` + deref + immediate `unsubscribe`:
 
@@ -799,7 +799,7 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 (unsubscribe frame-id query-v)                         ;; → nil (explicit-frame, frame-first form)
 ```
 
-**No opts-map form (deliberate, rf2-bfadc6).** Unlike `subscribe` and `subscribe-once`, `unsubscribe` does **not** accept the `(unsubscribe query-v {:frame f})` opts-map call-shape — the explicit-frame form is frame-first only. The misbinding footgun the opts form closes for the read helpers does not apply here: `unsubscribe` is pure teardown (a paired release of a `subscribe` the caller already made with a known frame), never a hot in-view call an author reaches for by muscle-memory from the `subscribe` opts form. Keeping it frame-first avoids widening the teardown surface for no ergonomic gain.
+**No opts-map form (deliberate).** Unlike `subscribe` and `subscribe-once`, `unsubscribe` does **not** accept the `(unsubscribe query-v {:frame f})` opts-map call-shape — the explicit-frame form is frame-first only. The misbinding footgun the opts form closes for the read helpers does not apply here: `unsubscribe` is pure teardown (a paired release of a `subscribe` the caller already made with a known frame), never a hot in-view call an author reaches for by muscle-memory from the `subscribe` opts form. Keeping it frame-first avoids widening the teardown surface for no ergonomic gain.
 
 **Contract MUSTs.**
 
@@ -1160,7 +1160,7 @@ How it differs from the Reagent adapter:
 ;; render is not used on the JVM — render-to-string is the only path.
 (defn render [_ _ _]
   (throw (ex-info "render not supported on plain-atom adapter; use render-to-string"
-                  {:rf.error :rf.error/render-on-headless-adapter})))
+                  {:rf.error/id :rf.error/render-on-headless-adapter})))
 
 (defn render-to-string [render-tree opts]
   (hiccup/emit render-tree opts))                     ;; same emitter as Reagent
@@ -1220,10 +1220,10 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
 
-**No registry, no implicit defaults.** The previous design shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. drops the registry entirely. Two reasons:
+**No registry, no implicit defaults.** There is no default-adapter registry: `(rf/init! adapter-map)` takes the adapter spec explicitly. Two reasons:
 
 1. **Explicit > implicit at the call site.** Reading any app's `run` function tells you exactly which adapter is in use, with no need to chase ns-load side-effects through the require graph.
-2. **Bundle-size.** A registry is bundle weight even when unused. Under, an app that requires only the adapter it needs ships only that adapter's code; the registry-and-resolver paths are gone.
+2. **Bundle-size.** A registry is bundle weight even when unused. An app that requires only the adapter it needs ships only that adapter's code; there are no registry-and-resolver paths to carry.
 
 A mixed-substrate app — say a build that imports both `re-frame.adapter.reagent` (for stories) and `re-frame.adapter.uix` (for production views) — picks the active adapter by passing the right Var to `init!`. There is no multi-adapter ambiguity to resolve at boot: only one adapter is ever installed.
 
@@ -1235,7 +1235,7 @@ The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each exp
 
 The UIx adapter ships in `day8/re-frame2-uix` and implements the same ten-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
-Per the locked decisions (2026-05-09) are:
+The UIx adapter's design decisions are:
 
 1. **Hook naming.** The substrate's subscription surface is `use-subscribe`, matching the React/UIx idiom. Symmetric ergonomics to Reagent's `(rf/subscribe ...)` deref shape; asymmetric naming because hooks live in hook-named space.
 2. **Frame propagation.** Both the UIx and Reagent adapters read the *same* React Context object — factored out of `re-frame.views` into `re-frame.adapter.context` (CLJS-only file in core). A future mixed-substrate app's frame-provider chain therefore composes across substrates rather than living in per-adapter silos.
@@ -1259,7 +1259,7 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 
 The Helix adapter ships in `day8/re-frame2-helix` and implements the same ten-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
 
-Per the locked decisions (2026-05-10) transfer one-for-one from — the React + hooks substrate model is the same:
+The Helix adapter's decisions transfer one-for-one from the UIx adapter — the React + hooks substrate model is the same:
 
 1. **Hook naming.** `use-subscribe` (matches the React/Helix idiom).
 2. **Frame propagation.** Reads the same React Context object the Reagent and UIx adapters consume (`re-frame.adapter.context/frame-context` in core).
@@ -1293,7 +1293,7 @@ The ten-fn substrate contract is identical across adapters, but the three **view
 | **Ensure a named frame for a subtree** (`frame-provider {:id …}`) | `[rf/frame-provider {:id :f :images […]} [header] [main]]` — create-if-absent / reuse-no-reseed / provide id; **no destroy-on-unmount**; takes `make-frame` opts. | `($ frame-provider {:id :f :images […]} ($ header) ($ main))`. | `($ frame-provider {:id :f :images […]} ($ header) ($ main))`. |
 | **`nil` `:frame`** (scope shape) | CONFIGURATION ERROR: the merged `frame-provider {:frame …}` SCOPE shape requires a keyword `:frame`; a `nil` `:frame` emits + throws `:rf.error/no-frame-context` — no `:rf/default` floor (see [§Frame-provider via React context](#frame-provider-via-react-context)). | Same — raises `:rf.error/no-frame-context`. | Same — raises `:rf.error/no-frame-context`. |
 | **Frame keyword fidelity under the mount idiom** | `:r>` interop head bypasses Reagent prop conversion, so a namespaced frame keyword survives the React-context round trip. | The native `defui` routes props through UIx's lossless `argv` channel (and folds native trailing children onto `:children` via `glue-args`) — keyword frame-ids survive intact by construction. | The native `defnc` routes props through `extract-cljs-props` (keyword keys + preserved keyword values, native trailing children lifted onto `:children`) — survives by construction. |
-| **Flush pending renders in a test** | No spine `flush-views!`. Classic Reagent uses Reagent's own `r/flush!` / `act` harness; `reagent-slim` ships its own `reagent2.dom.client/flush-views!`. | `(uix-adapter/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | `(helix-adapter/flush-views!)` — wraps React's `act()` (same surface as UIx). |
+| **Flush pending renders in a test** | `reagent-adapter/flush-views!` (wraps React's `act()` — the canonical cross-substrate test-flush hook); Reagent's own `r/flush!` also works, and `reagent-slim` ships `reagent2.dom.client/flush-views!`. | `(uix-adapter/flush-views!)` — wraps React's `act()` (per-adapter-require entry point). | `(helix-adapter/flush-views!)` — wraps React's `act()` (same surface as UIx). |
 | **`reg-view` macro** | Available (canonical view-registration surface). | `reg-view*` (plain-fn) when registry addressing is needed; most components are bare `defui`. | `reg-view*` (plain-fn) when needed; most components are bare `defnc`. |
 
 All three adapters read the **same** React Context object (`re-frame.adapter.context/frame-context` in core), so a mixed-substrate provider chain (either family member) composes — a UIx subtree under a Reagent provider (or vice versa) resolves the same frame.

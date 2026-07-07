@@ -20,7 +20,7 @@ re-frame2 lets users attach a schema to any of these via the `:schema` metadata 
 
 > **One vocabulary.** The framework speaks **one term — schema** — across every surface: the per-`reg-*` metadata key is `:schema`, the reserved namespace is `:rf.schema/*`, the boundary interceptor `:id` is `:rf.schema/at-boundary`, and the trace tag is `:schema-id`. There is no `:spec` metadata key, `:rf.spec/*` namespace, `:spec/at-boundary` id, or `:spec-id` tag. Migration: [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema).
 
-**The `:schema` value is opaque to re-frame.** The runtime never inspects what's stored in `:schema` directly; every validation site routes through the registered **validator fn** (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
+**The `:schema` value is opaque to re-frame's validation.** No validation site interprets a schema itself; every one routes through the registered **validator fn** (the dev-only `:sensitive?`/`:large?` prop walkers MAY read vector-form Malli EDN as plain data — a compiled schema value is an opaque leaf to them, per [§`:sensitive?`](#sensitive--privacy-in-schema-validation-error-traces)) (`set-schema-validator!`, see [§Default validator and the validator-fn extension point](#default-validator-and-the-validator-fn-extension-point)). The validator chooses the schema language: Malli on the CLJS reference, Zod or similar on a TypeScript port, Pydantic on Python, dry-rb on Ruby, the host's structural-typecheck wrapper on a statically typed port. Substituting a different validator is a single registration call; the rest of this Spec (when validation runs, what happens on failure, how digests are computed) is unchanged.
 
 ## Where schemas attach
 
@@ -71,7 +71,7 @@ Concretely:
 
 - App-db schema paths are `get-in`/`assoc-in` paths **into app-db** (`[:user]`, `[:cart :items]`, `[]` for the whole app-db partition). They are never `:rf.runtime/*` paths.
 - A user-registered app schema whose path's **first segment** reaches into runtime-db (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the `:rf/runtime` root) is a **category error**, not a warnable misuse, and is **hard-rejected at registration** with `:rf.error/app-schema-runtime-path` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). `reg-app-schema` validates only app-db (`(get-in app-db path)`), so a runtime path either detonates every dev commit (a normal `[:map …]` schema over the `nil` app-db slot) or silently installs a validator the author falsely believes guards runtime-db — there is no behaviour to soft-land, and no legitimate caller. `reg-app-schemas` rejects the whole batch atomically before any entry lands; the migration agent flags it. The runtime-db partition is **framework-owned**, so there is no public schema surface to redirect the user to: the honest remedy is to **drop the runtime path** (the `:reason` says exactly that, and does NOT name a non-public, framework-owned API).
-- The framework registers a separate **runtime-db** validator (`:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition at boot. That is a **framework-owned, internal** validator, NOT an application-owned app schema and NOT a public `rf/*` registration surface — user code never registers it (there is no `rf/reg-runtime-schema` export; the name appears only as internal boot vocabulary). The old "`reg-app-schema [:rf/runtime]`" registration is gone — runtime-db is validated as a partition, not as an app-db slice.
+- The framework registers a separate **runtime-db** validator (`:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition at boot. That is a **framework-owned, internal** validator, NOT an application-owned app schema and NOT a public `rf/*` registration surface — user code never registers it (there is no `rf/reg-runtime-schema` export; the name appears only as internal boot vocabulary). Runtime-db is validated as a partition by the framework-owned internal validator, never via `reg-app-schema` — there is no public app-schema surface over runtime-db.
 - Because app-db now holds nothing but app data, `(rf/app-schema)` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
 - The whole-`app-db` root schema `(rf/reg-app-schema [] {:schema …})` validates the whole **app-db partition** — never frame-state, never runtime-db.
 
@@ -122,7 +122,7 @@ The empty path `[]` means "the whole `app-db`" — same convention as `get-in`/`
 (rf/reg-app-schema [] {:schema WholeAppDbSchema})
 ```
 
-The root schema validates against the entire `app-db` after every handler. It composes with sub-path schemas: both validate; either failing reports a violation.
+The root schema validates against the entire app-db **partition** after every handler. It composes with sub-path schemas: both validate; either failing reports a violation.
 
 Use cases:
 
@@ -368,7 +368,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 ;; ⇒ [:auth :token] sensitive
 ```
 
-There is no second, handler-scope source. Earlier drafts described a **registration-meta `:sensitive?`** coarse fallback — a `:sensitive? true` on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx` that redacted any failure in the handler's scope regardless of per-slot props. That handler-meta annotation has been removed (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)): sensitivity is a property of the data value at a path, not of the handler that touched it. Every validation site — including the `app-db` site (whose `validate-app-schema!` call is keyed by frame, not by a single handler's registration) — reads the per-slot schema props only.
+There is no second, handler-scope source — no registration-meta `:sensitive?` coarse fallback (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)): sensitivity is a property of the data value at a path, not of the handler that touched it. Every validation site — including the `app-db` site (whose `validate-app-schema!` call is keyed by frame, not by a single handler's registration) — reads the per-slot schema props only.
 
 **Redaction shape.** When the per-slot schema declares the failing slot sensitive, the trace event MUST:
 

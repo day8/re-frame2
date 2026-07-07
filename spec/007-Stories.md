@@ -294,13 +294,9 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 
 > **Canonical vocabulary (NewTestStory EPIC).** The P1 public
 > authoring vocabulary is `:setup` (preconditions) and `:script`
-> (post-render behaviour under test). These supersede the prior
-> spellings: the legacy `:events` slot is the `:setup` slot, the
-> `:play-script` slot is the `:script` slot, and named `:plays` survive
-> as named scripts in the normalized plan. Because the project is
-> pre-alpha this is a clean rename, not a long-lived compatibility layer.
-> The legacy bare `:play` event-vector slot was already removed
-> and is NOT reintroduced; this section is the framework-side
+> (post-render behaviour under test) — there are no other authoring
+> slots (no `:events`, no `:play-script`, no bare `:play` event-vector
+> slot); named scripts ride in the normalized plan. This section is the framework-side
 > pointer, and the full normative contract — variant plans, the three
 > execution verbs, `:cannot-run`, composition, the schema floor, and the
 > epoch-tape evidence projection — lives in
