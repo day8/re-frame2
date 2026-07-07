@@ -238,6 +238,42 @@
                             :request-method :post
                             :headers {"host" "localhost:8031"}})))))
 
+;; ---- malformed query string: clean 400, never an uncaught throw ----------
+;;
+;; `parse-query` URL-decodes every key/value; a malformed percent-escape (a
+;; lone `%`, or `%` not followed by two hex digits) makes `URLDecoder/decode`
+;; throw `IllegalArgumentException`. Every other error path on this endpoint
+;; (missing file, forbidden, method-not-allowed, launch failure) answers a
+;; clean JSON response — a malformed query must too, rather than propagating
+;; uncaught into the shadow-cljs `:dev-http` Ring plumbing (rf2-bhejni).
+
+(deftest malformed-query-returns-clean-400
+  (testing "a lone `%` in the query string (an incomplete percent-escape)
+            answers a clean 400, not an uncaught IllegalArgumentException"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=%"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 400 (:status resp)) "malformed query is a clean 400, not a throw")
+          (is (re-find #"\"ok\":false" (:body resp)))
+          (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
+          (is (zero? (count @calls)) "launch! was never called")))))
+  (testing "a `%` not followed by two hex digits (e.g. `%zz`) also answers
+            a clean 400"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=abc%zz"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 400 (:status resp)))
+          (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
+          (is (zero? (count @calls))))))))
+
 ;; ---- header / origin parsing helpers -------------------------------------
 
 (deftest loopback-host?-classifies-correctly
