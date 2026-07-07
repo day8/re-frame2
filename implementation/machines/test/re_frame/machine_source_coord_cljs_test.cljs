@@ -272,6 +272,40 @@
     (is (nil? (inline-source :rf2-se70xj/kw [:states :idle :on :submit] :guard)))
     (is (string? (get-in (machines/machine-meta :rf2-se70xj/kw) [:actions :do :source-code])))))
 
+;; ---- >8 stampable nodes: transient promotion must not drop stamps --------
+
+(deftest reg-machine-stamps-every-node-past-the-8th-cljs
+  (testing "a machine with MORE than 8 stampable map-nodes co-locates coords on
+  EVERY node, not just the first 8. The walkers accumulate into a transient; a
+  transient array-map promotes to a hash-map on its 9th distinct key and returns
+  a NEW object, so the accumulator is threaded through a volatile. Before that
+  fix the 9th+ stamps were silently dropped."
+    ;; 12 state-node maps (reference-site family, walk-states-tree) AND 12 inline
+    ;; :entry fns (inline-source family, walk-states-inline-source) — both exceed
+    ;; the 8-entry array-map cap.
+    (rf/reg-machine :rf2-src8cap/many
+      {:initial :s0
+       :states
+       {:s0  {:entry (fn [_] {}) :on {:next :s1}}
+        :s1  {:entry (fn [_] {}) :on {:next :s2}}
+        :s2  {:entry (fn [_] {}) :on {:next :s3}}
+        :s3  {:entry (fn [_] {}) :on {:next :s4}}
+        :s4  {:entry (fn [_] {}) :on {:next :s5}}
+        :s5  {:entry (fn [_] {}) :on {:next :s6}}
+        :s6  {:entry (fn [_] {}) :on {:next :s7}}
+        :s7  {:entry (fn [_] {}) :on {:next :s8}}
+        :s8  {:entry (fn [_] {}) :on {:next :s9}}
+        :s9  {:entry (fn [_] {}) :on {:next :s10}}
+        :s10 {:entry (fn [_] {}) :on {:next :s11}}
+        :s11 {:entry (fn [_] {}) :on {:next :s0}}}})
+    (doseq [s [:s0 :s1 :s2 :s3 :s4 :s5 :s6 :s7 :s8 :s9 :s10 :s11]]
+      ;; reference-site :source-coords on the state-node map.
+      (is (some? (node-coords :rf2-src8cap/many [:states s]))
+          (str "state-node " s " must carry co-located :source-coords"))
+      ;; inline-source :source-code on the state's :entry fn.
+      (is (string? (inline-source :rf2-src8cap/many [:states s] :entry))
+          (str "state-node " s " :entry must carry co-located :source-code")))))
+
 ;; ---- programmatic call (no walking) --------------------------------------
 
 (deftest reg-machine-skips-stamping-for-non-literal-spec-cljs

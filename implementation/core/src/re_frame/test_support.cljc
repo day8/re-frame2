@@ -956,7 +956,11 @@
             start    (System/currentTimeMillis)
             deadline (+ start timeout-ms)]
         (loop []
-          (let [v (pred)]
+          ;; A transient throw from `pred` (e.g. reading state mid-transition) is
+          ;; a falsy probe — keep polling until the deadline. Mirrors the CLJS arm
+          ;; below and the sibling `wait-until` (test_helpers), so the single
+          ;; cross-platform helper has uniform pred-exception semantics.
+          (let [v (try (pred) (catch Throwable _ false))]
             (cond
               v v
               (>= (System/currentTimeMillis) deadline)
