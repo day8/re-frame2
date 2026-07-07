@@ -306,8 +306,19 @@
       consumer that needs the raw tree off a non-live frame opts in via
       `include?` (the `--allow-sensitive-reads` escape hatch)."
   [tree app-db variant-id include?]
-  (if include?
-    tree
+  (cond
+    ;; Nil-safe — mirrors `elide-app-db`'s pre-check (rf2-5r6j96: this
+    ;; short-circuit was DOCUMENTED above but never implemented, so a nil
+    ;; `tree` fell through to `project-egress` — walking to nil unchanged
+    ;; under a live frame, but UNCONDITIONALLY redacted to `:rf/redacted`
+    ;; under a non-live frame per the four-case rule below, either of
+    ;; which is a needless trip through the egress walker for a tree with
+    ;; nothing in it to protect).
+    (nil? tree) tree
+
+    include? tree
+
+    :else
     ;; Project through the SINGLE record-level boundary `re-frame.core/project-egress`
     ;; (EP-0025 B4, rf2-ojp8pi): a `:rf.observe/derived-tree` record naming the
     ;; off-box-tool egress PROFILE — `project-egress` resolves the profile to
