@@ -23,8 +23,10 @@
     descriptor is `[:db <rf-path>]`, where `<rf-path>` is an EP-0012
     concrete `:rf/path` (the path algebra in `re-frame.path`). `[:runtime
     <path>]` is RESERVED, not shipped — declaring one is a loud
-    registration error (route-derived scope un-defers with the
-    tenant-switcher consumer, per Spec 016 §Route-derived scope is reserved).
+    registration error (route-derived scope un-defers only when an in-repo
+    consumer carries a principal in a path segment and needs named-resolver
+    scope at a non-route site, per Spec 016 §Route-derived scope is
+    reserved).
   - `:resolve` — `(fn [inputs ctx] -> scope | nil)`. PURE. **The first arg is
     ALWAYS the resolved input map** — this is the one stable, Name-over-place
     meaning across every registration (rf2-wvh95f F3). It derives a scope from
@@ -120,9 +122,10 @@
   "The CLOSED set of input source-descriptor heads shipped in this slice.
   Only `:db` ships — `[:db <rf-path>]` reads the path off the frame app-db.
   `:runtime` is RESERVED (`[:runtime <path>]`, route-derived scope) and is
-  rejected fail-closed at registration until its consumer un-defers it. Per
-  Spec 016 §The `{:inputs … :resolve …}` grammar / §Route-derived scope is
-  reserved."
+  rejected fail-closed at registration until an in-repo consumer carrying a
+  principal in a path segment needs named-resolver scope at a non-route site
+  (sub / event ensure / invalidation / `clear-scope`). Per Spec 016 §The
+  `{:inputs … :resolve …}` grammar / §Route-derived scope is reserved."
   #{:db})
 
 (def reserved-input-sources
@@ -130,7 +133,10 @@
   EP-0014 input vocabulary) but NOT shipped in this slice — declaring one
   is a loud registration error that names the reservation, so a typo is not
   mistaken for an unshipped feature. `:runtime` is the route-derived source
-  (`[:runtime <path>]`, Spec 016 §Route-derived scope is reserved)."
+  (`[:runtime <path>]`) — reserved until an in-repo consumer carries a
+  principal in a path segment and needs named-resolver scope at a non-route
+  site; route-entry-only demand is already served by the `(fn [route ctx]
+  …)` resolver tier. Per Spec 016 §Route-derived scope is reserved."
   #{:runtime})
 
 ;; ---- registration-error shape --------------------------------------------
@@ -175,10 +181,11 @@
                     " declares the RESERVED source " (pr-str head)
                     " — it is named in the input vocabulary but NOT shipped "
                     "in this slice. Route-derived scope (`[:runtime <path>]`) "
-                    "un-defers with the tenant-switcher consumer. Use a "
-                    "`[:db <rf-path>]` source: viewer identity that is app "
-                    "state is db-derived. Per Spec 016 §Route-derived scope "
-                    "is reserved.")
+                    "un-defers only for a consumer that carries a principal "
+                    "in a path segment and needs named-resolver scope at a "
+                    "non-route site. Use a `[:db <rf-path>]` source: viewer "
+                    "identity that is app state is db-derived. Per Spec 016 "
+                    "§Route-derived scope is reserved.")
                {:scope-id scope-id :input input-name :source head}))
 
       (not (contains? shipped-input-sources head))
