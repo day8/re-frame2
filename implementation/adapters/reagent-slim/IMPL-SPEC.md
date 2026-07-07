@@ -345,7 +345,7 @@ Internal Vars:
 - `queue-render!` `[component]` — enqueue a component for re-render; schedules a microtask if not already scheduled.
 - `flush!` `[]` — synchronous drain of the dirty set + cooperation with React commit. The implementation hook for `reagent2.dom.client/flush-views!`.
 - `after-render` `[f]` — schedule `f` after the next render. Kept as the public ABI for `reagent2.core/after-render`.
-- `do-after-render`, `before-flush` — internal lifecycle hooks.
+- `do-after-render` — internal lifecycle hook.
 
 See §4 for the scheduler's full design.
 

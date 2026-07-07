@@ -7,7 +7,7 @@
       microtask body drains the queue.
     - Deduplication: same component enqueued multiple times before
       drain runs only once (cljsIsDirty flag).
-    - Ordering: before-flush -> rea-flush -> render -> after-render.
+    - Ordering: rea-flush -> render -> after-render.
     - flush! synchronous drain: callable from test code, identical
       contract to the microtask body.
     - do-after-render: callbacks fire after the render phase.
@@ -124,21 +124,20 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Ordering invariant: before-flush -> ratom/flush! -> render -> after-render
+;; Ordering invariant: ratom/flush! -> render -> after-render
 ;; ---------------------------------------------------------------------------
 
-(deftest ordering-before-render-after
-  (testing "queues drain in spec order: before-flush, render, after-render"
+(deftest ordering-render-after
+  (testing "queues drain in spec order: render, after-render"
     (async done
       (let [order (atom [])
             c     #js {}]
         (set! (.-forceUpdate c) (fn [] (swap! order conj :render)))
-        (batching/do-before-flush (fn [] (swap! order conj :before)))
         (batching/queue-render! c)
         (batching/do-after-render (fn [] (swap! order conj :after)))
         (-> (next-microtask)
             (.then (fn [_]
-                     (is (= [:before :render :after] @order)
+                     (is (= [:render :after] @order)
                          "drain order matches IMPL-SPEC §4.1 step 1-4")
                      (done))))))))
 

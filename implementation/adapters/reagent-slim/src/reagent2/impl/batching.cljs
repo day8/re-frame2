@@ -23,7 +23,6 @@
 
     queue-render!   ;; component → enqueue + schedule microtask
     do-after-render ;; fn → run after the next render
-    do-before-flush ;; fn → run before each flush turn
     schedule        ;; force a microtask schedule (no-op if already scheduled)
     flush!          ;; synchronous drain (test primitive's worker)
     mark-rendered   ;; clear a component's dirty flag (called by render)
@@ -74,10 +73,9 @@
 ;; ---------------------------------------------------------------------------
 ;; The render queue
 ;;
-;; A single `RenderQueue` instance holds three sub-queues:
+;; A single `RenderQueue` instance holds two sub-queues:
 ;;
 ;;   - components       — JS array of component instances to forceUpdate
-;;   - before-flush     — fns run at the start of each flush turn
 ;;   - after-render     — fns run at the end of each flush turn
 ;;
 ;; Per IMPL-SPEC §4.4 components flow through three pathways:
@@ -93,7 +91,6 @@
 
 (deftype RenderQueue [^:mutable ^boolean scheduled?
                       ^:mutable component-queue
-                      ^:mutable before-flush-queue
                       ^:mutable after-render-queue]
   Object
   (schedule [this]
@@ -107,12 +104,6 @@
     (.push component-queue c)
     (.schedule this))
 
-  (add-before-flush [this f]
-    (when (nil? before-flush-queue)
-      (set! before-flush-queue #js []))
-    (.push before-flush-queue f)
-    (.schedule this))
-
   (add-after-render [this f]
     (when (nil? after-render-queue)
       (set! after-render-queue #js []))
@@ -121,12 +112,6 @@
   (run-queues [this]
     (set! scheduled? false)
     (.flush-queues this))
-
-  (flush-before-flush [_this]
-    (when-some [fs before-flush-queue]
-      (set! before-flush-queue nil)
-      (dotimes [i (alength fs)]
-        ((aget fs i)))))
 
   (flush-render [_this]
     (when-some [fs component-queue]
@@ -146,7 +131,6 @@
         ((aget fs i)))))
 
   (flush-queues [this]
-    (.flush-before-flush this)
     ;; Drain the reactive queue first — Reaction recomputes may enqueue
     ;; further component renders into component-queue, which we then
     ;; pick up in flush-render below.
@@ -155,7 +139,7 @@
     (.flush-after-render this)))
 
 (defonce ^:private render-queue
-  (->RenderQueue false nil nil nil))
+  (->RenderQueue false nil nil))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
@@ -176,12 +160,6 @@
   first entry — see ns docstring."
   []
   (.schedule render-queue))
-
-(defn do-before-flush
-  "Register `f` to run at the start of the next flush turn. Used by
-  internal lifecycle plumbing; users prefer `do-after-render`."
-  [f]
-  (.add-before-flush render-queue f))
 
 (defn do-after-render
   "Register `f` to run at the end of the next flush turn — i.e. after
