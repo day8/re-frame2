@@ -114,3 +114,87 @@ test('non-dedup envelope passes through untouched', () => {
   const plain = { 'ok?': true, value: [1, 2, 3] };
   assert.equal(decodeDedupEnvelope(plain), plain);
 });
+
+// ---------------------------------------------------------------------
+// rf2-6i2yi4 finding 5: a de-duped map KEY (not just VALUE) is expanded.
+//
+// The real `de-dupe.core/expand` dispatches on `map-entry?` before
+// `coll?` and expands BOTH halves of every map-entry; `cachable?`
+// permits a de-duped map key. A decoder that only recurses into `v[k]`
+// while using `k` verbatim leaves a de-duped key as the raw
+// "de-dupe.cache/cache-N" placeholder string — before this fix, the
+// assertion below would have found `Object.keys(out)` still carrying
+// that raw placeholder instead of the expanded key.
+// ---------------------------------------------------------------------
+
+test('a de-duped map KEY is expanded, not left as the raw cache-ref placeholder (rf2-6i2yi4 finding 5)', () => {
+  // cache-0's single entry has a KEY that is itself a cache reference to
+  // a de-duped vector — the "path-keyed structure" shape the finding
+  // describes.
+  const cache = {
+    [cacheId(0)]: { [cacheId(1)]: 'value-for-vector-key' },
+    [cacheId(1)]: ['a', 'b'],
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  // JS object keys must be strings; a non-string expanded key (here an
+  // array) is rendered via its canonical JSON form rather than left
+  // as the unexpanded ref.
+  const expectedKey = JSON.stringify(['a', 'b']);
+  assert.deepEqual(Object.keys(out), [expectedKey]);
+  assert.equal(out[expectedKey], 'value-for-vector-key');
+});
+
+test('a de-duped map key that expands to a plain string is used directly (no JSON-quoting)', () => {
+  const cache = {
+    [cacheId(0)]: { [cacheId(1)]: 'v' },
+    [cacheId(1)]: 'plain-string-key',
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.deepEqual(out, { 'plain-string-key': 'v' });
+});
+
+// ---------------------------------------------------------------------
+// rf2-6i2yi4 finding 7: eagerly validate EVERY cache entry, not just
+// those reachable from cache-0.
+//
+// The real `de-dupe.core/decompress-cache` expands every key before
+// picking cache-0 off the result. Before this fix, `expandCache` called
+// only `expandEntry(ROOT_CACHE_ID)`, so a malformed entry unreachable
+// from the root (an "orphan") was never visited and decoded cleanly —
+// grading GREEN a wire payload a real client rejects outright. These
+// tests would NOT have thrown before the fix (the malformed orphan was
+// simply never visited).
+// ---------------------------------------------------------------------
+
+test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
+  const cache = {
+    [cacheId(0)]: { fine: 1 }, // well-formed, does not reference cache-1
+    [cacheId(1)]: { missing: cacheId(9) }, // orphan: dangling ref
+  };
+  assert.throws(
+    () => decodeDedupEnvelope(envelope(cache)),
+    /no matching entry/i,
+    'an orphaned entry with a dangling ref must still be rejected',
+  );
+});
+
+test('a malformed ORPHAN cache entry (unreachable from cache-0, self-cyclic) still throws', () => {
+  const cache = {
+    [cacheId(0)]: { fine: 1 },
+    [cacheId(1)]: { self: cacheId(1) }, // orphan: self-cyclic
+  };
+  assert.throws(
+    () => decodeDedupEnvelope(envelope(cache)),
+    /cyclic dedup cache/i,
+    'an orphaned self-cyclic entry must still be rejected',
+  );
+});
+
+test('a well-formed orphan entry is harmless — root value unaffected', () => {
+  const cache = {
+    [cacheId(0)]: { fine: 1 },
+    [cacheId(1)]: { unused: 'harmless' }, // orphan but well-formed
+  };
+  const out = decodeDedupEnvelope(envelope(cache));
+  assert.deepEqual(out, { fine: 1 });
+});

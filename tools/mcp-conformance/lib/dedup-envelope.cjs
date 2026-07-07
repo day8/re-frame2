@@ -86,7 +86,28 @@ function expandCache(cache) {
       // objects on the JSON wire.
       const out = {};
       for (const k of Object.keys(v)) {
-        out[k] = expandValue(v[k]);
+        // Route the KEY through expandValue too, not just the value. The
+        // real `de-dupe.core/expand` dispatches on `map-entry?` before
+        // `coll?` and expands BOTH halves of every map-entry — `cachable?`
+        // permits a de-duped map KEY, and this codebase has vector/
+        // path-keyed structures where that fires. Expanding only `v[k]`
+        // and using `k` verbatim leaves a de-duped key as the raw
+        // "de-dupe.cache/cache-N" placeholder string in the decoded
+        // object, so a downstream lookup against the real (expanded) key
+        // fails a conformant server. Plain (non-ref) keys pass through
+        // `expandValue` unchanged, so this is safe to apply uniformly.
+        const expandedKey = expandValue(k);
+        // JS object keys must be strings; a Clojure map key can expand to
+        // an arbitrary structure (e.g. a path vector). Use it directly
+        // when it already is a string/number, otherwise fall back to a
+        // deterministic canonical string so the entry is still reachable
+        // (rather than silently colliding/overwriting under implicit
+        // `String(...)` coercion).
+        const jsKey =
+          typeof expandedKey === 'string' || typeof expandedKey === 'number'
+            ? expandedKey
+            : JSON.stringify(expandedKey);
+        out[jsKey] = expandValue(v[k]);
       }
       return out;
     }
@@ -130,6 +151,18 @@ function expandCache(cache) {
     return expanded;
   }
 
+  // Eagerly expand EVERY cache entry, not just those reachable from
+  // cache-0. The real de-dupe.core/decompress-cache expands every key
+  // before picking cache-0 off the result, so a malformed ORPHAN entry
+  // (unreferenced from the root — e.g. a dangling ref to a nonexistent
+  // cache id, or itself cyclic) throws for a real client but, if only
+  // `expandEntry(ROOT_CACHE_ID)` below were called, would never be
+  // visited here and would decode cleanly (grading GREEN a wire payload
+  // a real client rejects outright). `expandEntry` memoises, so this
+  // costs nothing extra for the reachable subset.
+  for (const cacheId of Object.keys(cache)) {
+    expandEntry(cacheId);
+  }
   return expandEntry(ROOT_CACHE_ID);
 }
 

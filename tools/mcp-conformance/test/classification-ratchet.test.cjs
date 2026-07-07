@@ -148,3 +148,49 @@ test('RED: a destructive tool re-labelled read-only ⇒ throws', () => {
     /write-live classification regressed[\s\S]*pins `destructive`/,
   );
 });
+
+// --- rf2-6i2yi4 finding 4: a dangling `closed-world` entry is caught ---
+//
+// `closed-world` is consulted PER-TOOL inside the per-tool loop
+// (`closedWorld.has(t.name)`), which only ever iterates the LIVE
+// tool-set. Before the fix, a `closed-world` row naming a tool that no
+// longer exists at all (removed, with its `classifications` row removed
+// too — so check 0's exact-keyset guard is satisfied) was never visited
+// by that loop and therefore never validated: a real removal that
+// correctly updated `classifications` but forgot to also drop the
+// matching `closed-world` row shipped GREEN. This is the same class of
+// fixture-hygiene gap check 0 already closes for `classifications`
+// (a stale row there DOES trip), just on the `closed-world` side.
+
+test('RED: rf2-6i2yi4 finding 4 — a `closed-world` row naming a REMOVED tool is caught, not silently tolerated', () => {
+  // `read-inline` was removed from the server; `classifications` was
+  // correctly updated (its row dropped, so check 0's exact-keyset guard
+  // passes against the 3-tool live set below) but `closed-world` still
+  // names it — a dangling row nothing else would visit.
+  const staleFixture = {
+    classifications: {
+      'read-live': 'read-only',
+      'write-live': 'destructive',
+      'pin-live': 'neither',
+    },
+    'closed-world': ['read-inline'],
+  };
+  const tools = [
+    tool('read-live', { readOnlyHint: true, openWorldHint: true }),
+    tool('write-live', { destructiveHint: true, openWorldHint: true }),
+    tool('pin-live', { openWorldHint: true }),
+  ];
+  // Every LIVE tool here is correctly classified — under the pre-fix
+  // code this fixture would NOT throw at all (the per-tool loop never
+  // visits the absent 'read-inline', so the dangling row is invisible).
+  assert.throws(
+    () => assertClassificationRatchet(tools, staleFixture),
+    (err) => {
+      assert.match(err.message, /closed-world/);
+      assert.match(err.message, /read-inline/);
+      assert.match(err.message, /dangling/);
+      return true;
+    },
+    'a closed-world row naming a tool absent from classifications must throw',
+  );
+});
