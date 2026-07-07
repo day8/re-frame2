@@ -5,15 +5,22 @@
   [`spec/Conventions.md` §The `:rf/path` algebra]; this namespace is the
   reference implementation.
 
-  ## Status — INTERNAL (EP-0012 disposition 1)
+  ## Status — INTERNAL, standing (EP-0012 disposition 1, re-recorded rf2-woxepk)
 
   The *semantics* are normative immediately; the *names* are NOT public
-  API at this slice. There is no `re-frame.core` facade export of
-  `rf.path/*` yet, and none is classified. An op graduates to a public
-  name only once two or more consumers (flows / schemas / routing /
-  resources / EP-0015 frame-config maps / EP-0016 map-form targets) use
-  it through this internal namespace without requiring a shape change
-  (the concrete graduation gate). Subsystems MUST NOT keep private ad hoc
+  API. There is no `re-frame.core` facade export of `rf.path/*`, and none
+  is classified. The original two-or-more-consumers gate fired against
+  framework artefact families (core / flows / schemas / routing /
+  resources / machines all cite this namespace) rather than app-facing
+  demand; a per-op census found only the boundary validators
+  (`normalize-concrete`, `segment?`) actually clear it. No op graduates
+  now. The gate is re-armed on app-facing demand: an op graduates only
+  when a guide / pattern / migration doc must teach it, or an external
+  consumer requests it — never on framework artefact-family
+  accumulation. If an op ever graduates, its public home is the
+  `re-frame.path` namespace, never `re-frame.core`, and never the bare
+  name `path` (EP-0022 tombstone — `re-frame.core/path` throws
+  `:rf.error/path-removed`). Subsystems MUST NOT keep private ad hoc
   overlap / prefix logic once they cite these helpers — there is no
   \"tool-only\" path semantics.
 
