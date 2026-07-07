@@ -3416,6 +3416,65 @@
           (is (tree-contains? (:sub-runs s) "TOPSECRET")
               "opt-in surfaces the raw value in :sub-runs"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-5r6j96 — a run-variant timeout / exception ships a structuredContent
+;; that PASSES `valid-run-result?`. The catch branch used to hand-mint a
+;; partial map (`:status` / `:frame` / `:assertions` / `:checks` only),
+;; omitting the six `.4` evidence slots (`:schema-violations` / `:warnings`
+;; / `:effects` / `:sub-runs` / `:renders` / `:narrative`). An ABSENT key
+;; reads back as nil; `egress/scrub-rendered` had no nil short-circuit of
+;; its own, so a live-frame walk of nil returns nil unchanged — and the
+;; frozen `RunResult` schema declares each of those six slots
+;; `[:optional true] [:sequential :any]`: a PRESENT nil violates it (nil
+;; is not sequential). These pin the FIX end-to-end via the real
+;; `tool-run-variant` handler (the wire pipeline, not a hand-rolled
+;; simulation of its internals) for both ways the catch branch is
+;; genuinely reachable: `story/run-variant` throwing synchronously, and
+;; `async/deref-blocking`'s `.get(timeout, unit)` timing out on a promise
+;; that never settles.
+;; ---------------------------------------------------------------------------
+
+(deftest run-variant-exception-outcome-passes-valid-run-result?
+  (testing "story/run-variant throwing synchronously still ships a schema-valid structuredContent"
+    (with-clean-frame [vid :story.button/primary]
+      ;; Run the variant once for real first so the frame is LIVE — the
+      ;; production-reachable shape (any path that could genuinely throw /
+      ;; time out is necessarily reached AFTER `story/run-variant`'s own
+      ;; phase-0 frame allocation, which runs synchronously and unconditionally
+      ;; resolves rather than rejects on every OTHER internal error).
+      (invoke "run-variant" {:variant-id "story.button/primary"})
+      (with-redefs [story/run-variant
+                    (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :error (:status s)))
+          (is (story/valid-run-result? s)
+              (str "structuredContent must conform to the frozen RunResult schema; "
+                   (story/explain-run-result s)))
+          (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
+            (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
+
+(deftest run-variant-timeout-outcome-passes-valid-run-result?
+  (testing "a genuine async/deref-blocking timeout still ships a schema-valid structuredContent"
+    (with-clean-frame [vid :story.button/primary]
+      (invoke "run-variant" {:variant-id "story.button/primary"})
+      (with-redefs [story/run-variant
+                    ;; A future that never completes — `deref-blocking`'s
+                    ;; `.get(timeout-ms, …)` genuinely times out (a real
+                    ;; TimeoutException, not a rejected/completed future).
+                    (fn [& _] (java.util.concurrent.CompletableFuture.))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
+                                       :timeout-ms 50})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :error (:status s)))
+          (is (story/valid-run-result? s)
+              (str "structuredContent must conform to the frozen RunResult schema; "
+                   (story/explain-run-result s)))
+          (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
+            (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
+
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"
     (with-clean-frame [vid :story.button/primary]

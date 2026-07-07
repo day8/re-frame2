@@ -97,18 +97,30 @@
                        (async/deref-blocking (story/run-variant vk opts) timeout)
                        (catch Throwable e
                          ;; A throw / timeout never produced a unified
-                         ;; result; mint the :error verdict directly so the
-                         ;; wire shape is the SAME unified shape a settled run
-                         ;; emits (one vocabulary, no special-case branch for
-                         ;; agents to learn).
-                         {:status     :error
-                          :frame      vk
-                          :assertions [(story/assertion-record
-                                         {:assertion :rf.error/run-failed
-                                          :passed?   false
-                                          :error     true
-                                          :reason    (ex-message e)})]
-                          :checks     []}))
+                         ;; result; assemble ONE through the SAME canonical
+                         ;; `story/run-result` boundary a settled run emits
+                         ;; (spec/017 §Run result) rather than hand-mint a
+                         ;; partial map — a hand-mint omitting the six `.4`
+                         ;; evidence slots (`:schema-violations` / `:warnings`
+                         ;; / `:effects` / `:sub-runs` / `:renders` /
+                         ;; `:narrative`) reads them back as an ABSENT key,
+                         ;; i.e. nil, which then projects RAW through
+                         ;; `egress/scrub-rendered` below and ships a bare
+                         ;; `nil` on the wire — failing the frozen
+                         ;; `[:sequential :any]` schema every OTHER run
+                         ;; outcome satisfies (rf2-5r6j96). `run-result`
+                         ;; against an empty tape fills every evidence slot
+                         ;; to `[]`, so the projection always has a
+                         ;; sequential to walk — one vocabulary, no
+                         ;; special-case error-branch shape for agents OR
+                         ;; the schema to carve out.
+                         (story/run-result
+                           {:variant/id vk
+                            :assertions [(story/assertion-record
+                                           {:assertion :rf.error/run-failed
+                                            :passed?   false
+                                            :error     true
+                                            :reason    (ex-message e)})]})))
             incl?    (targs/include-sensitive? arguments)
             raw-db   (:app-db outcome)
             [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
@@ -131,12 +143,24 @@
                               ;; PATH to redact at the source). scrub-rendered
                               ;; recurses the nested trees and the gate stays
                               ;; symmetric (incl? true forwards raw).
-                              :schema-violations  (egress/scrub-rendered (:schema-violations outcome) raw-db vk incl?)
+                              ;; Every slot is `(vec ...)`-wrapped BEFORE the
+                              ;; projection (not just the two that used to be)
+                              ;; — `scrub-rendered` has no nil short-circuit of
+                              ;; its own reaching `project-egress`, so a bare
+                              ;; absent-key nil would walk through as nil
+                              ;; (live frame) rather than the `[]` the frozen
+                              ;; `[:sequential :any]` schema requires
+                              ;; (rf2-5r6j96). `run-result` above already
+                              ;; fills every slot with `[]`; the `vec` here is
+                              ;; the belt-and-suspenders guard at the
+                              ;; projection call site itself, independent of
+                              ;; how `outcome` was assembled.
+                              :schema-violations  (egress/scrub-rendered (vec (:schema-violations outcome)) raw-db vk incl?)
                               :warnings           (egress/scrub-rendered (vec (:warnings outcome)) raw-db vk incl?)
-                              :effects            (egress/scrub-rendered (:effects outcome) raw-db vk incl?)
+                              :effects            (egress/scrub-rendered (vec (:effects outcome)) raw-db vk incl?)
                               :sub-runs           (egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
-                              :renders            (egress/scrub-rendered (:renders outcome) raw-db vk incl?)
-                              :narrative          (egress/scrub-rendered (:narrative outcome) raw-db vk incl?)
+                              :renders            (egress/scrub-rendered (vec (:renders outcome)) raw-db vk incl?)
+                              :narrative          (egress/scrub-rendered (vec (:narrative outcome)) raw-db vk incl?)
                               ;; Derived trees: PATH-projected. A value AT a
                               ;; classified path redacts; a re-keyed copy ships
                               ;; raw (EP-0025 fail-open).
