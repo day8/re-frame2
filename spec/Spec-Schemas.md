@@ -82,6 +82,16 @@ The hydration payload is the canonical example: v1 ships with a small required s
 
 ## Schemas
 
+### `:rf/event` (the event vector)
+
+```clojure
+(def Event
+  [:and vector?
+   [:cat :keyword [:* :any]]])   ;; [<event-id> & args] — id-first, at least the id
+```
+
+The wire shape of every dispatched event: a vector whose first element is the event-id keyword. The canonical best-practice payload shapes (`[<id>]` / `[<id> <scalar>]` / `[<id> {<k> <v>}]`) are a convention, not a schema constraint — variadic `[<id> a b c]` is accepted (per [Conventions §Canonical event-vector shape](Conventions.md#canonical-event-vector-shape-best-practice)). Referenced by `:rf/dispatch-envelope`'s `:event` slot, the `:fx` `[:dispatch …]` args, and `:rf.fx/dispatch-to-system-args`.
+
 ### `:rf/dispatch-envelope`
 
 > **Layer:** Runtime
@@ -102,12 +112,12 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); the `:rf/dispatch-origin` axis was collapsed into `:source`. Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:initial-events` setup steps), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
-   [:rf.cofx               {:optional true} #'Cofx]])                      ;; EP-0017 recordable coeffects — runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
+   [:rf.cofx               #'Cofx]])                                       ;; EP-0017 recordable coeffects — required on the constructed envelope; runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
 ```
 
-> **`:rf.cofx` is the recordable-coeffect envelope field.** It is a flat map; there is no `:rf.world/inputs` (no alias, no coexistence window). `:rf.world/inputs` was a draft-only name, so supplying it in dispatch opts earns no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming `:rf.cofx` (per [Conventions §The tombstone rule](Conventions.md#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names)). See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
+> **`:rf.cofx` is the recordable-coeffect envelope field.** It is a flat map; there is no `:rf.world/inputs` key. Supplying one in dispatch opts has no dedicated error id — it rides the generic `:rf.warning/unknown-dispatch-opt` surface with a did-you-mean naming `:rf.cofx` (per [Conventions §The tombstone rule](Conventions.md#the-tombstone-rule--dedicated-retired-name-error-ids-only-for-shipped-names)). See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
 
-> **`:dispatched-at` is retired.** There is no `:dispatched-at` envelope key. The durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
+> **No `:dispatched-at` key.** There is no `:dispatched-at` envelope key. The durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
 
 ### `:rf/dispatch-opts`
 
@@ -197,7 +207,7 @@ The single most-touched runtime shape in application code: the map a handler rec
    [:rf.frame/id                           :keyword]                  ;; the running frame's ID — the event-context spelling; NOT the record, NOT a bare `:frame`
    [:rf.cofx                #'Cofx]                                   ;; the envelope's recordable-coeffect map (always staged — a framework context key, reachable how `:event` is)
    [:rf.cofx/mint-policy    {:optional true} :keyword]                ;; framework-internal: the resolved effective mint policy (not for app bodies)
-   [:source                 {:optional true} :keyword]                ;; the envelope's trigger kind, when threaded (see `:rf/dispatch-envelope` `:source`)
+   [:source                 :keyword]                                 ;; the envelope's trigger kind — a framework-default coeffect key (always present) (see `:rf/dispatch-envelope` `:source`)
    [:trace-id               {:optional true} :any]]                   ;; the envelope's trace id, when threaded
    ;; open: declared recordable/ambient coeffects arrive FLAT under their own
    ;;   owner-qualified ids (per `:rf.cofx/requires` — 002 §Recordable coeffects);
@@ -458,7 +468,7 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 
 `:rf/args` / `:rf/form` are stamped by the `reg-view` macro at expansion time; `reg-view*` (the plain-fn surface) carries neither — programmatic registrations have no args-vector to capture (per [004 §`reg-view*` — the plain-fn escape hatch](004-Views.md#reg-view--the-plain-fn-escape-hatch)). `:rf/props` is an optional user-supplied props schema; in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
-**Note — `:schema` is canonical.** Story's earlier reading of `:schema` (as a legacy alias to the framework's `:spec`) is now in line with the canonical name — both Story and the framework speak `:schema`. See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
+**Note — `:schema` is canonical.** Both Story and the framework read the `:schema` key (there is no `:spec` alias). See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
 
 #### `:rf/machine-meta`
 
@@ -599,7 +609,7 @@ The metadata stored in the per-frame interceptor slot for a registration made vi
     [:id              :keyword]                                            ;; required, addressable for clear
     [:before  {:optional true} fn?]                                        ;; optional, request-side transform: (fn [ctx] ctx')
     [:after   {:optional true} fn?]                                        ;; optional, response-side transform: (fn [ctx response] response')
-    [:frame                    :keyword]                                   ;; runtime-stamped from user-supplied :frame or :rf/default
+    [:frame                    :keyword]                                   ;; runtime-stamped from user-supplied :frame or the established scope (no :rf/default fallback — EP-0002)
     ]])
 ```
 
@@ -740,7 +750,7 @@ Every effect — including dispatching another event, scheduling a delayed dispa
 
 The single-form rule lets the runtime walk one ordered list of effects, and fits the pattern's regularity-over-cleverness principle ([Principles.md §Regularity](Principles.md#regularity-over-cleverness)). Migrating from earlier re-frame versions: see [MIGRATION.md](../migration/from-re-frame-v1/README.md).
 
-Note the schema is **closed** — unlike most spec-internal shapes which are open maps. The effect map is a contract between handler and runtime; novel keys would be silently ignored, which is exactly the kind of footgun the closed shape rules out. The partition split first widened the closed set from `#{:db :fx}` to `#{:db :rf.db/runtime :fx}` (`:rf.db/runtime` reserved for framework-authority writers); EP-0025 then widened it further to the seven-key set `#{:db :rf.db/runtime :fx :sensitive :large :clear-sensitive :clear-large}` — the four commit-plane classification effects join the set so `police-final-effects!` does not drop them as foreign top-level keys. All other unknown top-level keys remain errors per the existing shape-policing contract.
+Note the schema is **closed** — unlike most spec-internal shapes which are open maps. The effect map is a contract between handler and runtime; novel keys would be silently ignored, which is exactly the kind of footgun the closed shape rules out. The closed set is the seven-key set `#{:db :rf.db/runtime :fx :sensitive :large :clear-sensitive :clear-large}` — the four commit-plane classification effects join the set so `police-final-effects!` does not drop them as foreign top-level keys. All other unknown top-level keys remain errors per the existing shape-policing contract.
 
 **Normative ordering and atomicity.** Beyond the shape, the effect map carries a runtime-ordering contract that conformant implementations must produce: `:db` is the first side effect (when present, committed atomically before any `:fx` entry); `:fx` entries are processed in source order, serially (entry N's fx-handler returns before entry N+1's begins); subscriptions observe the post-`:db` state from the first `:fx` entry onwards; if an fx-handler throws, subsequent `:fx` entries continue to run and each error is traced as `:rf.error/fx-handler-exception`. See [002 §`:fx` ordering and atomicity guarantees](002-Frames.md#fx-ordering-and-atomicity-guarantees) for the full rules and rationale.
 
@@ -964,8 +974,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; `:unresolved-input` (the full query-vector that failed to resolve),
   ;; and `:resolved-inputs` (the `:<-` inputs resolved before the miss —
   ;; empty, since the miss is detected on the `sub-meta` lookup before any
-  ;; input is resolved). Re-synced from the earlier `:rf.sub/query-v`
-  ;; shape.
+  ;; input is resolved).
   [:map
    [:category         :keyword]         ;; [:= :rf.error/no-such-sub] in a closed schema
    [:rf.sub/id        :keyword]
@@ -1030,7 +1039,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def NoSuchCofxTags
   [:map
-   [:category          :keyword]            ;; EP-0017: a required cofx id with no registration is `:rf.error/unregistered-cofx` (the typo case); a registered-but-unsatisfiable fact is `:rf.error/missing-required-cofx`. The v1 `:rf.error/no-such-cofx` is retired with `inject-cofx`.
+   [:category          :keyword]            ;; EP-0017: a required cofx id with no registration is `:rf.error/unregistered-cofx` (the typo case); a registered-but-unsatisfiable fact is `:rf.error/missing-required-cofx`.
    [:rf.cofx/id        :keyword]
    [:rf.cofx/arg       {:optional true} :any]   ;; the requirement-arg, present only for a parameterized `[id arg]` requirement (the requirement-arg rides `:rf.cofx/arg`; `:rf.cofx/value` is reserved for the PRODUCED coeffect value on `:rf.cofx/run`)
    [:rf.trace/event-id {:optional true} :keyword]])
@@ -1090,9 +1099,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; structurally malformed (a childless `[:vector]`, an unknown op, …) so
   ;; the registered validator THROWS at validate-time rather than returning
   ;; true/false. `validate-app-schema!` isolates the throw per-entry, emits
-  ;; this DISTINCT category (so it can never masquerade as a clean validate
-  ;; — the prior fail-OPEN bypass swallowed it as a silent pass and
-  ;; disabled validation frame-wide), fails CLOSED (`:rollback? true` →
+  ;; this DISTINCT category (so it can never masquerade as a clean
+  ;; validate), fails CLOSED (`:rollback? true` →
   ;; rollback), and keeps validating the frame's sibling schemas. The
   ;; router's defensive catch emits the SAME category (with `:rollback?
   ;; false`) when a wholesale validator-machinery throw still reaches it,
@@ -2156,14 +2164,13 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; macro elides them). As-written user source and programmatic `reg-machine*`
 ;; specs carry a bare `fn?` value instead; the runtime accepts both (and a
 ;; `keyword?` indirection). The macro path co-locates source onto each entry —
-;; superseding the former `:rf.machine/source-coords` + `:rf.machine/handler-
-;; source` side-indexes (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
+;; there is no side-index (per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping)).
 ;;
 ;; REFERENCE-SITE COORD. Each :states-tree MAP node (a state-node,
 ;; a transition map under :on / :always / :after, a :spawn map) additionally
 ;; co-locates its OWN reference-site `:source-coords` directly on the node —
-;; DEBUG-only, absent in production (the macro elides it). This supersedes the
-;; former flat `:rf.machine/state-coords` side-index that paralleled :states.
+;; DEBUG-only, absent in production (the macro elides it); there is no flat
+;; side-index paralleling :states.
 ;; Inline-fn / keyword slots (:entry / :exit / :guard / :action / :on-spawn)
 ;; hold a value, not a map, so they carry no coord of their own; a tool reads
 ;; the nearest enclosing map node's `:source-coords`. The runtime ignores the
@@ -2246,7 +2253,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-done    {:optional true} fn?]                                       ;; (fn [{:keys [data result]}] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Returns the parent's new `:data` map. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:on-error   {:optional true} [:or Transition [:vector Transition]]]      ;; CHILD-FAILURE control flow (XState v5 invoke `onError`) — an `:on`-SHAPED transition spec (NOT a fn like `:on-done`): a keyword target, a vector-path target, a single transition map `{:target :guard :action}`, or a guarded candidate vector. Fires when the spawned child FAILS — it reaches a designated error `:final?` leaf (`:error? true`, above), OR one of its actions throws an uncaught exception. The PARENT moves to the transition's `:target` (resolved at the `:spawn`-bearing state's OWN level — a keyword target is a sibling), running its `:guard` / `:action`; the error payload rides on the transition's `:event`. Success (`:on-done`) and failure (`:on-error`) are mutually exclusive per finish; both MAY be declared on one `:spawn` map. A malformed `:on-error` shape is rejected at registration with `:rf.error/machine-bad-on-error-clause`. Absent `:on-error` is fine — the trace + the dispatch-back-to-parent escape hatch remain. Per [005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
-   [:fixed-actor-id {:optional true} :keyword]                             ;; explicit actor-address input instead of gensym (per-state singleton actor) — was the overloaded `:spawn-id`
+   [:fixed-actor-id {:optional true} :keyword]                             ;; explicit actor-address input instead of gensym (per-state singleton actor)
    [:timeout    {:optional true} [:or pos-int? :string]]                    ;; EP-0029 A4 SPAWN-LEVEL deadline bounding the CHILD's whole lifetime — same duration grammar as the state-level `:timeout` (positive-integer literal-ms OR ISO-8601 duration STRING; the XState `"5s"` / `"10ms"` shorthand is REJECTED). REQUIRES a sibling `:on-timeout`. Desugars onto the spawn-bearing state's `:after`, anchored to that state's entry; child completion cancels it. This is the EP-0029 reintroduction of a spawn-level timeout — DISTINCT from the pre-EP `:timeout-ms` slot, which stays REMOVED (see the note below). Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
    [:on-timeout {:optional true} [:or Transition [:vector Transition]]]      ;; EP-0029 A4 — the parent transition taken when the spawn-level `:timeout` deadline elapses; same `:on`-shaped grammar as `:on-error`. REQUIRES a sibling `:timeout`. Per [005 §`:timeout` / `:on-timeout`](005-StateMachines.md#timeout--on-timeout-state--spawn).
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf.runtime/machines :system-ids <sid>] in the spawning frame
@@ -2281,20 +2288,20 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:id-prefix   {:optional true} :keyword]
    [:on-spawn    {:optional true} [:or :keyword fn?]]
    [:start       {:optional true} [:vector :any]]
-   [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton) — was `:spawn-id`
+   [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton)
    [:system-id   {:optional true} :keyword]])
 
 (def InvokeAllSpec
   [:map
    [:children         [:vector InvokeAllChildSpec]]                         ;; vector of ≥ 1 child spec
    [:join             {:optional true}
-                      [:enum :all :any]]                                    ;; default :all — closed two-member enum (rf2-w8gxxz cut {:n N} / {:fn pred})
+                      [:enum :all :any]]                                    ;; default :all — closed two-member enum (no {:n N} / {:fn pred} forms)
    [:on-child-done    :keyword]                                             ;; child → parent event keyword (required)
    [:on-child-error   :keyword]                                             ;; child → parent event keyword (required)
    [:on-all-complete  {:optional true} [:vector :any]]                      ;; required iff :join is :all (registration-time check)
    [:on-some-complete {:optional true} [:vector :any]]                      ;; required iff :join is :any
    [:on-any-failed    {:optional true} [:vector :any]]])                    ;; optional; if absent, child failures don't short-circuit
-;; Sibling cancellation on join resolution is UNCONDITIONAL — rf2-w8gxxz cut
+;; Sibling cancellation on join resolution is UNCONDITIONAL — there is no
 ;; the `:cancel-on-decision?` key (no non-cancelling-join opt-out).
 ;; `:spawn-all` carries NO spawn-level `:timeout` of its own (unlike single
 ;; `:spawn`, EP-0029 A4). A wall-clock deadline bounding a `:spawn-all`-bearing
@@ -3287,7 +3294,7 @@ The shape of the route slice — lives in **runtime-db** at `[:rf.runtime/routin
    [:query       {:optional true} :map]                                    ;; query params (matches the route's :query schema; includes :query-defaults)
    [:fragment    {:optional true} [:maybe :string]]                        ;; URL fragment (#section); nil when absent. Per [012 §Fragments](012-Routing.md#fragments).
    [:transition  {:optional true} [:enum :idle :loading :error]]           ;; navigation transition state
-   [:error       {:optional true} :any]                                    ;; populated when :transition = :error; conforms to :rf/error per 009
+   [:error       {:optional true} :any]                                    ;; populated when :transition = :error; conforms to :rf/error-event per 009
    [:nav-token   {:optional true} :any]])                                  ;; per-navigation epoch token; per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)
 ```
 
@@ -3313,7 +3320,7 @@ The shape of the **stored / effective** route-meta. Reserved keys per [012 §Res
    [:tags            {:optional true} [:set :keyword]]
    [:parent          {:optional true} :keyword]                            ;; parent route id; used by :rf.route/chain sub
    [:on-match        {:optional true} [:vector [:vector :any]]]            ;; events to dispatch when this route becomes active
-   [:on-error        {:optional true} [:vector :any]]                      ;; event to dispatch if any :on-match event errors
+   [:on-error        {:optional true} [:vector :any]]                      ;; event vector to dispatch if any :on-match event errors. NB: the machine `:spawn` slot also has an `:on-error` key with a DIFFERENT shape (an :on-shaped Transition — see §:rf/invoke-all-spec); disambiguate by owner
    [:can-leave       {:optional true} :keyword]                            ;; sub-id; (subscribe [<sub-id>]) returns boolean — true means "OK to leave". Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:can-enter       {:optional true} :keyword]                            ;; sub-id; enter-gate mirror of :can-leave (rf2-p69yaz). Block dispatches :rf.route/entry-blocked. Per [012 §Navigation blocking](012-Routing.md#navigation-blocking--pending-nav-protocol).
    [:scroll          {:optional true} [:or
@@ -3390,7 +3397,7 @@ Per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event). The **canon
    [:rf/version       :int]                                                ;; pattern-protocol version (integer; v1 = 1)
    [:rf/frame-id      :keyword]                                            ;; the frame id to seed
    [:rf/app-db        :any]                                                ;; serialised app-db PARTITION (authoritative)
-   [:rf/runtime-db    {:optional true} :rf/runtime-db]                     ;; serialised SERIALIZABLE runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event)). Carries ONLY durable facts; transient side channels (request/response accumulators, head snapshots, streaming registries, host handles) are excluded (Mike ruling #13). Together with :rf/app-db the two slices install a coherent FRAME-STATE. Absent on a frame that hydrates no framework runtime state.
+   [:rf/runtime-db    {:optional true} :rf/runtime-db]                     ;; serialised SERIALIZABLE runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata (per [011 §The :rf/hydrate event](011-SSR.md#the-rfhydrate-event)). Carries ONLY durable facts; transient side channels (request/response accumulators, head snapshots, streaming registries, host handles) are excluded. Together with :rf/app-db the two slices install a coherent FRAME-STATE. Absent on a frame that hydrates no framework runtime state.
    [:rf/ssr-rendered-at {:optional true} :int]                             ;; ms-since-epoch the server completed render
    [:rf/render-hash   {:optional true} :string]                            ;; structural hash of the server-rendered render-tree, for mismatch detection. Covers both body and head — the runtime emits a single `:rf.ssr/hydration-mismatch` and discriminates head-vs-body via the `:failing-id` tag (per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection)). The head-hash surface (a separate `:rf/head-hash` key) is reserved for the still-deferred post-v1 head-only-hash extension (a distinct hash channel for head structure — `reg-head` itself has already shipped) and not part of the v1 wire.
    [:rf/schema-digest {:optional true} :string]                            ;; hash of the server's registered app-schema set (per [010-Schemas.md](010-Schemas.md))
@@ -3680,7 +3687,7 @@ These are registered under spec ids:
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
-| `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword :rf/event-vector]`; per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
+| `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword [:ref :rf/event]]` (per [§`:rf/event`](#rfevent-the-event-vector)); per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |
@@ -3722,8 +3729,8 @@ Returned by `(frame-meta frame-id)`. The `:preset` field, when present, records 
                [:map [:event [:vector :any]] [:opts {:optional true} :map]]]]] ;; map step with dispatch opts
     [:on-destroy   {:optional true} [:vector :any]]
     [:fx-overrides {:optional true} [:map-of :keyword :any]]
-    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]
-    [:interceptors {:optional true} [:vector :any]]
+    [:interceptor-overrides {:optional true} [:map-of :keyword :any]]       ;; the InterceptorOverrides map (per §:rf/interceptor-ref)
+    [:interceptors {:optional true} [:vector [:ref :rf/interceptor-ref]]]  ;; same ref-chain shape as reg-event metadata
     [:drain-depth  {:optional true} :int]
     [:url-bound?   {:optional true} :boolean]                              ;; per [012-Routing.md](012-Routing.md)
     [:platform     {:optional true} :keyword]                              ;; the frame's active platform; per [011-SSR.md](011-SSR.md). Single keyword (one platform per frame); compared against `reg-fx`'s `:platforms` set.
@@ -3925,7 +3932,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
    ])
 ```
 
-**Frame-state is the canonical snapshot unit (Mike ruling #2).** `:frame-state-before` / `:frame-state-after` are the canonical fields and the unit `restore-epoch!` rewinds to — a restore meant to revive machines, routes, elision, or SSR state restores the whole frame-state, not just the app-db projection. The `:db-before` / `:db-after` pair is an **optional app-db projection** of the canonical frame-state (`(:rf.db/app frame-state-before)` / `…-after`), retained so pair tools can display app-db diffs cheaply without re-projecting. There is no ambiguous bare `:db-before` unit any more — the field, when present, is explicitly the app-db projection.
+**Frame-state is the canonical snapshot unit.** `:frame-state-before` / `:frame-state-after` are the canonical fields and the unit `restore-epoch!` rewinds to — a restore meant to revive machines, routes, elision, or SSR state restores the whole frame-state, not just the app-db projection. The `:db-before` / `:db-after` pair is an **optional app-db projection** of the canonical frame-state (`(:rf.db/app frame-state-before)` / `…-after`), retained so pair tools can display app-db diffs cheaply without re-projecting. There is no ambiguous bare `:db-before` unit any more — the field, when present, is explicitly the app-db projection.
 
 **Identity spellings: two deliberate layers.** Trace and epoch surfaces carry identity in two distinct layers, each with ONE canonical spelling per concept — so a consumer never needs a context-specific alias *within a layer*:
 
@@ -3942,7 +3949,7 @@ Per-frame epoch snapshot, recorded **per dequeued event** in dev builds — one 
 
 `:trace-events` is optional because for long histories the per-epoch trace can be large — implementations may choose to drop traces from older epochs. The structured slots have the same per-epoch-storage tradeoff and may likewise be elided for older epochs in the ring buffer.
 
-**Redacted slot values.** When the app installs an `:epoch-history` `:redact-fn` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)), any slot value the fn rewrites may be the `:rf/redacted` sentinel or an app-chosen redacted shape — the record schema is open to substitution at every leaf, and consumers MUST tolerate `:rf/redacted` (or arbitrary app-supplied shapes) in `:frame-state-before`, `:frame-state-after`, the `:db-before` / `:db-after` projections, `:trigger-event`, `:trace-events`, and the structured projections. Off-box egress redacts/omits the runtime-db side of frame-state by default (Mike ruling #14 — per [011](011-SSR.md) and [Privacy §Rule summary](Privacy.md#rule-summary)); trusted-local tools may request richer diagnostics explicitly.
+**Redacted slot values.** When the app installs an `:epoch-history` `:redact-fn` (per [Tool-Pair §Time-travel](Tool-Pair.md#time-travel-epoch-snapshots-and-undo) and [Security §Epoch privacy posture](Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)), any slot value the fn rewrites may be the `:rf/redacted` sentinel or an app-chosen redacted shape — the record schema is open to substitution at every leaf, and consumers MUST tolerate `:rf/redacted` (or arbitrary app-supplied shapes) in `:frame-state-before`, `:frame-state-after`, the `:db-before` / `:db-after` projections, `:trigger-event`, `:trace-events`, and the structured projections. Off-box egress redacts/omits the runtime-db side of frame-state by default ( per [011](011-SSR.md) and [Privacy §Rule summary](Privacy.md#rule-summary)); trusted-local tools may request richer diagnostics explicitly.
 
 #### Outcomes
 

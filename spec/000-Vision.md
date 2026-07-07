@@ -530,7 +530,7 @@ Hot-reloading the same handler under the same id is normal and expected (figwhee
 
 ### Plain Reagent fns under non-default frames
 
-Plain fns continue to work inside an established frame scope; a plain fn carries no `:contextType`, so it cannot read the surrounding frame scope (whether established by a `with-frame` or a `frame-provider`), and a bare `subscribe` / `dispatch` in it raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` fall-through). `(rf/capture-frame)` gives frame-awareness without registering (its `:dispatch` / `:subscribe` ops capture the render frame). See [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error).
+Plain fns continue to work inside an established frame scope; a plain fn carries no `:contextType`, so it cannot read the surrounding frame scope (whether established by a `with-frame` or a `frame-provider`), and a bare `subscribe` / `dispatch` in it raises `:rf.error/no-frame-context` (EP-0002 — there is no `:rf/default` fall-through). `(rf/capture-frame)` gives frame-awareness without registering (its `:dispatch` / `:subscribe` ops capture the render frame). See [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-no-frame-injection).
 
 ### Event shape and dispatch envelope
 
