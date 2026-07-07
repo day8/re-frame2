@@ -97,4 +97,4 @@ Friction that is really a gap in re-frame2's Tool-Pair surface or spec — not t
 
 - [`references/`](references) — anti-pattern catalogue + routing table. Each leaf carries detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to `skills/re-frame2/patterns/` or `spec/`.
 - [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Consumed by this skill and `re-frame2-pair-retro`.
-- [`spec/`](spec) — skill-internal meta-docs (design rationale, canonical inputs, re-authoring prompt). Not loaded during normal operation; exists to re-author the skill from committed inputs.
+- [`spec/`](spec) — skill-internal meta-docs (design rationale, canonical inputs, re-authoring prompt). Not loaded during normal operation and not shipped in the package; reach it from a monorepo clone to re-author the skill.
