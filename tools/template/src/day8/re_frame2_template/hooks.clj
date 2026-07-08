@@ -140,8 +140,11 @@
 ;; deterministic — we allowlist it and reject anything outside it. If the
 ;; pinned deps-new version is bumped and adds a harness key, this list must
 ;; grow in lockstep (the gate would otherwise false-reject the new key);
-;; `arg-key-gate-rejects-unknown-test` exercises a representative harness
-;; key to keep that coupling honest.
+;; `harness-keys-not-rejected-test` exercises a representative harness key
+;; (`:overwrite`) to confirm the allowlist doesn't false-reject it, and
+;; `misspelled-story-flag-rejected-test` / `pluralised-story-flag-rejected-test`
+;; pin the negative direction (unknown keys ARE rejected) — together they
+;; keep that coupling honest.
 
 (def ^:private deps-new-harness-keys
   "The keys deps-new injects into the `data` map before `data-fn` runs
