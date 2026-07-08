@@ -233,6 +233,75 @@
               "GET is no longer an allowed method")
           (is (zero? (count @calls))))))))
 
+;; ---- security negatives: the load-bearing rejection branches (rf2-jwdi4r) --
+;;
+;; The two adversarial paths the existing guard suite did NOT drive
+;; end-to-end. Both are safety branches — a false negative here re-opens the
+;; drive-by editor-launch vector — so each asserts the request is rejected
+;; AND `launch!` is never reached.
+
+(deftest guard-rejects-opaque-null-origin-post
+  (testing "rf2-jwdi4r: a POST carrying the opaque `Origin: null` (a
+            sandboxed iframe / `file:` page drive-by — the very context
+            `origin-host` documents as yielding nil) is rejected 403 and
+            NEVER reaches launch!. The Host is loopback, so this isolates the
+            ORIGIN gate: `origin-host` maps \"null\" → nil, which is not a
+            loopback origin, so `local-request?` fails and the launch path is
+            never touched. (origin-host-extracts-and-rejects-opaque only
+            proves the \"null\" → nil unit step; this proves the POST is
+            actually refused end-to-end.)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :post
+                           :host   "localhost:8031"
+                           :origin "null"
+                           :file   "/etc/passwd"}))]
+          (is (= 403 (:status resp)) "opaque-origin POST is forbidden")
+          (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
+          (is (zero? (count @calls)) "launch! was NEVER called")
+          (is (= "null" (get-in resp [:headers "access-control-allow-origin"]))
+              "CORS denies via `null` — never reflects the opaque origin, never `*`")
+          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))))))))
+
+(deftest guard-options-preflight-denies-remote-origin
+  (testing "rf2-jwdi4r: an OPTIONS preflight is answered BEFORE the
+            `local-request?` guard (it is the first `cond` branch in
+            `handle`), so `allow-origin` is the SOLE gate on preflight CORS.
+            A preflight from a REMOTE origin must therefore get
+            `access-control-allow-origin: null` (deny) — never `*` and never
+            the reflected remote origin — so the browser blocks the follow-up
+            cross-origin POST. launch! is never touched. (The existing
+            preflight test only covers the loopback-origin ALLOW case.)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :options
+                           :host   "localhost:8031"
+                           :origin "https://evil.example"}))]
+          (is (= 204 (:status resp)) "preflight still answers 204")
+          (is (= "null" (get-in resp [:headers "access-control-allow-origin"]))
+              "the remote origin is DENIED via `null`")
+          (is (not= "*" (get-in resp [:headers "access-control-allow-origin"]))
+              "never a wildcard")
+          (is (not= "https://evil.example"
+                    (get-in resp [:headers "access-control-allow-origin"]))
+              "the remote origin is never reflected back")
+          (is (zero? (count @calls)) "launch! was NEVER called")))))
+  (testing "rf2-jwdi4r: an OPTIONS preflight from a non-loopback Host with no
+            Origin likewise denies (ao=null) — the allow-origin gate never
+            emits a usable CORS header for anything but a validated loopback
+            origin"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     (req {:method :options
+                           :host   "app.evil.example"
+                           :origin nil}))]
+          (is (= 204 (:status resp)))
+          (is (= "null" (get-in resp [:headers "access-control-allow-origin"])))
+          (is (zero? (count @calls))))))))
+
 (deftest guard-non-endpoint-path-falls-through
   (testing "a request for any other path still falls through (nil) untouched"
     (is (nil? (oies/handle {:uri "/something/else"
