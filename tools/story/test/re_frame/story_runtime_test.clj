@@ -627,6 +627,74 @@
         (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
             "editing a :network reply must produce a fresh hash")))))
 
+;; ---- rf2-8fz0n8: the STORY-side identity inputs (story-body-slice) --------
+;;
+;; `story-body-slice` selects the parent story's `[:component :decorators]`
+;; into the tuple's `:story` slot. Every existing snapshot-identity guard
+;; drives the VARIANT-level slots (rf2-bah5o2 `:component`, rf2-9g48l
+;; `:decorators`); the sibling STORY-level slots that a component-less /
+;; decorator-inheriting variant renders through were untested. That is the
+;; same silent-drop-from-select-keys failure class: a refactor dropping
+;; `:component` or `:decorators` from `story-body-slice`'s select-keys ships
+;; green. These pin both.
+
+(deftest snapshot-identity-changes-with-story-component
+  (testing "rf2-8fz0n8 — the PARENT STORY's `:component` participates in the
+            hash via `story-body-slice`'s `(select-keys body [:component
+            :decorators])`. The renderer resolves variant-first `(or
+            (:component variant) (:component story))`, so for a variant that
+            declares NO own `:component` the STORY's `:component` decides
+            WHICH view renders — a watch-session edit of the story-level
+            `:component` MUST perturb the child variant's snapshot identity.
+            RED against a refactor dropping `:component` from
+            `story-body-slice`'s select-keys — the STORY-side sibling of the
+            variant-override guard rf2-bah5o2."
+    (story/reg-story :story.story-comp {:component :view-a})
+    ;; Component-less variant — the rendered view is the STORY's `:component`.
+    (story/reg-variant :story.story-comp/v {:events []})
+    (let [h1 (-> (story/snapshot-identity :story.story-comp/v) :content-hash)]
+      (story/reg-story :story.story-comp {:component :view-b})
+      (let [h2 (-> (story/snapshot-identity :story.story-comp/v) :content-hash)]
+        (is (not= h1 h2)
+            "editing the parent story's :component must produce a fresh hash"))
+      (testing "the :story tuple slice carries the parent story's :component"
+        (is (= :view-b (get-in (ident/snapshot-tuple :story.story-comp/v)
+                               [:story :component]))
+            "story-body-slice must select :component")))))
+
+(deftest snapshot-identity-changes-with-story-decorators
+  (testing "rf2-8fz0n8 — the PARENT STORY's `:decorators` participate in the
+            hash via `story-body-slice`'s `(select-keys body [:component
+            :decorators])`. Story decorators wrap EVERY variant of the story
+            (composed before the variant's own), so a story-level decorator
+            edit changes the child variant's settled rendered state and MUST
+            perturb its snapshot identity. RED against a refactor dropping
+            `:decorators` from `story-body-slice`'s select-keys — the
+            STORY-side sibling of the variant-decorators guard rf2-9g48l."
+    (story/reg-decorator :centered
+      {:kind :hiccup :wrap (fn [body _args] [:div.centered body])})
+    (story/reg-decorator :boxed
+      {:kind :hiccup :wrap (fn [body _args] [:div.boxed body])})
+    (story/reg-story :story.story-dec {:component :app/v :decorators [[:centered]]})
+    (story/reg-variant :story.story-dec/v {:events []})
+    (let [h1 (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
+      (story/reg-story :story.story-dec {:component :app/v :decorators [[:boxed]]})
+      (let [h2 (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
+        (is (not= h1 h2)
+            "swapping the parent story's decorator must produce a fresh hash"))
+      (testing "adding a decorator to a previously-decoratorless story perturbs the child hash"
+        (story/reg-story :story.story-dec {:component :app/v :decorators []})
+        (let [h-empty (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
+          (story/reg-story :story.story-dec {:component :app/v :decorators [[:centered]]})
+          (let [h-with (-> (story/snapshot-identity :story.story-dec/v) :content-hash)]
+            (is (not= h-empty h-with)
+                "appending a story decorator must produce a fresh child hash"))))
+      ;; The previous block left the story registered with [[:centered]].
+      (testing "the :story tuple slice carries the parent story's :decorators"
+        (is (= [[:centered]] (get-in (ident/snapshot-tuple :story.story-dec/v)
+                                     [:story :decorators]))
+            "story-body-slice must select :decorators")))))
+
 ;; ---- rf2-chzryf: identity keys off EFFECTIVE tags, not raw child :tags ----
 ;;
 ;; Follow-on from rf2-n0vmq2/#5308. The shared `re-frame.story.tags`
@@ -692,6 +760,31 @@
       (let [h2 (-> (story/snapshot-identity :story.eff-tag-ext/child) :content-hash)]
         (is (not= h1 h2)
             "an :extends-parent tag edit perturbs the child's hash")))))
+
+(deftest snapshot-identity-changes-with-story-fallback-tag
+  (testing "rf2-8fz0n8 — for a TAGLESS variant (no own `:tags`, no `:extends`
+            chain that declares tags) the effective tag set FALLS BACK to the
+            parent story's `:tags` (`re-frame.story.tags/raw-inherited-tags`
+            story-fallback branch, reached through `effective-tags-slice`).
+            So editing the parent STORY's `:tags` changes the child's
+            effective classification and MUST perturb the child's snapshot
+            identity — even though the child's own `:tags` are empty and
+            `story-body-slice` never selects `:tags`. RED against a break in
+            `effective-tags-slice`'s story-fallback path; the story-fallback
+            sibling of the `:extends`-parent guard rf2-chzryf."
+    (story/reg-story :story.story-tag {:component :app/v :tags #{:docs}})
+    ;; Tagless variant — inherits the story's tags as the fallback default.
+    (story/reg-variant :story.story-tag/v {:events []})
+    (is (= #{:docs} (:effective-tags (ident/snapshot-tuple :story.story-tag/v)))
+        "the tagless variant inherits the parent story's tags (fallback)")
+    (let [h1 (-> (story/snapshot-identity :story.story-tag/v) :content-hash)]
+      ;; Edit ONLY the parent story's tags — the child's raw body is untouched.
+      (story/reg-story :story.story-tag {:component :app/v :tags #{:docs :test}})
+      (is (= #{:docs :test} (:effective-tags (ident/snapshot-tuple :story.story-tag/v)))
+          "the child's effective set now reflects the parent story's tag edit")
+      (let [h2 (-> (story/snapshot-identity :story.story-tag/v) :content-hash)]
+        (is (not= h1 h2)
+            "a parent-story tag edit perturbs the tagless child's hash")))))
 
 (deftest snapshot-identity-canonical-key-stable
   (testing "the canonical-version tag canonicalises and map key order is
