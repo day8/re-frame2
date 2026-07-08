@@ -44,6 +44,7 @@
     [clojure.string :as str]
     [re-frame.test-quiet]
     [re-frame.test-quiet.shadow-node-cli :as cli]
+    [re-frame.test-quiet.warn-buffer :as wb]
     [shadow.test.env :as env]
     [shadow.test :as st]
     [cljs.test :as ct]))
@@ -54,12 +55,6 @@
 ;; Installed at ns-load time so it's in place before shadow's
 ;; `run-all-tests` walks the test ns set.
 
-(def ^:private warn-buffer-cap
-  "Bounded warning ring size.  Caps memory + replay volume on a red run
-  while keeping enough recent context to explain a failure (the newest
-  `warn-buffer-cap` warnings are retained; older ones are dropped)."
-  256)
-
 (defonce ^:private warn-buffer
   ;; A bounded ring of buffered warning arg-vectors. `defonce` so a
   ;; hot-reload of this `:dev/always` ns does not clobber warnings
@@ -68,15 +63,12 @@
 
 (defn- buffer-warning!
   "Append `args` (one `console.warn` call's arguments) to the bounded
-  ring, dropping the oldest entries past `warn-buffer-cap`."
+  ring via `warn-buffer/bound-conj`, which caps the ring to the newest
+  `warn-buffer/warn-buffer-cap` entries and MATERIALISES the trimmed
+  window into a fresh vector — so discarded warnings are not retained via
+  a shared `subvec` backing (rf2-6emzlh)."
   [args]
-  (swap! warn-buffer
-         (fn [buf]
-           (let [buf' (conj buf args)
-                 n    (count buf')]
-             (if (> n warn-buffer-cap)
-               (subvec buf' (- n warn-buffer-cap))
-               buf')))))
+  (swap! warn-buffer wb/bound-conj args))
 
 (defn- replay-buffered-warnings!
   "Replay the buffered warnings to stderr, prefixed so they are

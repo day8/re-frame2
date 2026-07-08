@@ -44,7 +44,8 @@
   ;; anyway because shadow-node is the :node-test build's :main.
   (:require [cljs.test :refer-macros [deftest is testing] :refer [successful?]]
             [clojure.string :as str]
-            [re-frame.test-quiet.shadow-node-cli :as cli]))
+            [re-frame.test-quiet.shadow-node-cli :as cli]
+            [re-frame.test-quiet.warn-buffer :as wb]))
 
 ;; ----------------------------------------------------------------------
 ;; --test= selection / flag parsing.
@@ -89,6 +90,55 @@
         "multiple unknown flags accumulate in input order")
     (is (not (contains? (cli/parse-args ["--test=ok.ns"]) :unknown-args))
         "a clean arg set carries no :unknown-args key at all")))
+
+;; ----------------------------------------------------------------------
+;; Warning-ring memory bound — rf2-6emzlh.
+;;
+;; The buffered-`console.warn` ring claims to cap memory to the newest
+;; `warn-buffer-cap` warnings.  The pre-fix trim used `subvec`, which in
+;; ClojureScript shares — and thereby RETAINS — its entire underlying
+;; vector via `.-v` (and `conj`-ing onto a `Subvec` grows that underlying
+;; vector), so every discarded warning stayed alive until process exit and
+;; the "bound" leaked without limit.  `warn-buffer/bound-conj` now
+;; materialises the trimmed window into a fresh `PersistentVector`.  This
+;; is an in-memory STRUCTURAL property (the backing must not be a growing
+;; `Subvec`), so it can only be pinned as a pure unit test — not across the
+;; process boundary the other shadow-node pins use.
+
+(deftest warn-buffer-is-bounded-and-materialised
+  (testing "bound-conj retains only the newest cap entries as a fresh vector (rf2-6emzlh)"
+    ;; Fill FAR past a tiny cap: the ring must report exactly `cap` entries,
+    ;; hold the NEWEST ones, and — the core pin — its backing must NOT be a
+    ;; Subvec (which would retain the full discarded history via its shared
+    ;; underlying vector).
+    (let [cap 4
+          buf (reduce (fn [b i] (wb/bound-conj b [i] cap)) [] (range 1000))]
+      (is (= cap (count buf))
+          "the ring is bounded to cap entries no matter how many are appended")
+      (is (= [[996] [997] [998] [999]] buf)
+          "the ring retains the NEWEST cap entries, dropping the oldest")
+      (is (not (instance? cljs.core/Subvec buf))
+          (str "the trimmed ring must NOT be a Subvec — a Subvec shares and"
+               " retains its full underlying vector, so the bound would leak"
+               " every discarded warning until process exit (rf2-6emzlh)"))
+      (is (instance? cljs.core/PersistentVector buf)
+          "the trimmed ring is a materialised PersistentVector, not a view")))
+  (testing "below the cap the ring is a plain growing vector (no trim, no Subvec)"
+    (let [buf (reduce (fn [b i] (wb/bound-conj b [i] 10)) [] (range 3))]
+      (is (= [[0] [1] [2]] buf))
+      (is (not (instance? cljs.core/Subvec buf))
+          "an untrimmed ring is never a Subvec")))
+  (testing "under the REAL default cap the ring never exceeds warn-buffer-cap"
+    ;; Drive several multiples of the real cap through the real default arity
+    ;; so a regression that dropped the materialisation (or the cap) is caught
+    ;; against the production constant, not just a synthetic tiny cap.
+    (let [buf (reduce (fn [b i] (wb/bound-conj b [i]))
+                      []
+                      (range (* 4 wb/warn-buffer-cap)))]
+      (is (= wb/warn-buffer-cap (count buf))
+          "the ring stays capped at the production warn-buffer-cap")
+      (is (not (instance? cljs.core/Subvec buf))
+          "the production-cap ring must not degrade into a retaining Subvec"))))
 
 ;; ----------------------------------------------------------------------
 ;; Var filtering — simple symbols match by ns, qualified by fully-qualified
