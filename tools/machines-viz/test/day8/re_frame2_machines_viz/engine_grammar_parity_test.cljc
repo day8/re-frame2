@@ -40,7 +40,9 @@
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.grammar :as g]
+            [re-frame.machines.choice :as choice]
             [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.timeout :as timeout]
             [re-frame.machines.transition :as transition]))
 
 ;; ---------------------------------------------------------------------------
@@ -256,3 +258,142 @@
              (viz-resolve-target-path decl-path target))
           (str "target-path resolution drifted for decl-path "
                (pr-str decl-path) " target " (pr-str target))))))
+
+;; ---------------------------------------------------------------------------
+;; PARITY 5 — resolve-timeout-ms vs resolve-duration-ms (EP-0029 A4)
+;;
+;; PARITY: mirror of re-frame.machines.timeout/resolve-duration-ms — if this
+;; fails, the viz duration resolver drifted from the engine; re-sync, do not
+;; delete.
+;;
+;; grammar/resolve-timeout-ms (grammar.cljc) re-states, bundle-isolated from
+;; the runtime `machines` artefact, the engine's `:timeout` duration
+;; grammar: a POSITIVE INTEGER literal ms, OR an ISO-8601 duration STRING
+;; (fixed 365-day / 30-day year/month convention, fractional seconds rounded
+;; to the nearest ms), with EVERYTHING else — the XState "5s"/"10ms"
+;; shorthand, a non-positive/non-integer number, a bare "P", a fn/vector/nil
+;; — resolving to nil. The chart / mermaid / SCXML emitters render the ms
+;; the resolver produces (`after / <ms>` label, clock glyph, SCXML delay),
+;; so a drift in the arithmetic re-times every rendered timeout relative to
+;; what the engine actually fires.
+
+(def ^:private duration-fixtures
+  "Representative :timeout durations spanning every arm: positive-integer
+  literal, each ISO-8601 component, combined components, fractional
+  seconds, case-insensitivity, and every reject-to-nil shape (XState
+  shorthand, non-positive/non-integer, degenerate ISO, wrong type)."
+  [;; positive-integer literal ms
+   5000 1 999999
+   ;; ISO-8601 single components
+   "PT5S" "PT2M" "PT1H" "P1D" "P1W" "P1M" "P1Y"
+   ;; combined
+   "PT1H30M" "P1DT1H1M1S"
+   ;; fractional seconds (round to nearest ms)
+   "PT0.5S" "PT1.5S" "PT0.25S" "PT0.001S"
+   ;; case-insensitive
+   "pt5s" "p1d"
+   ;; non-positive / non-integer numbers → nil
+   0 -5 1.5
+   ;; XState shorthand → nil (operator-ruled divergence)
+   "5s" "10ms" "2m"
+   ;; degenerate / malformed ISO → nil
+   "P" "PT" "PT0S" "P0D" "soon" ""
+   ;; wrong types → nil
+   nil [1000] :pt5s])
+
+(deftest resolve-timeout-ms-parity
+  (testing "viz grammar/resolve-timeout-ms agrees with the engine
+            timeout/resolve-duration-ms on every duration shape"
+    (doseq [d duration-fixtures]
+      (is (= (timeout/resolve-duration-ms d)
+             (g/resolve-timeout-ms d))
+          (str "timeout duration resolution drifted for " (pr-str d))))))
+
+;; ---------------------------------------------------------------------------
+;; PARITY 6 — desugar-timeouts (EP-0029 A4)
+;;
+;; PARITY: mirror of re-frame.machines.timeout/desugar-timeouts — if this
+;; fails, the viz `:timeout` → `:after` lowering drifted from the engine;
+;; re-sync, do not delete.
+;;
+;; project-definition (layout.cljc) calls g/desugar-grammar — which applies
+;; g/desugar-timeouts — as the shared ingestion boundary for all three
+;; emitters, so the emitters render the SAME lowered `:after` table the
+;; engine drives. Both lower state-level, spawn-level, root-level, nested-
+;; compound, and parallel-region `:timeout` / `:on-timeout` into the
+;; equivalent `:after` entry; the two must produce EQUAL machine-defs so a
+;; rendered timer lands on the delay the engine actually fires. (The engine
+;; short-circuits a timeout-free machine to the identical object; the viz
+;; rebuilds it value-equal — the `=` assertion covers both.)
+
+(def ^:private timeout-machine-fixtures
+  "Representative machine-defs spanning every desugar arm."
+  [;; state-level timeout coexisting with :on
+   {:initial :a
+    :states  {:a {:timeout 1000 :on-timeout :b :on {:x :c}} :b {} :c {}}}
+   ;; ISO-8601 state timeout
+   {:initial :a :states {:a {:timeout "PT2S" :on-timeout :done} :done {}}}
+   ;; synthetic entry merges into an existing :after (collision → explicit wins)
+   {:initial :a
+    :states  {:a {:after {2000 :explicit} :timeout "PT2S" :on-timeout :from-timeout}}}
+   ;; spawn-level timeout anchored on the state :after
+   {:initial :a
+    :states  {:a {:spawn {:machine :child :timeout 500 :on-timeout :fallback}
+                  :on    {:x :b}}
+              :b {}}}
+   ;; root-level (whole-machine) timeout
+   {:initial :a :timeout 3000 :on-timeout :expired :states {:a {}}}
+   ;; nested compound
+   {:initial :outer
+    :states  {:outer {:initial :inner
+                      :states  {:inner {:timeout 1000 :on-timeout :done} :done {}}}}}
+   ;; parallel regions
+   {:type    :parallel
+    :regions {:r1 {:initial :x :states {:x {:timeout 1000 :on-timeout :y} :y {}}}
+              :r2 {:initial :p :states {:p {} :q {}}}}}
+   ;; timeout-free control (engine returns unchanged; viz rebuilds value-equal)
+   {:initial :a :states {:a {:on {:x :b}} :b {:after {500 :a}}}}])
+
+(deftest desugar-timeouts-parity
+  (testing "viz grammar/desugar-timeouts agrees with the engine
+            timeout/desugar-timeouts across every machine shape"
+    (doseq [m timeout-machine-fixtures]
+      (is (= (timeout/desugar-timeouts m)
+             (g/desugar-timeouts m))
+          (str ":timeout desugar drifted for " (pr-str m))))))
+
+;; ---------------------------------------------------------------------------
+;; PARITY 7 — desugar-choices (EP-0029 A5)
+;;
+;; PARITY: mirror of re-frame.machines.choice/desugar-choices — if this
+;; fails, the viz `:type :choice` → `:always` lowering drifted from the
+;; engine; re-sync, do not delete.
+;;
+;; g/desugar-grammar also applies g/desugar-choices at the shared ingestion
+;; boundary, so the emitters render the same lowered `:always` candidate
+;; vector the engine drives. Both lower a flat, nested-compound, and
+;; region-nested `:type :choice` state into an ordinary state carrying its
+;; `:choice` candidate vector under `:always`; the two must agree.
+
+(def ^:private choice-machine-fixtures
+  "Representative machine-defs spanning every choice-desugar arm."
+  [;; flat choice state with guarded candidates
+   {:initial :gate
+    :states  {:gate {:type :choice :choice [{:guard :g1 :target :a} {:target :b}]}
+              :a {} :b {}}}
+   ;; nested-compound + region-nested choice states together
+   {:initial :outer
+    :states  {:outer {:initial :gate
+                      :states  {:gate {:type :choice :choice [{:target :a}]} :a {}}}}
+    :regions {:r1 {:initial :rgate
+                   :states  {:rgate {:type :choice :choice [{:target :a}]} :a {}}}}}
+   ;; choice-free control (engine returns unchanged; viz rebuilds value-equal)
+   {:initial :a :states {:a {:always [{:target :b}]} :b {}}}])
+
+(deftest desugar-choices-parity
+  (testing "viz grammar/desugar-choices agrees with the engine
+            choice/desugar-choices across every machine shape"
+    (doseq [m choice-machine-fixtures]
+      (is (= (choice/desugar-choices m)
+             (g/desugar-choices m))
+          (str ":choice desugar drifted for " (pr-str m))))))
