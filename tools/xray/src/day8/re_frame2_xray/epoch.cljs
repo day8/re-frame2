@@ -189,8 +189,11 @@
   ;; epoch-id. The view supplies both from `:rf.xray/observed-frame` +
   ;; `:rf.xray/focus-epoch-id` so this event stays a thin trampoline into
   ;; the `:rf.xray.fx/restore-epoch` effect (which calls the framework's
-  ;; `rf/restore-epoch!`, targeting the epoch's `:db-after` — "if the
-  ;; event still exists, app state must be as if the event happened").
+  ;; `rf/restore-epoch!`, reinstalling the epoch's WHOLE `:frame-state-after`
+  ;; — app-db AND runtime-db in one atomic write, per epoch ·
+  ;; `restore-epoch!`; the retained `:db-after` is only an app-db projection
+  ;; for diffs, never the restore source — "if the event still exists, app
+  ;; state must be as if the event happened").
   ;; No dialog, no confirmation — the button just does it (programmers
   ;; are power users). A nil frame / epoch-id is a guarded no-op (the
   ;; button is disabled when no epoch is focused, but the event stays
