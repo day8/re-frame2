@@ -14,7 +14,7 @@
    - `:rf.route/handle-url-change`
    - `:rf.route/continue` / `:rf.route/cancel`
    - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
-   - `:rf/url-requested`
+   - `:rf.route/url-requested`
    - `with-base-path` — this example is served from a sub-path, so its
      `:url-strategy` wraps the default history strategy (see ROUTER WIRING
      below)"

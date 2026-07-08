@@ -55,7 +55,7 @@
   ;; Step 3: Try to navigate to /cart. The :can-leave guard rejects.
   ;; :rf/pending-navigation gets set; :rf.nav/push-url is NOT emitted; URL unchanged;
   ;; :rf/route slice unchanged; :rf.route/navigation-blocked trace fires.
-  [:rf/url-requested {:url "/cart"}]
+  [:rf.route/url-requested {:url "/cart"}]
 
   ;; Step 4: User dispatches :rf.route/continue with the pending-nav id.
   ;; The runtime clears the slot and re-issues the navigation, bypassing :can-leave.

@@ -4,7 +4,7 @@
   Routing is one of the legitimate runtime-db writers Spec 002 §Write
   authority names (alongside machines / elision / ssr). Its event handlers
   (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`,
-  `:rf/url-requested` / `:rf.route/continue` / `:rf.route/cancel`,
+  `:rf.route/url-requested` / `:rf.route/continue` / `:rf.route/cancel`,
   `:rf.route.internal/settle-transition`) read AND return the reserved
   `:rf.db/runtime` route slice. Before the fix `assemble-initial-ctx` minted
   framework-write authority from `:rf/machine?` ONLY, so every navigation
@@ -93,20 +93,20 @@
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::can-leave)]
       ;; Land on the guarded route, dirty it, attempt to leave → blocked
-      ;; (:rf/url-requested writes the pending slot via :rf.db/runtime).
+      ;; (:rf.route/url-requested writes the pending slot via :rf.db/runtime).
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
-          ":rf/url-requested wrote the pending-navigation slot")
+          ":rf.route/url-requested wrote the pending-navigation slot")
       ;; CANCEL clears the slot (a :rf.db/runtime write).
       (rf/dispatch-sync [:rf.route/cancel "pn-1"])
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :pending-navigation]))
           ":rf.route/cancel cleared the pending slot")
       ;; Re-block, then CONTINUE (a :rf.db/runtime write + completion).
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
       (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))

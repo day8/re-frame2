@@ -100,7 +100,7 @@ Each folder is one framework subsystem, paired with its `docs/<capability>/` gui
 
 | Example | What it demonstrates |
 |---|---|
-| [`capabilities/routing/routing/`](capabilities/routing/routing/) — `examples/routing` | Three-page app: `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf/url-requested`, and route-not-found handling. **Specs:** [012 Routing](../spec/012-Routing.md). |
+| [`capabilities/routing/routing/`](capabilities/routing/routing/) — `examples/routing` | Three-page app: `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf.route/url-requested`, and route-not-found handling. **Specs:** [012 Routing](../spec/012-Routing.md). |
 
 ### Resources
 

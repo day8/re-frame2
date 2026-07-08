@@ -3,7 +3,7 @@
   the click-interception semantics that only run in a JS environment:
 
   - plain left-click (no modifier keys, button 0) → preventDefault is
-    called AND `:rf/url-requested` is dispatched with the synthesised
+    called AND `:rf.route/url-requested` is dispatched with the synthesised
     URL + the route-id + path-params + query.
   - modifier-key clicks (cmd / ctrl / shift / alt) → preventDefault is
     NOT called and no event is dispatched; the browser handles the
@@ -65,7 +65,7 @@
 (defn- click!
   "Render route-link with `props`, extract the on-click handler from
   the hiccup, invoke it against `event`, then return:
-    {:dispatched   <event-vector or nil — the :rf/url-requested event>
+    {:dispatched   <event-vector or nil — the :rf.route/url-requested event>
      :prevented?   <boolean — was preventDefault called?>
      :href         <a's :href>}
 
@@ -90,7 +90,7 @@
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
-                   (= :rf/url-requested (-> ev :tags :rf.event/v first)))
+                   (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
           (reset! dispatched (-> ev :tags :rf.event/v))
           (reset! source     (:source ev)))))
     (try
@@ -120,14 +120,14 @@
 ;; ---- plain left-click → preventDefault + dispatch ----------------------
 
 (deftest plain-left-click-intercepts
-  (testing "button 0 + no modifiers → preventDefault + :rf/url-requested"
+  (testing "button 0 + no modifiers → preventDefault + :rf.route/url-requested"
     (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched source prevented? href]}
           (click! {:to :route/cart} (mk-event {}))]
       (is (= "/cart" href))
       (is prevented? "preventDefault was called on plain left-click")
-      (is (= :rf/url-requested (first dispatched))
-          "the dispatched event is :rf/url-requested")
+      (is (= :rf.route/url-requested (first dispatched))
+          "the dispatched event is :rf.route/url-requested")
       ;; Per rf2-t1lxr / rf2-1ve9h: the route-link click stamps the
       ;; closed-enum functional-origin axis `:source :router` so Xray's
       ;; L2 timeline + filter pills tag the cascade as a
@@ -164,7 +164,7 @@
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart} (mk-event {:meta true}))]
       (is (not prevented?) "cmd-click leaves the click for the browser")
-      (is (nil? dispatched) "no :rf/url-requested event"))))
+      (is (nil? dispatched) "no :rf.route/url-requested event"))))
 
 (deftest ctrl-click-defers
   (testing "ctrl-click does NOT preventDefault and does NOT dispatch"
@@ -203,7 +203,7 @@
 ;; A route-link rendered with native-handling anchor attributes
 ;; (`target="_blank"` / `download`) looks like a normal anchor in the DOM,
 ;; and a user expects the native new-tab / download behaviour. Intercepting
-;; a plain left-click into a same-document `:rf/url-requested` dispatch
+;; a plain left-click into a same-document `:rf.route/url-requested` dispatch
 ;; silently breaks that contract. The pre-fix click handler intercepted on
 ;; ANY unmodified primary click regardless of these attributes; the fix
 ;; gates interception on `native-anchor?`. These tests prove plain
@@ -211,7 +211,7 @@
 
 (deftest target-blank-defers-to-browser-rf2-fwz29i
   (testing "{:target \"_blank\"} → plain left-click defers to the browser
-            (no preventDefault, no :rf/url-requested)"
+            (no preventDefault, no :rf.route/url-requested)"
     (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [dispatched prevented? href]}
           (click! {:to :route/cart :target "_blank"} (mk-event {}))]
@@ -219,7 +219,7 @@
       (is (not prevented?)
           "target=_blank leaves the click for the browser (new-tab native)")
       (is (nil? dispatched)
-          "no SPA :rf/url-requested dispatch — native target wins"))))
+          "no SPA :rf.route/url-requested dispatch — native target wins"))))
 
 (deftest target-parent-and-top-defer-rf2-fwz29i
   (testing "non-self frame targets (_parent / _top / named) also defer"
@@ -232,7 +232,7 @@
 
 (deftest download-defers-to-browser-rf2-fwz29i
   (testing "{:download ...} → plain left-click defers to the browser
-            (no preventDefault, no :rf/url-requested)"
+            (no preventDefault, no :rf.route/url-requested)"
     (rf/reg-route :route/report {} "/report")
     ;; A string download name (the common case).
     (let [{:keys [dispatched prevented?]}
@@ -253,8 +253,8 @@
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart :target "_self"} (mk-event {}))]
       (is prevented? "target=_self is same-document — interception applies")
-      (is (= :rf/url-requested (first dispatched))
-          "_self link dispatches :rf/url-requested like a plain link"))))
+      (is (= :rf.route/url-requested (first dispatched))
+          "_self link dispatches :rf.route/url-requested like a plain link"))))
 
 (deftest download-false-still-intercepts-rf2-fwz29i
   (testing "{:download false} / {:download nil} do not request a native
@@ -263,11 +263,11 @@
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart :download false} (mk-event {}))]
       (is prevented? "download=false does not defer")
-      (is (= :rf/url-requested (first dispatched))))
+      (is (= :rf.route/url-requested (first dispatched))))
     (let [{:keys [dispatched prevented?]}
           (click! {:to :route/cart :download nil} (mk-event {}))]
       (is prevented? "download=nil does not defer")
-      (is (= :rf/url-requested (first dispatched))))))
+      (is (= :rf.route/url-requested (first dispatched))))))
 
 ;; ---- caller-supplied :on-click can pre-empt ----------------------------
 
@@ -284,7 +284,7 @@
       (is @custom-fired? "the caller's on-click ran")
       (is prevented? "the caller called preventDefault")
       (is (nil? dispatched)
-          "the framework did NOT dispatch :rf/url-requested when the caller pre-empted"))))
+          "the framework did NOT dispatch :rf.route/url-requested when the caller pre-empted"))))
 
 (deftest caller-on-click-runs-but-does-not-block
   (testing "if the caller's :on-click does NOT preventDefault, the framework still intercepts"
@@ -296,8 +296,8 @@
                   (mk-event {}))]
       (is @custom-fired? "the caller's on-click ran")
       (is prevented? "the framework still called preventDefault")
-      (is (= :rf/url-requested (first dispatched))
-          "the framework dispatched :rf/url-requested"))))
+      (is (= :rf.route/url-requested (first dispatched))
+          "the framework dispatched :rf.route/url-requested"))))
 
 ;; ---- rf2-o3nam4: the click must carry the RENDER-TIME frame ---------------
 ;;
@@ -312,7 +312,7 @@
 ;; silently routes the navigation to the wrong frame.
 ;;
 ;; The fix captures the rendering frame ONCE at render time and dispatches
-;; `:rf/url-requested` into THAT frame (preserving `:source :router`). These
+;; `:rf.route/url-requested` into THAT frame (preserving `:source :router`). These
 ;; tests render the link under a non-default frame, then fire the click after
 ;; the render scope has unwound — modelling the genuine delayed-click path the
 ;; existing same-scope tests above cannot reach.
@@ -322,7 +322,7 @@
   `render-frame`, capture the on-click closure, THEN invoke it with the
   ambient frame scope cleared to `click-scope-frame` (nil ⇒ no scope at
   all — the genuine post-render browser-click condition). Returns the
-  TARGET frame the resulting `:rf/url-requested` dispatch routed to (read
+  TARGET frame the resulting `:rf.route/url-requested` dispatch routed to (read
   off the `:rf.event/dispatched` trace's `:frame` slot), plus whether the
   click raised, and `:source`.
 
@@ -338,7 +338,7 @@
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
                    (vector? (-> ev :tags :rf.event/v))
-                   (= :rf/url-requested (-> ev :tags :rf.event/v first)))
+                   (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
           ;; The target frame rides under :tags (build-event hoists only
           ;; :source / :recovery / :call-site to the top level — :frame
           ;; stays in :tags); :source IS hoisted top-level.
@@ -366,7 +366,7 @@
 (deftest delayed-click-with-no-ambient-scope-carries-render-frame-rf2-o3nam4
   (testing "a link rendered under :route/owner, clicked after the render
             scope unwound and with NO ambient frame, dispatches
-            :rf/url-requested into :route/owner — not :rf.error/no-frame-context"
+            :rf.route/url-requested into :route/owner — not :rf.error/no-frame-context"
     (rf/reg-frame :route/owner {})
     (rf/reg-route :route/cart {} "/cart")
     (let [{:keys [target-frame source raised]}

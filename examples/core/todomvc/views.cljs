@@ -21,7 +21,7 @@
 ;; Each filter is a ROUTE, so its link is a `route-link` naming the route id —
 ;; never a hand-built `#/active` string. The router's hash strategy (declared on
 ;; the frame in core.cljs) encodes the href to `#/active`; a plain left-click
-;; dispatches `:rf/url-requested` and the URL updates through the ordinary
+;; dispatches `:rf.route/url-requested` and the URL updates through the ordinary
 ;; navigation cascade, while cmd/ctrl-click and open-in-new-tab keep working
 ;; because it renders a real `<a href>`. See docs/routing/concepts.md.
 (def ^:private filter->route
@@ -131,7 +131,7 @@
   ;; (`showing`, the filter it stands for) to hiccup. `route-link` renders the
   ;; `<a>` and owns the click: the href is the route's URL (encoded to `#/active`
   ;; by the frame's hash strategy), and a plain click navigates through
-  ;; `:rf/url-requested`. The `:class` marks the active filter.
+  ;; `:rf.route/url-requested`. The `:class` marks the active filter.
   [rf/route-link {:to    (filter->route filter-kw)
                   :class (when (= showing filter-kw) "selected")}
    label])

@@ -25,7 +25,7 @@ A reader reaches a route three different ways, each a different event:
 | Event | How it's triggered |
 |---|---|
 | `:rf.route/navigate` | A programmatic push — `(dispatch [:rf.route/navigate …])`. |
-| `:rf/url-requested` | A `route-link` click. |
+| `:rf.route/url-requested` | A `route-link` click. |
 | `:rf.route/handle-url-change` | The URL bar, a reload, Back/Forward (popstate). |
 
 Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out reader pasting `/settings` into the address bar, or reloading a protected page, never goes through `navigate`. So the guard normalises **all three** to one "where are we headed?" target, then decides once:
@@ -38,7 +38,7 @@ Guard `:rf.route/navigate` alone and the third row defeats you: a logged-out rea
   [[ev-id a b]]
   (case ev-id
     :rf.route/navigate          {:id a :params (or b {})}
-    :rf/url-requested           (let [{:keys [to params url]} a]
+    :rf.route/url-requested           (let [{:keys [to params url]} a]
                                   (cond
                                     to  {:id to :params (or params {})}
                                     url (when-let [{:keys [route-id params]} (routing/match-url url)]

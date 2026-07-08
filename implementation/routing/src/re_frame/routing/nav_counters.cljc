@@ -86,8 +86,8 @@
   fact with a single causal originator and a value independent of the
   handler (the `:rf/time-ms` precedent). Navigation has neither: it arrives
   through many internal re-dispatch paths (popstate → `handle-url-change`,
-  link-click → `:rf/url-requested` → `:rf.route/transitioned`, the resume
-  chain `:rf.route/continue` → `:rf/url-requested`), each a fresh causal
+  link-click → `:rf.route/url-requested` → `:rf.route/transitioned`, the resume
+  chain `:rf.route/continue` → `:rf.route/url-requested`), each a fresh causal
   token whose `:rf.cofx` is NOT inherited; and a pending-nav allocation's
   very existence depends on the `:can-leave` guard result computed INSIDE
   the handler against the live frame. A provided fact would therefore have

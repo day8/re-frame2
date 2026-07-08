@@ -31,7 +31,7 @@
   - `re-frame.routing.events`         — shared nav-event helpers + :rf.route.internal/settle-transition
   - `re-frame.routing.plan`           — pure pre-commit navigation-planning seam (fragment/not-found/classification/telemetry/scroll) shared by both nav entry points
   - `re-frame.routing.on-match-error` — :on-match error trap + listener
-  - `re-frame.routing.can-leave`      — :can-leave gate + pending-nav protocol + :rf/url-requested
+  - `re-frame.routing.can-leave`      — :can-leave gate + pending-nav protocol + :rf.route/url-requested
   - `re-frame.routing.nav-token`      — :rf.route/with-nav-token + stale-suppression fx
   - `re-frame.routing.navigate`       — :rf.route/navigate event
   - `re-frame.routing.url-change`     — :rf.route/transitioned + :rf.route/handle-url-change
@@ -261,19 +261,19 @@
          :rf.cofx/requires [:rf.route/nav-allocation
                             :rf.route/pending-nav-allocation]))
 (def ^:private url-requested-meta
-  ;; :rf/url-requested only ever mints a pending-nav id (on a block); the
+  ;; :rf.route/url-requested only ever mints a pending-nav id (on a block); the
   ;; forward push synthesises :rf.route/transitioned, which mints its own
   ;; nav-token. Declare only the pending-nav allocation.
   (assoc framework-authority-meta
          :rf.cofx/requires [:rf.route/pending-nav-allocation]))
 
-;; :rf/url-requested + :rf.route/continue + :rf.route/cancel +
+;; :rf.route/url-requested + :rf.route/continue + :rf.route/cancel +
 ;; :rf.route/navigation-blocked — Spec 012 §Navigation blocking —
-;; pending-nav protocol. `:rf/url-requested` runs the leave guard (which
+;; pending-nav protocol. `:rf.route/url-requested` runs the leave guard (which
 ;; mints a pending-nav id on a block), so it declares the recordable
 ;; pending-nav allocation cofx; `:rf.route/continue` / `:rf.route/cancel` /
 ;; `:rf.route/navigation-blocked` never allocate, so they don't.
-(events/reg-event :rf/url-requested
+(events/reg-event :rf.route/url-requested
                      url-requested-meta
                      can-leave/url-requested-handler)
 ;; EP-0015 (rf2-jfaucw): the runtime dispatches `[:rf.route/navigation-blocked
@@ -463,7 +463,7 @@
 #?(:cljs
    (def route-link
      "Registered view at `:route/link`. Intercepts plain left-clicks and
-     dispatches `:rf/url-requested`; modifier-key clicks defer to the
+     dispatches `:rf.route/url-requested`; modifier-key clicks defer to the
      browser. Per Spec 012 §Linking from views and API.md `route-link`
      row. The underlying render fn is `route-link-render`."
      (views/reg-view* :route/link

@@ -52,7 +52,7 @@
   (rf/init! plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
-  ;; so :rf.route/transitioned, :rf/url-requested, :rf.route/* etc. resurrect.
+  ;; so :rf.route/transitioned, :rf.route/url-requested, :rf.route/* etc. resurrect.
   (require 're-frame.routing :reload)
   ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution` fixture
   ;; event lives in the routing test-support ns (not the production
@@ -238,7 +238,7 @@
       (rf/reg-route :nav/blocker {:can-leave :always-block} "/blockable")
       ;; Move "into" the blockable route so its :can-leave guards the next nav.
       (rf/dispatch-sync [:rf.route/transitioned "/blockable"] {:frame :test/main})
-      (rf/dispatch-sync [:rf/url-requested {:url "/users/42"}] {:frame :test/main})
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/users/42"}] {:frame :test/main})
 
       ;; ---- Routing: :rf.route.nav-token/stale-suppressed ---------------------
       ;; Allocate a token by navigating, then dispatch the framework's

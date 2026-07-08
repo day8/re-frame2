@@ -214,7 +214,7 @@
 (defn- resolve-nav-target [[ev-id a _b]]
   (case ev-id
     :rf.route/navigate {:id a :params (or _b {})}
-    :rf/url-requested  (let [{:keys [to params url]} a]
+    :rf.route/url-requested  (let [{:keys [to params url]} a]
                          (cond
                            to  {:id to :params (or params {})}
                            url (when-let [{:keys [route-id params]} (routing/match-url url)]

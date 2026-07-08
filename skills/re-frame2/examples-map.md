@@ -43,7 +43,7 @@ The de-facto cross-framework benchmark — [RealWorld (Conduit)](https://github.
 
 ## resources — `examples/capabilities/resources/resources/`
 
-The focused **read-side** Pattern-Resources example for the optional `day8/re-frame2-resources` artefact (Spec 016). Route-driven page load via the route's `:resources` metadata, event-driven `:rf.resource/ensure` under an app `[:lease …]` owner with a release path, a manual refresh wired as a *cause* (not an owner), and a machine-owned resource — all read through passive `[:rf.resource/state]` (and the sibling single-fact `[:rf.resource/*]`) subscriptions, with scope as the fail-closed leak boundary (an explicit `:rf.scope/global` claim). Point at this example when authoring the read half of a server-state cache — `reg-resource`, ensure/refetch/release-owner, owners-vs-causes, fresh-skip/staleness — without the write side. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, and 012 Routing. The focused complement to the full `realworld_resources/` dogfood; read it for the lifecycle shapes, not for mutations.
+The focused **read-side** Pattern-Resources example for the optional `day8/re-frame2-resources` artefact (Spec 016). Route-driven page load via the route's `:resources` metadata, event-driven `:rf.resource/ensure` under an app `[:lease …]` owner with a release path, a manual refresh wired as a *cause* (not an owner), and a machine-owned resource — all read through passive `[:rf/resource]` (and the sibling single-fact `[:rf.resource/*]`) subscriptions, with scope as the fail-closed leak boundary (an explicit `:rf.scope/global` claim). Point at this example when authoring the read half of a server-state cache — `reg-resource`, ensure/refetch/release-owner, owners-vs-causes, fresh-skip/staleness — without the write side. Exercises Pattern-Resources, 016 Resources, 014 HTTPRequests, and 012 Routing. The focused complement to the full `realworld_resources/` dogfood; read it for the lifecycle shapes, not for mutations.
 
 ## realworld_resources — `examples/real-apps/realworld_resources/`
 
@@ -51,7 +51,7 @@ RealWorld (Conduit) rebuilt on resources + mutations end-to-end — the write-si
 
 ## routing — `examples/capabilities/routing/routing/`
 
-The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf/url-requested`, route-not-found handling, and the `:can-leave?` guard. The CP-7 worked example. Point at this example when authoring routes, navigating between them, gating navigation with `:can-leave?`, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
+The three-page worked example for Spec 012 — `reg-route`, `:rf.route/navigate`, anchor clicks via `:rf.route/url-requested`, route-not-found handling, and the `:can-leave?` guard. The CP-7 worked example. Point at this example when authoring routes, navigating between them, gating navigation with `:can-leave?`, or wiring an anchor's `href` to dispatch a navigation event instead of a browser-default page load. Exercises 012 Routing. Compact and single-purpose; the canonical home of the routing primitives.
 
 ## ssr — `examples/capabilities/ssr/ssr/`
 

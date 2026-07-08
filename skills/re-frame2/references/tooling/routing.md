@@ -5,7 +5,7 @@
 ## When to load
 
 - Author or edit route registrations (`reg-route`).
-- Wire programmatic navigation (`:rf.route/navigate`) or anchor clicks (`:rf/url-requested`).
+- Wire programmatic navigation (`:rf.route/navigate`) or anchor clicks (`:rf.route/url-requested`).
 - Add a leave-guard (`:can-leave`), `:on-match` data loading, or scroll behaviour.
 - Read the active route in a view via `:rf.route/id` / `:rf.route/params`.
 
@@ -84,7 +84,7 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
 
 ;; Anchor that routes through the framework (not a full page reload).
 ;; `rf/route-link` is the framework-shipped link view — it builds the href via
-;; the route prism and dispatches `:rf/url-requested` on a plain left-click.
+;; the route prism and dispatches `:rf.route/url-requested` on a plain left-click.
 ;; Shape: [rf/route-link {:to :route-id :params {} :query {} :fragment "..."} & children]
 
 ;; Root view dispatches on the route id.
@@ -137,7 +137,7 @@ A route may declare a leave-guard sub. The sub returns `true` when leaving is OK
 
 `:can-enter` is the first-class mirror of `:can-leave` — an enter-guard sub declared on the **target** route. The gate runs leave-then-enter: the current route's `:can-leave` first, then the target's `:can-enter`; a `false` from either blocks the navigation (a blocked enter dispatches `:rf.route/entry-blocked`, and `:rf.route/continue` re-runs `:can-enter`).
 
-Flow on `:rf/url-requested`:
+Flow on `:rf.route/url-requested`:
 
 1. Runtime evaluates the **current** route's `:can-leave` sub.
 2. **`true`** → proceed; new URL becomes active; `:on-match` runs; nav-token allocates.
@@ -148,7 +148,7 @@ Flow on `:rf/url-requested`:
 ## Common gotchas — re-frame2-specific
 
 - **Routing is a separate artefact.** `re-frame.core` does not transitively require `re-frame.routing`. The consuming app `:require`s it at boot; otherwise `reg-route` throws `:rf.error/routing-artefact-missing`. The reserved `:rf.route/*` and `:rf.nav/*` keyword strings therefore drop out of bundles that don't use routing.
-- **Navigation is an event, not a fn call.** Use `(rf/dispatch [:rf.route/navigate :route/articles])` (programmatic) or `(rf/dispatch [:rf/url-requested {:url ...}])` (anchor clicks). Do NOT call `pushState` directly.
+- **Navigation is an event, not a fn call.** Use `(rf/dispatch [:rf.route/navigate :route/articles])` (programmatic) or `(rf/dispatch [:rf.route/url-requested {:url ...}])` (anchor clicks). Do NOT call `pushState` directly.
 - **`:on-match` runs every time the route becomes active.** Including first match. It is a vector of event vectors (not fns). On entering a route with `:on-match`, the slice's `:transition` field (at `[:rf.runtime/routing :current :transition]`) flips to `:loading`; runtime resets it to `:idle` after the events drain (or `:error` on `:on-error`).
 - **`:on-match` order is locked.** State-update first (slice + nav-token), URL push second, `:on-match` dispatches and `:rf.nav/scroll` third. If the URL update fails, the slice is still consistent.
 - **`:params` and `:query` are separate maps.** Path params come from segments; query params come from `?k=v`. Validated by separate Malli schemas on `reg-route` (`:params` and `:query`). Build a merged map in a derived sub if you want one.

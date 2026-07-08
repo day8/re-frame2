@@ -235,7 +235,7 @@
     (reg-jvm-fx! :rf.nav/push-url nav-fx/push-url-meta  (fn [_ _] nil))
     (let [args (handled-trace-for
                  :rf.nav/push-url
-                 [:rf/url-requested {:url "/articles/intro"}])]
+                 [:rf.route/url-requested {:url "/articles/intro"}])]
       ;; A normal same-origin app URL rides verbatim on the trace (behavioural
       ;; identity, not a redacted carrier) — push-url carries no :sensitive mark.
       (is (= "/articles/intro" args)
@@ -296,7 +296,7 @@
     (let [traces (atom [])]
       (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
       ;; Try to leave to a URL carrying a query secret → blocked.
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
       (rf/unregister-listener! :trace ::blocked)
       (let [blocked (->> @traces
                          (filter #(= :rf.route/navigation-blocked (:operation %)))
@@ -317,7 +317,7 @@
     (block-fixture!)
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
       (rf/unregister-listener! :trace ::nb)
       ;; Find a dispatched-event trace carrying the navigation-blocked event vec.
       (let [dispatched (->> @traces
@@ -343,7 +343,7 @@
             :requested-url / :requested-by-event so continue/cancel resume
             still work (marks/scrub touch only the egress copy)"
     (block-fixture!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :pending-navigation])]
       (is (some? pending) "the block wrote the pending-nav slot")

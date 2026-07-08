@@ -221,7 +221,7 @@ Start by tagging the routes that need a session:
 Then the guard. It has one job it must get exactly right: **gate every navigation entry point.** Guarding `:rf.route/navigate` alone fails *open* on the most common path — a logged-out user who types `/settings` into the URL bar, reloads a protected page, or clicks a link gets straight in. There are three distinct navigation events:
 
 - `:rf.route/navigate` — a programmatic push.
-- `:rf/url-requested` — a `route-link` click.
+- `:rf.route/url-requested` — a `route-link` click.
 - `:rf.route/handle-url-change` — the URL bar, reload, and Back/Forward.
 
 The fix is to normalise all three to one target, then redirect identically:
@@ -234,7 +234,7 @@ The fix is to normalise all three to one target, then redirect identically:
   [[ev-id a b]]
   (case ev-id
     :rf.route/navigate          {:id a :params (or b {})}            ;; programmatic nav
-    :rf/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
+    :rf.route/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
                                   (cond
                                     to  {:id to :params (or params {})}
                                     url (when-let [{:keys [route-id params]} (routing/match-url url)]

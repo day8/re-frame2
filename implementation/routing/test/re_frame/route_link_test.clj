@@ -14,7 +14,7 @@
   - missing route — invoking `route-link` with an unregistered `:to` id
     raises `:rf.error/no-such-route` (the same error `route-url` raises;
     the link view delegates to `route-url` for URL synthesis).
-  - `:rf/url-requested` lands on `:rf.route/navigate` — dispatching the
+  - `:rf.route/url-requested` lands on `:rf.route/navigate` — dispatching the
     event the view fires when a plain left-click is intercepted updates
     the `:rf/route` slice end-to-end. This pins the click→event pipeline
     at the JVM layer; CLJS tests cover the click handler's modifier-key
@@ -136,13 +136,13 @@
       (is (= :route/nope (:route-id (ex-data thrown)))
           "ex-data carries the offending route-id"))))
 
-;; ---- :rf/url-requested → :rf.route/navigate pipeline -------------------
+;; ---- :rf.route/url-requested → :rf.route/navigate pipeline -------------------
 
 (deftest route-link-click-event-completes-navigation
-  (testing ":rf/url-requested with a route-link's payload navigates"
+  (testing ":rf.route/url-requested with a route-link's payload navigates"
     ;; Per Spec 012 §Standard runtime events the click handler emits
-    ;; `:rf/url-requested {:url ... :to ... :params ... :query ...}`.
-    ;; The default `:rf/url-requested` handler classifies via match-url
+    ;; `:rf.route/url-requested {:url ... :to ... :params ... :query ...}`.
+    ;; The default `:rf.route/url-requested` handler classifies via match-url
     ;; and dispatches `:rf.route/transitioned`, which updates the :rf/route
     ;; slice. This test pins the round-trip without a DOM event — the
     ;; CLJS test covers the click branching that produces the dispatch.
@@ -163,13 +163,13 @@
 
     ;; Fire the event a click on `[rf/route-link {:to :route/article :params {:id \"intro\"}}]`
     ;; would produce.
-    (rf/dispatch-sync [:rf/url-requested
+    (rf/dispatch-sync [:rf.route/url-requested
                        {:url    "/articles/intro"
                         :to     :route/article
                         :params {:id "intro"}}])
     (is (= :route/article
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        ":rf/url-requested with a route-link payload completes the navigation")
+        ":rf.route/url-requested with a route-link payload completes the navigation")
     (is (= {:id "intro"}
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :params]))
         ":params from the link land in the :rf/route slice")))

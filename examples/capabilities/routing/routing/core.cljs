@@ -16,7 +16,7 @@
    - `reg-route` — declares the route table, one entry per page
    - `:rf.route/id` / `:rf.route/params` — read the active route as subs
    - `route-link` — renders links that drive navigation
-   - `:rf/url-requested` — the event a user clicking an anchor fires
+   - `:rf.route/url-requested` — the event a user clicking an anchor fires
    - `:url-bound? true` — declared on the frame; its creation automatically
      wires up Back/Forward (popstate) and the first-load URL→state sync, so
      the address bar and your app-db stay in agreement"
@@ -92,7 +92,7 @@
 ;; It renders a real `<a href=...>` — so it looks and feels like a normal
 ;; link, and the href is even right if someone hovers or copies it. The trick
 ;; is in the click: a plain left-click is caught and turned into a
-;; `:rf/url-requested` event (no full page reload), while modifier-clicks and
+;; `:rf.route/url-requested` event (no full page reload), while modifier-clicks and
 ;; middle-clicks are waved straight through to the browser, because nobody
 ;; likes a link that's forgotten how to open in a new tab. Any extra HTML
 ;; attrs you pass (here `:data-testid`) ride along onto the `<a>`.

@@ -199,7 +199,7 @@
             ;; form — URL-string: deep-link handlers, server-redirect
             ;; targets, programmatic redirects from a string). It MUST gate
             ;; through the SAME fail-closed open-redirect classifier the
-            ;; `:rf/url-requested` link-click path uses — otherwise every
+            ;; `:rf.route/url-requested` link-click path uses — otherwise every
             ;; rf2-3bv8o bypass vector (`//evil`, `/\evil`, `javascript:`,
             ;; leading-space, `user@host`) is pushed VERBATIM to
             ;; `:rf.nav/push-url`. The classifier is hoisted into
@@ -461,7 +461,7 @@
         ;; `:rf.route/external-url-requested` and return `{}` — no
         ;; `:rf.nav/push-url`, no slice rewrite, no `:rf.route/transitioned`.
         ;; The verbatim-push open-redirect sink is closed across all three
-        ;; URL-string nav sinks (the gated `:rf/url-requested`, this
+        ;; URL-string nav sinks (the gated `:rf.route/url-requested`, this
         ;; `:rf.route/navigate {:url}`, and `:rf.route/continue` re-issuing
         ;; either).
         external-url-target?
