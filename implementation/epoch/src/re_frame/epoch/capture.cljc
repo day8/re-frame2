@@ -60,15 +60,26 @@
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
     :rf.epoch/restore-non-ok-record
-    ;; replace-frame-state! success (`:rf.epoch/db-replaced`) + two of its
-    ;; three failure modes (Tool-Pair §Pair-tool writes). All three ops
-    ;; listed here fire after the synthetic record has been built and the
-    ;; cascade-buffer (if any) has been harvested. The surface's third
-    ;; failure op, `:rf.epoch/replace-history-disabled`, is not yet skipped
-    ;; here (tracked by rf2-gba3ou).
+    ;; replace-frame-state! success (`:rf.epoch/db-replaced`) + all three of
+    ;; its precondition failure modes (Tool-Pair §Pair-tool writes). All fire
+    ;; after the synthetic record has been built and the cascade-buffer (if
+    ;; any) has been harvested — outside any cascade, each with a :frame tag.
+    ;; (The third failure op, `:rf.epoch/replace-history-disabled`, was added
+    ;; to skip-ops by rf2-gba3ou — see its dedicated note below; it was
+    ;; previously tracked-but-unskipped per rf2-f38xvb.)
     :rf.epoch/db-replaced
     :rf.epoch/replace-during-drain
     :rf.epoch/replace-schema-mismatch
+    ;; rf2-gba3ou / rf2-unpldn — depth-0 (history disabled) reject. The
+    ;; synthetic undo-anchor cannot land in the disabled ring, so
+    ;; replace-frame-state! rejects loudly with this op + a false return
+    ;; (`tool_pair/check-replace-frame-state-preconditions!`). It fires
+    ;; out-of-cascade with a :frame tag exactly like its two siblings
+    ;; above, so it must be skipped for the same reason. (Benign today —
+    ;; the orphan-drop branch backstops it — but skip-ops is the
+    ;; deliberate defense and the catalogue test now derives from the
+    ;; emit sites, so a forgotten op fails loudly.)
+    :rf.epoch/replace-history-disabled
     ;; Redact-fn exception warning (EP-0015 §15 + open-issue 6, RULED /
     ;; Tool-Pair §Time-travel §Redaction hook). Emitted by
     ;; `assembly/apply-redact-fn` at PROJECTION time (`projected-record`),
