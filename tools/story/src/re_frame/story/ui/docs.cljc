@@ -50,6 +50,7 @@
             [re-frame.story.predicates :as pred]
             [re-frame.story.plan       :as plan]
             [re-frame.story.registrar  :as registrar]
+            [re-frame.story.tags       :as tags]
             [re-frame.story.ui.evidence-spine :as spine]
             [re-frame.story.ui.markdown :as md]
             [re-frame.story.ui.test-mode.pure :as test-pure]
@@ -163,15 +164,18 @@
         [:modes :substrates :platforms]))))
 
 (defn variant-tags
-  "Return the sorted vector of tags on `variant-id`. Falls back to the
-  parent story's `:tags` set if the variant body declares none. Used
-  by both the docs header chips and the bottom-of-page tag picker."
+  "Return the sorted vector of EFFECTIVE tags on `variant-id`, through the
+  shared `re-frame.story.tags` resolver: `:extends`-chain inheritance (union)
+  with a parent-story `:tags` fallback when the chain declares none, then
+  `:!x` removal-marker resolution (a `:!dev` cancels an inherited `:dev` and
+  never shows itself as a chip). Used by both the docs header chips and the
+  bottom-of-page tag picker — the SAME set the sidebar filter and
+  `variants-with-tags` compute."
   [variant-id]
-  (let [vb       (registrar/handler-meta :variant variant-id)
-        story-id (pred/parent-story-id variant-id)
-        sb       (when story-id (registrar/handler-meta :story story-id))
-        ts       (or (:tags vb) (:tags sb) #{})]
-    (vec (sort ts))))
+  (vec (sort (tags/effective-tags
+               variant-id
+               {:variant #(registrar/handler-meta :variant %)
+                :story   #(registrar/handler-meta :story %)}))))
 
 ;; The header chips call `pred/parent-story-id` directly.
 

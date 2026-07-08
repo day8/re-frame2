@@ -741,6 +741,8 @@ tests / REPL via `deref-blocking`, CLJS callers chain with `then` / await.
                                                  ;   returns a 0-arity unsubscribe fn
                                                  ;   (call it to stop watching)
 (variants-with-tags tags)                        ; query — returns coll of variant ids
+                                                 ;   (matches EFFECTIVE tags: `:extends`/story
+                                                 ;   inheritance + `:!x` removal — see 001 §Effective tags)
 (variant->edn variant-id)                        ; canonical-form serialised body
 (workspace->edn workspace-id)                    ; same, for workspace layouts
 (snapshot-identity variant-id)
