@@ -1,4 +1,4 @@
-(ns re-frame.handler-source-egress-strip-test
+(ns re-frame.handler-source-egress-strip-cljs-test
   "rf2-tlf4if — handler source-as-data does NOT leak across the frame-state
   egress boundary.
 

@@ -1,4 +1,4 @@
-(ns re-frame.machines-reply-test
+(ns re-frame.machines-reply-cljs-test
   "Pure unit tests for `re-frame.machines.reply` — the machine family's
   slice of the uniform reply envelope (EP-0011 §Machine Completion /
   §Timer Reply; Managed-Effects §The uniform reply envelope).
@@ -12,6 +12,7 @@
   `re-frame.reply/validate-reply` contract so the closed-status taxonomy +
   value/error conventions + data-only invariant hold uniformly."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.edn :as edn]
             [re-frame.machines.reply :as m-reply]
             [re-frame.reply :as reply]))
 
@@ -35,7 +36,7 @@
   (testing "work-id is =-comparable and EDN-serializable"
     (let [wid (m-reply/spawn-work-id :a/b#3 [:x])]
       (is (= wid (m-reply/spawn-work-id :a/b#3 [:x])))
-      (is (= wid (read-string (pr-str wid)))))))
+      (is (= wid (edn/read-string (pr-str wid)))))))
 
 ;; ---- cross-platform actor-generation determinism --------------------------
 ;; A `:fixed-actor-id` carrying a `#` followed by a non-fully-numeric suffix

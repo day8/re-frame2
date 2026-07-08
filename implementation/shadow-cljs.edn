@@ -88,8 +88,10 @@
                 "adapters/helix/testbed"
                 ;; rf2-ee38b.16 — test-react adapter (headless CLJC class-3
                 ;; lifecycle simulator). src+test paths added so the
-                ;; :node-test build discovers re-frame.adapter.test-react-test
-                ;; (ns ends in `-test`, matching the `cljs-test$` regexp). The
+                ;; :node-test build discovers re-frame.adapter.test-react-cljs-test
+                ;; (ns ends in `-cljs-test`, matching the `cljs-test$` regexp;
+                ;; renamed from `-test` per rf2-ezbzvm — a plain `-test` suffix
+                ;; does NOT match, so the CLJS half was silently excluded). The
                 ;; JVM half runs via scripts/test-jvm-implementation.sh.
                 ;; NOT for production: bundle-isolation holds structurally —
                 ;; nothing under examples/ or production builds :requires

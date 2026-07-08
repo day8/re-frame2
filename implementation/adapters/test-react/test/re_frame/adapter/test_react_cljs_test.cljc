@@ -1,4 +1,4 @@
-(ns re-frame.adapter.test-react-test
+(ns re-frame.adapter.test-react-cljs-test
   "Tests for the Test-React adapter.
 
   Two layers:
@@ -213,10 +213,10 @@
 ;; sub-cache entry (with a ref-count), disposes the adapter, asserts the
 ;; sub-cache is empty + the ref-count is gone, and verifies a re-subscribe
 ;; after reinstall recomputes from the CURRENT app-db rather than serving a
-;; stale slot. Runs on both the JVM (`clojure -M:test`) and — by virtue of
-;; this ns also ending in `-test` — has a `-cljs-test` companion at
-;; `test_react_dispose_sub_cache_cljs_test.cljc` that exercises the same
-;; contract under `npm run test:cljs`.
+;; stale slot. Runs on both the JVM (`clojure -M:test`) and — now that this
+;; ns ends in `-cljs-test` — under CLJS via `npm run test:cljs` (rf2-ezbzvm).
+;; The standalone `test_react_dispose_sub_cache_cljs_test.cljc` companion
+;; pins the same contract independently.
 
 (defn- default-sub-cache-keys
   "The set of cache-keys currently materialised in the :rf/default frame's
