@@ -465,6 +465,10 @@
     :producer-ns 're-frame.machines
     :design-bead "rf2-jm2u63"
     :description "SSR hydration projector for the durable `:rf.runtime/machines` slice `(fn [runtime-db frame-id]) -> machines-slice`. `re-frame.ssr.payload-policy/project-runtime-db` consults it so each machine snapshot's `:data` is redacted/elided per the owning machine's projection-relative `:sensitive` / `:large` declaration (lowered per actor into the per-frame elision registry, `:source :machine` — EP-0025 reversed the EP-0005 `:data-schema`→marks bridge; schema validates, it does not classify durable `:data`) under `:rf.egress/ssr-hydration` (the same frame-owned classification the trace-egress chokepoint uses, via `re-frame.classification/frame-snapshot-classification` re-rooting then `re-frame.classification/redact-with-paths`) BEFORE it rides the hydration wire — closing the raw-classified-machine-data hydration leak (EP-0015 §6/§8). Mirrors the resources `:ssr/extend-runtime-db-projection` model; absent the machines artefact the slice rides unchanged."}
+   {:key         :cofx/eval-recordable-sub
+    :producer-ns 're-frame.machines.cofx-attach
+    :design-bead "rf2-h6ggnt"
+    :description "Machines-only sub-valued recordable cofx source evaluator `(fn [query-v frame-id]) -> value` (EP-0017 Option A rider). Evaluates a machine named entry's `{:rf/sub query-v :as fact-id}` source against the committed pre-cascade frame-state (`compute-sub` over `frame-state-value`) so `re-frame.cofx/deliver-declared-cofx` can record the resolved fact on the causal token under `fact-id` at ensure-time; strict replay re-presents it verbatim. Published by the machines artefact (`re-frame.machines.cofx-attach`) because core cofx cannot static-require subs / frame; consumed by core cofx. Unbound when machines is not loaded — a sub source can only originate from a machine named entry (the `allow-sub?` parse gate), so it is always bound when one is delivered."}
 
    ;; ---- re-frame.routing -----------------------------------------------------
    {:key         :routing/reg-route

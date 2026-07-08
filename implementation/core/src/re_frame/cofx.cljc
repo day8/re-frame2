@@ -334,6 +334,73 @@
                       {:extra {:failing-id failing-id
                                :received   received}}))
 
+;; ---- sub-valued recordable source (machines-only, EP-0017 Option A rider) --
+;;    (rf2-h6ggnt)
+;;
+;; A MACHINE named entry may grow `:rf.cofx/requires` by ONE member: the map
+;; form `{:rf/sub query-v :as fact-id}` — a sub-valued RECORDABLE source. It
+;; records the value of `query-v` (evaluated ONCE against the committed
+;; pre-cascade frame-state) on the causal token under the MANDATORY
+;; owner-qualified `:as` fact-id; strict replay re-presents it verbatim. The
+;; map form is required (never the `[id arg]` form): `[id arg]` delivers /
+;; dedupes under the bare id (Spec 001 §The declaration key), so two `:rf/sub`
+;; sources would collide as `:rf/sub` and a single ensure-set could not carry
+;; two different sub queries — the `:as` fact-id is the dedup + delivery key.
+;; Accepted ONLY under the `allow-sub?` parse arity (the machine consumer-
+;; attachment path); a `reg-event` handler declaring one is
+;; `:rf.error/cofx-request-invalid` (its handler already holds `:db`).
+
+(defn- sub-source-map?
+  "True iff `entry` is the map form of a sub-valued recordable source — a map
+  carrying `:rf/sub`."
+  [entry]
+  (and (map? entry) (contains? entry :rf/sub)))
+
+(defn- parse-sub-source
+  "Parse + validate a sub-valued recordable source `{:rf/sub query-v :as
+  fact-id}` (machines-only) into `{:id fact-id :arg ::no-arg :rf.cofx/sub
+  query-v}` — `:id` is the `:as` fact-id (the dedup + delivery key), and
+  `:rf.cofx/sub` carries the query the delivery step evaluates.
+
+  Registration-time errors (all `:rf.error/cofx-request-invalid`): a
+  `:rf/sub` value that is not a non-empty, keyword-headed query VECTOR; a
+  missing / non-owner-qualified `:as` fact-id; any key other than
+  `:rf/sub` / `:as`."
+  [failing-id requires entry]
+  (let [query-v (:rf/sub entry)
+        fact-id (:as entry)
+        extra   (remove #{:rf/sub :as} (keys entry))]
+    (cond
+      (not (and (vector? query-v) (seq query-v) (keyword? (first query-v))))
+      (emit-cofx-request-invalid!
+        failing-id requires
+        (str "`:rf.cofx/requires` for `" failing-id "` carried a `:rf/sub` "
+             "recordable source whose `:rf/sub` value " (pr-str query-v)
+             " is not a query VECTOR — it must be a non-empty vector headed by "
+             "a sub id keyword (e.g. `{:rf/sub [:editor/can-submit?] "
+             ":as :editor/can-submit}`)."))
+
+      (not (qualified-keyword? fact-id))
+      (emit-cofx-request-invalid!
+        failing-id requires
+        (str "`:rf.cofx/requires` for `" failing-id "` carried a `:rf/sub` "
+             "recordable source with a missing / non-owner-qualified `:as` "
+             "fact-id " (pr-str fact-id) ". `:as` is MANDATORY and must be an "
+             "owner-qualified keyword (carrying a namespace) — it is the "
+             "recorded fact's id on the token and the callback's destructure "
+             "key, and distinguishes two `:rf/sub` sources that would "
+             "otherwise collide under the bare `:rf/sub` id."))
+
+      (seq extra)
+      (emit-cofx-request-invalid!
+        failing-id requires
+        (str "`:rf.cofx/requires` for `" failing-id "` carried a `:rf/sub` "
+             "recordable source with unexpected key(s) " (pr-str (vec extra))
+             "; the source map is exactly `{:rf/sub query-v :as fact-id}`."))
+
+      :else
+      {:id fact-id :arg no-arg :rf.cofx/sub query-v})))
+
 (defn parse-requires
   "Parse a `:rf.cofx/requires` declaration into a vector of
   `{:id <kw> :arg <value-or-::no-arg>}` entries, validating shape at
@@ -343,41 +410,54 @@
   Each entry is either a bare coeffect id (a keyword) or a `[id arg]` pair
   (a parameterized id mirroring the binary supplier arity). Malformed
   shapes raise `:rf.error/cofx-request-invalid`; the same id declared twice
-  (any args) raises `:rf.error/cofx-name-collision`."
-  [failing-id requires]
-  (cond
-    (nil? requires) []
-    (not (vector? requires))
-    (emit-cofx-request-invalid!
-      failing-id requires
-      (str "`:rf.cofx/requires` for `" failing-id "` must be a VECTOR of "
-           "registered coeffect ids (e.g. `[:rf/time-ms [:ui/local-theme "
-           "\"theme\"]]`), got " (pr-str requires) "."))
-    :else
-    (let [entries
-          (mapv
-            (fn [entry]
-              (cond
-                (keyword? entry) {:id entry :arg no-arg}
-                (and (vector? entry)
-                     (= 2 (count entry))
-                     (keyword? (first entry)))
-                {:id (first entry) :arg (second entry)}
-                :else
-                (emit-cofx-request-invalid!
-                  failing-id requires
-                  (str "`:rf.cofx/requires` for `" failing-id "` carried a "
-                       "non-id entry " (pr-str entry) "; each entry must be a "
-                       "coeffect id (keyword) or an `[id arg]` pair."))))
-            requires)
-          ids (map :id entries)]
-      (when (not= (count ids) (count (distinct ids)))
-        (emit-cofx-name-collision!
-          (->> (frequencies ids) (filter #(> (val %) 1)) ffirst)
-          (str "`:rf.cofx/requires` for `" failing-id "` declares the same "
-               "coeffect id twice (any args) — each id may appear once per "
-               "consumer scope. Declaration: " (pr-str requires) ".")))
-      entries)))
+  (any args) raises `:rf.error/cofx-name-collision`.
+
+  The `allow-sub?` arity (machines-only, EP-0017 Option A rider rf2-h6ggnt)
+  additionally accepts the sub-valued recordable source map
+  `{:rf/sub query-v :as fact-id}` (parsed via `parse-sub-source`); a
+  `reg-event` handler (the 2-arity default) declaring one is
+  `:rf.error/cofx-request-invalid`, since its handler already holds `:db`."
+  ([failing-id requires]
+   (parse-requires failing-id requires false))
+  ([failing-id requires allow-sub?]
+   (cond
+     (nil? requires) []
+     (not (vector? requires))
+     (emit-cofx-request-invalid!
+       failing-id requires
+       (str "`:rf.cofx/requires` for `" failing-id "` must be a VECTOR of "
+            "registered coeffect ids (e.g. `[:rf/time-ms [:ui/local-theme "
+            "\"theme\"]]`), got " (pr-str requires) "."))
+     :else
+     (let [entries
+           (mapv
+             (fn [entry]
+               (cond
+                 (keyword? entry) {:id entry :arg no-arg}
+                 (and (vector? entry)
+                      (= 2 (count entry))
+                      (keyword? (first entry)))
+                 {:id (first entry) :arg (second entry)}
+                 (and allow-sub? (sub-source-map? entry))
+                 (parse-sub-source failing-id requires entry)
+                 :else
+                 (emit-cofx-request-invalid!
+                   failing-id requires
+                   (str "`:rf.cofx/requires` for `" failing-id "` carried a "
+                        "non-id entry " (pr-str entry) "; each entry must be a "
+                        "coeffect id (keyword) or an `[id arg]` pair"
+                        (when allow-sub?
+                          " (or a sub-valued recordable source `{:rf/sub query-v :as fact-id}`)")
+                        "."))))
+             requires)
+           ids (map :id entries)]
+       (when (not= (count ids) (count (distinct ids)))
+         (emit-cofx-name-collision!
+           (->> (frequencies ids) (filter #(> (val %) 1)) ffirst)
+           (str "`:rf.cofx/requires` for `" failing-id "` declares the same "
+                "coeffect id twice (any args) — each id may appear once per "
+                "consumer scope. Declaration: " (pr-str requires) ".")))
+       entries))))
 
 ;; ---- declared-only delivery (Spec 002 §Satisfaction algorithm) ------------
 ;;
@@ -878,6 +958,58 @@
   [policy]
   (or (= policy :live) (= policy :explicit-live)))
 
+;; ---- sub-valued recordable source delivery (machines-only) ----------------
+;;    (EP-0017 Option A rider, rf2-h6ggnt)
+;;
+;; A parsed sub source (`{:id fact-id :arg _ :rf.cofx/sub query-v}`) is a
+;; RECORDED TOKEN FACT — NOT permission for a callback to read the sub cache.
+;; The query is evaluated ONCE against the committed PRE-CASCADE frame-state
+;; (processing-start grain), the value written into the in-flight `:rf.cofx`
+;; under `fact-id` (the epoch captures it), and strict replay re-presents it
+;; verbatim. A mid-macrostep `:raise` re-ensure finds the fact PRESENT and
+;; re-presents the recorded value — it does not re-evaluate (frame commit is
+;; end-of-macrostep). The query runs through the machines-owned
+;; `:cofx/eval-recordable-sub` late-bind hook (core cofx cannot require
+;; subs / frame — the hook computes `compute-sub` against the frame-state);
+;; a sub source can only originate from a machine named entry (the
+;; `allow-sub?` parse gate), so the hook is bound whenever one is delivered.
+;; The resolved value rides the durable causal record, so the SAME structural
+;; recordable-EDN check a generated value gets applies at write-back (a sub
+;; yielding a host object is `:rf.error/cofx-value-invalid`).
+
+(defn- deliver-sub-source
+  "Deliver a sub-valued recordable source (`fact-id` / `query-v`, machines-only)
+  into `acc`. Present on the token (replay, or a prior ensure this macrostep) →
+  re-present verbatim. Absent + the mint policy generates (`:live` /
+  `:explicit-live`) → evaluate `query-v` against the committed pre-cascade
+  frame-state via the `:cofx/eval-recordable-sub` hook, structural-EDN-check the
+  value, write it back into `:rf.cofx` under `fact-id` (epoch captures it),
+  deliver. Absent + `:strict` (replay / the `:test` preset) →
+  `:rf.error/missing-required-cofx` (loud, never re-derived)."
+  [acc fact-id query-v failing-id frame-id mint-policy]
+  (cond
+    (contains? (:rf.cofx acc) fact-id)
+    (assoc-in acc [:coeffects fact-id] (get (:rf.cofx acc) fact-id))
+
+    (mint-policy-generates? mint-policy)
+    (if-let [eval-sub (late-bind/get-fn-cached :cofx/eval-recordable-sub)]
+      (let [value (eval-sub query-v frame-id)]
+        ;; The resolved value rides the durable causal record — structural
+        ;; recordable-EDN check at write-back (a sub yielding a host handle is
+        ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
+        ;; generated-value floor.
+        (validate-generated-recordable-value! fact-id value failing-id frame-id)
+        (-> acc
+            (assoc-in [:coeffects fact-id] value)
+            (assoc-in [:rf.cofx fact-id] value)))
+      ;; The machines evaluator is unbound (machines artefact not loaded). A
+      ;; sub source can only be PARSED from a machine named entry, so this is
+      ;; unreachable in practice; fail loud rather than silently deliver nil.
+      (emit-missing-required-cofx! fact-id failing-id frame-id))
+
+    :else
+    (emit-missing-required-cofx! fact-id failing-id frame-id)))
+
 (defn deliver-declared-cofx
   "Deliver the handler's declared coeffects FLAT into `coeffects`, per Spec
   002 §Satisfaction algorithm step 4 + EP-0017 §5. `requires` is the parsed
@@ -901,7 +1033,14 @@
       captures the post-generation token), `:strict` fails with
       `:rf.error/missing-required-cofx`;
     - **recordable, absent, provided** → `:rf.error/missing-required-cofx`
-      (every mode).
+      (every mode);
+    - **sub-valued recordable source** (`{:rf/sub query-v :as fact-id}`,
+      machines-only) → present on the token: re-present verbatim; absent under
+      `:live` / `:explicit-live`: evaluate `query-v` against the committed
+      pre-cascade frame-state (via the `:cofx/eval-recordable-sub` hook),
+      structural-EDN-check, write the value back into the returned `:rf.cofx`
+      under `fact-id`; absent under `:strict`: `:rf.error/missing-required-cofx`
+      (see `deliver-sub-source`).
 
   Delivery is DECLARED-ONLY and FLAT: an undeclared leaf on the token is not
   staged, and there is no nested `:cofx` / `:rf.cofx` duplicate in the
@@ -924,59 +1063,66 @@
    (deliver-declared-cofx coeffects requires recorded failing-id frame-id default-mint-policy))
   ([coeffects requires recorded failing-id frame-id mint-policy]
    (reduce
-     (fn [{:keys [coeffects] :as acc} {:keys [id arg]}]
-       (let [meta (registrar/lookup :cofx id)]
-         (cond
-           ;; A declared id with NO registration is the typo case (the
-           ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
-           ;; registered, so a nil meta is always an unregistered id).
-           (nil? meta)
-           (emit-unregistered-cofx! id failing-id frame-id)
-
-           (:recordable? meta)
+     (fn [{:keys [coeffects] :as acc} {:keys [id arg] :as entry}]
+       (if (contains? entry :rf.cofx/sub)
+         ;; A sub-valued recordable source (machines-only): `id` is the `:as`
+         ;; fact-id, `:rf.cofx/sub` the query. It carries NO `reg-cofx`
+         ;; registration — evaluate / re-present via `deliver-sub-source`,
+         ;; NOT the registrar-lookup path below.
+         (deliver-sub-source acc id (:rf.cofx/sub entry) failing-id frame-id
+                             mint-policy)
+         (let [meta (registrar/lookup :cofx id)]
            (cond
-             ;; Present on the token (supplied / replayed) → validate the
-             ;; value against `:schema` (production hard error on mismatch),
-             ;; then deliver verbatim. Supplied values win, but the `:schema`
-             ;; is the type of the replay hole — folding an out-of-contract
-             ;; value into the ledger is corrupt durable state.
-             (contains? (:rf.cofx acc) id)
-             (let [value (get (:rf.cofx acc) id)]
-               (validate-recordable-value! id value meta failing-id frame-id)
-               (assoc-in acc [:coeffects id] value))
+             ;; A declared id with NO registration is the typo case (the
+             ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
+             ;; registered, so a nil meta is always an unregistered id).
+             (nil? meta)
+             (emit-unregistered-cofx! id failing-id frame-id)
 
-             ;; Absent + generator-backed → consult the mint policy. `:live` /
-             ;; `:explicit-live` run the generator at processing-start, write
-             ;; the value into BOTH the delivered spread AND the in-flight
-             ;; `:rf.cofx` record (so the epoch captures it and replay
-             ;; re-presents it); `:strict` (and any unrecognised policy) fails
-             ;; with missing-required (no host read).
-             (generator-backed? meta)
-             (if (mint-policy-generates? mint-policy)
-               (let [[outcome value]
-                     (run-generator id meta (:handler-fn meta) arg frame-id failing-id)]
-                 (case outcome
-                   :generated (-> acc
-                                  (assoc-in [:coeffects id] value)
-                                  (assoc-in [:rf.cofx id] value))
-                   ;; Platform-skipped generator → the fact is not produced;
-                   ;; treat it as missing-required (a half-skipped generated
-                   ;; fact must not surface as a silent nil).
-                   :skipped   (emit-missing-required-cofx! id failing-id frame-id)
-                   :threw     (assoc acc :rf/skip-handler? true)))
+             (:recordable? meta)
+             (cond
+               ;; Present on the token (supplied / replayed) → validate the
+               ;; value against `:schema` (production hard error on mismatch),
+               ;; then deliver verbatim. Supplied values win, but the `:schema`
+               ;; is the type of the replay hole — folding an out-of-contract
+               ;; value into the ledger is corrupt durable state.
+               (contains? (:rf.cofx acc) id)
+               (let [value (get (:rf.cofx acc) id)]
+                 (validate-recordable-value! id value meta failing-id frame-id)
+                 (assoc-in acc [:coeffects id] value))
+
+               ;; Absent + generator-backed → consult the mint policy. `:live` /
+               ;; `:explicit-live` run the generator at processing-start, write
+               ;; the value into BOTH the delivered spread AND the in-flight
+               ;; `:rf.cofx` record (so the epoch captures it and replay
+               ;; re-presents it); `:strict` (and any unrecognised policy) fails
+               ;; with missing-required (no host read).
+               (generator-backed? meta)
+               (if (mint-policy-generates? mint-policy)
+                 (let [[outcome value]
+                       (run-generator id meta (:handler-fn meta) arg frame-id failing-id)]
+                   (case outcome
+                     :generated (-> acc
+                                    (assoc-in [:coeffects id] value)
+                                    (assoc-in [:rf.cofx id] value))
+                     ;; Platform-skipped generator → the fact is not produced;
+                     ;; treat it as missing-required (a half-skipped generated
+                     ;; fact must not surface as a silent nil).
+                     :skipped   (emit-missing-required-cofx! id failing-id frame-id)
+                     :threw     (assoc acc :rf/skip-handler? true)))
+                 (emit-missing-required-cofx! id failing-id frame-id))
+
+               ;; Absent + provided (no generator) → missing-required, every mode.
+               :else
                (emit-missing-required-cofx! id failing-id frame-id))
 
-             ;; Absent + provided (no generator) → missing-required, every mode.
-             :else
-             (emit-missing-required-cofx! id failing-id frame-id))
-
-           :else                                   ;; ambient
-           (let [[outcome value]
-                 (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
-             (case outcome
-               :delivered (assoc-in acc [:coeffects id] value)
-               :skipped   acc
-               :threw     (assoc acc :rf/skip-handler? true))))))
+             :else                                   ;; ambient
+             (let [[outcome value]
+                   (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
+               (case outcome
+                 :delivered (assoc-in acc [:coeffects id] value)
+                 :skipped   acc
+                 :threw     (assoc acc :rf/skip-handler? true)))))))
      {:coeffects coeffects :rf.cofx recorded :rf/skip-handler? false}
      requires)))
 

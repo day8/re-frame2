@@ -125,28 +125,37 @@
 
 (deftest machine-microstep-subscribe
   "#2 Sub-cache hit inside a machine microstep —
-   subscribe inside an action body sees the pre-cascade app-db, not the
-   in-flight :data."
-  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
-  (rf/reg-sub :user-role (fn [db _] (:user/role db)))
-  (rf/dispatch-sync [:seed])
-  (let [observed-by-action (atom nil)
-        machine
+   an EXTERNAL subscribe-once queried AFTER the machine event settles sees the
+   committed post-cascade snapshot (the single end-of-cascade commit), never an
+   intermediate microstep :data. Machine callbacks do NOT read subs in-band — a
+   :guard/:action/:entry/:exit MUST NOT call subscribe-once (a mid-action
+   ambient read is unrecorded and breaks 005's token-grain replay contract, per
+   005 §Causal host facts); external observers see one macrostep per event."
+  ;; A machine whose triggering :seed action advances :data, then an :always
+  ;; microstep advances it AGAIN in the SAME macrostep. An external sub of the
+  ;; machine snapshot, read after the dispatch settles, must see ONLY the final
+  ;; committed :step — never the intermediate :seeded value.
+  (let [machine
         {:initial :idle
-         :data    {}
-         :states  {:idle    {:on {:go {:target :acting :action :record-role}}}
-                   :acting  {}}
-         :actions {:record-role
-                   (fn [_]
-                     ;; Read a sub from inside the action — the machine
-                     ;; cascade has not committed yet but the sub sees
-                     ;; the *current* committed app-db.
-                     (reset! observed-by-action (rf/subscribe-once [:user-role]))
-                     nil)}}]
+         :data    {:step :start}
+         :guards  {:seeded? (fn [{:keys [data]}] (= :seeded (:step data)))}
+         :actions {:seed   (fn [{:keys [data]}] {:data (assoc data :step :seeded)})
+                   :settle (fn [{:keys [data]}] {:data (assoc data :step :settled)})}
+         :states  {:idle   {:on {:go {:target :acting :action :seed}}}
+                   ;; :acting's :always (guarded by :seeded?, made true by the
+                   ;; :seed action) settles onto :done via :settle — a
+                   ;; multi-microstep cascade within ONE macrostep.
+                   :acting {:always {:guard :seeded? :action :settle :target :done}}
+                   :done   {}}}]
     (rf/reg-machine :auth/check machine)
     (rf/dispatch-sync [:auth/check [:go]])
-    (is (= :admin @observed-by-action)
-        "the sub returns the committed app-db value visible to the action body")))
+    ;; post-drain external read of the machine's externally-observable snapshot.
+    (let [snap (rf/subscribe-once [:rf/machine :auth/check])]
+      (is (= :done (:state snap))
+          "the machine settled on the post-cascade state")
+      (is (= :settled (:step (:data snap)))
+          "the external sub sees ONLY the committed post-cascade :data — never
+           the intermediate :seeded microstep value"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 3 — Machine spawn at boot before substrate adapter ready
