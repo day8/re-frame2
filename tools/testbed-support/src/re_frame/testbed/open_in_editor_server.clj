@@ -172,8 +172,24 @@
             (.exists cwd-f) (.getAbsolutePath cwd-f)
             :else           nil))
         (catch Throwable _ nil))
-      ;; 3. Unresolvable — hand the raw path back; launch-editor will try it.
+      ;; 3. Unresolvable — hand the raw path back; the existence gate in
+      ;;    `launch!` then rejects it rather than launching blind.
       path)))
+
+(defn ^:private file-exists?
+  "True when `path` names an existing filesystem entry. Mirrors
+  `launch-editor`'s OWN `fs.existsSync(fileName)` gate: `launch-editor`
+  silently no-ops on a missing file — it returns WITHOUT invoking its
+  error callback, so the `node` process exits 0 and `launch!` would report
+  a false `{:ok true}`. Checking the resolved path here (before the spawn)
+  turns that silent no-op into an explicit failure the endpoint answers as
+  a 422, so the client falls back to the `editor://` URI instead of
+  believing the file opened. Never throws — a nil/blank path or any IO /
+  security-manager error is treated as 'does not exist'."
+  [path]
+  (boolean
+    (when-not (str/blank? path)
+      (try (.exists (File. ^String path)) (catch Throwable _ false)))))
 
 ;; ---- the launch shim -----------------------------------------------------
 ;;
@@ -221,35 +237,47 @@
   "Shell out to node + launch-editor for `abs-path` at `line`/`column`,
   with an optional launch-editor `command` hint. Returns a map
   `{:ok bool :message string?}`. Runs from the dev JVM cwd so node resolves
-  the launch-editor package in the consumer's node_modules. Never throws —
-  any failure (node missing, package absent, launch error) degrades to
-  `{:ok false :message …}` so the endpoint can answer cleanly and the
-  client falls back to the editor:// URI."
+  the launch-editor package in the consumer's node_modules.
+
+  Rejects a missing file BEFORE spawning node. `launch-editor` silently
+  no-ops on a nonexistent file (`if (!fs.existsSync(fileName)) return` —
+  it never calls its error callback, so the node process exits 0), which
+  would report a false `{:ok true}` and make the endpoint answer 200 for an
+  unresolved / nonexistent `:file`, suppressing the client's `editor://`
+  fallback. A file that does not exist short-circuits to
+  `{:ok false :message \"file-not-found\"}` (no node spawn) so the endpoint
+  answers 422 and the client falls back.
+
+  Never throws — any other failure (node missing, package absent, launch
+  error) likewise degrades to `{:ok false :message …}` so the endpoint can
+  answer cleanly and the client falls back to the editor:// URI."
   [abs-path line column command]
-  (let [file-spec (build-file-spec abs-path line column)
-        args (cond-> ["node" "-e" launch-shim file-spec]
-               command (conj command))]
-    (try
-      (let [pb (doto (ProcessBuilder. ^java.util.List args)
-                 (.redirectErrorStream false))
-            _  (.directory pb (File. (System/getProperty "user.dir")))
-            proc (.start pb)
-            ;; launch-editor returns ~immediately (it spawns the editor
-            ;; detached); bound the wait so a hung node never wedges the
-            ;; dev server's request thread.
-            done? (.waitFor proc 10 java.util.concurrent.TimeUnit/SECONDS)
-            exit  (when done? (.exitValue proc))
-            err   (when done?
-                    (slurp (.getErrorStream proc)))]
-        (cond
-          (not done?)  (do (.destroy proc)
-                           {:ok false :message "launch-editor timed out"})
-          (zero? exit) {:ok true}
-          :else        {:ok false
-                        :message (or (when (seq err) (str/trim err))
-                                     (str "launch-editor exited " exit))}))
-      (catch Throwable t
-        {:ok false :message (.getMessage t)}))))
+  (if-not (file-exists? abs-path)
+    {:ok false :message "file-not-found"}
+    (let [file-spec (build-file-spec abs-path line column)
+          args (cond-> ["node" "-e" launch-shim file-spec]
+                 command (conj command))]
+      (try
+        (let [pb (doto (ProcessBuilder. ^java.util.List args)
+                   (.redirectErrorStream false))
+              _  (.directory pb (File. (System/getProperty "user.dir")))
+              proc (.start pb)
+              ;; launch-editor returns ~immediately (it spawns the editor
+              ;; detached); bound the wait so a hung node never wedges the
+              ;; dev server's request thread.
+              done? (.waitFor proc 10 java.util.concurrent.TimeUnit/SECONDS)
+              exit  (when done? (.exitValue proc))
+              err   (when done?
+                      (slurp (.getErrorStream proc)))]
+          (cond
+            (not done?)  (do (.destroy proc)
+                             {:ok false :message "launch-editor timed out"})
+            (zero? exit) {:ok true}
+            :else        {:ok false
+                          :message (or (when (seq err) (str/trim err))
+                                       (str "launch-editor exited " exit))}))
+        (catch Throwable t
+          {:ok false :message (.getMessage t)})))))
 
 ;; ---- query parsing -------------------------------------------------------
 
@@ -463,6 +491,10 @@
         throwing into the shadow-cljs `:dev-http` Ring plumbing).
     403 `{\"ok\":false,\"error\":\"forbidden\"}`    — non-loopback / cross-origin.
     405 `{\"ok\":false,\"error\":\"method-not-allowed\"}` — not POST.
+    422 `{\"ok\":false,\"error\":\"file-not-found\"}` — the resolved `:file`
+        does not exist on disk (`launch-editor` would silently no-op and the
+        endpoint would otherwise answer a false 200; see `launch!`). Non-2xx
+        so the client falls back to the `editor://` URI.
     422 `{\"ok\":false,\"error\":\"<msg>\"}`       — launch failed."
   [{:keys [uri request-method query-string] :as req}]
   (when (= uri endpoint-path)

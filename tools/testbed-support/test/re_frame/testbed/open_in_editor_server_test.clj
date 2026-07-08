@@ -447,3 +447,59 @@
             (is (= (str abs-path ":1:7") (#'oies/build-file-spec abs-path line column))
                 "build-file-spec normalizes column-only to line 1 —
                  the rf2-bj02en regression, now fixed")))))))
+
+;; ---- missing-file guard: no false 200 (rf2-i877cj) -----------------------
+;;
+;; `launch-editor` SILENTLY no-ops on a nonexistent file — its internal
+;; `if (!fs.existsSync(fileName)) return` returns WITHOUT calling the error
+;; callback, so the node process exits 0 and `launch!` would report a false
+;; `{:ok true}`, making the endpoint answer HTTP 200 for an unresolved /
+;; nonexistent `:file`. That suppresses the client's `editor://` fallback
+;; (the client only falls back on a non-2xx). `launch!` now checks the
+;; resolved path's existence BEFORE spawning node and short-circuits to
+;; `{:ok false :message "file-not-found"}`, which the endpoint answers 422.
+
+(deftest file-exists?-detects-real-and-missing-paths
+  (testing "an existing file is detected"
+    (let [tmp (File/createTempFile "oies-exists" ".cljs")]
+      (try
+        (is (true? (#'oies/file-exists? (.getAbsolutePath tmp)))
+            "a real on-disk file exists")
+        (finally (.delete tmp)))))
+  (testing "a nonexistent path, nil, and blank are all 'does not exist'"
+    (is (false? (#'oies/file-exists?
+                  (str (System/getProperty "java.io.tmpdir")
+                       "/oies-absent-" (System/nanoTime) ".cljs"))))
+    (is (false? (#'oies/file-exists? nil)))
+    (is (false? (#'oies/file-exists? "   ")))))
+
+(deftest launch-rejects-missing-file-before-spawning-node
+  (testing "launch! on a path that does not exist short-circuits to a
+            file-not-found failure WITHOUT shelling out to node — mirroring
+            launch-editor's own existence gate so the endpoint never reports
+            a false success (this test does not require node to be present)"
+    (let [missing (str (System/getProperty "java.io.tmpdir")
+                       "/oies-launch-absent-" (System/nanoTime) ".cljs")]
+      (is (= {:ok false :message "file-not-found"}
+             (oies/launch! missing 10 5 nil))
+          "missing file rejected before the node spawn")))
+  (testing "a nil / blank abs-path is likewise file-not-found (never node)"
+    (is (= {:ok false :message "file-not-found"} (oies/launch! nil 1 1 nil)))
+    (is (= {:ok false :message "file-not-found"} (oies/launch! "   " 1 1 nil)))))
+
+(deftest endpoint-rejects-missing-file-with-422
+  (testing "request-level regression: a valid local POST whose `:file`
+            resolves to a nonexistent path answers 422 file-not-found (NOT a
+            false 200) — `launch!` runs FOR REAL (not stubbed) and
+            short-circuits before node, so the client gets a non-2xx and
+            falls back to the editor:// URI"
+    (let [missing (str "oies_missing_" (System/nanoTime) "/nope.cljs")
+          resp    (oies/handle
+                    {:uri            oies/endpoint-path
+                     :request-method :post
+                     :query-string   (str "file=" missing "&line=10&column=3")
+                     :headers        {"host" "localhost:8031"}})]
+      (is (= 422 (:status resp)) "missing file is a non-2xx, not a false 200")
+      (is (re-find #"\"ok\":false" (:body resp)))
+      (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
+          "the client-visible error names the missing file, not launch-failed"))))
