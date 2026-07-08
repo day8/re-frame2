@@ -552,6 +552,75 @@
           ":path keeps the navigable plain map-of key (\"a\") — no over-redaction")
       (is (= :rf/redacted (-> v :tags :value))))))
 
+;; ---- sensitive :map-of KEY that is OPAQUE / nested-opaque (rf2-6ijdgh) -------
+;; The rf2-612mri fix covered a VECTOR-form `:sensitive?` key
+;; (`[:string {:sensitive? true}]`), whose sensitivity the pure-data walker sees
+;; directly. The OPAQUE-key intersection was missed: a COMPILED `m/schema` value
+;; (or a vector wrapper hiding one, e.g. `[:and (m/schema …)]`) used as the
+;; `:map-of` KEY carries a `:sensitive?` flag Malli honours but the walker cannot
+;; introspect — so `schema-has-sensitive?` on the key returns false. Before the
+;; fix, `align-in-path`'s `:map-of` branch dropped the key and descended only the
+;; VALUE schema, leaving `leaf-sensitive? = false`, so `:path`/`:reason` were
+;; NEVER sanitised even though `:value`/`:explain` WERE redacted fail-closed (via
+;; `schema-has-opaque-child?`): the secret KEY shipped VERBATIM in `:path` /
+;; `:reason` — a fail-OPEN privacy leak. Verified on Malli 0.20.1 (JVM). The fix
+;; ORs `schema-has-opaque-child?` into BOTH the align-in-path key-position
+;; fallback (so the leaf resolves sensitive) AND the sanitize-sensitive-path
+;; key-scrub gate (so the key is scrubbed) — deep whole-structure scan, not just
+;; the value slot. These fail before the fix and pass after.
+
+(deftest app-db-validation-opaque-map-of-sensitive-key-scrubbed-from-path
+  (testing "rf2-6ijdgh — a :map-of with a COMPILED (m/schema) :sensitive? KEY and
+            a failing value child scrubs the secret key from :path AND :reason;
+            the secret never appears ANYWHERE in the whole emitted tag map
+            (deep whole-structure scan, not just the redacted :value slot)"
+    (let [v (app-db-failure-trace
+              [:by-token]
+              [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
+              {:by-token {"SECRET-KEY-XYZ" {:age "not-an-int"}}}
+              :by-token/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the opaque key fails closed")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The sensitive opaque KEY is scrubbed to the sentinel; the navigable
+      ;; inner :age segment (a real :map key, not the secret) survives.
+      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
+          ":path's opaque sensitive :map-of key segment is the :rf/redacted sentinel")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "SECRET-KEY-XYZ"))
+          "the secret key does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "SECRET-KEY-XYZ"))
+          "the secret key does NOT appear in the generated :reason text")
+      ;; Belt-and-braces: a DEEP whole-structure scan of the entire tag map —
+      ;; the leak lived in :path/:reason while :value/:explain looked redacted.
+      (is (not (str/includes? (pr-str (:tags v)) "SECRET-KEY-XYZ"))
+          "the secret key does NOT appear ANYWHERE in the emitted tags"))))
+
+(deftest app-db-validation-nested-opaque-map-of-sensitive-key-scrubbed-from-path
+  (testing "rf2-6ijdgh — a :map-of whose KEY is a VECTOR WRAPPER hiding a compiled
+            m/schema (`[:and (m/schema [:string {:sensitive? true}])]`) — the
+            root is walkable EDN but the nested opaque child's :sensitive? is
+            invisible to the walker — still scrubs the secret key everywhere"
+    (let [v (app-db-failure-trace
+              [:by-token]
+              [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
+              {:by-token {"NESTED-SECRET-ABC" {:age "not-an-int"}}}
+              :by-token/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the nested-opaque key fails closed")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
+          ":path's nested-opaque sensitive :map-of key segment is the :rf/redacted sentinel")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "NESTED-SECRET-ABC"))
+          "the secret key does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "NESTED-SECRET-ABC"))
+          "the secret key does NOT appear in the generated :reason text")
+      (is (not (str/includes? (pr-str (:tags v)) "NESTED-SECRET-ABC"))
+          "the secret key does NOT appear ANYWHERE in the emitted tags"))))
+
 ;; ---- sensitive :map-of KEY nested under an ambiguous :or / :and wrapper -----
 ;; (rf2-jqx2at). `sanitize-sensitive-path` treated `:and` / `:or` as SINGLE-child
 ;; transparent wrappers and followed ONLY the first child. When a sensitive
@@ -609,6 +678,48 @@
         "single-child :or descends into its one branch and keeps the map key")
     (is (= [:k] (walker/sanitize-sensitive-path [:and [:map [:k :int]]] [:k]))
         "single-child :and descends into its one branch and keeps the map key")))
+
+(deftest sanitize-scrubs-opaque-map-of-key
+  (testing "rf2-6ijdgh — a :map-of whose KEY is a COMPILED m/schema (opaque to the
+            pure-data walker, so schema-has-sensitive? on it is false) is scrubbed
+            via the opaque-aware gate; the navigable inner :age key is kept"
+    (let [schema [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
+          out    (walker/sanitize-sensitive-path schema ["SECRET-KEY-XYZ" :age])]
+      (is (= [:rf/redacted :age] out)
+          "the opaque sensitive :map-of key is scrubbed; the :age locator survives")
+      (is (not (some #{"SECRET-KEY-XYZ"} out))
+          "the secret key does NOT survive in the sanitized path"))))
+
+(deftest sanitize-scrubs-nested-opaque-map-of-key
+  (testing "rf2-6ijdgh — a :map-of KEY that is a vector wrapper hiding a compiled
+            m/schema (`[:and (m/schema …)]`) is scrubbed via the recursive
+            opaque-aware (schema-has-opaque-child?) gate"
+    (let [schema [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
+          out    (walker/sanitize-sensitive-path schema ["NESTED-SECRET-ABC" :age])]
+      (is (= [:rf/redacted :age] out))
+      (is (not (some #{"NESTED-SECRET-ABC"} out))
+          "the nested-opaque secret key does NOT survive in the sanitized path"))))
+
+(deftest schema-sensitive-at?-true-for-opaque-map-of-key
+  (testing "rf2-6ijdgh — schema-sensitive-at? (the leaf decision that gates path
+            sanitisation) is TRUE at a failing value under an opaque sensitive
+            :map-of key; before the fix align-in-path descended only the VALUE
+            schema and returned false, so the sanitiser never ran"
+    (is (true? (walker/schema-sensitive-at?
+                 [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
+                 ["SECRET-KEY-XYZ" :age]))
+        "compiled m/schema key → leaf sensitive (fails closed)")
+    (is (true? (walker/schema-sensitive-at?
+                 [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
+                 ["NESTED-SECRET-ABC" :age]))
+        "nested-opaque [:and (m/schema …)] key → leaf sensitive (fails closed)")
+    ;; Regression guard: a NON-sensitive, NON-opaque :map-of key must stay a
+    ;; navigable locator (only the nested value is sensitive here) — no
+    ;; over-redaction of the key.
+    (is (false? (walker/schema-sensitive-at?
+                  [:map-of :string [:map [:plain :int]]]
+                  ["a" :plain]))
+        "plain :map-of key with a fully non-sensitive value → NOT leaf-sensitive")))
 
 ;; -- end-to-end via validate-app-schema! (:path / :reason / whole-tags egress) --
 
