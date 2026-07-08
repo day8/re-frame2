@@ -754,7 +754,7 @@
 
 (deftest every-kind-redacts-at-arbitrary-nesting
   (testing "rf2-o69h5 — across arbitrary collection/map nestings of a
-            :sensitive? slot, EVERY callable validation kind (event / cofx /
+            :sensitive? slot, EVERY callable validation kind (event /
             fx / sub-return / machine-data) redacts the sentinel and stamps
             :sensitive?. One escaped kind/shape = one leak."
     (let [result (gen/for-all

@@ -298,8 +298,8 @@
 ;; BOUNDARY 3 — SSR hydration payload (ssr.hydrate/hydrate-event-handler).
 ;;   A deserialised, untrusted payload that is not a map — or whose app-db
 ;;   slice is present-but-not-a-map — MUST be REJECTED (existing app-db
-;;   unchanged + diagnostic), NEVER installed as the whole app-db under the
-;;   locked `:replace-app-db` policy. (rf2-gro94.)
+;;   unchanged + diagnostic), NEVER installed as the whole partition under the
+;;   locked `:replace-frame-state` policy. (rf2-gro94.)
 ;; ===========================================================================
 
 (def ^:private existing-db {:client/seeded true :count 0})

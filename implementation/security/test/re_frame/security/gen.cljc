@@ -190,9 +190,11 @@
   "Deep-walk `x`; true when `needle` appears anywhere - as a value, inside a
   collection, or inside a stringified form. When `exact?` is truthy, a walked
   STRING leaf matches only on exact `=` equality with `needle`; otherwise a
-  leaf matches when `needle` is a SUBSTRING of it (`re-find`). The `pr-str`
-  fallback always uses a substring scan, so `needle` surviving inside a
-  non-string leaf (e.g. a keyword/symbol form built from it) is also caught."
+  leaf matches when `needle` REGEX-matches it (`re-find` over `(re-pattern
+  needle)`). The `pr-str` fallback always uses the same regex search, so
+  `needle` surviving inside a non-string leaf (e.g. a keyword/symbol form
+  built from it) is also caught. `needle` MUST therefore be a regex-safe
+  literal (no unescaped regex metacharacters); the current sentinels are."
   [x needle exact?]
   (let [hit (volatile! false)]
     (walk/postwalk
