@@ -181,7 +181,8 @@
   destroy — flows through this single emit so consumers can pair
   scheduled→fired→cancelled by `(actor-id, state, epoch)` and branch on
   `:reason` from the closed set `:on-exit / :on-destroy / :on-resolution
-  / :on-supersede / :on-frame-destroy`.
+  / :on-supersede / :on-frame-destroy / :on-restore` (the epoch-restore
+  host-timer cleanup, `cancel-frame-timers-on-restore!`).
 
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
   cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
@@ -240,7 +241,7 @@
   "Cancel and clear a single :after timer-table entry under `frame-id`,
   emitting one `:rf.machine.timer/cancelled` trace stamped with
   `reason` (closed set: `:on-exit / :on-destroy / :on-resolution /
-  :on-supersede / :on-frame-destroy`). Idempotent —
+  :on-supersede / :on-frame-destroy / :on-restore`). Idempotent —
   a second call against the same `[frame-id k]` is a no-op (the entry
   is gone so no trace fires)."
   [frame-id k reason]

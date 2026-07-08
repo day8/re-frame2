@@ -251,6 +251,23 @@
         (is (= reason (:cancel/reason r)))
         (is (reply/valid-reply? r) (str reason " ⇒ " (reply/validate-reply r)))))))
 
+(deftest on-restore-cancel-reason-in-closed-vocab
+  (testing "rf2-e3ryis — :on-restore (epoch-restore host-timer cleanup) is a
+            member of the closed timer-cancel-reasons vocab and produces a valid
+            cancelled-timer reply. `timer/cancel-frame-timers-on-restore!` emits
+            :reason :on-restore, so the closed set MUST sanction it — otherwise a
+            downstream reply/trace-schema validator or a consumer branching on
+            the vocab (exhaustive case / filter-pill enum) rejects or
+            misclassifies the epoch-restore cancellation."
+    (is (contains? m-reply/timer-cancel-reasons :on-restore)
+        ":on-restore is a member of the closed cancel-reason vocabulary")
+    (let [r (m-reply/cancelled-timer-reply
+              {:actor-id :a/m :state :waiting :delay 5000
+               :decl-path [:waiting] :epoch 2 :frame :rf/default
+               :reason :on-restore})]
+      (is (= :on-restore (:cancel/reason r)))
+      (is (reply/valid-reply? r) (str "on-restore ⇒ " (reply/validate-reply r))))))
+
 (deftest cancelled-actor-reply-is-canonical
   (testing "rf2-sfunt8 — a cancelled (destroyed) spawned actor is :status :cancelled"
     (let [r (m-reply/cancelled-actor-reply
