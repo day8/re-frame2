@@ -212,12 +212,25 @@
 
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Resets the editor
-         slice to a blank draft, clears any leftover save instance, and registers
-         the `:editor/can-submit?` flow against the dispatching frame."}
+         slice to a blank draft, clears any leftover save instance, registers the
+         `:editor/can-submit?` flow against the dispatching frame, and — because
+         edit and create share the one `editor-page` component (core.cljs), so an
+         edit -> new navigation never unmounts it — releases the outgoing edit
+         lease (mirroring the slug-change branch of `:editor/load-article`) so its
+         `:realworld/article` cache entry can go inactive and GC."}
   (fn [{:keys [db]} _]
-    {:db (assoc db :editor (editor-slice))
-     :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-          [:rf.fx/reg-flow can-submit-flow]]}))
+    (let [prev-slug (get-in db [:editor :slug])]
+      {:db (assoc db :editor (editor-slice))
+       :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
+                    [:rf.fx/reg-flow can-submit-flow]]
+             ;; edit -> new re-uses the same `editor-page` component, so no
+             ;; unmount fires to release the edit lease — and blanking the slice
+             ;; to a nil slug here would strand it. Release the outgoing slug's
+             ;; lease before the slice is cleared, or its `:realworld/article`
+             ;; cache entry stays pinned active for the rest of the session
+             ;; (N edits -> N leaked entries).
+             prev-slug
+             (conj [:dispatch [:editor/release-article prev-slug]]))})))
 
 (rf/reg-event :editor/load-article
   {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Seeds the draft
@@ -355,9 +368,19 @@
               [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})
 
       :else
-      {:db (assoc db :editor (editor-slice))
-       :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-            [:dispatch [:rf.route/navigate :realworld/home]]]})))
+      (let [prev-slug (get-in db [:editor :slug])]
+        {:db (assoc db :editor (editor-slice))
+         :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]
+               ;; Release the deleted article's lease BEFORE the slice is cleared
+               ;; out from under it. The navigate-home below unmounts the editor,
+               ;; whose `:editor/release-article` (no slug) reads the editor
+               ;; slice's slug — but that's now nil, so it would release nothing
+               ;; and leak the lease (and the delete's `[:article slug]`
+               ;; invalidation could even refetch the just-deleted slug while the
+               ;; orphaned lease keeps it active). Releasing the captured
+               ;; outgoing slug here closes that gap.
+               prev-slug (conj [:dispatch [:editor/release-article prev-slug]])
+               true      (conj [:dispatch [:rf.route/navigate :realworld/home]]))}))))
 
 (rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under the
