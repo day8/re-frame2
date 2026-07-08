@@ -82,7 +82,7 @@
             [re-frame.schemas]
             ;; Likewise machines, from day8/re-frame2-machines: requiring
             ;; this registers `rf/reg-machine` and the `:rf/machine` /
-            ;; `:rf/machine-has-tag?` subs we use throughout.
+            ;; `:rf.machine/has-tag?` subs we use throughout.
             [re-frame.machines]
             ;; Managed-HTTP ships in day8/re-frame2-http. Requiring it
             ;; registers the `:rf.http/managed` fx (and its family) that
@@ -659,7 +659,7 @@
 ;; ============================================================================
 ;;
 ;; The form and control panel grey themselves out once the page is archived,
-;; using `@(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])`. Notice
+;; using `@(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])`. Notice
 ;; what they DON'T ask: "are we in the :done state of the :mode region?"
 ;; They ask "is this read-only?" and leave it at that. The view states an
 ;; intent and lets the machine decide which state happens to carry it —
@@ -671,7 +671,7 @@
           new-todo-form []
   (let [draft       @(subscribe [:new-todo/draft])
         field-err   @(subscribe [:new-todo/field-error :title])
-        read-only?  @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])]
+        read-only?  @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:form.new-todo
      {:on-submit (fn [e]
                    (.preventDefault e)
@@ -688,7 +688,7 @@
 (rf/reg-view ^{:doc "Your remote control: one button per state, so you can
                   jump the demo straight to any of the nine."}
           control-panel []
-  (let [read-only? @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])]
+  (let [read-only? @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:div.control-panel
      [:h3 "Drive the demo"]
      [:button {:on-click #(dispatch [:nine-states.app/initialise])

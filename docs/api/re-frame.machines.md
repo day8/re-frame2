@@ -7,7 +7,7 @@ State machines, per Spec 005. A machine is registered with one macro (`reg-machi
           [re-frame.machines :as machines]) ;; engine, query, transition, tooling, runtime helpers
 ```
 
-A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the snapshot, `@(rf/subscribe [:rf/machine-has-tag? machine-id tag])` for a `:tags`-membership predicate. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
+A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the snapshot, `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` for a `:tags`-membership predicate. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
 
 Surfaces split two ways:
 
@@ -234,17 +234,17 @@ The framework-registered subscription vectors and reserved effect tuples that ad
     [:div "State: " (name state)])
   ```
 
-### `[:rf/machine-has-tag? machine-id tag]`
+### `[:rf.machine/has-tag? machine-id tag]`
 
 - **Kind**: subscription (framework-registered)
 - **Signature**:
   ```clojure
-  [:rf/machine-has-tag? machine-id tag]
+  [:rf.machine/has-tag? machine-id tag]
   ```
 - **Description**: Returns `true` iff the named machine's current snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). A *derived* sub: it reads the snapshot's containment-bit directly rather than chaining off `:rf/machine`, so a view that only cares about one tag re-renders only when that bit flips.
 - **Example**:
   ```clojure
-  @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])  ;; => true / false
+  @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])  ;; => true / false
   ```
 
 ### `[:rf.machine/spawn spawn-spec]`
@@ -427,7 +427,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
   ```clojure
   (re-frame.machines/machine-selector? sub-id) → boolean
   ```
-- **Description**: True iff the subscription registered under `sub-id` is a machine selector — an ordinary `reg-sub` whose static `:<-` inputs include a `[:rf/machine …]` (or `[:rf/machine-has-tag? …]`) query vector. Machine selectors stay ordinary ephemeral `:derivation` subscription nodes, not a second subscription system; this recognizer lets a graph tool flag the ones that read a machine. JVM-only.
+- **Description**: True iff the subscription registered under `sub-id` is a machine selector — an ordinary `reg-sub` whose static `:<-` inputs include a `[:rf/machine …]` (or `[:rf.machine/has-tag? …]`) query vector. Machine selectors stay ordinary ephemeral `:derivation` subscription nodes, not a second subscription system; this recognizer lets a graph tool flag the ones that read a machine. JVM-only.
 - **Example**:
   ```clojure
   (machines/machine-selector? :session/summary)  ;; => true / false
@@ -440,7 +440,7 @@ The shipped machine-tooling exports are `re-frame.machines` aliases over `re-fra
   ```clojure
   (re-frame.machines/machine-selector-targets sub-id) → #{machine-id …}
   ```
-- **Description**: The set of machine ids the subscription registered under `sub-id` reads as a machine selector — the second element of each accepted `[:rf/machine machine-id …]` / `[:rf/machine-has-tag? machine-id …]` static `:<-` input. Where `machine-selector?` answers only the boolean, this returns the actual target machine ids a graph tool needs to draw the edge. JVM-only.
+- **Description**: The set of machine ids the subscription registered under `sub-id` reads as a machine selector — the second element of each accepted `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]` static `:<-` input. Where `machine-selector?` answers only the boolean, this returns the actual target machine ids a graph tool needs to draw the edge. JVM-only.
 - **Example**:
   ```clojure
   (machines/machine-selector-targets :session/summary)  ;; => #{:session}

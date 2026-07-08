@@ -248,8 +248,8 @@
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
     ;; at :idle.
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/frame-state-value f))))
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf.machine/has-tag? :ui/article-editor :mode/create] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf.machine/has-tag? :ui/article-editor :lifecycle/idle] (rf/frame-state-value f))))
     ;; The :editor/can-submit? FLOW (Spec 013) starts false — the draft is
     ;; blank (invalid) and unchanged.
     (is (false? (rf/compute-sub [:editor/can-submit?] (rf/frame-state-value f))))
@@ -261,8 +261,8 @@
     (is (true? (rf/compute-sub [:editor/can-submit?] (rf/frame-state-value f))))
     (rf/dispatch-sync [:editor/submit] {:frame f})
     ;; A successful submit advances :mode → :edit and :lifecycle → :saved.
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/frame-state-value f))))
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/edit] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf.machine/has-tag? :ui/article-editor :lifecycle/saved] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf.machine/has-tag? :ui/article-editor :mode/edit] (rf/frame-state-value f))))
     (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f))))))
 
 (defn- editor-can-leave-test []
@@ -468,9 +468,9 @@
 
 (defn- settings-machine-has-tag?
   "Read the :settings/form machine's :tags union against a frame's app-db
-   (browserless form of the `[:rf/machine-has-tag? …]` sub)."
+   (browserless form of the `[:rf.machine/has-tag? …]` sub)."
   [frame tag]
-  (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
+  (rf/compute-sub [:rf.machine/has-tag? :settings/form tag]
                   (rf/frame-state-value frame)))
 
 (defn- settings-test []
@@ -628,9 +628,9 @@
 
 (defn- tags-machine-has-tag?
   "Read the :realworld/tags machine's :tags union against a frame's app-db
-   (browserless form of the `[:rf/machine-has-tag? …]` sub)."
+   (browserless form of the `[:rf.machine/has-tag? …]` sub)."
   [frame tag]
-  (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
+  (rf/compute-sub [:rf.machine/has-tag? :realworld/tags tag]
                   (rf/frame-state-value frame)))
 
 (defn- tag-query-test []
@@ -784,7 +784,7 @@
   ;; navbar uses. The `:can-enter` guard runs on the ONE gate every door shares,
   ;; so a logged-out user reaching a `:requires-auth` route via the MOST common
   ;; access path — a direct URL / reload (`:rf.route/handle-url-change`) or an
-  ;; anchor click (`:rf/url-requested`) — is refused too. These cases assert all
+  ;; anchor click (`:rf.route/url-requested`) — is refused too. These cases assert all
   ;; three doors redirect to login (no frame interceptor needed).
 
   ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
@@ -812,13 +812,13 @@
     (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a non-auth route is unaffected"))
 
-  ;; --- anchor click (`:rf/url-requested`) ---
+  ;; --- anchor click (`:rf.route/url-requested`) ---
   (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
     ;; An anchor whose href targets a :requires-auth route. The
-    ;; framework `rf/route-link` dispatches `:rf/url-requested` with the
+    ;; framework `rf/route-link` dispatches `:rf.route/url-requested` with the
     ;; resolved url; the :can-enter gate refuses the logged-out entry.
-    (rf/dispatch-sync [:rf/url-requested {:url "/settings"
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/settings"
                                           :to  :realworld.user/settings}]
                       {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
@@ -828,12 +828,12 @@
         "the anchor redirect stashes the original target for bounce-back")
 
     ;; A url-only request still gates via the URL-resolved target.
-    (rf/dispatch-sync [:rf/url-requested {:url "/editor"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor"}] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out url-only anchor to a :requires-auth route redirects to login")
 
     ;; A non-auth anchor is unaffected.
-    (rf/dispatch-sync [:rf/url-requested {:url "/profile/eve"
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/profile/eve"
                                           :to  :realworld.profile/show
                                           :params {:username "eve"}}]
                       {:frame f})
@@ -849,7 +849,7 @@
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated direct-URL to a :requires-auth route proceeds")
     ;; anchor click to a guarded route also proceeds when logged in.
-    (rf/dispatch-sync [:rf/url-requested {:url "/settings"
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/settings"
                                           :to  :realworld.user/settings}]
                       {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))

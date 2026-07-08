@@ -8,7 +8,7 @@
     - No-tags machine: the snapshot has no :tags slot (empty union
       elided per Spec 005 §Snapshot shape change).
     - Tag recomputation on every transition, including :always microsteps.
-    - The :rf/machine-has-tag? framework sub returns true iff the snapshot's
+    - The :rf.machine/has-tag? framework sub returns true iff the snapshot's
       :tags set contains the queried keyword.
     - pure machine-transition recomputes :tags without a frame.
     - Initial-snapshot synthesis stamps :tags before the first event.
@@ -202,10 +202,10 @@
                (:tags deserialised))
             ":tags set round-trips with qualified keywords intact")))))
 
-;; ---- 8. :rf/machine-has-tag? framework sub ------------------------------
+;; ---- 8. :rf.machine/has-tag? framework sub ------------------------------
 
 (deftest machine-has-tag-sub
-  (testing ":rf/machine-has-tag? returns true iff :tags contains the tag"
+  (testing ":rf.machine/has-tag? returns true iff :tags contains the tag"
     (let [m {:initial :idle
              :data    {}
              :states  {:idle    {:tags #{:loading :transient}
@@ -217,18 +217,18 @@
       ;; The sub registers via subs/reg-sub so dispatch-sync's drain
       ;; doesn't gate the sub's value — we read it through the standard
       ;; subscribe surface.
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading]))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :loading]))
           ":loading is in the active tag set")
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :transient])))
-      (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :done]))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :transient])))
+      (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/sub :done]))
           ":done is NOT in the active tag set")
       (rf/dispatch-sync [:tags/sub [:done]])
       ;; After the transition, the booleans flip.
-      (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading])))
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :done])))))
+      (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/sub :loading])))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :done])))))
 
-  (testing ":rf/machine-has-tag? returns false for an unknown machine"
-    (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/unknown-machine :x]))
+  (testing ":rf.machine/has-tag? returns false for an unknown machine"
+    (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/unknown-machine :x]))
         "no snapshot for the id → false (null-tolerant)")))
 
 ;; ---- 9. internal transition recomputes :tags consistently --------------

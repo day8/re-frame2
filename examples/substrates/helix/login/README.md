@@ -45,7 +45,7 @@ You can see exactly how little moves in `core.cljs` itself, which draws the divi
   [state tags](../../../../docs/machines/glossary.md#state-tag) — `:auth/busy` on
   `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on
   `:locked-out`. The Helix views ask the framework
-  `[:rf/machine-has-tag? :auth.login/flow :auth/busy]` — "is it busy?" — to
+  `[:rf.machine/has-tag? :auth.login/flow :auth/busy]` — "is it busy?" — to
   disable the inputs and re-label the button while a request is in flight,
   rather than naming exact states. The terminal `:locked-out` state — reached
   after the fourth failed submit, once the `:under-retry-limit` guard finally

@@ -18,7 +18,7 @@
 ;;     `reg-machine*` / `make-machine-handler` / `machine-transition`
 ;;     / `machine-has-tag?` aliases on `re-frame.core`
 ;;     (which `sci/copy-ns` already exposes) become live, and the
-;;     `:rf/machine` / `:rf/machine-has-tag?` framework subs +
+;;     `:rf/machine` / `:rf.machine/has-tag?` framework subs +
 ;;     `:rf.machine/spawn` / `:rf.machine/destroy` fxs register from
 ;;     `re-frame.machines`'s top-level forms. Live cells in the
 ;;     ch12 machines tutorial can then call real `reg-machine` rather

@@ -230,7 +230,7 @@ A view reads the snapshot and shows the right thing for each state. Inside `reg-
 (rf/reg-view login-view []
   (let [state @(subscribe [:auth.login/state])
         error @(subscribe [:auth.login/error])
-        busy? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])]
+        busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     (case state
       :idle        [:button {:disabled busy?} "Sign in"]
       :submitting  [:p "Signing in…"]

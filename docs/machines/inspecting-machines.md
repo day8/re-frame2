@@ -67,7 +67,7 @@ A sub that reads a machine this way is an ordinary derivation node — it does n
 Once a machine has several "loading-ish" states, views stop asking *which exact state?* and start asking a predicate — *is it busy?* That's what [state tags](glossary.md#state-tag) are for. The framework ships a derived predicate sub you read like any other:
 
 ```clojure
-(when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy]) [spinner])
+(when @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy]) [spinner])
 ```
 
 This sub re-renders only when *this* tag's membership bit flips, so adding a fifth busy state later is one `:tags` entry on the new node — zero view changes.

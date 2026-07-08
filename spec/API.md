@@ -291,7 +291,7 @@ A `:url-bound? true` frame's browser URL-change listener is installed / removed 
 
 `reg-route` metadata reserved keys: `:doc`, `:params`, `:query`, `:query-defaults`, `:query-retain`, `:tags`, `:parent`, `:on-match`, `:on-error`, `:can-leave`, `:can-enter`, `:scroll`, `:sensitive`, `:large`. The URL `:path` pattern is the third VALUE slot, not a metadata key. Canonical detail in [012-Routing.md](012-Routing.md); shape in [Spec-Schemas §`:rf/route-metadata`](Spec-Schemas.md#rfroute-metadata).
 
-`route-link` click rules: a plain primary-button click (no modifier keys, no `defaultPrevented`) calls `.preventDefault` and dispatches `[:rf/url-requested {:url <synthesised> :to <route-id> :params {...} :query {...} :fragment "..."}]`. Modifier-key clicks (cmd / ctrl / shift / alt) and auxiliary-button clicks (middle-click) defer to the browser so the native `href` opens in a new tab. A caller-supplied `:on-click` runs first; if it calls `.preventDefault` (or otherwise leaves `defaultPrevented` true) the framework's interception is skipped. Keys other than `:to` / `:params` / `:query` / `:fragment` / `:on-click` pass through to the underlying `<a>` element. Detailed semantics in [012-Routing.md §Linking from views](012-Routing.md#linking-from-views--plain-anchor-semantics).
+`route-link` click rules: a plain primary-button click (no modifier keys, no `defaultPrevented`) calls `.preventDefault` and dispatches `[:rf.route/url-requested {:url <synthesised> :to <route-id> :params {...} :query {...} :fragment "..."}]`. Modifier-key clicks (cmd / ctrl / shift / alt) and auxiliary-button clicks (middle-click) defer to the browser so the native `href` opens in a new tab. A caller-supplied `:on-click` runs first; if it calls `.preventDefault` (or otherwise leaves `defaultPrevented` true) the framework's interception is skipped. Keys other than `:to` / `:params` / `:query` / `:fragment` / `:on-click` pass through to the underlying `<a>` element. Detailed semantics in [012-Routing.md §Linking from views](012-Routing.md#linking-from-views--plain-anchor-semantics).
 
 Standard route-related events:
 
@@ -300,7 +300,7 @@ Standard route-related events:
 | `:rf.route/navigate` | Navigate to a registered route. | 012 |
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned`, not a delegate. | 012 |
 | `:rf.route/transitioned` | URL-change handler for forward navigation (link click / programmatic push; default scroll `:top`). | 012 |
-| `:rf/url-requested` | The user clicked a framework-owned link. | 012 |
+| `:rf.route/url-requested` | The user clicked a framework-owned link. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. | 012 |
 | `:rf.route/entry-blocked` | A `:can-enter` guard rejected navigation *into* a route (the enter-block mirror of `:rf.route/navigation-blocked`; carries the pending-nav map). | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |
@@ -980,9 +980,9 @@ v1 transition-table grammar subset is enumerated in [005 §Capability matrix](00
 | Standard sub | Returns | Spec |
 |---|---|---|
 | `[:rf/machine <machine-id>]` | The machine's snapshot `{:state :data :tags}` (or `nil` if not yet initialised) | 005 |
-| `[:rf/machine-has-tag? <machine-id> <tag>]` | `true` iff the machine's current snapshot's `:tags` set contains `tag` (`false` for an unknown / not-yet-initialised machine) | 005 |
+| `[:rf.machine/has-tag? <machine-id> <tag>]` | `true` iff the machine's current snapshot's `:tags` set contains `tag` (`false` for an unknown / not-yet-initialised machine) | 005 |
 
-The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub). It is read like any other subscription — `@(rf/subscribe [:rf/machine machine-id])`, `@(rf/subscribe [:rf/machine-has-tag? machine-id tag])` — and named projections chain off it with `:<-`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
+The canonical machine read is the registered `[:rf/machine machine-id]` subscription vector — see [005 §Subscribing to machines](005-StateMachines.md#subscribing-to-machines-via-the-rfmachine-sub). It is read like any other subscription — `@(rf/subscribe [:rf/machine machine-id])`, `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` — and named projections chain off it with `:<-`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one grammar.
 
 ---
 

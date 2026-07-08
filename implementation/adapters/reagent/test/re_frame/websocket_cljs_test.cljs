@@ -65,13 +65,13 @@
 
 (defn- re-register-machines-fx-and-subs!
   "Re-fire the framework-shipped `:rf.machine/*` fx + the `:rf/machine`
-   / `:rf/machine-has-tag?` subs.
+   / `:rf.machine/has-tag?` subs.
 
    Idempotent (last-write-wins). Necessary because upstream test
    namespaces call `re-frame.registrar/clear-all!` without restoring,
    which wipes the ns-load-time registrations in `re-frame.machines`.
    Without these in place declarative `:spawn` silently no-ops and
-   the `:rf/machine-has-tag?` sub returns false even when the tag is in
+   the `:rf.machine/has-tag?` sub returns false even when the tag is in
    the snapshot."
   []
   (when-let [spawn-fx (late-bind/get-fn :machines/spawn-fx)]
@@ -91,7 +91,7 @@
   (subs/reg-runtime-sub :rf/machine
     (fn [rt [_ machine-id]]
       (get-in rt [:rf.runtime/machines :snapshots machine-id])))
-  (subs/reg-runtime-sub :rf/machine-has-tag?
+  (subs/reg-runtime-sub :rf.machine/has-tag?
     (fn [rt [_ machine-id tag]]
       (contains? (get-in rt [:rf.runtime/machines :snapshots machine-id :tags]) tag))))
 
@@ -133,12 +133,12 @@
   (subs/reg-runtime-sub :ws/snapshot (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :ws/connection])))
   (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
   ;; The per-tag subs mirror the example: each chains off the framework
-  ;; `:rf/machine-has-tag?` sub rather than re-reading the snapshot's :tags.
-  (rf/reg-sub :ws/connecting?     :<- [:rf/machine-has-tag? :ws/connection :websocket/connecting]     (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/authenticating? :<- [:rf/machine-has-tag? :ws/connection :websocket/authenticating] (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/connected?      :<- [:rf/machine-has-tag? :ws/connection :websocket/connected]      (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/reconnecting?   :<- [:rf/machine-has-tag? :ws/connection :websocket/reconnecting]   (fn [has-tag? _] has-tag?))
-  (rf/reg-sub :ws/failed?         :<- [:rf/machine-has-tag? :ws/connection :websocket/failed]         (fn [has-tag? _] has-tag?))
+  ;; `:rf.machine/has-tag?` sub rather than re-reading the snapshot's :tags.
+  (rf/reg-sub :ws/connecting?     :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]     (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/authenticating? :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating] (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/connected?      :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]      (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/reconnecting?   :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]   (fn [has-tag? _] has-tag?))
+  (rf/reg-sub :ws/failed?         :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]         (fn [has-tag? _] has-tag?))
   (rf/reg-sub :ws/queue-depth    :<- [:ws/snapshot] (fn [snap _] (count (get-in snap [:data :queue]))))
   (rf/reg-sub :ws/retries        :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :retries])))
   (rf/reg-sub :ws/error          :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :error])))
@@ -248,7 +248,7 @@
   "Read the machine's :tags union against a frame's runtime-db (machine
   snapshots are runtime-db state — rf2-vzld77)."
   [frame tag]
-  (rf/compute-sub [:rf/machine-has-tag? :ws/connection tag]
+  (rf/compute-sub [:rf.machine/has-tag? :ws/connection tag]
                   (:rf.db/runtime (rf/frame-state-value frame))))
 
 (defn- new-frame []

@@ -163,10 +163,10 @@ The framework ships two subs:
 
 ```clojure
 @(rf/subscribe [:rf/machine :my/feature])                     ;; the whole snapshot
-@(rf/subscribe [:rf/machine-has-tag? :my/feature :loading])   ;; tag containment-bit
+@(rf/subscribe [:rf.machine/has-tag? :my/feature :loading])   ;; tag containment-bit
 ```
 
-The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `[:rf/machine-has-tag? machine-id tag]` is the companion derived subscription — see `tags.md` — read the same way, with the ordinary `subscribe`; there is no named-read-sugar fn over either.
+The canonical machine read is the `[:rf/machine machine-id]` subscription vector — it returns the snapshot map `{:state ... :data ... :tags ...}`. `[:rf.machine/has-tag? machine-id tag]` is the companion derived subscription — see `tags.md` — read the same way, with the ordinary `subscribe`; there is no named-read-sugar fn over either.
 
 Project off the snapshot with ordinary `reg-sub`:
 
@@ -213,4 +213,4 @@ For the full transition-table grammar, guard/action effect-map shape, hierarchic
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration`, …) and `re-frame.core` / `re-frame.core-machines` (the `reg-machine` macro + the `[:rf/machine machine-id]` and `[:rf/machine-has-tag? machine-id tag]` subscription vectors) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split into sub-namespaces); re-verify symbol homes after machine-registration refactors.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration`, …) and `re-frame.core` / `re-frame.core-machines` (the `reg-machine` macro + the `[:rf/machine machine-id]` and `[:rf.machine/has-tag? machine-id tag]` subscription vectors) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split into sub-namespaces); re-verify symbol homes after machine-registration refactors.*

@@ -31,7 +31,7 @@ Skim this, then read the worked build-up in [The grammar, concept by concept](#t
 | `guard: 'canRetry'` | `:guard :under-retry-limit` | Named; defined in the spec's [`:guards`](#guards) map. Idiomatic Clojure name (`?`-suffixed predicate), not a JS boolean string. |
 | `actions: assign({...})` / effectful actions | [`:action :record-error`](#actions-assign-and-the-effect-map) returning `{:data ... :fx ...}` | An action **returns** an [effect map](../core/glossary.md#effect-map) — it doesn't mutate. More below. |
 | `setup({ guards, actions })` registry | per-spec `:guards` / `:actions` maps | Each machine carries its own. Cross-machine reuse is an ordinary Clojure var, not a string registry. |
-| `tags: ['busy']` + `state.hasTag('busy')` | [`:tags #{:auth/busy}`](#tags) + `[:rf/machine-has-tag? id :auth/busy]` | A Clojure set; the membership question is a [subscription](../core/glossary.md#subscription). See [state tag](glossary.md#state-tag). |
+| `tags: ['busy']` + `state.hasTag('busy')` | [`:tags #{:auth/busy}`](#tags) + `[:rf.machine/has-tag? id :auth/busy]` | A Clojure set; the membership question is a [subscription](../core/glossary.md#subscription). See [state tag](glossary.md#state-tag). |
 | `after: { 5000: 'next' }` | [`:after {5000 {:target :next}}`](#delayed-transitions-after-and-timeout) | Same declarative timer; same auto-cancel on exit. ISO-8601 strings (`"PT5S"`) accepted; XState's `"5s"` shorthand is **not**. |
 | `always: [{ guard, target }]` | [`:always [{:guard … :target …}]`](#eventless-transitions-always) | Eventless transitions, same firing rule. |
 | state/actor `timeout` / `onTimeout` | [`:timeout`/`:on-timeout`](#delayed-transitions-after-and-timeout) | A named deadline that lowers onto `:after`. ms or ISO-8601; `"5s"` shorthand rejected. |
@@ -356,11 +356,11 @@ Once a machine has several "loading-ish" states, views should ask a predicate (*
 :submitting {:tags #{:auth/busy} :entry :issue-request :on { … }}
 ```
 ```clojure
-(when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
+(when @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
   [spinner])
 ```
 
-At every transition the runtime stamps the union of active states' tags onto the snapshot's `:tags`. The framework ships `[:rf/machine-has-tag? <id> <tag>]` — a derived predicate sub that re-renders only when *this* tag's bit flips — and the `rf/machine-has-tag?` sugar over it. Add a fifth busy state later and it's one `:tags` entry, zero view changes (*ask, don't tell*).
+At every transition the runtime stamps the union of active states' tags onto the snapshot's `:tags`. The framework ships `[:rf.machine/has-tag? <id> <tag>]` — a derived predicate sub that re-renders only when *this* tag's bit flips — and the `rf/machine-has-tag?` sugar over it. Add a fifth busy state later and it's one `:tags` entry, zero view changes (*ask, don't tell*).
 
 ### Schemas: types that actually run
 

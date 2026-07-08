@@ -5,13 +5,13 @@
   Per Spec 005 §State tags: a state-node body may declare `:tags
   <set-of-keywords>`. The runtime maintains the union of every active
   state's tag set at `[:rf.runtime/machines :snapshots <id> :tags]` in the snapshot and ships
-  the `:rf/machine-has-tag?` framework sub to query it.
+  the `:rf.machine/has-tag?` framework sub to query it.
 
   Concerns covered:
     - Flat machine: snapshot's `:tags` is the active state's tag set.
     - Compound machine: `:tags` is the union along the active path.
     - No-declaration machine: empty union elided from snapshot.
-    - `:rf/machine-has-tag?` sub; false for unknown machine.
+    - `:rf.machine/has-tag?` sub; false for unknown machine.
     - `:tags` reflects the post-`:always`-microstep state."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -74,7 +74,7 @@
             "empty union elided from snapshot per Spec 005 §Snapshot shape change")))))
 
 (deftest machine-tags-has-tag-sub-cljs
-  (testing ":rf/machine-has-tag? returns true iff the snapshot's :tags contains tag"
+  (testing ":rf.machine/has-tag? returns true iff the snapshot's :tags contains tag"
     (let [m {:initial :loading
              :data    {}
              :states  {:loading {:tags #{:loading :transient}
@@ -82,15 +82,15 @@
                        :resolved {:tags #{:done}}}}]
       (rf/reg-machine :tags/sub m)
       (rf/dispatch-sync [:tags/sub [:no-op]])
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading])))
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :transient])))
-      (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :done])))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :loading])))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :transient])))
+      (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/sub :done])))
       (rf/dispatch-sync [:tags/sub [:done]])
-      (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/sub :loading])))
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :tags/sub :done])))))
+      (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/sub :loading])))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :tags/sub :done])))))
 
-  (testing ":rf/machine-has-tag? returns false for an unknown machine"
-    (is (= false @(rf/subscribe [:rf/machine-has-tag? :tags/unknown :anything])))))
+  (testing ":rf.machine/has-tag? returns false for an unknown machine"
+    (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/unknown :anything])))))
 
 (deftest machine-tags-recomputed-on-always-cljs
   (testing ":tags reflects the post-:always-microstep state, not the intermediate"

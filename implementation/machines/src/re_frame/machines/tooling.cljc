@@ -408,7 +408,7 @@
 (defn machine-selector?
   "True iff the subscription registered under `sub-id` is a MACHINE SELECTOR —
   an ordinary `reg-sub` whose static `:<-` inputs include a `[:rf/machine …]`
-  (or `[:rf/machine-has-tag? …]`) query vector (Derivations §Machine process
+  (or `[:rf.machine/has-tag? …]`) query vector (Derivations §Machine process
   and selector).
 
   Machine selectors are NOT a second subscription system — they stay ORDINARY
@@ -430,7 +430,7 @@
       (and meta
            (= :static (:input-kind meta))
            (some (fn [q] (and (vector? q)
-                              (contains? #{:rf/machine :rf/machine-has-tag?}
+                              (contains? #{:rf/machine :rf.machine/has-tag?}
                                          (first q))))
                  (:input-signals meta))))))
 
@@ -440,7 +440,7 @@
   `machine-selector?` answers only the boolean \"is this a
   selector?\", this returns the actual TARGET machine ids — the second
   element of each accepted `[:rf/machine machine-id …]` /
-  `[:rf/machine-has-tag? machine-id …]` static `:<-` input.
+  `[:rf.machine/has-tag? machine-id …]` static `:<-` input.
 
   A graph tool needs the target, not just the boolean: a machine selector
   draws a `:selector` edge from the SPECIFIC machine it reads, never from
@@ -451,7 +451,7 @@
   the `[:machine target-id]` node(s) the selector names.
 
   Only the STATIC `:<-` form is mined: the machine-id MUST be a literal
-  keyword in the static input vector. A `[:rf/machine-has-tag? machine-id
+  keyword in the static input vector. A `[:rf.machine/has-tag? machine-id
   tag]` selector still names ONE machine id (the second element). A
   parametric input-fn sub's realized edges are not statically enumerable
   (the don't-execute rule), so a parametric selector yields `#{}` here and
@@ -469,7 +469,7 @@
       (into #{}
             (keep (fn [q]
                     (when (and (vector? q)
-                               (contains? #{:rf/machine :rf/machine-has-tag?}
+                               (contains? #{:rf/machine :rf.machine/has-tag?}
                                           (first q))
                                (keyword? (second q)))
                       (second q))))

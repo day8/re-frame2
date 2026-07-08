@@ -3,7 +3,7 @@
 ;; A flat (non-hierarchical) machine declares `:tags <set-of-keywords>` on
 ;; each of its states. After every transition, the runtime stamps the
 ;; active state's tag set onto the snapshot at `:tags`. The framework
-;; sub `:rf/machine-has-tag?` returns true iff the snapshot's `:tags`
+;; sub `:rf.machine/has-tag?` returns true iff the snapshot's `:tags`
 ;; contains the queried keyword.
 ;;
 ;; Per [005 §State tags](../../005-StateMachines.md#state-tags) and

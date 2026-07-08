@@ -18,7 +18,7 @@
    - The items, error, loaded-at, and attempt all move into the machine's
      `:data` map — there's no slice left to hold them.
    - The slice's `:loading?` / `:fetching?` booleans turn into per-state
-     `:tags`, asked with the `:rf/machine-has-tag?` sub.
+     `:tags`, asked with the `:rf.machine/has-tag?` sub.
 
    The routing helpers (`:home/load`, `:home/show-global-feed`, …) live down
    below; they dispatch `:tags/load` so the tags machine fetches whenever the
@@ -26,7 +26,7 @@
   (:require [re-frame.core :as rf]
             ;; State machines live in their own artefact; we require it to load
             ;; it, which registers the hooks that make `rf/reg-machine` (below)
-            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs resolve. See
+            ;; and the `:rf/machine` / `:rf.machine/has-tag?` subs resolve. See
             ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-http.schema :as schema]
@@ -55,8 +55,8 @@
 ;;
 ;; turn into tag questions about the current state:
 ;;
-;;     :loading?   = @(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/loading])
-;;     :fetching?  = @(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/in-flight])
+;;     :loading?   = @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])
+;;     :fetching?  = @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])
 ;;
 ;; The payoff: the view never has to remember WHICH state means \"in-flight\".
 ;; It asks for the tag, and the machine keeps that bookkeeping to itself.
@@ -197,8 +197,8 @@
 ;; `:tags/error` for the error. What's missing is the `:loading?` /
 ;; `:fetching?` booleans — for those, views ask the machine a tag question:
 ;;
-;;     @(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/loading])     ;; empty AND in-flight
-;;     @(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/in-flight])   ;; in-flight, loading OR fetching
+;;     @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])     ;; empty AND in-flight
+;;     @(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])   ;; in-flight, loading OR fetching
 
 (rf/reg-sub :tags/data
   {:doc "The popular-tags items, read out of the machine's :data."}

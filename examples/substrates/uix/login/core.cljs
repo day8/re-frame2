@@ -10,7 +10,7 @@
    reaches for `reg-view`. Same data, different doorway.
 
    The machine tags a few of its states — `:auth/busy`, `:auth/authenticated`,
-   `:auth/locked` — and views ask about them through the `:rf/machine-has-tag?`
+   `:auth/locked` — and views ask about them through the `:rf.machine/has-tag?`
    framework sub. When the flow finally gives up, the terminal `:locked-out`
    state swaps the form for a dead-end locked-account panel.
 
@@ -214,7 +214,7 @@
 
     :submitting
     ;; The :auth/busy tag is how the view knows a request is in flight. It asks
-    ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] and, while that's
+    ;; [:rf.machine/has-tag? :auth.login/flow :auth/busy] and, while that's
     ;; true, disables the inputs and relabels the submit button.
     {:tags  #{:auth/busy}
      :entry :issue-request
@@ -246,7 +246,7 @@
     :locked-out
     ;; Journey's end, the unhappy way. After one failed submit too many the
     ;; flow comes to rest here, tagged :auth/locked. The view asks
-    ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] and, when it's
+    ;; [:rf.machine/has-tag? :auth.login/flow :auth/locked] and, when it's
     ;; true, retires the form for a locked-account panel that takes no more
     ;; submits. A dead end should look like one — visible and inert, not a form
     ;; that's quietly stopped working.
@@ -393,7 +393,7 @@
 ;; The machine keeps its snapshot in runtime-db; these named subs reach in and
 ;; pick out the pieces a view actually wants. The "are we busy?" / "are we in?"
 ;; style questions don't need their own subs — views ask the
-;; `:rf/machine-has-tag?` framework sub directly, further down. See
+;; `:rf.machine/has-tag?` framework sub directly, further down. See
 ;; docs/machines/glossary.md#state-tag.
 
 ;; The whole snapshot is durable runtime-db state; the framework `:rf/machine`
@@ -456,7 +456,7 @@
 ;; `uix/use-state` anywhere in here.
 (defui login-form []
   (let [draft     (uix-adapter/use-subscribe [:auth.login/draft])
-        busy?     (uix-adapter/use-subscribe [:rf/machine-has-tag?
+        busy?     (uix-adapter/use-subscribe [:rf.machine/has-tag?
                                               :auth.login/flow :auth/busy])
         err       (uix-adapter/use-subscribe [:auth.login/error])
         email-err (uix-adapter/use-subscribe [:auth.login/field-error :email])
@@ -496,9 +496,9 @@
      ($ :p "Too many failed attempts. Contact support to unlock.")))
 
 (defui login-banner []
-  (let [authed? (uix-adapter/use-subscribe [:rf/machine-has-tag?
+  (let [authed? (uix-adapter/use-subscribe [:rf.machine/has-tag?
                                             :auth.login/flow :auth/authenticated])
-        locked? (uix-adapter/use-subscribe [:rf/machine-has-tag?
+        locked? (uix-adapter/use-subscribe [:rf.machine/has-tag?
                                             :auth.login/flow :auth/locked])]
     ($ :div.banner {:data-testid "login-banner"}
        (cond

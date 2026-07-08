@@ -23,7 +23,7 @@
    The view never matches on state names. Each state carries tags, and the
    view asks tag-shaped questions — `:ws/connected?`, `:ws/reconnecting?`
    (the per-tag subs below, each chaining off the framework
-   `:rf/machine-has-tag?` sub). It doesn't care which leaf carries the
+   `:rf.machine/has-tag?` sub). It doesn't care which leaf carries the
    `:connected` intent, only that the tag is present. Ask, don't tell.
    See docs/machines/glossary.md#state-tag.
 
@@ -70,7 +70,7 @@
             ;; Requiring it is what wires up the machine vocabulary: the
             ;; late-bind hook behind `re-frame.machines/make-machine-handler`,
             ;; the `:rf.machine/spawn` / `:rf.machine/destroy` fx, and the
-            ;; `:rf/machine` / `:rf/machine-has-tag?` subs you'll see used
+            ;; `:rf/machine` / `:rf.machine/has-tag?` subs you'll see used
             ;; below. Skip the require and they simply aren't there.
             [re-frame.machines]
             [re-frame.fx]
@@ -444,29 +444,29 @@
   (fn [snap _] (:state snap)))
 
 ;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
-;; `:rf/machine-has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
+;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
 ;; tag)`), which returns the snapshot's tag-containment bit directly — so a
 ;; view can ask "connected?" and get a boolean without unpacking the
 ;; hierarchical `:state` vector or re-reading the snapshot itself.
 ;; See docs/machines/glossary.md#state-tag.
 (rf/reg-sub :ws/connecting?
-  :<- [:rf/machine-has-tag? :ws/connection :websocket/connecting]
+  :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]
   (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/authenticating?
-  :<- [:rf/machine-has-tag? :ws/connection :websocket/authenticating]
+  :<- [:rf.machine/has-tag? :ws/connection :websocket/authenticating]
   (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/connected?
-  :<- [:rf/machine-has-tag? :ws/connection :websocket/connected]
+  :<- [:rf.machine/has-tag? :ws/connection :websocket/connected]
   (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/reconnecting?
-  :<- [:rf/machine-has-tag? :ws/connection :websocket/reconnecting]
+  :<- [:rf.machine/has-tag? :ws/connection :websocket/reconnecting]
   (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/failed?
-  :<- [:rf/machine-has-tag? :ws/connection :websocket/failed]
+  :<- [:rf.machine/has-tag? :ws/connection :websocket/failed]
   (fn [has-tag? _] has-tag?))
 
 (rf/reg-sub :ws/queue-depth

@@ -73,7 +73,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `:timeout-ms` on `:spawn` / `:spawn-all` | **M-44** | A | Removed. Use the parent state's `:after` timer instead. |
 | `:rf.http/managed` requests from spawned actors | M-45 | — | Additive (abort on actor-destroy). No user-side action. |
 | `:rf.http/managed` as a child-invokable machine | M-46 | — | Additive; the fx form continues to work. |
-| Machine `:tags` slot and `:rf/machine-has-tag?` sub | M-47 | — | Additive. No user-side action. |
+| Machine `:tags` slot and `:rf.machine/has-tag?` sub | M-47 | — | Additive. No user-side action. |
 | `:type :parallel` machines with map-shaped `:state` | M-48 | — | Additive. No user-side action. |
 | Snapshot `:state` reader pattern-matching against the third arm (map) | M-49 | — | Additive; widens to a third arm. Readers that pattern-match exhaustively on `:state` may need to widen the dispatch. |
 | `(rf/with-overrides ...)` test-support macro | **M-50** | A | Mechanical rename to `with-fx-overrides`. Body, override-map shape, and composition with `with-frame` are unchanged — only the macro name moves, for symmetry with the `:fx-overrides` opt key and `*fx-overrides*` dynvar. |

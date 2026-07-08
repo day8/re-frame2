@@ -342,7 +342,7 @@ Because the snapshot is *just a value* — no functions, no atoms, nothing unpri
 
 Two keys round out the everyday kit, and each has earned a page of its own rather than a paragraph here:
 
-- **Tags** — `:tags #{:auth/busy}` on a state node, read with `@(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])`. This is the *ask-don't-tell* pattern: a view tracks "is it busy?" across any number of states without hard-coding state names, and adding a sixth busy state later is one `:tags` entry with zero view changes. (See [state tag](glossary.md#state-tag).) The deep treatment is in [Tags](tags.md).
+- **Tags** — `:tags #{:auth/busy}` on a state node, read with `@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])`. This is the *ask-don't-tell* pattern: a view tracks "is it busy?" across any number of states without hard-coding state names, and adding a sixth busy state later is one `:tags` entry with zero view changes. (See [state tag](glossary.md#state-tag).) The deep treatment is in [Tags](tags.md).
 - **Automatic transitions** — `:after` (a declarative timer: arm on entry, cancel on exit, no `setTimeout` or cancel-flag to wire) and `:always` (an eventless transition that fires the moment a guard turns true). The machine's *automatic* moves — the ones no event drives. See [Automatic transitions](automatic-transitions.md).
 
 ## Self-transitions: internal by default, external on demand

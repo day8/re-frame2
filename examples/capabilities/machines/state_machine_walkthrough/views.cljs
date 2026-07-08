@@ -35,13 +35,13 @@
                   Thread two is STATUS — busy? locked? — and that belongs to the
                   machine, not the slice (docs/core/how-to/build-a-form.md). The
                   view never asks 'which state are we in?'; it asks 'is this tag
-                  set?' via the `[:rf/machine-has-tag? …]` sub. Branch on the `:tags` set, not
+                  set?' via the `[:rf.machine/has-tag? …]` sub. Branch on the `:tags` set, not
                   on state keywords, and adding a brand-new busy state down the
                   line touches exactly zero views
                   (docs/machines/glossary.md#state-tag)."}
           login-form []
-  (let [busy?   @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
-        locked? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/locked])
+  (let [busy?   @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
+        locked? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])
         draft   @(subscribe [:auth.login/draft])
         err     @(subscribe [:auth.login/error])]
     [:form.login-form
@@ -96,7 +96,7 @@
    [:p "Too many failed attempts. Contact support to unlock."]])
 
 (rf/reg-view root-view []
-  (let [locked? @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/locked])]
+  (let [locked? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]
      [status-banner]

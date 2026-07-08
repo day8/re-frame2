@@ -1371,12 +1371,12 @@ Every namespace that calls `rf/reg-machine` / `rf/make-machine-handler` / `rf/ma
 
 **Type A** (mechanical, dep-only).
 
-As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
+As the third per-feature artefact split (Strategy B), Spec 012's routing surface — `reg-route`, `match-url`, `route-url`, the `:rf.route/navigate` / `:rf.route/transitioned` / `:rf.route/url-requested` / `:rf.route/handle-url-change` / `:rf.route/continue` / `:rf.route/cancel` events, the `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` reserved fxs, the framework-shipped `:rf/route` and `:rf.route/{id,params,query,transition,error}` reg-subs, and the `re-frame.routing` namespace — ships as a separate Maven artefact `day8/re-frame2-routing`. The core artefact (`day8/re-frame2`) no longer carries the namespace, the route-rank / pattern-compile / nav-token machinery, or any of the `:rf.route/*` / `:rf.nav/*` keyword strings; an app that doesn't register any routes builds an `:advanced` bundle clean of every routing-related symbol.
 
 **What to look for** in the codebase:
 
 - Any call to `re-frame.core/reg-route`, `re-frame.core/match-url`, or `re-frame.core/route-url`.
-- Any dispatch of `:rf.route/navigate`, `:rf.route/transitioned`, `:rf/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
+- Any dispatch of `:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
 
@@ -1937,9 +1937,9 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 
 **Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data); [Spec 005 §Synthetic `[:rf.machine.spawn/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn).
 
-### M-47. State tags shipped — `:tags` on state nodes, `:rf/machine-has-tag?` framework sub (additive)
+### M-47. State tags shipped — `:tags` on state nodes, `:rf.machine/has-tag?` framework sub (additive)
 
-Pre-release framing: state-machine state nodes may now declare `:tags <set-of-keywords>` (Nine States Stage 1). The runtime maintains a derived union at `[:rf.runtime/machines :snapshots <id> :tags]` (in runtime-db) recomputed on every transition; the framework sub `:rf/machine-has-tag?` (`[:rf/machine-has-tag? id tag]`) answers the predicate question.
+Pre-release framing: state-machine state nodes may now declare `:tags <set-of-keywords>` (Nine States Stage 1). The runtime maintains a derived union at `[:rf.runtime/machines :snapshots <id> :tags]` (in runtime-db) recomputed on every transition; the framework sub `:rf.machine/has-tag?` (`[:rf.machine/has-tag? id tag]`) answers the predicate question.
 
 **Direction.** Additive — no user-side change required. The `:rf/machine-snapshot` schema's new `:tags` key is `{:optional true}`; machines that don't declare `:tags` produce snapshots without the slot, byte-identical to pre-tag snapshots. Existing views, subs, and traces don't care.
 
@@ -1974,8 +1974,8 @@ Pre-release framing: the snapshot's `:state` slot has a new third arm (Nine Stat
 **What to do — three cases:**
 
 - **Existing flat / compound machines.** No change; their `:state` stays keyword / vector. The third arm is silent for them.
-- **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf/machine-has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
-- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/subscribe [:rf/machine :ui/foo])))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/subscribe [:rf/machine :ui/foo]) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/subscribe [:rf/machine-has-tag? :ui/foo :data/loading])`).
+- **New parallel-region machines.** Authors writing views against them subscribe through `:rf/machine` (or the `:rf.machine/has-tag?` framework sub) and read the snapshot's `:state` as the map shape they declared. Per-region projections fall out of normal `:<-`-chained subs: `(rf/reg-sub :ui.data/state :<- [:rf/machine :ui/nine-states] (fn [snap _] (get-in snap [:state :data])))`.
+- **Existing flat / compound machine becoming parallel.** Apps that rewrite a flat machine to a `:type :parallel` shape (e.g. the Nine States rewrite per Stage 3) update their existing views: anywhere `(= :loading (:state @(rf/subscribe [:rf/machine :ui/foo])))` appears, widen to read the bearing region (`(= :loading (get-in @(rf/subscribe [:rf/machine :ui/foo]) [:state :data]))`) or — usually better — use a tag predicate (`@(rf/subscribe [:rf.machine/has-tag? :ui/foo :data/loading])`).
 
 **Why now.** The Pattern-NineStates rewrite (Stage 3) is the motivating user; the third arm has to exist before that rewrite can land. The Stage 2 release is the substrate; Stage 3 is the pattern + example rewrite that consumes it.
 

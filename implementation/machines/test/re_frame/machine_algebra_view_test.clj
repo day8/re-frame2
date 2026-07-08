@@ -295,9 +295,9 @@
       (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
     (is (true? (mtooling/machine-selector? :upload/progress))
         "a sub reading [:rf/machine …] is a machine selector"))
-  (testing "a sub reading [:rf/machine-has-tag? …] is also a selector"
+  (testing "a sub reading [:rf.machine/has-tag? …] is also a selector"
     (rf/reg-sub :upload/has-tag
-      :<- [:rf/machine-has-tag? :upload/main :busy]
+      :<- [:rf.machine/has-tag? :upload/main :busy]
       (fn [has? _] has?))
     (is (true? (mtooling/machine-selector? :upload/has-tag))))
   (testing "an ordinary sub is NOT a machine selector; nor is an unregistered id"
@@ -315,9 +315,9 @@
       (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
     (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/progress))
         "the second element of the [:rf/machine …] input is the target id"))
-  (testing "extracts the target from a [:rf/machine-has-tag? machine-id tag] selector"
+  (testing "extracts the target from a [:rf.machine/has-tag? machine-id tag] selector"
     (rf/reg-sub :upload/has-tag
-      :<- [:rf/machine-has-tag? :upload/main :busy]
+      :<- [:rf.machine/has-tag? :upload/main :busy]
       (fn [has? _] has?))
     (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/has-tag))
         "the has-tag? form's machine id (second element) is the target"))

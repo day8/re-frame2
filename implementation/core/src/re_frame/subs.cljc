@@ -294,7 +294,7 @@
   belong to). The handler shape is identical to a layer-1 `reg-sub`
   computation fn — `(fn [runtime-db query-v] …)` — but the `db`-position
   argument is the runtime-db partition value, so framework subsystem subs
-  (`:rf/machine`, `:rf/machine-has-tag?`, `[:rf.route/*]`) read their
+  (`:rf/machine`, `:rf.machine/has-tag?`, `[:rf.route/*]`) read their
   durable runtime-db state directly.
 
   INTERNAL / framework-only: this is NOT a public app-author surface (app

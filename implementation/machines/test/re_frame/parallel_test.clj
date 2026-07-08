@@ -277,10 +277,10 @@
                                                 :regions {:in {:initial :s
                                                                :states  {:s {}}}}}}}}})))))
 
-;; ---- 11. :rf/machine-has-tag? sub works on parallel snapshots ----------
+;; ---- 11. :rf.machine/has-tag? sub works on parallel snapshots ----------
 
 (deftest parallel-has-tag-sub
-  (testing ":rf/machine-has-tag? returns true iff the union contains the tag"
+  (testing ":rf.machine/has-tag? returns true iff the union contains the tag"
     (let [m {:type    :parallel
              :data    {}
              :regions {:data {:initial :loading
@@ -289,9 +289,9 @@
                               :states  {:neutral {:tags #{:form/neutral}}}}}}]
       (rf/reg-machine :par/has-tag m)
       (rf/dispatch-sync [:par/has-tag [:no-op]])
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :par/has-tag :data/loading])))
-      (is (= true  @(rf/subscribe [:rf/machine-has-tag? :par/has-tag :form/neutral])))
-      (is (= false @(rf/subscribe [:rf/machine-has-tag? :par/has-tag :missing]))))))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :data/loading])))
+      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :form/neutral])))
+      (is (= false @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :missing]))))))
 
 ;; ---- 12. snapshot stored at [:rf.runtime/machines :snapshots <id>] like any other --------
 

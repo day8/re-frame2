@@ -66,16 +66,16 @@ The framework ships one **derived subscription** for the containment question �
 
 ```clojure
 ;; The query vector …
-@(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])   ;; => true | false
+@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])   ;; => true | false
 ;; … and its sugar, re-exported on the re-frame.core facade:
-@(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])                   ;; => true | false
+@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])                   ;; => true | false
 ```
 
 In a view that's all you need to render on intent:
 
 ```clojure
 (reg-view spinner-or-list []
-  (if @(rf/subscribe [:rf/machine-has-tag? :todos/loader :data/in-flight])
+  (if @(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])
     [spinner]
     [todo-list]))
 ```
@@ -152,7 +152,7 @@ And the controls disable themselves the same ask-don't-tell way — they ask for
 
 ```clojure
 (reg-view new-todo-form []
-  (let [read-only? @(rf/subscribe [:rf/machine-has-tag? :ui/nine-states :mode/read-only])]
+  (let [read-only? @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:button {:disabled read-only?} "Add"]))
 ```
 

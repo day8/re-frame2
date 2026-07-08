@@ -14,7 +14,7 @@
      draft-vs-baseline sub — no machine involved. See the forms how-to:
      ../../../docs/core/how-to/build-a-form.md.
    - The view asking the machine yes/no questions through tag queries
-     (`@(rf/subscribe [:rf/machine-has-tag? :ui/article-editor :editor/busy])` and
+     (`@(rf/subscribe [:rf.machine/has-tag? :ui/article-editor :editor/busy])` and
      `… :editor/can-delete`) instead of hand-rolled boolean subs.
    - The view's root: one `case` over `:article-editor/render`, a selector sub
      that reads a render-priority table against the machine's tag union."
@@ -484,8 +484,8 @@
         form-err     @(subscribe [:editor/form-error])
         submit-error @(subscribe [:editor/submit-error])
         can-submit?  @(subscribe [:editor/can-submit?])
-        busy?        @(rf/subscribe [:rf/machine-has-tag? :ui/article-editor :editor/busy])
-        can-delete?  @(rf/subscribe [:rf/machine-has-tag? :ui/article-editor :editor/can-delete])]
+        busy?        @(rf/subscribe [:rf.machine/has-tag? :ui/article-editor :editor/busy])
+        can-delete?  @(rf/subscribe [:rf.machine/has-tag? :ui/article-editor :editor/can-delete])]
     [:div.editor-page
      [:div.container.page
       [:div.row

@@ -118,7 +118,7 @@ The practical upshot: **views ask about tags, not paths.** Don't unfold the
 `:state` vector in a view to discover "are we connected?" — ask the tag:
 
 ```clojure
-(when @(rf/subscribe [:rf/machine-has-tag? :ws/connection :ws/connected])
+(when @(rf/subscribe [:rf.machine/has-tag? :ws/connection :ws/connected])
   [send-box])
 ```
 

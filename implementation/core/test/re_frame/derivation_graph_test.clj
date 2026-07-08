@@ -291,13 +291,13 @@
           "no selector edge from the unrelated :download/main machine"))))
 
 (deftest machine-has-tag-selector-targets-the-named-machine
-  (testing "a [:rf/machine-has-tag? machine-id tag] selector targets only that machine"
+  (testing "a [:rf.machine/has-tag? machine-id tag] selector targets only that machine"
     (rf/reg-machine :upload/main
                     {:initial :idle :data {} :states {:idle {}}})
     (rf/reg-machine :download/main
                     {:initial :idle :data {} :states {:idle {}}})
     (rf/reg-sub :upload/busy?
-                :<- [:rf/machine-has-tag? :upload/main :busy]
+                :<- [:rf.machine/has-tag? :upload/main :busy]
                 (fn [tagged? _] (boolean tagged?)))
     (let [g   (graph/derivation-graph all-contributors)
           sel (filter #(= :selector (:role %)) (:edges g))]
