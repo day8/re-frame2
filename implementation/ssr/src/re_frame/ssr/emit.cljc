@@ -348,7 +348,13 @@
    (cond
      (nil? el)         ""
      (string? el)      (html/escape-html el)
-     (number? el)      (str el)
+     ;; Canonicalise the numeric print form so the emitted HTML matches the
+     ;; render-tree hash byte-for-byte across runtimes (rf2-0ypnnk): a
+     ;; whole-valued double renders `9` (not the JVM `9.0`), agreeing with
+     ;; CLJS. `canonical-number` uses `pr-str`, which coincides with `str`
+     ;; for numbers (no quoting), so ordinary integers/decimals are
+     ;; unchanged.
+     (number? el)      (hash/canonical-number el)
      (boolean? el)     ""
      (vector? el)
      (let [head (first el)]
