@@ -484,7 +484,12 @@ the one whose `:output-dir` is among those roots (`8031` →
 `:examples/step-deck` in this repo). No manual grep of `shadow-cljs.edn`.
 A `port` that maps to no build returns `:ok? false :reason
 :port-unresolved` (loud, not a silent fall-through to `:app` — the
-operator asked for that port). An explicit `build` arg wins over `port`.
+operator asked for that port), and — per the §"Every `:ok? false`
+response is `isError: true`" rule above — it rides as an **`isError`
+result** (rf2-bcayt7), the same envelope its sibling discover-app
+precondition failures use. Keeping it `isError` also keeps an unresolved
+port out of the response cache, so it can never mask a later valid
+port→build mapping. An explicit `build` arg wins over `port`.
 
 **Single-build auto-selection (rf2-v70kv).** When you omit `build` and
 **exactly one** shadow-cljs build is running, discover-app auto-selects

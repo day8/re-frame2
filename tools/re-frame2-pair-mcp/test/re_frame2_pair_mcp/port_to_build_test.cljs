@@ -146,10 +146,13 @@
             (fn [] (discover-app/discover-app conn (tu/args->js {:port 9999}))))
           (.then
             (fn [result]
-              ;; The payload carries :ok? false but rides the ok-text
-              ;; envelope (matching the other discover-app precondition
-              ;; failures), so :isError is not set.
-              (is (not (tu/error? result)))
+              ;; rf2-bcayt7: the payload carries :ok? false and now rides
+              ;; the err-text envelope (isError: true) — the universal
+              ;; "every :ok? false is isError" rule, matching the OTHER
+              ;; discover-app precondition failures (unhealthy runtime /
+              ;; :debug-disabled / :no-frames-registered all err-text).
+              (is (tu/error? result)
+                  "an unmapped port rides isError, not a success envelope")
               (let [edn (tu/extract-edn result)]
                 (is (false? (:ok? edn)))
                 (is (= :port-unresolved (:reason edn)))
@@ -157,6 +160,26 @@
                 (is (string? (:hint edn)))
                 (is (nil? (:resolved-build-id @conn))
                     "an unresolved port must not cache anything"))
+              (done)))))))
+
+(deftest discover-app-port-unresolved-iserror-matches-ok?
+  ;; Adversarial cross-check (rf2-bcayt7): the isError:true flag and the
+  ;; payload's :ok? false MUST agree — a regression back to ok-text would
+  ;; ship :ok? false WITHOUT isError, decoupling the two slots and letting
+  ;; the response cache retain an unresolved-port answer that masks a later
+  ;; valid mapping. A distinct port proves the behaviour isn't 9999-specific.
+  (async done
+    (let [conn (fresh-conn)]
+      (-> (with-port-resolution! nil healthy-health
+            (fn [] (discover-app/discover-app conn (tu/args->js {:port 65535}))))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                ;; isError:true (text slot) <-> :ok? false (structured slot)
+                (is (true? (tu/error? result)))
+                (is (false? (:ok? edn)))
+                (is (= :port-unresolved (:reason edn)))
+                (is (= 65535 (:port edn))))
               (done)))))))
 
 (deftest discover-app-explicit-build-wins-over-port
