@@ -28,7 +28,8 @@
                                     → bare attribute name (`disabled`);
                                     `false` / `nil` → omitted entirely."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as error]
+            [re-frame.ssr.hash :as hash]))
 
 (defn escape-html
   "Full text-node HTML escape: `& < > \" '`. Stringifies non-strings."
@@ -431,7 +432,22 @@
                            (nil? v)   nil
                            :else      (str (validate-attr-name! k)
                                            "=\""
-                                           (escape-attr v)
+                                           ;; A numeric attribute VALUE is
+                                           ;; canonicalised the same way the
+                                           ;; render-tree hash serialises it
+                                           ;; (rf2-0ypnnk) so a whole-valued
+                                           ;; double renders `value="0"` (not
+                                           ;; the JVM `value="0.0"`) and the
+                                           ;; emitted HTML matches the hash
+                                           ;; byte-for-byte cross-runtime.
+                                           ;; Without this the hash would
+                                           ;; AGREE while the server/client
+                                           ;; attribute strings diverged — a
+                                           ;; silent hydration inconsistency.
+                                           (escape-attr
+                                             (if (number? v)
+                                               (hash/canonical-number v)
+                                               v))
                                            "\"")))
                        attrs)]
     (if (seq rendered)
