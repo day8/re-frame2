@@ -1798,6 +1798,49 @@ it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible
   );
 });
 
+// ---- rf2-lvw3z9: CSS block comments stripped before extraction ------------
+//
+// Commented-out CSS is inert. The extractors used to read a commented @import /
+// url() as live, turning the gate RED on a maintainer's debug comment — and
+// inconsistently with the og.svg check in the same file, which strips comments.
+
+// A checkSharedTree fixture whose style.css is under test; the rest of the tree
+// is valid so the ONLY thing that can turn it RED is the style.css itself.
+// Shared by the CSS-comment (rf2-lvw3z9) and contrast-token (rf2-nrieg0) teeth.
+const paletteIo = (styleCss) =>
+  makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: styleCss,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]: CASCADE_BASELINE + '\n' + RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+
+it('rf2-lvw3z9: extractCssImports ignores a commented-out @import', () => {
+  const imports = extractCssImports(
+    '/* @import url(https://fonts.googleapis.com/css2); */\n@import url("structure.css");',
+  );
+  assert.deepStrictEqual(imports, ['structure.css']);
+});
+
+it('rf2-lvw3z9: extractCssUrls ignores a commented-out url()', () => {
+  const urls = extractCssUrls(
+    '/* background: url(https://cdn.evil/x.png); */\n.a { background: url("real.png"); }',
+  );
+  assert.ok(urls.includes('real.png'));
+  assert.ok(!urls.includes('https://cdn.evil/x.png'), 'a commented url() must not be read as live');
+});
+
+it('TEETH rf2-lvw3z9: a commented-out remote @import does NOT false-fail the gate', () => {
+  const styleCss = '/* @import url(https://fonts.googleapis.com/css2?family=Inter); */\n' + GOOD_SHARED_STYLE;
+  const errors = checkSharedTree(paletteIo(styleCss), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an inert commented-out remote @import must not fail the gate, got: ${errors.join(' | ')}`,
+  );
+});
+
 // ---- contract constant sanity -------------------------------------------
 
 it('REQUIRED_SHARED_ASSETS names favicon, the og.png raster, and style.css', () => {

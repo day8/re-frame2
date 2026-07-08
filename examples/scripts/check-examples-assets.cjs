@@ -394,6 +394,14 @@ function attr(tag, name) {
   return m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : null;
 }
 
+// Strip CSS block comments `/* … */` from a source before scanning it for live
+// declarations. Commented-out CSS is inert, so an `@import`/`url()` inside a
+// comment must not be read as a live network fetch or an on-disk ref
+// (rf2-lvw3z9). Mirrors the og.svg comment strip used for the source-art check.
+function stripCssComments(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
 // Extract every ASSET-BEARING reference from an index.html's source, TAGGED
 // with the element/attribute it came from, so the direct-HTML network policy
 // (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
@@ -557,7 +565,9 @@ function extractCssImports(css) {
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !out.includes(clean)) out.push(clean);
   };
-  for (const m of css.matchAll(
+  // Strip block comments first: a commented-out `@import` is inert and must
+  // not be read as a live network dep / on-disk ref (rf2-lvw3z9).
+  for (const m of stripCssComments(css).matchAll(
     /@import\s+(?:url\(\s*("([^"]*)"|'([^']*)'|([^)'"]*))\s*\)|("([^"]*)"|'([^']*)'))/gi,
   )) {
     push(m[2] || m[3] || m[4] || m[6] || m[7]);
@@ -579,9 +589,11 @@ function extractCssImports(css) {
 function extractCssUrls(css) {
   const out = [];
   const seen = new Set();
-  // Blank out `@import url(...)` occurrences first so they are not re-collected
-  // here (extractCssImports already owns the @import contract).
-  const body = css.replace(
+  // Strip block comments first (rf2-lvw3z9) — a commented-out `url(...)` is
+  // inert and must not be read as a live fetch — then blank out `@import
+  // url(...)` occurrences so they are not re-collected here (extractCssImports
+  // already owns the @import contract).
+  const body = stripCssComments(css).replace(
     /@import\s+url\(\s*(?:"[^"]*"|'[^']*'|[^)'"]*)\s*\)/gi,
     '',
   );
