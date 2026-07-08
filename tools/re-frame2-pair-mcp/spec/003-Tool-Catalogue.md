@@ -3108,8 +3108,16 @@ unmounted, no other subscribers) no longer shows up here.
 ```
 
 `:subs` is an empty vector when nothing is subscribed in the frame —
-never `:ok? false` for the empty case. The query-vectors are sorted
-(by `pr-str`) so the listing is stable across calls.
+never `:ok? false` for the empty case. Genuine emptiness is the runtime's
+OWN `{:ok? true … :subs []}` MAP (a real answer). The query-vectors are
+sorted (by `pr-str`) so the listing is stable across calls.
+
+A **blank / non-map** eval is NOT emptiness (rf2-21vvfs): it means the
+runtime did not answer (the browser tab closed / navigated in the narrow
+race between the liveness re-check and the sub-cache drain). That degraded
+read surfaces as `{:ok? false :reason :unexpected-shape :value …}` with
+`isError: true` — never a fabricated `{:ok? true :subs []}` masking a dead
+read as "no subscriptions".
 
 `list-subscriptions` opts INTO the per-session response cache (it reads
 the live reactive sub-cache, a pure function of frame state, just like
@@ -3122,8 +3130,10 @@ gate applies to verbatim values surfaced off-box).
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :ambiguous-frame` in a multi-frame session with no selected
-frame; `:reason :list-subscriptions-failed` (with `:message`) on any
-other failure.
+frame; `:reason :unexpected-shape` on a blank/non-map degraded eval (see
+above); `:reason :list-subscriptions-failed` (with `:message`) on any
+other failure. All ride `isError: true` per the universal `:ok? false`
+rule (rf2-21vvfs).
 
 [1]: #universal-size-elision-on-app-db-slots
 [2]: ../../../spec/Tool-Pair.md#how-ai-tools-attach
@@ -3187,7 +3197,13 @@ returns the sub only if it matches on both axes.
 ```
 
 `:subs` is an empty vector when no streams are open (or when the
-filters match nothing) — never `:ok? false` for the empty case. A
+filters match nothing) — never `:ok? false` for the empty case. Genuine
+emptiness is the runtime's OWN `{:ok? true :subs []}` MAP. A **blank /
+non-map** eval is NOT emptiness (rf2-21vvfs): on the very tool that
+diagnoses a dead / quiet stream, a degraded read (the browser tab closed
+mid-race) surfaces as `{:ok? false :reason :unexpected-shape :value …}`
+with `isError: true` — never a fabricated `{:ok? true :subs []}` reporting
+a false-clean "zero streams". A
 non-nil `:overflow-reason` is the load-bearing signal: the queue has
 been evicting older events under the byte or event budget configured
 on its `subscribe` call. Tune `max-buffered-events` /
@@ -3204,8 +3220,10 @@ that applies. `list-streams` does NOT carry sensitive event
 bodies; only registration metadata crosses the wire.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :unexpected-shape` on a blank/non-map degraded eval (see above);
 `:reason :list-streams-failed` (with `:message`) on any other
-failure.
+failure. All ride `isError: true` per the universal `:ok? false` rule
+(rf2-21vvfs).
 
 ## get-stream-controls
 

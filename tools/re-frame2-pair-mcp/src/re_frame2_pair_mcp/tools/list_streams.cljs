@@ -66,4 +66,13 @@
                                 (str "(assoc r :subs " (filter-form topic sub-id) ")"))))]
     (probe/eval-after-runtime!
       conn build-id form :list-streams-failed
-      (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))))
+      ;; A non-map/blank eval means the runtime did NOT answer (the browser
+      ;; tab closed/navigated in the race between the liveness re-check and
+      ;; this drain eval). Surface that as `:unexpected-shape` err-text
+      ;; (isError:true) rather than FABRICATING `{:ok? true :subs []}` — a
+      ;; fake "no streams" answer is the worst possible lie on the very tool
+      ;; that diagnoses a dead stream. A genuinely-empty list is the
+      ;; runtime's own `{:ok? true :subs []}` MAP, so real emptiness is
+      ;; unaffected. `map-envelope-result` also routes any `:ok? false`
+      ;; runtime refusal through err-text.
+      probe/map-envelope-result)))

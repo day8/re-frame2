@@ -141,4 +141,13 @@
                    base-call)]
     (probe/eval-after-runtime!
       conn build-id form :list-subscriptions-failed
-      (fn [v] (wire/ok-text (if (map? v) v {:ok? true :subs []}))))))
+      ;; A non-map/blank eval means the runtime did NOT answer (the browser
+      ;; tab closed/navigated in the race between the liveness re-check and
+      ;; this drain eval). Surface that as `:unexpected-shape` err-text
+      ;; (isError:true) rather than FABRICATING `{:ok? true :subs []}` — a
+      ;; fake "no subscriptions" answer masks a degraded read. A genuinely-
+      ;; empty cache is the runtime's own `{:ok? true :subs []}` MAP, so
+      ;; real emptiness is unaffected. `map-envelope-result` also routes the
+      ;; runtime's `{:ok? false :reason :ambiguous-frame}` refusal through
+      ;; err-text.
+      probe/map-envelope-result)))
