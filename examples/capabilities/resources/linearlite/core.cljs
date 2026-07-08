@@ -357,8 +357,8 @@
           write?    (not= method :get)
           ;; The fx context carries the envelope frame as `:frame`. The
           ;; `:fail-next-write?` toggle is an ordinary app-db slice (written by
-          ;; `:linearlite/set-fail-next-write`, a plain db-in/db-out handler), so
-          ;; read it off the frame's APP-db partition (`:rf.db/app`). Reading
+          ;; `:linearlite/set-fail-next-write`), so read it off the frame's
+          ;; APP-db partition (`:rf.db/app`). Reading
           ;; `:rf.db/runtime` here — where the flag never lives — is why the
           ;; simulated rollback never fired.
           db        (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
@@ -391,19 +391,19 @@
 ;; reads the sub.
 
 (rf/reg-event :linearlite/set-fail-next-write
-  (fn [db [_ on?]] (assoc db :fail-next-write? on?)))
+  (fn [{:keys [db]} [_ on?]] {:db (assoc db :fail-next-write? on?)}))
 
 (rf/reg-event :linearlite/set-new-issue-draft
-  (fn [db [_ text]] (assoc db :new-issue-draft text)))
+  (fn [{:keys [db]} [_ text]] {:db (assoc db :new-issue-draft text)}))
 
 (rf/reg-event :linearlite/begin-edit
-  (fn [db [_ id title]] (assoc db :editing {:id id :title title})))
+  (fn [{:keys [db]} [_ id title]] {:db (assoc db :editing {:id id :title title})}))
 
 (rf/reg-event :linearlite/set-edit-draft
-  (fn [db [_ text]] (assoc-in db [:editing :title] text)))
+  (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:editing :title] text)}))
 
 (rf/reg-event :linearlite/cancel-edit
-  (fn [db _] (dissoc db :editing)))
+  (fn [{:keys [db]} _] {:db (dissoc db :editing)}))
 
 (rf/reg-sub :linearlite/fail-next-write? (fn [db _] (boolean (:fail-next-write? db))))
 (rf/reg-sub :linearlite/new-issue-draft  (fn [db _] (or (:new-issue-draft db) "")))
