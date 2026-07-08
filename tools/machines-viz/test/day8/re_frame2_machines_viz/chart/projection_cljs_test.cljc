@@ -156,7 +156,7 @@
   label) is gone."
   [graph parsed-edge-id]
   (first (filter #(and (= "rf2-event" (:type %))
-                       (= (str "event__" parsed-edge-id) (:id %)))
+                       (= (projection/event-node-id {:id parsed-edge-id}) (:id %)))
                  (:nodes graph))))
 
 (defn- inbound-edge-for
@@ -1052,8 +1052,8 @@
     (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
           idle-id  (layout/node-id [:idle])
-          marker-id (str "initial__" idle-id)
-          entry    (edge-by-id graph (str marker-id "__entry"))]
+          marker-id (projection/initial-marker-id idle-id)
+          entry    (edge-by-id graph (str marker-id "entry"))]
       (is (some? entry))
       (is (= "" (:eventLineLabel (:data entry))))
       (is (= "" (:eventLabel (:data entry)))))))
@@ -1680,7 +1680,7 @@
              (projection/->elk-children parsed nil))
           "the 1-arity and nil-2-arity are identical")
       (let [children (root-children (projection/->elk-children parsed nil))
-            leaves   (remove #(re-find #"^event__" (:id %)) children)]
+            leaves   (remove #(re-find #"^__rf2_event_" (:id %)) children)]
         (is (every? #(= projection/state-node-min-width (:width %)) leaves)
             "every leaf at the width floor when unmeasured")))))
 
@@ -1747,7 +1747,7 @@
             the initial state. End-to-end through the production path."
     (let [parsed   (layout/project-definition door-cyclic-machine)
           children (root-children (projection/->elk-children parsed))
-          state-children (remove #(re-find #"^event__" (:id %)) children)
+          state-children (remove #(re-find #"^__rf2_event_" (:id %)) children)
           ids      (mapv :id state-children)]
       (is (= (layout/node-id [:locked]) (first ids))
           "the initial state leads the elk state children")
@@ -1765,7 +1765,7 @@
           compound (get by-id (layout/node-id [:authenticated]))
           ;; the compound's STATE children (skip its nested event-nodes).
           sub-states (->> (:children compound)
-                          (remove #(re-find #"^event__" (:id %)))
+                          (remove #(re-find #"^__rf2_event_" (:id %)))
                           (mapv :id))]
       (is (= (layout/node-id [:authenticated :browsing]) (first sub-states))
           "the compound's initial substate leads its local model order"))))
@@ -1998,9 +1998,9 @@
     (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
           idle-id   (layout/node-id [:idle])
-          marker-id (str "initial__" idle-id)
+          marker-id (projection/initial-marker-id idle-id)
           marker   (node-by-id graph marker-id)
-          entry    (edge-by-id graph (str marker-id "__entry"))]
+          entry    (edge-by-id graph (str marker-id "entry"))]
       (is (some? marker) "initial-marker node emitted")
       (is (= "initial-marker" (:type marker)))
       (is (some? entry) "entry edge emitted")
@@ -2022,7 +2022,7 @@
           ;; observable on the marker.
           positions {idle-id {:x 300 :y 120}}
           graph     (projection/xyflow-graph parsed positions {})
-          marker    (node-by-id graph (str "initial__" idle-id))]
+          marker    (node-by-id graph (projection/initial-marker-id idle-id))]
       (is (pos? projection/initial-marker-x-offset))
       (is (= (- 300 projection/initial-marker-x-offset)
              (get-in marker [:position :x]))
@@ -2086,7 +2086,7 @@
     (let [parsed      (layout/project-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
-          marker      (node-by-id graph (str "initial__" browsing-id))]
+          marker      (node-by-id graph (projection/initial-marker-id browsing-id))]
       (is (some? marker) "the compound's initial substate gets a marker")
       (is (= (layout/node-id [:authenticated]) (:parentId marker))
           "marker keeps the container coordinate frame via :parentId")
@@ -2110,11 +2110,96 @@
     (let [parsed      (layout/project-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
-          marker      (node-by-id graph (str "initial__" browsing-id))]
+          marker      (node-by-id graph (projection/initial-marker-id browsing-id))]
       (is (some? marker) "the compound's initial substate gets a marker")
       (is (= (layout/node-id [:authenticated]) (:parentId marker)))
       (is (not (contains? marker :parentNode))
           "rf2-xh1lm — the pre-v12 :parentNode key MUST NOT appear"))))
+
+;; ---- rf2-4gtvln — reserved-scheme synthetic ids are INJECTIVE against
+;;      real node-ids -------------------------------------------------------
+;;
+;; The initial-marker and event-node ids used to be minted by prepending a
+;; bare word + "__" onto an already-escaped node-id ("initial__" / "event__").
+;; Because `grammar/escape-id-segment` leaves the plain words "initial" /
+;; "event" untouched and `node-id` joins path segments with "__", a REAL
+;; multi-segment state path whose FIRST segment is literally :initial / :event
+;; minted the SAME id as the synthetic marker / event-node — and xyflow (keys
+;; nodes by :id, silently DROPS a duplicate) then lost a node. The fix routes
+;; both synthetic ids through a reserved leading + trailing "__" scheme
+;; (`initial-marker-id` / `event-node-id`) a real node-id can never produce.
+
+(defn- node-ids-distinct?
+  "Every projected node :id is pairwise distinct — the xyflow injectivity
+  contract (a duplicate id silently drops a node)."
+  [graph]
+  (let [ids (mapv :id (:nodes graph))]
+    (= (count ids) (count (distinct ids)))))
+
+(deftest xyflow-graph-initial-named-state-does-not-collide-with-marker
+  (testing "rf2-4gtvln — a machine with a top-level compound state literally
+            named :initial makes the real [:initial :a] path mint node-id
+            \"initial__a\", byte-identical to the OLD initial-marker id for
+            the machine's initial state :a. The projection must keep BOTH the
+            real state box AND the marker, with DISTINCT ids (pre-fix xyflow
+            dropped one)."
+    (let [machine {:initial :a
+                   :states  {:a       {}
+                             :initial {:states {:a {}}}}}
+          parsed  (layout/project-definition machine)
+          graph   (projection/xyflow-graph parsed {} {})
+          real-initial-a (layout/node-id [:initial :a])              ;; "initial__a"
+          marker-id      (projection/initial-marker-id
+                           (layout/node-id [:a]))]                   ;; reserved scheme
+      ;; the fixture genuinely reproduces the pre-fix collision: the OLD
+      ;; marker id for :a is byte-identical to the real [:initial :a] node id.
+      (is (= real-initial-a (str "initial__" (layout/node-id [:a])))
+          "sanity: the OLD \"initial__\"-prefixed marker id WOULD have collided")
+      (is (node-ids-distinct? graph)
+          "every projected node id is distinct — no node silently dropped")
+      (is (some? (node-by-id graph real-initial-a))
+          "the REAL [:initial :a] compound-substate box survives projection")
+      (is (some? (node-by-id graph marker-id))
+          "the initial-marker for :a survives projection")
+      (is (not= real-initial-a marker-id)
+          "the marker id and the real [:initial :a] node id are DISTINCT")
+      (is (= "state" (:type (node-by-id graph real-initial-a)))
+          "the \"initial__a\" id now belongs SOLELY to the real state — the
+           marker no longer squats it")
+      (is (= "initial-marker" (:type (node-by-id graph marker-id)))
+          "the marker keeps its reserved-scheme id"))))
+
+(deftest xyflow-graph-event-named-state-does-not-collide-with-event-node
+  (testing "rf2-4gtvln (secondary) — a machine with a top-level compound
+            state literally named :event whose nested path [:event :a :b :go]
+            mints node-id \"event__a__b__go\", byte-identical to the OLD
+            event-node id for the a --go--> b transition. The projection must
+            keep BOTH, with DISTINCT ids."
+    (let [machine {:initial :a
+                   :states  {:a     {:on {:go :b}}
+                             :b     {}
+                             :event {:states {:a {:states {:b {:states {:go {}}}}}}}}}
+          parsed  (layout/project-definition machine)
+          graph   (projection/xyflow-graph parsed {} {})
+          real-event-path (layout/node-id [:event :a :b :go])        ;; "event__a__b__go"
+          go-edge (first (filter #(= :go (:event %)) (:edges parsed)))
+          ev-id   (projection/event-node-id go-edge)]
+      (is (some? go-edge) "fixture parses the a --go--> b transition")
+      ;; the fixture genuinely reproduces the pre-fix collision.
+      (is (= real-event-path (str "event__" (:id go-edge)))
+          "sanity: the OLD \"event__\"-prefixed event-node id WOULD have collided")
+      (is (node-ids-distinct? graph)
+          "every projected node id is distinct — no node silently dropped")
+      (is (some? (node-by-id graph real-event-path))
+          "the REAL [:event :a :b :go] state box survives projection")
+      (is (some? (node-by-id graph ev-id))
+          "the a --go--> b event-node survives projection")
+      (is (not= real-event-path ev-id)
+          "the event-node id and the real [:event ...] node id are DISTINCT")
+      (is (= "state" (:type (node-by-id graph real-event-path)))
+          "the \"event__a__b__go\" id now belongs SOLELY to the real state")
+      (is (= "rf2-event" (:type (node-by-id graph ev-id)))
+          "the event-node keeps its reserved-scheme id"))))
 
 (deftest xyflow-graph-self-transition-routes-through-event-node
   (testing "rf2-qo5xy — a self-transition (source == target in the
@@ -2165,7 +2250,7 @@
           by-id    (into {} (map (juxt :id identity) children))
           authed   (get by-id (layout/node-id [:authenticated]))]
       (is (some? authed) "compound parent nests inside the root frame")
-      (let [kid-types (group-by #(if (re-find #"^event__" (:id %))
+      (let [kid-types (group-by #(if (re-find #"^__rf2_event_" (:id %))
                                    :event :state)
                                 (:children authed))]
         (is (= 2 (count (:state kid-types)))
@@ -2585,7 +2670,7 @@
           fired-ev-nodes (set (map :id (filter #(and (= "rf2-event" (:type %))
                                                      (:fired (:data %)))
                                                (:nodes graph))))]
-      (is (= #{(str "event__" (:id start)) (str "event__" (:id always))}
+      (is (= #{(projection/event-node-id start) (projection/event-node-id always)}
              fired-ev-nodes)
           "exactly the two event-nodes for the fired ids light up"))))
 
@@ -2900,7 +2985,7 @@
           parsed-ids (set (map :id (:edges parsed)))
           ev-node-ids (set (map :id (filter #(= "rf2-event" (:type %))
                                             (:nodes graph))))
-          expected (set (map #(str "event__" %) parsed-ids))]
+          expected (set (map #(projection/event-node-id {:id %}) parsed-ids))]
       (is (= expected ev-node-ids)
           "every parsed edge id has a matching event-node"))))
 
@@ -2932,10 +3017,14 @@
     (let [parsed (layout/project-definition multi-self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
-          on-idle  (filter (fn [e] (let [in (inbound-edge-for graph
-                                                              (subs (:id e)
-                                                                    (count "event__")))]
-                                     (= (:source in) (layout/node-id [:idle]))))
+          ;; rf2-4gtvln — match each event-node back to its parsed edge via
+          ;; the public `event-node-id` (a parsed edge carries its source
+          ;; state directly), rather than reverse-parsing the reserved-scheme
+          ;; id string.
+          on-idle  (filter (fn [e]
+                             (some #(and (= (projection/event-node-id %) (:id e))
+                                         (= (:source %) (layout/node-id [:idle])))
+                                   (:edges parsed)))
                            ev-nodes)]
       (is (= 3 (count on-idle))
           "fixture has 3 events on :idle → 3 event-nodes")
@@ -3388,7 +3477,7 @@
           c1 (:id (get by-guard :gate-high?))   ;; priority 1
           c2 (:id (get by-guard :gate-low?))    ;; priority 2
           c3 (:id (get by-guard nil))           ;; priority 3
-          ev #(str "event__" %)]
+          ev #(projection/event-node-id {:id %})]
       (is (= 2 (count conns)) "3-branch fork → 2 connector edges (1→2, 2→3)")
       (let [pairs (set (map (juxt :source :target) conns))]
         (is (contains? pairs [(ev c1) (ev c2)])
@@ -3454,7 +3543,7 @@
           c1 (:id (get by-guard :gate-high?))   ;; priority 1
           c2 (:id (get by-guard :gate-low?))    ;; priority 2
           c3 (:id (get by-guard nil))           ;; priority 3
-          ev #(str "event__" %)
+          ev #(projection/event-node-id {:id %})
           ;; index every connector by its [source target] event-node pair.
           by-pair (into {} (map (juxt (juxt :source :target) identity)) conns)]
       (is (= 2 (count conns)) "3-branch fork → 2 connector edges (1→2, 2→3)")
