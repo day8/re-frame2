@@ -238,18 +238,16 @@
          showing)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   ;; The route lives in runtime-db. The 1-indexed `?page=` off the route query
-  ;; becomes the wire's limit/offset window via `rh/paginate-path`. The active
-  ;; tag is a path param; the page is a query param; and on the wire it all
-  ;; collapses to `/articles?tag=…&limit=…&offset=…`. Frontend route shape and
-  ;; API query string are deliberately independent.
+  ;; becomes the wire's limit/offset window via `rh/paginate-path`, which also
+  ;; URL-encodes the `:tag` filter. The active tag is a path param; the page is
+  ;; a query param; and on the wire it all collapses to
+  ;; `/articles?tag=…&limit=…&offset=…`. Frontend route shape and API query
+  ;; string are deliberately independent.
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [current   (get-in rt [:rf.runtime/routing :current])
           tag       (get-in current [:params :tag])
           page      (or (get-in current [:query :page]) 1)
-          base      (if tag
-                      (str "/articles?tag=" tag)
-                      "/articles")
-          path      (rh/paginate-path base page)
+          path      (rh/paginate-path "/articles" (when tag {:tag tag}) page)
           has-data? (seq (get-in db [:articles :data]))]
       {:db (-> db
                (assoc-in [:articles :status] (if has-data? :fetching :loading))

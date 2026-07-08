@@ -52,6 +52,20 @@
 (defn full-url [path]
   (str api-base path))
 
+(defn query-string
+  "Assemble a `?k=v&k2=v2…` query string from a map of query params, with every
+   value URL-encoded via `js/encodeURIComponent` so a tag, username, or other
+   filter value carrying a reserved query character (`&`, `=`, `#`, a space,
+   …) reaches the API as that literal value instead of corrupting the query
+   string it's embedded in. Nil-valued params are dropped, and an empty (or
+   all-nil) map yields `\"\"`, not a bare `\"?\"`."
+  [params]
+  (let [pairs (for [[k v] params :when (some? v)]
+                (str (name k) "=" (js/encodeURIComponent (str v))))]
+    (if (seq pairs)
+      (str "?" (str/join "&" pairs))
+      "")))
+
 ;; ============================================================================
 ;; RETRY POLICY
 ;; ============================================================================
