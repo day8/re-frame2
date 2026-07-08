@@ -508,3 +508,149 @@
                                      [:go-all])))
                      :rf/time-ms)
           "the parallel root :on guard's provided requires is in the ensure-set"))))
+
+;; ===========================================================================
+;; :type :choice candidates in the ensure-set (rf2-4y4bzq)
+;; ===========================================================================
+;;
+;; A `:type :choice` transient node carries its candidate vector under
+;; `:choice`, which LOWERS to `:always` only at `choice/desugar-choices` (run
+;; at transition / birth time). The index + ensure-set run on the RAW
+;; pre-desugar machine, so the ensure-set must treat a choice node's `:choice`
+;; vector as its `:always` candidates — otherwise a choice candidate guard's
+;; :rf.cofx/requires is never ensured, the guard reads nil, and strict replay
+;; diverges (it selects a DIFFERENT candidate). The inline-fn restriction must
+;; likewise sweep :choice.
+
+(deftest inline-requires-on-choice-candidate-rejected
+  (testing "an :rf.cofx/requires placed directly on a :type :choice candidate
+            (an inline declaration with no :fn to deliver to) fails
+            registration with :rf.error/machine-cofx-requires-inline — the
+            :choice slot is swept like :always (the choice lowers to :always)"
+    (let [m {:initial :idle
+             :data    {}
+             :states  {:idle     {:on {:go :checking}}
+                       :checking {:type   :choice
+                                  :choice [{:rf.cofx/requires [:rf/time-ms]
+                                            :target :a}
+                                           {:target :b}]}
+                       :a {} :b {}}}
+          e (is (thrown? ExceptionInfo
+                         (machines/make-machine-handler m)))]
+      (is (= :rf.error/machine-cofx-requires-inline
+             (:rf.error/id (ex-data e)))
+          "the inline-on-choice-candidate declaration is rejected"))))
+
+(deftest ensure-set-for-includes-choice-candidate-requires
+  (testing "white-box: ensure-set-for treats a :type :choice node's :choice
+            vector as its :always candidates, so a choice candidate GUARD's
+            :rf.cofx/requires is in the ensure-set (reachable through the
+            choice target) — before rf2-4y4bzq always-entries read (:always
+            choice-node)=nil and the fact was dropped"
+    (rf/reg-cofx :test/choice-roll {:recordable? true} (fn [] 6))
+    (let [m (cofx-attach/index-ensure-sets
+              {:initial :idle
+               :guards  {:needs-roll {:rf.cofx/requires [:test/choice-roll]
+                                      :fn (fn [_] true)}}
+               :states  {:idle     {:on {:go :checking}}
+                         :checking {:type   :choice
+                                    :choice [{:guard :needs-roll :target :a}
+                                             {:target :b}]}
+                         :a {} :b {}}})
+          es (cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
+      (is (contains? (set (map :id es)) :test/choice-roll)
+          "the ensure-set for [:go] at :idle includes the choice candidate
+           guard's requires — reachable through the :checking choice target"))))
+
+(deftest choice-candidate-guard-reads-ensured-generated-fact
+  (testing "end-to-end: a :type :choice candidate GUARD requiring a
+            generator-backed fact reads the GENERATED value (never nil) — the
+            ensure-set closure treats the choice node's :choice vector as its
+            :always candidates, so the fact is ensured BEFORE the choice settles
+            (it lowers to :always in the same macrostep) and routes correctly"
+    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
+    (let [seen (atom ::unset)
+          m {:initial :idle
+             :data    {}
+             :guards  {:rolled-six?
+                       {:rf.cofx/requires [:test/roll]
+                        :fn (fn [{cofx :rf.cofx}]
+                              (reset! seen (:test/roll cofx))
+                              (= 6 (:test/roll cofx)))}}
+             :states  {:idle     {:on {:go :checking}}
+                       :checking {:type   :choice
+                                  :choice [{:guard :rolled-six? :target :hit}
+                                           {:target :miss}]}
+                       :hit  {}
+                       :miss {}}}]
+      (rf/reg-machine :attach/choice-guard m)
+      ;; No :test/roll on the token — the ensure step must generate it BEFORE
+      ;; the choice node settles (it lowers to :always in the [:go] macrostep).
+      (rf/dispatch-sync [:attach/choice-guard [:go]]
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+      (is (= 6 @seen)
+          "the choice candidate guard read the GENERATED :test/roll (not nil) —
+           ensured before the choice settled")
+      (is (= :hit (mtest/machine-state :attach/choice-guard))
+          "the choice routed to :hit on the ensured value"))))
+
+;; ===========================================================================
+;; state-level / per-region :after candidates in the ensure-set (rf2-iyrc9t)
+;; ===========================================================================
+;;
+;; The synthetic timer event [:rf.machine.timer/after-elapsed delay epoch
+;; decl-path] routes to the scheduling node's :after-TABLE transition at
+;; decl-path/delay — a slot SEPARATE from :on, so the :on walk misses it. The
+;; parallel ROOT :after was already handled (parallel-root-diet); the
+;; per-state / per-region :after was the asymmetric gap. A state-level :after
+;; guard/action declaring :rf.cofx/requires must have its facts ensured when
+;; the timer fires, else the guard reads nil / replay diverges.
+
+(deftest ensure-set-for-includes-state-after
+  (testing "white-box: ensure-set-for for a state-level :after timer event
+            ([:rf.machine.timer/after-elapsed delay epoch [state]]) includes the
+            :after candidate's requires — the :after slot the :on walk missed
+            (rf2-iyrc9t)"
+    (rf/reg-cofx :test/token {:recordable? true} (fn [] :T))
+    (let [m (cofx-attach/index-ensure-sets
+              {:initial :waiting
+               :data    {}
+               :guards  {:needs-token
+                         {:rf.cofx/requires [:test/token]
+                          :fn (fn [{cofx :rf.cofx}] (some? (:test/token cofx)))}}
+               :states  {:waiting {:after {5000 {:guard  :needs-token
+                                                 :target :done}}}
+                         :done    {}}})
+          ;; the state timer carries the scheduling node's decl-path [:waiting].
+          es (cofx-attach/ensure-set-for
+               m {:state :waiting :data {}}
+               [:rf.machine.timer/after-elapsed 5000 1 [:waiting]])]
+      (is (contains? (set (map :id es)) :test/token)
+          "the ensure-set for the state :after timer includes the :after guard's
+           requires — before rf2-iyrc9t only the parallel ROOT :after was
+           handled, so a per-state :after read nil"))))
+
+(deftest ensure-set-for-includes-per-region-after
+  (testing "white-box: for a parallel machine, the synthetic region-qualified
+            :after timer ([... [<region> <state>]]) resolves within the region
+            scope (region head stripped) and adds the region-state :after
+            candidate's requires (rf2-iyrc9t — the region path)"
+    (rf/reg-cofx :test/region-token {:recordable? true} (fn [] :RT))
+    (let [m (cofx-attach/index-ensure-sets
+              {:type    :parallel
+               :data    {}
+               :guards  {:needs-region-token
+                         {:rf.cofx/requires [:test/region-token]
+                          :fn (fn [{cofx :rf.cofx}] (some? (:test/region-token cofx)))}}
+               :regions {:a {:initial :waiting
+                             :states  {:waiting {:after {3000 {:guard  :needs-region-token
+                                                               :target :done}}}
+                                       :done    {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}})
+          ;; region-a timer: decl-path is region-qualified [:a :waiting].
+          es (cofx-attach/ensure-set-for
+               m {:state {:a :waiting :b :one} :data {}}
+               [:rf.machine.timer/after-elapsed 3000 1 [:a :waiting]])]
+      (is (contains? (set (map :id es)) :test/region-token)
+          "the region-qualified :after timer's guard requires is ensured — the
+           decl-path region head was stripped to resolve within region-a"))))

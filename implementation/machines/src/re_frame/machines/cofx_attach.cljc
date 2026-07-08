@@ -69,10 +69,21 @@
   with their own require on `re-frame.cofx` (the core delivery surface).
   Keeping them out of `lifecycle-fx.validation` / `lifecycle-fx.registration`
   keeps those files focused and lets the engine require this leaf without a
-  cycle (it requires `grammar`, `cofx`, `trace`, `interop`, `registrar`,
-  `error`, plus — for the sub-valued source evaluator hook — `subs` /
-  `frame` / `late-bind`; none of subs / frame require the machines engine, so
-  no cycle).
+  cycle (it requires `grammar` / `choice`, `cofx`, `trace`, `interop`,
+  `registrar`, `error`, plus — for the sub-valued source evaluator hook —
+  `subs` / `frame` / `late-bind`; `choice` is a leaf requiring only `error`,
+  and none of subs / frame require the machines engine, so no cycle).
+
+  ## Pre-desugar surfaces (`:choice` / state-level `:after`)
+
+  The index + ensure-set computation run on the RAW machine (before
+  `choice/desugar-choices` / `timeout/desugar-timeouts` lower the authoring
+  sugar at transition / birth time). So this ns settles the sugar the way the
+  runtime does: a `:type :choice` transient node's `:choice` candidate vector
+  is its `:always` candidate set (`always-entries`), and a state-level `:after`
+  table transition contributes to the ensure-set for its synthetic timer event
+  (`after-diet-for-event`) — mirroring how the parallel ROOT `:after` is
+  handled by `parallel-root-diet`.
 
   XState offers NO parity guidance here — it has no replay contract; this
   surface is re-frame2's own (EP-0017 §Rationale — Why consumer attachment
@@ -82,6 +93,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.machines.choice :as choice]
             [re-frame.machines.grammar :as grammar]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
@@ -220,9 +232,18 @@
   unrecognised shape degrades to `[]` (the runtime normaliser is the
   throw's designated surface — `:rf.error/machine-bad-always`). Absent
   `:always` (missing key, or present with nil) → `[]`. Mirrors
-  `validation/always-entries`."
+  `validation/always-entries`.
+
+  A `:type :choice` transient node carries its candidate vector under
+  `:choice`, NOT `:always` — the choice lowers to `:always` only at
+  `choice/desugar-node-choice`, and the index + ensure-set run on the RAW
+  pre-desugar machine (rf2-4y4bzq). Since a choice state routes through the
+  IDENTICAL `:always` cascade the runtime settles it into, treat a choice
+  node's `:choice` vector as its `:always` candidates here; validation
+  guarantees a choice node never ALSO declares `:always` (a reserved key), so
+  there is no ambiguity."
   [node]
-  (let [a (:always node)]
+  (let [a (if (choice/choice-node? node) (:choice node) (:always node))]
     (if (nil? a)
       []
       (case (grammar/transition-value-form a)
@@ -251,17 +272,24 @@
   "Sweep every transition slot + callback slot of every state node (and the
   machine / region roots) for an inline `:rf.cofx/requires` declaration, and
   reject it. The legal home — a named `:guards` / `:actions` entry map — is
-  parsed by `index-ensure-sets`; this pass catches the ILLEGAL homes."
+  parsed by `index-ensure-sets`; this pass catches the ILLEGAL homes. A
+  `:type :choice` node's candidates are swept via `always-entries` (which
+  reads its `:choice` vector — the choice lowers to `:always`); the diagnostic
+  labels them `:choice` so the author sees the slot they actually wrote
+  (rf2-4y4bzq)."
   [machine]
   (let [roots (if (and (map? (:regions machine)) (seq (:regions machine)))
                 (cons machine (vals (:regions machine)))
                 [machine])
         check-node!
         (fn [path node]
-          (let [where (str "state " (if (seq path) (peek path) :rf/root))]
+          (let [where       (str "state " (if (seq path) (peek path) :rf/root))
+                ;; a choice node's candidates ride `:choice`; `always-entries`
+                ;; surfaces them, but label the site `:choice` not `:always`.
+                always-label (if (choice/choice-node? node) " :choice" " :always")]
             (doseq [[_ev v] (:on node)]    (check-no-inline-requires! (str where " :on") v))
             (doseq [[_d v]  (:after node)] (check-no-inline-requires! (str where " :after") v))
-            (doseq [e (always-entries node)] (check-no-inline-requires! (str where " :always") e))
+            (doseq [e (always-entries node)] (check-no-inline-requires! (str where always-label) e))
             (when (contains? node :on-done)
               (check-no-inline-requires! (str where " :on-done") (:on-done node)))
             (check-no-inline-requires! (str where " :entry") (:entry node))
@@ -471,6 +499,15 @@
 ;; since the event-id matches an `:on` key, but the `:on-done` slot is not).
 (def ^:private done-event-id :rf.machine/done)
 
+;; The synthetic timer event id (`transition/after-elapsed-event-id`). Inlined
+;; as a literal so this leaf does not require `transition` — the docstring's
+;; require contract (`grammar` / `choice` / `cofx` / `trace` / `interop`) stays
+;; cycle-free. `pick-after-transition` / `root-after-match` in `transition` are
+;; the runtime peers. Defined here (ahead of `ensure-set-in-scope`) because both
+;; the per-state `after-diet-for-event` and the parallel-root `parallel-root-
+;; diet` route on it.
+(def ^:private after-elapsed-event-id :rf.machine.timer/after-elapsed)
+
 (defn- on-done-diet-for-event
   "Add (into `add!`) the `:on-done` guard/action diets of the completed node a
   raised done event targets. `event` is `[:rf.machine/done
@@ -495,6 +532,49 @@
               (when-let [tgt (resolve-target-path states done-path (:target cand))]
                 (add-always! tgt)))))))))
 
+(defn- after-diet-for-event
+  "Add (into `add!`) the guard/action diet of a per-state (or per-region)
+  `:after`-TABLE transition the synthetic timer event fires, plus the `:always`
+  closure reachable from each candidate's target. `event` is
+  `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`; the runtime
+  routes it to the SCHEDULING node at `decl-path` and selects the `:after`
+  entry at `delay-key` (`transition/pick-after-transition`) — a slot separate
+  from `:on`, so an `:after` guard/action declaring `:rf.cofx/requires` is
+  invisible to the `:on` walk. This adds it, mirroring how `parallel-root-diet`
+  handles the parallel-ROOT `:after` (rf2-iyrc9t: the per-state / per-region
+  `:after` had no such clause).
+
+  `region` is the region name when `states` is a parallel region's `:states`
+  body, else nil. Within a region the carried decl-path is region-qualified
+  (`[region & in-region-path]`), so strip the region head to resolve within
+  the region scope; a decl-path naming a DIFFERENT region is not this region's
+  timer (declines). A root-owned timer (`decl-path` `[]`, resolved by
+  `parallel-root-diet`) does not resolve to a `:states` node here, so it is a
+  no-op on this path — no double-count. The resolution is a sound
+  over-approximation (no active-path liveness check — an un-fired / stale
+  timer's ensured facts are a harmless idempotent no-op), exactly as the
+  parallel-root clause is. No-op when the event is not an after-elapsed timer,
+  the decl-path does not resolve, or the node declares no `:after` at
+  `delay-key`."
+  [by-entry states event region add! add-always!]
+  (when (and (vector? event) (= after-elapsed-event-id (first event)))
+    (let [[_ delay-key _epoch raw-decl-path] event
+          decl-path (cond
+                      (nil? raw-decl-path) nil
+                      ;; region-qualified: strip the head iff it names THIS
+                      ;; region (else the timer belongs to a sibling region).
+                      region (when (= region (first raw-decl-path))
+                               (vec (rest raw-decl-path)))
+                      :else  (vec raw-decl-path))]
+      (when (seq decl-path)
+        (let [node (node-at states decl-path)]
+          (when (and (map? node) (contains? (:after node) delay-key))
+            (doseq [cand (candidate-maps (get-in node [:after delay-key]))]
+              (add! (entry-diet by-entry :guards  (:guard cand)))
+              (add! (entry-diet by-entry :actions (:action cand)))
+              (when-let [tgt (resolve-target-path states decl-path (:target cand))]
+                (add-always! tgt)))))))))
+
 (defn- ensure-set-in-scope
   "Compute the ensure-set (a set of `parse-requires` entries, deduped by
   `:id`) for a single `states` scope, active `path`, and inner event type
@@ -512,10 +592,18 @@
   `:on {:rf.machine/done …}` escape hatch, but the `:on-done` slot is a
   separate candidate the runtime selects.
 
+  When `event` is the synthetic `:after` timer signal
+  (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`), the
+  scheduling node's `:after`-table transition at `decl-path` / `delay-key`
+  joins the set (guard/action diet + the `:always` closure from its target) —
+  a slot separate from `:on`, so the `:on` walk misses it (rf2-iyrc9t).
+  `region` is the region name when `states` is a parallel region's body (so the
+  region-qualified decl-path can be stripped / declined), else nil.
+
   `by-entry` is the registration index's `:by-entry` map. Returns a vector of
   parsed-requires entries (deduped by id, declaration-order-insensitive — the
   ensure step is order-independent)."
-  [by-entry states path event]
+  [by-entry states path event region]
   (let [event-id (when (vector? event) (first event))
         acc      (volatile! [])
         seen-ids (volatile! #{})
@@ -578,13 +666,14 @@
     ;; `:always` closure reachable from its target so an `:on-done` callback's
     ;; `:rf.cofx/requires` is ensured before the done transition is selected.
     (on-done-diet-for-event by-entry states event add! add-always!)
+    ;; (e) the synthetic `:after` timer signal
+    ;; (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`) fires the
+    ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
+    ;; slot separate from `:on`. Add its candidates' guard/action diet + the
+    ;; `:always` closure from each target, mirroring `parallel-root-diet`'s
+    ;; root-`:after` clause (rf2-iyrc9t).
+    (after-diet-for-event by-entry states event region add! add-always!)
     @acc))
-
-;; The synthetic timer event id (`transition/after-elapsed-event-id`). Inlined
-;; as a literal so this leaf does not require `transition` — the docstring's
-;; require contract (`grammar` / `path-walk` / `cofx` / `trace` / `interop`)
-;; stays cycle-free. `root-after-match` in `transition` is the runtime peer.
-(def ^:private after-elapsed-event-id :rf.machine.timer/after-elapsed)
 
 (defn- root-target-always-diet
   "The `:always`-closure diet reachable from a PARALLEL-ROOT transition's
@@ -708,7 +797,7 @@
                                       (keyword? region-state) [region-state]
                                       :else nil)]
                     :when (and scope rpath)]
-              (add! (ensure-set-in-scope by-entry scope rpath event)))
+              (add! (ensure-set-in-scope by-entry scope rpath event region)))
             ;; the parallel root's own live transition surfaces.
             (parallel-root-diet by-entry machine event event-id add!)
             @acc)
@@ -717,7 +806,7 @@
                            (keyword? state) [state]
                            :else nil)]
             (if path
-              (ensure-set-in-scope by-entry (scope-for machine) path event)
+              (ensure-set-in-scope by-entry (scope-for machine) path event nil)
               [])))))))
 
 (defn- initial-path-for-scope
