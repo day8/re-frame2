@@ -27,8 +27,10 @@
  * It walks every tracked example index.html and, for each:
  *
  *   1. RESOLVES every local asset reference (link href, script src,
- *      og:image meta, and transitively the @import targets inside any
- *      referenced local CSS) to a real file in the repo source tree. A
+ *      img/source/video src, each `srcset`/`imagesrcset` candidate, a
+ *      `<video poster>` still (rf2-arkvq8), og:image meta, and transitively the
+ *      @import targets inside any referenced local CSS) to a real file in the
+ *      repo source tree. A
  *      reference to a missing/renamed/typo'd local asset fails the gate.
  *      The build output main.js (produced by shadow-cljs, not source) is
  *      skipped.
@@ -36,8 +38,10 @@
  *      DIRECT-HTML NETWORK REFS are NOT skipped (rf2-bf4vdy). An
  *      asset-bearing external reference in the page — a `<script src>`, an
  *      asset `<link href>` (stylesheet / preload / modulepreload / icon /
- *      manifest / prefetch), an `<img>/<source>/<video>/<audio> src`, or a
- *      LOCAL-staged-but-external og:image — pulls a third-party CDN
+ *      manifest / prefetch), an `<img>/<source>/<video>/<audio> src`, an
+ *      `<img>/<source> srcset` or `<link imagesrcset>` candidate, a
+ *      `<video poster>` still (rf2-arkvq8), or a LOCAL-staged-but-external
+ *      og:image — pulls a third-party CDN
  *      script / hosted stylesheet / hosted font / external media into every
  *      staged example at load time. That is the same reproducibility /
  *      offline-dev / hidden-dependency regression the external-CSS-@import
@@ -333,6 +337,49 @@ const ASSET_LINK_RELS = new Set([
   'manifest',
 ]);
 
+// Parse an HTML `srcset` / `imagesrcset` attribute value into its candidate
+// URLs, discarding the width/density descriptors (rf2-arkvq8). srcset is a
+// comma-separated list of `<url> [descriptor]` candidates — e.g.
+// `hero-320.png 320w, hero-640.png 640w` (width descriptors) or
+// `logo.png 1x, logo@2x.png 2x` (density descriptors). Every candidate URL is a
+// load-time image fetch, so a remote candidate is a third-party network
+// dependency and a local candidate must resolve on disk — exactly like a plain
+// `src`. Follows the WHATWG "parse a srcset attribute" shape: a candidate URL is
+// the run of non-whitespace characters, trailing commas terminate a
+// descriptor-less candidate (and are separators, not part of the URL), and the
+// descriptor (if any) runs to the next comma. Reading the URL as a
+// non-whitespace run keeps a comma-bearing `data:` URI (which has no internal
+// whitespace) intact rather than splitting it mid-URI. Returns the candidate
+// URLs in source order; the caller strips ?query/#hash as it does for src/href.
+function parseSrcset(value) {
+  const urls = [];
+  const isWs = (c) =>
+    c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+  let i = 0;
+  const n = value.length;
+  while (i < n) {
+    // Skip whitespace and stray commas between candidates.
+    while (i < n && (isWs(value[i]) || value[i] === ',')) i++;
+    if (i >= n) break;
+    // The URL is the run of non-whitespace characters.
+    const start = i;
+    while (i < n && !isWs(value[i])) i++;
+    let url = value.slice(start, i);
+    // Trailing commas terminate a descriptor-less candidate (per the spec); they
+    // are separators between candidates, not part of the URL.
+    let hadTrailingComma = false;
+    while (url.endsWith(',')) {
+      url = url.slice(0, -1);
+      hadTrailingComma = true;
+    }
+    if (url) urls.push(url);
+    if (hadTrailingComma) continue; // next candidate begins immediately
+    // Skip this candidate's descriptor (e.g. `320w` / `2x`) up to the next comma.
+    while (i < n && value[i] !== ',') i++;
+  }
+  return urls;
+}
+
 // Extract every ASSET-BEARING reference from an index.html's source, TAGGED
 // with the element/attribute it came from, so the direct-HTML network policy
 // (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
@@ -344,10 +391,14 @@ const ASSET_LINK_RELS = new Set([
 // What counts as asset-bearing:
 //   - <script src=...>                          (always a fetch)
 //   - <link rel="<asset rel>" href=...>         (stylesheet/preload/icon/…)
+//   - <link ... imagesrcset=...>                (responsive preload candidates)
 //   - <img|source|video|audio|track src=...>    (media fetch)
+//   - <img|source srcset=...>                   (responsive image candidates)
+//   - <video poster=...>                        (poster-still image fetch)
 //   - <meta property="og:image" content=...>    (social-preview fetch)
 // An <a href> / a <link rel="canonical"> / any non-asset element href is pure
-// navigation and is intentionally NOT returned.
+// navigation and is intentionally NOT returned. srcset/imagesrcset each expand
+// to their candidate URLs; the poster is a single image fetch (rf2-arkvq8).
 function extractAssetRefs(html) {
   const out = [];
   const seen = new Set();
@@ -373,21 +424,41 @@ function extractAssetRefs(html) {
     if (src) push(src, '<script src>');
   }
 
-  // <link rel="..." href=...> — asset-bearing only for the rels above.
+  // <link rel="..." href=...> — asset-bearing only for the rels above. A
+  // `<link rel="preload" as="image" imagesrcset=...>` also carries a responsive
+  // candidate list (like <img srcset>) and often has NO href, so imagesrcset is
+  // handled independently of the href/rel gate (rf2-arkvq8).
   for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
     const tag = m[0];
-    const href = attr(tag, 'href');
-    if (!href) continue;
     const rel = (attr(tag, 'rel') || '').toLowerCase().trim();
     const tokens = rel.split(/\s+/).filter(Boolean);
     const isAsset = tokens.some((t) => ASSET_LINK_RELS.has(t));
-    if (isAsset) push(href, `<link rel="${rel || '(none)'}" href>`);
+    const href = attr(tag, 'href');
+    if (href && isAsset) push(href, `<link rel="${rel || '(none)'}" href>`);
+    const imagesrcset = attr(tag, 'imagesrcset');
+    if (imagesrcset) {
+      for (const u of parseSrcset(imagesrcset)) {
+        push(u, `<link rel="${rel || '(none)'}" imagesrcset>`);
+      }
+    }
   }
 
-  // <img|source|video|audio|track src=...> — media fetch.
+  // <img|source|video|audio|track src=...> — media fetch. <img>/<source> also
+  // carry a `srcset` candidate list and <video> a `poster` still, each a
+  // load-time image fetch (rf2-arkvq8).
   for (const m of html.matchAll(/<(img|source|video|audio|track)\b[^>]*>/gi)) {
-    const src = attr(m[0], 'src');
-    if (src) push(src, `<${m[1].toLowerCase()} src>`);
+    const tag = m[0];
+    const el = m[1].toLowerCase();
+    const src = attr(tag, 'src');
+    if (src) push(src, `<${el} src>`);
+    if (el === 'img' || el === 'source') {
+      const srcset = attr(tag, 'srcset');
+      if (srcset) for (const u of parseSrcset(srcset)) push(u, `<${el} srcset>`);
+    }
+    if (el === 'video') {
+      const poster = attr(tag, 'poster');
+      if (poster) push(poster, '<video poster>');
+    }
   }
 
   // <meta property="og:image" content=...> — social-preview fetch.
@@ -411,6 +482,21 @@ function extractHtmlRefs(html) {
   // href="..." / href='...' on <link> (and any element — anchors are
   // in-page or external and get filtered by isExternalRef downstream).
   for (const m of html.matchAll(/\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)')/gi)) {
+    push(m[2] != null ? m[2] : m[3]);
+  }
+  // srcset / imagesrcset candidate lists (<img>/<source> + preload <link>) —
+  // each candidate URL must resolve on disk like a plain src (rf2-arkvq8). The
+  // negative lookbehind keeps a `data-srcset` (lazy-load) attribute out.
+  for (const m of html.matchAll(
+    /(?<![-\w])(?:imagesrcset|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi,
+  )) {
+    for (const u of parseSrcset(m[2] != null ? m[2] : m[3])) push(u);
+  }
+  // <video poster="..."> — the poster still resolves on disk like a src
+  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute.
+  for (const m of html.matchAll(
+    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)')/gi,
+  )) {
     push(m[2] != null ? m[2] : m[3]);
   }
   // <meta property="og:image" content="...">
@@ -1175,6 +1261,7 @@ module.exports = {
   extractHtmlRefs,
   extractAssetRefs,
   extractOgImageRefs,
+  parseSrcset,
   extractCssImports,
   extractCssUrls,
   resolveRef,

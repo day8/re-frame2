@@ -42,6 +42,7 @@ const {
   extractHtmlRefs,
   extractAssetRefs,
   extractOgImageRefs,
+  parseSrcset,
   extractCssImports,
   extractCssUrls,
   resolveRef,
@@ -342,6 +343,188 @@ it('extractAssetRefs does NOT treat an <a href> or rel=canonical as an asset', (
   assert.ok(!refs.includes('https://example.com/docs'), 'anchors are navigation, not assets');
   assert.ok(!refs.includes('https://example.com/page'), 'rel=canonical is metadata, not an asset');
   assert.ok(!refs.includes('https://example.com/rss'), 'rel=alternate is metadata, not an asset');
+});
+
+// ---- srcset + video poster refs (rf2-arkvq8) ----------------------------
+//
+// Before rf2-arkvq8 the scanner only read href/src-style refs, so a `srcset`
+// candidate (`<img srcset="a-320.png 320w, a-640.png 640w">`) and a
+// `<video poster="still.png">` were invisible to BOTH the network policy (a
+// remote candidate/poster slipped through) and the missing-file check (a
+// broken local candidate/poster stayed green). srcset/imagesrcset candidates
+// and the poster still are now extracted for both gates.
+
+it('parseSrcset returns candidate URLs, dropping width/density descriptors', () => {
+  assert.deepStrictEqual(
+    parseSrcset('hero-320.png 320w, hero-640.png 640w, hero-960.png 960w'),
+    ['hero-320.png', 'hero-640.png', 'hero-960.png'],
+  );
+  assert.deepStrictEqual(
+    parseSrcset('logo.png 1x, logo@2x.png 2x'),
+    ['logo.png', 'logo@2x.png'],
+  );
+});
+
+it('parseSrcset handles a single descriptor-less candidate', () => {
+  assert.deepStrictEqual(parseSrcset('only.png'), ['only.png']);
+  // A trailing comma on a descriptor-less candidate is a separator, not URL.
+  assert.deepStrictEqual(parseSrcset('a.png, b.png 2x'), ['a.png', 'b.png']);
+});
+
+it('parseSrcset keeps a comma-bearing data: URI candidate intact', () => {
+  // A data: URI has no internal whitespace, so it is read as ONE candidate URL
+  // even though it contains commas — a naive comma-split would shred it.
+  assert.deepStrictEqual(
+    parseSrcset('data:image/svg+xml,%3Csvg%3E%3C/svg%3E 1x, next.png 2x'),
+    ['data:image/svg+xml,%3Csvg%3E%3C/svg%3E', 'next.png'],
+  );
+});
+
+it('parseSrcset tolerates extra whitespace and stray commas', () => {
+  assert.deepStrictEqual(
+    parseSrcset('  a.png   320w ,  b.png  2x  '),
+    ['a.png', 'b.png'],
+  );
+});
+
+it('extractHtmlRefs picks up srcset / imagesrcset candidates + video poster', () => {
+  const refs = extractHtmlRefs(
+    [
+      '<img srcset="_shared/img/hero-320.png 320w, _shared/img/hero-640.png 640w">',
+      '<source srcset="_shared/img/pic@2x.png 2x">',
+      '<link rel="preload" as="image" imagesrcset="_shared/img/pre-1.png 1x">',
+      '<video poster="_shared/img/poster.png"><source src="clip.mp4"></video>',
+    ].join('\n'),
+  );
+  for (const ref of [
+    '_shared/img/hero-320.png',
+    '_shared/img/hero-640.png',
+    '_shared/img/pic@2x.png',
+    '_shared/img/pre-1.png',
+    '_shared/img/poster.png',
+  ]) {
+    assert.ok(refs.includes(ref), `expected ${ref} in refs, got: ${refs.join(', ')}`);
+  }
+});
+
+it('extractHtmlRefs does NOT treat data-srcset / data-poster (lazy-load) as refs', () => {
+  const refs = extractHtmlRefs(
+    '<img data-srcset="lazy.png 2x" data-poster="lazy-poster.png">',
+  );
+  assert.ok(!refs.includes('lazy.png'), 'data-srcset must not be read as a srcset');
+  assert.ok(!refs.includes('lazy-poster.png'), 'data-poster must not be read as a poster');
+});
+
+it('extractAssetRefs tags srcset candidates, imagesrcset, and the video poster', () => {
+  const tagged = extractAssetRefs(
+    [
+      '<img srcset="https://img.example.com/a-320.png 320w, https://img.example.com/a-640.png 640w">',
+      '<link rel="preload" as="image" imagesrcset="https://img.example.com/pre.png 1x">',
+      '<video poster="https://img.example.com/still.png"></video>',
+    ].join('\n'),
+  );
+  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
+  assert.ok(byRef['https://img.example.com/a-320.png'].includes('srcset'));
+  assert.ok(byRef['https://img.example.com/a-640.png'].includes('srcset'));
+  assert.ok(byRef['https://img.example.com/pre.png'].includes('imagesrcset'));
+  assert.strictEqual(byRef['https://img.example.com/still.png'], '<video poster>');
+});
+
+it('TEETH: a missing LOCAL srcset candidate is reported (rf2-arkvq8)', () => {
+  // The page references two responsive candidates; the 640w one is absent on
+  // disk — the missing-file check must fire on the srcset candidate.
+  const html = goodHtml().replace(
+    '</head>',
+    '<img srcset="_shared/img/hero-320.png 320w, _shared/img/hero-640.png 640w">\n</head>',
+  );
+  const HERO320 = path.join(EXAMPLES_ROOT, '_shared', 'img', 'hero-320.png');
+  const io = fullIo({ [PAGE]: html, [HERO320]: 'PNGDATA' });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('_shared/img/hero-640.png') && e.includes('does not resolve'),
+    ),
+    `expected the missing srcset candidate to be reported, got: ${errors.join(' | ')}`,
+  );
+  // The present candidate must NOT be flagged.
+  assert.ok(
+    !errors.some((e) => e.includes('hero-320.png')),
+    `the present srcset candidate must not be flagged, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a missing LOCAL <video poster> is reported (rf2-arkvq8)', () => {
+  const html = goodHtml().replace(
+    '</head>',
+    '<video poster="_shared/img/poster.png"></video>\n</head>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('_shared/img/poster.png') && e.includes('does not resolve'),
+    ),
+    `expected the missing poster to be reported, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a remote srcset candidate is REJECTED by the network policy (rf2-arkvq8)', () => {
+  const html = goodHtml().replace(
+    '</head>',
+    '<img srcset="_shared/img/hero-320.png 320w, https://cdn.example.com/hero-2x.png 2x">\n</head>',
+  );
+  const HERO320 = path.join(EXAMPLES_ROOT, '_shared', 'img', 'hero-320.png');
+  const { errors } = scanPage(fullIo({ [PAGE]: html, [HERO320]: 'PNGDATA' }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('srcset') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+    ),
+    `expected the remote srcset candidate to be rejected, got: ${errors.join(' | ')}`,
+  );
+  // A network candidate is a policy rejection, never checked on disk.
+  assert.ok(
+    !errors.some((e) => e.includes('cdn.example.com') && e.includes('does not resolve')),
+    `a remote srcset candidate must never be resolved on disk, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a remote <video poster> is REJECTED by the network policy (rf2-arkvq8)', () => {
+  const html = goodHtml().replace(
+    '</head>',
+    '<video poster="//cdn.example.com/still.png"></video>\n</head>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('<video poster>') && e.includes('//cdn.example.com/still.png'),
+    ),
+    `expected the remote poster to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a page with all-local srcset candidates + poster present scans clean (rf2-arkvq8)', () => {
+  const html = goodHtml().replace(
+    '</head>',
+    [
+      '<img srcset="_shared/img/hero-320.png 320w, _shared/img/hero-640.png 640w">',
+      '<video poster="_shared/img/poster.png"></video>',
+      '</head>',
+    ].join('\n'),
+  );
+  const HERO320 = path.join(EXAMPLES_ROOT, '_shared', 'img', 'hero-320.png');
+  const HERO640 = path.join(EXAMPLES_ROOT, '_shared', 'img', 'hero-640.png');
+  const POSTER = path.join(EXAMPLES_ROOT, '_shared', 'img', 'poster.png');
+  const io = fullIo({
+    [PAGE]: html,
+    [HERO320]: 'PNGDATA',
+    [HERO640]: 'PNGDATA',
+    [POSTER]: 'PNGDATA',
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `all-local srcset + poster should scan clean, got: ${errors.join(' | ')}`,
+  );
 });
 
 // ---- staging-aware resolution -------------------------------------------
