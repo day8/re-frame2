@@ -917,9 +917,9 @@ it('TEETH: a direct external stylesheet <link href> (hosted CSS/font) is REJECTE
 
 it('TEETH: a protocol-relative external <img src> is REJECTED', () => {
   const html = goodHtml().replace(
-    '<div id="app"></div>',
-    '',
-  ).replace('</head>', '</head>\n<img src="//img.example.com/hero.png">');
+    '</head>',
+    '</head>\n<img src="//img.example.com/hero.png">',
+  );
   const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
   assert.ok(
     errors.some((e) => e.includes('<img src>') && e.includes('//img.example.com/hero.png')),
@@ -962,9 +962,21 @@ it('an external HTML ref whose exact URL is allowlisted (with reason) scans clea
 });
 
 it('a navigation <a href> to an external URL is NOT rejected (only assets are gated)', () => {
+  // Inject the anchor at a REAL anchor point present in goodHtml() (just before
+  // </body>) so it is actually in the scanned HTML. The old injection replaced
+  // '<div id="app"></div>' — a string goodHtml() does NOT contain — so the
+  // replace was a no-op, the anchor never appeared, and the assertion was
+  // vacuous: it merely re-asserted goodHtml scans clean and would have stayed
+  // green even if scanPage regressed to gate an external <a href> as an asset
+  // (rf2-spaiyd). Guard against re-vacuating with an explicit presence check.
   const html = goodHtml().replace(
-    '<div id="app"></div>',
-    '<div id="app"></div>\n<a href="https://re-frame2.org/docs">docs</a>',
+    '</body>',
+    '<a href="https://re-frame2.org/docs">docs</a>\n</body>',
+  );
+  assert.ok(
+    html.includes('<a href="https://re-frame2.org/docs">'),
+    'the external anchor must be present in the scanned HTML — a no-op replace ' +
+      'would leave it absent and re-vacuate this test (rf2-spaiyd)',
   );
   const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
   assert.deepStrictEqual(
