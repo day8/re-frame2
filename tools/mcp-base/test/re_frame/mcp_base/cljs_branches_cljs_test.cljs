@@ -24,7 +24,8 @@
   'no throw on malformed input when Malli is absent', so we don't reach
   into the private helpers — we pin the behaviour the consumers depend
   on."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [clojure.string :as str]
+            [cljs.test :refer-macros [deftest is testing]]
             [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as cap]
             [re-frame.mcp-base.cursor :as cursor]
@@ -32,6 +33,7 @@
             [re-frame.mcp-base.envelope :as envelope]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.mcp-base.section-grouping :as sg]
+            [re-frame.mcp-base.sensitive :as sensitive]
             [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -441,3 +443,137 @@
          (envelope/with-indicators {:trace [1]} {:dropped 0 :elided 2})))
   (is (= {:trace [1] :dropped-sensitive 3 :elided-large 2}
          (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
+
+;; ---------------------------------------------------------------------------
+;; 8. `sensitive.cljc` CLJS reader-conditional arms (rf2-k76ohl — SECURITY).
+;;
+;;    `re-frame.mcp-base.sensitive` is the spec/009 §Privacy default-suppress
+;;    filter every MCP forwarder routes trace-like data through. Its `:cljs`
+;;    arms — the `(atom 0)` malformed-counter, the 11-branch `stamp-type-tag`
+;;    cond, and the `js/console.warn` egress in `log-malformed!` — run in
+;;    PRODUCTION inside re-frame2-pair-mcp (a CLJS Node bundle). Yet no CLJS
+;;    test pinned them: the JVM suite (sensitive_test.clj) proves the log-egress
+;;    redaction (`malformed-warning-redacts-raw-stamp-value`, using `*err*`) but
+;;    the CLJS runtime path — the one the MCP servers actually run — had no
+;;    counterpart. pair-mcp's own CLJS suite wraps every call in
+;;    `(with-redefs [js/console (clj->js {:warn (fn [& _])})] …)`, ABSORBING the
+;;    warning and asserting nothing about its content; the security-tier CLJS
+;;    property test asserts the counter + that a VALUE-slot secret never
+;;    survives egress, but never captures the `console.warn` bytes to prove the
+;;    STAMP value (the log-boundary leak surface) is redacted.
+;;
+;;    This block closes that gap on CLJS: (a) the malformed warning is
+;;    value-free (raw stamp absent, `:rf/redacted` + reason present); (b) the
+;;    malformed counter is exactly-once-per-event through `strip-sensitive` and
+;;    resets to zero; (c) representative `stamp-type-tag` branches.
+;; ---------------------------------------------------------------------------
+
+(defn- capture-console-warn
+  "Run `thunk`, returning a vector of every `js/console.warn` call joined to a
+  string. Directly saves + swaps + restores the REAL `js/console.warn` property
+  that `sensitive/log-malformed!` calls — so the assertion exercises the ACTUAL
+  CLJS log-egress path, not a stand-in. (The test-quiet node runner also
+  replaces `console.warn` to buffer expected warnings; we save + restore
+  whatever is installed, so this composes with the runner.)"
+  [thunk]
+  (let [captured (atom [])
+        orig     (.-warn js/console)]
+    (set! (.-warn js/console) (fn [& args] (swap! captured conj (apply str args))))
+    (try
+      (thunk)
+      (finally
+        (set! (.-warn js/console) orig)))
+    @captured))
+
+(deftest sensitive-malformed-warning-redacts-raw-stamp-value-cljs
+  ;; CLJS counterpart to JVM `malformed-warning-redacts-raw-stamp-value`. The
+  ;; contract-drift warning must carry a value-free type tag + the fixed
+  ;; `:rf/redacted` sentinel — NEVER the raw stamp, which on a serialisation bug
+  ;; could be a secret-bearing string / keyword / map / vector / number. This
+  ;; is the log-boundary egress guarantee on the CLJS runtime pair-mcp runs.
+  (sensitive/reset-malformed-count!)
+  (doseq [[stamp leak-needle]
+          [["sk_live_SECRET_TOKEN_abc123" "sk_live_SECRET_TOKEN_abc123"]
+           [:secret/api-key-VALUE          "api-key-VALUE"]
+           [{:api_key "AKIA_LEAK"
+             :token   "bearer_LEAK"}       "AKIA_LEAK"]
+           [["leaky-vector-ELEMENT"]       "leaky-vector-ELEMENT"]
+           [42424242                        "42424242"]]]
+    (let [warns (capture-console-warn
+                  #(sensitive/sensitive-event? {:operation :rf.event/dispatched
+                                                :sensitive? stamp}))
+          text  (str/join "\n" warns)]
+      (is (= 1 (count warns))
+          (str "exactly one console.warn fired for " (pr-str stamp)
+               " (proves the capture is non-vacuous)"))
+      (is (not (str/includes? text leak-needle))
+          (str "malformed warning leaked the raw stamp payload for " (pr-str stamp)))
+      (is (str/includes? text ":rf/redacted")
+          (str "malformed warning must emit the :rf/redacted sentinel for " (pr-str stamp)))
+      (is (str/includes? text "non-boolean truthy")
+          "warning must still surface the fail-closed contract-drift reason")))
+  (sensitive/reset-malformed-count!))
+
+(deftest sensitive-malformed-count-exactly-once-per-event-cljs
+  ;; CLJS counterpart to JVM `strip-sensitive-malformed-count-is-exactly-one-
+  ;; per-event`. `sensitive-event?` is side-effecting on the malformed path
+  ;; (bump + log); the single-pass classifier in `strip-sensitive` runs it
+  ;; exactly once per event, so the `(atom 0)` malformed-counter is a faithful
+  ;; per-event metric on the CLJS atom path too. A two-pass shape would bump ~2×.
+  (sensitive/reset-malformed-count!)
+  (is (zero? (sensitive/malformed-count))
+      "precondition: counter starts at zero after reset")
+  (capture-console-warn ; absorb the expected contract-drift warnings
+    (fn []
+      (let [evts           [{:id 1 :sensitive? false}
+                            {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
+                            {:id 3}
+                            {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
+                            {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
+            [kept dropped] (sensitive/strip-sensitive evts false)]
+        (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
+        (is (= 3 dropped) "all three sensitive events drop")
+        (is (= 2 (sensitive/malformed-count))
+            "exactly one bump per MALFORMED event — single-pass, not ~2× per scan"))))
+  ;; Well-formed stamps do NOT bump the counter.
+  (capture-console-warn
+    (fn []
+      (sensitive/sensitive-event? {:sensitive? true})
+      (sensitive/sensitive-event? {:sensitive? false})
+      (sensitive/sensitive-event? {:sensitive? nil})
+      (sensitive/sensitive-event? {})))
+  (is (= 2 (sensitive/malformed-count))
+      "true / false / nil / absent stamps do NOT bump the counter")
+  (is (zero? (sensitive/reset-malformed-count!))
+      "reset returns the new value (zero)")
+  (is (zero? (sensitive/malformed-count))
+      "reset zeroes the counter for the next test"))
+
+(deftest sensitive-stamp-type-tag-branches-cljs
+  ;; The `:cljs` arm of `stamp-type-tag` is an 11-branch cond (the JVM arm is a
+  ;; one-liner `.getSimpleName`), reachable only through the fail-closed log
+  ;; path. `stamp-type-tag` / `log-malformed!` are private, so we observe each
+  ;; branch via the value-free `type=<tag>` token in the captured warning —
+  ;; pinning that each truthy non-boolean shape maps to the right tag AND that
+  ;; the value is redacted regardless of the branch taken.
+  (sensitive/reset-malformed-count!)
+  (doseq [[stamp expected-tag] [["a-string"          "string"]
+                                [:a-keyword          "keyword"]
+                                ['a-symbol           "symbol"]
+                                [42                   "number"]
+                                [{:a 1}              "map"]
+                                [[1 2]               "vector"]
+                                [#{1 2}              "set"]
+                                [(map identity [1])  "seq"]]]
+    (let [warns (capture-console-warn
+                  #(sensitive/sensitive-event? {:sensitive? stamp}))
+          text  (str/join "\n" warns)]
+      (is (= 1 (count warns))
+          (str "one warning fired for stamp " (pr-str stamp)))
+      (is (str/includes? text (str "type=" expected-tag))
+          (str "stamp " (pr-str stamp) " must log the value-free type tag "
+               expected-tag))
+      (is (str/includes? text "value=:rf/redacted")
+          (str "the value stays redacted regardless of the type tag ("
+               expected-tag ")"))))
+  (sensitive/reset-malformed-count!))
