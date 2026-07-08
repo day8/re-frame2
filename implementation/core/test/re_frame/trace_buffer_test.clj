@@ -718,7 +718,7 @@
       (rf/reg-event :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
       ;; Reset dedup state, then re-register the SAME handler — should
       ;; now emit again because the table is fresh.
-      (rf/clear-listeners! :trace)
+      (trace-tooling/clear-listeners!)
       (rf/register-listener! :trace ::probe
                              (fn [ev]
                                (when (and (= :rf.registry (:op-type ev))

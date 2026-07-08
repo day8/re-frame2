@@ -821,7 +821,11 @@
   ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "trace-buffer"]          {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "clear-trace-buffer!"]   {:tier :tooling :owner "009" :status "v1 (dev-only)"}
-  ["re-frame.core" "clear-listeners!"]      {:tier :tooling :owner "009" :status "v1 (stream-parameterized; test-isolation)"}
+  ;; The façade `clear-listeners!` verb was RETIRED (rf2-9flalp — API-shrink
+  ;; #4): dropping a stream's listeners is a test-isolation concern that lives
+  ;; in the fixture layer (re-frame.test-support resets the registries via the
+  ;; lower-level trace.tooling / event-emit / error-emit clears directly),
+  ;; not on the public facade.
   ["re-frame.core" "group-by-event"]            {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "group-by-event-with-events"] {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
@@ -839,8 +843,11 @@
   ;; frame-state container via frame/commit-frame-transition! (rf2-adwcv6,
   ;; bead 5).
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; The façade `register-epoch-listener!` / `unregister-epoch-listener!` pair
+  ;; was RETIRED (rf2-9flalp — API-shrink #4): the epoch drain-settle stream is
+  ;; registered through the single stream-parameterized verb,
+  ;; `(rf/register-listener! :epoch id f)`, like :trace / :events / :errors.
+  ;; The wrappers remain in re-frame.epoch (rowed below, canonical home).
   ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; Size-elision / privacy wire surfaces — §009.

@@ -47,7 +47,7 @@
             ;; Pull `re-frame.epoch` into the dev classpath via the
             ;; Xray preload. The Xray Time Travel panel
             ;; reads epoch records via `rf/epoch-history` +
-            ;; `rf/register-epoch-listener!`; those wrappers late-bind into
+            ;; `(rf/register-listener! :epoch …)`; those wrappers late-bind into
             ;; `re-frame.epoch`'s seed table. When the host example
             ;; omits the artefact (the counter example does, by
             ;; design — it's the smallest reference app), the wrappers

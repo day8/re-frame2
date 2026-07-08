@@ -209,7 +209,7 @@
     ;; Trigger a real cascade so capture-buffers carries a run-start;
     ;; on destroy mid-drain the halted-destroy record fires.
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::halt-watcher
+      (rf/register-listener! :epoch ::halt-watcher
                              (fn [r] (swap! seen conj r)))
       (rf/reg-event :destroy-self
                        (fn [_ _]
@@ -914,7 +914,7 @@
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::raw-listener
+      (rf/register-listener! :epoch ::raw-listener
                              (fn [r] (swap! seen conj r)))
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
@@ -935,7 +935,7 @@
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project here.
                     (swap! shipped conj (epoch/projected-record record)))]
-      (rf/register-epoch-listener! ::forwarder ship!)
+      (rf/register-listener! :epoch ::forwarder ship!)
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})

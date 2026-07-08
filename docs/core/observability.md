@@ -168,7 +168,7 @@ Notes — three contract details that start to matter once tools stack up:
 2. **Exceptions are isolated.** A throwing listener is caught; the app and the other listeners keep going. So you can attach a flaky experimental tool to a live app and the worst it can do is fail quietly.
 3. **Sibling order is unspecified.** Every listener sees every event, but never assume yours runs before another one.
 
-There's also a test-time helper, `(rf/clear-listeners! :trace)`, which drops *every* listener on a stream atomically — the framework's own test fixtures use it to hand each test a clean registry. Ordinary application code unregisters its own listeners by key; reach for `clear-listeners!` only from test setup.
+Dropping *every* listener on a stream at once is a test-isolation concern owned by the fixture layer, not a public-facade verb — the framework's own `re-frame.test-support` reset clears each registry through its lower-level sink directly (`re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, and so on). Ordinary application code unregisters its own listeners by key with `(rf/unregister-listener! stream id)`.
 
 !!! warning "Gotcha — wrap dev-only listeners in the elision guard"
 

@@ -803,10 +803,10 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::w (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::w (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :epoch/cljs})
       (rf/dispatch-sync [:inc]  {:frame :epoch/cljs})
-      (rf/unregister-epoch-listener! ::w)
+      (rf/unregister-listener! :epoch ::w)
 
       (let [history (rf/epoch-history :epoch/cljs)]
         (is (= 2 (count history)) "two cascades, two records")

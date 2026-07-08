@@ -960,14 +960,7 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   (rf/unregister-listener! :trace :my-app/trace-tap)
   ```
 
-### `clear-listeners!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (clear-listeners! stream) → nil
-  ```
-- **Description**: Drop every registered listener on `stream` (`:trace` / `:events` / `:errors` / `:epoch`). **Test-isolation only** — production code should never call this. No-op on `:epoch` when the `day8/re-frame2-epoch` artefact is absent; an unknown `stream` throws `:rf.error/unknown-listener-stream`.
+There is deliberately **no** facade `clear-listeners!` verb. Dropping every listener on a stream is a test-isolation concern owned by the fixture layer: `re-frame.test-support`'s reset clears the registries through the lower-level sinks directly (`re-frame.trace.tooling/clear-listeners!`, `re-frame.event-emit/clear-event-listeners!`, `re-frame.error-emit/clear-error-listeners!`, and the `:epoch/clear-epoch-listeners!` reset hook). The former per-stream `clear-listeners!` façade verb was retired in API-shrink #4.
 
 ### `emit-trace-event!`
 
@@ -1195,32 +1188,19 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   (rf/replace-frame-state! :app/main {:rf.db/app new-db :rf.db/runtime new-runtime-db})
   ```
 
-### `register-epoch-listener!`
+### Epoch-settled listeners
 
-- **Kind**: function (dev-only; also `re-frame.epoch/register-epoch-listener!`)
-- **Signature**:
-  ```clojure
-  (register-epoch-listener! key callback-fn)
-  ```
-- **Description**: Process-global assembled-epoch listener. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace.
+Epoch drain-settle listeners are the `:epoch` stream of the stream-parameterized listener verb — there is no separate facade `register-epoch-listener!` fn (the per-channel pair was retired in API-shrink #4; the epoch stream registers through the one verb exactly like `:trace` / `:events` / `:errors`).
+
+- **Signature**: `(rf/register-listener! :epoch key callback-fn)` / `(rf/unregister-listener! :epoch key)`
+- **Description**: Process-global assembled-epoch listener, dev-only. The callback fires once per drain-settle with the assembled `:rf/epoch-record`; re-registering the same `key` replaces. A callback whose previously-observed frame is destroyed receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace. Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
 - **Example**:
   ```clojure
-  (rf/register-epoch-listener! :my-app/epoch-watch
+  (rf/register-listener! :epoch :my-app/epoch-watch
     (fn [record]
       (js/console.log (:frame record) (:epoch-id record))))
-  ```
 
-### `unregister-epoch-listener!`
-
-- **Kind**: function (dev-only; also `re-frame.epoch/unregister-epoch-listener!`)
-- **Signature**:
-  ```clojure
-  (unregister-epoch-listener! key)
-  ```
-- **Description**: The inverse.
-- **Example**:
-  ```clojure
-  (rf/unregister-epoch-listener! :my-app/epoch-watch)
+  (rf/unregister-listener! :epoch :my-app/epoch-watch)
   ```
 
 ### `projected-record`

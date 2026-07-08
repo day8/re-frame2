@@ -516,7 +516,7 @@
 
     ;; --- epoch: register a listener BEFORE the cascade so the cb's
     ;;     observed-frames-by-cb entry gets populated by the drain --------
-    (rf/register-epoch-listener! ::composed-observer (fn [_r] nil))
+    (rf/register-listener! :epoch ::composed-observer (fn [_r] nil))
 
     (rf/dispatch-sync [:composed/seed-leak] {:frame :composed/leak-audit})
     ;; Seed the flow's last-inputs directly — under some inter-test
@@ -576,4 +576,4 @@
     ;; Listener registries (trace, epoch) outlive frames by design — they
     ;; are global and re-arm against the next same-keyed frame
     ;; registration. Pin that to lock the contract.
-    (rf/unregister-epoch-listener! ::composed-observer)))
+    (rf/unregister-listener! :epoch ::composed-observer)))

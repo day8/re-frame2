@@ -117,10 +117,14 @@ Closed mechanical rename table. The trace and epoch listener APIs collapse onto 
 ```
 (rf/register-trace-cb! id f) → (rf/register-listener! :trace id f)
 (rf/remove-trace-cb! id) → (rf/unregister-listener! :trace id)
-(rf/clear-trace-cbs!) → (rf/clear-listeners! :trace)
-(rf/register-epoch-cb! ...) → (rf/register-epoch-listener! ...)
-(rf/remove-epoch-cb! ...) → (rf/unregister-epoch-listener! ...)
-(rf/clear-epoch-cbs! ...) → (rf/clear-epoch-listeners! ...)
+(rf/register-epoch-cb! ...) → (rf/register-listener! :epoch ...)
+(rf/remove-epoch-cb! ...) → (rf/unregister-listener! :epoch ...)
+;; The v1/v2-pre-rename `clear-*-cbs!` bulk-clears have NO facade
+;; counterpart — dropping every listener on a stream is a test-isolation
+;; concern the fixture layer owns (re-frame.test-support's reset clears the
+;; registries through re-frame.trace.tooling/clear-listeners! /
+;; re-frame.core-epoch/clear-epoch-listeners! directly). App code
+;; unregisters its own listeners by key.
 ```
 
 The `stream` keyword (`:trace`) is a **required leading arg** on the unified verb — a 2-arg `(register-listener! id f)` reads the id as the stream and throws `:rf.error/unknown-listener-stream`.

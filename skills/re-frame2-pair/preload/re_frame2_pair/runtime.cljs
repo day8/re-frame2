@@ -1321,13 +1321,13 @@
 
 (defn- ensure-epoch-listener!
   "Register the assembled-epoch listener if it isn't already. Idempotent —
-   passing the same id twice replaces (per `register-epoch-listener!` contract).
+   passing the same id twice replaces (per the `:epoch` listener-stream contract).
 
    Installs the streaming-aware listener. The streaming
    dispatch is a no-op when no subscriptions are active, so this is
    safe to install unconditionally."
   []
-  (rf/register-epoch-listener! :re-frame2-pair-epoch on-epoch-streaming))
+  (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-streaming))
 
 (defn epoch-history
   "Pass-through to (rf/epoch-history frame-id) — the framework's
@@ -1986,7 +1986,7 @@
       ;; Make sure the upgraded listeners are wired (idempotent — same
       ;; id, replaces the basic listeners installed by `health`).
       (trace-tooling/register-listener! :re-frame2-pair on-trace-streaming)
-      (rf/register-epoch-listener! :re-frame2-pair-epoch on-epoch-streaming)
+      (rf/register-listener! :epoch :re-frame2-pair-epoch on-epoch-streaming)
       (swap! subscriptions assoc sub-id sub)
       {:ok? true :sub-id sub-id :topic topic :filter (:filter sub)})))
 

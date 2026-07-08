@@ -64,7 +64,7 @@
   ;; Idempotency sentinel for the epoch-callback registration. Same
   ;; rationale as `trace-cb-registered?`. Phase 3 (rf2-t53ze) — the
   ;; Time Travel panel needs a per-settle pump from
-  ;; `rf/register-epoch-listener!` into Xray's app-db so the scrubber's
+  ;; `(rf/register-listener! :epoch …)` into Xray's app-db so the scrubber's
   ;; subscriptions re-fire when the framework appends an epoch.
   (atom false))
 
@@ -106,10 +106,10 @@
 
   Idempotent via the `epoch-cb-registered?` sentinel. No-op when the
   `day8/re-frame2-epoch` artefact is not on the classpath
-  (`rf/register-epoch-listener!` is itself a no-op in that case)."
+  (`(rf/register-listener! :epoch …)` is itself a no-op in that case)."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
-    (rf/register-epoch-listener! :rf.xray/epoch-collector
+    (rf/register-listener! :epoch :rf.xray/epoch-collector
       (fn [record]
         ;; Pre-mount no-op — see the docstring's §Pre-mount guard.
         ;; Resolved against the framework's frame registry (NOT a

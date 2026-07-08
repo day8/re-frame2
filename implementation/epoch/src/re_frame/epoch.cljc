@@ -882,8 +882,9 @@
 ;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
 ;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
 ;; core artefact MUST NOT statically `:require` it. Core's public
-;; re-exports (`rf/epoch-history`, `rf/restore-epoch!`,
-;; `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`) and the
+;; re-exports (`rf/epoch-history`, `rf/restore-epoch!`) and the
+;; `:epoch` listener stream (`(rf/register-listener! :epoch …)` /
+;; `(rf/unregister-listener! :epoch …)`) and the
 ;; `(rf/configure! {:epoch-history ...})` knob look the producing fns up
 ;; through the hook table at call time; when this artefact is not on
 ;; the classpath those queries return nil / empty / false and the

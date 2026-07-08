@@ -313,7 +313,7 @@ This is the **structural rewrite target** for every *dev-only* "observer-shaped 
 When the v1 observer assembled a per-cascade summary (an audit-log entry per drain, an error-projection per failed cascade, a post-mortem record per top-level event), the v2-canonical surface is `register-epoch-listener!` rather than `register-listener!` — the framework hands the listener one assembled `:rf/epoch-record` per drain-settle with the structured `:sub-runs` / `:renders` / `:effects` projections (per [009 §`register-epoch-listener!` — assembled-epoch listener](../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The mediation body is **structurally similar** to Shape A but operates on the epoch record:
 
 ```clojure
-(rf/register-epoch-listener! :my-app/post-mortem-shipper
+(rf/register-listener! :epoch :my-app/post-mortem-shipper
   (fn epoch-shipper [epoch-record]
     (when-not (:rf.epoch/sensitive? epoch-record)                  ;; honour epoch-level rollup
       (let [[bounded dropped] (cap-or-elide epoch-record
