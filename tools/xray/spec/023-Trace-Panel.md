@@ -269,6 +269,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.flow/cleared` · `failed` · `skip` | FLOW | FLOW | cleared / failed / skipped | flow-id | — |
 | `:rf.route/activated` · `deactivated` · `cleared` · `fragment-changed` | EFFECT HANDLERS | ROUTING | activated / deactivated / cleared / fragment-changed | route-id / fragment | — |
 | `:rf.route/navigation-blocked` | EFFECT HANDLERS | ROUTING | navigation-blocked | route-id (guard) | — (→ outcome :blocked) |
+| `:rf.route.nav-token/allocated` (emitted every navigation; op-type `:rf.event`, SUB-namespaced `rf.route.nav-token` — matched by the `rf.route*` family prefix, not an exact `rf.route` namespace) | EFFECT HANDLERS | ROUTING | allocated | route-id | — |
 | `:rf.warning/no-not-found-route` | inline (its stage) | WARNING | no-not-found-route | url (unmatched, no `:rf.route/not-found` route registered) | — |
 | `:rf.event/dispatched [:rf.route/handle-url-change …]` | DISPATCH | EVENT | dispatched | url (the URL-change EVENT — **not** a standalone trace op; it rides the `:rf.event/dispatched` row above) | — (↗ child) |
 | `:rf.machine.timer/scheduled` | EFFECT HANDLERS | MACHINE | timer-scheduled | delay · state | — (↗ future epoch) |

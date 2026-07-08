@@ -106,7 +106,13 @@
       (= op-ns "rf.epoch")               :epoch
       (= op-ns "rf.cofx")                :coeffect
       (= op-ns "rf.flow")                :flow
-      (= op-ns "rf.route")               :routing
+      ;; Routing rides op-type :rf.event; discriminate by NAMESPACE PREFIX
+      ;; before the generic :rf.event fallthrough. The nav-token substrate
+      ;; emits under sub-namespaces (`:rf.route.nav-token/allocated`, emitted
+      ;; every navigation), so an exact `= "rf.route"` match would badge the
+      ;; most common routing op as a bare EVENT. Prefix covers the whole
+      ;; `rf.route*` family; `rf.resource` does not start with `rf.route`.
+      (and op-ns (str/starts-with? op-ns "rf.route")) :routing
       (= op-ns "rf.resource")            :resource
       (= op-type :rf.event)              :event
       (= op-type :rf.fx)                 :fx
