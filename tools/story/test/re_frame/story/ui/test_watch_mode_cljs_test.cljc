@@ -19,7 +19,8 @@
             [re-frame.story :as story]
             [re-frame.story.ui.state :as state]
             #?@(:cljs [[re-frame.story.ui.shell   :as shell]
-                       [re-frame.story.ui.sidebar :as sidebar]])))
+                       [re-frame.story.ui.sidebar :as sidebar]
+                       [re-frame.story.ui.watch   :as watch]])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -326,3 +327,40 @@
            (is (nil? (get runs :story.x/b))
                (str "expected B to have no fresh run stamp — only the drifted "
                     "variant re-runs; runs was " (pr-str runs))))))))
+
+;; ---- rf2-asp2op: toggle-ON seeds the baseline → no spurious full re-run ---
+;;
+;; The watch toggle's contract (sidebar.cljs) promises: "Toggle-on seeds
+;; [:tests :content-hashes] so the first detector tick doesn't fire a
+;; spurious re-run for every variant." Before the fix the on-click only
+;; flipped the flag; the slot stayed {} on enable, so the first
+;; detect-watch-drift! tick read every testable variant as absent-from-prev
+;; → drifted, re-running the WHOLE :test suite the instant watch turned on.
+;; `sidebar/set-watch-mode!` now seeds the real baseline BEFORE the flag
+;; flips, so the first tick diffs against truth and re-runs nothing.
+
+#?(:cljs
+   (deftest toggle-on-seeds-baseline-no-spurious-full-rerun
+     (testing "rf2-asp2op — enabling watch via `sidebar/set-watch-mode!`
+               seeds [:tests :content-hashes] from the CURRENT registry
+               BEFORE the flag flips, so the first detector tick re-runs
+               NOTHING (the registry is unchanged since the seed)"
+       (story/reg-variant :story.x/a {:tags #{:test} :events []
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (story/reg-variant :story.x/b {:tags #{:test} :events []
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       ;; Enable via the REAL toggle entry point (what the on-click calls).
+       (sidebar/set-watch-mode! true)
+       (testing "the baseline slot is seeded with BOTH testable variants"
+         (let [seeded (get-in (state/get-state) [:tests :content-hashes])]
+           (is (contains? seeded :story.x/a)
+               "toggle-on must seed the baseline, not leave it {}")
+           (is (contains? seeded :story.x/b))))
+       ;; First detector tick — registry UNCHANGED since the seed.
+       (shell/detect-watch-drift!)
+       (testing "no variant re-runs — the seeded baseline matches, so drift
+                 is empty (the pre-fix bug re-ran the whole suite here)"
+         (let [runs (get-in (state/get-state) [:tests :runs])]
+           (is (nil? (get runs :story.x/a))
+               (str "expected NO re-run on enable; runs was " (pr-str runs)))
+           (is (nil? (get runs :story.x/b))))))))

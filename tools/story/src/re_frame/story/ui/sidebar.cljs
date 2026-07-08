@@ -66,7 +66,8 @@
             [re-frame.story.ui.sidebar-search :as search]
             [re-frame.story.ui.sidebar-signals :as signals]
             [re-frame.story.ui.sidebar-styles :refer [styles]]
-            [re-frame.story.ui.state          :as state]))
+            [re-frame.story.ui.state          :as state]
+            [re-frame.story.ui.watch          :as watch]))
 
 ;; Styles live in `re-frame.story.ui.sidebar-styles` (pure-data leaf,
 ;; no Reagent dep). Required as `styles` above so the in-file call
@@ -727,6 +728,29 @@
   (doseq [vid variant-ids]
     (run-one-test! vid)))
 
+(defn set-watch-mode!
+  "Set the chrome-level watch-mode flag, seeding the drift baseline when
+  turning ON (rf2-asp2op). On toggle-ON we compute the CURRENT testable
+  snapshot hashes (`watch/compute-testable-content-hashes`) and record
+  them into `[:tests :content-hashes]` BEFORE flipping `[:tests
+  :watch-mode?]` — so the first `detect-watch-drift!` tick diffs a real
+  baseline. Without the seed the slot is `{}` on enable (its default, or
+  cleared by a prior toggle-OFF), so the first tick reads EVERY testable
+  variant as absent-from-prev → drifted, and the whole `:test` suite
+  spuriously re-runs the instant watch is switched on.
+
+  The compute lives in `re-frame.story.ui.watch` (registrar + identity
+  access) — it cannot fold into the pure `state/set-test-watch-mode` state
+  fn. Turning OFF just flips the flag; that same state fn clears the
+  recorded hashes so the next toggle-ON re-seeds fresh."
+  [on?]
+  (when on?
+    ;; Seed BEFORE the flag flips so no detector tick can observe
+    ;; watch-on against an empty baseline.
+    (state/swap-state! state/record-test-content-hashes
+                       (watch/compute-testable-content-hashes)))
+  (state/swap-state! state/set-test-watch-mode on?))
+
 (defn test-widget
   "Chrome-level test widget. Aggregates `run-variant` outcomes across
   every testable variant. `:test`-tagged + `:play-script`-bearing variants
@@ -792,9 +816,10 @@
                            (run-all-tests! variant-ids)))}
          (if any-run? "Running…" "Run all")]
         ;; rf2-z1h0f — watch-mode toggle. Eye glyph reads on/off; the
-        ;; chip's aria-pressed reflects the boolean. Toggle-on seeds
-        ;; `[:tests :content-hashes]` so the first detector tick after
-        ;; toggle-on doesn't fire a spurious re-run for every variant.
+        ;; chip's aria-pressed reflects the boolean. `set-watch-mode!`
+        ;; seeds `[:tests :content-hashes]` on toggle-ON (rf2-asp2op) so
+        ;; the first detector tick doesn't fire a spurious re-run for
+        ;; every variant.
         [:div {:style (:watch-row styles)}
          [:button
           {:style         (merge (:watch-btn styles)
@@ -809,8 +834,7 @@
                             "Watching — variants re-run on content change"
                             "Watch mode off — re-run is explicit")
            :on-click      (fn [_]
-                            (state/swap-state! state/set-test-watch-mode
-                                               (not watch-on?)))}
+                            (set-watch-mode! (not watch-on?)))}
           (if watch-on? "● watching" "○ watch")]]])])))
 
 (defn- search-input
