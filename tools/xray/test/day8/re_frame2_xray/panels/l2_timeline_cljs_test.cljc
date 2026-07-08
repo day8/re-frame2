@@ -276,7 +276,33 @@
     (let [flags (l2/event-bundle-activity-flags
                  {:other [(ev :rf.machine/spawn)
                           (ev :rf.machine/despawn)]})]
-      (is (true? (:machine? flags))))))
+      (is (true? (:machine? flags)))))
+  (testing "rf2-uxp0u5 — SUB-namespaced machine ops set the ◆ badge too.
+            Most non-transition machine activity is emitted under
+            sub-namespaces (`rf.machine.spawn`, `.lifecycle`, `.timer`,
+            `.microstep`, `.spawn-all`). An exact `= \"rf.machine\"` match
+            missed them all, so a spawn/despawn/timer/microstep-only epoch
+            under-reported its machine activity — contradicting the fn
+            docstring. Prefix-matching the `rf.machine*` family fixes it."
+    (doseq [op [:rf.machine.spawn/spawned
+                :rf.machine.lifecycle/destroyed
+                :rf.machine.timer/scheduled
+                :rf.machine.timer/fired
+                :rf.machine.timer/cancelled
+                :rf.machine.microstep/transition
+                :rf.machine.spawn-all/spawned]]
+      (is (true? (:machine? (l2/event-bundle-activity-flags {:other [(ev op)]})))
+          (str op " should set :machine?")))
+    ;; a spawn/timer-only bundle (NO accompanying bare :rf.machine/transition)
+    ;; still surfaces the ◆ badge — the false-negative the bug produced.
+    (let [flags (l2/event-bundle-activity-flags
+                 {:other [(ev :rf.machine.spawn/spawned)
+                          (ev :rf.machine.timer/fired)]})]
+      (is (true? (:machine? flags))))
+    ;; guard against over-broad matching: a non-machine op stays false.
+    (let [flags (l2/event-bundle-activity-flags
+                 {:other [(ev :rf.event/dispatched)]})]
+      (is (false? (:machine? flags))))))
 
 (deftest event-bundle-activity-flags-http-test
   (testing ":rf.http/* operation → http? true"
