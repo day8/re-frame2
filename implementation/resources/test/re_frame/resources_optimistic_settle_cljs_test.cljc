@@ -392,3 +392,99 @@
             ":invalidated-at stamped from the restore causal time, in the reconcile pass"))
       (testing "the instance is still terminally dangled"
         (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :status])))))))
+
+;; ===========================================================================
+;; 6. OWNER-CHANGE ROLLBACK (rf2-cxwuhl) — an owner attach / release that lands
+;;    BETWEEN the optimistic apply and the FAILED reply is an authoritative
+;;    durable write (it mutates the snapshot-captured `:active-owners`), so it
+;;    MUST move `:revision`. Otherwise a revision-keyed conflict check is BLIND
+;;    to it and a no-conflict `restore-before` clobbers the CURRENT owner set
+;;    with the snapshot's — RESURRECTING a released owner (a lease no live caller
+;;    holds → the entry never GCs) or DROPPING a mid-flight-attached owner (a
+;;    live lease vanishes → premature GC).
+;; ===========================================================================
+
+(def ^:private route-owner [:route :r/home :nav1])
+
+(defn- stub-lifecycle-fx! []
+  ;; no-op the host-timer / refetch fx the rollback + release + GC paths emit,
+  ;; so the pure durable-state assertions run without wall-clock side effects.
+  (rf/reg-fx :rf.resource/schedule-timers   (fn [_ _] nil))
+  (rf/reg-fx :rf.resource/cancel-timers     (fn [_ _] nil))
+  (rf/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
+  (rf/reg-fx :rf.resource/refetch           (fn [_ _] nil)))
+
+(deftest release-mid-flight-does-not-resurrect-the-owner-on-rollback
+  ;; THE LEAK (bead rf2-cxwuhl): a route owns an article; an optimistic favorite
+  ;; is in flight; the route navigates away (release) BEFORE the reply; the reply
+  ;; FAILS. Before the fix, the release did not bump `:revision`, so the rollback
+  ;; saw no conflict and restored the pre-apply snapshot verbatim — putting the
+  ;; departed route back into `:active-owners` and re-adding it to the
+  ;; owner-index, pinning the entry `:has-owner` forever (it can never GC and its
+  ;; poll re-arms for the frame's life).
+  (stub-lifecycle-fx!)
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                :owner route-owner}
+               {:article {:favorited false :favoritesCount 9}})
+  (is (contains? (:active-owners (entry article-key)) route-owner)
+      "precondition: the route owns the entry")
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)  ;; :on-conflict defaults :invalidate
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
+  (testing "the optimistic value is applied (the in-flight window is open)"
+    (is (= true (get-in (entry article-key) [:data :article :favorited]))))
+  ;; MID-FLIGHT owner release — the route left before the reply settled.
+  (rf/dispatch-sync [:rf.resource/release-owner {:owner route-owner}])
+  (is (empty? (:active-owners (entry article-key)))
+      "the release dropped the owner from the live entry")
+  ;; the reply FAILS → conflict-aware rollback runs.
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
+  (testing "the departed owner is NOT resurrected onto the entry"
+    (let [owners (:active-owners (entry article-key))]
+      (is (not (contains? owners route-owner))
+          "the pre-release snapshot's owner set did NOT clobber the current one")
+      (is (empty? owners) "the entry is still owner-free after the rollback")))
+  (testing "the derived owner-index carries no phantom membership for the departed owner"
+    (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) route-owner)))
+        "reindex did not re-add a phantom owner from a resurrected :active-owners"))
+  (testing "the now-owner-free, idle entry is GC-eligible and gc-fired COLLECTS it"
+    (let [e (entry article-key)]
+      (is (empty? (:active-owners e)) "no owner pins it")
+      (is (nil? (:current-work e)) "no in-flight work pins it"))
+    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
+    (is (nil? (entry article-key))
+        "GC removed the entry — the lease leak is fixed (was pinned :has-owner forever)")))
+
+(deftest attach-mid-flight-is-not-dropped-by-rollback
+  ;; THE MIRROR CASE (rf2-cxwuhl): an owner ATTACHED between the apply and the
+  ;; failed reply (via a fresh-skip cache-hit ensure — the entry is fresh after
+  ;; the optimistic apply) must survive the rollback. Before the fix the attach
+  ;; did not bump `:revision`, so the no-conflict restore dropped the freshly
+  ;; attached lease (its live owner would then see the entry GC out from under
+  ;; it). The bump makes it a conflict → `:invalidate` keeps the CURRENT owner
+  ;; set (both leases) and recovers via the read path.
+  (stub-lifecycle-fx!)
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                :owner [:v :first]}
+               {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
+  ;; MID-FLIGHT: a second component ensures the (now fresh) entry, attaching a
+  ;; NEW lease via the fresh-skip cache-hit path — no work, no reply.
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :second]}])
+  (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key)))
+      "both leases are live before the reply settles")
+  ;; the reply FAILS → conflict-aware rollback.
+  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
+  (testing "the freshly-attached lease is NOT dropped by the rollback"
+    (let [owners (:active-owners (entry article-key))]
+      (is (contains? owners [:v :second])
+          "the mid-flight attach survived (was dropped by the blind restore before the fix)")
+      (is (contains? owners [:v :first]) "the original lease is intact too")))
+  (testing "the owner-index still routes both owners to the entry"
+    (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :second]))
+                   (state/key-id article-key)))
+    (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :first]))
+                   (state/key-id article-key)))))

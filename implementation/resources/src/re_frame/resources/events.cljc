@@ -443,8 +443,13 @@
       ;; needed (the entry has its own fresh data); arms no timers; supersedes
       ;; nothing.
       fresh-skip?
-      (let [hit  (cond-> entry
-                   owner (update :active-owners (fnil conj #{}) owner))
+      ;; rf2-cxwuhl — attach the owner via `state/attach-owner`, which bumps the
+      ;; entry's `:revision` when a NEW owner lands (an owner attach is an
+      ;; authoritative durable write a later optimistic rollback could clobber —
+      ;; a blind `restore-before` would otherwise DROP a mid-flight-attached
+      ;; lease, causing premature GC). A re-attach of a present owner / a nil
+      ;; owner is a no-op (no bump), matching `owner-newly-attached?`.
+      (let [hit  (state/attach-owner entry owner)
             rdb' (-> runtime-db
                      (assoc-in (state/entry-path scoped-key) hit)
                      (cond->
@@ -552,8 +557,11 @@
       ;; load below, so a route supersession + immediate re-ensure never joins
       ;; dead work.
       (and joinable? (not force-new?))
-      (let [joined (cond-> entry
-                     owner (update :active-owners (fnil conj #{}) owner))
+      ;; rf2-cxwuhl — attach via `state/attach-owner` (bumps `:revision` on a new
+      ;; owner) so a dedupe-join that lands a lease mid optimistic-flight is
+      ;; visible to the settle conflict check (else a blind rollback would drop
+      ;; the joined lease). No-op bump for a re-attach / nil owner.
+      (let [joined (state/attach-owner entry owner)
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path scoped-key) joined)
                        (work-ledger/update-record
@@ -1751,10 +1759,17 @@
         ;; members), so resolve each to its entry via `entry-path-by-id` (NOT
         ;; `entry-path`, which would re-transform a scoped-key vector).
         ;; drop the owner from each owned entry + the index
+        ;; rf2-cxwuhl — drop the owner via `state/detach-owner`, which bumps the
+        ;; entry's `:revision` when the owner was actually present (an owner
+        ;; release is an authoritative durable write a later optimistic rollback
+        ;; could clobber — a blind `restore-before` would otherwise RESURRECT the
+        ;; departed owner from the pre-release snapshot, re-pinning a lease no
+        ;; live caller holds so the entry never GCs). `detach-owner` returns nil
+        ;; for a nil entry, so the `when e` guard is folded in.
         rdb1       (-> (reduce
                          (fn [db k-id]
                            (update-in db (state/entry-path-by-id k-id)
-                                      (fn [e] (when e (update e :active-owners disj owner)))))
+                                      (fn [e] (state/detach-owner e owner))))
                          rdb0 (or owned #{}))
                        (update-in (state/owner-index-path) dissoc owner))
         ;; for each owned entry that is still in flight, drop the owner from

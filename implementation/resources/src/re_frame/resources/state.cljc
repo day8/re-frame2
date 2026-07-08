@@ -849,6 +849,66 @@
     (bump-revision (assoc entry :invalidated-at invalidated-at))
     entry))
 
+;; ---- owner-liveness entry writes (rf2-cxwuhl / EP-0019 §Decision 2) --------
+;;
+;; Attaching / releasing a liveness OWNER mutates the durable `:active-owners`
+;; set, which a `:before` snapshot captures whole (`snapshot-entry`) and a
+;; no-conflict optimistic rollback restores VERBATIM (`restore-before` does
+;; `assoc-in … before`, overwriting `:active-owners`). So an owner change that
+;; lands BETWEEN an optimistic apply and its reply settling is an authoritative
+;; durable write a rollback could clobber — it MUST advance the `:revision`
+;; write identity the settle conflict check reads, or the change is INVISIBLE to
+;; a revision-keyed conflict check: a release would let the restore RESURRECT the
+;; departed owner (re-pinning a lease no live caller holds, so the entry never
+;; GCs — the poll re-arms for the frame's life), and an attach would let it DROP
+;; the freshly-attached owner (the live lease vanishes → premature GC). Both are
+;; caught once the owner write bumps `:revision`: the settle then sees a conflict
+;; and takes `:on-conflict` (`:invalidate` default — leave the CURRENT owner set,
+;; recover via the read path) instead of a blind stale restore. This is exactly
+;; the byl7bk bump rule ("bump on EVERY authoritative durable write a rollback
+;; could clobber, unconditionally"), previously satisfied only for data/freshness
+;; writes. The bump is gated on the set ACTUALLY changing (a re-attach of a
+;; present owner / a release of an absent one is a no-op — no write, no clobber,
+;; no bump); the caller updates the derived `:owner-index` separately.
+
+(defn attach-owner
+  "Pure: attach a liveness `owner` lease to `entry`'s `:active-owners`, bumping
+  the per-entry `:revision` iff the owner was NEWLY added (rf2-cxwuhl). An owner
+  attach is an authoritative durable entry write a later optimistic rollback
+  could clobber (`restore-before` overwrites `:active-owners` wholesale from the
+  snapshot), so it advances the write identity the EP-0019 settle conflict check
+  compares — otherwise a mid-flight attach is invisible to a no-conflict restore
+  and the freshly-attached lease is silently dropped (premature GC). Re-attaching
+  an already-present owner is a no-op (the set is unchanged — no write, no bump);
+  a nil owner is a no-op. Only touches the entry; the caller maintains the
+  derived `:owner-index`. Per Spec 016 §Active owners and causes / §Structural
+  sharing (revision bump rule)."
+  [entry owner]
+  (if (and (some? owner) (not (contains? (:active-owners entry) owner)))
+    (-> entry
+        (update :active-owners (fnil conj #{}) owner)
+        bump-revision)
+    entry))
+
+(defn detach-owner
+  "Pure: drop a liveness `owner` lease from `entry`'s `:active-owners`, bumping
+  the per-entry `:revision` iff the owner was actually PRESENT (rf2-cxwuhl) — the
+  release counterpart of `attach-owner`. An owner release is an authoritative
+  durable entry write a later optimistic rollback could clobber: a blind
+  `restore-before` would RESURRECT the departed owner from the snapshot, re-pinning
+  a lease no live caller holds so the entry never GCs (and its poll re-arms for
+  the frame's life). Bumping `:revision` makes the release visible to the
+  settle conflict check, which then invalidates rather than restoring the stale
+  owner set. A release of an owner-absent entry is a no-op (no write, no bump);
+  a nil entry is returned unchanged. Only touches the entry; the caller maintains
+  the derived `:owner-index`. Per Spec 016 §Active owners and causes."
+  [entry owner]
+  (if (and entry (contains? (:active-owners entry) owner))
+    (-> entry
+        (update :active-owners disj owner)
+        bump-revision)
+    entry))
+
 ;; ---- entry transitions (Spec 016 §Status semantics / §Structural sharing) -
 ;;
 ;; Pure functions `(entry, …) -> entry`. They transition through
