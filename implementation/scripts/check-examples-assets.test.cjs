@@ -46,6 +46,7 @@ const {
   extractCssImports,
   extractCssUrls,
   resolveRef,
+  checkCssImports,
   scanPage,
   checkSharedTree,
   scanAll,
@@ -581,6 +582,120 @@ it('TEETH: a style.css @import to a missing structure.css is reported', () => {
   assert.ok(
     errors.some((e) => e.includes("@import 'structure.css'")),
     `expected a broken-@import error, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: checkCssImports multi-level recursion + cycle guard (rf2-2l5mav) --
+//
+// checkCssImports recurses into nested local .css @imports behind a `seen`-set
+// cycle guard. Neither the DEEP recursion (a broken import two levels down) nor
+// the guard (a circular a.css <-> b.css pair) was exercised — so a regression
+// that dropped the `seen` guard would infinite-loop uncaught, and a broken deep
+// import could go unreported (or double-reported). These pin both directly on
+// the exported checkCssImports (@import targets resolve relative to the CSS file
+// that declares them).
+
+const CSS_DIR = path.join(SHARED_ROOT, 'css');
+const cssPath = (name) => path.join(CSS_DIR, name);
+
+it('TEETH: a broken @import two levels deep is reported once (multi-level recursion) (rf2-2l5mav)', () => {
+  // style.css -> a.css -> b.css, where b.css @imports a MISSING deep.css. The
+  // recursion must descend all the way and report the DEEP broken import.
+  const io = makeIo({
+    [cssPath('style.css')]: "@import url('a.css');",
+    [cssPath('a.css')]: "@import url('b.css');",
+    [cssPath('b.css')]: "@import url('missing-deep.css');",
+    // missing-deep.css intentionally absent on disk
+  });
+  const errors = [];
+  checkCssImports(io, cssPath('style.css'), '_shared/css/style.css', errors, new Set());
+  assert.ok(
+    errors.some(
+      (e) => e.includes("@import 'missing-deep.css'") && e.includes('does not resolve'),
+    ),
+    `expected the deep broken import to be reported, got: ${errors.join(' | ')}`,
+  );
+  // Reported exactly once — the recursion must not re-visit a resolved file.
+  assert.strictEqual(
+    errors.filter((e) => e.includes('missing-deep.css')).length,
+    1,
+    `the deep broken import must be reported once, got: ${errors.join(' | ')}`,
+  );
+  // The chained displayRef records the full import path down to the offender.
+  assert.ok(
+    errors.some((e) => e.includes('style.css -> a.css -> b.css')),
+    `expected the chained displayRef, got: ${errors.join(' | ')}`,
+  );
+});
+
+// A cycle-safe io whose readFileSync throws once reads exceed `cap`, so an
+// unbounded-recursion regression (a dropped `seen` guard) is caught
+// DETERMINISTICALLY. Relying on a V8 stack overflow is unreliable — the JIT may
+// optimise the mutual recursion so it never raises RangeError, and a
+// non-overflowing infinite loop would HANG the suite instead of failing it. The
+// bounded reader turns "the guard stopped terminating" into a loud, prompt
+// throw regardless.
+function boundedReadIo(files, cap = 50) {
+  const norm = (p) => path.resolve(p);
+  const map = new Map(Object.entries(files).map(([k, v]) => [norm(k), v]));
+  let reads = 0;
+  return {
+    reads: () => reads,
+    existsSync: (p) => map.has(norm(p)),
+    readFileSync: (p) => {
+      if ((reads += 1) > cap) {
+        throw new Error(
+          `cycle-guard regression: @import recursion exceeded ${cap} reads ` +
+            `(unbounded traversal — the seen-set guard is not terminating)`,
+        );
+      }
+      const v = map.get(norm(p));
+      if (v == null) {
+        const e = new Error(`ENOENT: ${p}`);
+        e.code = 'ENOENT';
+        throw e;
+      }
+      return v;
+    },
+  };
+}
+
+it('TEETH: a circular @import pair terminates via the cycle guard (bounded, no hang) (rf2-2l5mav)', () => {
+  // a.css <-> b.css @import each other. WITH the `seen` guard the traversal
+  // reads each file at most once and terminates; WITHOUT it the mutual recursion
+  // runs forever. The bounded reader trips on an unbounded traversal, so a
+  // dropped guard fails this test promptly and deterministically.
+  const io = boundedReadIo({
+    [cssPath('a.css')]: "@import url('b.css');",
+    [cssPath('b.css')]: "@import url('a.css');",
+  });
+  const errors = [];
+  checkCssImports(io, cssPath('a.css'), '_shared/css/a.css', errors, new Set());
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `a circular but all-present import graph must terminate cleanly, got: ${errors.join(' | ')}`,
+  );
+  assert.ok(
+    io.reads() <= 2,
+    `the cycle guard must read each file in the pair at most once (got ${io.reads()} reads)`,
+  );
+});
+
+it('TEETH: a self-referential @import terminates via the cycle guard (bounded, no hang) (rf2-2l5mav)', () => {
+  // The degenerate cycle — a.css @imports itself. The guard must short-circuit
+  // the immediate re-entry rather than recursing forever (bounded-read detected).
+  const io = boundedReadIo({ [cssPath('a.css')]: "@import url('a.css');" });
+  const errors = [];
+  checkCssImports(io, cssPath('a.css'), '_shared/css/a.css', errors, new Set());
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `a self-referential @import must terminate cleanly, got: ${errors.join(' | ')}`,
+  );
+  assert.ok(
+    io.reads() <= 1,
+    `a self-import must read the file exactly once (got ${io.reads()} reads)`,
   );
 });
 
