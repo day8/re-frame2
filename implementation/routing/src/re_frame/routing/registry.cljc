@@ -717,10 +717,17 @@
     ;; the `:else` string passthrough rather than fabricate float route data.
 
     (= :uuid type-form)
-    ;; rf2-cylse.5: host-symmetric + total. `parse-uuid` returns nil on a
-    ;; non-UUID string (both hosts) → leave the raw string for the
-    ;; validator. Makes the canonical Spec 012 :uuid path route match.
-    (if (string? v) (or (parse-uuid v) v) v)
+    ;; rf2-cylse.5 + rf2-rv7so9: host-symmetric + total. Lower-case BEFORE
+    ;; `parse-uuid` so a non-lowercase UUID coerces to the SAME lowercase-
+    ;; canonical UUID on both hosts. JVM `parse-uuid` already canonicalizes to
+    ;; lowercase (`UUID/fromString` → `(str)`), but CLJS `(uuid s)` stores the
+    ;; string VERBATIM, so a mixed-/upper-case capture would otherwise leave a
+    ;; host-divergent stored+re-emitted value — a Spec 011 SSR/hydrate mismatch
+    ;; and divergent canonical href. Lowercasing first matches the form
+    ;; `re-frame.identity/canonical-bytes` already blesses. A non-UUID string →
+    ;; `parse-uuid` nil (both hosts) → leave the RAW (original-case) string for
+    ;; the validator to reject.
+    (if (string? v) (or (parse-uuid (str/lower-case v)) v) v)
 
     (= :boolean type-form)
     (case v "true" true "false" false v)

@@ -254,3 +254,53 @@
     (let [url (routing/route-url :route/fr {} {} "50% done")]
       (is (= "50% done" (:fragment (routing/match-url url)))
           "a %-significant string fragment round-trips through encode/decode"))))
+
+;; ===========================================================================
+;; rf2-rv7so9 — :uuid coercion is host-symmetric for a non-lowercase capture
+;; ===========================================================================
+;;
+;; Spec 011 cross-host parity + EP-0012 prism laws: a mixed-/upper-case UUID in
+;; a path segment must coerce to the SAME lowercase-canonical UUID and re-emit
+;; the SAME canonical URL on JVM and CLJS. Pre-fix, JVM `parse-uuid` lowercased
+;; (UUID/fromString → canonical), but CLJS `(uuid s)` stores the string
+;; VERBATIM — so `match-url` yielded a host-DIVERGENT :params value (and
+;; `route-url` a host-divergent href) for a non-lowercase input: an
+;; SSR(JVM)+hydrate(CLJS) deep-link mismatch. Because this `.cljc` runs on BOTH
+;; the JVM (`clojure -M:test`) and the CLJS node runner, a fixed lowercase
+;; expectation here pins the two hosts to the SAME value.
+
+(deftest uuid-path-mixed-case-coerces-host-symmetric
+  (testing "ADVERSARIAL (rf2-rv7so9): a mixed-/upper-case :uuid path capture
+            coerces to the lowercase-canonical UUID and re-emits the lowercase
+            canonical URL — IDENTICALLY on JVM and CLJS (this test runs on both)"
+    (rf/reg-route :route/art {:params [:map [:id :uuid]]} "/articles/:id")
+    (let [canonical #uuid "550e8400-e29b-41d4-a716-446655440000"
+          upper     "550E8400-E29B-41D4-A716-446655440000"
+          m         (routing/match-url (str "/articles/" upper))]
+      ;; SAME parsed value on both hosts — the lowercase-canonical UUID object.
+      (is (= canonical (get-in m [:params :id]))
+          "mixed-case capture coerces to the lowercase-canonical UUID (same JVM+CLJS)")
+      (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string")
+      ;; the coerced value conforms to :uuid, so the canonical route matches.
+      (is (= :route/art (:route-id m)) "the canonical :uuid route matches, not not-found")
+      (is (not (:validation-failed? m)) "the coerced UUID passes :uuid validation")
+      ;; SAME re-emitted canonical URL on both hosts — lowercase, not input case.
+      (is (= "/articles/550e8400-e29b-41d4-a716-446655440000"
+             (routing/route-url :route/art {:id (get-in m [:params :id])}))
+          "route-url re-emits the lowercase canonical URL on both hosts"))))
+
+(deftest uuid-path-non-uuid-capture-preserves-original-case-both-hosts
+  (testing "a non-UUID :uuid capture is left as the RAW ORIGINAL-case string on
+            both hosts (parse-uuid → nil → passthrough of `v`, NOT the
+            lower-cased form) — the lower-casing lives strictly INSIDE the
+            parse attempt, so it never mutates a value the validator rejects.
+            (The JVM validation-reject itself is pinned in
+            routing_registry_test.clj.)"
+    (rf/reg-route :route/art2 {:params [:map [:id :uuid]]} "/a/:id")
+    (let [m (routing/match-url "/a/NOT-A-UUID")]
+      ;; if the fix had lower-cased `v` unconditionally this would read
+      ;; "not-a-uuid"; the fallback must preserve the caller's original case.
+      (is (= "NOT-A-UUID" (get-in m [:params :id]))
+          "a non-UUID capture stays the raw original-case string (same JVM+CLJS)")
+      (is (string? (get-in m [:params :id]))
+          "no coercion occurred — it is a string, not a UUID object"))))
