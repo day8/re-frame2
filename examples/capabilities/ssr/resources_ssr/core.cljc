@@ -186,8 +186,8 @@
 ;; table at all — see the ns docstring — so the `[:ssr request-id nav-token]`
 ;; owner `:rf/server-init` ensures under never registers there, and
 ;; `drain-blocking-resources!` would return `{:settled? true}` immediately,
-;; whether or not `:articles/list` had actually resolved (this is the bug
-;; this example previously shipped — rf2-u64kc8).
+;; whether or not `:articles/list` had actually resolved — a route-free page
+;; leaning on it reports itself settled even when the resource has not.
 ;;
 ;; For a route-free SSR page there is no non-route blocking-drain surface to
 ;; reach for instead (Spec 016 §SSR and hydration ties blocking to the route
