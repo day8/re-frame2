@@ -87,6 +87,12 @@
 (def tool-descriptors descriptors/tool-descriptors)
 (def tool-descriptors-js descriptors/tool-descriptors-js)
 
+;; Re-export the registry's closed-world predicate onto the façade so
+;; `server.cljs` (which already requires this ns) can route the
+;; server-local reads AROUND `ensure-connection!` at the pre-connection
+;; boundary — see `registry/closed-world-tool?` (rf2-6amhbt).
+(def closed-world-tool? registry/closed-world-tool?)
+
 (defn- edit-distance
   "Cheap Levenshtein distance between two strings — used only to surface a
   `did you mean` candidate in the `:unknown-tool` hint. Runs over the

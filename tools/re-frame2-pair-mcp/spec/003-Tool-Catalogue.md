@@ -3212,6 +3212,16 @@ an operator is most likely diagnosing a denied or stalled stream). It is
 the only read tool whose `:openWorldHint` is `false`: the state is
 server-local, the read never leaves the process.
 
+Because it needs no connection, the server dispatches it at the
+**pre-connection** boundary (rf2-6amhbt) — BEFORE `ensure-connection!`,
+symmetric with the unknown-tool (rf2-4mc6q1) and gated-write
+(rf2-wz66k7) pre-connection guards. So on a stock / degraded install with
+no nREPL port it returns its `:ok? true` payload rather than the shared
+`:nrepl-port-not-found` discovery error — the "answers even when the
+runtime is down" claim holds at the real MCP boundary, not merely at the
+tool-body layer. `get-re-frame2-pair-instructions` shares this
+closed-world pre-connection dispatch.
+
 **Privacy**: the payload is control state only — caps, counts, bucket
 pressure. No event payloads, no app-db data, so it is unconditionally
 safe (no `--allow-sensitive-reads` gate).
@@ -3697,6 +3707,12 @@ round-trip; the text is a `def` in the compiled `.js` bundle so
 the call is one MCP frame and zero socket bytes. The cache layer
 (`cache.cljs`) marks this tool `cacheable? true` since the text is
 a pure-data function of the bundle.
+
+Like `get-stream-controls`, it is a **closed-world** tool: the server
+dispatches it at the **pre-connection** boundary (rf2-6amhbt), BEFORE
+`ensure-connection!`, so an agent orienting on a fresh / degraded session
+with no shadow build running gets the onboarding text rather than a
+`:nrepl-port-not-found` discovery error.
 
 **Args**: none recognised. `:additionalProperties false`.
 

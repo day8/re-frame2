@@ -410,7 +410,7 @@
 (defn- handle-list [_req]
   (js/Promise.resolve #js {:tools (tools/tool-descriptors-js)}))
 
-(declare handle-call*)
+(declare handle-call* handle-call-local)
 
 (defn- handle-call [launch-flags req extra]
   (let [params (j/get req :params)
@@ -437,7 +437,18 @@
         ;; default-safe write posture would be observably false at the real
         ;; MCP boundary. The tool body's own gate stays as defence in depth.
         (js/Promise.resolve refusal)
-        (handle-call* launch-flags name args extra)))))
+        (if (tools/closed-world-tool? name)
+          ;; A closed-world tool (get-stream-controls /
+          ;; get-re-frame2-pair-instructions) reads only server-local state —
+          ;; no nREPL round-trip — so it is DISPATCHED HERE, before
+          ;; `ensure-connection!` (rf2-6amhbt). Otherwise a stock / degraded
+          ;; install with no nREPL port would run discovery, REJECT with
+          ;; `:nrepl-port-not-found`, and the tool body — which needs no
+          ;; connection — would never run, contradicting the spec/003
+          ;; "answers even when the runtime is down" contract. Symmetric with
+          ;; the unknown-tool + gated-write pre-connection guards above.
+          (handle-call-local name args extra)
+          (handle-call* launch-flags name args extra))))))
 
 (defn handle-call-for-tests
   "Test seam onto the private `handle-call`. Lets the
@@ -451,25 +462,43 @@
                #js {:params #js {:name tool-name :arguments args}}
                extra))
 
+(defn- invoke-and-guard
+  "Dispatch a resolved tool call through `tools/invoke` and convert a
+  thrown handler into the structured `:handler-threw` envelope. Routed
+  through `wire/result` so the structuredContent projection preserves
+  keyword namespaces (a raw `clj->js` would truncate `:rf.error/*` reason
+  values). Shared by the connected path (`handle-call*`) and the
+  closed-world pre-connection path (`handle-call-local`)."
+  [conn name args extra]
+  (-> (tools/invoke conn name args extra)
+      (.catch (fn [err]
+                (log! "handler threw for" name "—" (.-message err))
+                (wire/result {:ok?     false
+                              :reason  :handler-threw
+                              :message (.-message err)}
+                             true)))))
+
+(defn- handle-call-local
+  "Pre-connection dispatch for a closed-world tool (rf2-6amhbt). The
+  handler reads only server-local state (resource-control atoms /
+  inline text), so it is invoked WITHOUT `ensure-connection!` — no
+  discovery, no elicitation, no nREPL socket. Uses the cached conn from
+  `session-state` (may be `nil` in degraded mode); the closed-world
+  handlers ignore `conn`, so the nil-conn path is safe. This is what
+  makes the spec/003 'answers even when the runtime is down' contract
+  observably true at the real MCP boundary — not merely at the tool-body
+  layer (which the conformance corpus already pins via `tools/invoke`)."
+  [name args extra]
+  (invoke-and-guard (:conn @session-state) name args extra))
+
 (defn- handle-call*
   "Normal tool-dispatch path: ensure the nREPL connection, then route to
   the tool dispatcher. Reached for every tool EXCEPT a gated write
-  refused at the pre-connection boundary."
+  refused, or a closed-world tool dispatched, at the pre-connection
+  boundary."
   [launch-flags name args extra]
   (-> (ensure-connection! launch-flags)
-      (.then (fn [conn]
-               (-> (tools/invoke conn name args extra)
-                   (.catch (fn [err]
-                             (log! "handler threw for" name "—" (.-message err))
-                             ;; Route the server-level error envelope through
-                             ;; `wire/result` so the structuredContent
-                             ;; projection preserves keyword namespaces (a raw
-                             ;; `clj->js` here truncates `:rf.error/*` reason
-                             ;; values).
-                             (wire/result {:ok?     false
-                                           :reason  :handler-threw
-                                           :message (.-message err)}
-                                          true))))))
+      (.then (fn [conn] (invoke-and-guard conn name args extra)))
       (.catch
         (fn [err]
           ;; Discovery failed — surface a structured tool-call error.
