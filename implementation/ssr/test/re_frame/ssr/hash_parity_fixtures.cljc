@@ -30,6 +30,21 @@
   shared `.cljc` namespace) and pin the SAME canonical literal. The
   literal IS the cross-host byte-comparison point.")
 
+(defn fn-head-component
+  "A raw-fn hiccup head — the deref'd `defn` VALUE idiomatic to Reagent /
+  UIx / Helix SSR (`[fn-head-component props]`). Referenced by the
+  `fn-head-child` parity fixture (rf2-jsa2ml): `(.toString ...)` on a raw
+  fn is class-name + identity-hashcode on the JVM but the JS source on
+  CLJS — never equal. Before the fix the canonical EDN carried divergent
+  `#fn[…]` bytes, so byte-identical HTML hashed differently — a spurious
+  `:rf.ssr/hydration-mismatch` that crashed under
+  `:ssr {:on-mismatch :hard-error}`. The fix collapses every raw fn head
+  to the fixed identity-free token `#fn[]`, so both runtimes agree. The
+  body is irrelevant to the hash (only the head's serialisation is walked)
+  but is realistic hiccup so the fixture reads as a real component."
+  [props]
+  [:span (:label props)])
+
 ;; ---- the canonical corpus -------------------------------------------------
 ;;
 ;; Each fixture is `{:label, :input, :expected, :rationale}`. The
@@ -185,13 +200,48 @@
               Conventions' reserved-namespace scheme). Pins the
               canonical form of the framework's `:rf/*` shapes."})
 
+(def fn-head-child
+  {:label    "fn-head-child"
+   :input    [:div [fn-head-component {:label "hi"}]]
+   :expected "c105e684"
+   :rationale "rf2-jsa2ml — a raw-fn hiccup head (`[fn-head-component
+              props]`, the idiomatic Reagent/UIx/Helix SSR shape where the
+              head is the deref'd defn value). `(.toString fn)` is class +
+              identity-hashcode on the JVM but the JS source on CLJS —
+              never equal — so the pre-fix `#fn[<toString>]` serialisation
+              hashed byte-identical HTML differently, a spurious mismatch
+              that CRASHED under :on-mismatch :hard-error. The fix collapses
+              every raw fn head to the fixed token `#fn[]`; the canonical
+              form is `[:div [#fn[] {:label \"hi\"}]]` on BOTH runtimes and
+              the fn's props still hash. A Var head (`[#'ns/view …]`) is NOT
+              exercised here — it is not `fn?` on the JVM and stays
+              identity-stable via `:else` `pr-str`."})
+
+(def whole-double
+  {:label    "whole-double"
+   :input    [:progress {:value 0.0 :max 1.0}]
+   :expected "5ef66c2e"
+   :rationale "rf2-0ypnnk — whole-valued doubles (`0.0`/`1.0`, e.g. a
+              `[:progress {:value 0.0 :max 1.0}]` or a `9.0` price). The JVM
+              `pr-str`s `\"0.0\"`/`\"1.0\"`; CLJS unifies them to the JS
+              numbers 0/1 printing `\"0\"`/`\"1\"`, so the tree hashed AND
+              rendered divergently — a REAL cross-runtime split that crashed
+              under :on-mismatch :hard-error. `canonical-number` strips the
+              trailing `.0` so both runtimes canonicalise to
+              `[:progress {:max 1,:value 0}]`; the emitter applies the SAME
+              normalisation so the hash and the HTML stay consistent. On
+              CLJS `0.0`/`1.0` ARE the integer-valued numbers 0/1, so the
+              shared `.cljc` input exercises the JVM normalisation and the
+              CLJS native form converging on one literal."})
+
 (def all-fixtures
   "All canonical fixtures in declaration order. Test files iterate this
   list so adding a fixture requires no edits to per-runtime test code."
   [empty-map empty-vector empty-list empty-set scalar-string scalar-keyword
    scalar-int scalar-true scalar-false minimal-hiccup div-class
    namespaced-kw-attr nested-deep unicode-cafe unicode-emoji unicode-mixed
-   set-with-strings list-children large-flat namespaced-kw-key])
+   set-with-strings list-children large-flat namespaced-kw-key
+   fn-head-child whole-double])
 
 ;; ---- nil-pruning equivalence pairs ---------------------------------------
 ;;
