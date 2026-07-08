@@ -616,3 +616,205 @@
       (is (re-find #"\"ok\":false" (:body resp)))
       (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
           "the client-visible error names the missing file, not launch-failed"))))
+
+;; ---- missing-file 400: the blank/absent `file` param branch (rf2-bnv3cu) --
+;;
+;; `handle` returns 400 `{:ok false :error "missing-file"}` when the `file`
+;; query param is blank or absent (before any resolution / launch). The
+;; suite covered malformed-query 400 and file-not-found 422 but never this
+;; distinct earlier branch.
+
+(deftest endpoint-missing-file-param-returns-400
+  (testing "rf2-bnv3cu: a valid local POST with a blank / absent `file`
+            param answers a clean 400 missing-file and never reaches launch!"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (testing "no `file` param in the query string"
+          (let [resp (oies/handle
+                       {:uri            oies/endpoint-path
+                        :request-method :post
+                        :query-string   "line=10&column=3"
+                        :headers        {"host" "localhost:8031"}})]
+            (is (= 400 (:status resp)))
+            (is (re-find #"\"ok\":false" (:body resp)))
+            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
+        (testing "an empty `file=` value"
+          (let [resp (oies/handle
+                       {:uri            oies/endpoint-path
+                        :request-method :post
+                        :query-string   "file=&line=10"
+                        :headers        {"host" "localhost:8031"}})]
+            (is (= 400 (:status resp)))
+            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
+        (testing "no query string at all"
+          (let [resp (oies/handle
+                       {:uri            oies/endpoint-path
+                        :request-method :post
+                        :query-string   nil
+                        :headers        {"host" "localhost:8031"}})]
+            (is (= 400 (:status resp)))
+            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
+        (is (zero? (count @calls))
+            "launch! was never called on any missing-file path")))))
+
+;; ---- editor hint: keyword -> launch-editor command (rf2-bnv3cu) -----------
+;;
+;; `editor-hint` + `editor-command-by-keyword` are PUBLIC and were 100%
+;; untested. The `editor` query param maps through `editor-hint` to
+;; `launch!`'s 4th-arg command hint; an untested map means a regression
+;; could silently drop a configured editor (`:rf.xray/editor :cursor`) back
+;; to launch-editor's auto-detect.
+
+(deftest editor-hint-maps-keyword-to-launch-command
+  (testing "rf2-bnv3cu: a known editor keyword (bare string) resolves to
+            launch-editor's launch command"
+    (is (= "code"          (oies/editor-hint "vscode")))
+    (is (= "code-insiders" (oies/editor-hint "vscode-insiders")))
+    (is (= "cursor"        (oies/editor-hint "cursor")))
+    (is (= "windsurf"      (oies/editor-hint "windsurf")))
+    (is (= "zed"           (oies/editor-hint "zed")))
+    (is (= "idea"          (oies/editor-hint "idea"))))
+  (testing "the value is lower-cased and trimmed before lookup"
+    (is (= "code"   (oies/editor-hint "VSCode")))
+    (is (= "cursor" (oies/editor-hint "  Cursor  ")))
+    (is (= "idea"   (oies/editor-hint "IDEA"))))
+  (testing "blank / unknown / non-string → nil (launch-editor auto-detects)"
+    (is (nil? (oies/editor-hint "")))
+    (is (nil? (oies/editor-hint "   ")))
+    (is (nil? (oies/editor-hint "custom")) "the {:custom …} shape is not in the map")
+    (is (nil? (oies/editor-hint "emacs")) "an editor with no mapping → auto-detect")
+    (is (nil? (oies/editor-hint nil)))
+    (is (nil? (oies/editor-hint 42)) "a non-string is rejected")))
+
+(deftest editor-command-by-keyword-is-the-launch-command-vocabulary
+  (testing "rf2-bnv3cu: the public keyword→command map maps the open-in-editor
+            keyword vocabulary to launch-editor bin names (a public-surface
+            sentinel — a new editor is a deliberate, reviewed addition)"
+    (is (= {"vscode"          "code"
+            "vscode-insiders" "code-insiders"
+            "cursor"          "cursor"
+            "windsurf"        "windsurf"
+            "zed"             "zed"
+            "idea"            "idea"}
+           oies/editor-command-by-keyword))))
+
+(deftest endpoint-passes-editor-hint-through-to-launch
+  (testing "rf2-bnv3cu: the `editor` query param maps through editor-hint to
+            launch!'s 4th-arg command hint — a request for a configured editor
+            reaches launch! with the resolved command, not auto-detect"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=fake_ns/core.cljs&line=3&editor=vscode"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 200 (:status resp)))
+          (is (= 1 (count @calls)))
+          (let [[_abs _line _col cmd] (first @calls)]
+            (is (= "code" cmd)
+                "editor=vscode resolved to launch-editor's `code` command
+                 (the mapping is applied, not the raw keyword)"))))))
+  (testing "an unknown editor keyword → nil command hint (auto-detect)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (oies/handle
+          {:uri            oies/endpoint-path
+           :request-method :post
+           :query-string   "file=fake_ns/core.cljs&editor=emacs"
+           :headers        {"host" "localhost:8031"}})
+        (is (nil? (nth (first @calls) 3))
+            "unknown editor → nil hint"))))
+  (testing "no `editor` param → nil command hint (baseline)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (oies/handle
+          {:uri            oies/endpoint-path
+           :request-method :post
+           :query-string   "file=fake_ns/core.cljs"
+           :headers        {"host" "localhost:8031"}})
+        (is (nil? (nth (first @calls) 3))
+            "no editor param → nil hint")))))
+
+;; ---- escape-json-string: backslash + doublequote (rf2-bnv3cu) -------------
+;;
+;; The control-char round-trip test covered \n/\t/\r + C0 + plain ASCII but
+;; never a value carrying a literal `\` or `"`. On Windows the resolved
+;; abs-path echoed in the 200 `:file` field is `C:\Users\...`, so the
+;; backslash rule is Windows-load-bearing: unescaped, the JSON body is
+;; invalid despite the `application/json` header.
+
+(deftest escape-json-string-escapes-backslash-and-doublequote
+  (testing "rf2-bnv3cu: a lone backslash and a double-quote are escaped
+            directly"
+    (is (= "a\\\\b" (#'oies/escape-json-string "a\\b"))
+        "one backslash → two")
+    (is (= "say \\\"hi\\\"" (#'oies/escape-json-string "say \"hi\""))
+        "double-quotes are escaped")
+    (is (= "C:\\\\Users\\\\me\\\\core.cljs"
+           (#'oies/escape-json-string "C:\\Users\\me\\core.cljs"))
+        "a Windows abs-path's backslashes are all doubled")))
+
+(deftest json-resp-escapes-windows-backslash-path
+  (testing "rf2-bnv3cu: a 200 response whose resolved `:file` is a Windows
+            abs-path (literal `\\` separators) plus a stray `\"` is escaped so
+            the `application/json` body is valid and round-trips to the exact
+            path through a real JSON-string decode — the Windows-relevant path
+            the prior backslash/quote-only encoder would still have handled,
+            but never had a regression test"
+    (let [calls (atom [])
+          file  "C:\\Users\\me\\code\\re-frame2\\src\\a\"b.cljs"]
+      (with-launch-spy calls
+        (with-redefs [oies/resolve-file (constantly file)]
+          (let [resp (oies/handle
+                       (req {:method :post
+                             :host   "localhost:8031"
+                             :origin nil
+                             :file   "resolve-file-is-redefed"}))]
+            (is (= 200 (:status resp)))
+            (is (str/includes? (:body resp) "\\\\")
+                "backslashes are doubled in the body")
+            (is (str/includes? (:body resp) "\\\"")
+                "the double-quote is escaped in the body")
+            (is (= file (json-body->file-value (:body resp) "\"file\":\""))
+                "the escaped Windows path round-trips to the exact original")))))))
+
+;; ---- resolve-file: the cwd-relative branch (rf2-bnv3cu) -------------------
+;;
+;; resolve-file's branch 2 (relative to the dev process cwd) is the
+;; JAR / off-classpath case Option B exists to close — a relative coord that
+;; getResource cannot reach on the classpath still resolves against the dev
+;; JVM's working directory. Branch 1 (classpath) is covered by
+;; resolve-file-resolves-classpath-path-with-plus; this pins branch 2's
+;; SUCCESS path directly.
+
+(deftest resolve-file-resolves-cwd-relative-off-classpath
+  (testing "rf2-bnv3cu: a relative `:file` that is NOT on the classpath
+            resolves against the working directory (`user.dir`) to its real
+            on-disk absolute path — the off-classpath branch"
+    (let [tmp      (File. (System/getProperty "java.io.tmpdir")
+                          (str "oies-cwd-" (System/nanoTime)))
+          sub      (str "off_classpath_" (System/nanoTime))
+          rel-path (str sub "/probe.cljs")
+          src-file (io/file tmp sub "probe.cljs")
+          prev-cwd (System/getProperty "user.dir")]
+      (try
+        (io/make-parents src-file)
+        (spit src-file ";; fixture\n")
+        ;; Point the JVM working dir at the throwaway tree; the explicit
+        ;; cwd branch reads `user.dir` live, so resolution finds the fixture.
+        (System/setProperty "user.dir" (.getAbsolutePath tmp))
+        (let [resolved (oies/resolve-file rel-path)]
+          (is (some? resolved)
+              "the off-classpath relative coord resolved via the cwd branch")
+          (is (.isAbsolute (File. ^String resolved))
+              "the cwd branch returns an ABSOLUTE path (branch 3 would return
+               the raw relative input unchanged)")
+          (is (= (.getCanonicalPath src-file)
+                 (.getCanonicalPath (File. ^String resolved)))
+              "resolved to the REAL on-disk fixture under the working dir"))
+        (finally
+          (System/setProperty "user.dir" prev-cwd)
+          (when (.exists src-file) (.delete src-file))
+          (.delete (io/file tmp sub))
+          (.delete tmp))))))
