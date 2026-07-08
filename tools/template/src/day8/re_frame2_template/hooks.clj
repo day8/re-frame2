@@ -43,11 +43,14 @@
    right source per the flag; the output filename is the same
    (`deps.edn`) regardless of which source ran.
 
-   `package.json` is the exception. Its sole per-flag delta — the
-   `description` parenthetical naming the Story playground — is small
-   enough to carry as the `{{story-tag}}` subst var, so a single
-   `_shared/package.json` source serves both paths. No
-   second `package_with_story.json` source exists.
+   `package.json` is the exception. Its per-flag deltas — the
+   `description` parenthetical naming the Story playground
+   (`{{story-tag}}`) and the `test` npm script (`{{test-script}}`: the
+   CLJS node-test bundle on the default / Story paths vs `clojure -M:test`
+   for the SSR scaffold's JVM `ssr_test.clj` gate) — are each small enough
+   to carry as a subst var, so a single `_shared/package.json` source
+   serves every path. No `package_with_story.json` / `package_with_ssr.json`
+   source exists.
 
    The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
    §1) is the same matrix; the v1 flag set (`:include-story?`,
@@ -336,6 +339,15 @@
                         `:include-story? true`. Lets the single
                         `_shared/package.json` source carry both variants
                         (the only per-flag delta was this one parenthetical).
+     {{test-script}}  — the package.json `test` npm script, which varies
+                        by `:include-ssr?`: the CLJS node-test bundle
+                        (`shadow-cljs compile test && node out/node-test.js`)
+                        on the default / Story paths, or `clojure -M:test`
+                        (the headless JVM `ssr_test.clj` gate) on the SSR
+                        path. A second `_shared/package.json` subst delta
+                        alongside `{{story-tag}}` — the SSR scaffold ships
+                        no cljs.test suite, so its `npm test` must run the
+                        JVM gate, not an empty node-test bundle.
      {{substrate-badge-url}} — shields.io badge URL keyed by substrate.
      {{rf2-version}}  — runtime coord version (kept in lockstep with
                         the repo-root VERSION file via the §3 release
@@ -430,6 +442,18 @@
        ;; a subst var lets one `_shared/package.json` source serve both
        ;; paths from a single file.
        :story-tag           (if include-story? ", with Story playground" "")
+       ;; package.json `test` script — the second per-flag delta the single
+       ;; `_shared/package.json` source carries via a subst var (alongside
+       ;; `{{story-tag}}`). The default + Story scaffolds ship a CLJS
+       ;; `events_test.cljs` run by the `:test` shadow node-test build; the
+       ;; SSR scaffold ships NO cljs.test suite — its only test is the
+       ;; headless JVM `ssr_test.clj`, run by the emitted deps.edn `:test`
+       ;; alias — so `npm test` (and the generated CI's `npm test` step)
+       ;; must invoke `clojure -M:test` there instead of the empty
+       ;; node-test bundle (which would false-green on zero tests).
+       :test-script         (if include-ssr?
+                              "clojure -M:test"
+                              "shadow-cljs compile test && node out/node-test.js")
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
        :substrate-badge-url badge-url

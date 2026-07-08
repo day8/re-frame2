@@ -4,8 +4,11 @@
 #   - JDK 21 + Clojure CLI (matches re-frame2's reference build)
 #   - Node 22 LTS + npm
 #   - Maven / gitlibs + npm caches keyed by deps files
-#   - `npm install` then `npm test` — runs the :node-test build per
-#     shadow-cljs.edn (no browser; pure cljs.test under Node).
+#   - `npm install` then `npm test` — runs the scaffold's test suite.
+#     For an SPA scaffold that is the shadow-cljs :node-test build
+#     (pure cljs.test under Node, no browser); for an SSR scaffold
+#     `npm test` runs the headless JVM `clojure -M:test` gate instead
+#     (see package.json — the SSR client bundle ships no cljs.test suite).
 #
 # Add steps as your project grows:
 #   - `clojure -M:cljfmt check src test` (the scaffold ships .cljfmt.edn)
@@ -73,5 +76,5 @@ jobs:
         # for fully reproducible builds.
         run: npm install
 
-      - name: Run tests (shadow-cljs :node-test)
+      - name: Run tests (npm test)
         run: npm test

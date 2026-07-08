@@ -82,7 +82,8 @@
             [clojure.pprint :as pprint]
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
-             :refer [tmp-dir delete-recursively run-template! repo-root]])
+             :refer [tmp-dir delete-recursively run-template!
+                     run-template-opts! repo-root]])
   ;; java.nio types used directly by `link-node-modules!` below. The
   ;; tmp-dir / delete-recursively helpers that need Path / LinkOption /
   ;; FileVisitOption live in the shared test-support ns.
@@ -134,7 +135,20 @@
           ;; resolves + compiles against the in-repo Story source.
           (contains? (:deps deps) 'day8/re-frame2-story)
           (assoc-in [:deps 'day8/re-frame2-story]
-                    {:local/root (rel-of "tools/story")}))]
+                    {:local/root (rel-of "tools/story")})
+
+          ;; The SSR scaffold adds day8/re-frame2-ssr + day8/re-frame2-ssr-ring
+          ;; (re-frame.ssr + re-frame.ssr.ring live under implementation/ssr +
+          ;; implementation/ssr-ring). Rewrite them the same way so the
+          ;; emitted headless JVM ssr_test.clj resolves + runs against the
+          ;; in-repo SSR source.
+          (contains? (:deps deps) 'day8/re-frame2-ssr)
+          (assoc-in [:deps 'day8/re-frame2-ssr]
+                    {:local/root (rel-of "implementation/ssr")})
+
+          (contains? (:deps deps) 'day8/re-frame2-ssr-ring)
+          (assoc-in [:deps 'day8/re-frame2-ssr-ring]
+                    {:local/root (rel-of "implementation/ssr-ring")}))]
     (spit deps-file (with-out-str (pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------
@@ -442,6 +456,54 @@
        (finally
          (delete-recursively tmp))))))
 
+(defn- run-ssr-emitted-test!
+  "The SSR variant of the emitted-test-run tier. The SSR scaffold's only
+  automated test is a headless JVM gate (`ssr_test.clj`) — no cljs.test
+  suite, no `:node-test` bundle — so it runs via the emitted deps.edn
+  `:test` alias (`clojure -M:test`), NOT `shadow compile test` + node.
+  That is the exact path `npm test` and the generated CI now invoke
+  (package.json `test` = `clojure -M:test` on the SSR path, per hooks.clj's
+  `{{test-script}}`); before this wiring nothing ran the emitted
+  ssr_test.clj, so an SSR-scaffold regression shipped uncaught (rf2-97eebb).
+
+  Generate the SSR scaffold (`:include-ssr? true`), rewrite the framework
+  coords — including day8/re-frame2-ssr + day8/re-frame2-ssr-ring — to
+  :local/root, then run `clojure -M:test` and assert exit 0 plus the
+  cljs.test summary lines, so a silent zero-test run can't false-green.
+
+  Needs only `clojure` on PATH — no node, no node_modules: the JVM SSR
+  render is a pure hiccup -> HTML emitter (no React / JSDOM), so unlike
+  the CLJS variants this tier never shells out to `node`."
+  []
+  (let [root (repo-root)
+        tmp  (tmp-dir "rf2-template-run-reagent-ssr-")]
+    (try
+      (let [proj (run-template-opts! tmp "acme/my-app"
+                                     {:substrate :reagent :include-ssr? true})]
+        (rewrite-deps-for-local-run! root proj :reagent)
+        (testing "reagent-ssr — clojure -M:test (headless JVM ssr_test.clj)"
+          (let [{:keys [exit out]} (run-process! ["clojure" "-M:test"] proj)]
+            (is (zero? exit)
+                (str "`clojure -M:test` exited " exit
+                     " for the emitted SSR scaffold. The headless JVM "
+                     "ssr_test.clj gate did not pass against the in-repo SSR "
+                     "source (implementation/ssr + ssr-ring rewritten to "
+                     ":local/root). Output:\n" out))
+            ;; cljs.test's default reporter prints
+            ;;   "Ran N tests containing M assertions."
+            ;;   "0 failures, 0 errors."
+            ;; Pin both lines so a silent zero-exit (no tests discovered by
+            ;; the cognitect runner) doesn't false-green.
+            (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
+                (str "expected 'Ran N tests' summary line — a silent "
+                     "zero-test run (the very false-green rf2-97eebb "
+                     "guards) would otherwise pass. Got:\n" out))
+            (is (re-find #"0 failures, 0 errors" out)
+                (str "expected '0 failures, 0 errors' line in output. "
+                     "Got:\n" out)))))
+      (finally
+        (delete-recursively tmp)))))
+
 (defn- skip-if-disabled!
   "When the gate is off, record a passing assertion that documents the
   skip — so the green-run line count is stable across enabled/disabled
@@ -528,6 +590,25 @@
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
             (compile-and-run-emitted-test! :reagent true {:release? true}))))))
+
+(deftest reagent-ssr-emitted-tests-run-test
+  ;; The SSR scaffold's headless JVM gate (`ssr_test.clj`), run via the
+  ;; emitted deps.edn `:test` alias (`clojure -M:test`) — the exact path
+  ;; `npm test` and the generated CI now invoke on the SSR scaffold.
+  ;; Reagent-only because `:include-ssr?` is Reagent-only in v1. Unlike
+  ;; the CLJS variants above this needs ONLY `clojure` on PATH (no node:
+  ;; the JVM SSR render is a pure hiccup -> HTML emitter), yet rides the
+  ;; same RF2_TEMPLATE_RUN_EMITTED_TESTS gate. Before this tier nothing
+  ;; ran the emitted ssr_test.clj — the empty CLJS node-test bundle the
+  ;; SSR package.json used to run false-greened on zero tests (rf2-97eebb).
+  (testing "the emitted SSR Reagent app's ssr_test.clj runs green via
+            `clojure -M:test` (the JVM gate npm/CI now invoke)"
+    (if-not @enabled?
+      (skip-if-disabled! "reagent-ssr")
+      (do (is @clojure-cli-available?
+              "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (when @clojure-cli-available?
+            (run-ssr-emitted-test!))))))
 
 ;; ===========================================================================
 ;; MANUAL setup-skill scaffold fixture
