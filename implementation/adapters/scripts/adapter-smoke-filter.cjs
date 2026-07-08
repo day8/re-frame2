@@ -68,9 +68,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 // perf-bundle gate, and mcp-conformance — not by per-example Playwright
 // specs.
 //
-// Adding a new adapter smoke: append an entry with all four fields
-// (build, htmlSrc, outDir, specPath). `specPath` is the absolute path to
-// the spec.cjs the runner will execute; it MUST exist on disk.
+// Adding a new adapter smoke: add the adapter name to the ADAPTERS list
+// below (standard layout assumed). The .map derives all four fields
+// (build, htmlSrc, outDir, specPath) from the standard
+// implementation/adapters/<name>/testbed/ layout, and `specPath` MUST
+// resolve to a spec.cjs that exists on disk. Add a bespoke literal entry
+// only for a non-standard layout.
 const ADAPTERS = ['reagent', 'uix', 'helix'];
 const OUT_ROOT = path.join(REPO_ROOT, 'implementation', 'out', 'examples');
 
