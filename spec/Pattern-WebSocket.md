@@ -59,13 +59,24 @@ The connection machine composes the locked substrate:
 - **Hierarchical states** ([005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)) — `:active` is the parent of three connection-leaves; the parent owns the socket actor.
 - **`:after`** ([005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)) — exponential backoff timer in `:reconnecting`, expressed as a **fn-form delay** `(fn [{:keys [snapshot]}] ms)` that reads the current `:retries` and `:base-ms` from the snapshot's `:data`. The `:after`-epoch invariant ([005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) guarantees stale timers from prior `:reconnecting` visits are silently dropped on transitions away.
 - **`:always`** ([005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)) — max-retries guard fires immediately on entry to `:reconnecting` if `:retries` exceeds the limit, transitioning straight to `:failed`. Also used to flush queued messages on entry to `:connected`.
-- **Machine-scoped `:guards` / `:actions`** ([005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)) — for `:max-retries-exceeded?`, `:has-queued-messages?`, `:bump-retry-count`, `:flush-queue`, `:current-socket?`, etc.
+- **Machine-scoped `:guards` / `:actions`** ([005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)) — for `:max-retries-exceeded?`, `:has-queued-messages?`, `:on-socket-lost`, `:flush-queue`, `:current-socket?`, etc.
 - **`:spawn`** ([005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)) — `:active` invokes a `:websocket/socket` actor that owns the actual `WebSocket` object; the actor's lifetime is bound to the `:active` parent. Any transition that exits `:active` (to `:reconnecting`, to `:failed`, or to `:disconnected`) destroys the actor; re-entering `:active` after `:after` backoff spawns a fresh socket.
-- **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — the **connection epoch** is the socket-actor's own gensym'd id. Every event the socket actor dispatches into the parent carries its `:socket-id`; the parent's actions check that the carried id matches the live `(:socket-id data)` before committing. Replies from a previous connection epoch — `:ws/received` from a socket that has since been replaced — fail the check and are dropped via a `:rf.ws/stale-socket` trace. The same idiom that `:after` already uses internally, applied to socket-actor identity.
+- **[Pattern-StaleDetection](Pattern-StaleDetection.md)** — the **connection epoch** is the socket-actor's own gensym'd id, read from the parent's `:rf/spawned` slot (the runtime keeps it current and clears it on teardown — see [005 §Recording the spawned id user-side](005-StateMachines.md#recording-the-spawned-id-user-side)). Every event the socket actor dispatches into the parent carries its `:source-socket-id`; the `:current-socket?` guard checks that the carried id matches the live id before the transition commits. This guards the **whole socket-sourced surface** — the lifecycle transitions (`:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`) as much as `:ws/received` and `:ws/request-timeout` — so a straggler from a socket that has since been replaced can neither advance nor tear down the new connection; it is dropped via a `:rf.ws/stale-socket` trace. The same idiom that `:after` already uses internally, applied to socket-actor identity.
 
 ## Worked example — connection machine
 
 ```clojure
+;; The socket actor is spawned on the `:active` parent (below), so the id the
+;; runtime binds into this machine's own `:data` is keyed by that state's path,
+;; `[:active]`, under the reserved `:rf/spawned` map. `socket-id` reads it back.
+;; Because the runtime CLEARS that slot the instant the actor is torn down
+;; (leaving `:active` by any door), a torn-down socket reads as nil on its own —
+;; no `:exit` action to null anything. That auto-clear is exactly what lets the
+;; live id double as the connection's staleness clock. First-class :rf/spawned
+;; idiom (005 §Recording the spawned id user-side), preferred over an :on-spawn
+;; self-dispatch.
+(defn- socket-id [data] (get-in data [:rf/spawned [:active]]))
+
 (rf/reg-event :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
@@ -77,9 +88,11 @@ The connection machine composes the locked substrate:
                :max-retries    8
                :base-ms        1000              ;; initial backoff
                :max-backoff-ms 30000
-               :socket-id      nil               ;; address of the currently-live socket actor
+               ;; No :socket-id field: the live socket's id lives in the
+               ;; runtime-maintained :rf/spawned slot (read via `socket-id`),
+               ;; which the runtime keeps current and clears on teardown.
                :subscriptions  #{}               ;; topics to (re-)subscribe on :connected entry
-               :queue          []                ;; messages buffered while disconnected
+               :queue          []                ;; whole inbound events buffered while disconnected
                :in-flight      {}                ;; {request-id → {:reply-event ... :timeout-ms ...}}
                :error          nil}
 
@@ -93,12 +106,15 @@ The connection machine composes the locked substrate:
         (seq (:queue data)))
 
       :current-socket?
-      ;; True iff the incoming socket-stamped event came from the actor
-      ;; this machine currently owns. Connection-epoch staleness check
-      ;; (Pattern-StaleDetection): replies from a prior socket-id are
-      ;; suppressed without disturbing the live snapshot.
+      ;; The connection-epoch check (Pattern-StaleDetection): is this event
+      ;; from the socket this machine owns RIGHT NOW? Every inbound socket
+      ;; event stamps the id of the socket it came from (`:source-socket-id`,
+      ;; the actor's `:rf/self-id`); we let it through only if that matches the
+      ;; live id read from `:rf/spawned`. A torn-down socket reads as nil, so
+      ;; every straggler from a replaced connection is dropped for free.
       (fn [{:keys [data] [_ {:keys [source-socket-id]}] :event}]
-        (= source-socket-id (:socket-id data)))}
+        (let [live (socket-id data)]
+          (and (some? live) (= source-socket-id live))))}
 
      :actions
      {:record-connection-opts
@@ -113,45 +129,72 @@ The connection machine composes the locked substrate:
       (fn [{:keys [data] [_ token] :event}]
         {:data (assoc data :auth-token token)})
 
-      :bump-retry (fn [{:keys [data]}] {:data (update data :retries inc)})
-
-      :ws/socket-ready
-      ;; The child socket actor carries its own id back on entry
-      ;; (carry-the-id-back-to-the-parent idiom); the parent records it so
-      ;; :current-socket? and every (:socket-id data) dispatch have a value.
-      (fn [{:keys [data] [_ socket-id] :event}] {:data (assoc data :socket-id socket-id)})
-
-      :clear-socket-id
-      (fn [{:keys [data]}] {:data (assoc data :socket-id nil)})
+      :on-socket-lost
+      ;; The live socket dropped (a :ws/closed that passed :current-socket?).
+      ;; Heading for :reconnecting, two things happen:
+      ;;   1. Bump the retry counter — it drives the :after backoff and the
+      ;;      :max-retries-exceeded? guard.
+      ;;   2. FAIL every in-flight request. Each was already on the wire that
+      ;;      just died, so its reply can never arrive on THIS connection; left
+      ;;      in :in-flight it would leak forever (its timeout is stamped with
+      ;;      the now-dead socket-id, so :current-socket? drops that timeout
+      ;;      after we reconnect and the slot never clears). Loss semantics are
+      ;;      FAIL, not replay — the server may already have processed the
+      ;;      request, so a blind re-send risks double execution. Each waiting
+      ;;      :reply-event fires with {:ok false :error :ws/connection-lost} so
+      ;;      the caller learns the outcome instead of hanging forever.
+      (fn [{:keys [data]}]
+        {:data (-> data (update :retries inc) (assoc :in-flight {}))
+         :fx   (into []
+                     (keep (fn [[rid {:keys [reply-event]}]]
+                             (when reply-event
+                               [:dispatch (conj reply-event
+                                                {:request-id rid
+                                                 :ok         false
+                                                 :error      :ws/connection-lost})])))
+                     (:in-flight data))})
 
       :send-auth
       ;; Route an :auth message into the live socket actor.
       (fn [{:keys [data]}]
-        {:fx [[:dispatch [(:socket-id data) [:send {:type  :auth
-                                                    :token (:auth-token data)}]]]]})
+        {:fx [[:dispatch [(socket-id data) [:send {:type  :auth
+                                                   :token (:auth-token data)}]]]]})
 
       :on-connected
-      ;; Compound entry action for :connected — :reset-retry + :resubscribe
-      ;; in one fn. (Per [005 §State nodes] :entry takes one fn or one
-      ;; registered id, never a vector.)
+      ;; Compound entry action for :connected — reset the retry counter (we
+      ;; made it) and re-issue a subscribe for every tracked topic, so
+      ;; subscriptions survive the reconnect. The queued-message flush is the
+      ;; separate :always step below; this action leaves :queue for it to find.
+      ;; (Per [005 §State nodes] :entry takes one fn or one registered id,
+      ;; never a vector.)
       (fn [{:keys [data]}]
         {:data (assoc data :retries 0)
          :fx   (mapv (fn [topic]
-                       [:dispatch [(:socket-id data)
+                       [:dispatch [(socket-id data)
                                    [:send {:type :subscribe :topic topic}]]])
                      (:subscriptions data))})
 
       :flush-queue
-      ;; Send everything buffered while disconnected; clear the queue.
+      ;; The :always step on :connected: replay everything buffered while off
+      ;; connection. Each queued item is the ORIGINAL inbound event, so
+      ;; re-dispatch it INTO the connection machine — now :connected, so a
+      ;; :ws/send takes :send-now and a :ws/request takes :register-request
+      ;; (in-flight slot + correlation + timeout), exactly as if issued while
+      ;; connected. Clearing :queue first stops the replay re-enqueuing.
       (fn [{:keys [data]}]
         {:data (assoc data :queue [])
-         :fx   (mapv (fn [msg] [:dispatch [(:socket-id data) [:send msg]]])
+         :fx   (mapv (fn [event] [:dispatch [:ws/connection event]])
                      (:queue data))})
 
       :enqueue-message
-      ;; Buffer a send while the connection is not yet :connected.
-      (fn [{:keys [data] [_ msg] :event}]
-        {:data (update data :queue conj msg)})
+      ;; Off connection there's no socket to send on, so buffer the WHOLE
+      ;; inbound event ([:ws/send …] or [:ws/request …]), not just its body.
+      ;; :flush-queue re-dispatches each verbatim on the next :connected entry,
+      ;; so a queued request rejoins :register-request and gets correlated.
+      ;; (Buffering a bare body instead would put a request's whole envelope on
+      ;; the wire as the payload — uncorrelated, never answered.)
+      (fn [{:keys [data] event :event}]
+        {:data (update data :queue conj event)})
 
       :register-request
       ;; Caller: [:ws/request {:request-id ..., :body ..., :reply ...}].
@@ -160,14 +203,17 @@ The connection machine composes the locked substrate:
                              :or   {timeout-ms 30000}}] :event}]
         {:data (assoc-in data [:in-flight request-id]
                          {:reply-event reply :timeout-ms timeout-ms})
-         :fx   [[:dispatch [(:socket-id data)
+         :fx   [[:dispatch [(socket-id data)
                             [:send (assoc body :request-id request-id)]]]
+                ;; The timeout event carries the live socket-id too, so the
+                ;; same :current-socket? guard quietly discards a timeout left
+                ;; over from a connection we've already moved past.
                 [:dispatch-later
                  {:ms    timeout-ms
                   :event [:ws/connection
                           [:ws/request-timeout
                            {:request-id       request-id
-                            :source-socket-id (:socket-id data)}]]}]]})
+                            :source-socket-id (socket-id data)}]]}]]})
 
       :clear-request
       (fn [{:keys [data] [_ {:keys [request-id]}] :event}]
@@ -183,19 +229,23 @@ The connection machine composes the locked substrate:
                    (assoc :retries 0))})
 
       :record-error
-      (fn [{:keys [data] [_ err] :event}] {:data (assoc data :error err)})}
+      ;; Socket-sourced error events carry a map payload — {:source-socket-id
+      ;; … :error …} — so the :error rides alongside the id the guards read.
+      (fn [{:keys [data] [_ {:keys [error]}] :event}] {:data (assoc data :error error)})}
 
      :states
      {:disconnected
       {:on {:ws/connect {:target [:active]
                          :action :record-connection-opts}
-            :ws/send    {:action :enqueue-message}}}
+            :ws/send    {:action :enqueue-message}
+            :ws/request {:action :enqueue-message}}}
 
       :active
       {;; The socket actor is invoked at the parent level — its lifetime
        ;; spans :connecting, :authenticating, and :connected. Any transition
        ;; that exits :active (to :reconnecting, :failed, or :disconnected)
-       ;; destroys it; re-entering :active spawns a fresh one.
+       ;; destroys it and clears its id from :rf/spawned; re-entering :active
+       ;; spawns a fresh one.
        :spawn {:machine-id :websocket/socket
                 ;; Mechanism 2 from Pattern-AsyncEffect §Parameter passing
                 ;; across the boundary — the child reads URL + auth-token
@@ -206,73 +256,79 @@ The connection machine composes the locked substrate:
                 :data       (fn [{snap :snapshot}]
                               {:url        (-> snap :data :url)
                                :auth-token (-> snap :data :auth-token)})}
-                ;; NOTE on recording the socket-id: the spawn's `:on-spawn` hook
-                ;; is advisory — its return is DROPPED ([005 §Path conventions
-                ;; in machine bodies]), so it cannot write the id into :data.
-                ;; The child socket actor instead carries its own id back to the
-                ;; parent (the carry-the-id-back-to-the-parent idiom,
-                ;; [Managed-Effects §`:spawn` / `:spawn-all`]): on its own entry
-                ;; it dispatches `[:ws/connection [:ws/socket-ready <self-id>]]`,
-                ;; and the parent's `:ws/socket-ready` action writes the id into
-                ;; `:data :socket-id`. From then on `:current-socket?` and every
-                ;; `(:socket-id data)` dispatch have a value to compare.
-
-       ;; Exit cascade — on any transition that leaves :active, clear the
-       ;; stale socket-id from :data. The runtime destroys the actor
-       ;; automatically (per :spawn's desugared exit, [005 §Desugaring rules]);
-       ;; this just keeps the parent's :data tidy so :current-socket?'s
-       ;; comparison against `nil` correctly rejects late events.
-       :exit  :clear-socket-id
+                ;; Recording the socket-id needs no :on-spawn write and no
+                ;; :exit cleanup: on every declarative :spawn the runtime binds
+                ;; the newborn actor's id into THIS machine's :data under
+                ;; :rf/spawned, keyed by the :spawn-bearing state's path
+                ;; ([:active]) — read it via the `socket-id` helper above — and
+                ;; CLEARS it automatically when the actor is torn down. First-
+                ;; class :rf/spawned idiom (005 §Recording the spawned id
+                ;; user-side), preferred over the older carry-the-id-back
+                ;; self-dispatch.
 
        ;; Parent-level transitions inherited by every leaf
-       ;; (per [005 §Transition resolution]). Any transport-level error
-       ;; or close during :connecting / :authenticating / :connected
-       ;; routes through one of these.
-       :on    {:ws/closed   {:target :reconnecting
-                             :action :bump-retry}
-               :ws/error    {:target :reconnecting
-                             :action :bump-retry}
+       ;; (per [005 §Transition resolution]). Any transport-level close during
+       ;; :connecting / :authenticating / :connected routes through here.
+       ;; :ws/closed is epoch-guarded like every socket-sourced event, so a
+       ;; close from a socket we've already replaced can't tear down the live
+       ;; connection; :on-socket-lost bumps the retry counter AND fails every
+       ;; in-flight request (see above).
+       :on    {:ws/closed   {:guard  :current-socket?
+                             :target :reconnecting
+                             :action :on-socket-lost}
                :ws/fatal    {:target :failed
                              :action :record-error}
                :ws/send     {:action :enqueue-message}
                :ws/refresh-token {:action :refresh-token}
                ;; A request issued before the connection is :connected is
-               ;; queued like any other send (the request-id is preserved
-               ;; in the queued body); the active leaf overrides for the
-               ;; :connected case below.
+               ;; queued like any other send (the whole event is buffered, so
+               ;; its :request-id survives); the :connected leaf overrides
+               ;; below.
                :ws/request  {:action :enqueue-message}}
 
        :initial :connecting
 
        :states
        {:connecting
-        {:on {:ws/opened {:target :authenticating}}}
+        ;; Guarded like every socket-sourced lifecycle event: an :ws/opened
+        ;; from a socket we've already replaced (a slow open landing after a
+        ;; disconnect+reconnect) must not advance THIS connection.
+        {:on {:ws/opened {:guard  :current-socket?
+                          :target :authenticating}}}
 
         :authenticating
         {:entry :send-auth
-         :on    {:ws/auth-ok     {:target :connected}
-                 :ws/auth-failed {:target [:failed]
+         ;; Both auth outcomes are epoch-guarded: a straggler :ws/auth-ok from
+         ;; a replaced socket must not prematurely mark us :connected, and a
+         ;; straggler :ws/auth-failed must not tear a fresh attempt to :failed.
+         :on    {:ws/auth-ok     {:guard  :current-socket?
+                                  :target :connected}
+                 :ws/auth-failed {:guard  :current-socket?
+                                  :target [:failed]
                                   :action :record-error}}}
 
         :connected
         {:entry  :on-connected
          :always [{:guard :has-queued-messages? :action :flush-queue}]
-         :on     {;; Pushed server event with no correlation id — forward.
-                  ;; The :current-socket? guard suppresses messages dispatched
-                  ;; in-flight from a prior socket whose destroy hadn't
-                  ;; flushed by the time the dispatch landed.
+         :on     {;; Inbound message — the :current-socket? guard suppresses a
+                  ;; straggler dispatched in-flight from a prior socket whose
+                  ;; destroy hadn't flushed by the time the dispatch landed. A
+                  ;; body carrying a :request-id is a correlated reply; without
+                  ;; one it's a server push. Either way the body flows through
+                  ;; the generic :ws/handle-message handler.
                   :ws/received {:guard  :current-socket?
-                                :action (fn [{:keys [data] [_ {:keys [body] :as ev}] :event}]
+                                :action (fn [{:keys [data] [_ {:keys [body]}] :event}]
                                           (if-let [rid (:request-id body)]
-                                            ;; Correlated reply — look up
-                                            ;; the in-flight entry and
-                                            ;; dispatch the registered
-                                            ;; reply event; clear the slot.
+                                            ;; Correlated reply — clear the
+                                            ;; in-flight slot, hand the body to
+                                            ;; :ws/handle-message, and fire the
+                                            ;; registered reply event.
                                             (let [{:keys [reply-event]}
                                                   (get-in data [:in-flight rid])]
                                               {:data (update data :in-flight dissoc rid)
-                                               :fx   (when reply-event
-                                                       [[:dispatch (conj reply-event body)]])})
+                                               :fx   (cond-> [[:dispatch [:ws/handle-message body]]]
+                                                       reply-event
+                                                       (conj [:dispatch (conj reply-event body)]))})
                                             ;; Server push — translate to a
                                             ;; named running-app event.
                                             {:fx [[:dispatch [:ws/handle-message body]]]}))}
@@ -280,7 +336,7 @@ The connection machine composes the locked substrate:
                   ;; Override the parent's :ws/send: while :connected the
                   ;; message goes straight to the wire instead of queueing.
                   :ws/send    {:action (fn [{:keys [data] [_ msg] :event}]
-                                         {:fx [[:dispatch [(:socket-id data)
+                                         {:fx [[:dispatch [(socket-id data)
                                                            [:send msg]]]]})}
 
                   ;; Override the parent's :ws/request: while :connected
@@ -345,7 +401,7 @@ To subscribe / unsubscribe at runtime, the running app dispatches sub/unsub even
 :ws/subscribe
 {:action (fn [{:keys [data] [_ topic] :event}]
            {:data (update data :subscriptions conj topic)
-            :fx   [[:dispatch [(:socket-id data) [:send {:type :subscribe :topic topic}]]]]})}
+            :fx   [[:dispatch [(socket-id data) [:send {:type :subscribe :topic topic}]]]]})}
 ```
 
 (Wire the slot into `:connected`'s `:on` map alongside `:ws/received` and `:ws/send`.) The exact subscribe-message wire format is application-specific; the pattern is "track in `:data`, re-issue on `:connected` entry."
@@ -356,8 +412,9 @@ Request-reply protocols carry a correlation id on every request and matching rep
 
 1. **Caller dispatches `[:ws/connection [:ws/request {:request-id ..., :body ..., :reply [::handler ...], :timeout-ms 10000}]]`.**
 2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout.
-3. **`:ws/received` arrives with `{:body {:request-id ... :result ...}}`.** The `:connected` state's handler checks the connection-epoch guard (`:current-socket?`) and then branches: a body carrying `:request-id` looks up the in-flight entry and dispatches the registered reply event; a body without `:request-id` is a server push and routes to `:ws/handle-message`. Either branch clears the in-flight slot when correlated.
+3. **`:ws/received` arrives with `{:body {:request-id ... :result ...}}`.** The `:connected` state's handler checks the connection-epoch guard (`:current-socket?`), hands the body to the generic `[:ws/handle-message body]` handler, and — when the body carries a `:request-id` — also looks up the in-flight entry, clears the slot, and dispatches the registered reply event. A body without `:request-id` is a pure server push that only routes to `:ws/handle-message`.
 4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry; the caller's reply event never fires. (Apps that want to surface "request timed out" to the caller can do so by dispatching a per-feature error event from `:clear-request` instead.)
+5. **Connection loss fails the slot.** When the live socket drops (`:ws/closed` → `:reconnecting`), `:on-socket-lost` fails every still-in-flight request — each `:reply-event` fires with `{:ok false :error :ws/connection-lost}` and `:in-flight` is cleared — so no correlation slot leaks across the reconnect and no caller hangs. Loss semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution.
 
 The correlation id can be any `=`-comparable value — a `(random-uuid)` is the canonical default, but per-feature `[:feature/load slug]` vectors compose with [Spec 014 §`:request-id` (internal)](014-HTTPRequests.md#request-id-internal)'s precedent. Each request-reply *over* the open socket is a Pattern-AsyncEffect interaction; the connection machine is the long-lived host that performs the correlation step Pattern-AsyncEffect leaves to the caller.
 
@@ -396,10 +453,11 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Mutating `app-db` from the `onmessage` callback directly.** The fx-handler must dispatch a named event; the event handler does the write. Same rule as Pattern-AsyncEffect.
 - **Per-message machine-spawn-and-destroy.** The connection machine is long-lived. Spawning a new machine per outgoing message is structural overkill — use a single connection machine with `:in-flight` correlation tracking instead.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across message boundaries is state-machine-shaped. Use this pattern.
-- **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data`.
+- **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data` — under the runtime-maintained `:rf/spawned` slot.
+- **Leaking in-flight requests when the socket drops.** A request already on the wire when the connection is lost can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after reconnect and the slot never clears). Fail each on loss — fire its `:reply-event` with `{:ok false :error :ws/connection-lost}` and clear `:in-flight` (the worked example's `:on-socket-lost`) — so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
 - **Anchoring the `:spawn` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
 - **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:auth-token` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a token expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/refresh-token` slot at the parent level.
-- **Skipping the connection-epoch check on `:ws/received`.** Without `:current-socket?` (or equivalent), a slow `:message` event from a torn-down socket can land in `:connected` after a reconnect and be processed against the new connection's `:in-flight` map — at best a wrong-reply dispatch; at worst an in-flight slot cleared by a stale correlation id. The check is one line; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
+- **Skipping the connection-epoch check on socket-sourced events.** Without `:current-socket?` (or equivalent) on `:ws/received` **and** on the lifecycle transitions `:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`, `:ws/closed`, a slow event from a torn-down socket can land after a reconnect and act on the fresh connection: a stale `:message` processed against the new `:in-flight` map (wrong-reply dispatch, or a slot cleared by a stale correlation id), or a stale `:ws/closed` tearing the live connection back to `:reconnecting`. The guard is one key; skipping it is the websocket equivalent of [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression)'s nav-token bug.
 - **Hardcoding the wire format in the pattern.** EDN, JSON, MessagePack, Protobuf — the connection machine doesn't care. The `:websocket/socket` actor serialises on send and deserialises on receive; the machine sees plain Clojure values.
 
 ## Composition with related patterns
