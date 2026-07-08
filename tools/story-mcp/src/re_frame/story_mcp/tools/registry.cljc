@@ -78,7 +78,7 @@
 (def gated-input-keys
   "The input-property keys the DEFAULT `tools/list` profile gates off
   behind an operator-only gate. Today: `:include-sensitive`
-  — baked into six value-surfacing tools' descriptors at load time and
+  — baked into five value-surfacing tools' descriptors at load time and
   stripped from the default wire surface by `strip-include-sensitive`
   when `--allow-sensitive-reads` is closed. As STRINGS (the
   descriptor-manifest row shape stringifies input keys), so the
@@ -131,12 +131,14 @@
   The `:include-sensitive` slot is stripped from every tool's input
   schema when the operator-only gate (`config/sensitive-reads-allowed?`)
   is closed — agents shouldn't see an opt-in they can't exercise. The
-  affected tools — the six that surface live or plan-resolved frame
-  VALUES (`preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
-  `explain-variant`, `record-as-variant`) — silently ignore
+  affected tools — the five that surface live or plan-resolved frame
+  VALUES (`preview-variant`, `run-variant`, `read-failures`,
+  `read-a11y-violations`, `record-as-variant`) — silently ignore
   caller-supplied `:include-sensitive true` at the helper layer
-  regardless, so the descriptor strip is purely a UX improvement and a
-  defence-in-depth signal."
+  regardless (`explain-variant` is NOT in this set (rf2-7k5mce): it is
+  a no-run projection over the registry, so it ships author data raw
+  like `get-variant` and carries no gate knob), so the descriptor
+  strip is purely a UX improvement and a defence-in-depth signal."
   []
   (let [strip? (not (config/sensitive-reads-allowed?))]
     (mapv (fn [{:keys [name description inputSchema outputSchema annotations typicalTokens]}]

@@ -202,10 +202,11 @@
 
 (defn with-include-sensitive
   "Inject the `:include-sensitive` slot into a tool's `:properties`
-  map. Used by the six tools that surface a live or plan-resolved frame
-  VALUE — `preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
-  `explain-variant`, `record-as-variant` (the affected set is the single
-  source of truth at `registry/tool-descriptors` §Sensitive-read gate).
+  map. Used by the five tools that surface a live or plan-resolved frame
+  VALUE — `preview-variant`, `run-variant`, `read-failures`,
+  `read-a11y-violations`, `record-as-variant` (the affected set is the single
+  source of truth at `registry/tool-descriptors` §Sensitive-read gate;
+  `explain-variant` is excluded — it ships author data raw, rf2-7k5mce).
 
   The slot is baked into the static descriptor at load time and
   stripped at `tools/list` time by `registry/tool-descriptors` when the
