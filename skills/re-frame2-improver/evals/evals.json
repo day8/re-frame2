@@ -215,6 +215,38 @@
         "The output's fix validates the RAW value with an ALWAYS-ON check — an unconditional m/validate / m/coerce over params in the body (NOT behind a goog.DEBUG guard), OR a validating cofx/interceptor that materialises + validates before the write — and it does NOT prescribe (re-)adding :rf.schema/at-boundary (already present and useless for a body-read boundary).",
         "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/schemas.md and/or spec/010-Schemas.md)."
       ]
+    },
+    {
+      "id": 29,
+      "kind": "behavioural",
+      "name": "behav-reactive-subscribe-in-handler",
+      "dimension": "critique-correctness",
+      "leaf": "imperative-effects.md",
+      "prompt": "Review this re-frame2 handler for anti-patterns:\n\n(rf/reg-event :cart/recompute-total\n  (fn [{:keys [db]} _]\n    (let [items @(rf/subscribe [:cart/items])\n          total (reduce + 0 (map :price items))]\n      {:db (assoc-in db [:cart :total] total)})))",
+      "expected_output": "The agent recognises a REACTIVE subscription opened inside a handler body — `@(rf/subscribe [:cart/items])` establishes a reaction in the drain-loop's evaluation context that is never disposed, leaking until GC (imperative-effects.md read-signals; the DO-flag rule 2). It flags the leak with the reactive deref as the concrete symptom, loads references/imperative-effects.md, and routes the fix to a NON-reactive read — `rf/subscribe-once` for a one-shot value, or reading the value from the coeffect map / event payload / directly from `db` — NOT leaving the `@(rf/subscribe …)` in place. It distinguishes this reactive deref from the shipped one-shot `rf/subscribe-once` (which, in a handler, is legitimate — the false-positive case, eval 23), so the finding is precise, not a blanket 'no subscriptions in handlers'.",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and references/imperative-effects.md is read.",
+        "The output FLAGS the reactive @(rf/subscribe [:cart/items]) opened inside the handler body as a leaked reaction — it establishes a reaction in the drain-loop context that is never disposed (cites the reactive deref as the symptom).",
+        "The output's fix replaces the reactive read with a NON-reactive one — rf/subscribe-once for a one-shot value, OR reading from the coeffect map / event payload / directly from db — it does NOT leave the @(rf/subscribe …) in place.",
+        "The output distinguishes the reactive @(rf/subscribe …) (which leaks) from the shipped one-shot rf/subscribe-once (legitimate in a handler) — it does NOT blanket-flag all in-handler subscriptions.",
+        "The output cross-links the canonical idiom (references/imperative-effects.md read-signals / spec/006-ReactiveSubstrate.md §subscribe-once)."
+      ]
+    },
+    {
+      "id": 30,
+      "kind": "behavioural",
+      "name": "behav-subscribe-once-in-machine-callback",
+      "dimension": "critique-correctness",
+      "leaf": "imperative-effects.md",
+      "prompt": "Spot any re-frame2 anti-patterns in this machine:\n\n(rf/reg-machine :checkout\n  {:initial :reviewing\n   :data    {}\n   :states\n   {:reviewing\n    {:on {:submit\n          {:target :placing\n           :guard (fn [_] (>= (rf/subscribe-once [:cart/total]) 50))}}}\n    :placing\n    {:entry (fn [{:keys [data]}]\n              {:data (assoc data :vip? (rf/subscribe-once [:user/vip?]))})\n     :on {:confirmed :done}}\n    :done {}}})",
+      "expected_output": "The agent recognises that `rf/subscribe-once` — legitimate in a plain event handler — is an anti-pattern INSIDE a machine callback. Here it is called in the `:reviewing` transition `:guard` and in the `:placing` `:entry`: an in-callback ambient app-db read is UNRECORDED on the machine's causal context, so an epoch-restore / replay can resolve a DIFFERENT transition (the guard) or fold a different `:data` value (the entry) — spec/005 §Causal host facts; spec/006 §subscribe-once (the DO-flag rule 3). It loads references/imperative-effects.md, flags BOTH callbacks, and routes the fix to PAYLOAD THREADING (the `:submit` event carries the cart total; the entry's fact rides its triggering event) OR a DECLARED RECORDABLE coeffect on the machine's `:rf.cofx` record — NOT an ambient subscribe-once left in the callback. Critically it does NOT wave the reads through by appealing to the 'subscribe-once in a handler is fine' rule — the context differs (handler = legitimate; machine :guard/:action/:entry/:exit = flag).",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and references/imperative-effects.md is read (the subscribe-once-in-machine-callback rule).",
+        "The output FLAGS the rf/subscribe-once calls inside the machine's :guard (:reviewing→:placing) AND :entry (:placing) — even though subscribe-once in a plain handler is legitimate, inside a machine callback it is a finding.",
+        "The output identifies the replay-determinism cost: an in-callback ambient read is unrecorded on the machine's causal context, so an epoch-restore / replay can select a DIFFERENT transition or fold a different :data value (cites spec/005-StateMachines.md §Causal host facts and/or spec/006-ReactiveSubstrate.md §subscribe-once).",
+        "The output's fix is PAYLOAD THREADING (the triggering event carries the fact — e.g. :submit carries the cart total) OR a DECLARED RECORDABLE coeffect on the machine's :rf.cofx record — NOT an ambient subscribe-once left in the callback.",
+        "The output does NOT wave the machine-callback subscribe-once through by appealing to the 'subscribe-once in a handler is fine' rule — it recognises the context differs (handler = legitimate; machine :guard/:action/:entry/:exit = flag)."
+      ]
     }
   ]
 }
