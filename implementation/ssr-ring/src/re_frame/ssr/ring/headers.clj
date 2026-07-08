@@ -94,31 +94,50 @@
     headers-map
     cookies))
 
-(defn headers->ring-map+default-content-type
+(defn strip-header
+  "Remove every entry whose name equals `header-name` (case-insensitively)
+  from a Ring header map. RFC 7230 §3.2 makes header names case-insensitive
+  tokens, and `merge-pair-into-header-map` preserves whatever casing the fx
+  supplied, so a header can land under any casing (`Content-Type`,
+  `content-type`, `CONTENT-TYPE`, …); we drop EVERY key whose lower-case
+  matches. Shared by the `:content-type` override
+  (`headers->ring-map+content-type-override`) and the Content-Length strip
+  (`strip-content-length`) so both single-source the case-insensitive
+  header-removal rule."
+  [headers-map header-name]
+  (let [target (str/lower-case (str header-name))]
+    (into {}
+          (remove (fn [[k _v]] (= target (str/lower-case (str k)))))
+          headers-map)))
+
+(defn headers->ring-map+content-type-override
   "Collapse an ordered vec-of-[name value] pairs into Ring's
-  `{name string-or-vec}` shape, defaulting `Content-Type` to
-  `content-type` (case-insensitive) in the SAME single pass when the
-  pairs don't already declare one (rf2-uj9z8). Folds each pair into the
-  accumulator AND lower-cases each name once to flag whether
-  `Content-Type` was seen, appending the default at the end iff not and
-  iff `content-type` is non-nil.
+  `{name string-or-vec}` shape, then apply the handler's `:content-type`
+  OVERRIDE (rf2-nncni3): when `content-type` is non-nil, EVERY existing
+  Content-Type entry (any casing — RFC 7230 §3.2) is stripped from the
+  folded map and a single canonical `Content-Type` header carrying
+  `content-type` is assoc'd. A nil `content-type` leaves the folded map
+  untouched — the runtime's default-seeded (Spec 011 §Status defaults) or
+  app-`:rf.server/set-header`-set Content-Type flows to the wire verbatim.
 
-  Case-insensitive Content-Type detection (rf2-depii) covers every
-  casing variant (`CONTENT-TYPE`, `CoNtEnT-TyPe`, …) per RFC 7230 §3.2
-  (header names are tokens; tokens are case-insensitive) — a mixed-case
-  caller header must NOT get a duplicate default appended.
+  Why an OVERRIDE, not the earlier default-when-absent (rf2-uj9z8): the SSR
+  runtime's `default-response` ALWAYS seeds
+  `[\"content-type\" \"text/html; charset=utf-8\"]` on the accumulator, so a
+  default-when-absent pass could NEVER fire for the ssr-ring runtime — the
+  Content-Type was unconditionally already present, so the handler's
+  documented `:content-type` opt was silently suppressed (rf2-nncni3). The
+  opt is now a genuine override; it defaults to nil (removed from
+  `handler-defaults` and `stream-handler`'s defaults merge), so an app's
+  explicit `:rf.server/set-header \"content-type\"` stays in control when
+  the caller does not pass the opt.
 
-  Ordering: the PER-NAME ordering of multi-valued headers (multiple
-  `Set-Cookie` entries) is preserved by `merge-pair-into-header-map`'s
-  `conj`. The ACROSS-NAME ordering is the JDK's HAMT iteration order —
-  stable but not first-seen order; Ring servers don't promise cross-name
-  header order on the wire either."
+  Ordering / multi-value semantics of the fold are unchanged
+  (`merge-pair-into-header-map`): per-name multi-value order preserved via
+  `conj`, across-name order is the JDK HAMT iteration order — stable but
+  not first-seen; Ring servers don't promise cross-name header order on the
+  wire either."
   [pairs content-type]
-  (let [step (fn [[m saw-ct?] [k v :as pair]]
-               [(merge-pair-into-header-map m pair)
-                (or saw-ct?
-                    (= "content-type" (str/lower-case (str k))))])
-        [m saw-ct?] (reduce step [{} false] pairs)]
-    (if (or saw-ct? (nil? content-type))
+  (let [m (reduce merge-pair-into-header-map {} pairs)]
+    (if (nil? content-type)
       m
-      (assoc m "Content-Type" content-type))))
+      (assoc (strip-header m "content-type") "Content-Type" content-type))))

@@ -20,13 +20,13 @@
        alt-host response, so it must NOT silently honour the retired keys.
        Pinned here directly.
 
-    2. `headers->ring-map+default-content-type` POSITIVE paths — the
-       suppression path (a caller Content-Type in any casing suppresses
-       the default) is covered by `ring_test/content-type-default-no-
-       duplicate-on-mixed-case`. The complementary contracts were not:
-         (a) the default IS appended when the pairs declare no
-             Content-Type,
-         (b) a `nil` `content-type` arg means NO default is appended,
+    2. `headers->ring-map+content-type-override` paths (rf2-nncni3) — the
+       override-strips-existing path (a non-nil override replaces any-casing
+       Content-Type) is covered by `ring_test/content-type-override-
+       replaces-any-casing`. The complementary contracts here:
+         (a) the override IS set when the pairs declare no Content-Type,
+         (b) a `nil` `content-type` arg is NO override — the folded map
+             (runtime seed / app-set Content-Type) flows verbatim,
          (c) repeated header names collapse into a vector
              (`merge-pair-into-header-map`'s string→vector→conj arms),
        the last being the load-bearing multi-valued-header round-trip
@@ -231,36 +231,43 @@
       (is (= "5" loc) "the non-string target is coerced via str"))))
 
 ;; ===========================================================================
-;; headers->ring-map+default-content-type — POSITIVE default-append +
-;; nil-content-type paths (the suppression path is covered by
-;; ring_test/content-type-default-no-duplicate-on-mixed-case)
+;; headers->ring-map+content-type-override — override-when-present +
+;; nil-content-type passthrough (rf2-nncni3). The override-strips-existing
+;; path across every casing is covered by
+;; ring_test/content-type-override-replaces-any-casing.
 ;; ===========================================================================
 
-(deftest content-type-default-appended-when-absent
-  (testing "rf2-ynjts.14: pairs that declare no Content-Type get the default
-            appended (the positive complement of the suppression test)"
-    (let [result (headers/headers->ring-map+default-content-type
+(deftest content-type-override-sets-when-pairs-carry-none
+  (testing "rf2-nncni3: pairs that declare no Content-Type get the override
+            value set (with no existing Content-Type, override = assoc)"
+    (let [result (headers/headers->ring-map+content-type-override
                    [["X-Custom" "v"]]
                    "text/html; charset=utf-8")]
       (is (= "text/html; charset=utf-8" (get result "Content-Type"))
-          "default Content-Type appended when the pairs carry none")
+          "the override Content-Type is set when the pairs carry none")
       (is (= "v" (get result "X-Custom")) "other pairs survive the fold"))))
 
-(deftest content-type-no-default-when-content-type-arg-nil
-  (testing "rf2-ynjts.14: a nil `content-type` arg means NO default is
-            appended even when the pairs declare none — the caller opted
-            out of defaulting (the redirect path passes nil)"
-    (let [result (headers/headers->ring-map+default-content-type
+(deftest content-type-nil-override-leaves-pairs-untouched
+  (testing "rf2-nncni3: a nil `content-type` arg is NO override — the folded
+            map flows verbatim, so the runtime seed / app-set Content-Type
+            stays in control (the redirect path passes nil)"
+    (let [result (headers/headers->ring-map+content-type-override
                    [["X-Custom" "v"]]
                    nil)]
       (is (not (contains? result "Content-Type"))
-          "no Content-Type key when the default arg is nil and pairs carry none")
-      (is (= "v" (get result "X-Custom"))))))
+          "no Content-Type key when the override is nil and pairs carry none")
+      (is (= "v" (get result "X-Custom"))))
+    (testing "a nil override preserves a caller-supplied Content-Type verbatim"
+      (let [result (headers/headers->ring-map+content-type-override
+                     [["content-type" "application/json"]]
+                     nil)]
+        (is (= "application/json" (get result "content-type"))
+            "the accumulator's own Content-Type survives an absent override")))))
 
-(deftest empty-pairs-with-nil-default-yields-empty-map
-  (testing "rf2-ynjts.14: empty pairs + nil default → empty header map (no
+(deftest empty-pairs-with-nil-override-yields-empty-map
+  (testing "rf2-nncni3: empty pairs + nil override → empty header map (no
             spurious keys)"
-    (is (= {} (headers/headers->ring-map+default-content-type [] nil)))))
+    (is (= {} (headers/headers->ring-map+content-type-override [] nil)))))
 
 ;; ===========================================================================
 ;; merge-pair-into-header-map — repeated names collapse into a vector
@@ -309,7 +316,7 @@
                (headers/merge-pair-into-header-map ["X-Count" 5])
                (headers/merge-pair-into-header-map ["X-Count" 6])))
         "two non-string values under one name collapse to a vector of strings")
-    (let [result (headers/headers->ring-map+default-content-type
+    (let [result (headers/headers->ring-map+content-type-override
                    [["X-Count" 5]
                     ["X-Count" 6]
                     ["X-Other" "keep"]]
@@ -321,7 +328,7 @@
       (is (= "keep" (get result "X-Other"))
           "headers folded AFTER the repeat are NOT wiped (no nil-map)")
       (is (= "text/html" (get result "Content-Type"))
-          "the defaulted Content-Type survives — the map was never nulled"))))
+          "the override Content-Type is set — the map was never nulled"))))
 
 ;; ===========================================================================
 ;; merge-pair-into-header-map — dev-gated warning on a non-string value
@@ -383,7 +390,7 @@
   (testing "rf2-ynjts.14: the full fold collapses repeated names into a
             vector AND keeps singletons scalar in one pass — the contract
             the materialiser relies on for multi-valued headers"
-    (let [result (headers/headers->ring-map+default-content-type
+    (let [result (headers/headers->ring-map+content-type-override
                    [["Set-Cookie" "a=1"]
                     ["Set-Cookie" "b=2"]
                     ["X-One" "only"]]

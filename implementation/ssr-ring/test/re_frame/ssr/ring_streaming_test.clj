@@ -983,6 +983,43 @@
           "Content-Type default survives the strip — only Content-Length
            is removed"))))
 
+;; ===========================================================================
+;; rf2-nncni3 — the stream-handler :content-type opt is honored on the wire
+;;
+;; The streaming path threads `:content-type` into the same materialiser as
+;; the non-streaming handler. A custom opt must force-replace the runtime's
+;; default-seeded text/html on the streamed head; omitting it leaves the
+;; default in control. (Parity with the non-streaming coverage in ring_test.)
+;; ===========================================================================
+
+(deftest stream-handler-honors-custom-content-type-opt
+  (testing "rf2-nncni3: a custom :content-type opt force-replaces the
+            default-seeded text/html on the STREAMED response head — no
+            duplicate content-type key, and the body still streams in full"
+    (let [handler  (ssr-ring/stream-handler
+                     {:initial-events [[:rf.test.server/init]]
+                      :root-view      [:test/root]
+                      :content-type   "application/xhtml+xml; charset=utf-8"
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          headers  (:headers response)
+          ct       (some (fn [[k v]]
+                           (when (= "content-type" (clojure.string/lower-case (str k))) v))
+                         headers)
+          ct-keys  (filter (fn [k] (= "content-type" (clojure.string/lower-case (str k))))
+                           (keys headers))
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)))
+      (is (= 1 (count ct-keys))
+          (str "exactly one content-type key on the streamed head, no "
+               "duplicate — keys: " (pr-str (keys headers))))
+      (is (= "application/xhtml+xml; charset=utf-8" ct)
+          "the custom :content-type opt is on the streamed head, not text/html")
+      (is (str/includes? body "<!DOCTYPE html>")
+          "the streamed body is still emitted in full (override did not break it)")
+      (is (str/includes? body "Article A")
+          "the resolved body content streamed"))))
+
 ;; ---- :html-shell is rejected at construction (rf2-oq4m5) -----------------
 ;;
 ;; The non-streaming `ssr-handler` honours a one-piece `:html-shell` fn;

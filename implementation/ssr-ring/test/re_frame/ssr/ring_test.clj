@@ -2022,41 +2022,120 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
-;; rf2-depii — Content-Type default is case-insensitive (no duplicate)
+;; rf2-nncni3 / rf2-depii — Content-Type override strips any casing (no dup)
 ;;
-;; `headers->ring-map+default-content-type` defaults Content-Type only
-;; when the pairs don't already declare one — and the detection is
-;; case-insensitive, so any casing (CONTENT-TYPE, CoNtEnT-TyPe) of a
-;; caller-supplied header suppresses the default. RFC 7230 §3.2 —
-;; header names are tokens; tokens are case-insensitive.
+;; `headers->ring-map+content-type-override` force-replaces the accumulator's
+;; Content-Type with a non-nil override, stripping EVERY existing
+;; Content-Type entry regardless of casing (CONTENT-TYPE, CoNtEnT-TyPe, …)
+;; before assoc'ing the single canonical `Content-Type`. RFC 7230 §3.2 —
+;; header names are case-insensitive tokens, so the strip must catch every
+;; casing or a stale duplicate would ride the wire.
 ;;
-;; rf2-ee38b.11 — re-pointed at the live single-pass fn (the prior
-;; `ensure-content-type` / `headers->ring-map` helpers were orphaned by
-;; the rf2-uj9z8 single-pass refactor and have been deleted). The live
-;; fn is the production path, so the test now gives real confidence.
+;; (rf2-nncni3 replaces the prior rf2-depii default-when-absent premise: the
+;; opt is now a genuine OVERRIDE, so the override value wins — not the
+;; caller's accumulator pair.)
 ;; ===========================================================================
 
-(deftest content-type-default-no-duplicate-on-mixed-case
-  (testing "rf2-depii: a preexisting Content-Type pair in ANY casing
-            suppresses the default — exactly one content-type key in the
-            folded Ring header map, carrying the CALLER's value"
+(deftest content-type-override-replaces-any-casing
+  (testing "rf2-nncni3: a non-nil override strips a preexisting Content-Type
+            in ANY casing and leaves exactly one canonical key carrying the
+            OVERRIDE value — no duplicate, no casing survivor"
     (let [fold (requiring-resolve
-                 're-frame.ssr.ring.headers/headers->ring-map+default-content-type)]
+                 're-frame.ssr.ring.headers/headers->ring-map+content-type-override)]
       (doseq [casing ["content-type"
                       "Content-Type"
                       "CONTENT-TYPE"
                       "CoNtEnT-TyPe"
                       "content-Type"]]
-        (let [pairs  [[casing "application/json"]]
-              result (fold pairs "text/html; charset=utf-8")
+        (let [pairs   [[casing "application/json"]]
+              result  (fold pairs "text/html; charset=utf-8")
               ct-keys (filter (fn [k] (= "content-type" (str/lower-case (str k))))
                               (keys result))]
           (is (= 1 (count ct-keys))
               (str "casing " (pr-str casing)
-                   " — exactly one content-type key after the fold, no duplicate"))
-          (is (= "application/json" (get result (first ct-keys)))
+                   " — exactly one content-type key after the override, no duplicate"))
+          (is (= "text/html; charset=utf-8" (get result (first ct-keys)))
               (str "casing " (pr-str casing)
-                   " — the caller's Content-Type value wins, not the default")))))))
+                   " — the override value wins over the accumulator's pair")))))))
+
+;; ===========================================================================
+;; rf2-nncni3 — the handler :content-type opt is honored on the wire
+;;
+;; The documented `:content-type` opt was a silent no-op: the runtime always
+;; seeds a Content-Type on the accumulator, so the earlier default-when-absent
+;; fold could never apply the opt. It is now a genuine OVERRIDE. These tests
+;; pin the wire contract end-to-end through the full non-streaming handler:
+;;   (a) a custom opt force-replaces the default seed on the wire,
+;;   (b) omitting the opt leaves the runtime's text/html seed unchanged,
+;;   (c) omitting the opt leaves an app-set `:rf.server/set-header`
+;;       Content-Type in control (the opt no longer clobbers it).
+;; ===========================================================================
+
+(defn- response-content-type
+  "The single content-type header value on a Ring response (any casing),
+  or nil. Also asserts (via the returned key count) there is no duplicate."
+  [response]
+  (some (fn [[k v]] (when (= "content-type" (str/lower-case (str k))) v))
+        (:headers response)))
+
+(defn- response-content-type-key-count
+  [response]
+  (count (filter (fn [k] (= "content-type" (str/lower-case (str k))))
+                 (keys (:headers response)))))
+
+(deftest ssr-handler-honors-custom-content-type-opt
+  (testing "rf2-nncni3: a custom :content-type opt force-replaces the
+            runtime's default-seeded text/html on the wire — the documented
+            opt is no longer a silent no-op, and no duplicate key survives"
+    (rf/reg-event :init/ct-ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/ct-body (fn [] [:div "body"]))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:init/ct-ok]]
+                      :root-view      [:pages/ct-body]
+                      :content-type   "application/xhtml+xml; charset=utf-8"
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})]
+      (is (= 200 (:status response)))
+      (is (= 1 (response-content-type-key-count response))
+          "exactly one content-type key — the override left no duplicate")
+      (is (= "application/xhtml+xml; charset=utf-8"
+             (response-content-type response))
+          "the custom :content-type opt is on the wire, not text/html"))))
+
+(deftest ssr-handler-default-content-type-is-html-when-opt-absent
+  (testing "rf2-nncni3: with NO :content-type opt the runtime's default seed
+            (text/html; charset=utf-8) rides the wire unchanged"
+    (rf/reg-event :init/ct-def {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/ct-def-body (fn [] [:div "body"]))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:init/ct-def]]
+                      :root-view      [:pages/ct-def-body]
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          ct       (response-content-type response)]
+      (is (= 1 (response-content-type-key-count response)))
+      (is (str/includes? ct "text/html") "default seed content-type on the wire")
+      (is (str/includes? ct "utf-8")))))
+
+(deftest ssr-handler-app-set-content-type-flows-when-opt-absent
+  (testing "rf2-nncni3: an app `:rf.server/set-header \"content-type\"` stays
+            in control when the handler passes NO :content-type opt — the opt
+            default is nil, so it does not clobber the app's explicit value"
+    (rf/reg-event :init/ct-appset
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:fx [[:rf.server/set-header {:name  "Content-Type"
+                                      :value "application/json"}]]}))
+    (rf/reg-view* :pages/ct-appset-body (fn [] [:div "body"]))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:init/ct-appset]]
+                      :root-view      [:pages/ct-appset-body]
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})]
+      (is (= 1 (response-content-type-key-count response))
+          "exactly one content-type key")
+      (is (= "application/json" (response-content-type response))
+          "the app-set content-type flows to the wire when the opt is absent"))))
 
 ;; ===========================================================================
 ;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
