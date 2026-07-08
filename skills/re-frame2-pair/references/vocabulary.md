@@ -32,9 +32,9 @@ If you arrived here from a source-only / spec-only question, you're in the wrong
   `re-frame.trace.tooling`; `register-listener!` is re-exported on `rf/`,
   `trace-buffer` is a JVM-only `rf/` alias (CLJS callers use the
   `re-frame.trace.tooling` form).
-- **register-epoch-listener!** / **epoch-history** / **restore-epoch** — the
-  assembled-stream listener, the per-frame ring of epoch records, and the
-  time-travel entry point.
+- **register-listener! :epoch** / **epoch-history** / **restore-epoch** — the
+  assembled-stream listener (the `:epoch` stream of `register-listener!`), the
+  per-frame ring of epoch records, and the time-travel entry point.
 - **derivation/process graph** (the EP-0014 algebra view) — the single node-and-edge
   view subscriptions, flows, resources, route facts, and machine selectors all
   lower to (`spec/Derivations.md`: inputs / output / storage class / evaluation
