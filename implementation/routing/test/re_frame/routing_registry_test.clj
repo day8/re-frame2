@@ -1017,17 +1017,14 @@
     (rf/reg-route :route/items
                   {:query [:map
                            [:page [:int {:min 1}]]
-                           [:ratio [:double {:min 0.0}]]
                            [:id [:uuid {}]]
                            [:archived [:boolean {}]]]} "/items")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
           m (routing/match-url
-              (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
+              (str "/items?page=2&id=" uuid-str "&archived=true"))]
       (is (= :route/items (:route-id m)))
       (is (= 2 (get-in m [:query :page]))
           "[:int {:min 1}] coerces \"2\" to 2 (was \"2\" → validation-failed)")
-      (is (= 1.5 (get-in m [:query :ratio]))
-          "[:double {...}] coerces to a number")
       (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
           "[:uuid {...}] coerces to a UUID object")
       (is (true? (get-in m [:query :archived]))
@@ -1058,7 +1055,6 @@
   (testing "optioned scalar :params (path) schemas coerce like bare forms"
     (rf/reg-route :route/page    {:params [:map [:n [:int {:min 1}]]]} "/page/:n")
     (rf/reg-route :route/article {:params [:map [:id [:uuid {}]]]} "/articles/:id")
-    (rf/reg-route :route/double  {:params [:map [:x [:double {:min 0.0}]]]} "/d/:x")
 
     (testing "[:int {:min 1}] path param coerces; validation passes"
       (let [m (routing/match-url "/page/2")]
@@ -1072,11 +1068,6 @@
         (is (= :route/article (:route-id m)))
         (is (= (parse-uuid uuid-str) (get-in m [:params :id])))
         (is (uuid? (get-in m [:params :id])))
-        (is (false? (:validation-failed? m)))))
-
-    (testing "[:double {:min 0.0}] path param coerces to a number"
-      (let [m (routing/match-url "/d/3.14")]
-        (is (= 3.14 (get-in m [:params :x])))
         (is (false? (:validation-failed? m)))))
 
     (testing "an optioned :int path value violating the option still fails"
@@ -1097,6 +1088,75 @@
           "declared enum value interns to :asc even with an opts map")
       (is (= "hostile-value" (get-in m3 [:query :sort]))
           "value outside the allowlist stays a string — no unbounded intern"))))
+
+;; ---- rf2-5s7l6d: :double / decimal route types are rejected at reg-route ----
+;;
+;; A floating-point value has no canonical-EDN identity (`identity/bad-number?`
+;; rejects floats / ratios / NaN / ∞), so a `:double`-typed :params / :query key
+;; breaks the route prism (EP-0012): `match-url` would coerce a URL segment to a
+;; FLOAT, but `route-url` REFUSES to emit that same float — `assert-url-value!`
+;; routes it through `identity/canonical-bytes`, which throws
+;; :rf.error/route-url-non-edn-value (the `[:float 1.5]` case pinned in
+;; routing_url_non_edn_cljs_test). The two prism legs disagree — a URL-driven vs
+;; programmatic-navigation split — and a float diverges across the JVM/CLJS hosts
+;; (an integer-valued `2.0` is even ADMITTED by CEDN on CLJS but rejected on the
+;; JVM), the Spec 011 hydration-mismatch class the `:int` strictness rule already
+;; guards. Rather than silently produce un-round-trippable float route data, we
+;; fail LOUD at the authoring boundary. These tests pin the rejection across the
+;; bare / optioned / :maybe-wrapped shapes, on both the :params and :query slots.
+
+(deftest route-double-decimal-rejected-at-reg-route-rf2-5s7l6d
+  (letfn [(reg-throws [metadata]
+            (try
+              (rf/reg-route :route/dec metadata "/dec/:x")
+              nil
+              (catch clojure.lang.ExceptionInfo e e)))]
+
+    (testing "a bare :double path param is rejected fail-loud at reg-route"
+      (let [ex (reg-throws {:params [:map [:x :double]]})]
+        (is (some? ex) "reg-route with a :double :params key must throw")
+        (is (= :rf.error/route-decimal-unsupported (:rf.error/id (ex-data ex)))
+            "the structured discriminator is :rf.error/route-decimal-unsupported")
+        (is (re-find #"\[:rf\.error/route-decimal-unsupported\]" (ex-message ex))
+            "the message carries the greppable [:rf.error/…] token")
+        (let [data (ex-data ex)]
+          (is (= :route/dec (:route-id data)))
+          (is (= :params (:slot data)))
+          (is (= :x (:param data))))))
+
+    (testing "an OPTIONED [:double {…}] path param is rejected the same way
+              (the properties map does not launder the decimal type)"
+      (let [ex (reg-throws {:params [:map [:x [:double {:min 0.0}]]]})]
+        (is (= :rf.error/route-decimal-unsupported (:rf.error/id (ex-data ex))))))
+
+    (testing "a [:maybe :double] path param is rejected (the wrapper is unwrapped)"
+      (let [ex (reg-throws {:params [:map [:x [:maybe :double]]]})]
+        (is (= :rf.error/route-decimal-unsupported (:rf.error/id (ex-data ex))))))
+
+    (testing "a :double :query key is rejected too — the :query slot is scanned"
+      (let [ex (reg-throws {:query [:map [:ratio :double]]})]
+        (is (= :rf.error/route-decimal-unsupported (:rf.error/id (ex-data ex))))
+        (is (= :query (:slot (ex-data ex))))
+        (is (= :ratio (:param (ex-data ex))))))))
+
+(deftest route-prism-has-no-double-asymmetry-rf2-5s7l6d
+  (testing "with :double rejected, no route can produce float route data, so
+            the match-url/route-url prism can never hit the float asymmetry —
+            the admitted scalar types (:int / :uuid / :string / enum) all
+            round-trip through both legs byte-stably"
+    (rf/reg-route :route/prism
+                  {:params [:map [:id :int]]
+                   :query  [:map [:sort [:enum :asc :desc]] [:q :string]]}
+                  "/prism/:id")
+    (let [url (routing/route-url :route/prism {:id 42} {:sort :desc :q "milk"})
+          m   (routing/match-url url)]
+      (is (= 42 (get-in m [:params :id])) ":int path param round-trips (no float)")
+      (is (= :desc (get-in m [:query :sort])) "enum keyword round-trips")
+      (is (= "milk" (get-in m [:query :q])) ":string query round-trips")
+      ;; route-url ∘ match-url ∘ route-url is the identity on the canonical URL —
+      ;; the EP-0012 prism law, now that no un-round-trippable float can enter.
+      (is (= url (routing/route-url (:route-id m) (:params m) (:query m)))
+          "the prism round-trips byte-stably with only CEDN-admitted types"))))
 
 ;; ---- rf2-dcmkke: keyword-enum route params round-trip through the prism ----
 ;;
@@ -1687,7 +1747,6 @@
             matches a real UUID URL instead of 404ing"
     (rf/reg-route :route/page    {:params [:map [:n :int]]} "/page/:n")
     (rf/reg-route :route/article {:params [:map [:id :uuid]]} "/articles/:id")
-    (rf/reg-route :route/double  {:params [:map [:x :double]]} "/d/:x")
     (rf/reg-route :route/str     {:params [:map [:v :string]]} "/s/:v")
 
     (testing ":int path param coerces to a number; validation passes"
@@ -1706,11 +1765,6 @@
         (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string")
         (is (false? (:validation-failed? m))
             "coerced :uuid conforms to [:id :uuid] — the canonical route matches (was 404)")))
-
-    (testing ":double path param coerces to a number"
-      (let [m (routing/match-url "/d/3.14")]
-        (is (= 3.14 (get-in m [:params :x])))
-        (is (false? (:validation-failed? m)))))
 
     (testing ":string path param stays a string (no coercion); a non-UUID
               for a :uuid route stays a string and fails validation"

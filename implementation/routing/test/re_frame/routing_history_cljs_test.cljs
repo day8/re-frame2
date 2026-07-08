@@ -1029,7 +1029,7 @@
       (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
 
 ;; rf2-fwz29i: OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
-;; `[:uuid {}]`, `[:double {...}]`, `[:boolean {}]`, optioned enums, and
+;; `[:uuid {}]`, `[:boolean {}]`, optioned enums, and
 ;; `[:maybe inner]`) must coerce the URL string identically to the bare
 ;; form on CLJS, exactly as on the JVM. The pre-fix coercion table held the
 ;; raw vector type-form, so the still-string value failed the optioned
@@ -1041,15 +1041,13 @@
     (rf/reg-route :hist/items
                   {:query [:map
                            [:page [:int {:min 1}]]
-                           [:ratio [:double {:min 0.0}]]
                            [:id [:uuid {}]]
                            [:archived [:boolean {}]]]} "/items")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
           m (routing/match-url
-              (str "/items?page=2&ratio=1.5&id=" uuid-str "&archived=true"))]
+              (str "/items?page=2&id=" uuid-str "&archived=true"))]
       (is (= 2 (get-in m [:query :page]))
           "[:int {:min 1}] coerces \"2\" to 2 (was string → 404)")
-      (is (= 1.5 (get-in m [:query :ratio])) "[:double {...}] coerces")
       (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
           "[:uuid {...}] coerces to a UUID object")
       (is (true? (get-in m [:query :archived])) "[:boolean {...}] coerces")
