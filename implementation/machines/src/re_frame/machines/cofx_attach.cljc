@@ -88,7 +88,9 @@
   XState offers NO parity guidance here — it has no replay contract; this
   surface is re-frame2's own (EP-0017 §Rationale — Why consumer attachment
   for machines)."
-  (:require [re-frame.cofx :as cofx]
+  (:require #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn])
+            [re-frame.cofx :as cofx]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -960,6 +962,30 @@
 ;; simply un-ensured, never wrong). We only lint when the `:source-code` slot
 ;; is present (the macro path in dev); the plain-fn / production path skips.
 
+(defn- source-code->form
+  "Best-effort parse the macro-captured `:source-code` into a form for the
+  consume-undeclared token scan. The `reg-machine` / `defmachine` macro stamps
+  `:source-code` as a `pr-str` STRING (via
+  `re-frame.source-coords/walk-element-source` →
+  `collocate-element-source`), so the scan must read it BACK to a form before
+  `tree-seq` — a `tree-seq` over a raw string yields the string as a single
+  LEAF, finding zero keyword tokens, which left the diagnostic dead against
+  real macro output (rf2-wbh50l).
+
+  A non-string `:source-code` (a pre-stringified FORM — the shape the scan's
+  own contract documents and hand-built specs may carry directly) is returned
+  as-is. Returns nil on an unreadable string (an exotic reader macro the EDN
+  reader can't parse) — a tolerated false-NEGATIVE per the recommendation-grade
+  design: an unscanned entry simply leaves an undeclared read un-flagged, never
+  mis-flagged. Uses the SAFE EDN reader (`clojure.edn` / `cljs.reader` — no
+  `#=`/eval, mirroring `re-frame.ssr.boot`)."
+  [source-code]
+  (if (string? source-code)
+    (try
+      (edn/read-string source-code)
+      (catch #?(:clj Throwable :cljs :default) _ nil))
+    source-code))
+
 (defn- emit-consume-undeclared!
   "Emit `:rf.warning/machine-cofx-consume-undeclared` (dev-only diagnostic)."
   [machine-id slot entry-id leaf]
@@ -1004,13 +1030,16 @@
                   (when (and meta (not (:recordable? meta)))
                     (emit-ambient-durable! machine-id slot entry-id id)))))
             ;; (1) consume-without-declaring — heuristic source scan. The
-            ;; macro-captured `:source-code` is a quoted form; scan it for
+            ;; macro-captured `:source-code` is a `pr-str` STRING; parse it
+            ;; back to a form (rf2-wbh50l — a `tree-seq` over the raw string
+            ;; is a single LEAF, so the scan found nothing and the diagnostic
+            ;; never fired against real macro output) then scan it for
             ;; `:rf.cofx`-record leaf reads not covered by `declared`. We
             ;; look for symbol/keyword tokens of the shape `<ns>/<name>`
             ;; destructured beside a `:rf.cofx`/`cofx` binding. Shallow by
             ;; design (a recommendation, not a gate).
-            (when source-code
-              (let [tokens (->> (tree-seq coll? seq source-code)
+            (when-let [form (source-code->form source-code)]
+              (let [tokens (->> (tree-seq coll? seq form)
                                 (filter keyword?)
                                 set)]
                 ;; A declared id appearing as a destructure key is fine; an

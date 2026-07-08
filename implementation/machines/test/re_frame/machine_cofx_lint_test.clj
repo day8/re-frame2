@@ -19,36 +19,37 @@
   Pre-rf2-hh4069 both diagnostics shipped registration-wired with ZERO test
   coverage. This suite pins them.
 
-  ## Findings surfaced while writing these tests (rf2-hh4069)
+  ## rf2-ful212 + rf2-wbh50l (fixed): consume-undeclared alive end-to-end
 
-  Driving the REAL path revealed the consume-undeclared diagnostic is
-  currently UNREACHABLE end-to-end — two interacting bugs, both filed:
+  Driving the REAL path while writing rf2-hh4069's tests revealed the
+  consume-undeclared diagnostic was UNREACHABLE end-to-end — two interacting
+  bugs, both since fixed:
 
     - rf2-wbh50l — the `reg-machine` macro stamps each entry's `:source-code`
       as a `pr-str` STRING (`re-frame.source-coords/walk-element-source` →
-      `collocate-element-source`), but the scan treats `:source-code` as a
+      `collocate-element-source`), but the scan treated `:source-code` as a
       FORM (`(tree-seq coll? seq source-code)`). `tree-seq` over a STRING is a
-      leaf — no keyword tokens — so the scan finds nothing and the diagnostic
-      never fires against real macro output. (`consume-undeclared-*-string`
-      pins this; the `*-form` tests exercise the scan logic against the
-      form-shaped input the code's own contract documents.)
+      leaf — no keyword tokens — so the scan found nothing. FIXED:
+      `lint-machine!` now parses the string back to a form (safe EDN reader,
+      `source-code->form`) before the scan. The `*-form` tests still exercise
+      the scan against form-shaped input; `consume-undeclared-fires-against-
+      macro-string-source` now asserts the STRING path FIRES.
 
     - rf2-ful212 — a machine registered as an INLINE LITERAL (or via
       `defmachine`) whose `:guards` / `:actions` entry is the named cofx form
-      `{:rf.cofx/requires [...] :fn (fn ...)}` is DOUBLE-WRAPPED by
+      `{:rf.cofx/requires [...] :fn (fn ...)}` was DOUBLE-WRAPPED by
       `collocate-element-source` (`{:fn <the-whole-entry-map> :source-code
-      \"...\"}`), nesting `:rf.cofx/requires` under `:fn`. That empties the
-      cofx-ensure index (`by-entry`) AND breaks guard/action resolution
-      (the guard's `:fn` is a map, not a fn → the guard never fires). Only
-      the `def`/let-bound-symbol registration path (which the existing
-      `machine_cofx_attach_test` uses) escapes it.
+      \"...\"}`), nesting `:rf.cofx/requires` under `:fn`. That emptied the
+      cofx-ensure index (`by-entry`) AND broke guard/action resolution (the
+      guard's `:fn` was a map, not a fn → the guard never fired). FIXED:
+      `collocate-element-source` / `wrap-element-fns` now merge source onto an
+      already-shaped entry-map without re-wrapping. (The regression proofs live
+      in `machine_cofx_attach_test`; `consume-undeclared-fires-end-to-end-
+      through-reg-machine` below proves the lint through the real macro path.)
 
-  Because a full fix spans core (`re-frame.source-coords`, out of this
-  worker's machines-only boundary), these tests drive `lint-machine!` the way
-  registration does — `(lint-machine! id (index-ensure-sets machine))` — and
-  register the ambient cases via the `def`/symbol path (no macro stamping) so
-  the by-entry index is intact. The macro end-to-end path is tracked in
-  rf2-ful212 + rf2-wbh50l."
+  The ambient cases still register via the `def`/symbol path (no macro
+  stamping); the `-form` consume cases drive `(lint-machine! id (index-ensure-
+  sets machine))` directly with a hand-built `:source-code`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -230,15 +231,13 @@
 
 ;; ---- the string-shaped :source-code the macro actually stamps -------------
 
-(deftest consume-undeclared-currently-dead-against-macro-string-source
-  (testing "PINS rf2-wbh50l: the reg-machine macro stamps `:source-code` as a
-            pr-str STRING, but the scan does `(tree-seq coll? seq
-            source-code)` — a STRING is a tree-seq LEAF, so no keyword tokens
-            are found and the diagnostic never fires against real macro
-            output. The identical read that fires as a FORM (see -form test
-            above) is silent as a STRING. When rf2-wbh50l lands (parse the
-            string before scanning), flip this to assert the warning DOES
-            fire."
+(deftest consume-undeclared-fires-against-macro-string-source
+  (testing "rf2-wbh50l FIXED: the reg-machine macro stamps `:source-code` as a
+            pr-str STRING; the scan now parses it back to a form (via the safe
+            EDN reader) before `tree-seq`, so the identical read that fires as
+            a FORM (see -form test above) NOW fires as the STRING the macro
+            actually stamps. Previously a STRING was a `tree-seq` LEAF → zero
+            keyword tokens → the diagnostic was dead against real macro output."
     (rf/reg-cofx :lint/declared4   {:recordable? true} (fn [] :D))
     (rf/reg-cofx :lint/undeclared3 {:recordable? true} (fn [] :U))
     (let [m {:initial :idle
@@ -251,10 +250,67 @@
              :states  {:idle {:on {:go {:target :done :guard :g}}}
                        :done {}}}]
       (lint! :lint/consume-string m)
+      (let [w (warns CONSUME)]
+        (is (= 1 (count w))
+            "the scan now reads the STRING source-code as a form (rf2-wbh50l)")
+        (is (= {:machine-id :lint/consume-string
+                :slot       :guards
+                :entry-id   :g
+                :rf.cofx/id :lint/undeclared3}
+               (:tags (first w)))
+            "flags the undeclared registered cofx the fn read")))))
+
+(deftest consume-undeclared-tolerates-unreadable-string-source
+  (testing "an unreadable `:source-code` STRING (an exotic reader macro the
+            safe EDN reader chokes on) is a tolerated false-NEGATIVE: the scan
+            parses nothing and emits no warning rather than throwing —
+            recommendation-grade, never a hard gate (rf2-wbh50l)"
+    (rf/reg-cofx :lint/declared5   {:recordable? true} (fn [] :D))
+    (rf/reg-cofx :lint/undeclared5 {:recordable? true} (fn [] :U))
+    (let [m {:initial :idle
+             :data    {}
+             :guards  {:g {:rf.cofx/requires [:lint/declared5]
+                           :fn (fn [_] true)
+                           ;; `#=` eval / unbalanced form the EDN reader rejects
+                           :source-code "(fn [] #=(str :lint/undeclared5"}}
+             :states  {:idle {:on {:go {:target :done :guard :g}}}
+                       :done {}}}]
+      (is (nil? (lint! :lint/consume-unreadable m))
+          "lint-machine! returns without throwing on an unreadable source")
       (is (empty? (warns CONSUME))
-          "KNOWN BUG (rf2-wbh50l): the scan cannot read a STRING source-code
-           as a form — the diagnostic is dead against real macro output. Flip
-           to `(is (seq (warns CONSUME)))` when fixed."))))
+          "an unreadable source is silently un-scanned, never mis-flagged"))))
+
+;; ---- end-to-end through the REAL reg-machine macro wiring -----------------
+
+(deftest consume-undeclared-fires-end-to-end-through-reg-machine
+  (testing "rf2-ful212 + rf2-wbh50l END-TO-END: a named guard registered as an
+            INLINE LITERAL via `reg-machine` (the macro stamps :source-code as a
+            pr-str STRING and collocates the named-cofx entry) that DECLARES one
+            cofx but READS a different undeclared registered cofx now trips
+            consume-undeclared through the real registration wiring
+            (reg-machine → lint-machine!). This exercises BOTH fixes at once:
+            the entry-shape fix (so the ensure-index sees the entry and
+            lint-machine! iterates it) AND the string-parse fix (so the scan
+            reads the macro-stamped STRING). Before, the diagnostic was
+            doubly-dead — empty index + unscannable string."
+    (rf/reg-cofx :lint/e2e-declared   {:recordable? true} (fn [] :D))
+    (rf/reg-cofx :lint/e2e-undeclared {:recordable? true} (fn [] :U))
+    (rf/reg-machine :lint/e2e-consume
+      {:initial :idle
+       :data    {}
+       :guards  {:g {:rf.cofx/requires [:lint/e2e-declared]
+                     ;; declares :lint/e2e-declared but READS :lint/e2e-undeclared
+                     :fn (fn [{cofx :rf.cofx}]
+                           (some? (:lint/e2e-undeclared cofx)))}}
+       :states  {:idle {:on {:go {:target :done :guard :g}}}
+                 :done {}}})
+    (let [ids (set (map #(:rf.cofx/id (:tags %)) (warns CONSUME)))]
+      (is (contains? ids :lint/e2e-undeclared)
+          "the undeclared registered cofx read is flagged through real macro
+           output — the diagnostic is alive end-to-end")
+      (is (not (contains? ids :lint/e2e-declared))
+          "the DECLARED cofx (present in the :rf.cofx/requires the whole entry
+           map pr-strs into) is NOT flagged — it is in the declared diet"))))
 
 ;; ===========================================================================
 ;; 3. production gate — both lints DCE / no-op under debug-enabled? false
