@@ -26,6 +26,7 @@
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.cursor :as cursor]
             [re-frame2-pair-mcp.tools.trace-window :as tw]))
 
 ;; ---------------------------------------------------------------------------
@@ -223,3 +224,91 @@
                                (is (not (contains? edn :advisory))
                                    "advisory should NOT fire when count > 0")
                                (done))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Cursor paths driven through the REAL trace-window-tool (rf2-j9i3vh).
+;;
+;; Three gaps closed: the MALFORMED-:cursor short-circuit
+;; (trace_window.cljs L71-73), the AGED-OUT branch (L136-139), and — the
+;; asymmetry the bead flagged — trace-window-tool's OWN :next-cursor mint
+;; (L148-154). cursor_pagination_test only ever asserted the slice/mint
+;; logic against a HAND-REIMPLEMENTED copy (`runtime-form-output`); these
+;; drive the actual `trace-window-tool` so a divergence between the real
+;; emitted envelope and the reimplementation can no longer stay green.
+;; ---------------------------------------------------------------------------
+
+(deftest malformed-cursor-returns-cursor-stale
+  (testing "a garbage :cursor short-circuits to the :rf.mcp/cursor-stale envelope before any runtime eval"
+    (async done
+      ;; No eval stub: the malformed branch returns before the runtime
+      ;; round-trip, so an unstubbed socket call would fail the test if it
+      ;; regressed to fall through.
+      (-> (tw/trace-window-tool nil (tu/args->js {:cursor "AAAA"}))
+          (.then (fn [result]
+                   (is (true? (tu/error? result)) "a malformed cursor rides isError")
+                   (let [edn (tu/extract-edn result)]
+                     (is (false? (:ok? edn)))
+                     (is (= :rf.mcp/cursor-stale (:reason edn)))
+                     (is (= "trace-window" (:tool edn)))
+                     (is (string? (:hint edn))))
+                   (done)))))))
+
+(deftest aged-out-ring-returns-cursor-stale
+  (testing ":id-aged-out? true from the runtime trips the cursor-stale envelope through the real tool"
+    (async done
+      (let [script [["__re_frame2_pair_runtime" true]
+                    [:default                    {:epochs        []
+                                                  :id-aged-out?  true
+                                                  :requested-id  :epoch-7
+                                                  :head-id       :epoch-57
+                                                  :next-id       nil
+                                                  :history-count 50
+                                                  :remaining     0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 1000}))
+                    (.then (fn [result]
+                             (is (true? (tu/error? result)))
+                             (let [edn (tu/extract-edn result)]
+                               (is (false? (:ok? edn)))
+                               (is (= :rf.mcp/cursor-stale (:reason edn)))
+                               (is (= "trace-window" (:tool edn)))
+                               (is (= :epoch-7 (:requested-id edn)))
+                               (is (= :epoch-57 (:head-id edn))))
+                             (done)))))))))))
+
+(deftest next-cursor-mint-encodes-sticky-window-and-frame
+  (testing "the REAL trace-window-tool mints a :next-cursor that decodes to the sticky :after-id / :ms / :frame"
+    (async done
+      (let [ring   [{:epoch-id :e1 :committed-at 100}
+                    {:epoch-id :e2 :committed-at 200}]
+            script [["__re_frame2_pair_runtime" true]
+                    [:default {:epochs        ring
+                               :id-aged-out?  false
+                               :requested-id  nil
+                               :head-id       :e3
+                               ;; page short of the full slice ⇒ mint a cursor
+                               :next-id       :e2
+                               :history-count 3
+                               :remaining     1}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (tw/trace-window-tool nil (tu/args->js {:ms 5000 :frame ":rf/default"}))
+                    (.then (fn [result]
+                             (let [edn         (tu/extract-edn result)
+                                   next-cursor (:next-cursor edn)
+                                   decoded     (cursor/decode-cursor next-cursor)]
+                               (is (true? (:ok? edn)))
+                               (is (true? (:has-more? edn)) "a next-id ⇒ has-more?")
+                               (is (some? next-cursor) "the real tool minted a continuation cursor")
+                               (is (not= :re-frame2-pair-mcp.tools.cursor/malformed decoded)
+                                   "the minted cursor round-trips (not malformed)")
+                               (is (= :e2 (:after-id decoded))
+                                   "the cursor resumes after the last emitted epoch id")
+                               (is (= 5000 (:ms decoded))
+                                   "the sticky :ms window rides the cursor for page 2")
+                               (is (= :rf/default (:frame decoded))
+                                   "the sticky frame rides the cursor")
+                               (is (number? (:until-ms decoded))
+                                   "the first-call clock is pinned so page 2 sees the same window"))
+                             (done)))))))))))
