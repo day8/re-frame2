@@ -5,9 +5,12 @@
   → core.
 
   Shares the React-shaped substrate machinery (container quartet,
-  derived value, render-root, render-to-string, frame-provider, use-
-  subscribe, flush-views!, source-coord wrapper, warn-once-cache) with
-  the UIx adapter via `re-frame.substrate.spine`. Helix-specific
+  derived value, render-root, render-to-string, use-subscribe, flush-
+  views!, source-coord wrapper, warn-once-cache) with the UIx adapter
+  via `re-frame.substrate.spine`. The frame-provider CORE
+  (`build-frame-provider-element`) is likewise shared, but the user-
+  facing `frame-provider` is a NATIVE Helix `defnc` in this ns
+  (rf2-z7hfp moved the seam up), NOT a spine re-export. Helix-specific
   configuration: gensym prefixes, substrate name (used in warn-once
   text), and helix.hooks `use-memo*` / `use-callback*` (the spine
   passes JS-array deps unconditionally). The React frame-context
