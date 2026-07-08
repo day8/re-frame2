@@ -1719,7 +1719,14 @@
 (defn- scoped-key-matches?
   "Does the scoped key `[scope rid params]` match the supplied filter
   axes? `scope` / `resource-id` / `params` are compared against the RAW
-  key parts; a nil filter axis is a wildcard.
+  key parts by KEY PRESENCE (rf2-7iw0bw): an axis ABSENT from the filter
+  map is a wildcard; an axis PRESENT — even bound to nil — is an EXACT
+  match. An explicit `:params nil` therefore matches ONLY entries whose
+  scoped key carries nil params, keeping a nil-params resource addressable
+  and DISTINCT from the wildcard. The prior `nil?` test conflated an absent
+  axis with a present-nil one, so an explicit nil scope/params silently
+  widened to a match-everything wildcard (and, for the exact-read accessor,
+  a nil-params entry could never be pinned).
 
   rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1
   byte `key-id` STRING, so the kind-preserving `[scope rid params]` scoped-key
@@ -1727,13 +1734,13 @@
   the map key for a legacy entry that lacks the stamp) — exactly as
   `instance-row` projects. Matching the map key directly would silently match
   NOTHING for live byte-keyed runtime data."
-  [scoped-key {:keys [scope resource-id params]}]
+  [scoped-key {:keys [scope resource-id params] :as key-filter}]
   (let [[ks krid kparams] (if (and (vector? scoped-key) (= 3 (count scoped-key)))
                             scoped-key
                             [nil nil nil])]
-    (and (or (nil? scope)       (= scope ks))
-         (or (nil? resource-id) (= resource-id krid))
-         (or (nil? params)      (= params kparams)))))
+    (and (or (not (contains? key-filter :scope))       (= scope ks))
+         (or (not (contains? key-filter :resource-id)) (= resource-id krid))
+         (or (not (contains? key-filter :params))      (= params kparams)))))
 
 (defn filter-instance-rows
   "Filter projected instance rows by the tool-accessor axes (Spec 016):

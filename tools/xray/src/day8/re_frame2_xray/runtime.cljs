@@ -1057,18 +1057,22 @@
   Returns `{:ok? true :frame <id> :instances [<row> …] :count N}` or
   `{:ok? false :reason :no-frame-resolved}`."
   ([] (list-resource-instances nil))
-  ([{:keys [frame scope resource-id params status stale? tag owner request-id
-            include-sensitive? include-large? include-runtime-db?] :as _opts}]
+  ([{:keys [frame resource-id status stale? tag owner request-id
+            include-sensitive? include-large? include-runtime-db?] :as opts}]
    (let [fid (resolve-frame frame)]
      (if-let [fail (frame-failure frame fid)]
        fail
        (let [runtime-db  (:rf.db/runtime (rf/frame-state-value fid))
              all-entries (get-in runtime-db resources-helpers/entries-rel-path)
              ;; upstream key-filter BEFORE projection (scope/resource-id/params
-             ;; against the raw cache key)
+             ;; against the raw cache key). By KEY PRESENCE (rf2-7iw0bw): an
+             ;; OMITTED axis is a wildcard, while an explicit `:params nil` is
+             ;; an EXACT match on nil-params entries — NOT a match-everything
+             ;; wildcard. `select-keys` keeps only the axes the caller actually
+             ;; supplied, so absent stays wildcard and present-nil stays exact.
              entries     (resources-helpers/select-raw-entries
                            all-entries
-                           {:scope scope :resource-id resource-id :params params})
+                           (select-keys opts [:scope :resource-id :params]))
              egress-opts {:include-sensitive?  include-sensitive?
                           :include-large?      include-large?
                           :include-runtime-db? include-runtime-db?
@@ -1116,9 +1120,12 @@
   call with no resolvable context fails closed.
 
   Required scoped-key parts: `:resource-id` AND `:scope` AND `:params`.
-  Any missing part fails closed with `:reason :missing-key` (a partial key
-  cannot address an entry — Spec 016 §Introspection: the scoped key is the
-  full `[scope resource-id params]` triple).
+  Requiredness is by KEY PRESENCE, not value (rf2-7iw0bw): an ABSENT axis
+  fails closed with `:reason :missing-key` (a partial key cannot address an
+  entry — Spec 016 §Introspection: the scoped key is the full `[scope
+  resource-id params]` triple), but an axis PRESENT with an explicit nil
+  value (e.g. `:params nil`) is a VALID key part that addresses the
+  nil-params entry — distinct from the wildcard, never coerced to missing.
 
   Returns `{:ok? true :frame <id> :state <instance-row>}` (the row
   carries the PRIVACY-summarized status/data/error projection — Spec 016
@@ -1134,7 +1141,8 @@
   generation / timestamps) is NEVER redacted — a redacted summary STILL
   exposes the metadata (the EP-0003 contract)."
   [{:keys [frame resource-id scope params
-           include-sensitive? include-large? include-runtime-db?]}]
+           include-sensitive? include-large? include-runtime-db?]
+    :as opts}]
   (let [fid  (resolve-frame frame)
         fail (frame-failure frame fid)]
     (cond
@@ -1142,8 +1150,14 @@
 
       ;; A scoped key is the full [scope resource-id params] triple — any
       ;; missing part cannot address an entry (rf2-tgm1xu: missing scope or
-      ;; params reports :missing-key, not a silent nil-key probe).
-      (or (nil? resource-id) (nil? scope) (nil? params))
+      ;; params reports :missing-key, not a silent nil-key probe). Presence,
+      ;; NOT nil?, is the test (rf2-7iw0bw): an explicit `:params nil` is a
+      ;; VALID key part addressing a nil-params entry, so only an ABSENT
+      ;; axis fails closed — an explicit nil is preserved through to the
+      ;; exact select-raw-entries match below.
+      (not (and (contains? opts :resource-id)
+                (contains? opts :scope)
+                (contains? opts :params)))
       {:ok? false :reason :missing-key
        :hint "Pass :resource-id + :scope + :params (the full scoped key)."}
 

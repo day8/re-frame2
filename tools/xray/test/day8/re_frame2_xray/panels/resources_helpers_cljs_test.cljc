@@ -1260,3 +1260,54 @@
       (is (= 2 (count (h/filter-history-rows timeline-rows {:limit 2}))))
       (is (= 1 (count (h/filter-history-rows timeline-rows
                         {:resource-id :article/by-slug :limit 1})))))))
+
+;; ---- (9b) explicit-nil params preserved (rf2-7iw0bw) --------------------
+;;
+;; A resource registered with NO params has the kind-preserving scoped key
+;; `[scope resource-id nil]`. The key-axis filter must treat an explicit
+;; `:params nil` as an EXACT match on that nil-params entry — distinct from
+;; an OMITTED `:params` axis (a wildcard). The prior `nil?` test conflated
+;; the two, so an explicit nil silently widened to match every entry and a
+;; nil-params entry could never be pinned exactly.
+
+(def ^:private nilparams-entries
+  (byte-keyed
+    {;; the nil-params entry — a resource read with no params
+     [session-scope :article/current nil]
+     {:resource/id :article/current :status :loaded
+      :data {:title "Current"} :generation 1
+      :active-owners #{} :tags #{}}
+     ;; a DISTRACTOR under the SAME resource-id but with real params
+     [session-scope :article/current {:slug "welcome"}]
+     {:resource/id :article/current :status :loaded
+      :data {:title "Welcome"} :generation 2
+      :active-owners #{} :tags #{}}}))
+
+(deftest select-raw-entries-preserves-explicit-nil-params-test
+  (testing "explicit `:params nil` is an EXACT match on the nil-params entry,
+            NOT a wildcard (rf2-7iw0bw)"
+    ;; the fixture holds exactly one nil-params entry + one real-params entry
+    ;; under the same resource-id
+    (is (= 2 (count nilparams-entries)))
+    (let [sel (h/select-raw-entries nilparams-entries {:params nil})]
+      (is (= 1 (count sel))
+          "explicit nil params selects ONLY the nil-params entry, not both")
+      (is (= [session-scope :article/current nil]
+             (:resource/key (first (vals sel))))
+          "the selected entry is the nil-params one"))
+    ;; the real-params filter still selects only the real-params entry
+    (let [sel (h/select-raw-entries nilparams-entries {:params {:slug "welcome"}})]
+      (is (= 1 (count sel)))
+      (is (= [session-scope :article/current {:slug "welcome"}]
+             (:resource/key (first (vals sel)))))))
+  (testing "an OMITTED :params axis stays a wildcard — presence, not value,
+            decides (rf2-7iw0bw)"
+    ;; resource-id present, params ABSENT → both entries match (wildcard)
+    (is (= 2 (count (h/select-raw-entries nilparams-entries
+                      {:resource-id :article/current}))))
+    ;; the empty filter matches everything
+    (is (= 2 (count (h/select-raw-entries nilparams-entries {})))))
+  (testing "explicit nil params + a NON-matching scope still filters exactly"
+    ;; nil params AND a scope that no entry carries → no match
+    (is (empty? (h/select-raw-entries nilparams-entries
+                  {:scope :rf.scope/global :params nil})))))
