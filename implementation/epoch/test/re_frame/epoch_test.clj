@@ -26,7 +26,9 @@
   React-commit / React-deref timing the synchronous JVM cascade can't
   reproduce. Consolidated there from this file (rf2-yp81r) so the whole
   attribution surface is one cohesive, invariant-keyed grep target."
-  (:require [clojure.string :as str]
+  (:require [clojure.java.io :as io]
+            [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -133,6 +135,21 @@
   (some (fn [ev] (and (= :error (:op-type ev))
                       (= op     (:operation ev))))
         events))
+
+(defn- epoch-source-files
+  "Every epoch-artefact `.cljc` source file, discovered off the classpath
+  (the :local/root `src` dir) so a NEW file with a fresh emit site is
+  scanned automatically by `skip-ops-catalogue-pins-every-rf-epoch-op`.
+  The epoch package directory is located via a known file resource's
+  parent; the `re-frame.epoch` facade lives one level up."
+  []
+  (let [pkg-dir (-> (io/resource "re_frame/epoch/capture.cljc")
+                    io/file
+                    (.getParentFile))
+        facade  (io/file (io/resource "re_frame/epoch.cljc"))]
+    (cons facade
+          (filter #(str/ends-with? (.getName ^java.io.File %) ".cljc")
+                  (.listFiles pkg-dir)))))
 
 ;; ---- recording -------------------------------------------------------------
 
@@ -3411,35 +3428,132 @@
 
 (deftest skip-ops-catalogue-pins-every-rf-epoch-op
   (testing "skip-ops covers every :rf.epoch/* + :rf.warning/* op this
-            namespace emits with a :frame tag (catalogue test — adds
-            a fail-loudly signal if a new in-namespace op is
-            introduced and forgotten in `skip-ops`)"
-    ;; The exhaustive set as of rf2-wp70d. Update both this catalogue
-    ;; AND `skip-ops` when adding/removing an op the namespace emits.
-    ;; (`:rf.epoch.cb/silenced-on-frame-destroy` is op-type :rf.epoch.cb,
-    ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
-    ;; been dropped so it can't race a future cascade. Not in skip-ops.)
-    (let [expected #{:rf.epoch/snapshotted
-                     :rf.epoch/outcome                  ;; rf2-18g1w
-                     :rf.epoch/restored
-                     :rf.epoch/restore-unknown-epoch
-                     :rf.epoch/restore-schema-mismatch
-                     :rf.epoch/restore-missing-handler
-                     :rf.epoch/restore-version-mismatch
-                     :rf.epoch/restore-during-drain
-                     :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
-                     :rf.epoch/db-replaced
-                     :rf.epoch/replace-during-drain
-                     :rf.epoch/replace-schema-mismatch
-                     ;; rf2-wp70d: redact-fn exception warning emits
-                     ;; AFTER `harvest-buffer!` has emptied this
-                     ;; frame's cascade buffer, so it must be skipped
-                     ;; lest it accrete into the next cascade's record.
-                     :rf.warning/epoch-redact-fn-exception}
-          actual   @#'capture/skip-ops]
-      (is (= expected actual)
-          "skip-ops catalogue matches the documented set of
-           out-of-cascade :rf.epoch/* + :rf.warning/* emits"))))
+            namespace emits with a :frame tag OUTSIDE a cascade — the
+            out-of-cascade op set is DERIVED from the emit sites (source
+            reality), NOT a hand-literal compared against another
+            hand-literal, so a new op added to an emit site but forgotten
+            in `skip-ops` fails loudly (rf2-gba3ou — the prior
+            literal==literal shape was false-green: it missed
+            :rf.epoch/replace-history-disabled from BOTH literals)"
+    ;; --- (a) derive the emitted out-of-cascade op set from reality ------
+    ;; The epoch artefact emits an :rf.epoch/* | :rf.warning/* OPERATION
+    ;; through exactly two syntactic seams, both scanned here:
+    ;;   (trace/emit! <op-type> :rf.epoch/OP ...)   — the success emits
+    ;;                                                 (snapshotted / outcome
+    ;;                                                 / restored / db-replaced
+    ;;                                                 / the redact-fn warning)
+    ;;   {:outcome :fail :op :rf.epoch/OP ...}       — the precondition-failure
+    ;;                                                 results, emitted by
+    ;;                                                 `emit-precondition-failure!`
+    ;;                                                 via `trace/emit-error!`.
+    ;; Tag KEYS that share the :rf.epoch/ prefix (:rf.epoch/id,
+    ;; :rf.epoch/sensitive?, :rf.epoch/redacted-modified-paths-count) sit
+    ;; in map-KEY position, never after `emit!`/`:op`, so they are not
+    ;; operations and are not matched.
+    (let [src            (apply str (map slurp (epoch-source-files)))
+          hits->kws      (fn [hits] (into #{} (map #(keyword (subs % 1))) hits))
+          emit-ops       (hits->kws (map second
+                                         (re-seq #"emit!\s+:[A-Za-z.]+\s+(:rf\.(?:epoch|warning)/[a-z][a-z0-9-]*)"
+                                                 src)))
+          fail-ops       (hits->kws (map second
+                                         (re-seq #":op\s+(:rf\.(?:epoch|warning)/[a-z][a-z0-9-]*)"
+                                                 src)))
+          derived        (into emit-ops fail-ops)
+          ;; Every :rf.epoch/* op the artefact emits today fires OUTSIDE a
+          ;; cascade — the deliberate-enumeration design (capture.cljc
+          ;; §skip-ops catalogue). If a FUTURE in-cascade :rf.epoch/* op is
+          ;; introduced (e.g. an in-drain :rf.epoch/cascade-rollback trace)
+          ;; it MUST surface in the epoch record — NOT be skipped — so list
+          ;; it here to exempt it from the skip-ops obligation below. Empty
+          ;; today (no in-cascade :rf.epoch/* op exists yet).
+          in-cascade     #{}
+          out-of-cascade (set/difference derived in-cascade)
+          ;; --- (b) the human-readable pin, kept honest against reality ----
+          ;; This catalogue is ASSERTED equal to the scanned set below, so
+          ;; it can no longer silently drift (the rf2-gba3ou defect). Update
+          ;; it AND `skip-ops` when adding/removing an emitted op.
+          ;; (`:rf.epoch.cb/silenced-on-frame-destroy` is op-type :rf.epoch.cb,
+          ;; not :rf.epoch — and it emits AFTER the frame's ring buffer has
+          ;; been dropped so it can't race a future cascade. Not in skip-ops.)
+          expected       #{:rf.epoch/snapshotted
+                           :rf.epoch/outcome                  ;; rf2-18g1w
+                           :rf.epoch/restored
+                           :rf.epoch/restore-unknown-epoch
+                           :rf.epoch/restore-schema-mismatch
+                           :rf.epoch/restore-missing-handler
+                           :rf.epoch/restore-version-mismatch
+                           :rf.epoch/restore-during-drain
+                           :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
+                           :rf.epoch/db-replaced
+                           :rf.epoch/replace-during-drain
+                           :rf.epoch/replace-history-disabled ;; rf2-gba3ou / rf2-unpldn
+                           :rf.epoch/replace-schema-mismatch
+                           ;; rf2-wp70d: redact-fn exception warning emits
+                           ;; AFTER `harvest-buffer!` has emptied this
+                           ;; frame's cascade buffer, so it must be skipped
+                           ;; lest it accrete into the next cascade's record.
+                           :rf.warning/epoch-redact-fn-exception}
+          skip-ops       @#'capture/skip-ops]
+      ;; Anti-vacuity guard: an empty scanned set would make the SUPERSET
+      ;; assertion trivially true (the exact trap the old test fell into).
+      ;; A zero-match regex or a broken source path fails HERE.
+      (is (seq out-of-cascade)
+          "emit-site scan resolved the epoch source (non-vacuous)")
+      ;; The readable catalogue tracks the scanned reality — no silent drift.
+      (is (= expected out-of-cascade)
+          "documented catalogue == the ops actually emitted out-of-cascade")
+      ;; (a) TEETH: skip-ops is a SUPERSET of every out-of-cascade emitted
+      ;; op. An op added to an emit site but forgotten in skip-ops fails
+      ;; HERE (this is what missed :rf.epoch/replace-history-disabled).
+      (is (set/subset? out-of-cascade skip-ops)
+          "skip-ops covers every out-of-cascade :rf.epoch/* + :rf.warning/* op the namespace emits")
+      ;; No stale entry: every skipped op is one the namespace actually
+      ;; emits out-of-cascade (a removed emit left in skip-ops fails here).
+      (is (set/subset? skip-ops out-of-cascade)
+          "skip-ops has no stale entry the namespace no longer emits out-of-cascade"))))
+
+;; ---- rf2-gba3ou: depth-0 reject emit does not leak into next cascade ------
+;;
+;; Companion behavioural pin to the derived-catalogue test above. The
+;; depth-0 `replace-frame-state!` reject emits :rf.epoch/replace-history-disabled
+;; OUTSIDE a cascade with a :frame tag (Tool-Pair §Pair-tool writes / rf2-unpldn).
+;; The existing depth-0 tests (`replace-frame-state-app-only-depth-0-rejects-...`,
+;; `four-mutators-all-reject-under-depth-0`) assert reject / false / no-phantom-
+;; anchor but NOT that the emit stays out of the NEXT cascade's record. Depth 0
+;; disables the ring, so the next cascade's assembled record is observed via the
+;; epoch listener fan-out (rf2-douii — depth 0 still fires listeners). Skip-ops
+;; is the deliberate defense; the orphan-drop branch backstops the in-namespace
+;; leak so it is benign today (rf2-gba3ou) — this pins the end-to-end no-leak
+;; contract regardless of which layer enforces it.
+(deftest depth-0-replace-reject-emit-does-not-leak-into-next-cascade
+  (testing "rf2-gba3ou — the out-of-cascade :rf.epoch/replace-history-disabled
+            emit from a depth-0 replace-frame-state! reject does NOT surface in
+            the NEXT cascade's assembled record for that frame"
+    (rf/configure! {:epoch-history {:depth 0 :trace-events-keep 50}})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
+
+    (let [seen (atom [])]
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
+      ;; Cascade 1 — a real event.
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      ;; Out-of-cascade reject: depth 0 → history disabled → rejected,
+      ;; emitting :rf.epoch/replace-history-disabled with a :frame tag.
+      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))
+          "depth-0 replace-frame-state! is rejected (not a false success)")
+      ;; Cascade 2 — its record must reflect ONLY the :bump cascade.
+      (rf/dispatch-sync [:bump] {:frame :test/main})
+
+      (let [bump-rec (last @seen)]
+        (is (= :bump (:event-id bump-rec))
+            "next cascade's record is the real :bump event")
+        (is (= [:bump] (:trigger-event bump-rec))
+            ":trigger-event is the real event, not the leaked reject sentinel")
+        (is (not-any? (fn [ev] (= :rf.epoch/replace-history-disabled (:operation ev)))
+                      (:trace-events bump-rec))
+            "the out-of-drain reject emit does NOT leak into the next cascade's :trace-events"))
+      (rf/unregister-listener! :epoch ::watcher))))
 
 ;; ---- restore trace-tag :rf.epoch/id golden guard (rf2-5wzfez) ---------------
 ;;
