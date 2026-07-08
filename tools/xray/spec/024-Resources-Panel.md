@@ -137,7 +137,23 @@ Two elision layers compose:
    cannot collapse into one. `get-resource-state` requires the **full**
    scoped key (`:resource-id` + `:scope` + `:params`); any missing part
    fails closed with `:reason :missing-key` (a partial key cannot address
-   an entry).
+   an entry). `get-resource-state` resolves that full key the SAME way
+   `list-resource-instances` selects its raw entries — by scanning
+   `:entries` and matching each candidate's `:resource/key` stamp (see the
+   byte-key-id paragraph below), never by a direct map-key lookup on the
+   scoped-key vector (rf2-497rv7).
+
+   The per-slot declaration match happens at the entry's ABSOLUTE
+   runtime-db coordinate, rooted at the entry's `key-id` (rf2-aw9cfs):
+   `[:rf.runtime/resources :entries <key-id> :data …]` for `:data` /
+   `:error` / `:refresh-error`, and `[… :resource/key 2 …]` / `[…
+   :resource/key 0 …]` for params / scope (the scoped key is `[scope
+   resource-id params]`) — mirroring exactly where the resources artefact's
+   own per-instance lowering (`re-frame.resources.classification/
+   reconcile-registry`) writes a resource's declared `:sensitive?` /
+   `:large?` slots. A slot-only path (omitting `<key-id>`) never matches a
+   real lowered declaration, so a declared-sensitive resource would
+   silently ride raw under `:include-runtime-db? true`.
 
 3. **Off-box egress for the TRACE-borne accessors** (`get-resource-history` /
    `list-resource-invalidations`, rf2-e0mq7a). These two project off the

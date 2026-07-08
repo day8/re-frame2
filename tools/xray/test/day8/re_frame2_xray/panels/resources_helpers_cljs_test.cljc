@@ -484,7 +484,7 @@
   (let [;; an egress-fn that redacts the :params slot (mirrors the off-box
         ;; `resource-egress-fn` for a `:sensitive?` owner) and passes other
         ;; slots through — page-params + the cursor project through `:params`.
-        egress-fn     (fn [v slot] (if (= :params slot) h/redacted-sentinel v))
+        egress-fn     (fn [v slot _key-id] (if (= :params slot) h/redacted-sentinel v))
         rows          (h/project-instances infinite-entries now egress-fn)
         live          (first (filter #(= {:tag "clj"} (get-in % [:scoped-key 2])) rows))]
     (testing "each VALUE-bearing page-param in the chain is redacted off-box"
