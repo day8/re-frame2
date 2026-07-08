@@ -72,12 +72,10 @@
   ## Non-live runtime/captured value scrub (rf2-12f2q)
 
   The wire-elision contract (`tools/story/spec/006-MCP-Surface.md`)
-  promises EVERY Story-MCP payload crosses elided — not just the three
-  live-state tools'. The NON-live tools also cross runtime/captured
-  VALUES that can sit at a frame's frame-declared `:sensitive` `:app-db`
-  paths (EP-0015 §8):
-  `explain-variant`'s plan-RESOLVED value slots (`:effective-args` /
-  `:args` / `:substitutions` / `:network` / `:db-seed`),
+  promises EVERY Story-MCP payload that carries OBSERVED RUNTIME state
+  crosses elided — not just the three live-state tools'. The NON-live
+  runtime tools also cross captured VALUES that can sit at a frame's
+  frame-declared `:sensitive` `:app-db` paths (EP-0015 §8):
   `record-as-variant`'s `:captured` event vectors (+ the `:play-snippet`
   rendered from them) and captured `:rf.cofx` maps, and
   `read-a11y-violations`'s axe DOM nodes. Each payload class gets the SAME
@@ -86,10 +84,15 @@
   than receiving it. The two inherently-re-keyed classes (event vectors,
   axe DOM) take the narrow `scrub-re-keyed-runtime` exception on a non-live
   frame; the cofx maps fail closed (`scrub-captured-cofx`). Author-published
-  STATIC registration metadata (story/variant bodies, registry
-  enumerations, the explain plan-STRUCTURE slots) is intentionally public
-  and NOT scrubbed; see `scrub-re-keyed-runtime` for the runtime-vs-authored
-  split.
+  STATIC registration metadata (story/variant bodies, registry enumerations,
+  and `explain-variant`'s ENTIRE `:explain` map — rf2-7k5mce) is
+  intentionally public and NOT scrubbed; see `scrub-re-keyed-runtime` for the
+  runtime-vs-authored split. NOTE `explain-variant` is a NO-RUN tool over the
+  registry side-table: even its plan-RESOLVED value slots (`:effective-args`
+  / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` /
+  `:setup-order` / `:script-order`) are static author data, so the WHOLE map
+  ships raw like `get-variant` (Mike, 2026-07-08) — it does NOT route through
+  any egress boundary here.
 
   ## Path-based redaction (`elide-app-db`, `scrub-assertions+count`)
 
@@ -355,45 +358,6 @@
        :source-db app-db}
       {:rf.egress/profile (posture->profile false)})))
 
-(defn scrub-explain-values
-  "PATH-redact the runtime/seeded VALUE slots `value-slot-keys` of an `explain`
-  map against `variant-id`'s classification, before the explain payload crosses
-  the AI/off-box boundary (rf2-12f2q, rf2-q8ebq.1) — in ONE call to the
-  framework boundary `re-frame.core/project-egress` (rf2-leggev, boundary-named
-  rf2-ojp8pi), the `:rf.observe/derived-tree` record's MULTI-SLOT form (each
-  present key of `value-slot-keys` walked at the frame's classification path).
-
-  EP-0025 FAIL-OPEN: the value-match engine — and the pre-frame `:db-seed`
-  candidate-union it relied on — is REMOVED. Each named slot is PATH-walked: a
-  value that occupies a classified path WITHIN the slot redacts (a `:db-seed`
-  or `:effective-args` slice whose shape mirrors the app-db reaches the path),
-  while a value RE-KEYED to a non-matching position (a `:network` reply, a
-  `:sub-overrides` override value, a step payload lacking the path's parent
-  keys) ships RAW. A pre-frame `:db-seed` secret is covered ONLY because its
-  own shape mirrors the app-db — NOT because the seed is unioned into a
-  candidate set. A consumer that needs a re-keyed value redacted must classify
-  its app-db PATH so the derived slot lands the value AT that path.
-
-  `include?` opts out (the `--allow-sensitive-reads` + per-call escape
-  hatch) — when true the raw values cross (the operator signed off; BOTH axes)."
-  [explain variant-id value-slot-keys include?]
-  (if (or include? (nil? explain))
-    explain
-    ;; Project through `re-frame.core/project-egress` (EP-0025 B4, rf2-ojp8pi)
-    ;; as a MULTI-SLOT `:rf.observe/derived-tree` record: `:slot-keys` names the
-    ;; runtime/seeded value slots to PATH-walk, and `:source-db` is the live
-    ;; variant-frame app-db (retained as the record's source; the projection is
-    ;; positional, not value-candidate-driven). `project-egress` resolves the
-    ;; off-box-tool profile to the egress floor and path-redacts each present
-    ;; slot against `variant-id`'s registry.
-    (rf/project-egress
-      {:kind      :rf.observe/derived-tree
-       :frame     variant-id
-       :tree      explain
-       :slot-keys value-slot-keys
-       :source-db (rf/app-db-value variant-id)}
-      {:rf.egress/profile (posture->profile false)})))
-
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime/captured value scrub (rf2-12f2q)
 ;; ---------------------------------------------------------------------------
@@ -401,16 +365,20 @@
 ;; The three live-state tools (`preview-variant` / `run-variant` /
 ;; `read-failures`) hold the post-run `:app-db` in hand and feed it to
 ;; `elide-app-db` (path) + `scrub-rendered` (value). But the NON-live
-;; tools also cross the AI/off-box boundary carrying runtime/captured VALUES
+;; RUNTIME tools also cross the AI/off-box boundary carrying captured VALUES
 ;; that can sit at a frame's declared-`:sensitive?` paths:
 ;;
-;;   - `explain-variant`'s plan-resolved value slots (scrubbed via
-;;     `scrub-explain-values`, always against the live explain frame).
 ;;   - `record-as-variant`'s captured event vectors + the captured `:rf.cofx`
 ;;     maps (the recording is GLOBAL; the target variant frame is allocated
 ;;     lazily by run/preview, so it is routinely NON-LIVE during recording).
 ;;   - `read-a11y-violations`'s in-browser axe-core violation nodes (the
 ;;     variant frame may not be live in the JVM tool process).
+;;
+;; `explain-variant` is NOT in this list (rf2-7k5mce): it is a NO-RUN tool
+;; over the registry side-table, so its `:explain` map — plan-STRUCTURE AND
+;; plan-RESOLVED value slots alike — is static AUTHOR data, not observed
+;; runtime. It ships RAW like `get-variant` / `variant->edn` (see the
+;; INTENTIONALLY-PUBLIC list below); no egress boundary applies.
 ;;
 ;; Two distinct payload SHAPES travel through here, and they take two distinct
 ;; non-live postures (Mike, 2026-06-26 — the narrowed-hybrid rule, rf2-jwggld):
@@ -447,10 +415,14 @@
 ;; return author-published STATIC registration prose — `get-story` /
 ;; `get-variant` / `variant->edn` bodies, `list-stories` / `list-modes` /
 ;; `list-decorators` / `list-tags` / `list-assertions` enumerations, the
-;; markdown render, and the `explain` map's plan-STRUCTURE slots
-;; (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
-;; `:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` /
-;; `:platforms` / …). Those are the catalogue an author publishes for
+;; markdown render, and `explain-variant`'s ENTIRE `:explain` map — both its
+;; plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` /
+;; `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND its
+;; plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` /
+;; `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` /
+;; `:script-order`) — since `explain-variant` is a NO-RUN projection over the
+;; registry, every slot is static author data (rf2-7k5mce, Mike 2026-07-08).
+;; Those are the catalogue an author publishes for
 ;; discovery — not runtime/user state — and the threat model
 ;; (`spec/015-Data-Classification.md`) scopes the marks to the OBSERVED
 ;; runtime, not authored registration data. Registry-wide enumerations

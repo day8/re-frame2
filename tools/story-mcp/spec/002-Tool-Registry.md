@@ -106,14 +106,15 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` override values / `:setup-order` + `:script-order` step payloads); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME `substitute-args` that feeds `:substitutions`); the path-projected scrub redacts/elides values at classified paths while preserving their public step structure — leaving them un-projected would be a clean bypass of the `:substitutions` scrub (rf2-q8ebq.1). `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
-| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain`'s plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. NOTE: `:setup-order` / `:script-order` are NOT here — their step structure is discovery metadata but `substitute-args` injects resolved arg values into the step payloads, so the post-substitution sequences are value-bearing and scrubbed (above, rf2-q8ebq.1). Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
+| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain-variant`'s ENTIRE `:explain` map — plan-STRUCTURE (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. `explain-variant` is a NO-RUN projection over the registry side-table (rf2-7k5mce, Mike 2026-07-08): even its plan-RESOLVED value slots are static author data resolved from the variant's own registration, so the WHOLE `:explain` map ships raw like `get-variant` / `variant->edn` — the over-redaction of resolved args / setup-order / network stubs to `:rf/redacted` on the common no-run inspection path is retired. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
-`read-failures` / `explain-variant` / `record-as-variant`) advertise the
-`:include-sensitive` opt-in slot in `tools/list` only when the
-`--allow-sensitive-reads` gate is open; the docs-discovery tools never
-advertise it (they have no value-bearing slot to gate). The egress scrubs
+`read-failures` / `read-a11y-violations` / `record-as-variant`) advertise
+the `:include-sensitive` opt-in slot in `tools/list` only when the
+`--allow-sensitive-reads` gate is open; the docs-discovery tools —
+`explain-variant` included, since it ships author data raw (rf2-7k5mce) —
+never advertise it (they have no value-bearing slot to gate). The egress scrubs
 keep the live and non-live cases coherent — a declared-sensitive value
 redacts and a declared-large value elides identically (i.e. neither crosses
 raw, by default) whether it reaches the wire via a live derived tree, a
@@ -344,28 +345,29 @@ view-arg schema + validation, `:network` route stubs + their lowered fx,
 `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`,
 `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
 
-Plan-derived data — no run, no live `:app-db` slice — but the plan
-RESOLVES author args into runtime VALUES. The runtime-resolved value
-slots (`:effective-args` / `:args` / `:substitutions` / `:network` route
-replies / `:db-seed` / `:sub-overrides` override values / `:setup-order` +
-`:script-order` step payloads) are PATH-projected against the variant
-frame's classification at egress (rf2-12f2q, rf2-q8ebq.1; EP-0025 fail-open)
-via the shared `egress/scrub-explain-values` step — on BOTH egress axes
-(EP-0015 peer axes). EP-0025 removed value-match: a value AT a classified
-path WITHIN a slot redacts to `:rf/redacted` / elides to the
-`:rf.size/large-elided` marker (a slot whose shape mirrors the app-db, e.g.
-a `:db-seed`, reaches its path), but a value RE-KEYED to a non-matching
-position (a `:network` reply, a `:sub-overrides` override value, a step
-payload lacking the path's parent keys) ships RAW (fail-open) — classify the
-app-db PATH to redact a value before it is re-surfaced. Plan step STRUCTURE
-is always preserved. The remaining plan-STRUCTURE slots
-(`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
-`:strict-conflicts` / `:tags` /
-`:platforms` / …) are author-published discovery metadata and cross
-unredacted. The `:extends`-resolved variant body is already public via
+Plan-derived data — no run, no live `:app-db` slice. AUTHOR DATA: the
+WHOLE `:explain` map ships RAW, exactly like `get-variant` / `variant->edn`
+(rf2-7k5mce, Mike 2026-07-08). `explain-variant` is a NO-RUN tool —
+`re-frame.story/explain` is a pure projection over the registry side-table
+and allocates no frame — so every slot it returns, INCLUDING the
+plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` /
+`:network` route replies / `:db-seed` / `:sub-overrides` override values /
+`:setup-order` + `:script-order` step payloads), is static author data
+resolved from the variant's own registration, not observed user runtime. The
+threat model ([`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md))
+scopes the `:sensitive` / `:large` marks to the OBSERVED runtime, not
+authored registration data, so there is nothing runtime-sensitive to redact
+and no live user frame to leak. This matches (a) `get-variant` /
+`variant->edn`, which ship the SAME author data raw, and (b) the human
+Explain panel, which renders every slot raw — and `explain-variant` is the
+agent mirror of that panel. Routing the value slots through the fail-closed
+live-frame egress boundary over-redacted the tool's most useful output
+(resolved args, final setup/script order, network stubs) to `:rf/redacted`
+on the common no-run inspection path; that boundary is retired for
+`explain-variant`. The `:extends`-resolved variant body is already public via
 `get-variant` / `variant->edn`; this adds the plan compiler's
-source/merge/lowering reasoning on top. Pass `:include-sensitive true`
-(gated by `--allow-sensitive-reads`) to opt out. `:readOnlyHint true`.
+source/merge/lowering reasoning on top. No `:include-sensitive` knob — like
+`get-variant`, there is no sensitive value slot to gate. `:readOnlyHint true`.
 
 ## Testing — for agents running stories headlessly
 
@@ -471,9 +473,9 @@ same `--allow-sensitive-reads` boot gate as `preview-variant` /
 
 ## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
 
-The tools that surface live or plan-resolved frame VALUES
+The tools that surface live observed frame VALUES
 (`preview-variant`, `run-variant`, `read-failures`, `read-a11y-violations`,
-`explain-variant`, `record-as-variant`) all accept a per-call
+`record-as-variant`) all accept a per-call
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
 §Direct-read privacy posture). Per the rf2-uaymx (b) decision that
@@ -503,10 +505,11 @@ data key.
 Closed by default. When closed:
 
 - `tools/list` omits the `:include-sensitive` slot from the input
-  schemas of every affected tool — the six that surface live or
-  plan-resolved frame VALUES (`preview-variant`, `run-variant`,
-  `read-failures`, `read-a11y-violations`, `explain-variant`, `record-as-variant`),
-  i.e. every descriptor that carries the slot. Agents never see an
+  schemas of every affected tool — the five that surface live observed
+  frame VALUES (`preview-variant`, `run-variant`,
+  `read-failures`, `read-a11y-violations`, `record-as-variant`),
+  i.e. every descriptor that carries the slot. (`explain-variant` is NOT
+  among them — it ships author data raw, rf2-7k5mce.) Agents never see an
   opt-in they couldn't exercise.
 - The wire-egress scrubbers silently ignore any caller-supplied
   `:include-sensitive true` — declared-sensitive `:app-db` paths
