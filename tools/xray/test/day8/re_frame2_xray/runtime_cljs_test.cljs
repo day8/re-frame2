@@ -1451,6 +1451,83 @@
       (is (= :error (:status (:state r2)))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-7iw0bw — an EXPLICIT nil params is a VALID scoped-key part, preserved
+;; (not coerced to :missing-key, not widened to a wildcard).
+;; ---------------------------------------------------------------------------
+;;
+;; A resource read with no params has scoped key `[scope resource-id nil]`.
+;; The accessors key off KEY PRESENCE, not `nil?`: an explicit `:params nil`
+;; addresses the nil-params entry exactly, while OMITTING `:params` still
+;; fails closed (get-resource-state) / stays a wildcard (list-resource-
+;; instances). The pre-fix `nil?` test conflated the two — an explicit nil
+;; either reported :missing-key or matched every entry.
+
+(def ^:private nilparams-key [tgm1xu-scope :article/current nil])
+
+(def ^:private nilparams-entry
+  {:resource/id   :article/current
+   :status        :loaded
+   :data          {:title "Current"}
+   :error         nil
+   :generation    1
+   :request-id    [:w 7]
+   :active-owners #{}
+   :tags          #{}
+   :loaded-at     900000
+   :stale-at      9999999999999})
+
+;; a DISTRACTOR under the SAME scope + resource-id but with REAL params, so
+;; the fix must resolve by the FULL key (incl. the nil params), not by
+;; resource-id alone.
+(def ^:private nilparams-distractor-key [tgm1xu-scope :article/current {:slug "welcome"}])
+(def ^:private nilparams-distractor-entry
+  (assoc nilparams-entry :generation 2 :request-id [:w 8]
+         :data {:title "Welcome"}))
+
+(deftest get-resource-state-preserves-explicit-nil-params
+  (testing "rf2-7iw0bw — an explicit `:params nil` resolves the nil-params
+            entry (NOT :missing-key), even alongside a real-params distractor"
+    (seed-resource-entries! {nilparams-key            nilparams-entry
+                             nilparams-distractor-key nilparams-distractor-entry})
+    (let [r (runtime/get-resource-state
+              {:resource-id :article/current
+               :scope       tgm1xu-scope
+               :params      nil})]
+      (is (true? (:ok? r)) "explicit nil params is a valid key, not :missing-key")
+      (is (= [:w 7] (:request-id (:state r)))
+          "resolves THE nil-params entry, not the real-params distractor")))
+  (testing "rf2-7iw0bw — OMITTING :params still fails closed with :missing-key
+            (presence, not value, is the test)"
+    (seed-resource-entries! {nilparams-key nilparams-entry})
+    (let [r (runtime/get-resource-state
+              {:resource-id :article/current
+               :scope       tgm1xu-scope})]
+      (is (false? (:ok? r)))
+      (is (= :missing-key (:reason r))
+          "an ABSENT :params axis is still a partial key"))))
+
+(deftest list-resource-instances-preserves-explicit-nil-params
+  (testing "rf2-7iw0bw — an explicit `:params nil` filter lists ONLY the
+            nil-params entry, not the real-params distractor (not a wildcard)"
+    (seed-resource-entries! {nilparams-key            nilparams-entry
+                             nilparams-distractor-key nilparams-distractor-entry})
+    (let [r (runtime/list-resource-instances
+              {:resource-id :article/current
+               :scope       tgm1xu-scope
+               :params      nil})]
+      (is (true? (:ok? r)))
+      (is (= 1 (:count r)) "explicit nil params is exact, matching one entry")
+      (is (= [:w 7] (:request-id (first (:instances r))))
+          "the listed row is the nil-params entry")))
+  (testing "rf2-7iw0bw — OMITTING :params stays a wildcard (both entries)"
+    (seed-resource-entries! {nilparams-key            nilparams-entry
+                             nilparams-distractor-key nilparams-distractor-entry})
+    (let [r (runtime/list-resource-instances
+              {:resource-id :article/current
+               :scope       tgm1xu-scope})]
+      (is (= 2 (:count r)) "absent params axis matches every entry (wildcard)"))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-aw9cfs — resource payload egress paths thread the entry's key-id, so a
 ;; REAL lowered `:sensitive?` / `:large?` declaration (the resources
 ;; artefact's per-instance registry lowering,

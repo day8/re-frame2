@@ -135,9 +135,12 @@ Two elision layers compose:
    redacted. The **raw scoped key is the row identity** (never egressed in
    place) so two entries whose scope/params redact to the same sentinel
    cannot collapse into one. `get-resource-state` requires the **full**
-   scoped key (`:resource-id` + `:scope` + `:params`); any missing part
-   fails closed with `:reason :missing-key` (a partial key cannot address
-   an entry). `get-resource-state` resolves that full key the SAME way
+   scoped key (`:resource-id` + `:scope` + `:params`) **by key presence,
+   not value** (rf2-7iw0bw): an axis ABSENT from the call fails closed with
+   `:reason :missing-key` (a partial key cannot address an entry), but an
+   axis present with an explicit **nil** value (e.g. `:params nil`) is a
+   valid key part that addresses the nil-params entry — distinct from the
+   wildcard, never coerced to missing. `get-resource-state` resolves that full key the SAME way
    `list-resource-instances` selects its raw entries — by scanning
    `:entries` and matching each candidate's `:resource/key` stamp (see the
    byte-key-id paragraph below), never by a direct map-key lookup on the
@@ -551,7 +554,12 @@ matching the candidate set in Spec 016 §Xray and AI tooling. All are
 
 `:scope` / `:resource-id` / `:params` filter against the raw cache key
 **before** projection (so an accessor can scope its read by the cache
-key); the remaining axes filter the already-projected rows. Per EP-0002
+key); the remaining axes filter the already-projected rows. These three
+key axes match **by presence** (rf2-7iw0bw): an OMITTED axis is a wildcard,
+while an axis supplied with an explicit **nil** value is an EXACT match
+against a nil-valued key part (a nil-params resource stays addressable and
+distinct from "any params") — never widened to a match-everything wildcard.
+Per EP-0002
 the frame target is carried explicitly — a frameless call with no
 resolvable context fails closed (`{:ok? false :reason
 :no-frame-resolved}`).
