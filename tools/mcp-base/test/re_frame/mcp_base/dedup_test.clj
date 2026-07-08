@@ -38,6 +38,54 @@
   (is (nil? (dedup/dedup-value nil true)))
   (is (= 42 (dedup/dedup-value 42 true))))
 
+(deftest no-substitutions?-detects-one-entry-root-only-cache
+  ;; `de-dupe-eq` always emits `cache-0` for the root; every substituted
+  ;; subtree adds a further `cache-N`. A one-entry cache therefore made
+  ;; NO substitutions.
+  (testing "a no-repeat non-empty collection ⇒ one-entry root-only cache"
+    (is (true? (boolean (dedup/no-substitutions? (dd/de-dupe-eq {:a 1 :b 2})))))
+    (is (true? (boolean (dedup/no-substitutions? (dd/de-dupe-eq [1 2 3])))))
+    (is (true? (boolean (dedup/no-substitutions? (dd/de-dupe-eq {:a {:x 1} :b {:y 2}}))))))
+  (testing "a repeated-subtree cache has >1 entry ⇒ substitutions happened"
+    (is (false? (boolean (dedup/no-substitutions? (dd/de-dupe-eq [{:x 1} {:x 1}]))))))
+  (testing "non-map / empty inputs are not a root-only cache"
+    (is (false? (boolean (dedup/no-substitutions? nil))))
+    (is (false? (boolean (dedup/no-substitutions? {}))))))
+
+(deftest dedup-value-no-repeats-non-empty-returns-input-verbatim
+  ;; The headline fix (rf2-fwaolt): a NON-EMPTY collection with no
+  ;; repeated subtrees must stay RAW on the wire — `de-dupe-eq` yields a
+  ;; one-entry root-only cache whose wrapped shape is strictly larger than
+  ;; the input, violating the documented no-repeat-payloads-stay-raw
+  ;; contract. `empty-payload?` does NOT catch these (they're non-empty),
+  ;; so before the fix they wrapped and grew.
+  (testing "a flat no-repeat map is returned identical, NOT wrapped"
+    (let [v {:a 1 :b 2 :c 3}
+          out (dedup/dedup-value v true)]
+      (is (identical? v out)
+          "no dedup opportunity ⇒ verbatim passthrough, not a dedup-table wrap")
+      (is (not (contains? out vocab/dedup-table-key)))))
+  (testing "a nested no-repeat structure is returned identical"
+    (let [v {:user {:name "ada"} :session {:state :idle} :items [1 2 3]}]
+      (is (identical? v (dedup/dedup-value v true)))))
+  (testing "a no-repeat vector is returned identical"
+    (let [v [{:id 1} {:id 2} {:id 3}]]      ; all distinct ⇒ no substitution
+      (is (identical? v (dedup/dedup-value v true))))))
+
+(deftest dedup-value-repeated-subtree-still-wraps
+  ;; The adversarial complement to the no-op skip: a payload that DOES
+  ;; carry a repeated subtree must STILL wrap (the skip must not swallow a
+  ;; genuine dedup win). Its cache has >1 entry, so `no-substitutions?` is
+  ;; false and the wrap fires.
+  (let [shared {:big [:repeated :subtree]}
+        v      [shared shared shared]
+        out    (dedup/dedup-value v true)]
+    (is (map? out))
+    (is (contains? out vocab/dedup-table-key)
+        "a repeated subtree is a real dedup win — the wrap must fire")
+    (is (= v (dd/expand (get out vocab/dedup-table-key)))
+        "and the wrap still round-trips")))
+
 (deftest dedup-value-wraps-in-cross-mcp-marker
   (let [shared {:repeated [:big :subtree :here]}
         v      {:a shared :b shared :c shared}
