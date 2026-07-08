@@ -72,6 +72,21 @@ artefacts=(
   # to the global registrar). The EP-0013 multi-realm substrate was retired
   # under EP-0023/EP-0024 (rf2-afdlyr / rf2-tu2vr7) — no realm-routing here.
   implementation/event-conformance
+  # rf2-jg1ag2 — the test-runtime quiet-reporter artefact
+  # (day8/re-frame2-test-quiet, rf2-try1x) ships its own JVM `:test`
+  # alias whose test tree is the ADVERSARIAL CONTRACT suite for the JVM
+  # runner itself (test_quiet_runner_contract_test.clj — ~24 subprocess
+  # deftests — plus test_quiet_pin_test.clj / ..._pin_passing_test.clj).
+  # It pins the JVM RED/ERROR/exit-code paths, the discovery-banner
+  # overdrop guards, nested-run banner+tally, the test-ns-hook fallback,
+  # and the central stderr buffer + red-replay. Every OTHER artefact's
+  # `:test` alias merely ROUTES THROUGH the quiet runner (green
+  # happy-path), so before this line the contract suite ran in NO
+  # automated gate — a regression in the JVM red/error/banner/stderr
+  # behaviour shipped green. Listed last because it relaunches a fresh
+  # JVM per deftest (slowest artefact), matching the dedicated
+  # `jvm-test-quiet` PR-CI job (test.yml).
+  implementation/test-quiet
 )
 
 for artefact in "${artefacts[@]}"; do
