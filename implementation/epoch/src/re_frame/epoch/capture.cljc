@@ -52,7 +52,7 @@
     ;; skipped for the same reason: re-buffering it would leak it into
     ;; the next cascade's record.
     :rf.epoch/outcome
-    ;; restore-epoch! success + the five documented failure modes.
+    ;; restore-epoch! success + the six documented failure modes.
     :rf.epoch/restored
     :rf.epoch/restore-unknown-epoch
     :rf.epoch/restore-schema-mismatch
@@ -60,9 +60,12 @@
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
     :rf.epoch/restore-non-ok-record
-    ;; replace-app-db! success + its two failure modes (Tool-Pair §Pair-
-    ;; tool writes). All three fire after the synthetic record
-    ;; has been built and the cascade-buffer (if any) has been harvested.
+    ;; replace-frame-state! success (`:rf.epoch/db-replaced`) + two of its
+    ;; three failure modes (Tool-Pair §Pair-tool writes). All three ops
+    ;; listed here fire after the synthetic record has been built and the
+    ;; cascade-buffer (if any) has been harvested. The surface's third
+    ;; failure op, `:rf.epoch/replace-history-disabled`, is not yet skipped
+    ;; here (tracked by rf2-gba3ou).
     :rf.epoch/db-replaced
     :rf.epoch/replace-during-drain
     :rf.epoch/replace-schema-mismatch
