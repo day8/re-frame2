@@ -1437,4 +1437,12 @@ module.exports = {
   waitForChildExit,
   spawnAndGradeInnerTest,
   wipeStalePortFileCandidate,
+  // The authoritative live-inner-test inventory the hermetic suite boots
+  // shadow-cljs for. Exported (require.main-guarded above, so importing this
+  // module does NOT boot shadow-cljs / Chromium) so the completeness guard
+  // `test/live-list-completeness.test.cjs` (rf2-79qmsw) can cross-check it
+  // against the `test/live-re-frame2-pair-*.cjs` files on disk — a live gate
+  // added to disk but forgotten here would SKIP under `npm test` and never
+  // launch on CI, riding perpetually green.
+  INNER_TESTS,
 };

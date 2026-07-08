@@ -62,6 +62,10 @@ const TESTS = [
     argv: ['--test', 'test/inner-test-close-grading.test.cjs'],
   },
   {
+    name: 'live-gate list completeness — disk ⇄ INNER_TESTS ⇄ test-all rows (rf2-79qmsw)',
+    argv: ['--test', 'test/live-list-completeness.test.cjs'],
+  },
+  {
     name: 'hermetic port-file escape refusal (rf2-khav7l)',
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
