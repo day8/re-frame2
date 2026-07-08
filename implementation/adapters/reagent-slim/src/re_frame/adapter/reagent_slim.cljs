@@ -169,7 +169,16 @@
   (or explicit-frame
       (frame/require-current-frame!
         :with-resource-lease
-        {:where 're-frame.adapter.reagent-slim/with-resource-lease})))
+        ;; Canonical (post-publish-stable) ns marker: the publication
+        ;; ns-transform (.github/scripts/transform-reagent-slim-ns.sh)
+        ;; rewrites ONLY the leading `(ns …)` token, so a `-slim` symbol
+        ;; here would survive verbatim into the shipped day8/reagent-slim
+        ;; jar — pointing a `:rf.error/no-frame-context` reader at
+        ;; `re-frame.adapter.reagent-slim`, a namespace the jar ships as
+        ;; the canonical `re-frame.adapter.reagent`. Use the canonical ns
+        ;; (rename-stable in-tree AND post-publish; matches `:display-name`
+        ;; below), rf2-gjvu84.
+        {:where 're-frame.adapter.reagent/with-resource-lease})))
 
 (defn- ensure-lease!
   "Dispatch `:rf.resource/ensure` for the render-time-resolved `desired`
