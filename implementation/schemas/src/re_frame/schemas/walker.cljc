@@ -766,14 +766,47 @@
                   [:fallback schema aligned]))
               [:fallback schema aligned])
 
-            ;; Homogeneous index-bearing container — drop the index/key
-            ;; segment and descend into the element (or `:map-of` value)
-            ;; schema. `:vector`/`:sequential`/`:set` have one shared
-            ;; element schema; `:map-of`'s value schema is child 1. The
-            ;; index/key is not a declarable slot for these, so it is
-            ;; dropped to align with the walker's index-free decl-paths.
+            ;; `:map-of` — the `:in` KEY segment is normally dropped (like
+            ;; the homogeneous index-bearing ops below) and the walk descends
+            ;; into the VALUE schema (child 1), because a `:map-of` key is a
+            ;; navigable locator, not a declarable app-db slot. BUT when the
+            ;; KEY SCHEMA (child 0) is itself sensitive-or-opaque
+            ;; (rf2-6ijdgh) the key IS the secret, and that sensitivity is
+            ;; INVISIBLE once we descend into the value: an opaque / nested-
+            ;; opaque key contributes NO walker declaration (the pure-data
+            ;; walker's `:else` bailout silently skips a compiled `m/schema`
+            ;; key), so the `:ok` outcome below yields `leaf-sensitive? =
+            ;; false` and `sanitize-sensitive-path` never runs — the secret
+            ;; key ships VERBATIM in `:path` / `:reason` while `:value` /
+            ;; `:explain` are (correctly, via `schema-has-opaque-child?`)
+            ;; redacted: a fail-OPEN leak. Fail-SAFE instead: hand the whole
+            ;; `:map-of` node (carrying the consumed prefix) to the fallback
+            ;; so `schema-sensitive-at?` detects the sensitive/opaque key
+            ;; (`schema-has-sensitive?` / `opaque-nested-tail?` on the
+            ;; leftover) → `leaf-sensitive? = true` → the sanitiser runs and
+            ;; scrubs the secret key. Mirrors the fail-closed
+            ;; sensitive-or-opaque posture used everywhere else in this file.
+            ;; (For a VECTOR-form sensitive key the fallback is a no-op
+            ;; equivalence — the key already claims the base-path decl so the
+            ;; leaf resolves sensitive; forcing fallback keeps the two key
+            ;; shapes on one uniform path.)
+            (= op :map-of)
+            (let [key-schema (nth children 0 nil)]
+              (if (or (schema-has-sensitive? key-schema)
+                      (schema-has-opaque-child? key-schema))
+                [:fallback schema aligned]
+                (let [child (nth children 1 nil)]
+                  (if (some? child)
+                    (recur child (subvec in 1) aligned)
+                    [:fallback schema aligned]))))
+
+            ;; Homogeneous index-bearing container — drop the index
+            ;; segment and descend into the element schema.
+            ;; `:vector`/`:sequential`/`:set` have one shared element
+            ;; schema. The index is not a declarable slot for these, so it
+            ;; is dropped to align with the walker's index-free decl-paths.
             (contains? index-bearing-ops op)
-            (let [child (nth children (if (= op :map-of) 1 0) nil)]
+            (let [child (nth children 0 nil)]
               (if (some? child)
                 (recur child (subvec in 1) aligned)
                 [:fallback schema aligned]))
@@ -914,15 +947,26 @@
               ;; reports the key VALUE verbatim, e.g. `["secret-token-123"
               ;; :age]`). A `:map-of` key is normally a navigable locator and
               ;; is KEPT so `:path` stays a `get-in` locator — BUT when the
-              ;; KEY SCHEMA (child 0) itself declares `:sensitive?`
-              ;; (rf2-612mri), the key IS the secret and must be scrubbed,
-              ;; else it ships verbatim in `:path` / `:reason` despite
-              ;; `:value` / `:explain` being redacted. Descend into the
-              ;; VALUE schema (child 1) either way.
+              ;; KEY SCHEMA (child 0) is sensitive-or-opaque the key IS the
+              ;; secret and must be scrubbed, else it ships verbatim in
+              ;; `:path` / `:reason` despite `:value` / `:explain` being
+              ;; redacted. Two shapes:
+              ;;   - a VECTOR-form `:sensitive?` key (rf2-612mri) —
+              ;;     `schema-has-sensitive?` sees it directly; and
+              ;;   - a COMPILED / nested-opaque key (rf2-6ijdgh),
+              ;;     `(m/schema [:string {:sensitive? true}])` or
+              ;;     `[:and (m/schema …)]` — invisible to
+              ;;     `schema-has-sensitive?` (the pure-data walker cannot
+              ;;     introspect the compiled value), so we ALSO OR in
+              ;;     `schema-has-opaque-child?`, the recursive opaque-aware
+              ;;     predicate, matching the fail-closed posture the value /
+              ;;     explain redaction already takes on an opaque key. Descend
+              ;;     into the VALUE schema (child 1) either way.
               (= op :map-of)
               (let [key-schema (nth children 0 nil)
                     val-schema (nth children 1 nil)
-                    seg-out    (if (schema-has-sensitive? key-schema)
+                    seg-out    (if (or (schema-has-sensitive? key-schema)
+                                       (schema-has-opaque-child? key-schema))
                                  path-redacted-sentinel
                                  seg)]
                 (recur val-schema (subvec in 1) (conj out seg-out)))
