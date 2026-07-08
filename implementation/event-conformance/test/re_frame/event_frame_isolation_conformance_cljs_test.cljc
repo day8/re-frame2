@@ -92,14 +92,19 @@
                                             :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
-;; Helpers — build a RUNNABLE image-resolver descriptor for an event / sub id.
+;; Helper — build a RUNNABLE image-resolver descriptor for an event id.
 ;;
 ;; The descriptor an image's `:rf.gen/resolver` carries is the SAME shape
 ;; `register!` stores: an event is `events/event-handler-meta` (handler-fn + the
 ;; framework wrapper chain), merged with the provenance / kind / id keys image
-;; assembly groups + dedupes by; a layer-1 sub carries `:input-kind :db` so the
-;; sub-cache feeds it the frame's app-db projection. A generation-routed
-;; `registrar/lookup` returns each verbatim, so the cascade runs it directly.
+;; assembly groups + dedupes by. A generation-routed `registrar/lookup` returns
+;; it verbatim, so the cascade runs it directly. (This suite is the LIVE EVENT
+;; DISPATCH isolation lock — "image -> frame -> event stream". The
+;; sub-through-image READ path is pinned elsewhere: the frame-targeted read
+;; contract in core's `re-frame.facade-frame-read-cljs-test`, and the
+;; sub-through-generation acceptance in
+;; `re-frame.live-run-frame-resolution-cljs-test` — so no sub descriptor helper
+;; lives here, rf2-rkt69g.)
 ;; ---------------------------------------------------------------------------
 
 (defn- event-desc
@@ -108,14 +113,6 @@
          {:rf.provenance/ns provenance-ns
           :kind             :event
           :id               id}))
-
-(defn- sub-desc
-  [provenance-ns id compute-fn]
-  {:rf.provenance/ns provenance-ns
-   :kind             :sub
-   :id               id
-   :input-kind       :db
-   :handler-fn       compute-fn})
 
 ;; ===========================================================================
 ;; (1) THE HEADLINE — two image-loaded frames, the SAME event id, DIFFERENT
