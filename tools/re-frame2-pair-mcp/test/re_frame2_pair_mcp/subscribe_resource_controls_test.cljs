@@ -90,6 +90,58 @@
     (is (re-find #"unsubscribe" (:hint reject)))))
 
 ;; ---------------------------------------------------------------------------
+;; `run-acquired` failure branch (rf2-yeuqhr). When the runtime
+;; `subscribe!` returns `{:ok? false …}` AFTER the stream slot is reserved,
+;; `run-acquired` releases the slot and MUST wrap the failure in
+;; `wire/err-text` (isError:true) — not `ok-text`. The handler already
+;; knows it failed (it releases the reserved resource); reporting success
+;; would decouple the isError flag from the `:ok? false` payload. The
+;; branch is currently defensive (subscribe-tool guards `:topic`
+;; client-side before acquiring), so we drive `run-acquired` directly with
+;; a stubbed `:ok? false` subscribe! response to exercise it.
+;; ---------------------------------------------------------------------------
+
+(defn- primed-conn []
+  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+    (swap! conn assoc :probed-builds #{:app})
+    conn))
+
+(deftest run-acquired-subscribe-ok-false-is-iserror-and-releases-slot
+  (async done
+    (let [orig  nrepl/cljs-eval-value
+          ;; Every eval (the signal-runtime! reconfigure AND the subscribe!
+          ;; call) resolves the runtime refusal; only the subscribe! result
+          ;; is inspected by the failure branch.
+          canned {:ok? false :reason :unknown-topic :topic :bogus}
+          stub  (fn ([_c _b _f]    (js/Promise.resolve canned))
+                  ([_c _b _f _o] (js/Promise.resolve canned)))]
+      (set! nrepl/cljs-eval-value stub)
+      ;; Reserve a slot the way subscribe-tool would before calling
+      ;; run-acquired, so we can prove the failure branch releases it.
+      (resource/reset-for-tests!)
+      (resource/acquire-stream!)
+      (is (= 1 (resource/active-stream-count)) "slot reserved before run-acquired")
+      (-> (sub/run-acquired
+            {:conn (primed-conn) :raw-args #js {} :topic :bogus :build-id :app
+             :filter-map nil :max-buf-events nil :max-buf-bytes nil
+             :poll-ms 100 :max-ms 0 :max-events 0
+             :incl? false :elision? true :dedup? false :cap nil
+             :signal nil :send-note nil :progress-tk nil})
+          (.then (fn [r]
+                   (is (true? (tu/error? r))
+                       "a runtime :ok? false subscribe! rides isError:true, not ok-text")
+                   (let [edn (tu/extract-edn r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :unknown-topic (:reason edn))
+                         "the runtime's own refusal rides back verbatim"))
+                   (is (zero? (resource/active-stream-count))
+                       "the failure branch released the reserved stream slot — no leak")))
+          (.finally (fn []
+                      (tu/restore-eval! stub orig)
+                      (resource/reset-for-tests!)
+                      (done)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Final-summary envelope — `:rate-dropped` surfaces only when non-zero.
 ;; ---------------------------------------------------------------------------
 ;;

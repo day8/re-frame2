@@ -3010,6 +3010,11 @@ connection, e.g. shadow-cljs restarted onto a new port mid-session).
   nonsense filter that would silently match nothing.
 - `:reason :runtime-not-preloaded` if the preload hasn't run.
 - `:reason :subscribe-failed` on any other failure during subscribe.
+- A runtime `subscribe!` that returns `{:ok? false …}` AFTER the stream
+  slot is reserved (e.g. `:unknown-topic`, or a future resource-cap /
+  frame-resolution refusal) releases the reserved slot and rides back with
+  `isError: true` — the failure is never shipped as a success-shaped
+  envelope (rf2-yeuqhr), per the universal `:ok? false` rule.
 - `:reason :rf.error/concurrent-stream-limit` if the session already
   has `max-concurrent-streams` open subscriptions. Surfaced as
   `isError: true` WITHOUT touching the nREPL socket. The error
