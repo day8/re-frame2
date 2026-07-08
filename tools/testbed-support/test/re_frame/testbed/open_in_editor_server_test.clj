@@ -311,8 +311,8 @@
 ;; ---- malformed query string: clean 400, never an uncaught throw ----------
 ;;
 ;; `parse-query` URL-decodes every key/value; a malformed percent-escape (a
-;; lone `%`, or `%` not followed by two hex digits) makes `URLDecoder/decode`
-;; throw `IllegalArgumentException`. Every other error path on this endpoint
+;; lone `%`, or `%` not followed by two hex digits) makes `decode-component`'s
+;; `URI/create` throw `IllegalArgumentException`. Every other error path on this endpoint
 ;; (missing file, forbidden, method-not-allowed, launch failure) answers a
 ;; clean JSON response — a malformed query must too, rather than propagating
 ;; uncaught into the shadow-cljs `:dev-http` Ring plumbing (rf2-bhejni).

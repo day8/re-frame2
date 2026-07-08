@@ -18,7 +18,7 @@
        subdir with or without a leading slash).
     4. Blank / nil subdir → the root verbatim.
     5. Blank `checkout-root` → `nil` (the graceful-no-op contract that
-       `set-checkout-root!` already encodes for blank input).
+       `set-project-root!` already encodes for blank input).
 
   The consuming testbeds compile through `config.cljs` under `npm run
   test:xray-feature-gate`, but each calls `resolve-source-root` with
@@ -51,8 +51,12 @@
   reading `location.search` off the live document — behind the thin
   `query-param` adapter, and delegates the actual parse/decode/trim/
   non-blank contract to the PURE `query-param-from-search`, which takes a
-  query string verbatim. `js/URLSearchParams` is a host global present in
-  Node too, so that pure parser runs identically off-browser. That lets us
+  query string verbatim. That pure parser deliberately splits the query
+  string manually and decodes each component with `js/decodeURIComponent`
+  (NOT `js/URLSearchParams`, whose form-urlencoded semantics would corrupt a
+  literal `+` → space — see `config.cljs` and the preserves-literal-plus
+  test below); both `str/split` and `js/decodeURIComponent` are present in
+  Node too, so that parser runs identically off-browser. That lets us
   pin, with no `js/window` faking:
 
     a. the override-parsing contract — param selection, URL-decoding
