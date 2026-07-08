@@ -186,8 +186,15 @@ jobs:
       # upstream `install-clj-kondo` script is the documented path and
       # leaves the binary on $PATH.
       - name: Install clj-kondo
+        # `raw.githubusercontent.com` is CDN-fronted and HTTP-429s under
+        # rate limiting, which (with bare `curl -f`) dies in ~11s and reds
+        # unrelated PRs (rf2-cq0s2j; cost a fix-worker cycle on #5304).
+        # `--retry 5 --retry-all-errors --retry-delay 3` retries transient
+        # failures — including the 429 that `-f` alone treats as fatal —
+        # with a 3s base backoff. GNU curl on ubuntu-24.04 runners supports
+        # `--retry-all-errors` (since 7.71).
         run: |
-          curl -fsSL -o install-clj-kondo \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o install-clj-kondo \
             https://raw.githubusercontent.com/clj-kondo/clj-kondo/master/script/install-clj-kondo
           chmod +x install-clj-kondo
           sudo ./install-clj-kondo --version 2026.04.15
