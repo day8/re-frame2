@@ -168,9 +168,34 @@
       (fn action-refresh-token [{data :data [_ token] :event}]
         {:data (assoc data :auth-token token)})
 
-      :bump-retry
-      (fn action-bump-retry [{data :data}]
-        {:data (update data :retries inc)})
+      :on-socket-lost
+      ;; The live socket just dropped (a `:ws/closed` that passed
+      ;; `:current-socket?`). Two things happen as we head to `:reconnecting`:
+      ;;   1. Bump the retry counter — it drives the `:after` backoff and the
+      ;;      `:max-retries-exceeded?` guard.
+      ;;   2. FAIL every in-flight request. Each was already put on the wire
+      ;;      that just died, so its reply can never arrive on this
+      ;;      connection; left in `:in-flight` it would leak forever — its
+      ;;      timeout is stamped with the now-dead socket id, so the
+      ;;      `:current-socket?` guard drops that timeout after we reconnect
+      ;;      and the slot never clears. Loss semantics are FAIL, not replay:
+      ;;      the server may already have processed the request before the
+      ;;      drop, so a blind re-send risks double execution — failing is the
+      ;;      safe, explicit default. Each waiting `:reply-event` is fired
+      ;;      with a `{:ok false :error :ws/connection-lost}` body so the
+      ;;      caller learns the outcome instead of hanging forever.
+      (fn action-on-socket-lost [{data :data}]
+        {:data (-> data
+                   (update :retries inc)
+                   (assoc :in-flight {}))
+         :fx   (into []
+                     (keep (fn [[rid {:keys [reply-event]}]]
+                             (when reply-event
+                               [:dispatch (conj reply-event
+                                                {:request-id rid
+                                                 :ok         false
+                                                 :error      :ws/connection-lost})])))
+                     (:in-flight data))})
 
       :reset-retries
       (fn action-reset-retries [{data :data}]
@@ -301,7 +326,7 @@
        ;; here. See docs/machines/glossary.md#transition.
        :on    {:ws/closed   {:guard  :current-socket?
                              :target :reconnecting
-                             :action :bump-retry}
+                             :action :on-socket-lost}
                :ws/fatal    {:target :failed
                              :action :record-error}
                :ws/send     {:action :enqueue-message}

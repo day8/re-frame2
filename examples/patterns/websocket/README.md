@@ -79,6 +79,12 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   re-frame2 ships no managed WebSocket, so per-message correlation over the open
   socket is the app's to own.)
 
+- **In-flight requests fail on a socket drop.** A request already on the wire
+  when the socket dies can't be answered on this connection, so `:on-socket-lost`
+  clears the `:in-flight` map and fires each waiting `:reply` event with an
+  explicit `{:ok false :error :ws/connection-lost}` body — at-most-once
+  semantics, no silent leak, and no double-execution from a blind replay.
+
 - **Reconnect cascade with token refresh threaded through.** Leaving `:active`
   destroys the actor (the declarative `:spawn` desugars to a
   `:rf.machine/destroy` on exit), and the runtime clears its id from the
