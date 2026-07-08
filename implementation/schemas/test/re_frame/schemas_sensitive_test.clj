@@ -57,6 +57,11 @@
             ;; opaque-schema fail-closed redaction arm. Malli is on the
             ;; schemas test classpath (the artefact deps on metosin/malli).
             [malli.core :as m]
+            ;; rf2-jqx2at — direct unit tests on the internal `:path`-tag
+            ;; sanitiser (`sanitize-sensitive-path`) which is NOT re-exported
+            ;; through the `re-frame.schemas` facade (validate-app-schema!'s
+            ;; private redaction helper).
+            [re-frame.schemas.walker :as walker]
             [re-frame.schemas.test-fixture :as tf]))
 
 (use-fixtures :each tf/reset-runtime)
@@ -546,6 +551,128 @@
       (is (= [:by-id "a" :secret] (-> v :tags :path))
           ":path keeps the navigable plain map-of key (\"a\") — no over-redaction")
       (is (= :rf/redacted (-> v :tags :value))))))
+
+;; ---- sensitive :map-of KEY nested under an ambiguous :or / :and wrapper -----
+;; (rf2-jqx2at). `sanitize-sensitive-path` treated `:and` / `:or` as SINGLE-child
+;; transparent wrappers and followed ONLY the first child. When a sensitive
+;; `:map-of` KEY schema lives in a LATER branch — an `:or` whose non-sensitive
+;; branch is first, or an `:and` whose sensitive conjunct is not first — the walk
+;; descended the WRONG branch, classified the failing `:in` key segment as a
+;; navigable `:map-of` locator (its key schema was the WRONG branch's
+;; non-sensitive one), and KEPT it. So the raw sensitive key shipped VERBATIM in
+;; `:path` and `:reason` (and thus every serialized trace tag) even though
+;; `:value` / `:explain` were correctly redacted — the same scalar-key leak class
+;; as rf2-612mri, but hidden behind a multi-branch wrapper. `:and` / `:or` are
+;; MULTI-child ambiguous wrappers: with more than one child the branch that
+;; produced the failing `:in` cannot be identified from the path alone (an `:or`
+;; value matched some ONE branch; an `:and` value is constrained by ALL), so the
+;; walk now fails CLOSED on the whole remaining tail (like `:multi` / `:orn`),
+;; scrubbing the secret key. The degenerate single-child case stays an
+;; unambiguous, precise descent (navigable locators preserved). These fail before
+;; the fix (the secret key rides in `:path` / `:reason`) and pass after.
+
+;; -- direct `sanitize-sensitive-path` unit tests (deterministic; independent of
+;;    Malli's `:in` shape) --
+
+(deftest sanitize-fails-closed-on-multi-child-or
+  (testing "rf2-jqx2at — a sensitive :map-of key reached under a MULTI-child :or
+            is scrubbed via the fail-closed tail (the ambiguous :or cannot pick
+            a branch, so every remaining segment is scrubbed)"
+    (let [schema [:or
+                  [:map-of :int :int]                                     ;; branch 0 — non-sensitive key
+                  [:map-of [:string {:sensitive? true}] [:map [:age :int]]]] ;; branch 1 — sensitive key
+          in     ["secret-token-123" :age]
+          out    (walker/sanitize-sensitive-path schema in)]
+      (is (= [:rf/redacted :rf/redacted] out)
+          "every tail segment past the ambiguous :or is scrubbed to the sentinel")
+      (is (not (some #{"secret-token-123"} out))
+          "the sensitive :map-of key does NOT survive in the sanitized path"))))
+
+(deftest sanitize-fails-closed-on-multi-child-and
+  (testing "rf2-jqx2at — a sensitive :map-of key reached under a MULTI-child :and
+            (sensitive conjunct not first) is scrubbed via the fail-closed tail"
+    (let [schema [:and
+                  [:map-of :string [:map [:age :int]]]                    ;; conjunct 0 — non-sensitive key
+                  [:map-of [:string {:sensitive? true}] [:map [:age :int]]]] ;; conjunct 1 — sensitive key
+          in     ["secret-token-xyz" :age]
+          out    (walker/sanitize-sensitive-path schema in)]
+      (is (= [:rf/redacted :rf/redacted] out))
+      (is (not (some #{"secret-token-xyz"} out))
+          "the sensitive :map-of key does NOT survive in the sanitized path"))))
+
+(deftest sanitize-single-child-and-or-descend-precisely
+  (testing "rf2-jqx2at regression — a DEGENERATE single-child :and / :or is
+            unambiguous, so the walk still descends precisely and KEEPS the
+            navigable :map key (the fail-closed rule must not over-redact the
+            unambiguous case)"
+    (is (= [:k] (walker/sanitize-sensitive-path [:or  [:map [:k :int]]] [:k]))
+        "single-child :or descends into its one branch and keeps the map key")
+    (is (= [:k] (walker/sanitize-sensitive-path [:and [:map [:k :int]]] [:k]))
+        "single-child :and descends into its one branch and keeps the map key")))
+
+;; -- end-to-end via validate-app-schema! (:path / :reason / whole-tags egress) --
+
+(deftest app-db-validation-or-wrapped-map-of-sensitive-key-scrubbed
+  (testing "rf2-jqx2at — a :map-of with a :sensitive? KEY schema nested under a
+            MULTI-child :or (non-sensitive branch FIRST) scrubs the secret key
+            from :path AND :reason; the secret never appears anywhere in tags"
+    (let [v (app-db-failure-trace
+              [:secrets]
+              [:or
+               [:map-of :int :int]
+               [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
+              {:secrets {"secret-token-abc" {:age "not-an-int"}}}
+              :secrets/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — a sensitive key schema is in the :or")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-abc"))
+          "the secret key does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-abc"))
+          "the secret key does NOT appear in the generated :reason text")
+      (is (not (str/includes? (pr-str (:tags v)) "secret-token-abc"))
+          "the secret key does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-and-wrapped-map-of-sensitive-key-scrubbed
+  (testing "rf2-jqx2at — a :map-of with a :sensitive? KEY schema nested under a
+            MULTI-child :and (sensitive conjunct NOT first) scrubs the secret key
+            from :path AND :reason; the secret never appears anywhere in tags"
+    (let [v (app-db-failure-trace
+              [:secrets]
+              [:and
+               [:map-of :string [:map [:age :int]]]
+               [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
+              {:secrets {"secret-token-xyz" {:age "not-an-int"}}}
+              :secrets/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — a sensitive key schema is in the :and")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-xyz"))
+          "the secret key does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-xyz"))
+          "the secret key does NOT appear in :reason")
+      (is (not (str/includes? (pr-str (:tags v)) "secret-token-xyz"))
+          "the secret key does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-non-sensitive-or-key-stays-navigable
+  (testing "rf2-jqx2at regression — a fully NON-sensitive multi-child :or failure
+            is not stamped :sensitive? and its value rides verbatim
+            (sanitize-sensitive-path is not invoked on a non-sensitive failure,
+            so a plain :map-of key is untouched — no over-redaction)"
+    (let [v (app-db-failure-trace
+              [:data]
+              [:or [:map-of :int :int] [:map-of :string :int]]
+              {:data {"plain-key" "not-an-int"}}
+              :data/bad)]
+      (is (some? v) "a trace fired")
+      (is (not (contains? v :sensitive?))
+          "no :sensitive? stamp — nothing in the :or is sensitive")
+      (is (not= :rf/redacted (-> v :tags :value))
+          ":value rides verbatim — a non-sensitive failure is not scrubbed"))))
 
 ;; ---- ancestor-sensitive container wrapped by :and/:multi/:orn (rf2-ss06u.2)
 ;; When a slot is declared {:sensitive? true} as a CONTAINER and the failing

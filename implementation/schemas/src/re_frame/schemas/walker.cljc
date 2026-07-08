@@ -831,12 +831,20 @@
       integer indices — navigable scalar locators; KEEP them so `:path`
       stays a useful `get-in` locator for those shapes (the bead's regression
       requirement).
-    - Transparent wrappers (`:maybe` / `:and` / `:or` / `:multi` / `:orn`)
-      contribute NO `:in` segment — descend without consuming. For the
-      single-child wrappers (`:maybe` / `:and` / `:or`) the inner schema is
-      unambiguous so the lockstep walk continues precisely. For the
-      multi-branch wrappers (`:multi` / `:orn`) and any other / opaque op
-      the branch is ambiguous, so the walk drops to a FAIL-CLOSED tail.
+    - Transparent wrappers contribute NO `:in` segment — descend without
+      consuming. `:maybe` is genuinely single-child (`[:maybe inner]`) so
+      the lockstep walk continues precisely. `:and` / `:or` are MULTI-child
+      (rf2-jqx2at): with more than one child the branch that produced the
+      failing `:in` cannot be identified from the path alone (an `:or` value
+      matched some ONE branch; an `:and` value is constrained by ALL), so
+      following only the first child can mis-classify a LATER branch's
+      value-bearing segment — e.g. a `:sensitive?` `:map-of` key, or a `:set`
+      element — as a navigable locator and ship it VERBATIM in `:path` /
+      `:reason` (the earlier draft treated `:and` / `:or` as single-child
+      transparent — the leak this closes). They descend ONLY in the
+      degenerate single-child case (unambiguous); otherwise, like the
+      multi-branch wrappers (`:multi` / `:orn`) and any other / opaque op,
+      the branch is ambiguous and the walk drops to the FAIL-CLOSED tail.
 
   FAIL-CLOSED tail (rf2-ss06u.1 / rf2-ss06u.2 / rf2-612mri): once the
   lockstep walk cannot confidently continue (a multi-branch / opaque op,
@@ -945,11 +953,28 @@
                             (nth children 0 nil))]
                 (recur child (subvec in 1) (conj out seg)))
 
-              ;; Single-child transparent wrappers — no `:in` segment
-              ;; consumed; descend into the (unambiguous) inner schema.
-              (#{:maybe :and :or} op)
+              ;; `:maybe` — genuinely single-child transparent
+              ;; (`[:maybe inner]`); descend into the unambiguous inner
+              ;; schema without consuming a segment.
+              (= op :maybe)
               (if-let [child (first children)]
                 (recur child in out)
+                (fail-closed-tail out in))
+
+              ;; `:and` / `:or` — MULTI-child wrappers (rf2-jqx2at). With
+              ;; more than one child the branch that produced the failing
+              ;; `:in` cannot be identified from the path alone (an `:or`
+              ;; value matched some ONE branch; an `:and` value is
+              ;; constrained by ALL), so following only the first child can
+              ;; mis-classify a LATER branch's value-bearing segment — a
+              ;; `:sensitive?` `:map-of` key, a `:set` element — as a
+              ;; navigable locator and ship it verbatim in `:path` /
+              ;; `:reason`. Descend ONLY the degenerate single-child case
+              ;; (unambiguous); otherwise fail CLOSED on the remaining tail,
+              ;; exactly like `:multi` / `:orn` below.
+              (#{:and :or} op)
+              (if (= (count children) 1)
+                (recur (first children) in out)
                 (fail-closed-tail out in))
 
               ;; Multi-branch / opaque op — the branch is ambiguous, so the
