@@ -125,3 +125,129 @@
       ;; pair, never the misleading 1.
       (is (cells/parse-error? v))
       (is (not= 1 v)))))
+
+;; ===========================================================================
+;; evaluate-cell — cycle guard (rf2-1r1dm7)
+;; ===========================================================================
+;;
+;; The example's docstring promises "Cycles (A1 -> B1 -> A1) caught by a
+;; visited-set walk, not a stack overflow." A regression here would blow the
+;; stack and take the whole grid render down — silently green — so pin it.
+
+(deftest evaluate-cell-cycle-guard-yields-error-not-stack-overflow
+  (testing "a two-cell cycle A1 -> B1 -> A1 is caught by the visited-set walk"
+    (let [cells {"A1" (cell-entry "=(+ B1 1)")
+                 "B1" (cell-entry "=(+ A1 1)")}]
+      (is (= :error/cycle (cells/evaluate-cell "A1" cells #{})))
+      (is (= :error/cycle (cells/evaluate-cell "B1" cells #{})))))
+  (testing "a self-cycle A1 -> A1 is also caught (never recurses forever)"
+    (is (= :error/cycle
+           (cells/evaluate-cell "A1" {"A1" (cell-entry "=(+ A1 1)")} #{})))))
+
+;; ===========================================================================
+;; evaluate-cell / evaluate-ast — the typed error taxonomy (rf2-1r1dm7)
+;; ===========================================================================
+;;
+;; "Bad arithmetic turned into typed error markers — the evaluator never
+;; throws." Each bad shape must surface as its own keyword marker, not an
+;; exception and not a misleading number.
+
+(deftest evaluate-cell-division-by-zero-marks-error
+  (testing "a literal /0 yields :error/div-by-zero (never throws)"
+    (is (= :error/div-by-zero
+           (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 1 0)")} #{}))))
+  (testing "a divisor that COMPUTES to zero is caught too"
+    (is (= :error/div-by-zero
+           (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 10 (- 3 3))")} #{}))))
+  (testing "a non-zero division still computes"
+    (is (= 3 (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 6 2)")} #{})))))
+
+(deftest evaluate-cell-text-in-arithmetic-marks-type-error
+  (testing "feeding a text cell into arithmetic yields :error/type"
+    (let [cells {"A1" (cell-entry "hi")
+                 "B1" (cell-entry "=(+ A1 2)")}]
+      (is (= :error/type (cells/evaluate-cell "B1" cells #{})))))
+  (testing "a plain (non-formula) text cell evaluates to its own raw text"
+    (is (= "hi" (cells/evaluate-cell "A1" {"A1" (cell-entry "hi")} #{})))))
+
+(deftest evaluate-ast-marks-unknown-op-and-uncomputable
+  (testing "an operator outside + - * / is :error/unknown-op"
+    (is (= :error/unknown-op (cells/evaluate-ast [(symbol "%") 1 2] {} #{})))
+    (is (= :error/unknown-op (cells/evaluate-ast [(symbol "mod") 4 2] {} #{}))))
+  (testing "an AST node that is neither number, cell ref, nor list is
+            :error/eval (the belt-and-suspenders marker)"
+    (is (= :error/eval (cells/evaluate-ast "not-an-ast-node" {} #{})))
+    (is (= :error/eval (cells/evaluate-ast true {} #{})))))
+
+;; ===========================================================================
+;; evaluate-cell / evaluate-ast — arithmetic + empty-cell semantics
+;; ===========================================================================
+
+(deftest evaluate-cell-arithmetic-operators
+  (testing "variadic + - * / fold across all their arguments"
+    (is (= 6  (cells/evaluate-cell "A1" {"A1" (cell-entry "=(+ 1 2 3)")} #{})))
+    (is (= 5  (cells/evaluate-cell "A1" {"A1" (cell-entry "=(- 10 3 2)")} #{})))
+    (is (= 24 (cells/evaluate-cell "A1" {"A1" (cell-entry "=(* 2 3 4)")} #{})))
+    (is (= 10 (cells/evaluate-cell "A1" {"A1" (cell-entry "=(/ 100 5 2)")} #{}))))
+  (testing "nested formulas reduce inner expressions first"
+    (let [cells {"A1" (cell-entry "5")
+                 "B2" (cell-entry "4")
+                 "C1" (cell-entry "=(+ A1 (* B2 3))")}]
+      (is (= 17 (cells/evaluate-cell "C1" cells #{})))))
+  (testing "an untouched cell reads as 0 (empty-cell semantics)"
+    (is (= 0 (cells/evaluate-cell "Z9" {} #{})))
+    (is (= 1 (cells/evaluate-cell "B1" {"B1" (cell-entry "=(+ A1 1)")} #{}))
+        "a formula over an empty referent folds it in as 0")))
+
+;; ===========================================================================
+;; parse-num — the ^…$ anchored strict numeric gate
+;; ===========================================================================
+
+(deftest parse-num-strict-anchored
+  (testing "a wholly-numeric string parses (sign / decimal / exponent)"
+    (is (= 42    (cells/parse-num "42")))
+    (is (= 3.14  (cells/parse-num "3.14")))
+    (is (= -1500 (cells/parse-num "-1.5e3")))
+    (is (= 0.5   (cells/parse-num ".5")))
+    (is (= 7     (cells/parse-num "  7  "))))          ;; trims before parsing
+  (testing "partially-numeric junk is rejected by the ^…$ anchors — NOT read
+            as the leading numeric run js/parseFloat would greedily accept"
+    (doseq [s ["1abc" "1.2.3" "abc" "" "  " "1 2" "0x10"]]
+      (is (nil? (cells/parse-num s))
+          (str (pr-str s) " must not parse as a number")))))
+
+;; ===========================================================================
+;; tokenise / parse-tokens / parse-formula — the parse boundary (rf2-1r1dm7)
+;; ===========================================================================
+
+(deftest tokenise-splits-parens-and-atoms
+  (testing "parens fall out as their own tokens without needing spaces"
+    (is (= ["(" "+" "A1" "B2" ")"] (cells/tokenise "(+ A1 B2)")))
+    (is (= ["(" "+" "1" "(" "*" "2" "3" ")" ")"]
+           (cells/tokenise "(+ 1 (* 2 3))")))
+    (is (= ["42"] (cells/tokenise "42")))))
+
+(deftest parse-tokens-throws-on-unbalanced-parens
+  (testing "an unclosed '(' throws, tagging the offending token"
+    (let [e (try (cells/parse-tokens ["(" "+" "1"]) nil (catch :default e e))]
+      (is (some? e) "an unclosed '(' throws")
+      (is (= "(" (:token (ex-data e))) "the throw names the '(' token")))
+  (testing "an extra ')' throws, tagging it"
+    (let [e (try (cells/parse-tokens [")"]) nil (catch :default e e))]
+      (is (some? e) "an extra ')' throws")
+      (is (= ")" (:token (ex-data e))) "the throw names the ')' token"))))
+
+(deftest parse-formula-never-throws-returns-error-pair
+  (testing "parse-formula catches parse throws and returns an [:error/parse msg]
+            pair — the evaluator boundary never throws across it"
+    (doseq [raw ["=(+ 1 2"       ;; unclosed '('
+                 "=(+ 1 2))"      ;; extra ')'
+                 "=(% 1 2)"       ;; unknown token
+                 "=(+ 1 2) 3"]]   ;; trailing tokens after the expression
+      (let [ast (cells/parse-formula raw)]
+        (is (cells/parse-error? ast)
+            (str raw " must parse to an [:error/parse …] pair"))
+        (is (string? (cells/parse-error-text ast))
+            (str raw " carries an actionable message")))))
+  (testing "a well-formed formula does NOT parse to an error pair"
+    (is (not (cells/parse-error? (cells/parse-formula "=(+ 1 2)"))))))
