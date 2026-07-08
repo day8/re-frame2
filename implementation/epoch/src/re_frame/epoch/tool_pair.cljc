@@ -1,6 +1,6 @@
 (ns re-frame.epoch.tool-pair
   "Tool-Pair boundary surfaces — the preconditions, restore-perform, and
-  off-box projection helpers behind `restore-epoch!`, `replace-app-db!`,
+  off-box projection helpers behind `restore-epoch!`, `replace-frame-state!`,
   `projected-record`, and `projected-history`.
 
   The name (rf2-dga99) covers BOTH halves of the seam: the WRITE-in
@@ -14,7 +14,7 @@
   Responsibilities:
 
     * **Precondition validators** — `check-restore-preconditions!` and
-      `check-replace-app-db-preconditions!` are pure data transforms
+      `check-replace-frame-state-preconditions!` are pure data transforms
       (no trace emission, no app-db writes); they return
       `{:outcome :ok ...}` or `{:outcome :fail :op <kw> :tags <map>}`
       so the orchestrating facade fn can emit the trace and decide
@@ -46,7 +46,7 @@
       own docstring is the authoritative per-slot contract.
 
   Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch!` and
-  `replace-app-db!` live in the `re-frame.epoch` facade — they wire
+  `replace-frame-state!` live in the `re-frame.epoch` facade — they wire
   the precondition check + the trace emission + the perform / listener
   fan-out steps together. Pure-data shape of the preconditions makes
   the orchestrators a four-line case-match."
@@ -498,7 +498,7 @@
 ;; ---- write-boundary liveness guard (rf2-7i872) ----------------------------
 ;;
 ;; Precondition validation (`check-restore-preconditions!` /
-;; `check-replace-app-db-preconditions!`) resolves the frame, but a frame
+;; `check-replace-frame-state-preconditions!`) resolves the frame, but a frame
 ;; can be destroyed in the window BETWEEN the precondition pass and the
 ;; actual container write (the validate-then-destroy race — most often a
 ;; tool gesture interleaving with the owning component's teardown). Once
@@ -511,7 +511,7 @@
 ;; returns `false`) — NOT a synthetic success. This helper resolves the
 ;; container at the write boundary and yields the canonical no-such-handler
 ;; failure when it has disappeared, so `perform-restore!` /
-;; `perform-replace-app-db!` can bail BEFORE emitting success, recording a
+;; `perform-replace!` can bail BEFORE emitting success, recording a
 ;; synthetic epoch, or fanning out to listeners.
 
 (defn live-container-or-fail
@@ -783,7 +783,7 @@
               ;; `:trace-events` AFTER the frame has been rewound. The replace-*
               ;; injection siblings already re-anchor to their synthetic epoch
               ;; (`set-last-settled-epoch!` in `record-synthetic-replace-epoch!` /
-              ;; `perform-replace-app-db!`); restore was the one mutating write
+              ;; `perform-replace!`); restore was the one mutating write
               ;; that did not. The restored target IS the epoch whose state is now
               ;; installed, so restore-induced repaint belongs to it — restored-
               ;; target attribution. Set ONLY on the success branch: a failed /
