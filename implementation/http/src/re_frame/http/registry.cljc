@@ -182,9 +182,17 @@
 
 (defonce ^:private issuance-counters
   ;; request-id → highest issuance number allocated so far. Monotonic per
-  ;; request-id; never decremented (a re-issuance after a completion still
-  ;; advances, so a late completion of the old attempt cannot collide with a
-  ;; fresh request reusing the same id).
+  ;; request-id WHILE THE ID IS LIVE: `next-issuance!` only ever advances it,
+  ;; so a superseded attempt (issuance N) and its superseder (N+1) carry
+  ;; distinct `:work/id`s, and a late completion of an old attempt cannot reuse
+  ;; a live issuance. rf2-k47b3d — the entry is EVICTED (not decremented) when
+  ;; the id's final attempt terminates with the counter still AT that attempt's
+  ;; issuance (`evict-issuance-on-completion!`), so an app minting an UNBOUNDED
+  ;; distinct-id space (e.g. `[:load-item item-id]` over an unbounded item
+  ;; space) no longer accumulates one permanent entry per id ever requested on
+  ;; a long-running JVM. A re-issuance after a full eviction restarts at 1 —
+  ;; safe because the prior attempt is already terminal (its trace/reply
+  ;; emitted), so there is no live work-id collision to discriminate.
   (atom {}))
 
 (defn next-issuance!
@@ -199,6 +207,36 @@
     1
     (get (swap! issuance-counters update request-id (fnil inc 0)) request-id)))
 
+(defn evict-issuance-on-completion!
+  "Evict `request-id`'s issuance counter when the attempt that carried
+  `issuance` reaches a TERMINAL completion (rf2-k47b3d), bounding the
+  `issuance-counters` map for apps minting UNBOUNDED distinct request-ids.
+
+  Eviction is CONDITIONAL and atomic: the counter is dropped ONLY when it
+  still equals `issuance` — no fresh request has re-issued under the same id
+  since this attempt was allocated. That single-`swap!` compare-and-drop is
+  what preserves the rf2-azcmd3 anti-collision invariant the monotonic counter
+  exists for: when a supersede is in flight, `next-issuance!` has ALREADY
+  bumped the counter PAST the superseded attempt's `issuance` (it bumps before
+  `supersede!`, handlers.cljc), so this evict sees `counter > issuance`, skips,
+  and the counter survives for the live successor. A single-issuance request
+  (the leak vector) satisfies `counter == issuance`, so it evicts cleanly on
+  completion. A `nil` `request-id` never had a counter (an anonymous request
+  stays at issuance 1 without touching the map) — no-op.
+
+  Called ONLY at the terminal-completion sites (`finalise-success!`,
+  `finalise-failure!`, `dispatch-aborted!`), NEVER on the retry-clear or
+  supersede-clear `clear-in-flight!` paths — those are not terminal (the
+  attempt continues under the same issuance, or a live successor owns the id)."
+  [request-id issuance]
+  (when (and (some? request-id) (some? issuance))
+    (swap! issuance-counters
+           (fn [m]
+             (if (= issuance (get m request-id))
+               (dissoc m request-id)
+               m))))
+  nil)
+
 (defn reset-issuance-counters-for-test!
   "Test-time helper (rf2-azcmd3): drop the per-request-id issuance counters so
   a fresh test run starts every request-id at issuance 1. Not part of the
@@ -206,6 +244,13 @@
   []
   (reset! issuance-counters {})
   nil)
+
+(defn issuance-counter-count
+  "Test/introspection helper (rf2-k47b3d): the number of resident per-request-id
+  issuance counters. Lets a leak test assert the map does not grow unbounded
+  across completed requests. Not part of the user-facing API."
+  []
+  (count @issuance-counters))
 
 (defn supersede!
   "If a request is already in flight under `request-id`, abort it with
