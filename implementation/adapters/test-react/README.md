@@ -18,7 +18,7 @@ Purpose: catch React-lifecycle-driven bugs at unit-test speed without spinning u
 | Real React reconciler quirks | no | no | yes |
 
 The three **bold** rows carry living regressions in
-`test/re_frame/adapter/test_react_test.cljc` (ported under rf2-n2cuo) — each
+`test/re_frame/adapter/test_react_cljs_test.cljc` (ported under rf2-n2cuo) — each
 asserts the bug's *symptom* (the error raised / the imbalance / the extra
 render), so a future regression in that class fails the unit test. If your bug
 class lives in the leftmost four rows and the seminal symptom is "React threw /
@@ -64,7 +64,7 @@ timing, stay on Playwright.
          (mapv :phase (test-react/lifecycle-log mount)))))
 ```
 
-The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change (tests call `trigger-update!` explicitly after a dispatch settles). The adapter's own tests (`test/re_frame/adapter/test_react_test.cljc`) install/dispose the adapter directly via `re-frame.substrate.adapter` in a per-test `:each` fixture; nothing forces you to use `re-frame.test-support/make-reset-runtime-fixture`, though that helper works here just as it does for the production adapters.
+The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change (tests call `trigger-update!` explicitly after a dispatch settles). The adapter's own tests (`test/re_frame/adapter/test_react_cljs_test.cljc`) install/dispose the adapter directly via `re-frame.substrate.adapter` in a per-test `:each` fixture; nothing forces you to use `re-frame.test-support/make-reset-runtime-fixture`, though that helper works here just as it does for the production adapters.
 
 ### Render bodies and recursive children
 

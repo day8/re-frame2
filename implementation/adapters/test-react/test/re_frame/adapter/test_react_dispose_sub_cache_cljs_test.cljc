@@ -1,6 +1,6 @@
 (ns re-frame.adapter.test-react-dispose-sub-cache-cljs-test
-  "CLJS-gate companion to the rf2-ghfkkk High finding's coverage in
-  `re-frame.adapter.test-react-test`.
+  "Companion to the rf2-ghfkkk High finding's coverage in
+  `re-frame.adapter.test-react-cljs-test`.
 
   The substantive assertion lives in both: test-react's `dispose-adapter!`
   MUST clear every live frame's per-frame sub-cache (entries + ref-counts),
@@ -13,15 +13,13 @@
   the FRAME, not the reaction) survived a dispose/reinstall cycle, allowing a
   later subscribe to read a stale value and breaking process isolation.
 
-  Why a SEPARATE ns from `test_react_test.cljc`: the sibling's ns
-  (`re-frame.adapter.test-react-test`) ends in `-test` but NOT `-cljs-test`,
-  so it runs only under the JVM cognitect runner (`clojure -M:test`) — the
-  shadow-cljs `:node-test` build's `cljs-test$` ns-regexp does not match it.
-  This ns ends in `-cljs-test`, so it ALSO rides `npm run test:cljs`, giving
-  the contract CLJS coverage. It uses the standard
-  `make-reset-runtime-fixture` (mirroring `plain_atom_dispose_cljs_test`) for
-  airtight per-test isolation rather than hand-managing frame/registrar
-  state."
+  Why a SEPARATE ns from `test_react_cljs_test.cljc`: the unique coverage
+  here is `dispose-adapter-clears-sub-caches-across-multiple-frames` — the
+  walk must cover EVERY live frame, not just `:rf/default`. Both files end in
+  `-cljs-test`, so both ride `npm run test:cljs` (and the JVM cognitect
+  runner). This ns uses the standard `make-reset-runtime-fixture` (mirroring
+  `plain_atom_dispose_cljs_test`) for airtight per-test isolation rather than
+  hand-managing frame/registrar state."
   (:require [re-frame.adapter.test-react :as test-react]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.core :as rf]
