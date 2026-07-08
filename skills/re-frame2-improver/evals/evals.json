@@ -198,6 +198,23 @@
         "The output CONSOLIDATES: it proposes exactly ONE reg-machine (Nine States / a single data-region machine with :tags) for the :items lifecycle and explicitly states the two findings share one refactor — it does NOT emit two separate or contradictory machine rewrites (one for the flag, one for the subs).",
         "The consolidated machine replaces BOTH the manual flag (its states carry the lifecycle, no hand-maintained :items/loading? key) AND the boolean-sub cluster (the view renders via ONE selector sub over the machine's :tags / a render-priority table, one case) — cross-linking both converging idioms (skills/re-frame2/patterns/nine-states.md / spec/Pattern-NineStates.md AND skills/re-frame2/references/state-machines/tags.md / spec/005-StateMachines.md)."
       ]
+    },
+    {
+      "id": 28,
+      "kind": "behavioural",
+      "name": "behav-schemaless-body-read-trap",
+      "dimension": "critique-correctness",
+      "leaf": "schemaless-events.md",
+      "prompt": "Audit this re-frame2 boundary handler against best practices:\n\n(def Filters\n  [:map\n   [:q    :string]\n   [:page :int]\n   [:sort [:enum \"asc\" \"desc\"]]])\n\n(rf/reg-app-schema [:search :filters] Filters)\n\n(rf/reg-event :search/apply-url-filters\n  {:schema       [:cat [:= :search/apply-url-filters]]\n   :interceptors [:rf.schema/at-boundary]}\n  (fn [{:keys [db]} _]\n    (let [qs     (js/URLSearchParams. js/window.location.search)\n          params {:q    (.get qs \"q\")\n                  :page (js/parseInt (.get qs \"page\") 10)\n                  :sort (.get qs \"sort\")}]\n      {:db (assoc-in db [:search :filters] params)})))",
+      "expected_output": "The agent recognises the schemaless-boundary TRAP: the handler carries BOTH a `:schema` for its event id AND the `:rf.schema/at-boundary` interceptor ref — exactly the shape that closes an *event-payload* boundary — yet it is STILL a finding, because the untrusted value (the query string, `js/window.location.search`) is read *mid-body*. `:rf.schema/at-boundary` validates only the trivially-valid, empty `[:search/apply-url-filters]` dispatch vector and never touches `params`; `reg-app-schema` is dev-elided. So in the deployed bundle the handler writes an arbitrary/tampered query string (a NaN `:page`, an out-of-enum `:sort`) straight into app-db. It loads references/schemaless-events.md, classifies this as the BODY-READ shape, and the fix validates the RAW value: an unconditional `(m/validate Filters params)` / `m/coerce` in the body (not behind a `goog.DEBUG` guard), OR — better — a validating cofx/interceptor that materialises + validates the query params before the write. It must NOT accept the snippet as already-safe on the strength of `:schema` + `:rf.schema/at-boundary`, and must NOT prescribe re-adding `:rf.schema/at-boundary` (already present, and useless for a body read).",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and references/schemaless-events.md is read.",
+        "The output STILL flags a schemaless / unvalidated-boundary finding DESPITE the handler carrying :schema AND the :rf.schema/at-boundary interceptor ref — it does NOT accept the snippet as already-safe because those gates are present.",
+        "The output classifies this as the BODY-READ boundary shape and identifies the untrusted value as the query string read mid-body (js/window.location.search / the parsed params) — not an event-payload value.",
+        "The output explains WHY the existing gate is useless here: :rf.schema/at-boundary validates only the (empty, trusted) [:search/apply-url-filters] event vector, never the parsed params; and reg-app-schema is dev-elided (goog.DEBUG), so nothing validates the value in production.",
+        "The output's fix validates the RAW value with an ALWAYS-ON check — an unconditional m/validate / m/coerce over params in the body (NOT behind a goog.DEBUG guard), OR a validating cofx/interceptor that materialises + validates before the write — and it does NOT prescribe (re-)adding :rf.schema/at-boundary (already present and useless for a body-read boundary).",
+        "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/schemas.md and/or spec/010-Schemas.md)."
+      ]
     }
   ]
 }
