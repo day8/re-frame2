@@ -55,6 +55,7 @@ const {
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
   contrastRatio,
+  colorToHex,
   parseExTokens,
   sharedContrastContract,
   WCAG_AA_NORMAL_TEXT,
@@ -1838,6 +1839,72 @@ it('TEETH rf2-lvw3z9: a commented-out remote @import does NOT false-fail the gat
     errors,
     [],
     `an inert commented-out remote @import must not fail the gate, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- rf2-nrieg0: WCAG contrast on non-hex --ex-* tokens -------------------
+//
+// parseExTokens only read #hex, and the contrast loop silently `continue`d on a
+// non-hex token, disabling the WCAG gate under an rgb()/hsl() palette refactor.
+// Now rgb()/hsl() are parsed (and checked); a genuinely-opaque form (var()) is
+// fail-loud rather than silently skipped.
+
+it('rf2-nrieg0: colorToHex normalises #hex / rgb() / hsl(), null for var()', () => {
+  assert.strictEqual(colorToHex('#C8741A'), '#C8741A');
+  assert.strictEqual(colorToHex('#abc'), '#aabbcc');
+  assert.strictEqual(colorToHex('rgb(200,116,26)'), '#c8741a');
+  assert.strictEqual(colorToHex('rgba(200, 116, 26, 0.5)'), '#c8741a'); // alpha dropped
+  assert.strictEqual(colorToHex('hsl(120,100%,50%)'), '#00ff00');
+  assert.strictEqual(colorToHex('var(--ex-accent)'), null);
+  assert.strictEqual(colorToHex('rebeccapurple'), null);
+});
+
+it('rf2-nrieg0: parseExTokens now captures rgb()/hsl() tokens (was hex-only)', () => {
+  const tokens = parseExTokens(
+    ':root{--ex-bg:#F7F3EC; --ex-accent-deep: rgb(156,79,14); --ex-warn: hsl(43,79%,43%);}',
+  );
+  assert.strictEqual(tokens['--ex-bg'], '#F7F3EC');
+  assert.strictEqual(tokens['--ex-accent-deep'], '#9c4f0e'); // was DROPPED before
+  assert.ok(tokens['--ex-warn'], 'an hsl() token must be captured, not dropped');
+});
+
+it('TEETH rf2-nrieg0: a sub-AA rgb() accent foreground now FAILS (was skipped)', () => {
+  // The sub-AA amber #C8741A expressed as rgb() — previously invisible to the
+  // gate (silent `continue`), now parsed and caught.
+  const badStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: rgb(200,116,26);',
+  );
+  const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('WCAG AA') && e.includes('rf2-febmqu')),
+    `expected the rgb() sub-AA foreground to fail, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH rf2-nrieg0: a declared-but-unparseable var() contrast token FAILS LOUD', () => {
+  const badStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: var(--ex-accent);',
+  );
+  const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('rf2-nrieg0') && e.includes('cannot evaluate')),
+    `expected a fail-loud unverifiable-token error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('rf2-nrieg0: an AA-safe rgb() palette scans CLEAN (no false-fail)', () => {
+  // #9C4F0E expressed as rgb() — parsed identically, must NOT false-fail.
+  const rgbStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: rgb(156,79,14);',
+  );
+  const errors = checkSharedTree(paletteIo(rgbStyle), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an AA-safe rgb() palette must scan clean, got: ${errors.join(' | ')}`,
   );
 });
 
