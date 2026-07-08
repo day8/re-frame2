@@ -128,6 +128,8 @@
             [re-frame.routing.tooling :as routing-tooling]
             [re-frame.resources]
             [re-frame.resources.tooling :as resources-tooling]
+            [re-frame.resources.state :as resources-state]
+            [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.machines.tooling :as machines-tooling]
             [re-frame.machines.paths :as machine-paths]
             [re-frame.subs.tooling :as subs-tooling]
@@ -1137,13 +1139,47 @@
           inputs)
     inputs))
 
+(defn- project-work-id
+  "Project the scoped key embedded in a resource work-id
+  `[:rf.work/resource <scoped-key> <generation>]` — a work-id of another
+  shape (e.g. a non-resource family's work-id) rides unchanged. Mirrors
+  `re-frame.resources.tooling/project-work-id` (rf2-0t0l3w); re-composed here
+  from the in-tree primitives per this suite's egress-mirror contract
+  (rf2-tmyfkn). Idempotent by delegation: `project-scoped-key` /
+  `opaque-scoped-key-handle` already return an already-projected handle
+  unchanged, regardless of whether the embedded key still LOOKS like a raw
+  `scoped-resource-key?` shape (an opaqued key's tail is a vector, not a
+  map — see `opaque-scoped-key-handle`'s docstring)."
+  [work-id]
+  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
+    (update work-id 1 project-scoped-key)
+    work-id))
+
+(defn- project-host-transient
+  "Project the work-id embedded in a `:host-transient`
+  `[[:rf.http/in-flight <work-id>]]` in-flight handle address (rf2-tmyfkn) —
+  the abortable-handle address names the SAME work-id the work-ledger link
+  carries, so it must not leak the raw scoped key either. Other shapes ride
+  through untouched."
+  [host-transient]
+  (if (sequential? host-transient)
+    (mapv (fn [entry]
+            (if (and (vector? entry) (= 2 (count entry)) (= :rf.http/in-flight (first entry)))
+              (update entry 1 project-work-id)
+              entry))
+          host-transient)
+    host-transient))
+
 (defn- project-resource-node-identity
   "Project ONE live resource node's secret-bearing IDENTITY fields — the
   positions the value-path `rf/elide-wire-value` walk is structurally blind
   to: `:id` (the scoped key), `:output` (the scoped key embedded in the
   runtime path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
-  and `:work-ledger :record :resource/key`. Structure / classification fields
-  are untouched."
+  `:work-ledger :record :resource/key`, the resource work-id embedded in
+  BOTH `:work-ledger :work/id` and `:work-ledger :record :work/id` (rf2-
+  tmyfkn — a THIRD identity position, independent of `:resource/key`), and
+  the `:host-transient` in-flight handle address (which names that SAME
+  work-id). Structure / classification fields are untouched."
   [node]
   (cond-> node
     (scoped-resource-key? (:id node))
@@ -1156,7 +1192,16 @@
     (update :inputs project-resource-inputs)
 
     (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+    (update-in [:work-ledger :record :resource/key] project-scoped-key)
+
+    (contains? (:work-ledger node) :work/id)
+    (update-in [:work-ledger :work/id] project-work-id)
+
+    (contains? (get-in node [:work-ledger :record]) :work/id)
+    (update-in [:work-ledger :record :work/id] project-work-id)
+
+    (contains? node :host-transient)
+    (update :host-transient project-host-transient)))
 
 (defn- resource-node-key?
   "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
@@ -1280,6 +1325,21 @@
   [secret-scope :article/by-slug secret-params])
 (def ^:private egress-nav-token 23)
 
+;; EP-0011 (rf2-cxpa87) / rf2-tmyfkn — the canonical resource work-id is the
+;; FAMILY tuple `[:rf.work/resource <scoped-key> <generation>]`
+;; (`re-frame.resources.work-ledger/resource-work-id`), NOT a scalar — and
+;; its embedded scoped key is the SAME secret-bearing identity `:id` /
+;; `:resource/key` carry, in a THIRD structure position a value-path walk
+;; cannot reach. A prior scalar `99` fixture could never expose a missing
+;; work-id projection: a scalar has nothing to leak. Using the canonical
+;; tuple here (embedding `egress-scoped-key`) makes a regression that stops
+;; opaquing `:work-ledger :work/id` / `:work-ledger :record :work/id` /
+;; `:host-transient` fail this suite's egress arms, not just the per-artefact
+;; `resources` suite.
+(def ^:private egress-generation 4)
+(def ^:private egress-work-id
+  [:rf.work/resource egress-scoped-key egress-generation])
+
 (defn- egress-live-contributors
   "Contributors whose `:resources` / `:routes` live-fns return the realized
   shapes a route-owned fetch under a sensitive (tenant-scoped) activation
@@ -1303,10 +1363,11 @@
                     :lifecycle   {:kind   :scoped-resource-key
                                   :owners #{[:route :route/article egress-nav-token]}}
                     :status      :loading
-                    :work-ledger {:work/id 99
-                                  :record  {:work/id      99
-                                            :status       :pending
-                                            :resource/key egress-scoped-key}}}})}
+                    :work-ledger    {:work/id egress-work-id
+                                     :record  {:work/id      egress-work-id
+                                               :status       :pending
+                                               :resource/key egress-scoped-key}}
+                    :host-transient [[:rf.http/in-flight egress-work-id]]}})}
    :routes
    {:live-shape :node
     :static-fn  (constantly {})
@@ -1410,10 +1471,37 @@
         (is (= [:rf.runtime/resources :entries] (take 2 (second (:output node))))
             "the :output runtime path prefix survives")
         (let [rec (get-in node [:work-ledger :record])]
-          (is (= 99 (:work/id rec)) "the non-secret work id rides through")
+          (is (vector? (:work/id rec))
+              "the work-ledger record's :work/id keeps the canonical tuple shape")
+          (is (= :rf.work/resource (first (:work/id rec)))
+              "the work-id family head survives projection (:rf.work/resource)")
+          (is (= egress-generation (nth (:work/id rec) 2))
+              "the non-secret attempt generation rides through unchanged")
+          (is (projected-scoped-key? (nth (:work/id rec) 1))
+              "the work-id's embedded scoped key is projected to the opaque-handle shape")
+          (is (= :article/by-slug (nth (nth (:work/id rec) 1) 1))
+              "the resource-id inside the work-id's embedded scoped key stays visible")
           (is (= :pending (:status rec)))
           (is (projected-scoped-key? (:resource/key rec))
-              "the work-ledger :resource/key keeps the scoped-key shape"))))))
+              "the work-ledger :resource/key keeps the scoped-key shape"))))
+
+    (testing "(e) rf2-tmyfkn — the resource work-id is a THIRD identity
+              position, independent of :resource/key: the top-level
+              :work-ledger :work/id, the record's own :work/id copy, and the
+              :host-transient in-flight handle address (which names the SAME
+              work-id) all project to the SAME opaqued scoped key — no raw
+              secret survives via any of the three positions"
+      (let [node    (-> redacted :nodes vals first)
+            top-wid (get-in node [:work-ledger :work/id])
+            rec-wid (get-in node [:work-ledger :record :work/id])
+            ht-wid  (second (first (:host-transient node)))]
+        (is (some? top-wid) "the top-level work-ledger link carries a work-id")
+        (is (= top-wid rec-wid)
+            "the top-level slot and the record's own copy project to the SAME opaqued work-id")
+        (is (= top-wid ht-wid)
+            "the host-transient in-flight handle names the SAME opaqued work-id")
+        (is (not (contains-secret? top-wid))
+            "no raw secret survives in the projected work-id")))))
 
 (deftest g-graph-egress-for-unknown-frame-fails-closed
   ;; The §Conformance fail-closed clause for the GRAPH egress boundary:
@@ -1520,4 +1608,140 @@
         "the projected :output runtime path is stable under re-projection")
     (is (= (get-in node1 [:work-ledger :record :resource/key])
            (get-in node2 [:work-ledger :record :resource/key]))
-        "the projected work-ledger :resource/key is stable under re-projection")))
+        "the projected work-ledger :resource/key is stable under re-projection")
+    ;; rf2-tmyfkn: the resource work-id is projected in THREE positions (the
+    ;; top-level :work-ledger link, the record's own copy, and the
+    ;; :host-transient in-flight handle) — each must be independently stable,
+    ;; not just re-hashed to a DIFFERENT-but-still-secret-free handle on the
+    ;; second pass (which `(= once twice)` alone would already catch, but a
+    ;; spelled-out witness reports WHICH position drifted).
+    (is (= (get-in node1 [:work-ledger :work/id])
+           (get-in node2 [:work-ledger :work/id]))
+        "the projected top-level :work-ledger :work/id is stable under re-projection")
+    (is (= (get-in node1 [:work-ledger :record :work/id])
+           (get-in node2 [:work-ledger :record :work/id]))
+        "the projected :work-ledger :record :work/id is stable under re-projection")
+    (is (= (:host-transient node1) (:host-transient node2))
+        "the projected :host-transient in-flight handle is stable under re-projection")))
+
+;; ===========================================================================
+;; (g+) THE REAL RESOURCE-CACHE GRAPH EGRESS PATH (rf2-uh2clr).
+;;
+;; Every (g) arm above proves the UMBRELLA egress-projection LAW
+;; (`egress-project-graph`, this suite's in-tree Xray-call-site mirror)
+;; against a hand-built SYNTHETIC contributor (`egress-live-contributors`) —
+;; correct for pinning the projection HELPER in isolation, but it never
+;; drives the PRODUCTION wiring: `re-frame.resources.tooling/
+;; resource-cache-algebra-view` already projects a `:sensitive?` resource's
+;; identity (rf2-0t0l3w) INSIDE the tooling sibling, before the graph
+;; composer ever sees the node, whenever it is reached through the REAL
+;; `all-contributors` map every OTHER arm in this suite composes through. A
+;; regression in `resource-cache-algebra-view`'s own projection, or in
+;; `graph/live-derivation-graph`'s node collection / keying / edge
+;; derivation over an ALREADY-projected node, could pass every synthetic (g)
+;; arm above while a real app's Xray / re-frame2-pair-mcp consumer still
+;; leaked. This arm closes that gap: register a REAL `:sensitive?` resource
+;; + a REAL route (a REAL navigation mints its live nav-token/owner
+;; identity), materialize the live cache entry the SAME way
+;; `resource_algebra_view_cljs_test.cljc`'s own `install-live-entry!`
+;; precedent does (a direct runtime-db write, documented there as "a test
+;; fixture, NOT the resource write-path under test" — this conformance tier
+;; has no dependency on the HTTP artefact, so it cannot drive a real fetch;
+;; attempting one throws `:rf.error/http-artefact-missing`, confirmed while
+;; developing this arm), then compose the graph through the REAL
+;; `all-contributors` map — no hand-rolled node, no hand-rolled contributor
+;; standing in for the tooling projection or the composer — and assert the
+;; graph a real app's Xray panel would see carries no raw secret while
+;; resource-id + edge connectivity survive.
+;; ===========================================================================
+
+(def ^:private real-egress-frame :app/real-resource-egress)
+
+(deftest gplus-real-resource-cache-graph-egress-via-the-production-path
+  (rf/reg-frame real-egress-frame {:doc "real resource-cache graph egress conformance frame"})
+  (rf/reg-resource :secret/tenant-article
+                   {:scope         :rf.scope/global
+                    :params-schema [:map [:auth-token :string]]
+                    :sensitive?    true}
+                   (fn [{:keys [auth-token]} _ctx]
+                     {:request {:method  :get
+                                :url     "/api/secure-article"
+                                :headers {"Authorization" auth-token}}}))
+  ;; A plain route (no `:resources` metadata — this tier cannot drive a real
+  ;; on-route fetch; see the arm doc above) whose REAL navigation mints a
+  ;; REAL nav-token, so the resource entry's owner below is a genuine live
+  ;; route-owner identity, not a fabricated one. Deliberately carries NO
+  ;; secret in its OWN path/params: the route's :params field is a SEPARATE
+  ;; value-bearing surface (frame elision policy, not resource-identity
+  ;; projection) — this arm isolates the RESOURCE identity leak channel
+  ;; rf2-uh2clr / rf2-tmyfkn are about from that unrelated one.
+  (rf/reg-route :route/secure-article {} "/secure")
+  (rf/dispatch-sync [:rf.route/navigate :route/secure-article {}]
+                    {:frame real-egress-frame})
+  (let [nav-token   (:nav-token (get (:nodes (graph/live-derivation-graph real-egress-frame all-contributors))
+                                     :rf/route))
+        owner       [:route :route/secure-article nav-token]
+        scope       :rf.scope/global
+        params      {:auth-token secret-token}
+        scoped-key  (resources-state/scoped-resource-key scope :secret/tenant-article params)
+        work-id     (work-ledger/resource-work-id scoped-key 1)
+        entry       (assoc (resources-state/empty-entry :secret/tenant-article scoped-key)
+                           :status :fetching :active-owners #{owner} :current-work work-id)]
+    (is (some? nav-token) "PRECONDITION — the real navigation minted a nav-token")
+    ;; Materialize the live cache entry directly (the fixture technique, NOT
+    ;; the resource write-path under test — see the arm doc above), through
+    ;; the REAL `resources.state` / `resources.work-ledger` primitives so the
+    ;; entry + its work-ledger record are shaped EXACTLY as the runtime would
+    ;; write them.
+    (frame/swap-runtime-db!
+      real-egress-frame
+      (fn [rdb]
+        (-> (assoc-in (or rdb {}) (resources-state/entry-path scoped-key) entry)
+            (work-ledger/put-record
+              work-id
+              (work-ledger/work-record {:work-id      work-id
+                                        :frame-id     real-egress-frame
+                                        :resource/key scoped-key
+                                        :generation   1
+                                        :transport    :rf.http/managed
+                                        :owner        owner
+                                        :cause        :test/materialize}))))))
+  (let [g              (graph/live-derivation-graph real-egress-frame all-contributors)
+        resource-entry (->> (:nodes g)
+                             (filter (fn [[_ n]] (= :resources (:rf/family n))))
+                             first)]
+    (testing "PRECONDITION — the REAL resource-cache-algebra-view path
+              assembled a live :resources node over the materialized entry
+              (failing precondition, rf2-djofbh: absence is a failure, not a
+              vacuous skip)"
+      (is (some? resource-entry)
+          "the REAL resources.tooling path assembled a live :resources node"))
+    (let [[res-key res-node] resource-entry]
+      (testing "(a) resource-id identity stays VISIBLE — a tool still sees
+                WHICH resource, even though its scope/params are secret"
+        (is (= :secret/tenant-article (nth (:id res-node) 1))
+            "the registration resource-id survives inside the (already
+             tooling-projected) scoped key"))
+      (testing "(b) NO raw secret token survives ANYWHERE in the composed
+                graph — not in the node key, :id, :inputs, :output,
+                :work-ledger (the top-level :work/id, the record's own
+                :work/id, AND :resource/key), :host-transient, or any edge —
+                the REAL tooling's rf2-0t0l3w projection ran BEFORE the
+                composer ever saw this node"
+        (is (not (contains-secret? g))
+            "the secret auth-token must not appear anywhere in the composed graph"))
+      (testing "(c) the route → resource :param edge still connects through
+                the composer's live `route-edges` derivation, even though the
+                key it joins on is already opaqued by the tooling sibling"
+        (let [edge (->> (:edges g) (filter #(= :param (:role %))) first)]
+          (is (some? edge) "the route-owned resource activation edge is present")
+          (is (= res-key (:to edge))
+              "the edge :to matches the (already-projected) resource node key")))
+      (testing "(d) the entry carries a real work-ledger link + host-transient
+                handle (not a hand-rolled node shape) — the exact shape
+                rf2-tmyfkn's canonical work-id concern is about"
+        (is (= :fetching (:status res-node)))
+        (is (some? (get-in res-node [:work-ledger :work/id]))
+            "a real work-ledger link is present")
+        (is (some? (:host-transient res-node))
+            "a real host-transient in-flight handle is present")))))
