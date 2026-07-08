@@ -1145,6 +1145,41 @@
                             #"initial-events must be a vector OR a"
                             (lifecycle/resolve-initial-events! '(:list-not-vector) req))))))
 
+(deftest resolve-root-view-invalid-shape-unit-contract
+  (testing "lifecycle/resolve-root-view — hiccup passthrough, 0-arity fn
+            resolution, and the :else invalid-shape throw (unit).
+            Sibling to initial-events-resolve-fn-unit-contract:
+            resolve-initial-events! has a dedicated invalid-shape unit but the
+            resolve-root-view :else arm (lifecycle.clj:186-193) — which throws
+            :rf.error/invalid-root-view for a value that is neither a hiccup
+            vector nor a 0-arity fn — was untested (rf2-njkw94)."
+    ;; A hiccup vector passes through verbatim.
+    (is (= [:div "x"] (lifecycle/resolve-root-view [:div "x"])))
+    ;; A 0-arity fn is invoked exactly once; its hiccup result is returned.
+    (let [calls (atom 0)]
+      (is (= [:section] (lifecycle/resolve-root-view
+                          (fn [] (swap! calls inc) [:section]))))
+      (is (= 1 @calls) "the fn-form is resolved exactly once (rf2-6t36h)"))
+    ;; Every non-vector, non-fn shape hits the :else arm and throws the
+    ;; canonical :rf.error/invalid-root-view — pinned across scalar shapes so
+    ;; the fail-closed branch (not accidental happy-path fallthrough) fires.
+    (doseq [bad ["a-string" :a-keyword {:a :map} 42 nil]]
+      (let [ex (try (lifecycle/resolve-root-view bad)
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo ex)
+            (str "resolve-root-view must throw for " (pr-str bad)))
+        (is (= :rf.error/invalid-root-view (:rf.error/id (ex-data ex)))
+            (str "canonical :rf.error/id for " (pr-str bad)))
+        (is (= 'rf.ssr/ssr-handler (:where (ex-data ex)))
+            "the where-symbol names the public ssr-handler entry point")
+        (is (= :supply-a-hiccup-vector-or-0-arity-fn (:recovery (ex-data ex)))
+            "the recovery disposition is carried through")
+        (is (= bad (:received (ex-data ex)))
+            "ex-data carries the offending :received value")
+        (is (re-find #"root-view must be a hiccup vector or a 0-arity fn"
+                     (ex-message ex))
+            "the human message names the public concept + expected fix")))))
+
 ;; ===========================================================================
 ;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
 ;;
