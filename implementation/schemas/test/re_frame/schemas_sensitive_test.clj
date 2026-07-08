@@ -721,6 +721,73 @@
                   ["a" :plain]))
         "plain :map-of key with a fully non-sensitive value → NOT leaf-sensitive")))
 
+;; -- direct unit tests: the `:maybe` transparent-wrapper arm (rf2-f2qcgl) --
+;;
+;; `:maybe` is a genuinely single-child transparent wrapper (`[:maybe inner]`)
+;; that contributes NO `:in` segment — both redaction-path walkers descend into
+;; the inner schema WITHOUT consuming a path segment (align-in-path
+;; walker.cljc:816-819; sanitize-sensitive-path walker.cljc:1003-1006). `:maybe`
+;; is exercised in `walk-flagged-schema` (the DECL extractor) via its `:else`
+;; descend-into-each-child arm, but the two REDACTION-path `:maybe` arms above
+;; had no direct test — `:maybe` is absent from the security artefact's
+;; generative redaction wrap-set (`:map`/`:vector`/`:sequential`/`:map-of`/
+;; `:tuple`), whose only `:maybe` occurrence is a childless malformed-schema
+;; case. These pin the child-present transparent descent on both walkers.
+
+(deftest schema-sensitive-at?-descends-maybe-transparent-wrapper
+  (testing "rf2-f2qcgl — schema-sensitive-at? aligns a path THROUGH a `:maybe`
+            wrapper without consuming a segment: a `:sensitive?` leaf nested
+            inside `[:maybe [:map …]]` resolves sensitive at the value path that
+            skips the wrapper (align-in-path :maybe arm, walker.cljc:816-819)"
+    ;; The exact bead shape: the sensitive slot sits under `:s` -> `:maybe` ->
+    ;; `:k`. Malli's `:in` for the failing `:k` value skips the transparent
+    ;; `:maybe`, so the aligned path is [:s :k] and the extracted decl-path is
+    ;; likewise [:s :k] (walk-flagged-schema descends `:maybe` at the same
+    ;; base-path) — they prefix-match, so the leaf resolves sensitive.
+    (is (true? (walker/schema-sensitive-at?
+                 [:map [:s [:maybe [:map [:k {:sensitive? true} :string]]]]]
+                 [:s :k]))
+        "sensitive leaf under a `:maybe` wrapper → leaf sensitive at [:s :k]")
+    ;; Companion: the same wrapper shape with a NON-sensitive leaf must NOT
+    ;; over-redact — the `:maybe` descent is transparent, not a fail-open bail.
+    (is (false? (walker/schema-sensitive-at?
+                  [:map [:s [:maybe [:map [:k :string]]]]]
+                  [:s :k]))
+        "non-sensitive leaf under a `:maybe` wrapper → NOT leaf sensitive")
+    ;; A sensitive leaf directly under a top-level `:maybe` (no outer :map):
+    ;; `[:maybe [:map …]]` with :in [:k]. Align descends the `:maybe` with the
+    ;; segment intact, keeps [:k], and resolves sensitive.
+    (is (true? (walker/schema-sensitive-at?
+                 [:maybe [:map [:k {:sensitive? true} :string]]]
+                 [:k]))
+        "top-level `:maybe` wrapper is transparent for the leaf decision too")))
+
+(deftest sanitize-sensitive-path-transparent-through-maybe
+  (testing "rf2-f2qcgl — sanitize-sensitive-path descends a `:maybe` wrapper
+            without consuming a segment (walker.cljc:1003-1006), so navigable
+            segments on either side keep their locator identity"
+    ;; Map key kept: `:s` (map key, before the wrapper) and `:k` (map key,
+    ;; inside the wrapper) are both navigable `get-in` locators — the `:maybe`
+    ;; between them is transparent, so neither is scrubbed.
+    (is (= [:s :k]
+           (walker/sanitize-sensitive-path
+             [:map [:s [:maybe [:map [:k {:sensitive? true} :string]]]]]
+             [:s :k]))
+        "navigable map keys survive verbatim across a `:maybe` wrapper"))
+  (testing "rf2-f2qcgl — a value-bearing `:set` element nested under a `:maybe`
+            is still scrubbed: the walk descends the transparent `:maybe`, then
+            the `:set` arm ALWAYS scrubs the failing element value"
+    ;; Malli reports a `:set` failure's `:in` segment as the failing ELEMENT
+    ;; VALUE itself (not an index); the secret element must NOT ride verbatim in
+    ;; `:path`. The outer map key `:s` is kept; the set element is redacted.
+    (let [out (walker/sanitize-sensitive-path
+                [:map [:s [:maybe [:set [:string {:sensitive? true}]]]]]
+                [:s "SECRET-SET-ELEMENT"])]
+      (is (= [:s :rf/redacted] out)
+          "map key kept; set element scrubbed to the sentinel across `:maybe`")
+      (is (not (some #{"SECRET-SET-ELEMENT"} out))
+          "the sensitive set element does NOT survive in the sanitized path"))))
+
 ;; -- end-to-end via validate-app-schema! (:path / :reason / whole-tags egress) --
 
 (deftest app-db-validation-or-wrapped-map-of-sensitive-key-scrubbed
