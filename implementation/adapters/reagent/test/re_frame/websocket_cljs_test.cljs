@@ -640,6 +640,60 @@
               (is (= rid (:request-id reply))
                   "the failure names the dropped request"))))))))
 
+(defn- timeout-fails-in-flight-request-test []
+  ;; rf2-vqg8l6 — a request that TIMES OUT while the socket is still ALIVE must
+  ;; not leave its caller hanging. The `:ws/request-timeout` handler (guarded by
+  ;; `:current-socket?`, so the socket is live) FAILS the request the same way a
+  ;; socket drop does: it clears the in-flight slot AND fires the waiting
+  ;; `:reply-event` with an explicit `{:ok false :error :ws/timeout}` body —
+  ;; `:on-socket-lost`'s per-request twin, scoped to the one request whose timer
+  ;; elapsed. Unlike a drop, the connection stays up.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [live-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
+              rid     (random-uuid)]
+          ;; A request whose wire :type the mock does NOT echo, so it sits
+          ;; in-flight with no reply to clear it — a genuine no-answer.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request {:request-id rid
+                                           :body       {:type :silent-no-echo}
+                                           :reply      [:ws.app/request-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f})
+          (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+                         rid)
+              "a request with no immediate reply sits in :in-flight")
+          ;; Fire its timeout carrying the LIVE socket-id, so it passes
+          ;; :current-socket? — the socket-still-alive timeout case. (new-frame
+          ;; suppresses the real :dispatch-later, so we synthesise the timeout
+          ;; event exactly as :register-request would have scheduled it.)
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request-timeout {:request-id       rid
+                                                   :source-socket-id live-id}]]
+                            {:frame f})
+          (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                db (rf/app-db-value f)]
+            ;; A timeout does NOT tear the connection down (that's the drop
+            ;; path) — the socket is still the same live actor.
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "a request timeout leaves the live connection connected")
+            (is (= live-id (socket-id-of s))
+                "the socket survived the request timeout")
+            (is (not (contains? (get-in s [:data :in-flight]) rid))
+                ":in-flight slot cleared on timeout — no indefinite leak")
+            (let [reply (get-in db [:messages :last-reply])]
+              (is (some? reply) "the waiting reply-event fired on the timeout")
+              (is (false? (:ok reply)) "reply is an explicit failure")
+              (is (= :ws/timeout (:error reply)))
+              (is (= rid (:request-id reply))
+                  "the failure names the timed-out request"))))))))
+
 (defn- queued-request-registers-and-replies-on-connect-test []
   ;; rf2-ryt25d — a :ws/request issued OFF-connection must be buffered as its
   ;; event and, on connect, rejoin :register-request so it registers, sends
@@ -908,6 +962,12 @@
   (testing "rf2-r1rkvb — a socket drop fails + clears every in-flight request
             (no leak); the waiting reply-event gets a connection-lost body"
     (drop-fails-in-flight-request-test)))
+
+(deftest websocket-timeout-fails-in-flight-request
+  (testing "rf2-vqg8l6 — a request that times out on a still-live socket fails +
+            clears its in-flight slot; the waiting reply-event gets a :ws/timeout
+            body, and the connection stays up"
+    (timeout-fails-in-flight-request-test)))
 
 (deftest websocket-queued-request-registers-and-replies-on-connect
   (testing "rf2-ryt25d — a :ws/request buffered off-connection registers and

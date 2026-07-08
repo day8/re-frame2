@@ -70,7 +70,12 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   request-id; `:register-request` stamps the id onto the outgoing body, schedules
   a `:dispatch-later` timeout, and routes the body to the actor. The matching
   inbound `:ws/received` clears the slot and dispatches the registered reply
-  [event](../../../docs/core/glossary.md#event). The correlation id is a folded
+  [event](../../../docs/core/glossary.md#event). If the deadline fires first —
+  a `:ws/request-timeout` on a still-live socket — the request is *failed*, not
+  silently forgotten: the slot clears and the waiting reply fires with an
+  explicit `{:ok false :error :ws/timeout}` body, the per-request twin of the
+  socket-drop path below, so a timed-out caller learns the outcome instead of
+  hanging forever. The correlation id is a folded
   fact from a *recordable* [coeffect](../../../docs/core/glossary.md#coeffect)
   (`:ws.app/request-id`), not an ambient `(random-uuid)` — so a replay re-presents
   the same id and the reply still matches the recorded request. (This is
