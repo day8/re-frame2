@@ -106,8 +106,11 @@ const SOURCE_EXTS = new Set(['.clj', '.cljs', '.cljc']);
 
 // ---------------------------------------------------------------------------
 // Source enumeration. Walk the stock-Reagent tree for .clj/.cljs/.cljc files,
-// skipping node_modules / build-output dirs. The slim tree is a SIBLING
-// (examples/reagent-slim/) and is never reached by this prefix walk.
+// skipping node_modules / build-output dirs. The slim tree lives UNDER
+// examples/substrates/ (examples/substrates/reagent_slim/), NOT as a sibling of
+// the walked roots, and is never reached by this walk: substrates/ is not one
+// of STOCK_REAGENT_ROOTS (core / capabilities / patterns / real-apps), so the
+// walk never descends into it.
 // ---------------------------------------------------------------------------
 
 function listStockReagentSources(roots = STOCK_REAGENT_ROOTS) {
