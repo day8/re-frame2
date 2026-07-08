@@ -542,7 +542,34 @@ else
         # paths; only the orchestrator scripts under examples/scripts/
         # (matched above) fire it. The cljs_browser gate covers
         # CLJS-source regressions touched by examples/.
+        #
+        # rf2-8ckcf2 — false-green fix (ROOT CAUSE of the #5353 main-red).
+        # examples/ carries no tests of its own, BUT example PRODUCTION
+        # source sits on the consolidated :node-test classpath
+        # (implementation/shadow-cljs.edn lists ../examples/core,
+        # ../examples/real-apps, ../examples/capabilities/*, … as
+        # :source-paths), and framework/adapter test namespaces may
+        # `:require` it. The reagent-adapter test
+        # re-frame.realworld-resources-cljs-test
+        # (implementation/adapters/reagent/test/re_frame/realworld_resources_cljs_test.cljs
+        # — its ns matches the :node-test build's `cljs-test$` ns-regexp)
+        # `:require`s realworld-resources.core + realworld-resources.scope
+        # from examples/real-apps/realworld_resources/. So an examples-only
+        # change can break a :node-test test, yet firing only cljs_browser
+        # left the `cljs` job (gated on cljs_node_test) SKIPPED: PR #5353
+        # (an examples/real-apps editor fix) merged green and turned main
+        # red undetected. Fire cljs_node_test on ANY examples change so the
+        # consolidated node-test suite re-runs the coupled tests. Broad
+        # (whole examples/ tree) rather than examples/real-apps-only — the
+        # classifier is deliberately conservative, other example-coupled
+        # tests may exist or be added, node-test is the fast default gate,
+        # and an examples change that no test `:require`s simply recompiles
+        # nothing new (harmless). (examples/scripts/*.cjs orchestration
+        # helpers are matched by their own earlier cases and stay scoped to
+        # the browser gates — they are not CLJS source any node-test
+        # `:require`s.)
         cljs_browser=true
+        cljs_node_test=true
         ;;
       testbeds/tenant_switcher/*)
         # rf2-h5e3v7 — the tenant-switcher testbed is the ONE top-level
