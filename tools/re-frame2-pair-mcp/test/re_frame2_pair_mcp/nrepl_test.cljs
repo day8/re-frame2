@@ -471,6 +471,70 @@
             (done)))))))
 
 ;; ===========================================================================
+;; `send-op!` response assembly + resolution + timeout.
+;;
+;; Once the op is written, `attach-handlers!` routes each decoded nREPL frame
+;; to the `on-frame` accumulator registered under `[:pending id]`. We reach
+;; that accumulator through `(:pending @conn)` and feed frames directly — no
+;; socket, no bencode round-trip — to cover the response-assembly + resolution
+;; branch, then a short-deadline op with NO `:done` frame to cover the timeout
+;; branch. Both branches were previously below the seam: the existing
+;; `send-op!-live-socket-writes-normally` deliberately feeds no `:done` frame
+;; and asserts only the write + pending registration.
+;; ===========================================================================
+
+(deftest send-op!-assembles-frames-and-resolves-on-done
+  (testing "value/out/err/ex frames merge; status accretes; :done resolves + clears pending"
+    (async done
+      (let [sock (j/lit {:write (fn [_] nil)})
+            conn (nrepl/make-conn 0 "127.0.0.1")]
+        (swap! conn assoc :socket sock :closed? false)
+        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
+          (-> p
+              (.then (fn [res]
+                       (is (= "42" (:value res)) "last :value wins")
+                       (is (= "hello" (:out res)) ":out accretes across frames")
+                       (is (= "oops" (:err res)) ":err captured")
+                       (is (= "boom" (:ex res)) ":ex captured")
+                       (is (contains? (:status res) "done")
+                           ":status is the union of every frame's status")
+                       (is (= {} (:pending @conn))
+                           "the id is dissoc'd from :pending once :done resolves")
+                       (done))))
+          ;; After connect!'s fast-path microtask the op is registered pending;
+          ;; feed a realistic multi-frame nREPL response into its accumulator.
+          (js/queueMicrotask
+            (fn []
+              (let [on-frame (-> @conn :pending vals first)]
+                (on-frame #js {"out" "hel"})
+                (on-frame #js {"out" "lo"})
+                (on-frame #js {"err" "oops"})
+                (on-frame #js {"value" "42"})
+                (on-frame #js {"ex" "boom"})
+                (on-frame #js {"status" #js ["done"]})))))))))
+
+(deftest send-op!-timeout-rejects-and-cleans-pending
+  (testing "no :done frame before the deadline → reject + pending dissoc'd"
+    (async done
+      (let [sock (j/lit {:write (fn [_] nil)})
+            conn (nrepl/make-conn 0 "127.0.0.1")]
+        (swap! conn assoc :socket sock :closed? false)
+        ;; A 1ms deadline with no :done frame ever fed drives the setTimeout
+        ;; reject path.
+        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(loop [])"}
+                                {:timeout-ms 1})]
+          (-> p
+              (.then (fn [_]
+                       (is false "an op with no :done frame must time out, not resolve")
+                       (done))
+                     (fn [err]
+                       (is (re-find #"timed out after 1ms" (.-message err))
+                           "reject message names the op-specific deadline")
+                       (is (= {} (:pending @conn))
+                           "the timed-out id is dissoc'd — no pending leak")
+                       (done)))))))))
+
+;; ===========================================================================
 ;; `discover-port*` async cascade.
 ;;
 ;; The five-step cascade — explicit > env > MCP roots/list > shadow HTTP probe
