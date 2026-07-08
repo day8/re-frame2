@@ -88,7 +88,7 @@
 ;;
 ;; Second, that trailing `[:? :any]` is the slot for the HTTP reply. When the
 ;; managed-HTTP call comes back, the framework appends the payload —
-;; `{:kind ... :value ...}` on success, `{:kind ... :failure ...}` on failure —
+;; `{:status :ok :value …}` on success, `{:status :error :error …}` on failure —
 ;; as the last arg of the `:on-success` / `:on-failure` event vector, so a
 ;; delivered reply reads `[:auth.login/flow [:auth.login/success] <payload>]` —
 ;; three top-level elements, not two. Leave the optional slot out and the

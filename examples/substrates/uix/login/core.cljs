@@ -66,8 +66,8 @@
 ;; on the event too").
 ;;
 ;; The trailing `[:? :any]` is there to catch the managed-HTTP reply. The
-;; framework tacks the reply map (`{:kind ... :value ...}` or
-;; `{:kind ... :failure ...}`) onto the end of the `:on-success` / `:on-failure`
+;; framework tacks the reply map (`{:status :ok :value …}` or
+;; `{:status :error :error …}`) onto the end of the `:on-success` / `:on-failure`
 ;; vector, so what actually arrives is
 ;; `[:auth.login/flow [:auth.login/success] <payload>]` — three top-level
 ;; elements, not two. Leave off that optional slot and the `:cat` rejects every
