@@ -427,8 +427,8 @@ available. The lifecycle is normative.
 2. Register the trace collector via
    [`re-frame.trace/register-listener!`](../../../spec/009-Instrumentation.md)
    under `:rf.xray/trace-collector`.
-3. Register the epoch collector via `rf/register-epoch-listener!` under
-   `:rf.xray/epoch-collector` (no-op when the
+3. Register the epoch collector via `rf/register-listener!` on the `:epoch`
+   stream under `:rf.xray/epoch-collector` (no-op when the
    `day8/re-frame2-epoch` artefact is absent).
 4. Attach a global `Ctrl+Shift+C` keydown listener on
    `document`.
@@ -583,8 +583,8 @@ graceful, not catastrophic.
 ### Epoch pump (rf2-yp92j)
 
 The foundation phase's third step registers an
-[`rf/register-epoch-listener!`](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
-callback under the key `:rf.xray/epoch-collector`. Where the trace
+[`:epoch`-stream](../../../spec/009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)
+`rf/register-listener!` callback under the key `:rf.xray/epoch-collector`. Where the trace
 collector buffers raw events for panel-side projections (per
 [`013-Trace-Consumer.md`](./013-Trace-Consumer.md)), the epoch-collector serves
 a different job: it is the **reactive pump** that keeps Xray's
@@ -705,7 +705,7 @@ registration cycles; production code MUST NOT.
 
 **Absent-artefact behaviour.** The `day8/re-frame2-epoch`
 artefact is optional. When it is not on the classpath,
-`rf/register-epoch-listener!` is itself a no-op (per
+the `:epoch` stream of `rf/register-listener!` is itself a no-op (per
 [Spec 009 §Hook-table-driven late binding](../../../spec/009-Instrumentation.md))
 and the registration call is silently a no-op. Xray's
 time-travel panel detects the absent-artefact case via
@@ -733,7 +733,7 @@ only, per §Mount lifecycle) MUST NOT unregister the epoch
 callback — the callback is registered at preload time, not at
 mount time, and the preload's foundation phase persists across
 shell unmounts. Test fixtures driving teardown across runs MAY
-call `rf/unregister-epoch-listener!` directly on the
+call `rf/unregister-listener!` on the `:epoch` stream for the
 `:rf.xray/epoch-collector` key to unwire the pump; the
 sentinel-based registration will then re-fire on the next
 preload reload. Production sessions never tear down.

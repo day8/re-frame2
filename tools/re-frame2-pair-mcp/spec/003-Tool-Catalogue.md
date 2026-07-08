@@ -3409,7 +3409,7 @@ direction), `build` (string, optional).
 `frame` arg. The optional `frame` arg enumerates **only the ids that frame's
 running image generation carries** for the kind — routing through
 `(re-frame2-pair.runtime/frame-registrar-list frame kind)`, which consumes
-the public `(re-frame.core/handler-ids {:frame f :kind k})` read (rf2-wkw8na).
+the public `(re-frame.core/registrations {:frame f :kind k})` read — its keys are the registered ids (rf2-i4hk4b retired the `handler-ids` projection it used to call).
 This is the **selected universe** that frame actually runs, not the
 process-wide namespace-union the flat registrar holds. `frame` is not valid with
 `kind=machine` (`:frame-unsupported-for-machine`). The resolved frame is

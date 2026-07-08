@@ -38,7 +38,7 @@ You almost certainly do not need to name an image. The two facts an author shoul
 - Inline `:registrations` (registrar-keyed sections mirroring `:reg-event` / `:reg-sub` / …) round out the spec map — `:id` / `:select-ns` / `:registrations` are the only three public keys (EP-0026).
 - There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud.
 
-**Constructing image-loaded frames.** Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs. Composition resolves by **image order** — the later image wins; read what it shadowed via `rf/frame-shadows`. `make-frame` takes `:images` alongside its record-config opts; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation in place, preserving frame memory (no dedicated reload verb — see `spec/002-Frames.md` §Resolved decisions, "Frame-lifecycle facade collapse"). Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (see [`frames.md` §The merged `frame-provider` in views](frames.md#the-merged-frame-provider-in-views-ep-0024)).
+**Constructing image-loaded frames.** Frame creation resolves one or more image values (always supplied as a vector under `:images`) into one sealed **image generation** the frame runs. Composition resolves by **image order** — the later image wins; read what it shadowed from the `:rf.gen/shadows` report on `rf/frame-generation`. `make-frame` takes `:images` alongside its record-config opts; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation in place, preserving frame memory (no dedicated reload verb — see `spec/002-Frames.md` §Resolved decisions, "Frame-lifecycle facade collapse"). Frame lifetimes are otherwise unchanged — `reg-frame` + `frame-provider {:frame …}` at the root, `frame-provider {:id …}` for a view-driven named frame, `make-frame` + `destroy-frame!` when a component owns teardown (see [`frames.md` §The merged `frame-provider` in views](frames.md#the-merged-frame-provider-in-views-ep-0024)).
 
 ## Frame isolation is the whole isolation story
 
@@ -48,7 +48,7 @@ Frame ids are **process-local and unique** — two live frames may not both clai
 
 ## Composing patterns
 
-- **Override behaviour through a later image, not a global install** — compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones; image order decides), then read `rf/frame-shadows` to assert exactly what it overrode. The canonical test recipe is [`../cross-cutting/testing.md` §Behaviour isolation in tests](../cross-cutting/testing.md#behaviour-isolation-in-tests--image-not-a-global-install).
+- **Override behaviour through a later image, not a global install** — compose a small overrides image *after* the app image (its `:registrations` shadow the earlier ones; image order decides), then read the `:rf.gen/shadows` report on `rf/frame-generation` to assert exactly what it overrode. The canonical test recipe is [`../cross-cutting/testing.md` §Behaviour isolation in tests](../cross-cutting/testing.md#behaviour-isolation-in-tests--image-not-a-global-install).
 - **Isolate *behaviour* with a later overrides image; isolate *state* with a fresh frame.** A frame created with no `:images` resolves against the shared registrar.
 
 ## Deeper material
@@ -57,4 +57,4 @@ The image-generation seal, re-`make-frame` hot-reload semantics, and the EP-0026
 
 ---
 
-*Derived from `re-frame.core` (`image`, `make-frame`, `frame-shadows`, `generation-diff`) @ main `89bd9c3`. Re-verify after image-assembly or frame-constructor changes.*
+*Derived from `re-frame.core` (`image`, `make-frame`, `frame-generation`, `generation-diff`) @ main `89bd9c3`. Re-verify after image-assembly or frame-constructor changes.*
