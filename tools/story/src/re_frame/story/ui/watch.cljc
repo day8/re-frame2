@@ -32,6 +32,18 @@
      slot (identity.cljc + args.cljc), so they DO perturb the hash
      (rf2-mclvi — a dropped `:cell-overrides` key served stale answers
      after every control edit and the detector missed the re-run).
+  4. `view-schema-digest` per testable frame — rf2-3y7l7u. `snapshot-tuple`
+     ALSO hashes each variant frame's registered app-db schema digest
+     (identity/view-schema-digest, off the `:schemas/app-schemas-digest`
+     late-bind hook). A view-schema hot-reload perturbs THAT digest but
+     does NOT write the Story side-table, so it does NOT bump the
+     registrar mutation-tick — the four Story-side inputs above are all
+     static across the reload. Without this fifth signal the cache
+     short-circuits a real drift and the schema-affected variant never
+     re-runs. The digest is cheap (empty-set → the stable empty-string
+     digest for the common no-schema variant frame), and reusing
+     `identity/view-schema-digest` keeps the signal byte-identical to the
+     snapshot-tuple input it guards.
 
   When the key matches the previous tick's key we return the cached map —
   zero hashing work. When it drifts we recompute the lot once and re-seed."
@@ -41,6 +53,18 @@
 
 (defonce ^:private testable-hash-cache
   (atom {:key nil :hashes nil}))
+
+(defn- testable-schema-signal
+  "Fifth cache-key input (rf2-3y7l7u): the per-testable-frame view-schema
+  digests, in `testable` order. A view-schema hot-reload changes a
+  variant frame's registered app-db schema digest — which `snapshot-tuple`
+  hashes via `identity/view-schema-digest` — WITHOUT bumping the Story
+  registrar mutation-tick, so this is the only cache-key signal that moves
+  when a schema (and nothing else) changes. Cheap: each digest is a walk
+  of the frame's registered schema set (the stable empty-string digest for
+  a variant frame with no registered schemas / not yet allocated)."
+  [testable]
+  (mapv identity/view-schema-digest testable))
 
 (defn compute-testable-content-hashes
   "Walk the registered testable variants and return a `{variant-id →
@@ -53,28 +77,33 @@
   the hash + /spec/007-Stories.md §Variant snapshot identity.
 
   HOT PATH (rf2-zrswb): the registrar-driven cache short-circuits when
-  none of the perturbing inputs (registrar tick, `:active-modes`,
-  `:substrate`, `:cell-overrides`) have drifted since the last tick — see
-  the ns docstring."
+  none of the five perturbing inputs (registrar tick, `:active-modes`,
+  `:substrate`, `:cell-overrides`, per-frame view-schema digest) have
+  drifted since the last tick — see the ns docstring."
   []
   (let [shell      (state/get-state)
         modes      (:active-modes shell)
         subs       (:substrate shell)
         overrides  (:cell-overrides shell)
         tick       (registrar/current-mutation-tick)
-        key        [tick modes subs overrides]
+        ;; `testable` is needed BEFORE the cache check to form the
+        ;; view-schema signal, so it is computed every tick (a registrar
+        ;; walk + `:test`-tag filter — far cheaper than the per-variant
+        ;; snapshot hashing the cache guards).
+        testable   (state/testable-variant-ids
+                     (:variants (state/registry-snapshot)))
+        schema-sig (testable-schema-signal testable)
+        key        [tick modes subs overrides schema-sig]
         cached     @testable-hash-cache]
     (if (= key (:key cached))
       (:hashes cached)
-      (let [testable (state/testable-variant-ids
-                       (:variants (state/registry-snapshot)))
-            hashes   (into {}
-                           (map (fn [vid]
-                                  (let [opts {:active-modes   modes
-                                              :substrate      subs
-                                              :cell-overrides (get overrides vid)}]
-                                    [vid (:content-hash
-                                           (identity/snapshot-identity vid opts))])))
-                           testable)]
+      (let [hashes (into {}
+                         (map (fn [vid]
+                                (let [opts {:active-modes   modes
+                                            :substrate      subs
+                                            :cell-overrides (get overrides vid)}]
+                                  [vid (:content-hash
+                                         (identity/snapshot-identity vid opts))])))
+                         testable)]
         (reset! testable-hash-cache {:key key :hashes hashes})
         hashes))))

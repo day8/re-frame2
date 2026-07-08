@@ -217,9 +217,17 @@
     (when body
       (select-keys body [:component :decorators]))))
 
-(defn- view-schema-digest
+(defn view-schema-digest
   "Return the *registered* schema digest of the view per /spec/007-Stories.md §Variant
   snapshot identity and spec/011 §`:rf/schema-digest`.
+
+  Public so the watch-mode detector's testable-hash cache can fold this
+  SAME per-frame digest into its cache key (rf2-3y7l7u). A view-schema
+  hot-reload perturbs the snapshot-tuple through this slot but does NOT
+  bump the Story registrar mutation-tick (the schema registry is the
+  FRAMEWORK side-table), so the cache — keyed on the Story tick — would
+  otherwise short-circuit a real drift. Reusing this one definition keeps
+  the cache-key signal exactly the snapshot-identity input.
 
   Sourced via the `:schemas/app-schemas-digest` late-bind hook so this
   ns does not statically `:require` the schemas artefact — in builds

@@ -18,7 +18,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
             [re-frame.story.ui.state :as state]
-            #?@(:cljs [[re-frame.story.ui.shell   :as shell]
+            #?@(:cljs [[re-frame.late-bind        :as late-bind]
+                       [re-frame.story.ui.shell   :as shell]
                        [re-frame.story.ui.sidebar :as sidebar]
                        [re-frame.story.ui.watch   :as watch]])))
 
@@ -364,3 +365,38 @@
            (is (nil? (get runs :story.x/a))
                (str "expected NO re-run on enable; runs was " (pr-str runs)))
            (is (nil? (get runs :story.x/b))))))))
+
+;; ---- rf2-3y7l7u: a view-schema hot-reload busts the testable-hash cache --
+;;
+;; `compute-testable-content-hashes` caches on
+;; [registrar-tick modes substrate cell-overrides <per-frame view-schema
+;; digests>]. snapshot-tuple hashes each variant frame's app-db schema
+;; digest (identity/view-schema-digest, off :schemas/app-schemas-digest) —
+;; but a schema hot-reload does NOT write the Story side-table, so it does
+;; NOT bump the registrar mutation-tick. Before the fifth key input was
+;; added the cache served the stale hash across a schema change and the
+;; schema-affected variant never re-ran.
+
+#?(:cljs
+   (deftest schema-hot-reload-busts-testable-hash-cache
+     (testing "rf2-3y7l7u — mutating the view-schema digest (registrar tick,
+               modes, substrate, overrides all unchanged) must change the
+               cached testable hash; before the fix the cache short-circuited
+               the real drift"
+       (story/reg-variant :story.x/a {:tags #{:test} :events []
+                                      :play-script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+       (let [prior (late-bind/get-fn :schemas/app-schemas-digest)]
+         (try
+           ;; Schema generation 1.
+           (late-bind/set-fn! :schemas/app-schemas-digest
+                              (fn [_frame-id] "sha256:0000000000000001"))
+           (let [h1 (get (watch/compute-testable-content-hashes) :story.x/a)]
+             ;; Schema hot-reload — digest moves, Story side-table untouched.
+             (late-bind/set-fn! :schemas/app-schemas-digest
+                                (fn [_frame-id] "sha256:0000000000000002"))
+             (let [h2 (get (watch/compute-testable-content-hashes) :story.x/a)]
+               (is (some? h1) "the first compute must hash the variant")
+               (is (not= h1 h2)
+                   "the cache must bust on a view-schema hot-reload")))
+           (finally
+             (late-bind/set-fn! :schemas/app-schemas-digest prior)))))))
