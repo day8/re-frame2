@@ -132,7 +132,7 @@ Nine read-only accessors. Every one returns a map; success is `:ok? true`; failu
   ```clojure
   (get-issues opts) → {:ok? true :issues <vec> :count <n>}
   ```
-- **Description**: Projection over the trace buffer filtered to issue-tier op-types — `:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`. The Issues ribbon paints this; tools that want "what's broken right now?" reach for it.
+- **Description**: Projection over the trace buffer filtered to the severity `:op-type`s (`:error` / `:warning`) only (rf2-wd1pgb — `:rf.schema/violation` / `:rf.hydration/mismatch` are `:operation` values, never `:op-type` values; a real schema violation / hydration mismatch already rides `:op-type :warning`/`:error`). The Issues ribbon paints this; tools that want "what's broken right now?" reach for it.
 
 ### `get-handlers`
 
