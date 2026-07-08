@@ -57,12 +57,18 @@
     (in declared order; canonicalised)
   - Effective `:args` (post-`:extends`-merge with story + active modes)
   - Variant `:decorators` id sequence + their ref-args
-  - Variant `:tags` set
+  - The variant's EFFECTIVE tag set — inheritance (`:extends`-chain union
+    / parent-story fallback) then `:!x` removal-marker resolution, via the
+    shared `re-frame.story.tags` resolver. This single slot subsumes BOTH
+    the variant's own tags AND the parent story's tags (as fallback), so
+    the identity keys off the variant's resolved classification exactly as
+    every other tag consumer reads it — an `:extends`-parent tag edit
+    perturbs the hash, a `:!x` marker that cancels an inherited tag does
+    NOT, and raw `:!x` authoring syntax never reaches the hash.
   - Variant `:viewport` / `:background` visual chrome
   - Variant `:args->events`, `:platforms`, `:substrates` targeting
   - Parent story `:component` id
   - Parent story `:decorators`
-  - Parent story `:tags`
   - The *registered* schema digest of the view (per spec/011
     §`:rf/schema-digest`) — sourced via the `:schemas/app-schemas-digest`
     late-bind hook so a schema change invalidates the snapshot identity.
@@ -94,7 +100,8 @@
   (:require [re-frame.late-bind         :as late-bind]
             [re-frame.story.args        :as args]
             [re-frame.story.fingerprint :as fingerprint]
-            [re-frame.story.registrar   :as registrar]))
+            [re-frame.story.registrar   :as registrar]
+            [re-frame.story.tags        :as tags]))
 
 ;; ---- snapshot tuple -------------------------------------------------------
 
@@ -120,7 +127,7 @@
   - `:events` — pre-render setup dispatches.
   - `:loaders` / `:loaders-complete-when` / `:loaders-teardown` — async
     setup + the symmetric teardown; both shape the frame's settled state.
-  - `:decorators` / `:tags` — composition + classification.
+  - `:decorators` — composition.
   - `:viewport` / `:background` — visual chrome that lands IN the
     screenshot, so a baseline must invalidate when they change.
   - `:args->events` / `:platforms` / `:substrates` — derivation +
@@ -130,6 +137,13 @@
   - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
     `:extends`-merge + active-mode merge), so reproducing it here would
     double-count.
+  - `:tags` — captured via `:effective-tags` in `snapshot-tuple`, the
+    variant's RESOLVED tag set (`:extends`/story inheritance + `:!x`
+    marker resolution, through the shared `re-frame.story.tags` resolver).
+    Selecting the RAW child `:tags` here would (a) leak `:!x` authoring
+    syntax into the hash, (b) miss `:extends`-chain tag inheritance, and
+    (c) diverge from every other tag consumer. The effective slot is the
+    single tag input; the raw child + story tag slots are NOT hashed.
   - `:argtypes` — controls-panel metadata only; it shapes the controls
     UI, not the rendered snapshot. The args it constrains are already
     captured via `:effective-args`.
@@ -147,18 +161,26 @@
       (select-keys body
                    [:events :play-script :plays
                     :loaders :loaders-complete-when :loaders-teardown
-                    :tags :decorators :args->events :platforms :substrates
+                    :decorators :args->events :platforms :substrates
                     :viewport :background]))))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
-  Per `002-Runtime.md` §Snapshot-identity computation the parent story's `:component` id and
-  `:decorators` are part of the variant's identity."
+  Per `002-Runtime.md` §Snapshot-identity computation the parent story's
+  `:component` id and `:decorators` are part of the variant's identity.
+
+  The parent story's `:tags` are NOT selected here — they reach the hash
+  (as a fallback default) through the variant's `:effective-tags` slot in
+  `snapshot-tuple`. Hashing the story's RAW `:tags` here as well would
+  double-count and re-introduce spurious invalidation: a story-tag edit
+  that does NOT change a given variant's effective set (because the variant
+  declares its own tags, so story tags are not inherited) would still
+  perturb that variant's hash."
   [variant-id]
   (let [story-id (args/parent-story-id variant-id)
         body     (when story-id (registrar/handler-meta :story story-id))]
     (when body
-      (select-keys body [:component :decorators :tags]))))
+      (select-keys body [:component :decorators]))))
 
 (defn- view-schema-digest
   "Return the *registered* schema digest of the view per /spec/007-Stories.md §Variant
@@ -185,6 +207,27 @@
   [target-frame-id]
   (when-let [f (late-bind/get-fn :schemas/app-schemas-digest)]
     (f target-frame-id)))
+
+(defn- effective-tags-slice
+  "Return `variant-id`'s EFFECTIVE tag set via the shared
+  `re-frame.story.tags` resolver — the SAME resolution every other tag
+  consumer (membership `variants-with-tags`, docs / sidebar chips, the tag
+  filter, plan compilation, snapshot UI state) reads through. Folds the
+  `:extends`-chain union (or parent-story fallback) then `:!x` removal-
+  marker resolution, so:
+
+  - an `:extends`-parent tag edit perturbs the identity (RAW child `:tags`
+    could not see it),
+  - a `:!x` marker that cancels an inherited tag does NOT perturb it, and
+  - raw `:!x` authoring syntax never reaches the hash.
+
+  Reads live side-tables via the registrar (`:variant` + `:story`
+  registrations). Returns a set; `fingerprint/content-hash` canonicalises
+  it with a stable order."
+  [variant-id]
+  (tags/effective-tags variant-id
+                       {:variant (registrar/registrations :variant)
+                        :story   (registrar/registrations :story)}))
 
 (defn snapshot-tuple
   "Build the canonical tuple that feeds `content-hash` for a variant.
@@ -219,6 +262,13 @@
       :variant               variant
       :story                 story
       :effective-args        effective
+      ;; The variant's RESOLVED tag set (shared `re-frame.story.tags`
+      ;; resolver — `:extends`/story inheritance + `:!x` marker removal),
+      ;; the single tag input to the hash. Raw child + story `:tags` slots
+      ;; are intentionally NOT selected in the body slices; this subsumes
+      ;; them. Keeps watch-mode drift + visual-regression identity keyed
+      ;; off the SAME effective classification every other consumer reads.
+      :effective-tags        (effective-tags-slice variant-id)
       :view-schema-digest    schema-digest
       ;; `:active-modes` already perturbs identity via
       ;; `:effective-args` (mode args are merged in by `resolve-args`),

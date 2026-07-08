@@ -570,6 +570,72 @@
         (finally
           (late-bind/set-fn! :schemas/app-schemas-digest prior))))))
 
+;; ---- rf2-chzryf: identity keys off EFFECTIVE tags, not raw child :tags ----
+;;
+;; Follow-on from rf2-n0vmq2/#5308. The shared `re-frame.story.tags`
+;; resolver feeds every OTHER tag consumer (membership, docs chips, the
+;; tag filter, plan compilation, snapshot UI state). Snapshot identity was
+;; the straggler still reading the RAW child `:tags`. These tests pin the
+;; decision: the content-hash keys off the variant's EFFECTIVE tag set.
+
+(deftest snapshot-identity-hashes-effective-not-raw-tags
+  (testing "rf2-chzryf — two authorings that resolve to the SAME effective
+            tag set produce the SAME hash. `#{:docs}` and
+            `#{:dev :!dev :docs}` both resolve to `#{:docs}` (the `:!dev`
+            marker drops itself AND cancels the unioned `:dev`), so the
+            snapshot identity of the SAME variant is stable across the edit.
+            RED against the raw-tags reader: `#{:docs}` ≠
+            `#{:dev :!dev :docs}` as raw sets, so it would perturb the hash."
+    (story/reg-story :story.eff-tag {:component :app/v})
+    (story/reg-variant :story.eff-tag/v {:events [] :tags #{:docs}})
+    (let [h-plain (-> (story/snapshot-identity :story.eff-tag/v) :content-hash)]
+      ;; Re-register the SAME variant with a marker authoring that RESOLVES
+      ;; to the identical effective set `#{:docs}`.
+      (story/reg-variant :story.eff-tag/v {:events [] :tags #{:dev :!dev :docs}})
+      (let [h-marker (-> (story/snapshot-identity :story.eff-tag/v) :content-hash)]
+        (is (= h-plain h-marker)
+            "identical effective tag set → identical hash (raw authoring differs)")
+        ;; Witness the tuple slot directly: it carries the RESOLVED set,
+        ;; and the raw `:!x` marker never appears in it.
+        (let [eff (:effective-tags (ident/snapshot-tuple :story.eff-tag/v))]
+          (is (= #{:docs} eff) "the tuple carries the effective set")
+          (is (not (contains? eff :!dev)) "raw `:!x` marker never reaches the hash"))))))
+
+(deftest snapshot-identity-changes-with-effective-tag-set
+  (testing "rf2-chzryf — a genuine change to the effective tag set DOES
+            perturb the hash (tags remain identity-bearing, they are not
+            simply dropped from the identity)."
+    (story/reg-story :story.eff-tag-chg {:component :app/v})
+    (story/reg-variant :story.eff-tag-chg/v {:events [] :tags #{:docs}})
+    (let [h1 (-> (story/snapshot-identity :story.eff-tag-chg/v) :content-hash)]
+      (story/reg-variant :story.eff-tag-chg/v {:events [] :tags #{:docs :test}})
+      (let [h2 (-> (story/snapshot-identity :story.eff-tag-chg/v) :content-hash)]
+        (is (not= h1 h2)
+            "adding an effective tag must produce a fresh hash")))))
+
+(deftest snapshot-identity-changes-with-extends-parent-tag
+  (testing "rf2-chzryf — the correctness win: editing an `:extends`-PARENT's
+            tags changes the CHILD's effective classification and MUST
+            perturb the child's snapshot identity. RED against the raw-tags
+            reader — the child's raw `:tags` are empty and its story's tags
+            are unchanged, so the pre-fix identity slice (child raw + story
+            raw, never the extends-parent) would NOT see the change."
+    (story/reg-story :story.eff-tag-ext {:component :app/v})
+    ;; Child ONLY :extends the parent — declares no tags of its own, so its
+    ;; effective set is entirely inherited from the parent.
+    (story/reg-variant :story.eff-tag-ext/parent {:events [] :tags #{:dev}})
+    (story/reg-variant :story.eff-tag-ext/child  {:extends :story.eff-tag-ext/parent})
+    (is (= #{:dev} (:effective-tags (ident/snapshot-tuple :story.eff-tag-ext/child)))
+        "the child inherits the parent's tags through the :extends chain")
+    (let [h1 (-> (story/snapshot-identity :story.eff-tag-ext/child) :content-hash)]
+      ;; Edit ONLY the parent's tags. The child's raw body is untouched.
+      (story/reg-variant :story.eff-tag-ext/parent {:events [] :tags #{:docs}})
+      (is (= #{:docs} (:effective-tags (ident/snapshot-tuple :story.eff-tag-ext/child)))
+          "the child's effective set now reflects the parent's edit")
+      (let [h2 (-> (story/snapshot-identity :story.eff-tag-ext/child) :content-hash)]
+        (is (not= h1 h2)
+            "an :extends-parent tag edit perturbs the child's hash")))))
+
 (deftest snapshot-identity-canonical-key-stable
   (testing "the canonical-version tag canonicalises and map key order is
             hash-stable"
