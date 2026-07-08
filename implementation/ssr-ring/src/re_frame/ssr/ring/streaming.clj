@@ -205,20 +205,30 @@
   daemon writer needs (`:head-model` was consumed here, for the hash,
   and does not itself ride the wire).
 
-  rf2-1kqvbx: `:doc-hash` no longer drives the FINAL-payload
-  `:rf/render-hash`. The final payload ships the live POST-drain `app-db`,
-  so its hash must describe the POST-drain render tree (the one a streaming
-  hydrate re-renders + verifies against). The writer re-resolves the root
-  view AFTER every continuation drains and recomputes that post-drain hash
-  via `lifecycle/render-document-hash` (body-only). When no continuation
-  mutates a root-read key the two hashes coincide; only a render-time
-  continuation mutation a root subtree reads makes the streamed-shell marker
-  (pre-drain) and the final-payload hash (post-drain) describe distinct
-  moments — which they genuinely are. `:head-hash` needs no post-drain
-  recompute: the head is request-thread-resolved and drain-invariant in v1
-  (it derives from the route / explicit `:head` opt, never from
-  continuation-mutated app-db), so the SAME pre-drain `:head-hash` is reused
-  for both the streamed shell marker and the final payload.
+  rf2-1kqvbx: when at least one continuation drains, `:doc-hash` no longer
+  drives the FINAL-payload `:rf/render-hash`. The final payload ships the
+  live POST-drain `app-db`, so its hash must describe the POST-drain render
+  tree (the one a streaming hydrate re-renders + verifies against). The
+  writer re-resolves the root view AFTER every continuation drains and
+  recomputes that post-drain hash via `lifecycle/render-document-hash`
+  (body-only). When no continuation mutates a root-read key the two hashes
+  coincide; only a render-time continuation mutation a root subtree reads
+  makes the streamed-shell marker (pre-drain) and the final-payload hash
+  (post-drain) describe distinct moments — which they genuinely are.
+
+  rf2-t72b1c: when there are ZERO continuations (no `:rf/suspense-boundary`
+  in the tree — the common case), nothing runs between the shell render and
+  the final-payload build that could mutate app-db, so the writer does NOT
+  re-resolve the root view a second time — it reuses `:doc-hash` verbatim.
+  This keeps a fn-form `:root-view` invoked EXACTLY ONCE per request
+  (`lifecycle/resolve-root-view`'s rf2-6t36h contract) for the overwhelming
+  majority of streaming requests; only a request with at least one
+  continuation pays the documented rf2-1kqvbx re-resolution cost.
+  `:head-hash` needs no post-drain recompute in either case: the head is
+  request-thread-resolved and drain-invariant in v1 (it derives from the
+  route / explicit `:head` opt, never from continuation-mutated app-db), so
+  the SAME pre-drain `:head-hash` is reused for both the streamed shell
+  marker and the final payload.
 
   Throws propagate to the caller (the handler's outer try/catch routes
   them through the projector → fail-closed non-200, rf2-r06pc). The
@@ -478,18 +488,33 @@
       ;; Chunk N+2 — final canonical __rf_payload.
       ;;
       ;; rf2-1kqvbx — the streaming final-payload `:rf/render-hash` must
-      ;; describe the POST-drain render state, NOT the pre-drain shell.
-      ;; `build-final-payload` reads the LIVE frame `app-db` AFTER every
-      ;; continuation has drained, so its `:rf/app-db` is the post-drain
-      ;; state; pairing it with the pre-drain `doc-hash` shipped a payload
-      ;; whose state and hash described different moments. When a continuation
-      ;; mutates app-db and the ROOT tree reads that key, a streaming hydrate
+      ;; describe the POST-drain render state, NOT the pre-drain shell, when
+      ;; a continuation could have mutated app-db in between. `build-final-
+      ;; payload` reads the LIVE frame `app-db` AFTER every continuation has
+      ;; drained, so its `:rf/app-db` is the post-drain state; pairing it
+      ;; with the pre-drain `doc-hash` would ship a payload whose state and
+      ;; hash described different moments. When a continuation mutates
+      ;; app-db and the ROOT tree reads that key, a streaming hydrate
       ;; re-renders the root tree against the payload's post-drain `:rf/app-db`,
       ;; hashes it, and fires a spurious `:rf.ssr/hydration-mismatch` against
-      ;; the stale pre-drain hash (Spec 011 §Hydration equivalence rule). So we
-      ;; RE-RESOLVE the root view here — on this daemon thread, inside the
-      ;; `rf/with-frame` binding, AFTER the drain loop — and recompute the
-      ;; BODY-ONLY hash over the post-drain tree via the SAME
+      ;; a stale pre-drain hash (Spec 011 §Hydration equivalence rule).
+      ;;
+      ;; rf2-t72b1c — but re-resolving `root-view` is only SAFE/NEEDED when a
+      ;; continuation actually ran. `resolve-root-view`'s contract (rf2-6t36h)
+      ;; promises a fn-form `:root-view` runs EXACTLY ONCE per request — a
+      ;; non-idempotent fn (unsorted-map iteration order / gensym'd keys /
+      ;; time-of-day props) hashes two DIFFERENT trees across two calls,
+      ;; producing a spurious mismatch that has NOTHING to do with app-db.
+      ;; `continuations` here is the shell's ORIGINAL (pre-loop) registration
+      ;; list — non-empty iff at least one continuation drained. With ZERO
+      ;; continuations nothing ran between the shell render and this block
+      ;; that could have mutated app-db, so re-resolving would be a needless
+      ;; SECOND invocation with no corresponding benefit: reuse the pre-drain
+      ;; `doc-hash` verbatim (TRUE exactly-once). Only when `continuations`
+      ;; is non-empty do we pay the documented, unavoidable cost of a second
+      ;; invocation — re-resolve the root view here, on this daemon thread,
+      ;; inside the `rf/with-frame` binding, AFTER the drain loop — and
+      ;; recompute the BODY-ONLY hash over the post-drain tree via the SAME
       ;; `lifecycle/render-document-hash` mechanism. The streamed-shell
       ;; `data-rf-render-hash` marker keeps the PRE-drain `doc-hash` (it marks
       ;; the tree actually streamed in chunk 1); the two coincide when no
@@ -547,15 +572,22 @@
       ;; reads operate on the request frame.
       (let [final-payload
             (rf/with-frame frame-id
-              ;; rf2-1kqvbx — re-resolve the root view against the POST-drain
-              ;; frame state and recompute the BODY-ONLY hash over it (rf2-1oxjxk),
-              ;; so the payload's `:rf/render-hash` describes the SAME moment as
-              ;; its post-drain `:rf/app-db`. Falls back to the pre-drain
+              ;; rf2-1kqvbx / rf2-t72b1c — re-resolve the root view against
+              ;; the POST-drain frame state and recompute the BODY-ONLY hash
+              ;; over it (rf2-1oxjxk) ONLY when a continuation drained
+              ;; (`(seq continuations)` — the pre-loop registration list, see
+              ;; the comment above): that's the one case app-db could have
+              ;; changed since the shell render, so the payload's
+              ;; `:rf/render-hash` needs to describe the SAME moment as its
+              ;; post-drain `:rf/app-db`. With zero continuations, reuse the
+              ;; pre-drain `doc-hash` verbatim — `root-view` is invoked
+              ;; EXACTLY ONCE per request (rf2-6t36h), the common case for a
+              ;; page with no `:rf/suspense-boundary`. Also falls back to
               ;; `doc-hash` when no `:root-view` could be re-resolved
               ;; (defensive — `validate-construction-opts!` requires
               ;; `:root-view`, so this is belt-and-braces).
               (let [post-drain-hash
-                    (if root-view
+                    (if (and root-view (seq continuations))
                       (lifecycle/render-document-hash
                         (lifecycle/resolve-root-view root-view))
                       doc-hash)]

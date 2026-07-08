@@ -168,7 +168,17 @@
   gensym'd keys, time-of-day props can all vary between calls) and any
   variance between two invocations produces a hash mismatch on the wire
   vs the payload, firing a spurious `:rf.ssr/hydration-mismatch` on a
-  perfectly successful hydration. Resolve once, thread the result."
+  perfectly successful hydration. Resolve once, thread the result.
+
+  rf2-t72b1c — the streaming handler (`re-frame.ssr.ring.streaming`)
+  honours this exactly-once contract for the common case (a request with
+  zero continuations, i.e. no `:rf/suspense-boundary` in the tree). It
+  calls through to a SECOND invocation only when at least one continuation
+  drained — the one case app-db can legitimately have changed since the
+  shell render — trading a documented, narrow exactly-once exception
+  (rf2-1kqvbx) for a correct post-drain `:rf/render-hash`. See
+  `re-frame.ssr.ring.streaming/run-streaming-writer!`'s final-payload
+  comment for the full rationale."
   [root-view]
   (cond
     (vector? root-view) root-view

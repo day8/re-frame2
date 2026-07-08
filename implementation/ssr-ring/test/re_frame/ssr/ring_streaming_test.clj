@@ -1357,3 +1357,80 @@
                    shipped :rf/app-db (no spurious :rf.ssr/hydration-mismatch)")))
           (finally
             (rf/destroy-frame! cfid)))))))
+
+;; ===========================================================================
+;; rf2-t72b1c — a fn-form :root-view with ZERO continuations (no
+;; `:rf/suspense-boundary` in the tree — the common case) is invoked
+;; EXACTLY ONCE per streaming request, per the shared `resolve-root-view`
+;; contract (rf2-6t36h).
+;;
+;; Defect: `stream-handler` unconditionally re-resolved `:root-view` a
+;; SECOND time when building the final payload's `:rf/render-hash` (the
+;; rf2-1kqvbx fix above), even for a request that streamed no continuations
+;; at all — a case where app-db had zero opportunity to change between the
+;; shell render and the final-payload build, so the second invocation was
+;; needless. A non-idempotent fn-form root view (unsorted-map iteration
+;; order / gensym'd keys / time-of-day props — the very hazards
+;; `resolve-root-view`'s docstring names) then hashes two DIFFERENT trees,
+;; producing a spurious `:rf.ssr/hydration-mismatch` on a perfectly
+;; successful hydration.
+;;
+;; The fix scopes the rf2-1kqvbx re-resolution to requests where at least
+;; one continuation actually drained; a zero-continuation request reuses
+;; the pre-drain hash verbatim, restoring TRUE exactly-once invocation for
+;; the overwhelming majority of streaming requests.
+;; ===========================================================================
+
+(deftest stream-handler-fn-root-view-invoked-exactly-once-when-no-continuations
+  (testing "rf2-t72b1c: a 0-arity fn :root-view with no suspense boundary
+            fires exactly once per streaming request — the writer must NOT
+            re-resolve it a second time for the final-payload hash when no
+            continuation drained to give app-db a chance to change"
+    (let [call-count (atom 0)]
+      (rf/reg-event :rf.test/init-once
+        {:platforms #{:server}}
+        (fn [_ _] {}))
+      (rf/reg-view* :pages/stream-once
+        (fn [] [:div.page "once"]))
+      (let [handler  (ssr-ring/stream-handler
+                       {:initial-events [[:rf.test/init-once]]
+                        :root-view (fn []
+                                     (swap! call-count inc)
+                                     [:pages/stream-once])
+                        :payload   :rf.ssr.payload/whole-app-db})
+            response (handler {:uri "/" :request-method :get})
+            body     (drain-stream (:body response))]
+        (is (= 200 (:status response)))
+        (is (str/includes? body "once") "shell streamed the resolved page")
+        (is (= 1 @call-count)
+            "rf2-t72b1c: fn-form :root-view must be invoked exactly once per
+             streaming request when no continuation drains — the shell
+             render is the ONE call; the final-payload hash reuses that
+             SAME pre-drain result rather than re-resolving root-view")))))
+
+(deftest stream-handler-fn-root-view-non-idempotent-hashes-consistently-when-no-continuations
+  (testing "rf2-t72b1c: a non-idempotent fn-form :root-view (a different
+            tree on every call) still produces a streamed marker hash that
+            matches the final payload's :rf/render-hash when the stream has
+            no continuations — the single invocation covers BOTH channels"
+    (rf/reg-event :rf.test/init-noni
+      {:platforms #{:server}}
+      (fn [_ _] {}))
+    (rf/reg-view* :pages/stream-noni
+      (fn [n] [:div {:data-call n} "noni"]))
+    (let [counter   (atom 0)
+          handler   (ssr-ring/stream-handler
+                      {:initial-events [[:rf.test/init-noni]]
+                       :root-view (fn [] [:pages/stream-noni (swap! counter inc)])
+                       :payload   :rf.ssr.payload/whole-app-db})
+          response  (handler {:uri "/" :request-method :get})
+          body      (drain-stream (:body response))
+          wire-hash (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" body))
+          payload-hash (stream-payload-hash body)]
+      (is (= 200 (:status response)))
+      (is (some? wire-hash) "streamed shell carries the render-hash marker")
+      (is (some? payload-hash) "final payload carries :rf/render-hash")
+      (is (= wire-hash payload-hash)
+          "rf2-t72b1c: with no continuations the streamed marker and the
+           final payload hash describe the SAME single invocation — a
+           non-idempotent root-view fn does not desync them"))))
