@@ -358,9 +358,8 @@
           ;; The fx context carries the envelope frame as `:frame`. The
           ;; `:fail-next-write?` toggle is an ordinary app-db slice (written by
           ;; `:linearlite/set-fail-next-write`), so read it off the frame's
-          ;; APP-db partition (`:rf.db/app`). Reading
-          ;; `:rf.db/runtime` here — where the flag never lives — is why the
-          ;; simulated rollback never fired.
+          ;; APP-db partition (`:rf.db/app`) — app state lives there, not in
+          ;; the `:rf.db/runtime` partition (framework runtime only).
           db        (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
           fail?     (and write? (boolean (:fail-next-write? db)))]
       (if fail?
