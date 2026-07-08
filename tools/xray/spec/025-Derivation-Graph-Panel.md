@@ -151,7 +151,7 @@ nothing at all is registered.
 The `:machines` contributor carries `machine-selector-targets` (not the
 boolean `machine-selector?` recognizer) in its `:selector-targets` slot. The
 composer mines each selector subscription's **target machine ids** from its
-static `[:rf/machine machine-id …]` / `[:rf/machine-has-tag? machine-id …]`
+static `[:rf/machine machine-id …]` / `[:rf.machine/has-tag? machine-id …]`
 inputs and draws the `:selector` edge from **exactly** the
 `[:machine target-id]` node(s) the selector reads — never the cross product
 of every machine against every selector (rf2-4qmiij). In a multi-machine app

@@ -1344,11 +1344,11 @@ A state machine is registered with one call and *is* an event handler; the trans
 - **Signature**: `(defmachine name ?docstring machine-spec)`
 - The `def`-shape companion to `reg-machine` — defines the machine-spec value, binding `name`, with per-element source captured at the definition site so a later `(reg-machine :id name)` retains it. (The plain-fn `reg-machine*` is **not** on the facade — it lives in `re-frame.machines`.) Full contract in [re-frame.machines.md](re-frame.machines.md).
 
-A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the whole `{:state :data :tags}` snapshot, `@(rf/subscribe [:rf/machine-has-tag? machine-id tag])` for a reactive `:tags`-membership predicate. Full contract in [re-frame.machines.md](re-frame.machines.md).
+A machine's snapshot is read with the ordinary `subscribe` naming its framework sub vector — `@(rf/subscribe [:rf/machine machine-id])` for the whole `{:state :data :tags}` snapshot, `@(rf/subscribe [:rf.machine/has-tag? machine-id tag])` for a reactive `:tags`-membership predicate. Full contract in [re-frame.machines.md](re-frame.machines.md).
 
 ### Routing → [re-frame.routing.md](re-frame.routing.md)
 
-Routes are data; the current route lives in runtime-db (read via the `:rf/route` sub). Keyword surfaces (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf/url-requested` events; `[:rf.nav/push-url …]` / `[:rf.nav/replace-url …]` / `[:rf.nav/scroll …]` fx; the `:rf/route` sub family) live in the routing doc.
+Routes are data; the current route lives in runtime-db (read via the `:rf/route` sub). Keyword surfaces (`:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested` events; `[:rf.nav/push-url …]` / `[:rf.nav/replace-url …]` / `[:rf.nav/scroll …]` fx; the `:rf/route` sub family) live in the routing doc.
 
 #### `reg-route`
 
@@ -1360,7 +1360,7 @@ Routes are data; the current route lives in runtime-db (read via the `:rf/route`
 
 - **Kind**: registered view (function)
 - **Signature**: `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]`
-- A registered view at `:route/link` — renders an `<a href=...>` from a route id and intercepts plain primary-button clicks to dispatch `:rf/url-requested` (modifier-key / middle clicks and `:target`/`:download` anchors defer to the browser). Full contract in [re-frame.routing.md](re-frame.routing.md).
+- A registered view at `:route/link` — renders an `<a href=...>` from a route id and intercepts plain primary-button clicks to dispatch `:rf.route/url-requested` (modifier-key / middle clicks and `:target`/`:download` anchors defer to the browser). Full contract in [re-frame.routing.md](re-frame.routing.md).
 
 There is no `install-url-listener!` / `remove-url-listener!` (or `install-history-listener!` / `remove-history-listener!`) on this facade — the browser URL-change listener is wired automatically by the `:url-bound?` frame lifecycle (creation installs, destroy removes). See [re-frame.routing.md § Browser URL listener](re-frame.routing.md).
 

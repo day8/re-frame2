@@ -19,7 +19,7 @@ The pattern composes:
 - **`reg-event` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it declares and reads the recorded time — not a host-clock read. **`reg-event` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change (a db-only handler that just returns `{:db ...}`).
 - **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` are pure routing sugar that dispatch the lifecycle events. The reply each delivers **is the canonical EP-0011 reply envelope** verbatim (one dialect, no reshape): `{:status :ok :value v …}` / `{:status :error :error m …}` / `{:status :cancelled :error m …}` (see managed-http.md). Read `:value` on `:ok`, the classified `:rf.http/*` map from `:error` on failure.
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
-- **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
+- **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf.machine/has-tag?` answers the same question `:loading?` / `:fetching?` did.
 
 The single rule for the lifecycle: **`:loading` and `:fetching` are not interchangeable**. The first means "page is empty, show a spinner"; the second means "data is on screen, refresh in the background, never blank the page". Convenience subs hide the distinction from views that don't care.
 
@@ -131,7 +131,7 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
                :on   {:fetch-started {:target :loading  :action :bump-attempt}}}}})
 ```
 
-The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `@(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/loading])` / `@(rf/subscribe [:rf/machine-has-tag? :realworld/tags :tags/in-flight])`.
+The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's `:status` field disappears — the state-keyword IS the status. The `:loading?` / `:fetching?` view booleans become `@(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/loading])` / `@(rf/subscribe [:rf.machine/has-tag? :realworld/tags :tags/in-flight])`.
 
 ## When to choose each form
 

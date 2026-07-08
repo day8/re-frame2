@@ -12,7 +12,7 @@
 
    The machine's states wear tags — `:auth/busy`, `:auth/authenticated`,
    `:auth/locked` — and the views ask about them with the
-   `:rf/machine-has-tag?` framework sub. Keep guessing the password and the
+   `:rf.machine/has-tag?` framework sub. Keep guessing the password and the
    fourth wrong try trips the retry guard: the flow lands in the terminal
    `:locked-out` state, and the form is replaced by a dead-end,
    non-interactive locked-account panel.
@@ -234,7 +234,7 @@
 
     :submitting
     ;; The `:auth/busy` tag. While the request is in flight, the views ask
-    ;; [:rf/machine-has-tag? :auth.login/flow :auth/busy] and use the answer to
+    ;; [:rf.machine/has-tag? :auth.login/flow :auth/busy] and use the answer to
     ;; grey out the inputs and flip the button to "Signing in…".
     {:tags  #{:auth/busy}
      :entry :issue-request
@@ -264,7 +264,7 @@
 
     :locked-out
     ;; The `:auth/locked` tag, reached after one too many failed attempts. The
-    ;; views ask [:rf/machine-has-tag? :auth.login/flow :auth/locked] and, when
+    ;; views ask [:rf.machine/has-tag? :auth.login/flow :auth/locked] and, when
     ;; it's true, replace the form with a locked-account panel — no more
     ;; submits. A dead end should look like one, not a live form that quietly
     ;; ignores you.
@@ -404,7 +404,7 @@
 ;; The machine's snapshot lives in runtime-db, and these named subs pick out the
 ;; handy bits by chaining off the framework's `:rf/machine` sub. The yes/no
 ;; "busy? authed? locked?" questions don't need their own subs at all — the
-;; views ask `:rf/machine-has-tag?` directly.
+;; views ask `:rf.machine/has-tag?` directly.
 
 ;; Pull the machine's whole snapshot through the framework `:rf/machine` sub.
 (rf/reg-sub :auth.login/state
@@ -461,13 +461,13 @@
 ;; The Helix view idiom, and the only place this example differs from the
 ;; Reagent reference. A view is a plain `defnc`. It reads a subscription
 ;; through the adapter's `use-subscribe` hook, and takes `dispatch` off a
-;; `capture-frame`. `:rf/machine-has-tag?` reads are *ask, don't tell* state-tag
+;; `capture-frame`. `:rf.machine/has-tag?` reads are *ask, don't tell* state-tag
 ;; queries; `:auth.login/error` is a named sub. To the call site they're
 ;; identical — both are just subscriptions.
 
 (defnc login-form []
   (let [draft     (helix-adapter/use-subscribe [:auth.login/draft])
-        busy?     (helix-adapter/use-subscribe [:rf/machine-has-tag?
+        busy?     (helix-adapter/use-subscribe [:rf.machine/has-tag?
                                                 :auth.login/flow :auth/busy])
         err       (helix-adapter/use-subscribe [:auth.login/error])
         email-err (helix-adapter/use-subscribe [:auth.login/field-error :email])
@@ -518,9 +518,9 @@
      (d/p "Too many failed attempts. Contact support to unlock.")))
 
 (defnc login-banner []
-  (let [authed? (helix-adapter/use-subscribe [:rf/machine-has-tag?
+  (let [authed? (helix-adapter/use-subscribe [:rf.machine/has-tag?
                                               :auth.login/flow :auth/authenticated])
-        locked? (helix-adapter/use-subscribe [:rf/machine-has-tag?
+        locked? (helix-adapter/use-subscribe [:rf.machine/has-tag?
                                               :auth.login/flow :auth/locked])]
     (d/div
        {:class "banner"

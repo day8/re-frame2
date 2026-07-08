@@ -9,7 +9,7 @@
   `dispatch-to-system` FN was demoted off the facade and relocated to
   `re-frame.machines` — rf2-gkt25a / rf2-80mmlf. The `machine-has-tag?` /
   `sub-machine` subscription-sugar fns were removed — rf2-il99l3, reversing
-  rf2-2cmcas — leaving the `[:rf/machine-has-tag? …]` / `[:rf/machine …]`
+  rf2-2cmcas — leaving the `[:rf.machine/has-tag? …]` / `[:rf/machine …]`
   subscription vectors as the one machine-read grammar.)"
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]
@@ -220,7 +220,7 @@
 ;;
 ;; The `machine-has-tag?` / `sub-machine` subscription-sugar fns that once
 ;; lived here were REMOVED (rf2-il99l3, reversing rf2-2cmcas). A machine read
-;; is a subscription VECTOR — `(subscribe [:rf/machine-has-tag? machine-id
+;; is a subscription VECTOR — `(subscribe [:rf.machine/has-tag? machine-id
 ;; tag])` / `(subscribe [:rf/machine machine-id])` — one read grammar; the
 ;; `{:frame …}` target is carried by `subscribe`'s own frame-first arity.
 

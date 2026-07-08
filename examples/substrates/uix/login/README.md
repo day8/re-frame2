@@ -60,7 +60,7 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 - **Tags as the view's question, not exact-state matching.** Each state carries
   [state tags](../../../../docs/machines/glossary.md#state-tag) — `:auth/busy`,
   `:auth/authenticated`, `:auth/locked`. The views ask the framework's
-  `[:rf/machine-has-tag? …]` predicate sub *is it busy?*, rather than listing
+  `[:rf.machine/has-tag? …]` predicate sub *is it busy?*, rather than listing
   every exact state. `:auth/busy` disables the inputs and relabels the button to
   "Signing in…" while the request is in flight. `:auth/locked` swaps the form
   out for a non-interactive locked-account panel, so a terminal lockout looks

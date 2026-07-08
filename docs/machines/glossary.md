@@ -249,10 +249,10 @@ See [When the machine grows](concepts.md#when-the-machine-grows).
 
 ### **state tag**
 
-A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](../core/glossary.md#view) can ask "is it busy?" ([`[:rf/machine-has-tag? …]`](../api/re-frame.machines.md#rfmachine-has-tag-machine-id-tag)) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes. Across [parallel regions](#region), every active state's tags union onto the one snapshot.
+A label like `:auth/busy` attached to several [machine](#machine) [states](#state); the active state's tags ride on the [snapshot](#snapshot), so a [view](../core/glossary.md#view) can ask "is it busy?" ([`[:rf.machine/has-tag? …]`](../api/re-frame.machines.md#rfmachinehas-tag-machine-id-tag)) instead of enumerating exact state names — *ask, don't tell*. Add a sixth busy state and no view changes. Across [parallel regions](#region), every active state's tags union onto the one snapshot.
 
 ```clojure
-(when @(rf/subscribe [:rf/machine-has-tag? :auth.login/flow :auth/busy])
+(when @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
   [spinner])
 ```
 

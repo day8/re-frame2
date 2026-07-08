@@ -71,7 +71,7 @@
   ;; require is idempotent without :reload-all), so reload here.
   (require 're-frame.http.test-support :reload)
   ;; clear-all! also drops the framework-shipped `:rf/machine` /
-  ;; `:rf/machine-has-tag?` subs, which register at re-frame.machines load
+  ;; `:rf.machine/has-tag?` subs, which register at re-frame.machines load
   ;; time (see re-frame.machines §framework-shipped subs). The state-machine-
   ;; walkthrough example's `:auth.login/state` / `:auth.login/error` named
   ;; subs CHAIN off `:rf/machine` (`:<- [:rf/machine :auth.login/flow]`), so

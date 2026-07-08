@@ -62,7 +62,7 @@ Spec source: [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
     :error   {:tags #{:items/error}  :on {:load :loading}}}})
 
 ;; View reads one tag-question, no flag-and-data race:
-@(rf/subscribe [:rf/machine-has-tag? :items :items/loading])
+@(rf/subscribe [:rf.machine/has-tag? :items :items/loading])
 ```
 
 ## Edge cases — when a boolean flag is fine

@@ -364,7 +364,7 @@
   (fn [runtime-db [_ machine-id]]
     (get-in runtime-db (paths/snapshot-path machine-id))))
 
-;; Per Spec 005 §State tags: the `:rf/machine-has-tag?` framework sub
+;; Per Spec 005 §State tags: the `:rf.machine/has-tag?` framework sub
 ;; returns `true` iff the named machine's current snapshot's `:tags` set
 ;; contains the queried tag. A machine that hasn't been initialised yet (no
 ;; snapshot at `[:rf.runtime/machines :snapshots <id>]`) returns `false`.
@@ -372,7 +372,7 @@
 ;; Derived sub — reads the snapshot via `get-in` rather than chaining
 ;; off `:rf/machine` — so a view that only cares about whether a specific
 ;; tag is present re-renders only when the containment-bit flips.
-(subs/reg-runtime-sub :rf/machine-has-tag?
+(subs/reg-runtime-sub :rf.machine/has-tag?
   {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags."}
   (fn [runtime-db [_ machine-id tag]]
     (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
@@ -429,7 +429,7 @@
            [:fx  :rf.machine/update-snapshot]
            [:fx  :rf.machine/dispatch-to-system]
            [:sub :rf/machine]
-           [:sub :rf/machine-has-tag?]])))
+           [:sub :rf.machine/has-tag?]])))
 
 (defn install-machine-runtime!
   "Re-register the machine runtime effects + subs into BOTH the regular

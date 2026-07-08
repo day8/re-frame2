@@ -46,7 +46,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | Surface | Shape |
 |---|---|
 | `[:rf/machine machine-id]` | subscription vector → reaction `{:state :data :tags}` (the canonical machine read) |
-| `[:rf/machine-has-tag? machine-id tag]` | subscription vector → reaction (boolean) |
+| `[:rf.machine/has-tag? machine-id tag]` | subscription vector → reaction (boolean) |
 | `re-frame.machines/machines` / `re-frame.machines/machine-meta` | id list / registered spec — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/machine-by-system-id` | `(system-id)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade |
 | `re-frame.machines/dispatch-to-system` | `(system-id event)` / `(... frame-id)` — owned-ns surface, **not** on the `rf/` façade; the canonical action-side messaging surface is the reserved fx `[:rf.machine/dispatch-to-system [system-id event]]` (args are the one 2-element pair) |

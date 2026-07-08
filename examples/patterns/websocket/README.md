@@ -61,7 +61,7 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 - **[State tags](../../../docs/machines/glossary.md#state-tag), not state-name
   matching.** States declare tags (`:websocket/connected`,
   `:websocket/reconnecting`, `:websocket/active`, …); the view asks through
-  per-tag subs built on the framework's `:rf/machine-has-tag?` sub — *ask,
+  per-tag subs built on the framework's `:rf.machine/has-tag?` sub — *ask,
   don't tell* — instead of unfolding the
   [snapshot](../../../docs/machines/glossary.md#snapshot)'s hierarchical `:state`
   vector. Add a sixth "connecting-ish" state later and no view changes.

@@ -30,7 +30,7 @@
   (:require [re-frame.core :as rf]
             ;; Requiring re-frame.machines stands up the runtime, so the
             ;; rf/reg-machine calls below (they run at ns-load) and the
-            ;; `:rf/machine` / `:rf/machine-has-tag?` subs all resolve.
+            ;; `:rf/machine` / `:rf.machine/has-tag?` subs all resolve.
             [re-frame.machines]
             [long-running-work.schema :as schema]))
 

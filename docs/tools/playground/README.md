@@ -13,7 +13,7 @@ components** that evaluate re-frame2's OWN public API — see
 `day8/re-frame2-machines` artefact: `re-frame.machines` is `:require`d
 by the SCI bundle namespace, which fires the artefact's `:machines/*`
 late-bind hook installs at bundle init and registers the
-`:rf/machine` / `:rf/machine-has-tag?` framework subs +
+`:rf/machine` / `:rf.machine/has-tag?` framework subs +
 `:rf.machine/spawn` / `:rf.machine/destroy` (etc.) reserved fxs from
 its top-level forms. The `re-frame.core` aliases `sci/copy-ns` already
 exposes (`reg-machine*` / `make-machine-handler` / `machine-transition`

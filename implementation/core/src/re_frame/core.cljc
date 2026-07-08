@@ -1392,7 +1392,7 @@
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
-  `:rf/url-requested`. Modifier-key / middle-clicks defer to the browser.
+  `:rf.route/url-requested`. Modifier-key / middle-clicks defer to the browser.
   Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf-routing/route-link)
@@ -1409,7 +1409,7 @@
 ;; on the façade (above; per-element source-coord stamping, no owned-ns macro
 ;; form). The `machine-has-tag?` and `sub-machine` subscription-sugar fns
 ;; were REMOVED (rf2-il99l3, reversing rf2-2cmcas): a runtime-db framework
-;; read is a subscription VECTOR — `(subscribe [:rf/machine-has-tag?
+;; read is a subscription VECTOR — `(subscribe [:rf.machine/has-tag?
 ;; machine-id tag])` / `(subscribe [:rf/machine machine-id])` — one read
 ;; grammar, the same spelling `:<-` chained inputs and the machine-selector
 ;; recognizer already require (a sugar fn can never ride inside a `:<-`

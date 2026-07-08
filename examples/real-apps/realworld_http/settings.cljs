@@ -18,7 +18,7 @@
    - The draft, errors, touched, submit-error, submitted, and loaded-at all
      move into the machine's `:data` map; there's no app-db slice.
    - The slice's `:submitting?` boolean turns into a per-state
-     `:settings/in-flight` tag, asked with the `:rf/machine-has-tag?` sub.
+     `:settings/in-flight` tag, asked with the `:rf.machine/has-tag?` sub.
 
    Logout stays where it belongs, on the auth machine (`:auth/flow`).
 
@@ -31,7 +31,7 @@
   (:require [re-frame.core :as rf]
             ;; State machines live in their own artefact; we require it to load
             ;; it, which registers the hooks that make `rf/reg-machine` (below)
-            ;; and the `:rf/machine` / `:rf/machine-has-tag?` subs resolve. See
+            ;; and the `:rf/machine` / `:rf.machine/has-tag?` subs resolve. See
             ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-http.schema :as schema]
@@ -81,7 +81,7 @@
 ;; question about the current state:
 ;;
 ;;     :submitting?  = (= :submitting status)            ;; slice form
-;;     :submitting?  = @(rf/subscribe [:rf/machine-has-tag? :settings/form :settings/in-flight])
+;;     :submitting?  = @(rf/subscribe [:rf.machine/has-tag? :settings/form :settings/in-flight])
 ;;
 ;; Same upside as the tags machine: the view never has to know WHICH state
 ;; means \"in-flight\". It asks the tag and moves on.
@@ -287,7 +287,7 @@
 ;;
 ;; The view sees plain, ordinary names (`:settings/draft`,
 ;; `:settings/submit-error`), all sourced from the machine's `:data`. And
-;; `:settings/submitting?` is a `[:rf/machine-has-tag? …]` query underneath, handed
+;; `:settings/submitting?` is a `[:rf.machine/has-tag? …]` query underneath, handed
 ;; to the view as a plain boolean — the machine-ness stays behind the curtain.
 
 (rf/reg-sub :settings/draft
@@ -306,7 +306,7 @@
   {:doc "Is a save in flight? A tag-shaped read of the form's in-flight intent —
          the machine-form stand-in for a slice's `(= :submitting status)`. Views
          just see a boolean."}
-  :<- [:rf/machine-has-tag? :settings/form :settings/in-flight]
+  :<- [:rf.machine/has-tag? :settings/form :settings/in-flight]
   (fn sub-settings-submitting? [in-flight? _]
     (boolean in-flight?)))
 

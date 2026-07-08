@@ -29,8 +29,8 @@
 (reg-view login-form []
   (let [state (r/atom {:email "" :password ""})]
     (fn []
-      (let [busy?    @(rf/subscribe [:rf/machine-has-tag? :login/flow :auth/busy])
-            retry?   @(rf/subscribe [:rf/machine-has-tag? :login/flow :auth/retry])
+      (let [busy?    @(rf/subscribe [:rf.machine/has-tag? :login/flow :auth/busy])
+            retry?   @(rf/subscribe [:rf.machine/has-tag? :login/flow :auth/retry])
             err      @(subscribe [:login/error])
             attempts @(subscribe [:login/attempts])
             submit-evt (if (pos? attempts) :login/retry :login/submit)]
@@ -97,7 +97,7 @@
 ;; ---------------------------------------------------------------------------
 
 (reg-view login-card [{:keys [heading]}]
-  (let [authed? @(rf/subscribe [:rf/machine-has-tag? :login/flow :auth/authenticated])
+  (let [authed? @(rf/subscribe [:rf.machine/has-tag? :login/flow :auth/authenticated])
         email   @(subscribe [:login/email])
         state   @(subscribe [:login/state])]
     [:section {:style     {:padding         "1.25em 1.5em"
