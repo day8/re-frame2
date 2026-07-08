@@ -17,9 +17,17 @@
 
 (defn- port-unresolved-result
   "Error envelope for a `:port` arg that didn't resolve to a build via
-  the `:dev-http` map."
+  the `:dev-http` map.
+
+  rf2-bcayt7: a `:port` that maps to no build is a known-tool failure
+  (`:ok? false`), so it rides `wire/err-text` (`isError: true`) — the
+  same universal rule the other discover-app precondition failures
+  already follow (unhealthy runtime / `:debug-disabled` /
+  `:no-frames-registered` all use `err-text`). Keeping it `isError` also
+  keeps the response cache from ever masking a later valid mapping (cache
+  eligibility bypasses `isError` results)."
   [port]
-  (wire/ok-text
+  (wire/err-text
     {:ok?    false
      :reason :port-unresolved
      :port   port

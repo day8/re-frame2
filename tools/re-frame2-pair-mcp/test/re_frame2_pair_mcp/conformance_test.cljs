@@ -291,7 +291,7 @@
 
     | Tool                   | Happy | Missing-arg | Degraded-runtime |
     |------------------------|-------|-------------|-------------------|
-    | discover-app           | yes   | n/a         | yes               |
+    | discover-app           | yes   | n/a         | yes (+port-unresolved) |
     | eval-cljs              | yes   | yes         | (covered by ↑ )   |
     | dispatch               | yes   | yes         | yes               |
     | restore-epoch          | yes   | yes         | gated-default     |
@@ -349,6 +349,25 @@
      [:default                    nil]]
     :fixture/expect
     {:edn-submap {:ok? false :reason :runtime-loaded-but-preload-missing}}}
+
+   ;; A `:port` that maps to no build short-circuits BEFORE any
+   ;; cljs-eval-value round-trip: `resolve-build-by-port` reads the
+   ;; `:dev-http` map via `jvm-eval`; the corpus's default JVM stub answers
+   ;; the non-`active-builds` lookup form with `{:value "1"}`, which
+   ;; `read-string`s to `1` — not a keyword build-id — so the resolver
+   ;; returns nil and discover-app emits `:port-unresolved`. rf2-bcayt7
+   ;; pins that this rides as an `isError` result (a known-tool `:ok? false`
+   ;; failure), NOT a success-shaped ok-text envelope that the response
+   ;; cache could retain and mask a later valid port→build mapping.
+   {:fixture/id    :discover-app/port-unresolved
+    :fixture/doc   "discover-app with a :port that maps to no build rides as isError carrying :port-unresolved (rf2-bcayt7 — every :ok? false is isError; never a cacheable ok-text)."
+    :fixture/tool  "discover-app"
+    :fixture/args  {:port 9999}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :port-unresolved :port 9999}}}
 
    ;; ---------- eval-cljs --------------------------------------------------
    ;; The launch-flag gate ships DEFAULT-ON in published builds — the
