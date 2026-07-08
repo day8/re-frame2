@@ -231,7 +231,7 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
   (frame/reg-frame :rf/default {})
-  (rf/replace-app-db! :rf/default live-db)
+  (rf/replace-frame-state! :rf/default {:rf.db/app live-db})
   (rf/reg-event :rf.xray-test/seed-history
     (fn [{:keys [db]} [_ records]]
       {:db (assoc db :epoch-history (vec records))}))

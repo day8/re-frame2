@@ -139,7 +139,7 @@
     (is (= ["/" "#/active"] (:entries @*history-state*))
         "the pushed history entry carries the `#`-prefixed href")
     (is (= :s/active
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the route slice tracks the path-form route (cascade stays path-form)")))
 
 (deftest history-frame-push-url-pushes-path-href-cljs
@@ -181,7 +181,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/completed"}])
     (is (= :s/completed
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "slice on /completed before Back")
     ;; Browser Back moves the hash to #/active; a hashchange fires. The
     ;; installed listener decodes #/active → /active and drives the owner.
@@ -190,14 +190,14 @@
         "back() moved the address bar to the #/active entry")
     (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
     (is (= :s/active
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the hashchange listener decoded #/active → /active and restored the slice")
     (rf/remove-url-listener!)
     ;; After teardown a further hashchange is a no-op.
     (.forward (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
     (is (= :s/active
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "after remove-url-listener! a hashchange no longer drives the slice")))
 
 (deftest history-frame-install-listener-wires-popstate-cljs
@@ -211,7 +211,7 @@
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :s/active
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the popstate listener restored the slice to /active for the history frame")
     (rf/remove-url-listener!)))
 
@@ -225,7 +225,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
     (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
     (is (= :s/active
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the alias wired the hash listener (owner strategy decides the kind)")
     (rf/remove-history-listener!)))
 
@@ -261,7 +261,7 @@
     ;; on :rf.route/not-found with the malformed reason, never crashing.
     (rf/dispatch-sync [:rf.route/handle-url-change "/%"])
     (is (= :rf.route/not-found
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "a malformed decoded hash URL routes to :rf.route/not-found (fail-closed)")))
 
 ;; A mismatched-form negative: a hash owner given a raw already-`#` URL still

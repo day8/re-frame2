@@ -61,7 +61,7 @@
 (defn- snapshot [machine-id]
   ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
   ;; partition state at [:rf.runtime/machines :snapshots <id>].
-  (get-in (rf/runtime-db-value :test/main)
+  (get-in (:rf.db/runtime (rf/frame-state-value :test/main))
           [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- last-epoch-id []

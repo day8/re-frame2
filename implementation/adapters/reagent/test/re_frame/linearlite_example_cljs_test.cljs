@@ -133,7 +133,7 @@
 ;; HELPERS
 ;; ============================================================================
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (def ^:private board-query
   {:resource :linearlite/board :scope :rf.scope/global :params {}})

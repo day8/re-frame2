@@ -103,7 +103,7 @@
 ;; actual scope — here a constant map, so every ensure + the slug-key agree.
 (def ^:private scope {:app :reader})
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- slug-key [slug]
   (state/scoped-resource-key scope :art/by-slug {:slug slug}))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))

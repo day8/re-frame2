@@ -452,7 +452,7 @@
     (let [synthetic (atom nil)]
       (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
-      (rf/replace-app-db! :test/main {:injected :state})
+      (rf/replace-frame-state! :test/main {:rf.db/app {:injected :state}})
       (is (not (contains? @synthetic :rf/test-tag))
           "replace-app-db! path: listener received the RAW synthetic record")
       (is (not (contains? (last-record :test/main) :rf/test-tag))

@@ -282,20 +282,20 @@ Everything above is the **front door** — the one lane application code ever us
 There is a second lane, and it is not for app code. The runtime exposes a small set of operations that *overwrite* a frame's state wholesale, bypassing the event pipeline entirely:
 
 ```clojure
-(rf/replace-app-db!      frame-id app-db)        ;; swap only the app partition
-(rf/replace-runtime-db!  frame-id runtime-db)    ;; swap only the framework partition
-(rf/replace-frame-state! frame-id frame-state)   ;; swap both, atomically
-(rf/reset-app-db!        frame-id)               ;; clear the app partition
-(rf/restore-epoch!       frame-id epoch-id)      ;; rewind to a captured past state
+(rf/replace-frame-state! frame-id {:rf.db/app app-db})                          ;; swap only the app partition
+(rf/replace-frame-state! frame-id {:rf.db/runtime runtime-db})                  ;; swap only the framework partition
+(rf/replace-frame-state! frame-id {:rf.db/app app-db :rf.db/runtime runtime-db}) ;; swap both, atomically
+(rf/replace-frame-state! frame-id {:rf.db/app {}})                              ;; clear the app partition
+(rf/restore-epoch!       frame-id epoch-id)                                     ;; rewind to a captured past state
 ```
 
-Call these **state surgery**. They don't run a handler, fire no effects, and carry no event through the pipeline — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
+`replace-frame-state!` is the ONE state-surgery write — it takes a **partial** frame-state map, so a present partition key replaces that partition and an absent key is left untouched. Call these operations **state surgery**. They don't run a handler, fire no effects, and carry no event through the pipeline — they reach past the front door and write the value directly. That makes them exactly the right tool for three jobs, and exactly the wrong tool for everything else:
 
-- **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. `replace-frame-state!` (not app-db-only) is what an epoch-history test needs, because machine snapshots and the route slice live in runtime-db.
+- **Tests.** A fixture installs a known app-db before assertions, instead of dispatching a dozen setup events to arrive there. A both-key map (not app-db-only) is what an epoch-history test needs, because machine snapshots and the route slice live in runtime-db.
 - **Tooling.** [Xray](observability.md) time-travel — and the pair MCP, the tooling server an AI pair-programmer drives a live app through — rewind a running frame with `restore-epoch!`; an inspector may install a captured state to reproduce a bug.
 - **Framework internals.** Restore, SSR hydration, and frame reset replace whole partitions — privileged runtime code, never your handlers.
 
-Now the warning, plainly, because it is the whole point of the two-lane design: **never reach for state surgery in application code.** These are not a faster `assoc`. Calling `replace-app-db!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](glossary.md#epoch) ledger has no run to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop.
+Now the warning, plainly, because it is the whole point of the two-lane design: **never reach for state surgery in application code.** This is not a faster `assoc`. Calling `replace-frame-state!` from a handler or a view forges a value with no event behind it: nothing appears in the [trace](observability.md), the [epoch](glossary.md#epoch) ledger has no run to show, none of the per-event commit machinery runs, and any subscription or machine that assumed an event caused the change is now looking at a state nobody can explain. The very inspectability you bought by putting state in one place evaporates the moment a write skips the pipeline. If app code wants to change state, it dispatches an event — full stop.
 
 ??? warning "Gotcha — surgery is elided from release builds"
 
@@ -303,7 +303,7 @@ Now the warning, plainly, because it is the whole point of the two-lane design: 
 
 The contrast is the point. The front door is auditable because every change is an event with a cause; surgery is powerful because it answers to no cause — which is exactly why it belongs to the test harness and the debugger, not the application. Reach for it only when you are *operating on* a frame from outside (a fixture, a tool, the REPL), never when you are *writing* the app that runs inside one.
 
-A note on what each one targets, since the names are deliberately exact. `replace-app-db!` and `reset-app-db!` touch *only* the app partition and leave runtime-db live — so the route and machine snapshots survive. `replace-frame-state!` is the full-frame install: it replaces both partitions atomically from a `{:rf.db/app … :rf.db/runtime …}` value, which is what an epoch-history test or a tool-driven replay needs. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine snapshots and the route slice come back exactly as they were, not just the app-db projection.
+A note on what each map shape targets, since the keys are deliberately exact. An app-only map (`{:rf.db/app v}`, including `{:rf.db/app {}}` to clear it) touches *only* the app partition and leaves runtime-db live — so the route and machine snapshots survive. A both-key map is the full-frame install: it replaces both partitions atomically, which is what an epoch-history test or a tool-driven replay needs. A map with no recognized partition key, or an unrecognized key, is rejected rather than silently ignored. `restore-epoch!` is the same full-frame replace, but sourced from a captured past epoch rather than a value you hand it — it revives app-db *and* runtime-db together, so machine snapshots and the route slice come back exactly as they were, not just the app-db projection.
 
 Every one of these mutators returns a boolean — `true` on success, `false` on a refusal — and a refusal is always a clean **no-op**: the frame is left exactly as it was. They refuse — and say why through an error trace — for an unknown or destroyed frame; for a call made *mid-drain*, while a run-to-completion drain is still in flight (retry once it settles); and, on the partition-replace surfaces, for a value that fails the frame's registered [schema](glossary.md#schema). So even though surgery skips the *event-time* validation gate, the `replace-*!` surfaces still won't install a value that violates a schema you declared; they decline rather than corrupt.
 
@@ -326,13 +326,13 @@ Don't take the "one inspectable value" claim on faith. It is the most useful pro
 (pprint (rf/app-db-value :app))         ;; read the app partition — your data
 ```
 
-Your entire application state, printed top to bottom, readable as a map. The in-memory database, answering a query. `app-db-value` is the non-reactive snapshot read — the one for tools, tests, and the REPL, distinct from the front-door `subscribe`. Two sibling readers complete the set when you want to see the framework's side too:
+Your entire application state, printed top to bottom, readable as a map. The in-memory database, answering a query. `app-db-value` is the non-reactive snapshot read — the one for tools, tests, and the REPL, distinct from the front-door `subscribe`. A sibling reader completes the set when you want to see the framework's side too:
 
 ```clojure
-(pprint (rf/runtime-db-value :app))     ;; the framework partition — routes, machines, …
-(pprint (rf/frame-state-value :app))    ;; both at once: {:rf.db/app … :rf.db/runtime …}
+(pprint (rf/frame-state-value :app))                  ;; both at once: {:rf.db/app … :rf.db/runtime …}
+(pprint (:rf.db/runtime (rf/frame-state-value :app))) ;; the framework partition alone — routes, machines, …
 ```
 
-`frame-state-value` is the coherent full-frame projection — the same shape SSR ships and time-travel reverts. All three return `nil` for an unknown or destroyed frame, so a read against a torn-down frame degrades quietly rather than throwing. (Dispatching or subscribing to a destroyed frame is the same story — `dispatch` no-ops, `subscribe` returns `nil`, and the framework emits a production-survivable `:rf.error/frame-destroyed` so the diagnostic reaches your error monitor instead of vanishing.)
+`frame-state-value` is the coherent full-frame projection — the same shape SSR ships and time-travel reverts. Both readers return `nil` for an unknown or destroyed frame, so a read against a torn-down frame degrades quietly rather than throwing. (Dispatching or subscribing to a destroyed frame is the same story — `dispatch` no-ops, `subscribe` returns `nil`, and the framework emits a production-survivable `:rf.error/frame-destroyed` so the diagnostic reaches your error monitor instead of vanishing.)
 
 Now open Xray and watch it move. Dispatch an event — say the counter's `[:inc]` — and the App-db tab shows exactly the slices that changed in that run, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed, so when something is wrong, this is where you look first. [Debug with Xray](../xray/index.md) makes a workflow of it.

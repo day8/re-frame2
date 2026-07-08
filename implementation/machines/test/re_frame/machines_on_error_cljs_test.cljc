@@ -64,7 +64,7 @@
 
 (defn- spawned-id-for
   [parent-id invoke-id]
-  (get-in (rf/runtime-db-value :rf/default)
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 (defn- traces-for
@@ -363,12 +363,12 @@
                           :states  {:idle {}}}}})
     (rf/dispatch-sync [:rf2-r09fc-g0/parent [:rf.machine.spawn/spawned]])
     ;; The region prefixes the invoke-id with its region name → [:loader :working].
-    (let [spawned-map (get-in (rf/runtime-db-value :rf/default)
+    (let [spawned-map (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                               [:rf.runtime/machines :spawned :rf2-r09fc-g0/parent])
           child       (spawned-id-for :rf2-r09fc-g0/parent [:loader :working])]
       (is (some? spawned-map)
           "the :spawned slot keys under the REAL parent :rf2-r09fc-g0/parent (NOT :rf/transition-pure)")
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :spawned :rf/transition-pure]))
           "NOTHING keyed under the bogus :rf/transition-pure fallback")
       (is (some? child)

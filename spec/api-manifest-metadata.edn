@@ -197,16 +197,16 @@
  :api-md-known-unmanifested
  #{"machine->xstate-json"   ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
    "machine->mermaid"       ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
-   "story-view"             ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
+   "story-view"}            ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
    ;; EP-0001 two-partition frame contract (rf2-xtlzrk) — SPEC landed ahead of
-   ;; the impl beads (3-10); these vars don't yet exist as live public vars, so
-   ;; the generated manifest cannot carry them. Remove each from this allowlist
-   ;; as its impl bead lands and the regenerated manifest picks it up.
-   ;; rf2-q4i9ko (bead 3) shipped runtime-db-value / frame-state-value /
-   ;; replace-app-db! / replace-runtime-db! / replace-frame-state! as live
-   ;; vars — they are now manifested and classified below, so they are removed
-   ;; from this allowlist.
-   "reset-app-db!"}         ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
+   ;; the impl beads (3-10); runtime-db-value / frame-state-value /
+   ;; replace-app-db! / replace-runtime-db! / replace-frame-state! / reset-app-db!
+   ;; all shipped as live vars in due course (bead 3 / bead 9) and were
+   ;; classified below. rf2-t3lftq (API-shrink #3) then retired
+   ;; runtime-db-value / snapshot-of / replace-app-db! / reset-app-db! /
+   ;; replace-runtime-db! from the facade entirely — the manifest generator
+   ;; simply no longer sees those vars, so there is nothing left to allowlist
+   ;; or classify for them.
  ;; EP-0022 registered interceptors (Slice B, rf2-0adhqs.2) — the runtime
  ;; landed: `reg-interceptor` (macro) / `reg-interceptor*` (plain fn) now ship
  ;; as live `re-frame.core` facade vars (the inverse of Slice A's spec-ahead
@@ -768,11 +768,12 @@
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
   ;; EP-0001 two-partition readers (rf2-q4i9ko / bead 3). Per spec/API.md
   ;; §Public registrar query API rows. The physical partition landed in
-  ;; rf2-adwcv6 (bead 5): runtime-db-value reads the real runtime-db
-  ;; partition off the one physical frame-state container.
-  ["re-frame.core" "runtime-db-value"]     {:tier :tooling :owner "002" :status "v1"}
+  ;; rf2-adwcv6 (bead 5). rf2-t3lftq (API-shrink #3) retired
+  ;; `runtime-db-value` (superseded by `(:rf.db/runtime (frame-state-value id))`)
+  ;; and `snapshot-of` (an empirically zero-caller convenience over
+  ;; `(get-in (app-db-value frame-id) path)`) from the facade — deleted, not
+  ;; reclassified.
   ["re-frame.core" "frame-state-value"]    {:tier :tooling :owner "002" :status "v1"}
-  ["re-frame.core" "snapshot-of"]          {:tier :tooling :owner "002" :status "v1"}
   ;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases were REMOVED.
   ;; They are subscription-TOOLING surfaces (not app-author front-porch reads);
   ;; their callers (tests / REPLs / dev tooling) address the owning
@@ -843,15 +844,15 @@
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
-  ;; bead 9). Per spec/API.md §Epoch / Tool-Pair rows. replace-app-db! is the
-  ;; direct rename of the former reset-frame-db! Tool-Pair surface (bead 9);
-  ;; reset-app-db! is its app-db-only zero-db-arg sibling (resets app-db to
-  ;; {} preserving runtime-db). The runtime-db / frame-state mutators are real
-  ;; partition writes as of rf2-adwcv6 (bead 5): they install into the one
-  ;; physical frame-state container via frame/commit-frame-transition!.
-  ["re-frame.core" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; bead 9) originally shipped as a four-mutator family. rf2-t3lftq
+  ;; (API-shrink #3) consolidated replace-app-db! / reset-app-db! /
+  ;; replace-runtime-db! / replace-frame-state! — which shared identical
+  ;; machinery, differing only in which partition keys they touched — into
+  ;; ONE partial-map surface, replace-frame-state!: a present key replaces
+  ;; that partition, an absent key is preserved. The three siblings are
+  ;; DELETED, not reclassified. It installs into the one physical
+  ;; frame-state container via frame/commit-frame-transition! (rf2-adwcv6,
+  ;; bead 5).
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
@@ -1235,9 +1236,9 @@
   ;; =========================================================================
   ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-t3lftq (API-shrink #3): replace-app-db! / reset-app-db! /
+  ;; replace-runtime-db! DELETED — consolidated into replace-frame-state!'s
+  ;; partial-map contract.
   ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

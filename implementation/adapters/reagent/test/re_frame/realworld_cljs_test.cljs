@@ -919,7 +919,7 @@
     ;; :realworld/tags + :settings/form machine snapshots are present.
     ;; EP-0001 (rf2-vzld77): app data is in app-db; machine snapshots in runtime-db.
     (let [db (rf/app-db-value f)
-          rt (rf/runtime-db-value f)]
+          rt (:rf.db/runtime (rf/frame-state-value f))]
       (is (contains? db :auth))
       (is (contains? db :articles))
       (is (contains? (get-in rt [:rf.runtime/machines :snapshots]) :realworld/tags))

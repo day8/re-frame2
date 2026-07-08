@@ -813,7 +813,7 @@ slot:
                     :on-error   [:cart/load-failed]}]]})))
 ```
 
-The handler reads the route slice — which lives in **runtime-db** at `[:rf.runtime/routing :current]`, NOT app-db — for any path/query params it needs, via `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current])` (the consumer-facing sub-id is `:rf/route`). The slice is already populated when `:on-match` events fire.
+The handler reads the route slice — which lives in **runtime-db** at `[:rf.runtime/routing :current]`, NOT app-db — for any path/query params it needs, via `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/routing :current])` (the consumer-facing sub-id is `:rf/route`). The slice is already populated when `:on-match` events fire.
 
 **Template — route-aware root view:**
 
@@ -859,7 +859,7 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
 - Server-side renders set the route via `:rf.route/handle-url-change` against the request URL; the same `:on-match` events run server-side.
-- Path params and query params are **separate maps** in the runtime-db route slice — `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current :params])` and `(get-in (rf/runtime-db-value) [:rf.runtime/routing :current :query])`.
+- Path params and query params are **separate maps** in the runtime-db route slice — `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/routing :current :params])` and `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/routing :current :query])`.
 
 **AI-first checklist:**
 

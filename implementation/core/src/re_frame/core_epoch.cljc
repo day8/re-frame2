@@ -6,12 +6,13 @@
   The entire epoch surface is gated on `interop/debug-enabled?` (Tool-
   Pair §Time-travel §Production elision). Absent-artefact wrappers
   degrade silently (empty vector / `false` / no-op) so a release build
-  that omits the artefact does not raise. The four partition-aware
-  injection mutators (`replace-app-db!` / `reset-app-db!` /
-  `replace-runtime-db!` / `replace-frame-state!`) are the exception — each
-  records a synthetic epoch, so it cannot degrade silently (the caller's
-  invariant is 'undo works after this call'); they raise
-  `:rf.error/epoch-artefact-missing`."
+  that omits the artefact does not raise. The partial-map partition-aware
+  injection mutator (`replace-frame-state!`, rf2-t3lftq — API-shrink #3
+  consolidated the former `replace-app-db!` / `reset-app-db!` /
+  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
+  this ONE surface) is the exception — it records a synthetic epoch, so it
+  cannot degrade silently (the caller's invariant is 'undo works after
+  this call'); it raises `:rf.error/epoch-artefact-missing`."
   (:require [re-frame.core-artefact #?@(:clj  [:refer        [defwrapper]]
                                         :cljs [:refer-macros [defwrapper]])]))
 
@@ -80,115 +81,47 @@
   {:hook :epoch/clear-epoch-listeners! :artefact epoch-artefact :on-absent :nil}
   ([] :delegate))
 
-(defwrapper replace-app-db!
-  "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
-  dispatch loop. Per Tool-Pair §Pair-tool writes. Renamed from
-  `reset-frame-db!` (EP-0001 rf2-tfepxu, Mike ruling #10 — a db-shaped
-  name never silently replaces runtime-db; the live runtime-db survives).
+(defwrapper replace-frame-state!
+  "Atomically install `frame-state` — a PARTIAL frame-state map (any
+  subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
+  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
+  partition, an ABSENT key is preserved unchanged (rf2-t3lftq — API-shrink
+  #3, consolidating the former `replace-app-db!` / `reset-app-db!` /
+  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
+  this ONE surface). A db-shaped key never silently touches the other
+  partition — the partition is named explicitly at every call site (Mike
+  ruling #10, preserved and generalised). Per Tool-Pair §Pair-tool writes.
 
-  The canonical Tool-Pair write surface for app-db state injection — pair
-  tools use it for evolved-state-shape probes after a handler hot-swap,
+  The canonical Tool-Pair write surface for state injection — pair tools
+  use it for evolved-state-shape probes after a handler hot-swap,
   story-tool fixture setup, conformance-harness state seeding, and
   time-travel from JSON-loaded bug repros. Records a synthetic
   `:rf/epoch-record` so `restore-epoch!` can rewind the previous state;
   emits `:rf.epoch/db-replaced` on success.
 
-  Failure modes (each is a no-op on `app-db` and emits a structured
-  error trace):
-
-    :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — `new-db` fails the
-                                                   frame's app-schema set
-    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
-                                                   the synthetic undo-anchor
-                                                   cannot land, so undo would
-                                                   not work after this call
-                                                   (rf2-unpldn)
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds
-  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/replace-app-db!`; raises `:rf.error/epoch-artefact-missing`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath
-  (the surface records an epoch and so cannot degrade silently — the
-  caller's invariant is 'undo works after this call').
-
-  Returns `true` on success, `false` on any failure."
-  {:hook :epoch/replace-app-db! :artefact epoch-artefact :on-absent :throw}
-  ([frame-id new-db] :delegate))
-
-(defwrapper reset-app-db!
-  "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
-  loop, while preserving live runtime-db (machines / routes / elision /
-  SSR survive). The app-db-only sibling of a full frame reset
-  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope
-  (EP-0001 rf2-tfepxu, Mike ruling #10). Equivalent to
-  `(replace-app-db! frame-id {})` — same synthetic-epoch recording, same
-  gating and failure modes.
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds
-  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/reset-app-db!`; raises `:rf.error/epoch-artefact-missing`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath
-  (it records an epoch and so cannot degrade silently).
-
-  Returns `true` on success, `false` on any failure."
-  {:hook :epoch/reset-app-db! :artefact epoch-artefact :on-absent :throw}
-  ([frame-id] :delegate))
-
-(defwrapper replace-runtime-db!
-  "Replace `frame-id`'s `runtime-db` partition with `runtime-db`, bypassing
-  the dispatch loop — the runtime-db sibling of `replace-app-db!` (Tool-Pair
-  §Pair-tool writes). Privileged runtime / full-frame tool surface for
-  injecting framework-owned subsystem state (machine snapshots, route
-  slice, …); the app-db partition is preserved unchanged. Records a
-  synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the previous
-  state; emits `:rf.epoch/db-replaced` on success.
-
-  Failure modes (each is a no-op on `runtime-db` and emits a structured
-  error trace — the shared four-mutator failure surface):
-
-    :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — `runtime-db` fails the
-                                                   framework-owned runtime-db
-                                                   validator (reg-runtime-schema)
-    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
-                                                   the synthetic undo-anchor
-                                                   cannot land (rf2-unpldn)
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds
-  (`:advanced` + `goog.DEBUG=false`) elide via Closure DCE. Late-bound
-  via `:epoch/replace-runtime-db!`; raises `:rf.error/epoch-artefact-missing`
-  when the `day8/re-frame2-epoch` artefact is not on the classpath
-  (the surface records an epoch and so cannot degrade silently — the
-  caller's invariant is 'undo works after this call').
-
-  Returns `true` on success, `false` on any failure."
-  {:hook :epoch/replace-runtime-db! :artefact epoch-artefact :on-absent :throw}
-  ([frame-id runtime-db] :delegate))
-
-(defwrapper replace-frame-state!
-  "Replace BOTH of `frame-id`'s partitions atomically with `frame-state`
-  (`{:rf.db/app … :rf.db/runtime …}`), bypassing the dispatch loop — the
-  full-frame install for tool-driven replay / fixture install (Tool-Pair
-  §Pair-tool writes). The whole-frame sibling of `replace-app-db!`; a
-  db-shaped name never silently replaces runtime-db, so this is the
-  explicit full-frame surface (Mike ruling #10). A missing partition key
-  installs `nil` for that partition (a full-frame replace is whole-value
-  by contract). Records a synthetic `:rf/epoch-record` so `restore-epoch!`
-  can rewind the previous state; emits `:rf.epoch/db-replaced` on success.
+  App-only injection: `(replace-frame-state! frame-id {:rf.db/app v})` —
+  the former `replace-app-db!`; `(replace-frame-state! frame-id
+  {:rf.db/app {}})` is the former `reset-app-db!`. Runtime-only injection:
+  `(replace-frame-state! frame-id {:rf.db/runtime v})` — the former
+  `replace-runtime-db!`. Both-partition install supplies both keys.
 
   Failure modes (each is a no-op on the frame-state and emits a structured
-  error trace — the shared four-mutator failure surface):
+  error trace):
 
+    :rf.error/replace-frame-state-bad-keys — `frame-state` carries no
+                                                   recognized partition key
+                                                   (`:rf.db/app` /
+                                                   `:rf.db/runtime`), or an
+                                                   unrecognized key — checked
+                                                   BEFORE frame resolution
     :rf.error/no-such-handler                   — frame not registered
     :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — the app-db partition fails
-                                                   the frame's app-schema set
-                                                   OR the runtime-db partition
-                                                   fails the framework-owned
-                                                   runtime-db validator
+    :rf.epoch/replace-schema-mismatch    — a PRESENT app-db partition fails
+                                                   the frame's app-schema set,
+                                                   OR a PRESENT runtime-db
+                                                   partition fails the
+                                                   framework-owned runtime-db
+                                                   validator
     :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
                                                    the synthetic undo-anchor
                                                    cannot land (rf2-unpldn)

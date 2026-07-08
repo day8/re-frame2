@@ -121,7 +121,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Are there any items in the cart with `:qty <= 0`?
 >
-> **Claude**: *[at the REPL, passing the frame so the read has a scope]* `(->> (rf/snapshot-of [:shopping-cart :items] {:frame :rf/default}) (filter #(<= (:qty %) 0)))` — returns `()`. None right now, but the invariant isn't enforced by the `:cart/add-item` handler, and there's no `app-schema` registered for `[:shopping-cart :items]`. Want me to propose a guard, or register a malli schema?
+> **Claude**: *[at the REPL, reading the specific frame]* `(->> (get-in (rf/app-db-value :rf/default) [:shopping-cart :items]) (filter #(<= (:qty %) 0)))` — returns `()`. None right now, but the invariant isn't enforced by the `:cart/add-item` handler, and there's no `app-schema` registered for `[:shopping-cart :items]`. Want me to propose a guard, or register a malli schema?
 
 ### Post-mortem — how did I get into this state?
 

@@ -31,13 +31,13 @@
 
       ;; 1. Navigate to /articles/A. nav-token allocates → "nav-1".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's response lands, navigate to /articles/B → "nav-2".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
-      (is (= "nav-2" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "second navigation advanced the epoch to nav-2")
 
@@ -116,14 +116,14 @@
 
       ;; 1. Navigate to /articles/A (:route/article) — nav-token "nav-1".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token])))
 
       ;; 2. Navigate to a DIFFERENT route /profile/P (:route/profile) — "nav-2".
       (rf/dispatch-sync [:rf.route/transitioned "/profile/P"])
-      (is (= "nav-2" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token])))
-      (is (= :route/profile (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/profile (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           "the live route is now route B (:route/profile)")
 
@@ -197,13 +197,13 @@
 
       ;; 1. Land on :route/article id="A" — nav-token allocates to "nav-1".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "first navigation got nav-1")
 
       ;; 2. Before A's async :on-success lands, navigate to id="B" — "nav-2".
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
-      (is (= "nav-2" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "second navigation advanced the epoch to nav-2")
 
@@ -446,7 +446,7 @@
                          {}))
       ;; Land on the route, then fire the on-match-style continuation.
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (let [current (get-in (rf/runtime-db-value :rf/default)
+      (let [current (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                             [:rf.runtime/routing :current :nav-token])]
         (rf/dispatch-sync [:article/capture-token])
         (is (= current @seen)
@@ -634,7 +634,7 @@
                                :value       value}]]}))
 
     (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-    (let [token (get-in (rf/runtime-db-value :rf/default)
+    (let [token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current :nav-token])]
       ;; A's completion is LIVE (token still current) → the target is completed
       ;; with the :status :ok reply map appended.
@@ -797,7 +797,7 @@
           "the later loader RAN after the earlier one threw (FIFO continuation)")
       (is (true? (:load/next-ran? (rf/app-db-value :rf/default)))
           "the later loader's :db write committed")
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :error (:transition slice))
             "final :transition is :error regardless of queue interleaving")
         (is (= :load/fail (:event-id (:error slice)))
@@ -827,7 +827,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/double-fail"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :error (:transition slice))
             "final :transition is :error after both loaders throw")
         (is (= :load/fail-1 (:event-id (:error slice)))
@@ -855,11 +855,11 @@
     ;; First navigation succeeds (slice :idle), then a second navigation to
     ;; a failing route must still record :error.
     (rf/dispatch-sync [:rf.route/transitioned "/clean"])
-    (is (= :idle (get-in (rf/runtime-db-value :rf/default)
+    (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :current :transition]))
         "clean navigation settles to :idle")
     (rf/dispatch-sync [:rf.route/transitioned "/dirty"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :error (:transition slice))
           "the newer failing navigation records :error (not suppressed by a prior token's state)")
       (is (= :load/late-fail (:event-id (:error slice)))

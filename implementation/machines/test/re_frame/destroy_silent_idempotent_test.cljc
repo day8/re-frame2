@@ -233,7 +233,7 @@
         (rf/reg-machine k child))
       (rf/reg-machine :rf2-ndfjo/sup parent)
       (rf/dispatch-sync [:rf2-ndfjo/sup [:start]])
-      (let [ids (get-in (rf/runtime-db-value :rf/default)
+      (let [ids (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :spawned :rf2-ndfjo/sup [:working] :children])]
         (is (= 5 (count ids)) "five children spawned")
         ;; Complete a → :any join resolves; b, c, d, e are cancelled

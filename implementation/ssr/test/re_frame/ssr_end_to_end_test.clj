@@ -189,7 +189,7 @@
             (let [client-db (rf/app-db-value client-frame)
                   ;; EP-0001 (rf2-vzld77): the hydration metadata is durable
                   ;; runtime-db state.
-                  client-rt (rf/runtime-db-value client-frame)]
+                  client-rt (:rf.db/runtime (rf/frame-state-value client-frame))]
               ;; The server's app-db replaced the client's empty app-db.
               (is (= (:articles server-db) (:articles client-db))
                   ":rf/hydrate replaced the client app-db with payload's :rf/app-db")
@@ -1104,7 +1104,7 @@
           f         (frame/make-anon-frame-record! {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
       (is (= "head-hash-server-A"
-             (get-in (rf/runtime-db-value f) [:rf.runtime/ssr :hydration :server-hash]))
+             (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server's head-hash")
 
       (rf/register-listener! :trace ::head (fn [ev] (swap! traces conj ev)))

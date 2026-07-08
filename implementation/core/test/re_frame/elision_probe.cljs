@@ -270,7 +270,7 @@
   ;; three string fragments must elide under :advanced + goog.DEBUG=
   ;; false. Calling against a frame ID without forcing an actual
   ;; replace is enough — the literal sentinels live in the gated body.
-  (rf/replace-app-db! :rf/default {})
+  (rf/replace-frame-state! :rf/default {:rf.db/app {}})
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
   (epoch/clear-history!)

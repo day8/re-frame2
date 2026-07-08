@@ -18,8 +18,8 @@ The one rule (EP-0002 carried invariant): **frame identity is a value that trave
 | Hold a frame's ops as a value (async / closures) | `capture-frame` — the one public carry primitive |
 | One-off explicit routing (`dispatch` / `subscribe`) | `{:frame …}` trailing opt — `(rf/dispatch [:foo] {:frame …})` / `(rf/subscribe query-v {:frame …})` (same shape both sides) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
-| Read a frame's runtime-db / whole frame-state (tools, SSR) | `runtime-db-value` / `frame-state-value` |
-| Install state from outside a cascade (tools, tests, SSR) | `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` |
+| Read a frame's runtime-db / whole frame-state (tools, SSR) | `(:rf.db/runtime (frame-state-value id))` / `frame-state-value` |
+| Install state from outside a cascade (tools, tests, SSR) | `replace-frame-state!` (the ONE partial-map write surface) |
 
 A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/capture-frame)`. An arbitrary async callback captures `(rf/capture-frame)` in scope and calls its `:dispatch` / `:subscribe` ops.
 
@@ -54,22 +54,25 @@ A frame is a mutable runtime boundary, and public code targets it by one of two 
 (rf/destroy-frame! :frame-id)
 (do (rf/destroy-frame! :frame-id)   ;; full reset = destroy + re-register (no dedicated verb):
     (rf/reg-frame :frame-id config)) ;; clears BOTH partitions, re-dispatches :initial-events
-                                     ;; (for app-db-only reset that keeps live machines/routes: reset-app-db!)
+                                     ;; (for app-db-only reset that keeps live machines/routes:
+                                     ;; (rf/replace-frame-state! :frame-id {:rf.db/app {}}))
 
 ;; Inspect.
 (rf/current-frame-id)               ;; returns the active frame id
 (rf/app-db-value :frame-id)         ;; current app-db partition VALUE (plain map, no deref)
-(rf/runtime-db-value :frame-id)     ;; current runtime-db partition VALUE (tools / privileged runtime)
+(:rf.db/runtime (rf/frame-state-value :frame-id)) ;; current runtime-db partition VALUE (tools / privileged runtime)
 (rf/frame-state-value :frame-id)    ;; {:rf.db/app … :rf.db/runtime …} — the whole frame (SSR / epoch / tools)
 
-;; Install from outside a cascade (tools / tests / SSR — NOT app code).
-(rf/replace-app-db!     :frame-id app-db)        ;; replace ONLY app-db (state injection)
-(rf/reset-app-db!       :frame-id)               ;; app-db → {}, runtime-db (live machines/routes) preserved
-(rf/replace-runtime-db! :frame-id runtime-db)    ;; replace ONLY runtime-db
-(rf/replace-frame-state! :frame-id frame-state)  ;; replace BOTH partitions atomically (full-frame install)
+;; Install from outside a cascade (tools / tests / SSR — NOT app code). ONE
+;; write surface taking a PARTIAL frame-state map: a present key replaces
+;; that partition, an absent key is preserved.
+(rf/replace-frame-state! :frame-id {:rf.db/app app-db})                          ;; replace ONLY app-db (state injection)
+(rf/replace-frame-state! :frame-id {:rf.db/app {}})                              ;; app-db → {}, runtime-db preserved
+(rf/replace-frame-state! :frame-id {:rf.db/runtime runtime-db})                  ;; replace ONLY runtime-db
+(rf/replace-frame-state! :frame-id {:rf.db/app app-db :rf.db/runtime runtime-db}) ;; replace BOTH partitions atomically (full-frame install)
 ```
 
-Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`. `replace-app-db!` replaces only the app-db partition; `replace-frame-state!` is the distinct full-frame surface, so a db-shaped name never silently overwrites runtime-db.
+Verified in `re-frame.frame` (`reg-frame`, `make-frame`, `destroy-frame!`). The public macro layer is in `re-frame.core`. An app-only map (`{:rf.db/app v}`) replaces only the app-db partition; a both-key map is the full-frame surface — a db-shaped key never silently overwrites the other partition. A map with no recognized partition key, or an unrecognized key, is rejected.
 
 ## Frame resolution chain
 

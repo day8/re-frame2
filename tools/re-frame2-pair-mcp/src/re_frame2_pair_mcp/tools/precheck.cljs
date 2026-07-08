@@ -31,8 +31,11 @@
                     (rf2-ajhwbm — see below). NOT sound.
     - `:machines` — runtime-db state. Machine snapshots live in the
                     durable runtime-db partition (EP-0001), read via
-                    `rf/runtime-db-value` at `[:rf.runtime/machines
-                    :snapshots]` (see runtime.cljs `snapshot-frame-slice`).
+                    `(:rf.db/runtime (rf/frame-state-value frame))` at
+                    `[:rf.runtime/machines :snapshots]` (rf2-t3lftq —
+                    API-shrink #3 retired the dedicated
+                    `rf/runtime-db-value` reader; see runtime.cljs
+                    `snapshot-frame-slice`).
                     A machine transition rewrites that runtime-db slot
                     WITHOUT an app-db write, so the slice can change while
                     `app-db-hash` stays constant. NOT sound.

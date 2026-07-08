@@ -12,7 +12,9 @@
     - `replace-app-db!` — state injection: replace a frame's app-db
                           with an arbitrary value the runtime never
                           recorded (the JSON-loaded-bug-repro case,
-                          spec/Tool-Pair.md §Pair-tool writes).
+                          spec/Tool-Pair.md §Pair-tool writes). Wraps
+                          `replace-frame-state!` as an app-only partial
+                          map (`{:rf.db/app v}`).
 
   Both are dev-only (production builds elide the primitives via the
   `goog.DEBUG` gate, per spec/009 §Production builds) and both MUTATE

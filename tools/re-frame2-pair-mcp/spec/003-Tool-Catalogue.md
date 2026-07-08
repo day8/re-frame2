@@ -3,7 +3,7 @@
 > Implements the [Tool-Pair contract](../../../spec/Tool-Pair.md) —
 > each MCP tool below routes through one or more of the Tool-Pair
 > primitives (`app-db-value`, `epoch-history`, `register-listener!`,
-> `register-epoch-listener!`, `restore-epoch`, `replace-app-db!`,
+> `register-epoch-listener!`, `restore-epoch`, `replace-frame-state!`,
 > `dispatch`, `dispatch-sync`).
 
 The MCP tools (the live registry is the canonical count — see
@@ -1566,11 +1566,12 @@ State injection — replace a frame's `app-db` with an arbitrary EDN
 value the runtime never recorded; the explicit JSON-loaded-bug-repro
 case per
 [`Tool-Pair.md` §Pair-tool writes](../../../spec/Tool-Pair.md#pair-tool-writes--state-injection).
-Wraps the `replace-app-db!` Tool-Pair write primitive
-(`(rf/replace-app-db! frame-id new-db)`): bypasses the dispatch loop,
-replaces the container directly, and records a synthetic
-`:rf/epoch-record` (`:event-id :rf.epoch/db-replaced`) so a later
-`restore-epoch` can rewind past the injection.
+Wraps the `replace-frame-state!` Tool-Pair write primitive as an
+app-only partial map (`(rf/replace-frame-state! frame-id {:rf.db/app
+new-db})`): bypasses the dispatch loop, replaces the container
+directly, and records a synthetic `:rf/epoch-record` (`:event-id
+:rf.epoch/db-replaced`) so a later `restore-epoch` can rewind past
+the injection.
 
 **Launch-flag gate (rf2-ee38b.18)**: `--allow-writes` (the same gate as
 `restore-epoch`). Default OFF.

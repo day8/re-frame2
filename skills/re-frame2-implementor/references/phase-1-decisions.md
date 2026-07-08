@@ -211,7 +211,7 @@ From [Implementor-Checklist §State storage](https://day8.github.io/re-frame2/sp
 
 **The question.** How is full-frame-state captured and restored as a value swap?
 
-**What's at stake.** Test fixtures, epoch history (`epoch/restore-epoch!` + `epoch/replace-app-db!`), and time-travel all depend on snapshot/restore being a value swap. With persistent collections (F2) a snapshot is a pointer and restore is `replace-container!`; without them, snapshot is deep-copy and expensive — this is why F2 is pattern-required.
+**What's at stake.** Test fixtures, epoch history (`epoch/restore-epoch!` + `epoch/replace-frame-state!`), and time-travel all depend on snapshot/restore being a value swap. With persistent collections (F2) a snapshot is a pointer and restore is `replace-container!`; without them, snapshot is deep-copy and expensive — this is why F2 is pattern-required.
 
 **Where the spec speaks.** [Implementor-Checklist §S2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#s2-snapshotrestore-mechanism).
 
@@ -219,7 +219,7 @@ From [Implementor-Checklist §State storage](https://day8.github.io/re-frame2/sp
 
 **The question.** What provides `assoc-in` / `update-in` / `get-in` over the frame's app-db?
 
-**What's at stake.** Used by handlers, the `path` standard interceptor, registered subs that read paths, and `(rf/snapshot-of path)`. Path operations are hot — choose a fast implementation.
+**What's at stake.** Used by handlers, the `path` standard interceptor, registered subs that read paths, and a path-scoped read over `(rf/app-db-value frame-id)`. Path operations are hot — choose a fast implementation.
 
 **Options.** Native `assoc-in` / `update-in` / `get-in` (CLJS, Squint); Immer `produce` / `lodash.set`-immutably (TS / JS); lens helpers over the host's immutable map (`Belt` for Melange / ReScript / Reason; F# `Map`; Monocle for Scala.js; `purescript-profunctor-lenses`; Arrow Optics for Kotlin/JS) per host.
 

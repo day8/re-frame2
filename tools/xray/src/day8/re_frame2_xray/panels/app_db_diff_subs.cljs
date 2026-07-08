@@ -107,7 +107,7 @@
     :<- [:rf.xray/observed-frame]
     :<- [:rf.xray/epoch-history]
     (fn [[target _epoch-history] _query]
-      (rf/runtime-db-value target)))
+      (:rf.db/runtime (rf/frame-state-value target))))
 
   ;; rf2-70tkv — derive the panel's epoch-id from the spine sub
   ;; `:rf.xray/focus` rather than the legacy `:rf.xray/selected-

@@ -69,57 +69,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
 
 ## Pair-tool writes
 
-State-injection surfaces that replace a frame's partitions directly, bypassing the dispatch loop. Each records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind past the injection) and emits `:rf.epoch/db-replaced` on success. All are dev-only; production builds elide them.
-
-### `replace-app-db!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replace-app-db! frame-id new-db) → boolean
-  ```
-- **Description**: Replaces the frame's `app-db` partition with `new-db`, bypassing the dispatch loop. The runtime-db partition is preserved unchanged. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
-  - `:rf.error/no-such-handler` — frame not registered
-  - `:rf.epoch/replace-during-drain`
-  - `:rf.epoch/replace-schema-mismatch` — `new-db` fails the frame's registered app-schema set
-  - `:rf.epoch/replace-history-disabled` — ring disabled at depth 0, so the synthetic undo-anchor cannot land
-
-```clojure
-;; State injection — direct app-db write (bypasses the pipeline).
-(rf/replace-app-db! :app/main {:counter 0})
-```
-
-### `reset-app-db!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reset-app-db! frame-id) → boolean
-  ```
-- **Description**: Resets the frame's `app-db` partition to `{}`, bypassing the dispatch loop, preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of a full frame reset (`destroy-frame!` + `reg-frame`). A thin wrapper over `replace-app-db!` with the empty map, sharing its synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on any failure.
-
-```clojure
-;; Clear the application slice, keeping machines / routes alive.
-(rf/reset-app-db! :app/main)
-```
-
-### `replace-runtime-db!`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (replace-runtime-db! frame-id new-runtime-db) → boolean
-  ```
-- **Description**: The runtime-db sibling of `replace-app-db!`. Replaces the frame's `runtime-db` partition (framework-owned subsystem state: machine snapshots, route slice, elision declarations, SSR metadata), bypassing the dispatch loop. The app-db partition is preserved unchanged. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
-  - `:rf.error/no-such-handler` — frame not registered
-  - `:rf.epoch/replace-during-drain`
-  - `:rf.epoch/replace-schema-mismatch` — fails the framework-owned runtime-db validator
-  - `:rf.epoch/replace-history-disabled` — ring disabled at depth 0, so the synthetic undo-anchor cannot land
-
-```clojure
-;; Inject framework-owned subsystem state (runtime-db partition only).
-(rf/replace-runtime-db! :app/main new-runtime-db)
-```
+`replace-frame-state!` is the ONE state-injection surface — it replaces a frame's partitions directly, bypassing the dispatch loop. It records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind past the injection) and emits `:rf.epoch/db-replaced` on success. Dev-only; production builds elide it.
 
 ### `replace-frame-state!`
 
@@ -128,10 +78,26 @@ State-injection surfaces that replace a frame's partitions directly, bypassing t
   ```clojure
   (replace-frame-state! frame-id new-frame-state) → boolean
   ```
-- **Description**: Replaces both of the frame's partitions atomically with `new-frame-state` (`{:rf.db/app … :rf.db/runtime …}`), bypassing the dispatch loop — the full-frame install for tool-driven replay / fixture loading. This is the explicit whole-frame surface (a db-shaped name never silently replaces runtime-db). A missing partition key installs `nil` for that partition; a full-frame replace is whole-value by contract. Returns `true` on success. Same failure modes as `replace-runtime-db!`: `:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`, `:rf.epoch/replace-schema-mismatch`, `:rf.epoch/replace-history-disabled`.
+- **Description**: The ONE frame-state write surface (rf2-t3lftq — API-shrink #3 consolidated the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` four-mutator family, which shared identical machinery differing only in which partition keys they touched, into this). `new-frame-state` is a PARTIAL frame-state map — any subset of `{:rf.db/app … :rf.db/runtime …}`: a present key replaces that partition, an ABSENT key is preserved unchanged. A db-shaped key never silently touches the other partition. Bypasses the dispatch loop. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
+  - `:rf.error/replace-frame-state-bad-keys` — the map carries no recognized partition key, or an unrecognized key (checked BEFORE frame resolution)
+  - `:rf.error/no-such-handler` — frame not registered
+  - `:rf.epoch/replace-during-drain`
+  - `:rf.epoch/replace-schema-mismatch` — a PRESENT app-db value fails the frame's registered app-schema set, or a PRESENT runtime-db value fails the framework-owned runtime-db validator
+  - `:rf.epoch/replace-history-disabled` — ring disabled at depth 0, so the synthetic undo-anchor cannot land
 
 ```clojure
-;; Full-frame install — both partitions at once.
+;; App-only state injection — direct app-db write, runtime-db preserved
+;; (the former replace-app-db!).
+(rf/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
+
+;; App-only reset to {}, keeping machines / routes alive
+;; (the former reset-app-db!).
+(rf/replace-frame-state! :app/main {:rf.db/app {}})
+
+;; Runtime-only injection — app-db untouched (the former replace-runtime-db!).
+(rf/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
+
+;; Full-frame install — both partitions atomically.
 (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0} :rf.db/runtime {}})
 ```
 

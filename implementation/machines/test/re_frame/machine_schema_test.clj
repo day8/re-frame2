@@ -90,9 +90,9 @@
       ;; Bring the machine to life with an event that doesn't violate the schema —
       ;; bootstrap settles to {:n 1} cleanly.
       (rf/dispatch-sync [:rf.machine-schema/macrostep [:noop]])
-      (let [snap-before (get-in (rf/runtime-db-value :rf/default)
+      (let [snap-before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep])
-            db-before   (rf/runtime-db-value :rf/default)
+            db-before   (:rf.db/runtime (rf/frame-state-value :rf/default))
             traces      (collect-traces!
                           #(rf/dispatch-sync [:rf.machine-schema/macrostep [:go]]))
             trace-ev    (first traces)
@@ -116,10 +116,10 @@
         (is (= :no-recovery (:recovery trace-ev))
             "trace envelope declares :no-recovery (consistent with :where :app-db)")
         ;; Rollback restores pre-handler app-db.
-        (is (= db-before (rf/runtime-db-value :rf/default))
+        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "post-rollback app-db equals pre-handler app-db")
         (is (= snap-before
-               (get-in (rf/runtime-db-value :rf/default)
+               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                        [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
@@ -153,14 +153,14 @@
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:noop]])
       ;; Spawn the child (valid :data {:n 1} → installs).
       (rf/dispatch-sync [:rf.machine-schema/spawn-macrostep-parent [:go]])
-      (is (= 1 (:n (:data (get-in (rf/runtime-db-value :rf/default)
+      (is (= 1 (:n (:data (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                   [:rf.runtime/machines :snapshots
                                    :rf.machine-schema/spawned-macrostep]))))
           "precondition: the spawned child installed with valid :data {:n 1}")
-      (let [snap-before (get-in (rf/runtime-db-value :rf/default)
+      (let [snap-before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/machines :snapshots
                                  :rf.machine-schema/spawned-macrostep])
-            db-before   (rf/runtime-db-value :rf/default)
+            db-before   (:rf.db/runtime (rf/frame-state-value :rf/default))
             traces      (collect-traces!
                           #(rf/dispatch-sync [:rf.machine-schema/spawned-macrostep [:tick]]))
             trace-ev    (first traces)
@@ -182,15 +182,15 @@
         ;; :rf/machine-type (not via machine-meta, which returns nil for a
         ;; spawned actor), so the validation runs and the rollback fires.
         (is (= snap-before
-               (get-in (rf/runtime-db-value :rf/default)
+               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                        [:rf.runtime/machines :snapshots
                         :rf.machine-schema/spawned-macrostep]))
             "the spawned actor's snapshot returns to its pre-handler value (rolled back)")
-        (is (= 1 (:n (:data (get-in (rf/runtime-db-value :rf/default)
+        (is (= 1 (:n (:data (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/machines :snapshots
                                      :rf.machine-schema/spawned-macrostep]))))
             "the violating :data {:n 0} did NOT commit — :n stays the valid 1")
-        (is (= db-before (rf/runtime-db-value :rf/default))
+        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "post-rollback runtime-db equals pre-handler runtime-db")))))
 
 ;; ---- (3) bootstrap-time validation: initial :data violates --------------
@@ -205,7 +205,7 @@
                       :schemas {:data DataSchema}
                       :states  {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/bootstrap spec)
-      (let [db-before (rf/runtime-db-value :rf/default)
+      (let [db-before (:rf.db/runtime (rf/frame-state-value :rf/default))
             traces    (collect-traces!
                         #(rf/dispatch-sync [:rf.machine-schema/bootstrap [:noop]]))
             tag       (-> traces first :tags)]
@@ -214,10 +214,10 @@
         (is (= :machine-data (:where tag)))
         (is (= {:n 0} (:value tag)))
         ;; Rollback drops the violating snapshot.
-        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots :rf.machine-schema/bootstrap]))
             "rolled back: the machine snapshot is not installed in app-db")
-        (is (= db-before (rf/runtime-db-value :rf/default))
+        (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "rolled back: app-db unchanged")))))
 
 ;; ---- (4) spawn-time validation: spawned actor's :data violates ----------
@@ -257,7 +257,7 @@
         (is (false? (:rollback? tag))
             "spawn-phase failure carries :rollback? false (nothing was committed)")
         ;; The spawned actor's snapshot was never installed.
-        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")
         ;; Atomic reject: a schema-rejected spawn registers NOTHING —
@@ -284,7 +284,7 @@
         (is (empty? traces)
             "no :where :machine-data trace for a no-schema machine")
         ;; Sanity: the action ran and updated :data.
-        (is (= 42 (get-in (rf/runtime-db-value :rf/default)
+        (is (= 42 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots :rf.machine-schema/no-schema :data :n]))
             "the no-schema machine's :data updates normally")))))
 

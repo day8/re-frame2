@@ -61,7 +61,7 @@
               "no :rf.machine.spawn/spawned trace fired for the dead-frame spawn")
           (is (empty? @dispatches)
               "no :start dispatch fired for an actor that was never installed")
-          (is (nil? (get-in (rf/runtime-db-value ghost-frame)
+          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value ghost-frame))
                             [:rf.runtime/machines :snapshots]))
               "no snapshot was installed into the dead frame"))
         (finally
@@ -92,7 +92,7 @@
             (swap! spawned-traces conj ev))))
       (try
         (rf/dispatch-sync [:rf2-g13nm2/live-parent [:start]])
-        (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+        (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :spawned
                                   :rf2-g13nm2/live-parent [:spawning]])]
           (is (some? spawned-id)

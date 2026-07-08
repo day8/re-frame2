@@ -656,7 +656,7 @@ There is no dedicated "reset" function — `reset-frame!` was retired (rf2-lxwpo
 ```
 
 - For an image-loaded frame, re-supply the SAME `:images` vector too (via `make-frame`, not bare `reg-frame`) — otherwise the recreated frame degrades to the default image generation.
-- To wipe just the `app-db` partition while keeping live runtime-db, reach for `reset-app-db!` instead.
+- To wipe just the `app-db` partition while keeping live runtime-db, reach for `(replace-frame-state! frame-id {:rf.db/app {}})` instead.
 - There is **no** `:initial-db` config key — seeding `app-db` is itself an ordinary, traceable event, `[:rf/set-db {…}]`.
 - **Not atomic** across a handler-cascade boundary (unlike the retired `reset-frame!`): `destroy-frame!` has no handler-scope guard, so calling it from inside a handler destroys the frame before the following `reg-frame` hits its own construction-in-handler guard and throws, leaving the frame destroyed-and-not-reconstructed. Frame construction/destruction are already top-level/view-only operations, so this only bites a call site that was already violating that rule.
 
@@ -1183,37 +1183,6 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
     (rf/restore-epoch! :app/main (:epoch-id target)))
   ```
 
-### `replace-app-db!`
-
-- **Kind**: function (dev-only; also `re-frame.epoch/replace-app-db!`)
-- **Signature**:
-  ```clojure
-  (replace-app-db! frame-id new-db) → boolean
-  ```
-- **Description**: Pair-tool write surface (state injection). Direct write to `app-db` — bypasses the pipeline. Records a synthetic epoch so `restore-epoch!` can rewind. Returns `true` on success.
-- **Example**:
-  ```clojure
-  (rf/replace-app-db! :app/main {:counter 0})
-  ```
-
-### `reset-app-db!`
-
-- **Kind**: function (dev-only; also `re-frame.epoch/reset-app-db!`)
-- **Signature**:
-  ```clojure
-  (reset-app-db! frame-id) → boolean
-  ```
-- **Description**: Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch loop, while preserving live runtime-db (machines / routes / elision / SSR survive). The app-db-only sibling of a full frame reset (`destroy-frame!` + `reg-frame`) — narrower in scope. Equivalent to `(replace-app-db! frame-id {})` — same synthetic-epoch recording, gating, and failure modes. Returns `true` on success, `false` on a documented failure. Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
-
-### `replace-runtime-db!`
-
-- **Kind**: function (dev-only; also `re-frame.epoch/replace-runtime-db!`)
-- **Signature**:
-  ```clojure
-  (replace-runtime-db! frame-id runtime-db) → boolean
-  ```
-- **Description**: Replace ONLY `frame-id`'s `runtime-db` partition (the framework-owned subsystem state — machine snapshots, route slice, …); app-db is untouched. Privileged runtime / Tool-Pair injection surface. Records a synthetic epoch so `restore-epoch!` can rewind. Returns `true` on success, `false` on a documented failure (unknown frame, drain in flight, runtime-db schema mismatch).
-
 ### `replace-frame-state!`
 
 - **Kind**: function (dev-only; also `re-frame.epoch/replace-frame-state!`)
@@ -1221,7 +1190,21 @@ Two surfaces stacked. The first is **dev-only**: a trace bus that emits one rich
   ```clojure
   (replace-frame-state! frame-id frame-state) → boolean
   ```
-- **Description**: Replace BOTH partitions of `frame-id` atomically with `frame-state` (`{:rf.db/app … :rf.db/runtime …}`) — the explicit full-frame install for tool-driven replay / fixture install (epoch restore, time travel, SSR hydration, frame reset). A db-shaped name never silently replaces runtime-db; this is the explicit full-frame surface. Records a synthetic epoch so `restore-epoch!` can rewind. Returns `true` on success, `false` on a documented failure.
+- **Description**: The ONE frame-state write surface (rf2-t3lftq — API-shrink #3 consolidated the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` four-mutator family into this). `frame-state` is a PARTIAL frame-state map — any subset of `{:rf.db/app … :rf.db/runtime …}`: a present key replaces that partition, an absent key is preserved unchanged. Bypasses the dispatch loop; records a synthetic epoch so `restore-epoch!` can rewind. A map carrying no recognized partition key, or an unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys` (checked before frame resolution). Returns `true` on success, `false` on a documented failure.
+- **Examples**:
+  ```clojure
+  ;; App-only state injection (the former replace-app-db!).
+  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
+
+  ;; App-only reset to {} while runtime-db survives (the former reset-app-db!).
+  (rf/replace-frame-state! :app/main {:rf.db/app {}})
+
+  ;; Runtime-only injection — app-db untouched (the former replace-runtime-db!).
+  (rf/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
+
+  ;; Full-frame install — both partitions atomically.
+  (rf/replace-frame-state! :app/main {:rf.db/app new-db :rf.db/runtime new-runtime-db})
+  ```
 
 ### `register-epoch-listener!`
 
@@ -1370,15 +1353,6 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   ;; => {:user {:id 7} :counts {:hits 3}}
   ```
 
-### `runtime-db-value`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (runtime-db-value frame-id) → runtime-db value (plain map)
-  ```
-- **Description**: Return the current `runtime-db` partition value for the named frame — the framework-owned subsystem state (the `:rf.runtime/*` children), or `nil` for an unknown / destroyed frame. The tool / privileged-runtime read of the framework partition. A fresh frame's runtime-db starts `{}`. Accepts a frame-id keyword or a live frame object.
-
 ### `frame-state-value`
 
 - **Kind**: function
@@ -1386,22 +1360,14 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   ```clojure
   (frame-state-value frame-id) → {:rf.db/app … :rf.db/runtime …}
   ```
-- **Description**: Return the coherent frame-state projection for the named frame — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an unknown / destroyed frame. The full-frame read for SSR / epoch / time-travel / Xray. A fresh frame's state is `{:rf.db/app {} :rf.db/runtime {}}`; the `:rf.db/runtime` slot equals `runtime-db-value`.
-
-### `snapshot-of`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (snapshot-of path)
-  (snapshot-of path opts)
-  ```
-- **Description**: What is at this path in `app-db` right now. Convenience over `app-db-value` + `get-in`. Frame resolution: an explicit `(:frame opts)` override wins, else the scope/hold stamp.
+- **Description**: Return the coherent frame-state projection for the named frame — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an unknown / destroyed frame. The full-frame read for SSR / epoch / time-travel / Xray. A fresh frame's state is `{:rf.db/app {} :rf.db/runtime {}}`. The runtime-db-only read (retired `runtime-db-value`, rf2-t3lftq — API-shrink #3) is `(:rf.db/runtime (frame-state-value frame-id))`.
 - **Example**:
   ```clojure
-  (rf/snapshot-of [:user :id])          ;; => 7
-  (rf/snapshot-of [:n] {:frame :left})  ;; => 11
+  (:rf.db/runtime (rf/frame-state-value :rf/default))
+  ;; => {:rf.runtime/machines {...}}
   ```
+
+> `snapshot-of` was retired by rf2-t3lftq (API-shrink #3) — an empirically zero-caller convenience over `app-db-value` + `get-in`. Use `(get-in (rf/app-db-value frame-id) path)` directly.
 
 ## Feature registration (re-exports)
 

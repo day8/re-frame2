@@ -85,7 +85,7 @@
 
 (defn- runtime-db
   ([] (runtime-db :rf/default))
-  ([frame-id] (rf/runtime-db-value frame-id)))
+  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
 
 (defn- instance
   ([instance-id] (instance :rf/default instance-id))

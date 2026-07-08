@@ -124,7 +124,7 @@
 ;; HELPERS
 ;; ============================================================================
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- feed-key []
   (state/scoped-resource-key :rf.scope/global :feed/timeline {}))

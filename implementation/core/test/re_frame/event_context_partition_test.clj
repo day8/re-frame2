@@ -100,7 +100,7 @@
             ":rf.db/runtime coeffect is present (runtime-db partition)")
         (is (= {} (:rf.db/runtime cofx))
             ":rf.db/runtime reads the real (fresh {}) runtime-db partition (rf2-adwcv6, bead 5)")
-        (is (= (rf/runtime-db-value :ctx/partitions) (:rf.db/runtime cofx))
+        (is (= (:rf.db/runtime (rf/frame-state-value :ctx/partitions)) (:rf.db/runtime cofx))
             ":rf.db/runtime coeffect equals runtime-db-value")
         (is (= :ctx/partitions (:rf.frame/id cofx))
             ":rf.frame/id is the running frame's id (runtime-context spelling)")
@@ -268,7 +268,7 @@
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
       (is (empty? (error-events recorded :rf.error/handler-exception))
           "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")
-      (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :ctx/new-runtime))
+      (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :ctx/new-runtime)))
           "the runtime-db partition committed normally"))))
 
 ;; ===========================================================================

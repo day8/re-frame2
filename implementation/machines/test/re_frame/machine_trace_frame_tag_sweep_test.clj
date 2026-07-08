@@ -147,7 +147,7 @@
           (record-traces!
             (fn []
               (rf/dispatch-sync [:ko8jb/fire [:go]])
-              (let [epoch (get-in (rf/runtime-db-value :rf/default)
+              (let [epoch (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                   [:rf.runtime/machines :snapshots :ko8jb/fire :data :rf/after-epoch [:loading]])]
                 (rf/dispatch-sync
                   [:ko8jb/fire
@@ -267,7 +267,7 @@
                      (rf/dispatch-sync [:ko8jb/parent-od [:start]])
                      ;; Drive the child to :final?, triggering parent's
                      ;; :on-done — which throws.
-                     (let [child-id (get-in (rf/runtime-db-value :rf/default)
+                     (let [child-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                             [:rf.runtime/machines :spawned :ko8jb/parent-od
                                              [:working]])]
                        (rf/dispatch-sync [child-id [:finish]]))))
@@ -328,7 +328,7 @@
             (record-traces!
               (fn []
                 (rf/dispatch-sync [:ko8jb/parent-all [:start]])
-                (let [ids (get-in (rf/runtime-db-value :rf/default)
+                (let [ids (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                   [:rf.runtime/machines :spawned :ko8jb/parent-all
                                    [:hydrating] :children])]
                   (rf/dispatch-sync [(:a ids) [:go]])

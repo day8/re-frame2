@@ -27,7 +27,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :route/article (:route-id slice))
             "the :rf/route slice carries the navigation target")
         (is (= {:id "intro"} (:params slice))
@@ -60,7 +60,7 @@
       ;;    path populates the slice via match-url + handle-url-change.
       (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark&locale=en"])
       (is (= {:theme "dark" :locale "en"}
-             (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :query]))
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :query]))
           "initial slice carries the URL's query keys")
 
       ;; 2. Navigate programmatically to :route/cart with NO query — the
@@ -157,7 +157,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :rf.route/not-found (:route-id slice))
             "unmatched URL-string target → :rf.route/not-found slice")
         (is (= {:url "/no/such/path"} (:params slice))
@@ -192,7 +192,7 @@
       (rf/register-listener! :trace ::nav-nf-warn (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
       (rf/unregister-listener! :trace ::nav-nf-warn)
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :rf.route/not-found (:route-id slice))
             "slice commits to :rf.route/not-found even with no such route
              registered — consistent with the URL-driven path")
@@ -235,7 +235,7 @@
 
       ;; ---- PROGRAMMATIC miss: pushes the requested url, not /404 ----
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :rf.route/not-found (:route-id slice))
             "programmatic miss renders the not-found view (slice id)")
         (is (= {:url "/no/such/path"} (:params slice))
@@ -250,7 +250,7 @@
       ;; ---- URL-DRIVEN miss: unchanged — emits no push at all ----
       (reset! pushed [])
       (rf/dispatch-sync [:rf.route/transitioned "/another/miss"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :rf.route/not-found (:route-id slice))
             "URL-driven miss also renders the not-found view")
         (is (= {:url "/another/miss"} (:params slice))
@@ -273,7 +273,7 @@
                    {:platforms #{:server :client}}
                    (fn [_ _] nil))
         (rf/dispatch-sync [:rf.route/transitioned "/articles/zoo"])
-        (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+        (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
           (is (= :rf.route/not-found (:route-id slice))
               "validation failure routes to :rf.route/not-found")
           (is (= "/articles/zoo" (:url (:params slice)))
@@ -296,7 +296,7 @@
       (rf/unregister-listener! :trace ::external-url)
       (is (empty? @pushed)
           "external URL is classified before :rf.nav/push-url")
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
+      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "external URL does not become an app not-found route")
       (is (some #(= :rf.route/external-url-requested (:operation %)) @traces)
           "external classification is observable in the trace stream"))))
@@ -321,7 +321,7 @@
                          {:page "routing"}
                          {:fragment "scroll-restoration"}])
       (rf/unregister-listener! :trace ::nav-token)
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= "scroll-restoration" (:fragment slice))
             ":fragment is assoc'd into the slice (pre-fix: missing)")
         (is (some? (:nav-token slice))
@@ -339,7 +339,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/navigate :route/home])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (nil? (:fragment slice))
           ":fragment is nil when no opt supplied")
       (is (some? (:nav-token slice))
@@ -362,7 +362,7 @@
     ;; URL with a fragment so we can assert :fragment is populated.
     (rf/dispatch-sync [:rf.route/handle-url-change
                        "/docs/routing#scroll-restoration"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :route/docs (:route-id slice))
           "slice id is the matched route")
       (is (= {:page "routing"} (:params slice))
@@ -412,11 +412,11 @@
                (fn [_ _] nil))
     ;; Land on home first so we have a previous slice to displace.
     (rf/dispatch-sync [:rf.route/transitioned "/"])
-    (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
+    (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
         "initial nav landed on home")
     ;; Navigate to a URL that matches no registered route.
     (rf/dispatch-sync [:rf.route/transitioned "/this/does/not/exist"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :rf.route/not-found (:route-id slice))
           "unmatched URL → slice id becomes :rf.route/not-found")
       (is (= {:url "/this/does/not/exist"} (:params slice))
@@ -438,7 +438,7 @@
                              (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:rf.route/transitioned "/somewhere/unknown"])
       (rf/unregister-listener! :trace ::no-not-found)
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :rf.route/not-found (:route-id slice))
             "slice still rewrites to :rf.route/not-found"))
       (is (some (fn [ev]
@@ -468,25 +468,25 @@
                (fn [_ _] nil))
     ;; Path: a bare `%` in a captured segment.
     (rf/dispatch-sync [:rf.route/transitioned "/articles/%"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :rf.route/not-found (:route-id slice))
           "malformed path → :rf.route/not-found")
       (is (= {:url "/articles/%" :reason :malformed-url} (:params slice))
           "params carries the URL AND `:reason :malformed-url`"))
     ;; Query value.
     (rf/dispatch-sync [:rf.route/transitioned "/search?x=%"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :rf.route/not-found (:route-id slice)) "malformed query value → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))
           "the malformed-URL reason is on the slice"))
     ;; Query key.
     (rf/dispatch-sync [:rf.route/transitioned "/search?%=v"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :rf.route/not-found (:route-id slice)) "malformed query key → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))
     ;; Fragment.
     (rf/dispatch-sync [:rf.route/transitioned "/search#%"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :rf.route/not-found (:route-id slice)) "malformed fragment → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))))
 
@@ -640,7 +640,7 @@
           ":on-match handler observed :transition :loading mid-drain"))
     ;; Route without :on-match → :idle.
     (rf/dispatch-sync [:rf.route/transitioned "/"])
-    (is (= :idle (get-in (rf/runtime-db-value :rf/default)
+    (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :current :transition]))
         "route with no :on-match — transition stays :idle")))
 
@@ -672,7 +672,7 @@
       (is (= [[:a :loading] [:b :loading]] @observed)
           "both :on-match events fired in declaration order; both observed :loading")
       (let [db (rf/app-db-value :rf/default)
-            rt (rf/runtime-db-value :rf/default)]
+            rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (true? (:load/a-done? db)) "first :on-match handler ran")
         (is (true? (:load/b-done? db)) "second :on-match handler ran")
         (is (= :idle (get-in rt [:rf.runtime/routing :current :transition]))
@@ -751,7 +751,7 @@
       ;; Land on /docs/routing via popstate (handle-url-change). This is
       ;; a full nav: allocates nav-1 and fires :on-match once.
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= :route/docs (:route-id slice)) "landed on /docs/routing")
         (is (= "nav-1" (:nav-token slice)) "first nav allocated nav-1")
         (is (= 1 @on-match-calls) ":on-match fired once on the full nav"))
@@ -763,7 +763,7 @@
         ;; site: must short-circuit, NOT full-rewrite.
         (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing#section-2"])
         (rf/unregister-listener! :trace ::popstate-frag)
-        (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+        (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
           (is (= "section-2" (:fragment slice))
               "fragment-only change updates :fragment")
           (is (= "nav-1" (:nav-token slice))
@@ -812,7 +812,7 @@
                  (fn [_ _] nil))
       ;; First nav: full rewrite, loader fires once, nav-1 allocated.
       (rf/dispatch-sync [:rf.route/transitioned "/cart"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
         (is (= "nav-1" (:nav-token slice)) "first nav allocates nav-1")
         (is (= 1 @on-match-calls) ":on-match fired once on the full nav"))
       (let [traces (atom [])]
@@ -820,7 +820,7 @@
         ;; Re-navigate to the SAME url — rule-3 no-op.
         (rf/dispatch-sync [:rf.route/transitioned "/cart"])
         (rf/unregister-listener! :trace ::identical)
-        (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+        (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
           (is (= "nav-1" (:nav-token slice))
               "rule 3: no NEW nav-token on identical re-navigation")
           (is (= 1 @on-match-calls)
@@ -842,7 +842,7 @@
       (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
       (is (= 2 @on-match-calls)
           "same route-id, different :params re-fires :on-match (A then B)")
-      (is (= "nav-2" (:nav-token (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+      (is (= "nav-2" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
           "a changed-params nav DOES allocate a fresh nav-token"))))
 
 (deftest identical-programmatic-renav-does-not-refire-on-match
@@ -858,12 +858,12 @@
                  (fn [_ _] (swap! pushed inc)))
       (rf/dispatch-sync [:rf.route/navigate :route/cart])
       (is (= 1 @on-match-calls) ":on-match fired once on the first navigate")
-      (is (= "nav-1" (:nav-token (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))))
+      (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))))
       ;; Duplicate navigate to the same target — rule-3 no-op.
       (rf/dispatch-sync [:rf.route/navigate :route/cart])
       (is (= 1 @on-match-calls)
           "rule 3: :on-match did NOT re-fire on duplicate navigate")
-      (is (= "nav-1" (:nav-token (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+      (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
           "rule 3: no new nav-token on duplicate navigate")
       (is (= 1 @pushed)
           "rule 3: no second :rf.nav/push-url on the no-op navigate"))))
@@ -896,13 +896,13 @@
         ;; untouched by the rejected navigation.
         (rf/dispatch-sync [:rf.route/navigate :route/article {:id "aardvark"}])
         (reset! pushed [])
-        (let [before (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])
+        (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
               traces (atom [])]
           (rf/register-listener! :trace ::reject (fn [ev] (swap! traces conj ev)))
           ;; Caller bug: :id "zoo" violates the :params schema.
           (rf/dispatch-sync [:rf.route/navigate :route/article {:id "zoo"}])
           (rf/unregister-listener! :trace ::reject)
-          (let [after (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+          (let [after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
             (is (= before after)
                 "rejected navigation leaves the :rf/route slice UNCHANGED")
             (is (= :route/article (:route-id after))
@@ -929,7 +929,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
     (is (= "scroll-restoration"
-           (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :fragment]))
+           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :fragment]))
         ":fragment from URL is written to slice")))
 
 ;; ============================================================================
@@ -966,7 +966,7 @@
           (is (empty? @pushed)
               (str "fail-closed: ambiguous/absolute URL " (pr-str hostile)
                    " classed external, not pushed"))
-          (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
+          (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                      [:rf.runtime/routing :current :route-id]))
               (str "fail-closed: " (pr-str hostile)
                    " did not rewrite the active route"))))
@@ -999,7 +999,7 @@
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on a known route first so we can prove the slice does not move.
       (rf/dispatch-sync [:rf.route/transitioned "/cart"])
-      (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           "preconditon: active route is :route/cart")
       (testing "every rf2-3bv8o bypass vector fails closed through navigate {:url}"
@@ -1017,7 +1017,7 @@
           (is (empty? @pushed)
               (str "fail-closed: navigate {:url " (pr-str hostile)
                    "} classed external, not pushed"))
-          (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
+          (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                      [:rf.runtime/routing :current :route-id]))
               (str "fail-closed: navigate {:url " (pr-str hostile)
                    "} did not rewrite the active route"))))
@@ -1056,14 +1056,14 @@
 
       ;; URL-driven baseline: navigate to /docs/routing from the URL.
       (rf/dispatch-sync [:rf.route/transitioned "/docs/routing"])
-      (let [url-driven-frag (get-in (rf/runtime-db-value :rf/default)
+      (let [url-driven-frag (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :fragment])]
         (is (nil? url-driven-frag) "URL-driven nav to /docs/routing yields :fragment nil")
 
         ;; Now reach the SAME URL programmatically with {:fragment ""}.
         (reset! pushed [])
         (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "guide"} {:fragment ""}])
-        (let [slice-frag (get-in (rf/runtime-db-value :rf/default)
+        (let [slice-frag (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :fragment])]
           (is (= ["/docs/guide"] @pushed)
               "the pushed URL carries NO trailing # for an empty-string fragment")
@@ -1074,7 +1074,7 @@
         (reset! pushed [])
         (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "api"} {:fragment "section"}])
         (is (= ["/docs/api#section"] @pushed) "non-empty fragment appends #section")
-        (is (= "section" (get-in (rf/runtime-db-value :rf/default)
+        (is (= "section" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :fragment]))
             "the slice carries the non-empty fragment")))))
 
@@ -1096,14 +1096,14 @@
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (let [before (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])
+      (let [before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
             traces (atom [])]
         (rf/register-listener! :trace ::arity (fn [ev] (swap! traces conj ev)))
         ;; The classic swap: {:replace? true} meant for the opts (3rd)
         ;; slot, supplied in the params (2nd) slot.
         (rf/dispatch-sync [:rf.route/navigate :route/cart {:replace? true}])
         (rf/unregister-listener! :trace ::arity)
-        (is (= before (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+        (is (= before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
             "the misuse is rejected — the :rf/route slice is UNCHANGED")
         (is (empty? @pushed)
             "no URL is pushed for a rejected arity-misuse navigation")
@@ -1131,12 +1131,12 @@
                  (fn [_ url] (swap! replaced conj url)))
       ;; [target] — no path-params, no opts.
       (rf/dispatch-sync [:rf.route/navigate :route/home])
-      (is (= :route/home (:route-id (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/home (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                             [:rf.runtime/routing :current])))
           "[target] arity navigates")
       ;; [target params] — params 2nd, opts absent.
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
-      (is (= {:id "intro"} (:params (get-in (rf/runtime-db-value :rf/default)
+      (is (= {:id "intro"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                             [:rf.runtime/routing :current])))
           "[target params] arity navigates with path-params")
       ;; [target params opts] — opts in the THIRD slot (:replace? true →
@@ -1144,7 +1144,7 @@
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "two"} {:replace? true}])
       (is (= "/articles/two" (last @replaced))
           "[target params opts] arity navigates; :replace? opt honoured in the 3rd slot")
-      (is (= {:id "two"} (:params (get-in (rf/runtime-db-value :rf/default)
+      (is (= {:id "two"} (:params (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                           [:rf.runtime/routing :current])))
           "the 3-arity path-params landed in the slice, distinct from opts"))))
 
@@ -1158,7 +1158,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate :route/anchor {:fragment "intro"}])
-      (is (= :route/anchor (:route-id (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/anchor (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                               [:rf.runtime/routing :current])))
           "a declared :fragment path-param navigates normally (no false reject)")
       (is (= "/anchor/intro" (last @pushed))
@@ -1326,7 +1326,7 @@
 (defn- nav-slice
   "The current route slice for the default frame."
   []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
 (deftest routing-self-target-stays-on-current-route
   (testing ":rf.route/self resolves to the CURRENT route's id + path-params"

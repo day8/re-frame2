@@ -344,7 +344,7 @@
             still work (marks/scrub touch only the egress copy)"
     (block-fixture!)
     (rf/dispatch-sync [:rf/url-requested {:url "/cart?coupon=SECRET100"}])
-    (let [pending (get-in (rf/runtime-db-value :rf/default)
+    (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :pending-navigation])]
       (is (some? pending) "the block wrote the pending-nav slot")
       ;; The in-process durable value is RAW (not redacted) — resume needs it.
@@ -353,9 +353,9 @@
       (is (vector? (:requested-by-event pending))
           "the durable :requested-by-event is the raw original event vector"))
     ;; And continue actually completes the navigation (resume works).
-    (rf/dispatch-sync [:rf.route/continue (-> (rf/runtime-db-value :rf/default)
+    (rf/dispatch-sync [:rf.route/continue (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                                               (get-in [:rf.runtime/routing :pending-navigation :id]))])
-    (is (nil? (get-in (rf/runtime-db-value :rf/default)
+    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :pending-navigation]))
         "continue cleared the pending slot (resume completed from the raw value)")))
 
@@ -399,7 +399,7 @@
   "The raw current route slice from :rf/default's runtime-db — exactly what the
   `:rf/route` sub returns in-process."
   []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
 ;; ---- the seed table (the projector's data) --------------------------------
 

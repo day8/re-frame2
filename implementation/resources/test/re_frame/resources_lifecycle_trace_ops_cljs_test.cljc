@@ -101,7 +101,7 @@
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- entry [scoped-key]
-  (get-in (rf/runtime-db-value :rf/default) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
 
 ;; ===========================================================================
 ;; 1. :rf.resource/registered — first-time-only, frame-agnostic
@@ -332,7 +332,7 @@
           (is (not= {:stale "data"} (:data e)) "stale data was NOT written"))
         ;; (3) the ledger row settles terminal :suppressed.
         (is (= :suppressed (:status (work-ledger/get-record
-                                      (rf/runtime-db-value :rf/default) wid1)))
+                                      (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
             "the work row settled terminal :suppressed")))))
 
 (deftest cache-hit-emitted-on-fresh-ensure

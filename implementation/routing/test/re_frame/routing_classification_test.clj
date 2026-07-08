@@ -41,7 +41,7 @@
   "Read the per-frame elision registry sub-tree from `:rf/default`'s
   runtime-db."
   []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/elision]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/elision]))
 
 (defn- route-sensitive-paths
   "The set of runtime paths classified `:sensitive` `:source :route` in the
@@ -141,7 +141,7 @@
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/oauth")
     (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123"])
-    (let [rdb     (rf/runtime-db-value :rf/default)
+    (let [rdb     (:rf.db/runtime (rf/frame-state-value :rf/default))
           ;; egress-project the whole runtime-db against :rf/default's
           ;; classification — the route-sourced entry redacts the slice's
           ;; :query :token while leaving the rest of the slice intact.
@@ -153,7 +153,7 @@
           "non-classified slice fields ride verbatim"))
     (testing "the handler / sub still sees the RAW value in-process"
       (is (= "secret123"
-             (get-in (rf/runtime-db-value :rf/default)
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      [:rf.runtime/routing :current :query :token]))
           "classification is read ONLY at egress — app code sees real values"))))
 
@@ -199,7 +199,7 @@
     (is (seq (route-sensitive-paths)))
     (rf/destroy-frame! :rf/default)
     ;; the frame's runtime-db (and its [:rf.runtime/elision] slot) is gone with it
-    (is (nil? (rf/runtime-db-value :rf/default))
+    (is (nil? (:rf.db/runtime (rf/frame-state-value :rf/default)))
         "the destroyed frame carries no runtime-db, so no classification survives")))
 
 ;; ===========================================================================
@@ -260,7 +260,7 @@
     ;; The egress projection is where nested-axis suppression MUST win. Place a
     ;; nested oversized + secret value at the slice query path directly — the
     ;; classification paths are what matter at egress.
-    (let [rdb     (-> (rf/runtime-db-value :rf/default)
+    (let [rdb     (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                       (assoc-in [:rf.runtime/routing :current :query :payload]
                                 {:secret "topsecret-bearer-token-value"
                                  :public "ok"}))
@@ -298,7 +298,7 @@
                   {:large [[:params :payload]]}
                   "/upload/:payload")
     (rf/dispatch-sync [:rf.route/transitioned "/upload/big-blob-value"])
-    (let [rdb     (rf/runtime-db-value :rf/default)
+    (let [rdb     (:rf.db/runtime (rf/frame-state-value :rf/default))
           elided  (elision/elide-wire-value rdb {:frame :rf/default})
           slice   (get-in elided [:rf.runtime/routing :current])
           payload (get-in slice [:params :payload])]
@@ -316,7 +316,7 @@
           "non-classified slice fields (the route id) ride verbatim"))
     (testing "the handler / sub still sees the RAW value in-process"
       (is (= "big-blob-value"
-             (get-in (rf/runtime-db-value :rf/default)
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      [:rf.runtime/routing :current :params :payload]))
           "classification is read ONLY at egress — app code sees real values"))))
 
@@ -332,7 +332,7 @@
   "The set of runtime paths classified :sensitive :source :route in
   `frame-id`'s elision registry."
   [frame-id]
-  (->> (get-in (rf/runtime-db-value frame-id)
+  (->> (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
                [:rf.runtime/elision :sensitive-declarations])
        (filter (fn [[_ decl]] (= :route (:source decl))))
        (map key)
@@ -358,10 +358,10 @@
            (route-sensitive-paths-for :frame/b))
         "frame B's registry carries route B's classification ONLY")
     (testing "each frame's egress redacts using its OWN classification, not the sibling's"
-      (let [a-rdb (-> (rf/runtime-db-value :rf/default)
+      (let [a-rdb (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                       (assoc-in [:rf.runtime/routing :current :query]
                                 {:a-secret "AAA" :b-secret "BBB"}))
-            b-rdb (-> (rf/runtime-db-value :frame/b)
+            b-rdb (-> (:rf.db/runtime (rf/frame-state-value :frame/b))
                       (assoc-in [:rf.runtime/routing :current :query]
                                 {:a-secret "AAA" :b-secret "BBB"}))
             a-q   (get-in (elision/elide-wire-value a-rdb {:frame :rf/default})
@@ -497,7 +497,7 @@
         "the string-segment path lowers verbatim (string key, not keyword)")
     ;; …but the runtime slice keys the value under the KEYWORD :token, so at
     ;; egress the classification path does not match → the value ships RAW.
-    (let [rdb    (rf/runtime-db-value :rf/default)
+    (let [rdb    (:rf.db/runtime (rf/frame-state-value :rf/default))
           elided (elision/elide-wire-value rdb {:frame :rf/default})
           slice  (get-in elided [:rf.runtime/routing :current])]
       (is (= "secret123" (get-in slice [:query :token]))
@@ -510,7 +510,7 @@
                   {:sensitive [[:query :token]] :query [:map [:token :string]]}
                   "/kwmatch")
     (rf/dispatch-sync [:rf.route/transitioned "/kwmatch?token=secret123"])
-    (let [rdb    (rf/runtime-db-value :rf/default)
+    (let [rdb    (:rf.db/runtime (rf/frame-state-value :rf/default))
           elided (elision/elide-wire-value rdb {:frame :rf/default})
           slice  (get-in elided [:rf.runtime/routing :current])]
       (is (= sentinel (get-in slice [:query :token]))
@@ -625,7 +625,7 @@
                  :query     [:map [:token :string] [:payload :string]]}
                 "/oauth")
   (rf/dispatch-sync [:rf.route/transitioned "/oauth?token=secret123&payload=big"])
-  (rf/runtime-db-value :rf/default))
+  (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (deftest sensitive-route-redacts-under-ssr-hydration-profile
   (testing "rf2-v0k2mq: a route-declared :sensitive query value redacts under the
@@ -676,7 +676,7 @@
           "only the durable :current slice ships")))
   (testing "rf2-ugoxyv: the in-process slice still carries the RAW value"
     (is (= "secret123"
-           (get-in (rf/runtime-db-value :rf/default)
+           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                    [:rf.runtime/routing :current :query :token]))
         "classification is read ONLY at egress — app code sees the real value")))
 
@@ -686,7 +686,7 @@
             blanket scrub) — the negative control"
     (rf/reg-route :route/plain {:query [:map [:q :string]]} "/plain")
     (rf/dispatch-sync [:rf.route/transitioned "/plain?q=visible"])
-    (let [slice (payload-policy/project-runtime-db (rf/runtime-db-value :rf/default))
+    (let [slice (payload-policy/project-runtime-db (:rf.db/runtime (rf/frame-state-value :rf/default)))
           route (get-in slice [:rf.runtime/routing :current])]
       (is (= "visible" (get-in route [:query :q]))
           "an unclassified query value rides verbatim through the SSR projection"))))

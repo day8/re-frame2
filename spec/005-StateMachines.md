@@ -134,7 +134,7 @@ For the registration `(rf/reg-event :drawer/editor (rf/make-machine-handler {...
 {:rf.runtime/machines {:snapshots {:drawer/editor {:state :idle :data {:circle-id nil ...}}}}}
 ```
 
-> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/subscribe [:rf/machine :drawer/editor])` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or bring the snapshot alive ahead of any user event with the eager `[:machine-id [:rf.machine/start]]` kick, per [§When creation happens — eager start vs lazy first event](#when-creation-happens--eager-start-vs-lazy-first-event), if appearance-without-event is required).
+> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/subscribe [:rf/machine :drawer/editor])` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or bring the snapshot alive ahead of any user event with the eager `[:machine-id [:rf.machine/start]]` kick, per [§When creation happens — eager start vs lazy first event](#when-creation-happens--eager-start-vs-lazy-first-event), if appearance-without-event is required).
 
 For a spawned actor whose gensym'd id is `:request/protocol#42`:
 
@@ -148,7 +148,7 @@ Why the locked path — the load-bearing reason is [Goal 2 — Frame state rever
 
 1. **Encapsulation.** A machine's snapshot is its private state, in the framework-owned runtime-db; app-db is the rest of the app. The partition keeps the boundary visible at a glance and makes app-db a pure application contract.
 2. **No path collisions.** Two features that both want a `[:foo :flow]` machine cannot accidentally share a snapshot location. Ids are already unique within a frame; reusing them as the in-runtime-db key inherits that uniqueness for free.
-3. **Tooling.** `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
+3. **Tooling.** `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots])` enumerates every live machine snapshot in one read. Pair tools, 10x, and conformance harnesses use this directly.
 4. **Per-frame isolation is automatic.** Each frame has its own runtime-db, and thus its own `[:rf.runtime/machines :snapshots]` map. The same machine id can exist in multiple frames; their snapshots are isolated by virtue of living in different frames' runtime-dbs (per [002 §Frames](002-Frames.md)). Inside one frame, the id is unique.
 5. **AI-amenability.** "Where is the snapshot?" has one answer at all times. AIs do not need to consult per-machine metadata to find state — and they find it in runtime-db, not interleaved with app data.
 
@@ -3881,7 +3881,7 @@ The framework therefore ships two thin lookup fns — **derived views over the e
 ;; A spawned actor carries no per-instance registrar entry (its liveness
 ;; is its snapshot; per §Liveness is derived from runtime-db), so it does not
 ;; appear here. Enumerate live instances from the snapshots map:
-;;   (keys (get-in (rf/runtime-db-value frame-id)
+;;   (keys (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
 ;;                 [:rf.runtime/machines :snapshots]))
 
 (rf/machine-meta :drawer/editor)
@@ -3923,7 +3923,7 @@ User-facing call sites:
 
 ;; Live spawned INSTANCES — read the snapshots map (their liveness is
 ;; their snapshot, per §Liveness is derived from runtime-db):
-(keys (get-in (rf/runtime-db-value :rf/default)
+(keys (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
               [:rf.runtime/machines :snapshots]))
 ;; → (:auth.login/flow :request/protocol#42 :request/protocol#43 ...)
 ```

@@ -38,9 +38,7 @@ The `reg-event` metadata-map is the one **superset** middle slot — reflection 
 | `rf/capture-frame` | `()` / `(frame-id)` → `{:frame :dispatch :dispatch-sync :subscribe}` — the one public carry primitive; frame api captured at creation, survives async |
 | `rf/current-frame-id` | `()` — active frame id; raises `:rf.error/no-frame-context` outside any frame scope |
 | `rf/app-db-value` | `(frame-id)` — value-form **app-db** partition read (plain map, no deref) |
-| `rf/runtime-db-value` | `(frame-id)` — value-form **runtime-db** partition read (framework state; tools / privileged runtime) |
-| `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools) |
-| `rf/snapshot-of` | `(path)` / `(path opts)` — `get-in` over the active frame's app-db |
+| `rf/frame-state-value` | `(frame-id)` → `{:rf.db/app … :rf.db/runtime …}` — the whole frame (SSR / epoch / tools); the runtime-db-only read is `(:rf.db/runtime (rf/frame-state-value frame-id))` |
 | `rf/make-frame` / `rf/destroy-frame!` | low-level frame lifecycle (a full reset composes `destroy-frame!` + re-`reg-frame`/`make-frame` with the same config — no dedicated verb; clears BOTH partitions) |
 
 ## Machines
@@ -159,10 +157,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
 | `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
-| `rf/replace-app-db!` | `(frame-id app-db)` → bool — app-db-only state injection (dev/pair-tool) |
-| `rf/reset-app-db!` | `(frame-id)` → bool — app-db → {}, runtime-db preserved |
-| `rf/replace-runtime-db!` | `(frame-id runtime-db)` → bool — runtime-db-only write (privileged) |
-| `rf/replace-frame-state!` | `(frame-id frame-state)` → bool — replace BOTH partitions atomically (full-frame install) |
+| `rf/replace-frame-state!` | `(frame-id frame-state)` → bool — the ONE frame-state write surface; `frame-state` is a PARTIAL map (any subset of `{:rf.db/app … :rf.db/runtime …}`) — a present key replaces that partition, an absent key is preserved. App-db-only injection: `{:rf.db/app v}`; app-db reset: `{:rf.db/app {}}`; runtime-db-only write: `{:rf.db/runtime v}`; full-frame install: both keys. A map with no recognized key, or an unrecognized key, is rejected |
 
 ## Interceptors, boot, introspection
 

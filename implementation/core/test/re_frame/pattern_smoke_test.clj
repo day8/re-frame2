@@ -139,12 +139,12 @@
     ;; :initial-events kick the boot machine; subsequent dispatched lifecycle
     ;; events drive the documented progression to :ready.
     (let [f (frame/make-anon-frame-record! {:initial-events [[:app/boot [:configured {:url "/api"}]]]})]
-      (is (= :loading (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :state]))
+      (is (= :loading (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :state]))
           ":initial-events transitioned :configuring → :loading")
       (rf/dispatch-sync [:app/boot [:loaded]] {:frame f})
-      (is (= :ready (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :state]))
+      (is (= :ready (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :state]))
           "lifecycle events drove machine to :ready")
-      (is (= {:url "/api"} (get-in (rf/runtime-db-value f) [:rf.runtime/machines :snapshots :app/boot :data :config]))))))
+      (is (= {:url "/api"} (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :data :config]))))))
 
 ;; ---- Pattern-RemoteData ---------------------------------------------------
 

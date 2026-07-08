@@ -168,7 +168,7 @@
       (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
       ;; LIVE re-mint (the hole) — the slice gets nav-6, NOT the recorded nav-1.
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
-      (is (= "nav-6" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-6" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "the re-mint wrote nav-6 to the slice (NOT the recorded nav-1)")
       ;; The recorded async continuation carries the ORIGINAL token \"nav-1\".
@@ -202,7 +202,7 @@
                       {:rf.cofx {:rf.route/nav-allocation         {:token "nav-1" :counter 1}
                                  :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
                        :rf.cofx/mint-policy :strict})
-    (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "strict replay re-presents the recorded nav-1 (NOT a re-minted nav-6)")
     ;; The recorded continuation carrying nav-1 now MATCHES current → commits.
@@ -248,7 +248,7 @@
         "the commit fx advanced the host high-water to the recorded :counter (9) via max")
     ;; A subsequent LIVE navigation mints strictly past the re-established mark.
     (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
-    (is (= "nav-10" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-10" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                             [:rf.runtime/routing :current :nav-token]))
         "the next live token is nav-10 — monotone past the replayed high-water, no recycle")))
 
@@ -267,7 +267,7 @@
     (rf/dispatch-sync [:rf.route/transitioned "/a"])
     (rf/dispatch-sync [:rf.route/transitioned "/b"])
     (rf/dispatch-sync [:rf.route/transitioned "/c"])
-    (is (= "nav-3" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "three live navigations mint nav-1 → nav-2 → nav-3 (monotone)")
     ;; A clean commit (no block) leaves the pending-nav counter untouched — the
@@ -340,7 +340,7 @@
           "the error names the failing allocation cofx")
       ;; The commit handler never ran: no :nav-token (let alone a nil one) was
       ;; folded into the durable route slice.
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current :nav-token]))
           "no nil nav-token was folded into the durable route slice"))))
 
@@ -352,6 +352,6 @@
     ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"
     ;; :counter 1}`) and commits cleanly — no cofx-value-invalid throw.
     (rf/dispatch-sync [:rf.route/transitioned "/a"])
-    (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "the live generator's well-formed allocation passes the schema and commits")))

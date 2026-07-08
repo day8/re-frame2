@@ -274,30 +274,37 @@
         (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
         (is (= :rf/default @observed-current-frame))))))
 
-;; ---- snapshot-of (rf2-vvsh) ----------------------------------------------
+;; ---- snapshot-of RETIRED (rf2-t3lftq — API-shrink #3) ---------------------
+;;
+;; `snapshot-of` (an empirically zero-caller convenience over
+;; `(get-in (rf/app-db-value frame-id) path)`) was deleted from the facade —
+;; pre-alpha, no back-compat alias. The path-scoped-read + explicit-frame
+;; contract it used to pin is covered directly by `app-db-value` reads
+;; elsewhere in this suite (`(get-in (rf/app-db-value frame-id) path)`).
 
-(deftest snapshot-of-reads-default-frame-app-db
-  (testing "snapshot-of returns the value at a path in the active frame's app-db"
+(deftest app-db-value-path-scoped-read-with-explicit-frame
+  (testing "(get-in (rf/app-db-value frame-id) path) is the retained
+            path-scoped read — the replacement for the retired
+            snapshot-of convenience"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:id 7 :name "ada"}
                                       :counts {:hits 3}}}))
     (rf/dispatch-sync [:seed])
-    (is (= 7        (rf/snapshot-of [:user :id]))
-        "single-arg form reads the active frame (defaults to :rf/default)")
-    (is (= "ada"    (rf/snapshot-of [:user :name])))
-    (is (= 3        (rf/snapshot-of [:counts :hits])))
-    (is (= {:hits 3} (rf/snapshot-of [:counts]))
+    (is (= 7        (get-in (rf/app-db-value :rf/default) [:user :id])))
+    (is (= "ada"    (get-in (rf/app-db-value :rf/default) [:user :name])))
+    (is (= 3        (get-in (rf/app-db-value :rf/default) [:counts :hits])))
+    (is (= {:hits 3} (get-in (rf/app-db-value :rf/default) [:counts]))
         "intermediate map paths are returned as-is")
-    (is (nil? (rf/snapshot-of [:does-not-exist]))
+    (is (nil? (get-in (rf/app-db-value :rf/default) [:does-not-exist]))
         "missing paths return nil"))
-  (testing "snapshot-of accepts {:frame frame-id} in opts"
+  (testing "reads against an explicit frame-id"
     (rf/reg-frame :left  {:doc "left"})
     (rf/reg-frame :right {:doc "right"})
     (rf/reg-event :seed-n (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed-n 11] {:frame :left})
     (rf/dispatch-sync [:seed-n 99] {:frame :right})
-    (is (= 11 (rf/snapshot-of [:n] {:frame :left})))
-    (is (= 99 (rf/snapshot-of [:n] {:frame :right})))
-    (is (nil? (rf/snapshot-of [:n] {:frame :nonexistent}))
+    (is (= 11 (get-in (rf/app-db-value :left) [:n])))
+    (is (= 99 (get-in (rf/app-db-value :right) [:n])))
+    (is (nil? (get-in (rf/app-db-value :nonexistent) [:n]))
         "missing frame yields nil rather than throwing")))
 
 ;; ---- app-schemas (rf2-vvsh) ----------------------------------------------
@@ -555,7 +562,7 @@
       (rf/dispatch-sync [:rf/hydrate payload])
       ;; Hydrate stashed the metadata.
       (is (= "server-hash-X"
-             (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/ssr :hydration :server-hash])))
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/ssr :hydration :server-hash])))
       ;; Now simulate the client render producing a different hash.
       (rf/register-listener! :trace ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
@@ -662,8 +669,8 @@
           ;; the :flow machine's snapshot at [:rf.runtime/machines :snapshots :flow]; each
           ;; copy's counter advances independently. Read the counter
           ;; from each frame's snapshot directly.
-          (let [snap-left  (get-in (rf/runtime-db-value :left) [:rf.runtime/machines :snapshots :flow])
-                snap-right (get-in (rf/runtime-db-value :right) [:rf.runtime/machines :snapshots :flow])]
+          (let [snap-left  (get-in (:rf.db/runtime (rf/frame-state-value :left)) [:rf.runtime/machines :snapshots :flow])
+                snap-right (get-in (:rf.db/runtime (rf/frame-state-value :right)) [:rf.runtime/machines :snapshots :flow])]
             (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
                 "left frame's :flow snapshot counts one :worker spawn")
             (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
@@ -807,7 +814,7 @@
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-      (let [rt (rf/runtime-db-value f)]
+      (let [rt (:rf.db/runtime (rf/frame-state-value f))]
         ;; Per rf2-gr8q the snapshot carries `:rf/spawn-counter` seeded
         ;; by `synthesise-initial-snapshot`. This machine never spawns,
         ;; so the slot stays empty (`{}`).

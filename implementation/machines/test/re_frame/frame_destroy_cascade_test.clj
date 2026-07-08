@@ -148,7 +148,7 @@
       (rf/reg-machine :si/boot parent)
       (rf/dispatch-sync [:si/boot [:bind]] {:frame :si/auth})
       ;; The reverse index is bound before destroy.
-      (let [db (rf/runtime-db-value :si/auth)]
+      (let [db (:rf.db/runtime (rf/frame-state-value :si/auth))]
         (is (= :si/child#1 (get-in db [:rf.runtime/machines :system-ids :session/primary]))
             "system-id was bound to the spawned actor before destroy"))
       (rf/destroy-frame! :si/auth)
@@ -267,10 +267,10 @@
       ;; liveness IS its snapshot's presence in the frame's (revertible)
       ;; app-db. Cross-frame isolation is therefore asserted on the
       ;; snapshots, not the registrar.
-      (is (some? (get-in (rf/runtime-db-value :iso/frame-a)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-a))
                          [:rf.runtime/machines :snapshots :iso/child-a#1]))
           "frame A's spawned actor is live (snapshot present) before destroy")
-      (is (some? (get-in (rf/runtime-db-value :iso/frame-b)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-b))
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor is live (snapshot present) before destroy")
       ;; Spawned actors never register a per-instance handler.
@@ -285,7 +285,7 @@
       (is (some? (registrar/lookup :event :iso/child-b)
                  )
           "frame B's TYPE machine stays globally registered after A's destroy")
-      (is (some? (get-in (rf/runtime-db-value :iso/frame-b)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-b))
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor stays alive (snapshot present) after A's destroy")
       (is (= [] (spawn-order/frame-order :iso/frame-a))
@@ -316,7 +316,7 @@
 (defn- runtime-snapshots
   "The `[:rf.runtime/machines :snapshots]` map on `frame-id`'s runtime-db."
   [frame-id]
-  (get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots]))
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots]))
 
 (deftest restored-spawned-snapshots-get-full-teardown-newest-first
   (testing "destroy-frame! treats restored spawned snapshots (absent from spawn-order) as spawned actors: full teardown, newest-first by durable actor-id"
@@ -387,17 +387,17 @@
       (rf/reg-machine :rsi/boot boot)
       (rf/dispatch-sync [:rsi/boot [:bind]] {:frame :rsi/auth})
       (is (= :rsi/child#1
-             (get-in (rf/runtime-db-value :rsi/auth)
+             (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
                      [:rf.runtime/machines :system-ids :session/primary]))
           "system-id bound before restore")
       ;; Restore: wipe the transient spawn-order; the durable snapshot +
       ;; system-id reverse index survive.
       (spawn-order/reset-all!)
       (rf/destroy-frame! :rsi/auth)
-      (is (nil? (get-in (rf/runtime-db-value :rsi/auth)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
                         [:rf.runtime/machines :system-ids :session/primary]))
           "system-id reverse index released — only the full spawned teardown does this; the singleton straggler path leaves it bound")
-      (is (nil? (get-in (rf/runtime-db-value :rsi/auth)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
                         [:rf.runtime/machines :snapshots :rsi/child#1]))
           "restored spawned snapshot dissoc'd"))))
 
@@ -415,11 +415,11 @@
       (rf/reg-machine :rsg/single single)
       ;; Touch the singleton so its snapshot materialises in this frame.
       (rf/dispatch-sync [:rsg/single [:noop]] {:frame :rsg/auth})
-      (is (some? (get-in (rf/runtime-db-value :rsg/auth)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rsg/auth))
                          [:rf.runtime/machines :snapshots :rsg/single]))
           "singleton snapshot present before restore")
       (is (nil? (:rf/machine-type
-                  (get-in (rf/runtime-db-value :rsg/auth)
+                  (get-in (:rf.db/runtime (rf/frame-state-value :rsg/auth))
                           [:rf.runtime/machines :snapshots :rsg/single])))
           "singleton snapshot carries NO :rf/machine-type (the discriminator)")
       (spawn-order/reset-all!)

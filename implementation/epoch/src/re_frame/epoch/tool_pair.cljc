@@ -808,36 +808,96 @@
               (quiesce-orphaned-async-host-work! frame-id)
               true))))))
 
-;; ---- replace-*! preconditions ---------------------------------------------
+;; ---- replace-frame-state! preconditions ------------------------------------
 ;;
-;; rf2-c0rv4v: the four-mutator family (`replace-app-db!` /
-;; `replace-runtime-db!` / `replace-frame-state!`) shares one precondition
-;; skeleton — (1) frame registered? (2) in-flight drain? (3) schema mismatch?
-;; — differing ONLY in which schema walk step (3) runs. `check-replace-
-;; preconditions!` is that skeleton parameterised by a `schema-check-fn`
-;; (a 0-arity thunk yielding the failing-path vector for the candidate
-;; value, or [] for valid / soft-pass), and the three public-facing
-;; validators are one-line bindings of the matching walk. Per Tool-Pair
-;; §Pair-tool writes the mutators share the identical failure-mode shape —
-;; the same `:rf.epoch/replace-*` trace ops cover all (Spec 009 §Trace
-;; events explicitly lists `replace-runtime-db!` / `replace-frame-state!`
-;; under those ops).
+;; rf2-t3lftq (API-shrink #3): the former four-mutator family
+;; (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
+;; `replace-frame-state!`) is consolidated to ONE partial-map write —
+;; `replace-frame-state!` — differing single-partition callers now compose a
+;; one-key map. `check-replace-frame-state-preconditions!` validates: (0) bad
+;; keys? (1) frame registered? (2) in-flight drain? (3) history disabled?
+;; (4) schema mismatch on the PRESENT partitions only. Per Tool-Pair §Pair-tool
+;; writes (Spec 009 §Trace events lists `:rf.epoch/replace-*` under this
+;; surface).
 
-(defn- check-replace-preconditions!
-  "Shared skeleton for the four-mutator precondition family (rf2-c0rv4v).
-  `schema-check-fn` is a 0-arity thunk returning the failing schema-path
-  vector for the candidate value (or [] for the valid / soft-pass cases);
-  it runs only on the `:else` branch after the frame-registered + drain +
-  history-enabled checks pass, so a frame-miss / in-flight-drain /
-  history-disabled failure short-circuits before any schema walk. Returns
-  `{:outcome :ok}` when all checks pass, otherwise
-  `{:outcome :fail :op <kw> :tags <map>}` matching the precondition-failure
-  shape of `check-restore-preconditions!`. Pure data — no trace events
-  emitted from here; emission is the caller's job.
+(def ^:private frame-state-partition-keys
+  "The two recognized `replace-frame-state!` partition keys — the closed
+  key-vocabulary the bad-keys precondition (below) validates a caller's
+  partial frame-state map against."
+  #{frame/app-partition-key frame/runtime-partition-key})
 
-  Per rf2-unpldn: the four mutators each record a synthetic
-  `:rf.epoch/db-replaced` epoch so that `restore-epoch!` can rewind PAST the
-  injection — their caller's invariant is \"undo works after this call\"
+(defn- replace-frame-state-bad-keys
+  "Validate `frame-state`'s key set against the closed
+  `frame-state-partition-keys` vocabulary (rf2-t3lftq — API-shrink #3).
+  Returns nil when the map is well-formed (at least one recognized
+  partition key, no unrecognized ones), otherwise a
+  `{:reason <kw> :keys <vec>}` map describing the problem:
+
+    `{:reason :unknown-keys :keys [...]}`        — the map carries a key
+                                                    outside the closed
+                                                    `#{:rf.db/app
+                                                    :rf.db/runtime}`
+                                                    vocabulary (a typo'd
+                                                    partition key, e.g.
+                                                    `:rf.db/apps`).
+    `{:reason :no-recognized-keys :keys [...]}`  — the map carries NO
+                                                    recognized partition
+                                                    key at all (e.g. `{}`,
+                                                    or a map of only
+                                                    unrelated keys).
+
+  `replace-frame-state!` is a PARTIAL-PATCH surface: a present key
+  replaces that partition, an absent key is preserved. Without this
+  check a caller's typo'd or empty map would silently no-op the whole
+  call while still returning `true` and recording a synthetic no-op undo
+  epoch — a false success against the caller's undo invariant. So a
+  bad-shaped map is rejected loudly rather than treated as an empty
+  partial patch."
+  [frame-state]
+  (let [ks         (set (keys frame-state))
+        unknown    (into [] (remove frame-state-partition-keys) ks)
+        recognized (filter frame-state-partition-keys ks)]
+    (cond
+      (seq unknown)        {:reason :unknown-keys :keys (vec ks)}
+      (empty? recognized)  {:reason :no-recognized-keys :keys (vec ks)}
+      :else                nil)))
+
+(defn check-replace-frame-state-preconditions!
+  "Validate the documented preconditions for `replace-frame-state!`, the
+  ONE frame-state write surface (rf2-t3lftq — API-shrink #3 consolidated
+  `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` into this).
+  `frame-state` is a PARTIAL frame-state map (any subset of
+  `{:rf.db/app … :rf.db/runtime …}`). Returns `{:outcome :ok}` when every
+  check passes, otherwise `{:outcome :fail :op <kw> :tags <map>}` matching
+  the precondition-failure shape of `check-restore-preconditions!`. Pure
+  data — no trace events emitted from here; emission is the caller's job.
+
+  Checks, in order:
+
+    (0) Bad keys? `replace-frame-state-bad-keys` validates `frame-state`'s
+        key set against the closed `#{:rf.db/app :rf.db/runtime}`
+        vocabulary — checked FIRST, before frame resolution, because it is
+        a caller-input-SHAPE error independent of the target frame's
+        existence (the same malformed call is malformed against any
+        frame). Failure: `:rf.error/replace-frame-state-bad-keys`.
+    (1) Frame registered?
+    (2) In-flight drain?
+    (3) History disabled (depth 0)? The synthetic undo-anchor cannot land
+        in the (disabled) ring, so the undo-works-after invariant is
+        unsatisfiable — reject loudly rather than return a false success
+        (rf2-unpldn).
+    (4) Schema mismatch? Validates ONLY the PRESENT partitions — an absent
+        key is preserved, not written, so it is not walked: the app-db
+        partition (when present) against the frame's app-schema set
+        (`failing-schema-paths`) and/or the runtime-db partition (when
+        present) against the framework-owned runtime-db validator
+        (`failing-runtime-paths`, `reg-runtime-schema`), surfacing the
+        UNION of failing paths — a failure on EITHER rejects the whole
+        atomic install.
+
+  Per rf2-unpldn: `replace-frame-state!` records a synthetic
+  `:rf.epoch/db-replaced` epoch so that `restore-epoch!` can rewind PAST
+  the injection — the caller's invariant is \"undo works after this call\"
   (Tool-Pair §Pair-tool writes, the same invariant the artefact-missing
   wrapper raises to honour at `core-epoch.cljc`). Under
   `(rf/configure! {:epoch-history {:depth 0}})` the ring buffer is
@@ -848,76 +908,51 @@
   about the undo invariant exactly as a silent no-op would on the
   artefact-missing path. So a depth-0 injection is REJECTED loudly via the
   in-artefact failure channel (a structured `:rf.epoch/replace-history-disabled`
-  trace + `false` return), mirroring the artefact-missing throw's intent
-  while using the same precondition-failure mechanism as the sibling
-  `replace-during-drain` / `replace-schema-mismatch` modes. Read paths
-  (`epoch-history` / `register-epoch-listener!`) are unaffected — only the
-  undo-recording WRITE surfaces refuse."
-  [frame-id schema-check-fn]
-  (let [frame-result (frame-exists-or-fail frame-id)]
-    (cond
-      ;; (1) Frame registered?
-      (= :fail (:outcome frame-result))
-      frame-result
-
-      ;; (2) In-flight drain?
-      (drain-in-flight? (:frame-record frame-result))
-      {:outcome :fail
-       :op      :rf.epoch/replace-during-drain
-       :tags    {:frame frame-id}}
-
-      ;; (3) History disabled (depth 0)? The synthetic undo-anchor cannot
-      ;; land in the (disabled) ring, so the undo-works-after invariant is
-      ;; unsatisfiable — reject loudly rather than return a false success
-      ;; (rf2-unpldn).
-      (not (pos? (state/depth)))
-      {:outcome :fail
-       :op      :rf.epoch/replace-history-disabled
-       :tags    {:frame frame-id}}
-
-      :else
-      ;; (4) Schema mismatch? The caller's schema walk yields the failing
-      ;; paths (or [] for the valid / soft-pass cases).
-      (let [failing (schema-check-fn)]
-        (if (seq failing)
-          {:outcome :fail
-           :op      :rf.epoch/replace-schema-mismatch
-           :tags    {:frame         frame-id
-                     :failing-paths failing}}
-          {:outcome :ok})))))
-
-(defn check-replace-app-db-preconditions!
-  "Validate the three documented preconditions for `replace-app-db!`.
-  Step (3) walks `new-db` against the frame's app-schema set
-  (`failing-schema-paths`). See `check-replace-preconditions!` for the
-  shared skeleton + return shape."
-  [frame-id new-db]
-  (check-replace-preconditions!
-    frame-id #(failing-schema-paths frame-id new-db)))
-
-(defn check-replace-runtime-db-preconditions!
-  "Validate the three documented preconditions for `replace-runtime-db!`
-  (the runtime-db sibling). Step (3) walks `new-runtime-db` against the
-  framework-owned runtime-db validator (`failing-runtime-paths`,
-  `reg-runtime-schema`), NOT the user app-schema set. See
-  `check-replace-preconditions!` for the shared skeleton + return shape."
-  [frame-id new-runtime-db]
-  (check-replace-preconditions!
-    frame-id #(failing-runtime-paths frame-id new-runtime-db)))
-
-(defn check-replace-frame-state-preconditions!
-  "Validate the three documented preconditions for `replace-frame-state!`
-  (the full-frame sibling). `frame-state` carries BOTH partitions
-  (`{:rf.db/app … :rf.db/runtime …}`); step (3) validates the app-db
-  partition against the frame's app-schema set AND the runtime-db partition
-  against the framework-owned runtime-db validator, surfacing the UNION of
-  failing paths — a failure on EITHER rejects the whole atomic install. See
-  `check-replace-preconditions!` for the shared skeleton + return shape."
+  trace + `false` return), mirroring the artefact-missing throw's intent."
   [frame-id frame-state]
-  (check-replace-preconditions!
-    frame-id
-    #(into (vec (failing-schema-paths frame-id (get frame-state frame/app-partition-key)))
-           (failing-runtime-paths frame-id (get frame-state frame/runtime-partition-key)))))
+  (if-let [{:keys [reason keys]} (replace-frame-state-bad-keys frame-state)]
+    ;; (0) Bad keys? Independent of frame resolution — a malformed call is
+    ;; malformed against any frame.
+    {:outcome :fail
+     :op      :rf.error/replace-frame-state-bad-keys
+     :tags    {:frame frame-id :reason reason :keys keys}}
+
+    (let [frame-result (frame-exists-or-fail frame-id)]
+      (cond
+        ;; (1) Frame registered?
+        (= :fail (:outcome frame-result))
+        frame-result
+
+        ;; (2) In-flight drain?
+        (drain-in-flight? (:frame-record frame-result))
+        {:outcome :fail
+         :op      :rf.epoch/replace-during-drain
+         :tags    {:frame frame-id}}
+
+        ;; (3) History disabled (depth 0)? The synthetic undo-anchor cannot
+        ;; land in the (disabled) ring, so the undo-works-after invariant is
+        ;; unsatisfiable — reject loudly rather than return a false success
+        ;; (rf2-unpldn).
+        (not (pos? (state/depth)))
+        {:outcome :fail
+         :op      :rf.epoch/replace-history-disabled
+         :tags    {:frame frame-id}}
+
+        :else
+        ;; (4) Schema mismatch? Only the PRESENT partitions are walked — an
+        ;; absent key is preserved, not written.
+        (let [failing (cond-> []
+                        (contains? frame-state frame/app-partition-key)
+                        (into (failing-schema-paths frame-id (get frame-state frame/app-partition-key)))
+
+                        (contains? frame-state frame/runtime-partition-key)
+                        (into (failing-runtime-paths frame-id (get frame-state frame/runtime-partition-key))))]
+          (if (seq failing)
+            {:outcome :fail
+             :op      :rf.epoch/replace-schema-mismatch
+             :tags    {:frame         frame-id
+                       :failing-paths failing}}
+            {:outcome :ok}))))))
 
 ;; ---- projected egress -----------------------------------------------------
 ;;

@@ -115,7 +115,7 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
 (defn- instance [instance-id] (get-in (runtime-db) (mstate/instance-path instance-id)))
 

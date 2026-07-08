@@ -357,7 +357,7 @@
           write?    (not= method :get)
           ;; The fx context carries the envelope frame as `:frame`. Read the
           ;; fail-next-write flag off that frame's runtime db.
-          db        (rf/runtime-db-value (:frame frame-ctx))
+          db        (:rf.db/runtime (rf/frame-state-value (:frame frame-ctx)))
           fail?     (and write? (boolean (:fail-next-write? db)))]
       (if fail?
         ;; Armed: answer the WRITE with a 503 so the optimistic apply rolls back.

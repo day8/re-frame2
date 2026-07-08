@@ -501,7 +501,7 @@
           (is (= 1 @r) "the app sub still derefs to the unchanged value")
           (is (= after-prime @runs)
               "the app-db layer-1 sub body did NOT re-run — app-db projection stayed `=` on a runtime-only commit")
-          (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :rf/default))
+          (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :rf/default)))
               "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
         (remove-watch r ::touch)
         (rf/unsubscribe [:inval/app-sub])))))

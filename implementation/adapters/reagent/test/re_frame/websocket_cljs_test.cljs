@@ -231,7 +231,9 @@
 ;; ============================================================================
 
 ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
-;; `snapshot` reads the runtime-db value (callers pass `(rf/runtime-db-value f)`).
+;; `snapshot` reads the runtime-db value (callers pass
+;; `(:rf.db/runtime (rf/frame-state-value f))`, per rf2-t3lftq — API-shrink
+;; #3 retired `rf/runtime-db-value`).
 (defn- snapshot [runtime-db]
   (get-in runtime-db [:rf.runtime/machines :snapshots :ws/connection]))
 
@@ -247,7 +249,7 @@
   snapshots are runtime-db state — rf2-vzld77)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :ws/connection tag]
-                  (rf/runtime-db-value frame)))
+                  (:rf.db/runtime (rf/frame-state-value frame))))
 
 (defn- new-frame []
   ;; Suppress the real `:dispatch-later` fx — the connection machine's
@@ -273,7 +275,7 @@
 (defn- initial-state-test []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/connection [:rf.machine/start]] {:frame f})
-    (let [s (snapshot (rf/runtime-db-value f))]
+    (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
       (is (= :disconnected (:state s))
           (str "expected :disconnected got " (pr-str (:state s))))
       (is (= [] (get-in s [:data :queue])))
@@ -293,7 +295,7 @@
                           {:frame f})
         ;; Sync-mode mock: the actor's open-then-send-auth-then-auth-ok
         ;; chain runs to completion inside the dispatch-sync stack.
-        (let [s (snapshot (rf/runtime-db-value f))]
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= [:active :connected] (:state s))
               (str "expected [:active :connected] got " (:state s)))
           (is (true?  (machine-has-tag? f :websocket/connected)))
@@ -317,7 +319,7 @@
         (rf/dispatch-sync [:ws/connection
                            [:ws/send {:type :note :body "B"}]]
                           {:frame f})
-        (let [s (snapshot (rf/runtime-db-value f))]
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= :disconnected (:state s)))
           (is (= 2 (count (get-in s [:data :queue]))))
           (is (= [{:type :note :body "A"}
@@ -330,7 +332,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [s (snapshot (rf/runtime-db-value f))]
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (true? (machine-has-tag? f :websocket/connected)))
           (is (= [] (get-in s [:data :queue]))
               ":connected entry's :flush-queue :always drained the queue"))))))
@@ -345,7 +347,7 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
-        (let [pre-snap   (snapshot (rf/runtime-db-value f))
+        (let [pre-snap   (snapshot (:rf.db/runtime (rf/frame-state-value f)))
               pre-socket (socket-id-of pre-snap)]
           (is (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
@@ -353,7 +355,7 @@
           ;; to the parent. EP-0002 (rf2-9o48ih): the seam now takes a
           ;; capture-frame so its deferred dispatch carries the frame.
           (messages/simulate-disconnect! (rf/capture-frame f))
-          (let [s (snapshot (rf/runtime-db-value f))]
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
             (is (= :reconnecting (:state s))
                 (str "expected :reconnecting got " (:state s)))
             (is (true?  (machine-has-tag? f :websocket/reconnecting)))
@@ -372,7 +374,7 @@
           ;; the resolved-delay-ms as the second slot. Look up the
           ;; current :after-epoch from :data and fire the after-elapsed
           ;; event keyed by the fn-form spec.
-          (let [snap-now (snapshot (rf/runtime-db-value f))
+          (let [snap-now (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                 ;; Per Spec 005 §Hierarchy interaction the epoch is
                 ;; per-decl-path; :reconnecting is the :after-bearing node.
                 epoch    (get-in snap-now [:data :rf/after-epoch [:reconnecting]])
@@ -392,7 +394,7 @@
           ;; After firing the :after timer the machine re-enters :active.
           ;; In sync-mode the open-auth-ok cascade runs to :connected
           ;; inside the synthetic-timer dispatch.
-          (let [s (snapshot (rf/runtime-db-value f))]
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
             ;; Either :active is re-entered (and in sync-mode runs to
             ;; :connected) OR the synthetic event was dropped as stale
             ;; (in which case the test asserts the precondition only).
@@ -433,12 +435,12 @@
                          assoc :retries (inc max-retries)))))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
-        (let [snap-before (snapshot (rf/runtime-db-value f))]
+        (let [snap-before (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (rf/dispatch-sync [:ws/connection
                              [:ws/closed {:source-socket-id (socket-id-of snap-before)
                                           :code 1006}]]
                             {:frame f}))
-        (let [s (snapshot (rf/runtime-db-value f))]
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= :failed (:state s))
               (str "expected :failed got " (:state s)
                    " retries=" (get-in s [:data :retries])
@@ -452,7 +454,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [live-socket-id (socket-id-of (snapshot (rf/runtime-db-value f)))
+        (let [live-socket-id (socket-id-of (snapshot (:rf.db/runtime (rf/frame-state-value f))))
               stale-id       (str "stale-" (random-uuid))]
           ;; A :ws/received event with a stale source-socket-id is
           ;; dropped by :current-socket?. The :messages slice doesn't
@@ -488,13 +490,13 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "old-token"}]]
                           {:frame f})
-        (is (= "old-token" (get-in (snapshot (rf/runtime-db-value f))
+        (is (= "old-token" (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                                    [:data :auth-token])))
         ;; Refresh from :connected.
         (rf/dispatch-sync [:ws/connection
                            [:ws/refresh-token "new-token"]]
                           {:frame f})
-        (is (= "new-token" (get-in (snapshot (rf/runtime-db-value f))
+        (is (= "new-token" (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                                    [:data :auth-token])))))))
 
 (defn- disconnect-cleanly-test []
@@ -507,7 +509,7 @@
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
-        (let [s (snapshot (rf/runtime-db-value f))]
+        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= :disconnected (:state s)))
           (is (false? (machine-has-tag? f :websocket/connected)))
           (is (false? (machine-has-tag? f :websocket/reconnecting)))
@@ -571,7 +573,7 @@
           ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
           ;; is app-db.
           (let [db   (rf/app-db-value f)
-                snap (snapshot (rf/runtime-db-value f))]
+                snap (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
             (is (= {} (get-in snap [:data :in-flight]))
                 ":in-flight slot was cleared on reply (app-level correlation)")
             (let [last-reply (get-in db [:messages :last-reply])]
@@ -650,7 +652,7 @@
         ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
         ;; is app-db.
         (let [db (rf/app-db-value f)
-              snap (snapshot (rf/runtime-db-value f))]
+              snap (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (contains? (get-in snap [:data :subscriptions]) :demo-topic)
               ":data :subscriptions tracks the topic")
           ;; The mock's subscribe-ack synthetic push landed in

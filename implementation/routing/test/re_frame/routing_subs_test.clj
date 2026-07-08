@@ -126,7 +126,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/navigate :route/cart])
     ;; 1. The RAW durable slice carries the active route id under :route-id.
-    (let [slice (get-in (rf/runtime-db-value :rf/default)
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :current])]
       (is (= :route/cart (:route-id slice))
           "the slice stores the active route id under :route-id")

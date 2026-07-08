@@ -520,20 +520,24 @@
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
-;; ---- replace-app-db! / reset-app-db! (Tool-Pair §Pair-tool writes) -------
+;; ---- replace-frame-state! (Tool-Pair §Pair-tool writes) -------------------
 ;;
-;; Per Tool-Pair §Pair-tool writes: a public Tool-Pair write surface that
-;; replaces a frame's `app-db` PARTITION with an arbitrary new value,
-;; bypassing the dispatch loop. Used by pair-shaped tools for state
-;; injection (evolved-state-shape probes after a handler hot-swap), story
-;; tools, conformance harnesses, and time-travel from JSON-loaded bug
-;; repros. The runtime-db partition is never touched (Mike ruling #10 — a
-;; db-shaped name never silently replaces runtime-db).
+;; Per Tool-Pair §Pair-tool writes: the ONE public Tool-Pair write surface
+;; that installs a PARTIAL frame-state map into a frame's frame-state,
+;; bypassing the dispatch loop (rf2-t3lftq — API-shrink #3 consolidated the
+;; former four-mutator family — `replace-app-db!` / `reset-app-db!` /
+;; `replace-runtime-db!` / `replace-frame-state!` — into this). Used by
+;; pair-shaped tools for state injection (evolved-state-shape probes after a
+;; handler hot-swap), story tools, conformance harnesses, and time-travel
+;; from JSON-loaded bug repros. A present partition key replaces that
+;; partition; an absent key is preserved unchanged — a db-shaped key never
+;; silently touches the OTHER partition (Mike ruling #10, preserved and
+;; generalised).
 ;;
-;; `replace-app-db!` (per spec/API.md, Mike ruling #10) installs an
-;; arbitrary `app-db`; its app-db-only sibling `reset-app-db!` resets the
-;; app-db partition to `{}` while preserving live runtime-db — the app-db
-;; sibling of a full frame reset (`destroy-frame!` + `reg-frame`).
+;; App-only injection is `(replace-frame-state! id {:rf.db/app v})`; the
+;; former `reset-app-db!` is `(replace-frame-state! id {:rf.db/app {}})`;
+;; runtime-only injection is `(replace-frame-state! id {:rf.db/runtime v})`;
+;; a both-partition install supplies both keys.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
 ;; gate as `restore-epoch!` / `register-epoch-listener!` / the rest of the
@@ -541,11 +545,17 @@
 ;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
 ;; available in shipped binaries.
 ;;
-;; Failure modes (each is a no-op on `app-db` and returns `false`):
+;; Failure modes (each is a no-op on the frame-state and returns `false`):
+;;   :rf.error/replace-frame-state-bad-keys — no recognized partition key, or
+;;                                              an unrecognized key — checked
+;;                                              before frame resolution
 ;;   :rf.error/no-such-handler              (kind :frame) — frame not registered
 ;;   :rf.epoch/replace-during-drain  — called while drain is in flight
-;;   :rf.epoch/replace-schema-mismatch — `new-db` fails the frame's
-;;                                              registered app-schema set
+;;   :rf.epoch/replace-schema-mismatch — a PRESENT app-db partition fails the
+;;                                              frame's registered app-schema
+;;                                              set, or a PRESENT runtime-db
+;;                                              partition fails the
+;;                                              framework-owned validator
 ;;   :rf.epoch/replace-history-disabled — epoch ring disabled (depth 0); the
 ;;                                              synthetic undo-anchor cannot land
 ;;                                              so the undo invariant is
@@ -558,10 +568,9 @@
 
 (defn- record-synthetic-replace-epoch!
   "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
-  injection and fan it out. Shared by all three partition-replace perform
-  helpers (`perform-replace-app-db!`, `perform-replace-runtime-db!`,
-  `perform-replace-frame-state!`) — the single lockstep-maintained site for
-  the synthetic-record / committed-at / redaction contract. `fs-before` /
+  injection and fan it out. Called by the partial-frame-state-patch perform
+  helper (`perform-replace-frame-state!`) — the single lockstep-maintained
+  site for the synthetic-record / committed-at / redaction contract. `fs-before` /
   `fs-after` are the pre- and post-replace coherent frame-state values;
   restore of this synthetic record reinstalls `fs-after`, and restore of a
   PRIOR epoch rewinds past the injection.
@@ -599,14 +608,15 @@
     record))
 
 (defn- perform-replace!
-  "Carry out a partition-replace once preconditions have passed — the
-  shared body behind `perform-replace-app-db!` / `perform-replace-runtime-db!`
-  / `perform-replace-frame-state!` (rf2-c0rv4v). `write-fn` is a 0-arg thunk
-  that performs the `frame/replace-*!` partition write (the wrapper binds the
-  frame-id + new value into it); `fs-after-fn` builds the coherent
-  post-replace frame-state from the pre-replace `fs-before` (so restore of the
-  synthetic epoch reinstalls the right two-partition value). Returns `true`
-  on a real write.
+  "Carry out a frame-state patch once preconditions have passed — the body
+  behind `perform-replace-frame-state!` (rf2-c0rv4v; formerly shared across
+  the three now-consolidated `perform-replace-app-db!` /
+  `perform-replace-runtime-db!` / `perform-replace-frame-state!` helpers).
+  `write-fn` is a 0-arg thunk that performs the `frame/replace-frame-state!`
+  partition write (the wrapper binds the frame-id + new partial map into
+  it); `fs-after-fn` builds the coherent post-replace frame-state from the
+  pre-replace `fs-before` (so restore of the synthetic epoch reinstalls the
+  right two-partition value). Returns `true` on a real write.
 
   Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
   the write boundary via `tool-pair/live-container-or-fail`. If the frame was
@@ -656,150 +666,57 @@
           (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
               true))))))
 
-(defn- perform-replace-app-db!
-  "Carry out the `app-db` replacement once preconditions have passed.
-  Replaces ONLY the app-db partition (Mike ruling #10 — a db-shaped name
-  never silently touches runtime-db); the after-frame-state carries the new
-  app-db with the live runtime-db preserved unchanged. Partition-binding
-  wrapper over `perform-replace!` (rf2-c0rv4v) — see that fn for the full
-  validate-then-destroy / post-liveness-teardown contract."
-  [frame-id new-db]
-  (perform-replace! frame-id
-                    #(assoc % frame/app-partition-key new-db)
-                    #(frame/replace-app-db! frame-id new-db)))
-
-(defn- perform-replace-runtime-db!
-  "Carry out the runtime-db replacement once preconditions have passed —
-  the runtime-db sibling of `perform-replace-app-db!`. Replaces ONLY the
-  runtime-db partition (app-db preserved unchanged). Partition-binding
-  wrapper over `perform-replace!` (rf2-c0rv4v)."
-  [frame-id new-runtime-db]
-  (perform-replace! frame-id
-                    #(assoc % frame/runtime-partition-key new-runtime-db)
-                    #(frame/replace-runtime-db! frame-id new-runtime-db)))
-
 (defn- perform-replace-frame-state!
-  "Carry out the full-frame (both-partition) replacement once preconditions
-  have passed — the whole-frame sibling of `perform-replace-app-db!`.
-  Replaces BOTH partitions atomically (`{:rf.db/app … :rf.db/runtime …}`).
-  A missing partition key installs `nil` for that partition (a full-frame
-  replace is whole-value by contract — see `frame/replace-frame-state!`);
-  the recorded after-state is normalised to the same coherent shape.
-  Partition-binding wrapper over `perform-replace!` (rf2-c0rv4v)."
+  "Carry out the partial frame-state patch once preconditions have passed.
+  `new-frame-state` is a PARTIAL frame-state map (any subset of
+  `{:rf.db/app … :rf.db/runtime …}`); a present key replaces that
+  partition, an absent key is carried forward unchanged from `fs-before`
+  (rf2-t3lftq — API-shrink #3; see `frame/replace-frame-state!`, which
+  already implements the present-replaces / absent-preserves contract via
+  `commit-frame-transition!`). The recorded after-state (`merge fs-before
+  new-frame-state`) mirrors that same contract so the synthetic epoch's
+  `:frame-state-after` matches exactly what the write installed."
   [frame-id new-frame-state]
   (perform-replace! frame-id
-                    (fn [_fs-before]
-                      {frame/app-partition-key     (get new-frame-state frame/app-partition-key)
-                       frame/runtime-partition-key (get new-frame-state frame/runtime-partition-key)})
+                    (fn [fs-before] (merge fs-before new-frame-state))
                     #(frame/replace-frame-state! frame-id new-frame-state)))
 
-(defn replace-app-db!
-  "Replace `frame-id`'s `app-db` partition with `new-db`, bypassing the
-  dispatch loop. Per Tool-Pair §Pair-tool writes (Mike ruling #10 — a
-  db-shaped name never silently replaces runtime-db, so the runtime-db
-  partition is preserved unchanged).
-
-  Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind
-  the previous state; emits `:rf.epoch/db-replaced` on success. The
-  runtime-db partition is preserved unchanged.
-
-  Failure modes (each is a no-op on `app-db` and returns `false`,
-  emitting a structured error trace):
-
-    :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — new-db fails app-schema
-    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
-                                                  the synthetic undo-anchor
-                                                  cannot land so undo would not
-                                                  work after this call (rf2-unpldn)
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
-
-  Returns `true` on success, `false` on any failure."
-  [frame-id new-db]
-  (if-not interop/debug-enabled?
-    false
-    (let [{:keys [outcome op tags]} (tool-pair/check-replace-app-db-preconditions! frame-id new-db)]
-      (case outcome
-        :ok   (perform-replace-app-db! frame-id new-db)
-        :fail (do (tool-pair/emit-precondition-failure! op tags)
-                  false)))))
-
-(defn reset-app-db!
-  "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the dispatch
-  loop, while preserving live runtime-db (machines / routes / elision /
-  SSR survive). The app-db-only sibling of a full frame reset
-  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope
-  (EP-0001 rf2-tfepxu, Mike ruling #10). Thin wrapper over `replace-app-db!`
-  with the empty-map value — same synthetic-epoch recording, same gating
-  and failure modes.
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
-
-  Returns `true` on success, `false` on any failure."
-  [frame-id]
-  (replace-app-db! frame-id {}))
-
-(defn replace-runtime-db!
-  "Replace `frame-id`'s `runtime-db` partition with `new-runtime-db`,
-  bypassing the dispatch loop. The runtime-db sibling of `replace-app-db!`
-  (Tool-Pair §Pair-tool writes). Privileged runtime / full-frame tool
-  surface for injecting framework-owned subsystem state (machine
-  snapshots, route slice, …); the app-db partition is preserved unchanged.
-
-  Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
-  previous state; emits `:rf.epoch/db-replaced` on success.
-
-  Failure modes (each is a no-op on `runtime-db` and returns `false`,
-  emitting a structured error trace — the shared four-mutator failure
-  surface per Spec 009 §Trace events):
-
-    :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — new-runtime-db fails the
-                                                   framework-owned runtime-db
-                                                   validator (reg-runtime-schema)
-    :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
-                                                   the synthetic undo-anchor
-                                                   cannot land (rf2-unpldn)
-
-  Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
-
-  Returns `true` on success, `false` on any failure."
-  [frame-id new-runtime-db]
-  (if-not interop/debug-enabled?
-    false
-    (let [{:keys [outcome op tags]} (tool-pair/check-replace-runtime-db-preconditions! frame-id new-runtime-db)]
-      (case outcome
-        :ok   (perform-replace-runtime-db! frame-id new-runtime-db)
-        :fail (do (tool-pair/emit-precondition-failure! op tags)
-                  false)))))
-
 (defn replace-frame-state!
-  "Replace BOTH of `frame-id`'s partitions atomically with `new-frame-state`
-  (`{:rf.db/app … :rf.db/runtime …}`), bypassing the dispatch loop — the
-  full-frame install for tool-driven replay / fixture install (Tool-Pair
-  §Pair-tool writes). The whole-frame sibling of `replace-app-db!`; a
-  db-shaped name never silently replaces runtime-db, so this is the
-  explicit full-frame surface (Mike ruling #10). A missing partition key
-  installs `nil` for that partition (a full-frame replace is whole-value
-  by contract).
+  "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
+  subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
+  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
+  partition, an ABSENT key is preserved unchanged (rf2-t3lftq — API-shrink
+  #3, consolidating the former `replace-app-db!` / `reset-app-db!` /
+  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
+  this ONE surface). A db-shaped key never silently touches the other
+  partition — the partition is named explicitly at every call site (Mike
+  ruling #10, preserved and generalised): app-only injection is
+  `{:rf.db/app v}`; runtime-only is `{:rf.db/runtime v}`; both-partition
+  install supplies both keys. Per Tool-Pair §Pair-tool writes.
 
   Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
   previous state; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on the frame-state and returns `false`,
-  emitting a structured error trace — the shared four-mutator failure
-  surface per Spec 009 §Trace events):
+  emitting a structured error trace):
 
+    :rf.error/replace-frame-state-bad-keys — `new-frame-state` carries no
+                                                   recognized partition key
+                                                   (`:rf.db/app` /
+                                                   `:rf.db/runtime`), or
+                                                   carries an unrecognized
+                                                   key — checked BEFORE frame
+                                                   resolution (a caller-input-
+                                                   shape error, not a frame
+                                                   problem)
     :rf.error/no-such-handler                   — frame not registered
     :rf.epoch/replace-during-drain       — drain in flight
-    :rf.epoch/replace-schema-mismatch    — the app-db partition fails
-                                                   the frame's app-schema set
-                                                   OR the runtime-db partition
-                                                   fails the framework-owned
-                                                   runtime-db validator
+    :rf.epoch/replace-schema-mismatch    — a PRESENT app-db partition fails
+                                                   the frame's app-schema set,
+                                                   OR a PRESENT runtime-db
+                                                   partition fails the
+                                                   framework-owned runtime-db
+                                                   validator
     :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
                                                    the synthetic undo-anchor
                                                    cannot land (rf2-unpldn)
@@ -996,9 +913,6 @@
    ;; ---- introspection + Tool-Pair write surface --------------------
    :epoch/epoch-history       epoch-history
    :epoch/restore-epoch!      restore-epoch!
-   :epoch/replace-app-db!     replace-app-db!
-   :epoch/reset-app-db!       reset-app-db!
-   :epoch/replace-runtime-db! replace-runtime-db!
    :epoch/replace-frame-state! replace-frame-state!
 
    ;; ---- listener + config surface ----------------------------------

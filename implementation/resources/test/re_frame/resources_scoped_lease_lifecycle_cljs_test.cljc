@@ -80,7 +80,7 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 ;; rf2-9e0tyq — `:entries` is keyed on the opaque byte `key-id`; this test
 ;; reasons about scoped-key VECTORS, so `entries` returns a vector-keyed VIEW
 ;; (re-keyed from each entry's `:resource/key`) and `owner-index` returns the

@@ -137,7 +137,7 @@ The HTML alone isn't enough. When the browser's JavaScript boots, it needs the *
         page    (ssr/render-to-string hiccup {:emit-hash? true})
         payload {:rf/version     1
                  :rf/app-db      (rf/app-db-value fid)       ;; your state
-                 :rf/runtime-db  (rf/runtime-db-value fid)   ;; the framework's (route, machines)
+                 :rf/runtime-db  (:rf.db/runtime (rf/frame-state-value fid))   ;; the framework's (route, machines)
                  :rf/render-hash (ssr/render-tree-hash hiccup)}]  ;; Step 5's tripwire
     {:status  200
      :headers {"Content-Type" "text/html"}

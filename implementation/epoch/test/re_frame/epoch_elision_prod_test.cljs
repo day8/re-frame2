@@ -122,7 +122,7 @@
     (is (= {:original true}
            (rf/app-db-value :rf/default))
         "baseline: app-db has the seeded value")
-    (is (false? (rf/replace-app-db! :rf/default {:replaced :should-not-stick}))
+    (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:replaced :should-not-stick}}))
         "replace-app-db! returns false under prod")
     (is (= {:original true}
            (rf/app-db-value :rf/default))

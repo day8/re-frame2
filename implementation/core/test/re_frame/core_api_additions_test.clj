@@ -336,60 +336,53 @@
       (is (not (contains? wide-ids :elsewhere/one))))))
 
 ;; ===========================================================================
-;; rf2-q4i9ko — EP-0001 two-partition accessor/mutator helpers (bead 3)
+;; rf2-q4i9ko / rf2-t3lftq — the frame-state read/write surface
 ;;
-;; This bead introduces the SURFACE only (Mike ruling #1 / #10), no behavior
-;; change. The physical runtime-db partition + one-container frame-state land
-;; in rf2-adwcv6 (bead 5); the partition-aware tests come with beads 4-5.
-;; These tests pin: the app-db read/replace round-trip, the frame-state
-;; projection shape, runtime-db reading nil today, and the deferred-semantics
-;; mutators throwing rather than silently dropping data.
+;; rf2-t3lftq (API-shrink #3) consolidated the former four-mutator family
+;; (`replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
+;; `replace-frame-state!`) into ONE partial-map `replace-frame-state!`, and
+;; retired `runtime-db-value` / `snapshot-of` from the facade. These tests
+;; pin: the app-db-only / runtime-db-only / both-partition partial-patch
+;; contracts (present key replaces, absent key preserves), the frame-state
+;; projection shape, and the reject-bad-keys contract.
 ;; ===========================================================================
 
-(deftest app-db-value-and-replace-app-db-round-trip
-  (testing "replace-app-db! then app-db-value round-trips the app-db partition"
+(deftest app-db-value-and-replace-frame-state-app-only-round-trip
+  (testing "replace-frame-state! with an app-only map then app-db-value
+            round-trips the app-db partition"
     (rf/reg-frame :pp/round-trip {:doc "round-trip"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/round-trip})
     (is (= {:k 1} (rf/app-db-value :pp/round-trip))
         "app-db-value reads the seeded app-db")
-    (is (true? (rf/replace-app-db! :pp/round-trip {:k 2 :j 9}))
-        "replace-app-db! returns true on success (the renamed app-db state-injection surface)")
+    (is (true? (rf/replace-frame-state! :pp/round-trip {:rf.db/app {:k 2 :j 9}}))
+        "replace-frame-state! returns true on success (the former replace-app-db! state-injection surface, now a one-key partial map)")
     (is (= {:k 2 :j 9} (rf/app-db-value :pp/round-trip))
-        "app-db-value reads back exactly what replace-app-db! wrote")))
+        "app-db-value reads back exactly what replace-frame-state! wrote")))
 
-(deftest reset-app-db-resets-app-db-only-via-core-facade
-  (testing "rf/reset-app-db! resets the app-db partition to {} while live
-            runtime-db survives (EP-0001 rf2-tfepxu, Mike ruling #10 — the
-            app-db sibling of a full frame reset, destroy-frame! + reg-frame)"
+(deftest replace-frame-state-app-reset-preserves-runtime-via-core-facade
+  (testing "rf/replace-frame-state! with {:rf.db/app {}} resets the app-db
+            partition to {} while live runtime-db survives — the ABSENT
+            :rf.db/runtime key is PRESERVED, not nilled (EP-0001 rf2-tfepxu,
+            Mike ruling #10, generalised by rf2-t3lftq — the former
+            reset-app-db!, now a one-key partial map)"
     (rf/reg-frame :pp/reset-app {:doc "reset-app"})
     (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})
-    (rf/replace-runtime-db! :pp/reset-app {:rf.runtime/machines {:m 1}})
+    (rf/replace-frame-state! :pp/reset-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
     (is (= {:k 1 :cart {:items [9]}} (rf/app-db-value :pp/reset-app)))
-    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/reset-app)))
+    (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :pp/reset-app))))
 
-    (is (true? (rf/reset-app-db! :pp/reset-app))
-        "reset-app-db! returns true on success")
+    (is (true? (rf/replace-frame-state! :pp/reset-app {:rf.db/app {}}))
+        "replace-frame-state! returns true on success")
     (is (= {} (rf/app-db-value :pp/reset-app))
         "app-db partition reset to {}")
-    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/reset-app))
-        "runtime-db partition PRESERVED — reset-app-db! never touches it")))
+    (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :pp/reset-app)))
+        "runtime-db partition PRESERVED — the absent :rf.db/runtime key was never touched")))
 
 (deftest app-db-value-unknown-frame-is-nil
   (testing "app-db-value returns nil for an unknown frame"
     (is (nil? (rf/app-db-value :pp/no-such-frame)))))
-
-(deftest runtime-db-value-reads-real-partition
-  (testing "runtime-db-value reads the real runtime-db partition (rf2-adwcv6, bead 5)"
-    (rf/reg-frame :pp/runtime {:doc "runtime"})
-    (is (= {} (rf/runtime-db-value :pp/runtime))
-        "live frame: a fresh frame's runtime-db starts {} (the physical partition is real now)")
-    (is (nil? (rf/runtime-db-value :pp/no-such-frame))
-        "unknown frame: nil")
-    (rf/replace-runtime-db! :pp/runtime {:rf.runtime/machines {:m 1}})
-    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/runtime))
-        "runtime-db-value reads back exactly what replace-runtime-db! wrote")))
 
 (deftest frame-state-value-projection-shape
   (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …} with the real runtime-db"
@@ -402,49 +395,72 @@
     (is (= {:a 1} (:rf.db/app (rf/frame-state-value :pp/fs)))
         "the :rf.db/app slot equals app-db-value")
     (is (= (rf/app-db-value :pp/fs) (:rf.db/app (rf/frame-state-value :pp/fs)))
-        "frame-state :rf.db/app is the same value app-db-value returns")
-    (is (= (rf/runtime-db-value :pp/fs) (:rf.db/runtime (rf/frame-state-value :pp/fs)))
-        "frame-state :rf.db/runtime is the same value runtime-db-value returns")))
+        "frame-state :rf.db/app is the same value app-db-value returns")))
 
 (deftest frame-state-value-unknown-frame-is-nil
   (testing "frame-state-value returns nil for an unknown frame"
     (is (nil? (rf/frame-state-value :pp/no-such-frame)))))
 
-(deftest replace-runtime-db-writes-real-partition
-  (testing "replace-runtime-db! writes the runtime-db partition only (rf2-adwcv6)"
+(deftest replace-frame-state-runtime-only-preserves-app-via-core-facade
+  (testing "replace-frame-state! with a runtime-only map writes ONLY the
+            runtime-db partition — the absent :rf.db/app key is PRESERVED
+            (rf2-t3lftq; the former replace-runtime-db!, now a one-key
+            partial map)"
     (rf/reg-frame :pp/rdb {:doc "runtime-mutate"})
     (rf/reg-event :pp/seed-app (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-app {:app :data}] {:frame :pp/rdb})
-    (rf/replace-runtime-db! :pp/rdb {:rf.runtime/machines {}})
-    (is (= {:rf.runtime/machines {}} (rf/runtime-db-value :pp/rdb))
+    (rf/replace-frame-state! :pp/rdb {:rf.db/runtime {:rf.runtime/machines {}}})
+    (is (= {:rf.runtime/machines {}} (:rf.db/runtime (rf/frame-state-value :pp/rdb)))
         "runtime-db partition replaced")
     (is (= {:app :data} (rf/app-db-value :pp/rdb))
-        "app-db partition untouched by a runtime-db-only write")))
+        "app-db partition untouched — the absent :rf.db/app key was never touched")))
 
 (deftest replace-frame-state-writes-both-partitions
-  (testing "replace-frame-state! installs both partitions atomically (rf2-adwcv6)"
+  (testing "replace-frame-state! with a both-partition map installs both
+            atomically (rf2-adwcv6)"
     (rf/reg-frame :pp/fsm {:doc "frame-state-mutate"})
     (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
     (is (= {:a 7} (rf/app-db-value :pp/fsm))
         "app-db partition installed")
-    (is (= {:rf.runtime/routing {:r 1}} (rf/runtime-db-value :pp/fsm))
+    (is (= {:rf.runtime/routing {:r 1}} (:rf.db/runtime (rf/frame-state-value :pp/fsm)))
         "runtime-db partition installed")
     (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
            (rf/frame-state-value :pp/fsm))
         "frame-state reads back the coherent both-partition snapshot")))
 
+(deftest replace-frame-state-rejects-no-recognized-keys
+  (testing "replace-frame-state! rejects a map carrying no recognized
+            partition key — an empty map, or a map of only unrelated keys
+            — with :rf.error/replace-frame-state-bad-keys rather than
+            silently no-opping while returning true (rf2-t3lftq)"
+    (rf/reg-frame :pp/bad-keys-empty {:doc "bad-keys-empty"})
+    (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {}))
+        "an empty map carries no recognized partition key — rejected")
+    (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1}))
+        "a map of only unrelated keys carries no recognized partition key — rejected")))
+
+(deftest replace-frame-state-rejects-unknown-keys
+  (testing "replace-frame-state! rejects a map carrying an unrecognized key
+            alongside a recognized one — a typo'd partition key (e.g.
+            :rf.db/apps) is never silently ignored (rf2-t3lftq)"
+    (rf/reg-frame :pp/bad-keys-typo {:doc "bad-keys-typo"})
+    (is (false? (rf/replace-frame-state! :pp/bad-keys-typo {:rf.db/app {:k 1} :rf.db/apps {:k 2}}))
+        "an unrecognized key alongside a recognized one is rejected")
+    (is (= {} (rf/app-db-value :pp/bad-keys-typo))
+        "the rejected call did not install anything — app-db stays at the fresh-frame {} value")))
+
 (deftest partition-reader-docstrings-describe-post-landing-contract
-  (testing "the `runtime-db-value` / `frame-state-value` public docstrings
-            describe the LIVE post-rf2-adwcv6 contract — no pre-landing
-            placeholder wording (`nil` on a live frame / `until … lands`)
-            may reappear in `re-frame.core` (rf2-rxnnxh)"
+  (testing "the `frame-state-value` public docstring describes the LIVE
+            post-rf2-adwcv6 contract — no pre-landing placeholder wording
+            (`nil` on a live frame / `until … lands`) may reappear in
+            `re-frame.core` (rf2-rxnnxh)"
     ;; The facade is the REPL / tooling / agent-read surface; stale
     ;; pre-partition text taught a false contract (nil on live frames).
-    ;; Pin both docstrings so the stale phrases can never silently return.
+    ;; Pin the docstring so the stale phrases can never silently return.
     (let [stale-phrases ["until then" "until the physical partition lands"
                          "reads nil even for a live frame"
                          "lands in" "is nil until"]]
-      (doseq [sym ['runtime-db-value 'frame-state-value]]
+      (doseq [sym ['frame-state-value]]
         (let [doc (:doc (meta (ns-resolve 're-frame.core sym)))]
           (is (some? doc) (str sym " has a docstring"))
           (doseq [phrase stale-phrases]
@@ -486,6 +502,27 @@
     (require 're-frame.routing)
     (is (some? (ns-resolve 're-frame.routing 'clear-route))
         "clear-route is reached via re-frame.routing/clear-route")))
+
+;; ===========================================================================
+;; rf2-t3lftq — API-shrink #3 (frame-state-io)
+;;
+;; Adversarial contract test: `replace-frame-state!` is the ONE frame-state
+;; write surface, and the four retired names are GONE from the façade
+;; (pre-alpha — no back-compat alias).
+;; ===========================================================================
+
+(deftest frame-state-io-shrink-old-names-gone
+  (testing "the API-shrink #3 (rf2-t3lftq) retired names are GONE from
+            re-frame.core — replace-frame-state! is the ONE frame-state
+            write surface, and frame-state-value / app-db-value are the
+            retained reads"
+    (doseq [sym ['snapshot-of 'reset-app-db! 'replace-runtime-db!
+                 'replace-app-db! 'runtime-db-value]]
+      (is (nil? (ns-resolve 're-frame.core sym))
+          (str "re-frame.core/" sym " must be GONE (API-shrink #3, no back-compat alias)")))
+    (doseq [sym ['replace-frame-state! 'frame-state-value 'app-db-value]]
+      (is (some? (ns-resolve 're-frame.core sym))
+          (str "re-frame.core/" sym " must resolve (retained by API-shrink #3)")))))
 
 (deftest renamed-impl-exports-resolve-old-names-gone
   (testing "the impl-side artefact functions are renamed in lock-step with the

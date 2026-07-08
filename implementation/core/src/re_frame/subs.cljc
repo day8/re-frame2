@@ -1650,7 +1650,9 @@
   `:rf.db/runtime` partition — so a mixed dependency graph computes
   coherently in one call. To compute a framework runtime-db sub on its own,
   pass either the runtime-db value or the frame-state value (use
-  `rf/frame-state-value` / `rf/runtime-db-value`).
+  `rf/frame-state-value`, or `(:rf.db/runtime (rf/frame-state-value id))`
+  for the runtime-db value alone — rf2-t3lftq API-shrink #3 retired the
+  dedicated `rf/runtime-db-value` reader).
 
   ## Cost — linear in distinct subs per call (rf2-gyxm3 / rf2-r0zf2)
 

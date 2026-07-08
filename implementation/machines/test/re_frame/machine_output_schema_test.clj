@@ -161,7 +161,7 @@
             (collect-output-traces!
               (fn []
                 (rf/dispatch-sync [:rf.machine-output/spawn-parent [:rf.machine.spawn/spawned]])
-                (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                          [:rf.runtime/machines :spawned
                                           :rf.machine-output/spawn-parent [:working]])]
                   (rf/dispatch-sync [spawned-id [:fin]]))))]

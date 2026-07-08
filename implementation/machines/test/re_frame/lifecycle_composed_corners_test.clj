@@ -135,7 +135,7 @@
       (rf/reg-machine :corner.sid/parent parent)
       (rf/dispatch-sync [:corner.sid/parent [:spawn-bound]])
       ;; Actor A is :corner.sid/child#1; system-id binds to it.
-      (let [db (rf/runtime-db-value :rf/default)]
+      (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (= :corner.sid/child#1 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
             ":corner/primary reverse-index points at actor A (#1)")
         (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#1]))
@@ -143,7 +143,7 @@
 
       ;; Replace: destroy A, spawn B under the same system-id.
       (rf/dispatch-sync [:corner.sid/parent [:replace]])
-      (let [db (rf/runtime-db-value :rf/default)]
+      (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (= :corner.sid/child#2 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
             ":corner/primary now points at actor B (#2) — index rebinds cleanly")
         (is (nil? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#1]))
@@ -162,7 +162,7 @@
           (is (some #(= :rf.error/no-such-handler (:operation %)) @recorded)
               "stale dispatch to A's gone handler trace :rf.error/no-such-handler")
           ;; B's snapshot is untouched by the stale-firing-on-A event.
-          (let [db (rf/runtime-db-value :rf/default)]
+          (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
             (is (= :running (:state (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#2])))
                 "actor B's state is still :running — stale A-firing did NOT cross over")
             (is (= :corner.sid/child#2 (get-in db [:rf.runtime/machines :system-ids :corner/primary]))
@@ -210,7 +210,7 @@
       (rf/dispatch-sync [:corner.ia/parent [:start]] {:frame :corner.ia/scoped})
 
       ;; The join state is seeded.
-      (let [db (rf/runtime-db-value :corner.ia/scoped)
+      (let [db (:rf.db/runtime (rf/frame-state-value :corner.ia/scoped))
             j  (get-in db [:rf.runtime/machines :spawned :corner.ia/parent [:hydrating]])]
         (is (map? j) "join state seeded")
         (is (false? (:resolved? j)) "join not yet resolved"))
@@ -267,7 +267,7 @@
           "precondition: timer table holds the in-flight entry")
 
       ;; Capture the entry's epoch BEFORE we exit :loading.
-      (let [snap-before  (get-in (rf/runtime-db-value :rf/default)
+      (let [snap-before  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :snapshots :corner.dyn/m])
             epoch-loading (get-in snap-before [:data :rf/after-epoch [:loading]])]
         (is (pos? epoch-loading) ":loading entry advanced the per-path epoch")
@@ -275,7 +275,7 @@
         ;; Exit :loading via :loaded → :ready. after-cancel-fx
         ;; releases the timer entry.
         (rf/dispatch-sync [:corner.dyn/m [:loaded]])
-        (is (= :ready (:state (get-in (rf/runtime-db-value :rf/default)
+        (is (= :ready (:state (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                       [:rf.runtime/machines :snapshots :corner.dyn/m])))
             "machine reached :ready")
         ;; The timer table's inner map should have the entry dropped;
@@ -292,7 +292,7 @@
           (try
             (rf/dispatch-sync [:corner.dyn/m
                                [:rf.machine.timer/after-elapsed 5000 epoch-loading [:loading]]])
-            (is (= :ready (:state (get-in (rf/runtime-db-value :rf/default)
+            (is (= :ready (:state (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                           [:rf.runtime/machines :snapshots :corner.dyn/m])))
                 "stale firing did NOT transition the machine off :ready")
             (is (some #(and (= :rf.machine.timer/stale-after (:operation %))
@@ -366,7 +366,7 @@
     ;; --- preconditions ----------------------------------------------------
     (is (contains? @timer/after-timers :corner.leak/scoped)
         "precondition: timer table holds the :after entry for the frame")
-    (let [db (rf/runtime-db-value :corner.leak/scoped)]
+    (let [db (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))]
       (is (= :corner.leak/child#1
              (get-in db [:rf.runtime/machines :system-ids :corner.leak/primary]))
           "precondition: system-id reverse index points at the spawned actor")
@@ -390,7 +390,7 @@
         "post: timer table no longer holds an entry for the destroyed frame")
     (is (nil? (frame/frame :corner.leak/scoped))
         "post: frame is dissoc'd from the frames atom")
-    (is (nil? (get-in (rf/runtime-db-value :corner.leak/scoped)
+    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))
                       [:rf.runtime/machines :snapshots :corner.leak/child#1]))
         "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared (rf2-a2sn1)")
     (is (= [] (spawn-order/frame-order :corner.leak/scoped))

@@ -163,9 +163,9 @@ Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 
 ```clojure
-(rf/app-db-value :rf/default)                  ;; whole app-db, any frame
-(rf/snapshot-of [:cart :items])             ;; get-in over the current frame
-(rf/snapshot-of [:cart :items] {:frame :stories})
+(rf/app-db-value :rf/default)                       ;; whole app-db, any frame
+(get-in (rf/app-db-value :rf/default) [:cart :items])  ;; path-scoped read
+(get-in (rf/app-db-value :stories) [:cart :items])
 ```
 
 These are value-form accessors — there is no `deref`. They work identically on JVM and CLJS.
@@ -267,7 +267,7 @@ When a fixture didn't stash the tree, or you need the `:on-click`-fires-the-righ
 
 ## Machine snapshots and tag queries
 
-A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-db [:rf.runtime/machines :snapshots machine-id])` — a map of `{:state ... :data ... :tags ...}` (`:tags` is absent when the active state-configuration's tag union is empty). Read runtime-db with `runtime-db-value` (not `app-db-value`, which returns the app-db partition only) — or, preferably, read the snapshot through the `[:rf/machine machine-id]` subscription vector.
+A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-db [:rf.runtime/machines :snapshots machine-id])` — a map of `{:state ... :data ... :tags ...}` (`:tags` is absent when the active state-configuration's tag union is empty). Read runtime-db with `(:rf.db/runtime (rf/frame-state-value frame-id))` (not `app-db-value`, which returns the app-db partition only) — or, preferably, read the snapshot through the `[:rf/machine machine-id]` subscription vector.
 
 ```clojure
 (rf/reg-machine :loader
@@ -280,7 +280,7 @@ A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-d
 (rf/dispatch-sync [:loader [:fetch]])
 
 ;; Direct snapshot access — full-shape assertions (runtime-db partition)
-(let [s (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :loader])]
+(let [s (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :loader])]
   (is (= :loading      (:state s)))
   (is (= #{:transient} (:tags s))))
 
@@ -360,7 +360,7 @@ Pick the tightest match and name it for the author. A green slice on the changed
 - A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
-- Machine assertions use `(subscribe [:rf/machine id])` / `machine-has-tag?` or `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
+- Machine assertions use `(subscribe [:rf/machine id])` / `machine-has-tag?` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 - **Gate named for the author** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) is named concretely so the author can run it; the skill writes the test, the author runs the suite.
 

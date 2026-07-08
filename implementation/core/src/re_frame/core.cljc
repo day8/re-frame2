@@ -1951,21 +1951,6 @@
   [frame-id]
   (frame/frame-app-db-value (frame/frame-target->id frame-id)))
 
-(defn runtime-db-value
-  "Return the current `runtime-db` partition VALUE for the named frame —
-  the framework-owned subsystem state (the `:rf.runtime/*` children), or
-  `nil` for an unknown / destroyed frame. The tool / privileged-runtime
-  read of the framework partition.
-
-  EP-0001 (rf2-q4i9ko + rf2-adwcv6): the physical runtime-db partition is
-  live. A fresh frame's runtime-db starts `{}`; reads return the current
-  `:rf.db/runtime` projection off the one-container frame-state. Per Spec
-  002 §The two-partition frame contract and API.md `runtime-db-value`.
-
-  EP-0023 (rf2-32siq3.32): accepts a frame-id keyword or a live frame object."
-  [frame-id]
-  (frame/frame-runtime-db-value (frame/frame-target->id frame-id)))
-
 (defn frame-state-value
   "Return the coherent frame-state projection for the named frame —
   `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an
@@ -1974,30 +1959,19 @@
 
   EP-0001 (rf2-q4i9ko + rf2-adwcv6): reads the coherent two-partition
   frame state off the one physical frame-state container. A fresh frame's
-  state is `{:rf.db/app {} :rf.db/runtime {}}`; the `:rf.db/runtime` slot
-  equals `runtime-db-value`. Per Spec 002 §The two-partition frame
-  contract and API.md `frame-state-value`.
+  state is `{:rf.db/app {} :rf.db/runtime {}}`. The runtime-db partition
+  read (retired `runtime-db-value`, rf2-t3lftq — API-shrink #3) is
+  `(:rf.db/runtime (frame-state-value frame-id))`. Per Spec 002 §The
+  two-partition frame contract and API.md `frame-state-value`.
 
   EP-0023 (rf2-32siq3.32): accepts a frame-id keyword or a live frame object."
   [frame-id]
   (frame/frame-state-value (frame/frame-target->id frame-id)))
 
-(defn snapshot-of
-  "Return the value at `path` in a frame's app-db — convenience over
-  `(get-in (rf/app-db-value frame-id) path)`. Frame resolution (EP-0002
-  carried invariant): an explicit `(:frame opts)` override WINS; else the
-  scope/hold stamp via `frame/require-current-frame!`. Returns `nil` if
-  the frame is missing or the path resolves to nothing. A snapshot read
-  under no `:frame` opt and no established scope raises
-  `:rf.error/no-frame-context` rather than reading an invented default.
-  Per Spec 002 §The public registrar query API."
-  ([path] (snapshot-of path nil))
-  ([path opts]
-   (let [frame-id (frame/frame-target->id
-                    (or (:frame opts)
-                        (frame/require-current-frame!
-                          :snapshot-of {:where 're-frame.core/snapshot-of})))]
-     (get-in (frame/frame-app-db-value frame-id) path))))
+;; rf2-t3lftq (API-shrink #3): `snapshot-of` is REMOVED — an empirically
+;; zero-caller convenience over `(get-in (rf/app-db-value frame-id) path)`
+;; (or, under an established `with-frame` scope, `(get-in (rf/app-db-value
+;; (frame/require-current-frame!)) path)`). Pre-alpha — no back-compat alias.
 
 ;; rf2-80mmlf: the `sub-topology` / `sub-cache` facade aliases are REMOVED.
 ;; They are SUBSCRIPTION-TOOLING surfaces (static dependency-graph + runtime
@@ -2472,89 +2446,64 @@
   `:epoch/unregister-epoch-listener!`."}
   unregister-epoch-listener!   rf-epoch/unregister-epoch-listener!)
 
-;; ---- EP-0001 two-partition mutators (rf2-q4i9ko / rf2-tfepxu) -------------
+;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;
 ;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the
-;; partition write surface is `replace-app-db!` / `reset-app-db!` /
-;; `replace-runtime-db!` / `replace-frame-state!` (Mike ruling #1 / #10).
+;; partition write surface is ONE fn: `replace-frame-state!` (rf2-t3lftq —
+;; API-shrink #3 consolidated the former `replace-app-db!` / `reset-app-db!`
+;; / `replace-runtime-db!` / `replace-frame-state!` four-mutator family,
+;; which shared identical machinery — synthetic epoch record, drain guard,
+;; schema validation, boolean return, dev-gating, `:epoch` late-bind —
+;; differing only in WHICH keys of the frame-state map they touched).
 ;;
-;; - `replace-app-db!` is the app-db-only state-injection write — the
-;;   direct rename of the former `reset-frame-db!` Tool-Pair surface
-;;   (rf2-tfepxu, bead 9). Same synthetic-epoch recording, gating, and
-;;   failure modes; a db-shaped name never silently replaces runtime-db.
-;; - `reset-app-db!` resets the app-db partition to `{}` while preserving
-;;   live runtime-db — the app-db-only sibling of a full frame reset
-;;   (`destroy-frame!` + `reg-frame`, rf2-lxwpob), narrower in scope.
-;; - `replace-runtime-db!` / `replace-frame-state!` are epoch-backed
-;;   Tool-Pair injection writes (rf2-szbzei): each records a synthetic
-;;   `:rf/epoch-record` so `restore-epoch!` can rewind past the injection,
-;;   returns a boolean, shares the drain-guard + the framework-owned
-;;   runtime-db schema-validation contract, and raises
-;;   `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
-;;   They late-bind through `re-frame.epoch` exactly as the app-db pair
-;;   does (via `:epoch/replace-runtime-db!` / `:epoch/replace-frame-state!`).
+;; `replace-frame-state!` takes a PARTIAL frame-state map: a present key
+;; (`:rf.db/app` and/or `:rf.db/runtime`) replaces that partition; an
+;; absent key is preserved unchanged. A db-shaped key never silently
+;; touches the OTHER partition — the partition is named explicitly by its
+;; real key at every call site (Mike ruling #1 / #10, preserved and
+;; generalised: previously the fn NAME carried this guarantee, now the MAP
+;; KEY does, and a typo'd or unrecognized key fails loudly rather than
+;; silently no-opping). It is an epoch-backed Tool-Pair injection write
+;; (rf2-szbzei): records a synthetic `:rf/epoch-record` so `restore-epoch!`
+;; can rewind past the injection, returns a boolean, shares the drain-guard
+;; + the reject-bad-keys contract + the per-present-partition schema-
+;; validation contract, and raises `:rf.error/epoch-artefact-missing` when
+;; the epoch artefact is absent. Late-binds through `re-frame.epoch` via
+;; `:epoch/replace-frame-state!`.
+;;
+;; The former single-partition callers compose a one-key map:
+;;   - app-only injection    → `(replace-frame-state! id {:rf.db/app v})`
+;;   - app-only reset        → `(replace-frame-state! id {:rf.db/app {}})`
+;;   - runtime-only injection → `(replace-frame-state! id {:rf.db/runtime v})`
+;;   - both-partition install → supply both keys
 
-(def ^{:doc "Replace `frame-id`'s `app-db` partition with `app-db`,
-  bypassing the dispatch loop. The canonical Tool-Pair write surface for
-  app-db state injection — pair tools, story fixtures, conformance
-  harnesses, and time-travel from JSON repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch!` can rewind. Returns `true` on
-  success, `false` on a documented failure (unknown frame, drain in
-  flight, schema mismatch). Dev-only (gated on `interop/debug-enabled?`).
-  Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is
-  absent.
+(def ^{:doc "Atomically install `frame-state` — a PARTIAL frame-state map
+  (any subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
+  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
+  partition, an ABSENT key is preserved unchanged (rf2-t3lftq — API-shrink
+  #3, the ONE frame-state write surface). A db-shaped key never silently
+  touches the other partition — the partition is named explicitly at
+  every call site (Mike ruling #1 / #10, preserved and generalised). The
+  canonical Tool-Pair write surface for state injection — pair tools,
+  story fixtures, conformance harnesses, and time-travel from JSON
+  repros. Records a synthetic `:rf/epoch-record` so `restore-epoch!` can
+  rewind. Returns `true` on success, `false` on a documented failure
+  (bad keys, unknown frame, drain in flight, history disabled, schema
+  mismatch on a PRESENT partition). Dev-only (gated on
+  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
+  when the epoch artefact is absent.
 
-  EP-0001 (rf2-tfepxu): the direct rename of the former `reset-frame-db!`
-  Tool-Pair surface (Mike ruling #10). Replaces ONLY the app-db partition;
-  runtime-db is a partition this surface never touches (a db-shaped name
-  never silently replaces runtime-db). Per Spec 002 §Frame-state value
-  accessors and mutators and API.md `replace-app-db!`. Late-bound via
-  `:epoch/replace-app-db!`."}
-  replace-app-db!    rf-epoch/replace-app-db!)
+  App-only injection: `(replace-frame-state! id {:rf.db/app v})` — the
+  former `replace-app-db!`; `(replace-frame-state! id {:rf.db/app {}})`
+  is the former `reset-app-db!`. Runtime-only injection:
+  `(replace-frame-state! id {:rf.db/runtime v})` — the former
+  `replace-runtime-db!`. A map with no recognized partition key, or an
+  unrecognized key, is rejected as `:rf.error/replace-frame-state-bad-keys`
+  (checked before frame resolution — a caller-input-shape error).
 
-(def ^{:doc "Reset `frame-id`'s `app-db` partition to `{}`, bypassing the
-  dispatch loop, while preserving live runtime-db (machines / routes /
-  elision / SSR survive). The app-db-only sibling of a full frame reset
-  (`destroy-frame!` + `reg-frame`, rf2-lxwpob) — narrower in scope: it never
-  touches runtime-db or the frame's registration/lifecycle (EP-0001 rf2-tfepxu,
-  Mike ruling #10). Equivalent to `(replace-app-db! frame-id {})` — same
-  synthetic-epoch recording, gating, and failure modes. Returns `true` on
-  success, `false` on a documented failure. Dev-only (gated on
-  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing` when the
-  epoch artefact is absent. Per Spec 002 §Frame-state value accessors and
-  mutators and API.md `reset-app-db!`. Late-bound via `:epoch/reset-app-db!`."}
-  reset-app-db!    rf-epoch/reset-app-db!)
-
-(def ^{:doc "Replace ONLY `frame-id`'s `runtime-db` partition with
-  `runtime-db` — the framework-owned subsystem state (machine snapshots,
-  route slice, …). Privileged runtime / full-frame Tool-Pair injection
-  surface; app-db is untouched. Records a synthetic `:rf/epoch-record` so
-  `restore-epoch!` can rewind. Returns `true` on success, `false` on a
-  documented failure (unknown frame, drain in flight, runtime-db schema
-  mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
-  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
-
-  rf2-szbzei: epoch-backed Tool-Pair injection write — the runtime-db
-  sibling of `replace-app-db!`. Per Spec 002 §Frame-state value accessors
-  and mutators, Tool-Pair §Pair-tool writes, and API.md
-  `replace-runtime-db!`. Late-bound via `:epoch/replace-runtime-db!`."}
-  replace-runtime-db!    rf-epoch/replace-runtime-db!)
-
-(def ^{:doc "Replace BOTH partitions of `frame-id` atomically with
-  `frame-state` (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame
-  install for tool-driven replay / fixture install (epoch restore, time
-  travel, SSR hydration, frame reset, test-fixture install). A db-shaped
-  name never silently replaces runtime-db — this is the explicit full-frame
-  surface (Mike ruling #10). Records a synthetic `:rf/epoch-record` so
-  `restore-epoch!` can rewind. Returns `true` on success, `false` on a
-  documented failure (unknown frame, drain in flight, app-db OR runtime-db
-  schema mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
-  `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
-
-  rf2-szbzei: epoch-backed Tool-Pair injection write — the full-frame
-  sibling of `replace-app-db!`. Per Spec 002 §Frame-state value accessors
-  and mutators, Tool-Pair §Pair-tool writes, and API.md
-  `replace-frame-state!`. Late-bound via `:epoch/replace-frame-state!`."}
+  Per Spec 002 §Frame-state value accessors and mutators, Tool-Pair
+  §Pair-tool writes, and API.md `replace-frame-state!`. Late-bound via
+  `:epoch/replace-frame-state!`."}
   replace-frame-state!   rf-epoch/replace-frame-state!)
 
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck — single

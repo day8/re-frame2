@@ -2,7 +2,8 @@
   "Unit tests for the replace-app-db tool.
 
   State injection — replaces a frame's app-db with an arbitrary EDN
-  value via the Tool-Pair `replace-app-db!` write primitive. Pins:
+  value via the Tool-Pair `replace-frame-state!` write primitive (an
+  app-only partial map, `{:rf.db/app v}`). Pins:
 
     - the `--allow-writes` gate (default OFF returns
       `:rf.error/writes-disabled` without touching the runtime);

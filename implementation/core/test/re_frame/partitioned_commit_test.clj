@@ -20,8 +20,10 @@
     6. `:rf.event/db-changed` stays APP-DB-ONLY (decision #6); a new
        `:rf.event/frame-state-changed` fires partition-tagged for EITHER
        partition.
-    7. `replace-app-db!` / `replace-runtime-db!` / `replace-frame-state!`
-       are real partition writes (the bead-3 :not-yet-implemented throws are
+    7. `replace-frame-state!` (rf2-t3lftq — API-shrink #3 consolidated the
+       former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
+       `replace-frame-state!` family into this ONE partial-map surface) is
+       a real partition write (the bead-3 :not-yet-implemented throws are
        gone).
     8. Atomicity: an app-db schema rollback unwinds the WHOLE transition
        (both partitions) — preserving the pre-commit-transactional /
@@ -135,7 +137,7 @@
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:door {:state :open}}}}))
     (rf/dispatch-sync [:pc/seed-rt] {:frame :pc/scope})
     (is (= {:rf.runtime/machines {:door {:state :open}}}
-           (rf/runtime-db-value :pc/scope)))
+           (:rf.db/runtime (rf/frame-state-value :pc/scope))))
     ;; A fresh-map app handler — the classic footgun shape — must NOT drop
     ;; runtime-db, because :db is scoped to the app-db partition.
     (rf/reg-event :pc/fresh (fn [{:keys [db]} _] {:db {:session :anonymous}}))
@@ -143,7 +145,7 @@
     (is (= {:session :anonymous} (rf/app-db-value :pc/scope))
         "app-db replaced wholesale")
     (is (= {:rf.runtime/machines {:door {:state :open}}}
-           (rf/runtime-db-value :pc/scope))
+           (:rf.db/runtime (rf/frame-state-value :pc/scope)))
         "runtime-db SURVIVES a fresh-map :db return — the partition footgun is structurally gone")))
 
 ;; ===========================================================================
@@ -159,7 +161,7 @@
       (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
     (rf/dispatch-sync [:pc/write-rt] {:frame :pc/rtfx})
     (is (= {:rf.runtime/routing {:current {:route-id :home}}}
-           (rf/runtime-db-value :pc/rtfx))
+           (:rf.db/runtime (rf/frame-state-value :pc/rtfx)))
         "the :rf.db/runtime effect installed the runtime-db partition")
     (is (= {:app :data} (rf/app-db-value :pc/rtfx))
         "app-db is untouched by a runtime-only effect")))
@@ -168,15 +170,14 @@
   (testing "operation-style runtime writes (via the mutator) coexist with whole-value (decision #5)"
     (rf/reg-frame :pc/rtop {:doc "rtop"})
     ;; whole-value seed
-    (rf/replace-runtime-db! :pc/rtop {:rf.runtime/machines {:a 1}})
-    (is (= {:rf.runtime/machines {:a 1}} (rf/runtime-db-value :pc/rtop)))
+    (rf/replace-frame-state! :pc/rtop {:rf.db/runtime {:rf.runtime/machines {:a 1}}})
+    (is (= {:rf.runtime/machines {:a 1}} (:rf.db/runtime (rf/frame-state-value :pc/rtop))))
     ;; operation-style update over the partition (read-modify-write)
-    (rf/replace-runtime-db! :pc/rtop
-                            (assoc (rf/runtime-db-value :pc/rtop)
-                                   :rf.runtime/routing {:current {:route-id :x}}))
+    (rf/replace-frame-state! :pc/rtop {:rf.db/runtime (assoc (:rf.db/runtime (rf/frame-state-value :pc/rtop))
+                                   :rf.runtime/routing {:current {:route-id :x}})})
     (is (= {:rf.runtime/machines {:a 1}
             :rf.runtime/routing {:current {:route-id :x}}}
-           (rf/runtime-db-value :pc/rtop))
+           (:rf.db/runtime (rf/frame-state-value :pc/rtop)))
         "an operation-style write merges into the existing runtime-db partition")))
 
 ;; ===========================================================================
@@ -194,7 +195,7 @@
     (is (= {:page :account} (rf/app-db-value :pc/both))
         "app-db partition committed")
     (is (= {:rf.runtime/routing {:current {:route-id :account}}}
-           (rf/runtime-db-value :pc/both))
+           (:rf.db/runtime (rf/frame-state-value :pc/both)))
         "runtime-db partition committed")
     ;; The physical container holds the coherent both-partition value — there
     ;; is no window where one partition is committed and the other is not.
@@ -226,7 +227,7 @@
         (is (= 1 (rf/with-frame :rf/default @(rf/subscribe [:pc/app-sub]))))
         (is (= after-prime @runs)
             "the app sub did NOT recompute — the app-db projection stayed `=` on a runtime-only commit")
-        (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :rf/default))
+        (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "the runtime-only commit DID land in runtime-db")))))
 
 (deftest app-only-commit-does-not-invalidate-runtime-projection
@@ -235,12 +236,12 @@
     (reg-fw-runtime-handler! :pc/seed-rt2
       (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
     (rf/dispatch-sync [:pc/seed-rt2] {:frame :pc/inval-rt})
-    (let [rt-before (rf/runtime-db-value :pc/inval-rt)]
+    (let [rt-before (:rf.db/runtime (rf/frame-state-value :pc/inval-rt))]
       ;; app-only commit
       (rf/reg-event :pc/app-write (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
       (rf/dispatch-sync [:pc/app-write] {:frame :pc/inval-rt})
       (is (true? (:touched? (rf/app-db-value :pc/inval-rt))))
-      (is (identical? rt-before (rf/runtime-db-value :pc/inval-rt))
+      (is (identical? rt-before (:rf.db/runtime (rf/frame-state-value :pc/inval-rt)))
           "runtime-db is reference-identical across an app-only commit — no spurious runtime change"))))
 
 ;; ===========================================================================
@@ -312,15 +313,16 @@
 (deftest replace-app-db-leaves-runtime-untouched
   (testing "replace-app-db! writes only app-db; runtime-db survives"
     (rf/reg-frame :pc/m-app {:doc "m-app"})
-    (rf/replace-runtime-db! :pc/m-app {:rf.runtime/machines {:m 1}})
+    (rf/replace-frame-state! :pc/m-app {:rf.db/runtime {:rf.runtime/machines {:m 1}}})
     ;; The frame-level helper exercises the internal partition write directly
-    ;; (the public `rf/replace-app-db!` epoch-delegate's full contract — return
-    ;; value, synthetic epoch, failure modes — is exercised in the epoch
-    ;; artefact's own suite; here we only need the partition-isolation effect).
+    ;; (the public `rf/replace-frame-state!` epoch-delegate's full contract —
+    ;; return value, synthetic epoch, failure modes, reject-bad-keys — is
+    ;; exercised in the epoch artefact's own suite; here we only need the
+    ;; partition-isolation effect of the low-level `re-frame.frame` writer).
     (frame/replace-app-db! :pc/m-app {:k 1})
     (is (= {:k 1} (rf/app-db-value :pc/m-app)))
-    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pc/m-app))
-        "replace-app-db! never silently replaces runtime-db (Mike ruling #10)")))
+    (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :pc/m-app)))
+        "frame/replace-app-db! never silently replaces runtime-db (Mike ruling #10)")))
 
 (deftest replace-frame-state-is-atomic-both-partitions
   (testing "replace-frame-state! installs both partitions in one write"
@@ -342,12 +344,13 @@
     (is (= {:rf.db/app {:a :old} :rf.db/runtime {:rf.runtime/machines {:m :old}}}
            (rf/frame-state-value :pc/m-full)))
     ;; a full-frame replace swaps the WHOLE frame-state — both app-db AND
-    ;; runtime-db are replaced wholesale, unlike replace-app-db! (app-db only).
+    ;; runtime-db are replaced wholesale, unlike an app-only partial map
+    ;; (`{:rf.db/app v}`, the former replace-app-db!) which touches app-db only.
     (rf/replace-frame-state! :pc/m-full {:rf.db/app {:a :new}
                                          :rf.db/runtime {:rf.runtime/routing {:r :new}}})
     (is (= {:a :new} (rf/app-db-value :pc/m-full))
         "app-db partition fully replaced")
-    (is (= {:rf.runtime/routing {:r :new}} (rf/runtime-db-value :pc/m-full))
+    (is (= {:rf.runtime/routing {:r :new}} (:rf.db/runtime (rf/frame-state-value :pc/m-full)))
         "runtime-db partition fully replaced — the old machines slice is gone")
     (is (= {:rf.db/app {:a :new} :rf.db/runtime {:rf.runtime/routing {:r :new}}}
            (rf/frame-state-value :pc/m-full))
@@ -388,7 +391,7 @@
       (rf/dispatch-sync [:pc/bad] {:frame :pc/rb})
       (is (= {:n 0} (rf/app-db-value :pc/rb))
           "app-db rolled back to the pre-handler value")
-      (is (= {:rf.runtime/machines {:m :pre}} (rf/runtime-db-value :pc/rb))
+      (is (= {:rf.runtime/machines {:m :pre}} (:rf.db/runtime (rf/frame-state-value :pc/rb)))
           "runtime-db ALSO rolled back — the whole transition unwinds coherently"))))
 
 ;; EP-0025 SOURCE-AWARE rollback restore — rf2-5lo1fk / rf2-fwejwc /
@@ -618,5 +621,5 @@
            the focused path SURVIVES (NOT corrupted to the path slice)")
       (is (= :must-survive (:keep (rf/app-db-value :pc/rb-path)))
           "the out-of-path canary key SURVIVED the schema-rollback")
-      (is (= {:rf.runtime/machines {:m :pre}} (rf/runtime-db-value :pc/rb-path))
+      (is (= {:rf.runtime/machines {:m :pre}} (:rf.db/runtime (rf/frame-state-value :pc/rb-path)))
           "runtime-db ALSO rolled back coherently — the whole transition unwinds"))))

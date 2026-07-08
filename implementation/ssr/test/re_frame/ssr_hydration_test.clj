@@ -150,7 +150,7 @@
       ;; testbed's view doesn't read these slots, but downstream tooling
       ;; — Xray / the late-bind compatibility-check fxs — does).
       ;; EP-0001 (rf2-vzld77): the hydration metadata is durable runtime-db state.
-      (let [rt (rf/runtime-db-value client-frame)]
+      (let [rt (:rf.db/runtime (rf/frame-state-value client-frame))]
         (is (= 1 (get-in rt [:rf.runtime/ssr :hydration :version]))
             ":rf/version rides on the hydration metadata block")
         (is (not (contains? (get-in rt [:rf.runtime/ssr :hydration]) :server-hash))
@@ -842,7 +842,7 @@
         ;; snapshots from the rejected payload).
         (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the runtime-db partition is left unchanged")
-        (is (nil? (get-in (rf/runtime-db-value client-frame)
+        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                           [:rf.runtime/machines :snapshots]))
             "the payload's runtime-db slice did NOT land — runtime-db untouched")
         ;; the structured mismatch surfaced, carrying the two frames.
