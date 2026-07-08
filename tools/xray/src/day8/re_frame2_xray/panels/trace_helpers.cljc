@@ -124,9 +124,17 @@
       (= op-ns "rf.fx")                  :fx
       (= op-ns "rf.sub")                 :sub
       (= op-ns "rf.view")                :view
-      (#{"rf.machine" "rf.machine.microstep" "rf.machine.timer"
-         "rf.machine.spawn" "rf.machine.lifecycle"
-         "rf.machine.registrar"} op-ns)  :machine
+      ;; Machine ops ride the root `rf.machine` namespace AND a family of
+      ;; sub-namespaces (`rf.machine.microstep` / `.timer` / `.spawn` /
+      ;; `.spawn-all` / `.event` / `.history` / `.start` / `.lifecycle` /
+      ;; `.registrar` / …). A prefix match covers the whole `rf.machine*`
+      ;; family — consistent with the `rf.route*` routing branch above — so
+      ;; a spawn-all / event / history / start op badges MACHINE rather than
+      ;; falling through to a bare EVENT. The prior enumerated set omitted
+      ;; those four sub-families (rf2-99f7eq; same class as rf2-409jka /
+      ;; rf2-uxp0u5, PR #5357). No other op-family namespace begins with
+      ;; `rf.machine`, so the prefix cannot over-match.
+      (and op-ns (str/starts-with? op-ns "rf.machine")) :machine
       :else                              :event)))
 
 (def area->badge

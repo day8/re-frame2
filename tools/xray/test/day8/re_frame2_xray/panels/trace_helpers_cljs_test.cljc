@@ -159,6 +159,16 @@
     (is (= :routing (h/area {:operation :rf.route/deactivated})))
     (is (= :routing (h/area {:operation :rf.route.nav-token/allocated})))
     (is (= :machine (h/area {:operation :rf.machine.timer/scheduled}))))
+  (testing "the whole rf.machine* family classifies MACHINE by prefix, not
+            an enumerated set — the four sub-families the enumerated set
+            omitted (rf2-99f7eq: spawn-all / event / history / start) all
+            emit under their own sub-namespace and MUST NOT fall through to
+            a bare EVENT"
+    (is (= :machine (h/area {:operation :rf.machine.spawn-all/started})))
+    (is (= :machine (h/area {:operation :rf.machine.spawn-all/completed})))
+    (is (= :machine (h/area {:operation :rf.machine.event/received})))
+    (is (= :machine (h/area {:operation :rf.machine.history/recorded})))
+    (is (= :machine (h/area {:operation :rf.machine.start/started}))))
   (testing "unknown ops fall back to :event-adjacent neutral"
     (is (= :event (h/area {:op-type :totally-made-up})))))
 
@@ -183,6 +193,41 @@
       (is (= :effects (h/phase row))))
     (testing "target-detail renders the route-id (not an em-dash)"
       (is (= ":dashboard" (h/target-detail row))))))
+
+(deftest machine-sub-namespace-ops-are-machine-not-a-bare-event
+  ;; rf2-99f7eq — when a machine op reaches `area` WITHOUT its `:rf.machine`
+  ;; op-type stamp it falls to the namespace-discrimination fallback (the
+  ;; same path the existing `:rf.machine.timer/scheduled` test above rides).
+  ;; That fallback used an ENUMERATED set of namespaces ({"rf.machine"
+  ;; "rf.machine.microstep" "rf.machine.timer" "rf.machine.spawn"
+  ;; "rf.machine.lifecycle" "rf.machine.registrar"}) which OMITTED
+  ;; `rf.machine.spawn-all` (reply.cljc / join.cljc / spawn.cljc),
+  ;; `rf.machine.event` (parallel.cljc / transition.cljc),
+  ;; `rf.machine.history` (transition.cljc) and `rf.machine.start`
+  ;; (registration.cljc). Those four sub-families fell through to `:else
+  ;; :event` — badged EVENT (not MACHINE), and `op-family` resolved
+  ;; :dispatch not :machine (wrong left-edge colour). Same class as
+  ;; rf2-409jka / rf2-uxp0u5 (PR #5357, the routing prefix fix). A
+  ;; `str/starts-with? "rf.machine"` prefix match fixes the whole family at
+  ;; once and is future-proof to new sub-families. `:op-type` is left
+  ;; unstamped (nil) so the assertion exercises the namespace fallback —
+  ;; the branch the enumerated set lived in.
+  (doseq [op [:rf.machine.spawn-all/started
+              :rf.machine.spawn-all/completed
+              :rf.machine.spawn-all/failed
+              :rf.machine.event/received
+              :rf.machine.history/recorded
+              :rf.machine.start/started]]
+    (let [row (ev {:id 1 :operation op
+                   :tags {:actor-id :ws/conn :from :idle :to :active}})]
+      (testing (str op " classifies MACHINE (not the bare EVENT it fell through to)")
+        (is (= :machine (h/area row)))
+        (is (= "MACHINE" (h/area-badge row))))
+      (testing (str op " rides the machine op-family (left-edge colour)")
+        (is (= :machine (h/op-family row))))
+      (testing (str op " stages EVENT-HANDLER, not the :event dispatch path")
+        (is (= :HANDLER (h/stage row)))
+        (is (= :event-handling (h/phase row)))))))
 
 (deftest area-badge-renders-uppercase-text
   (is (= "EVENT" (h/area-badge {:op-type :rf.event :operation :rf.event/dispatched})))
