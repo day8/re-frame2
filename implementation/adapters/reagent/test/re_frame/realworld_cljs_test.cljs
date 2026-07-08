@@ -42,6 +42,11 @@
             ;; (rf2-yt7ay6). The example source stays test-free; the assertions
             ;; live here.
             [realworld-http.http :as rh]
+            ;; Article-editor pure helpers (validate-draft / parse-tag-list /
+            ;; draft-from-article / article-body) exercised directly by
+            ;; editor-pure-helpers-test (rf2-54eebb). Example source stays
+            ;; test-free; assertions live here.
+            [realworld-http.article-editor :as editor]
             [realworld-http.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -1165,3 +1170,161 @@
 (deftest realworld-core-smoke
   (testing "app boot populates :auth, :articles, and :tags slices"
     (app-smoke-test)))
+
+;; ============================================================================
+;; article-editor — edit-mode load (PUT) / load-failure / delete / invalid-submit
+;; + pure helpers (rf2-54eebb)
+;; ============================================================================
+;;
+;; editor-create-test above covers the CREATE path only. Untested until now: the
+;; edit-mode load (draft-from-article seed + :mode/edit + PUT-on-submit), the
+;; load-failure render gate, the delete flow, the client-side invalid-submit
+;; branch, and the four pure helpers the handlers lean on.
+
+(defn- ed-has-tag? [f tag]
+  (rf/compute-sub [:rf.machine/has-tag? :ui/article-editor tag]
+                  (rf/frame-state-value f)))
+
+(defn- editor-pure-helpers-test []
+  ;; validate-draft — one message per blank required field; empty map when valid.
+  (is (= {} (editor/validate-draft {:title "T" :description "D" :body "B"}))
+      "a fully-filled draft validates clean (no error map)")
+  (is (= #{:title :description :body}
+         (set (keys (editor/validate-draft {:title "" :description "" :body ""}))))
+      "every blank required field earns its own error")
+  (is (= #{:description}
+         (set (keys (editor/validate-draft {:title "T" :description "   " :body "B"}))))
+      "a whitespace-only field counts as blank (str/blank?)")
+  ;; parse-tag-list — split on comma, trim each, drop blanks, vector out.
+  (is (= ["a" "b" "c"] (editor/parse-tag-list "a, b ,c"))
+      "tags split on comma, each trimmed")
+  (is (= [] (editor/parse-tag-list "")) "empty string → no tags")
+  (is (= [] (editor/parse-tag-list nil)) "nil → no tags (no NPE on the split)")
+  (is (= ["x"] (editor/parse-tag-list " , x , ,")) "blank entries between commas are dropped")
+  ;; draft-from-article — joins the tagList vector back into the comma string the
+  ;; form edits.
+  (is (= {:title "T" :description "D" :body "B" :tagList "a, b"}
+         (editor/draft-from-article {:title "T" :description "D" :body "B" :tagList ["a" "b"]}))
+      "an article decodes into the editable draft shape (tagList joined)")
+  ;; article-body — wraps the draft into the {:article …} request body, parsing tags.
+  (is (= {:article {:title "T" :description "D" :body "B" :tagList ["a" "b"]}}
+         (editor/article-body {:title "T" :description "D" :body "B" :tagList "a, b"}))
+      "the request body parses the tag string back into a vector"))
+
+(defn- editor-edit-load-and-put-test []
+  (let [seen (atom [])]
+    (reg-canned-success-by-url! :realworld.test/editor-edit
+      (fn [method url]
+        (swap! seen conj [method url])
+        {:article {:slug "hello-world" :title "Hello, world" :description "Intro"
+                   :body "Body text" :tagList ["intro" "demo"]
+                   :createdAt "2026-05-01" :updatedAt "2026-05-01"
+                   :favorited false :favoritesCount 0
+                   :author {:username "alice" :bio nil :image nil :following false}}}))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/editor-edit}})]
+      ;; /editor/:slug is :requires-auth — sign in so the :can-enter guard passes and
+      ;; the route's :on-match [:editor/load-article] fires (vs a login redirect).
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/hello-world"] {:frame f})
+      ;; :editor/load-article → :use-edit + :fetch-started + GET /articles/hello-world;
+      ;; the canned reply lands → :editor/loaded seeds the draft, :fetch-succeeded.
+      (is (true? (ed-has-tag? f :mode/edit)) "edit-mode entry flips the :mode region to :edit")
+      (is (true? (ed-has-tag? f :editor/can-delete)) ":mode/edit lights the :editor/can-delete tag")
+      (is (true? (ed-has-tag? f :lifecycle/idle)) "a settled load leaves the lifecycle region at :idle")
+      (let [slice (rf/compute-sub [:editor/slice] (rf/frame-state-value f))
+            draft (rf/compute-sub [:editor/draft] (rf/frame-state-value f))]
+        (is (= "hello-world" (:slug slice)) "the slug is captured for the PUT target")
+        (is (= "Hello, world" (:title draft)) "the draft is seeded from the loaded article")
+        (is (= "intro, demo" (:tagList draft)) "the tag list is joined into the comma-separated string"))
+      (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f)))
+          "a freshly-seeded edit draft equals its baseline → not dirty")
+      (is (true? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f)))
+          "a clean edit draft may leave freely")
+      ;; Edit a field → dirty + valid → the flow enables submit → PUT (not POST).
+      (reset! seen [])
+      (rf/dispatch-sync [:editor/edit-field :title "Hello, edited"] {:frame f})
+      (is (true? (rf/compute-sub [:editor/can-submit?] (rf/frame-state-value f)))
+          "an edited, valid draft can submit")
+      (rf/dispatch-sync [:editor/submit] {:frame f})
+      (is (some (fn [[m u]] (and (= :put m) (str/ends-with? u "/articles/hello-world"))) @seen)
+          "edit-mode submit issues a PUT to /articles/:slug (not a POST to /articles)")
+      ;; :editor/submit-success → :submit-succeeded (:saved) + :use-edit + navigate.
+      (is (true? (ed-has-tag? f :lifecycle/saved)) "a successful save advances the lifecycle → :saved")
+      (is (true? (ed-has-tag? f :mode/edit)) "the editor stays in :edit mode after saving"))))
+
+(defn- editor-load-failure-test []
+  (reg-canned-failure! :realworld.test/editor-load-fail
+                       :rf.http/http-5xx {:status 500 :body "server error"})
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/editor-load-fail}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/doomed"] {:frame f})
+    ;; :editor/load-article → GET fails → :editor/load-failed → :fetch-failed.
+    (is (true? (ed-has-tag? f :lifecycle/error))
+        "a load failure lands the lifecycle region in :error (the page-level error gate)")
+    (is (some? (rf/compute-sub [:editor/submit-error] (rf/frame-state-value f)))
+        "the load-failure message is surfaced via :submit-error")))
+
+(defn- editor-delete-test []
+  (let [seen (atom [])]
+    (reg-canned-success-by-url! :realworld.test/editor-delete
+      (fn [method url]
+        (swap! seen conj [method url])
+        {:article {:slug "doomed" :title "Doomed" :description "d" :body "b" :tagList []
+                   :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
+                   :author {:username "alice" :bio nil :image nil :following false}}}))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/editor-delete}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/doomed"] {:frame f})
+      (is (= "doomed" (:slug (rf/compute-sub [:editor/slice] (rf/frame-state-value f))))
+          "the article is loaded into edit mode")
+      (reset! seen [])
+      (rf/dispatch-sync [:editor/delete] {:frame f})
+      ;; :editor/delete → DELETE /articles/doomed → :editor/delete-success → reset + home.
+      (is (some (fn [[m u]] (and (= :delete m) (str/ends-with? u "/articles/doomed"))) @seen)
+          ":editor/delete issues a DELETE to /articles/:slug")
+      (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+          "a successful delete navigates home")
+      (is (nil? (:slug (rf/compute-sub [:editor/slice] (rf/frame-state-value f))))
+          "the editor slice is reset to a blank create draft on delete")
+      (is (true? (ed-has-tag? f :mode/create))
+          "the :mode region resets to :create after a delete"))))
+
+(defn- editor-invalid-submit-test []
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
+    (rf/dispatch-sync [:editor/initialise] {:frame f})
+    ;; A create draft with only a title → description + body still blank → the
+    ;; client-invalid branch fires (per-field errors + :_form, no round trip).
+    (rf/dispatch-sync [:editor/edit-field :title "Only a title"] {:frame f})
+    (rf/dispatch-sync [:editor/submit] {:frame f})
+    (let [errors (rf/compute-sub [:editor/errors] (rf/frame-state-value f))]
+      (is (contains? errors :description) "the blank description earns a per-field error")
+      (is (contains? errors :body) "the blank body earns a per-field error")
+      (is (not (contains? errors :title)) "the filled title has no error")
+      (is (= "Please fix the highlighted fields." (:_form errors))
+          "the whole-form prompt is set under :_form"))
+    (is (some? (rf/compute-sub [:editor/field-error :description] (rf/frame-state-value f)))
+        "submit-attempted? makes a per-field error visible even on an untouched field")
+    (is (true? (ed-has-tag? f :lifecycle/idle))
+        "an invalid submit issues no request — lifecycle stays :idle (no :submit-started)")
+    (is (nil? (rf/compute-sub [:editor/submit-error] (rf/frame-state-value f)))
+        "the client-validation branch clears :submit-error (that door is for transport failures)")))
+
+(deftest realworld-article-editor-edit-delete
+  (testing "pure helpers: validate-draft / parse-tag-list / draft-from-article / article-body (rf2-54eebb)"
+    (editor-pure-helpers-test))
+  (testing "edit-mode load seeds the draft, flips :mode/edit, and submit issues a PUT (rf2-54eebb)"
+    (editor-edit-load-and-put-test))
+  (testing "a load failure lands the lifecycle in :error and surfaces the message (rf2-54eebb)"
+    (editor-load-failure-test))
+  (testing ":editor/delete issues a DELETE, resets the slice, and navigates home (rf2-54eebb)"
+    (editor-delete-test))
+  (testing "a client-invalid submit fills per-field errors and fires no request (rf2-54eebb)"
+    (editor-invalid-submit-test)))
