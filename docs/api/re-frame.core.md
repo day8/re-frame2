@@ -695,19 +695,8 @@ There is no dedicated "reset" function — `reset-frame!` was retired (rf2-lxwpo
   ```
 - **Description**: Return the SEALED, resolved image **generation** a live frame is running — the inert image-assembly generation it resolves `(kind, id)` lookups through. The raw read over the EP-0023 frame→generation model, for tools (Pair MCP `describe-image`, Xray).
   - `frame-target` is a registered frame id **or** a direct live frame object.
-  - Returns the generation map with stable public keys: `:rf.gen/resolver` (the sealed `[kind id]` map), `:rf.gen/images`, `:rf.gen/kinds`.
+  - Returns the generation map with stable public keys: `:rf.gen/resolver` (the sealed `[kind id]` map), `:rf.gen/images`, `:rf.gen/kinds`, and `:rf.gen/shadows` (the cross-image **shadow report** — a flat vector `[{:registration [kind id] :image <defined-in> :shadowed-by <winner>} …]`, `[]` when no later image shadowed an earlier one; what a LATER image overrode in an EARLIER one, EP-0026). Read the shadow report with `(:rf.gen/shadows (rf/frame-generation f))` — there is no dedicated accessor (the `frame-shadows` var was removed, rf2-i4hk4b).
   - **Fails loud** (`:rf.error/frame-no-generation`) when `frame-target` does not resolve to a live frame carrying a generation.
-
-### `frame-shadows`
-
-- **Kind**: function (EP-0026)
-- **Signature**:
-  ```clojure
-  (frame-shadows frame-target) → vector of shadow entries
-  ```
-- **Description**: Return the cross-image **shadow report** for the image composition a live frame is running — what a LATER image overrode in an EARLIER one. The public accessor for the report a frame's resolved generation carries at `:rf.gen/shadows`.
-  - `frame-target` is a registered frame id or a direct live frame value.
-  - Returns a flat vector, one entry per cross-image shadow (`{:registration [kind id] :image <defined-in> :shadowed-by <winner>}`); an **empty** vector when no later image shadowed an earlier one.
 
 ### `image`
 
@@ -1274,20 +1263,6 @@ The registrar holds every registered handler — events, subs, fx, cofx, flows, 
   (rf/registrations :event)
   ;; => {:counter/inc {:ns my-app.events :line 12 :file "my_app/events.cljs"} ...}
   (rf/registrations {:frame :tenants/acme :kind :sub})
-  ```
-
-### `handler-ids`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (handler-ids kind) → id set
-  ```
-- **Description**: Canonical alias for `(-> (registrations kind) keys set)`. Use when you only need to enumerate — it saves both the metadata-map allocations and the `keys` walk (meaningful at scale: completion lists, existence checks, set intersections). The frame-targeted form `(handler-ids {:frame :blue/main :kind :event})` scopes to one frame's image; the same map-arity errors as `registrations` apply (`:rf.error/registrar-query-needs-frame`, `:rf.error/frame-no-generation`).
-- **Example**:
-  ```clojure
-  (rf/handler-ids :event)                            ;; => #{:counter/inc :counter/reset}
-  (contains? (rf/handler-ids :event) :counter/inc)   ;; => true
   ```
 
 ### `handler-meta`

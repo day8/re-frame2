@@ -13,7 +13,7 @@
 
   Core's `re-frame.facade-frame-read-cljs-test` (EP-0023, rf2-wkw8na) locks the
   frame-targeted READ contract for the ONE `reg-event` form — `rf/handler-meta`
-  / `rf/registrations` / `rf/handler-ids` `{:frame …}` resolving each frame's
+  / `rf/registrations` `{:frame …}` resolving each frame's
   OWN sealed image generation — but it asserts resolution ONLY through those
   QUERIES, never a live dispatch. (Post-EP-0023/EP-0024 there is no realm
   routing: the multi-realm substrate collapsed, rf2-afdlyr / rf2-tu2vr7, and the

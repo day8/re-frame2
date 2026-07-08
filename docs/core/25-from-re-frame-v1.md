@@ -325,14 +325,14 @@ You reach past that only when v2 gives you a shape v1 didn't have. The public co
 
 !!! warning "Gotcha — don't select the same id twice in one image"
 
-    Within a *single* `rf/image`, `:select-ns` and `:registrations` must be **disjoint** — a `[kind id]` may not be both selected from a namespace and defined inline in the same image. Image assembly catches it and fails loud rather than silently merging. And the way to *override* a registration is **not** a `:replace` key — that key was retired in EP-0026, and `rf/image` rejects it (along with `:include-ns` / `:exclude-ns` / `:replace-standard`) with `:rf.error/invalid-image`. Instead, put the winning registration in a **later** image and compose — later image wins. The override is not silent: composition records every shadowing in a report you read with the public `rf/frame-shadows` accessor (each entry names the registration, the image that originally defined it, and the image that shadowed it), so you can assert in a test that the override you intended is the override that happened.
+    Within a *single* `rf/image`, `:select-ns` and `:registrations` must be **disjoint** — a `[kind id]` may not be both selected from a namespace and defined inline in the same image. Image assembly catches it and fails loud rather than silently merging. And the way to *override* a registration is **not** a `:replace` key — that key was retired in EP-0026, and `rf/image` rejects it (along with `:include-ns` / `:exclude-ns` / `:replace-standard`) with `:rf.error/invalid-image`. Instead, put the winning registration in a **later** image and compose — later image wins. The override is not silent: composition records every shadowing in a report you read off the frame's generation at `:rf.gen/shadows` (each entry names the registration, the image that originally defined it, and the image that shadowed it), so you can assert in a test that the override you intended is the override that happened.
 
 ```clojure
 (def base    (rf/image {:id :app/base   :select-ns {:include ["app.*"]}}))
 (def testing (rf/image {:id :app/doubles :registrations {:reg-cofx [[:clock (fn [] 0)]]}}))
 
 (let [frame (rf/make-frame {:images [base testing]})]   ;; later image wins
-  (rf/frame-shadows frame))
+  (:rf.gen/shadows (rf/frame-generation frame)))
 ;; => [{:registration [:cofx :clock], :image :app/base, :shadowed-by :app/doubles}]
 ```
 

@@ -366,12 +366,13 @@ When in doubt, the canonical reference is [`../spec/Conventions.md`](../spec/Con
 and [`../spec/Ownership.md`](../spec/Ownership.md). The notes below
 disambiguate names that look interchangeable at a glance.
 
-- **`rf/handler-ids` vs `rf/registrations`** — `handler-ids` returns
-  ids only (`(rf/handler-ids :event) → #{...}`); use it for id-only
-  enumeration. `registrations` returns the full id→metadata map;
-  use it when the caller needs the per-handler value
-  (`:doc`, source coords, route template, fx fn, flow def).
-  Devtool panels that render only ids should prefer `handler-ids`.
+- **id-only enumeration vs `rf/registrations`** — for just the ids
+  under a kind, project `registrations`' keys
+  (`(-> (rf/registrations :event) keys set) → #{...}`). `registrations`
+  returns the full id→metadata map; use it directly when the caller
+  needs the per-handler value (`:doc`, source coords, route template,
+  fx fn, flow def). (The dedicated `rf/handler-ids` projection was
+  removed — rf2-i4hk4b.)
 - **adapter vs substrate vs artefact** — *substrate* is the
   reactive runtime (Reagent, UIx, Helix). *Adapter* is the
   `re-frame.adapter.*` ns that bridges core to that substrate

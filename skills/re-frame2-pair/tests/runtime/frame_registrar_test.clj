@@ -13,7 +13,6 @@
 ;;;; through the PUBLIC facade reads:
 ;;;;
 ;;;;   (rf/handler-meta {:frame f :kind k :id id})
-;;;;   (rf/handler-ids  {:frame f :kind k})
 ;;;;   (rf/registrations {:frame f :kind k})
 ;;;;   (rf/frame-generation f)
 ;;;;
@@ -68,8 +67,8 @@
 
 (deftest frame-registrar-list-uses-facade-frame-read
   (let [f (defn-form 'frame-registrar-list)]
-    (is (calls? f 'rf/handler-ids)
-        "frame-registrar-list MUST route through (rf/handler-ids {:frame …}) — the public facade read.")))
+    (is (calls? f 'rf/registrations)
+        "frame-registrar-list MUST route through (rf/registrations {:frame …}) — the public facade read (rf2-i4hk4b removed the rf/handler-ids projection it used to call).")))
 
 (deftest frame-registrar-registrations-uses-facade-frame-read
   (let [f (defn-form 'frame-registrar-registrations)]

@@ -344,13 +344,12 @@
   ;; config-shape syntax table, not real vars.
   "set-x!"       #{"docs/core/24-config-and-safety.md"}
   "install-x!"   #{"docs/core/24-config-and-safety.md"}}
-  ;; EP-0026 (rf2-ke7w5j): the temporary `frame-shadows` spec-ahead allowlist
-  ;; entry was REMOVED here when rf2-ke7w5j shipped the live `rf/frame-shadows`
-  ;; var. It is now a real manifested var (see the
-  ;; ["re-frame.core" "frame-shadows"] classification row + the regenerated
-  ;; spec/api-manifest.edn), so the doc-guide-check resolves a
-  ;; `(rf/frame-shadows …)` mention to that manifest row — no exemption needed,
-  ;; and the honesty-ratchet would flag a stale allowlist entry for a now-live var.
+  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection): the `frame-shadows`
+  ;; façade var was REMOVED (its classification row above is gone). No
+  ;; `:doc-guide-known-unmanifested-scoped` entry is needed because the guide's
+  ;; call-position `(rf/frame-shadows …)` mentions were rewritten to read the
+  ;; shadow report via `frame-generation`'s `:rf.gen/shadows` key, so nothing in
+  ;; docs/core/ names the removed var in call position.
   ;; EP-0025: `add-marks` / `set-marks` (and the whole `re-frame.marks` ns) are
   ;; removed. The privacy guide was rewritten to the commit-plane-effects model
   ;; (docs/core/how-to/keep-secrets-out-of-traces.md) and no longer names the
@@ -457,7 +456,7 @@
   ;; as a `^:no-doc` throwing stub (`:rf.error/reload-images-removed`) and so
   ;; carries NO manifest row (the manifest generator drops `^:no-doc` vars).
   ;; Its replacement read, `generation-diff`, is classified alongside its
-  ;; siblings `frame-generation` / `frame-shadows` below.
+  ;; sibling `frame-generation` below.
   ;; EP-0023 (rf2-32siq3.17 — image-loaded frames): `image` is the public
   ;; `rf/image` CONSTRUCTOR — it builds an IMAGE value, the selected
   ;; registration-set value a frame resolves against (EP-0023 §Image, §Public
@@ -713,10 +712,14 @@
   ["re-frame.core" "require-feature!"]     {:tier :advanced :owner "Conventions" :status "v1"}
   ;; Public registrar query API (spec/API.md §Public registrar query API).
   ;; The `{:frame f …}` map ARITY added in rf2-wkw8na (EP-0023) extends these
-  ;; three EXISTING exports — it adds NO new facade name, so it adds NO new row;
+  ;; two EXISTING exports — it adds NO new facade name, so it adds NO new row;
   ;; the arity is documented in each fn's docstring + spec/API.md.
+  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection, ADOPT Part A): the
+  ;; `handler-ids` façade export was REMOVED — it was a documented PROJECTION
+  ;; over `registrations` (`(-> (registrations kind) keys set)`), avoidable
+  ;; pre-alpha surface; callers read `(-> (registrations …) keys set)` or
+  ;; `(contains? (registrations k) id)`.
   ["re-frame.core" "registrations"]        {:tier :tooling :owner "002" :status "v1"}
-  ["re-frame.core" "handler-ids"]          {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"}
   ;; EP-0023 (rf2-wkw8na): `frame-generation` is the dedicated raw READ over the
   ;; EP-0023 frame->generation model — return the sealed image generation a live
@@ -729,30 +732,18 @@
   ;; matching the registrar query family). Status `EP-0023` (proposal-stage; the
   ;; row exists ahead of the spec/API.md projection EP-0023 graduates separately).
   ["re-frame.core" "frame-generation"]     {:tier :tooling :owner "002" :status "EP-0023"}
-  ;; EP-0026 (rf2-ke7w5j): `frame-shadows` is the public CROSS-IMAGE SHADOW
-  ;; REPORT accessor — return the flat `[{:registration [kind id] :image
-  ;; <defined-in> :shadowed-by <winner>}]` list a live frame's composition
-  ;; resolved (one entry per cross-image override, naming the loser image + the
-  ;; FINAL winner). FACADE-EXPORT CLASSIFICATION (diff-time facade rule): this is
-  ;; the EP-0026 replacement for the retired `:replace` / `:replace-standard`
-  ;; declared-winner keys — composition resolves by image order and the
-  ;; programmer READS this report to assert on / log / ignore what each later
-  ;; image shadowed. It is a primary user-facing surface (the EP names it the
-  ;; accessor in §Shadow Report + the Use-Cases), so it belongs on the public
-  ;; `re-frame.core` façade, not an internal-only reach. Tier `:tooling` (a READ,
-  ;; not a constructor/mutator — the SAME classification as its sibling
-  ;; `frame-generation`, which it reads a single key off; UNLIKE `make-frame` /
-  ;; `image` which are `:advanced`). Owner 002 (Frames —
-  ;; EP-0023/EP-0026's frame/image normative home, matching the registrar query
-  ;; family). Status `EP-0026` (proposal-stage; the row exists ahead of the
-  ;; spec/API.md projection EP-0026 graduates separately under rf2-o2vfrc).
-  ["re-frame.core" "frame-shadows"]        {:tier :tooling :owner "002" :status "EP-0026"}
+  ;; rf2-i4hk4b (API-shrink #5 registrar-introspection, ADOPT Part A): the
+  ;; `frame-shadows` façade export was REMOVED — it was a single-key read
+  ;; (`(:rf.gen/shadows (frame-generation f))`), avoidable pre-alpha surface. The
+  ;; shadow report itself is UNCHANGED: read it via `frame-generation`'s
+  ;; `:rf.gen/shadows` key (its docstring + Spec 002 carry the shadow-model
+  ;; teaching the removed accessor's docstring held).
   ;; rf2-lxwpob (API-shrink #5, frame-lifecycle collapse, 2026-07-07):
   ;; `generation-diff` is the pure two-generation comparator that REPLACES the
   ;; retired `reload-images!` verb's report-returning role — a caller reads
   ;; `frame-generation` before/after a re-`make-frame` reload and diffs the two
-  ;; values. Tier `:tooling` (a READ, the same classification as its siblings
-  ;; `frame-generation` / `frame-shadows`). Owner 002 (Frames — EP-0023's
+  ;; values. Tier `:tooling` (a READ, the same classification as its sibling
+  ;; `frame-generation`). Owner 002 (Frames — EP-0023's
   ;; frame/image normative home).
   ["re-frame.core" "generation-diff"]      {:tier :tooling :owner "002" :status "EP-0023"}
   ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers

@@ -904,16 +904,17 @@
       (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
                                        "<!DOCTYPE html>")))))
 
-;; ---- rf2-o1bp: handler-ids / registrations / handler-meta ----------------
+;; ---- rf2-o1bp: registrations / handler-meta ------------------------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-17: the introspection re-exports
-;; (`registrations`, `handler-meta`, `handler-ids`). They're used inside
-;; fixtures and the source-coords tests but no single deftest pins their
-;; cross-kind round-trip. This test registers handlers across the canonical
-;; kinds, then walks the three introspection surfaces against each.
+;; (`registrations`, `handler-meta`). They're used inside fixtures and the
+;; source-coords tests but no single deftest pins their cross-kind round-trip.
+;; This test registers handlers across the canonical kinds, then walks the
+;; introspection surfaces against each. (rf2-i4hk4b removed the `handler-ids`
+;; projection — the id set is `(set (keys (registrations kind)))`.)
 
 (deftest registry-introspection-round-trip
-  (testing "rf/handler-ids, rf/registrations, rf/handler-meta cover every
+  (testing "rf/registrations, rf/handler-meta cover every
             registration kind with the documented shape"
     ;; ---- :event --------------------------------------------------------
     (rf/reg-event :rf2-o1bp/evt1 (fn [{:keys [db]} _] {:db db}))
@@ -977,22 +978,24 @@
     ;; own tests.
     (rf/reg-app-schema [:rf2-o1bp/path] {:schema :any})
 
-    ;; ---- (1) handler-ids returns a set of ids per kind ----------------
-    (testing "(rf/handler-ids kind) returns a set of ids"
-      (let [event-ids       (rf/handler-ids :event)
-            sub-ids         (rf/handler-ids :sub)
-            fx-ids          (rf/handler-ids :fx)
-            cofx-ids        (rf/handler-ids :cofx)
-            view-ids        (rf/handler-ids :view)
-            route-ids       (rf/handler-ids :route)
+    ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
+    ;;          projection that replaced the removed rf/handler-ids (rf2-i4hk4b)
+    (testing "(set (keys (rf/registrations kind))) enumerates ids per kind"
+      (let [ids-of          (comp set keys rf/registrations)
+            event-ids       (ids-of :event)
+            sub-ids         (ids-of :sub)
+            fx-ids          (ids-of :fx)
+            cofx-ids        (ids-of :cofx)
+            view-ids        (ids-of :view)
+            route-ids       (ids-of :route)
             ;; Per rf2-en00bk `:flow` is a RESERVED-but-empty registrar kind —
             ;; reg-flow writes only to the flows artefact's per-frame store, so
-            ;; the registrar handler-ids :flow set is empty (same pattern as
+            ;; the registrar :flow id set is empty (same pattern as
             ;; `:http-interceptor`). Flow introspection reads
             ;; `flows/flow-meta-at` / `flows/flows-snapshot`.
-            flow-ids        (rf/handler-ids :flow)
-            ep-ids          (rf/handler-ids :error-projector)]
-        (is (set? event-ids) "handler-ids returns a set")
+            flow-ids        (ids-of :flow)
+            ep-ids          (ids-of :error-projector)]
+        (is (set? event-ids) "the id projection returns a set")
         (is (contains? event-ids :rf2-o1bp/evt1))
         (is (contains? event-ids :rf2-o1bp/evt2))
         (is (contains? event-ids :rf2-o1bp/mach1)
@@ -1003,11 +1006,11 @@
         (is (contains? view-ids :rf2-o1bp/view1))
         (is (contains? route-ids :rf2-o1bp/route1))
         ;; Per rf2-en00bk `:flow` is RESERVED-but-empty — the registrar
-        ;; handler-ids :flow set does NOT carry the flow (it lives in the
+        ;; :flow id set does NOT carry the flow (it lives in the
         ;; flows artefact's per-frame store). Asserted via `flows/flow-meta-at`
         ;; below instead.
         (is (not (contains? flow-ids :rf2-o1bp/flow1))
-            "registrar handler-ids :flow is empty — flows own their per-frame store (rf2-en00bk)")
+            "registrar :flow id set is empty — flows own their per-frame store (rf2-en00bk)")
         (is (some? (flows/flow-meta-at :rf2-o1bp/flow1))
             "the flow IS introspectable via flows/flow-meta-at (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))

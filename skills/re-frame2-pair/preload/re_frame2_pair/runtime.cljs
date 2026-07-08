@@ -824,8 +824,8 @@
 ;; keyed off the frame's sealed generation, not the process-global registrar.
 ;;
 ;; They consume ONLY the PUBLIC facade reads — the
-;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta` /
-;; `rf/handler-ids`, and `rf/frame-generation`. Tools must not consume
+;; `{:frame f :kind k …}` arities of `rf/registrations` / `rf/handler-meta`,
+;; and `rf/frame-generation`. Tools must not consume
 ;; `re-frame.live-frame` / `re-frame.image-assembly` internals directly; the
 ;; facade re-surfaces the BEHAVIOUR through these reads, so this preload stays
 ;; on the public surface.
@@ -899,10 +899,12 @@
   "Enumerate the ids registered under `kind` resolved through frame
    `frame-id`'s OWN image generation — only the ids that frame's image
    carries (NOT the process-global registrar). Routes through the PUBLIC facade
-   read `(rf/handler-ids {:frame f :kind k})`. Returns the sorted
-   id vector. FAILS LOUD up the eval boundary on an unresolvable frame."
+   read `(rf/registrations {:frame f :kind k})`, projecting its keys (the
+   removed `rf/handler-ids` was exactly this projection — rf2-i4hk4b). Returns
+   the sorted id vector. FAILS LOUD up the eval boundary on an unresolvable
+   frame."
   [frame-id kind]
-  (-> (rf/handler-ids {:frame frame-id :kind kind}) sort vec))
+  (-> (rf/registrations {:frame frame-id :kind kind}) keys sort vec))
 
 (defn frame-registrar-registrations
   "The `{id meta}` map for `kind` resolved through frame `frame-id`'s OWN image

@@ -863,11 +863,11 @@ Tests use the direct-constructor pattern as their fixture lifecycle:
 - two **selected** descriptors for one `[kind id]` (different source namespaces) — ambiguous; `:rf.error/image-duplicate-id`. (The ordinary same-source hot-reload replacement of one namespace's own descriptor is not a collision — it dedupes.)
 - an **inline** entry colliding with a **selected** one, or two **inline** entries — `:rf.error/image-within-image-collision`. (`:select-ns` and `:registrations` in one image must be disjoint.)
 
-**The shadow report.** When a later image shadows an earlier one, composition **records** it. The generation carries the report at `:rf.gen/shadows`, read by the public **`rf/frame-shadows`** accessor. Each entry is exactly three keys — the registration, the image it was defined in, and the image that shadowed it:
+**The shadow report.** When a later image shadows an earlier one, composition **records** it. The generation carries the report at `:rf.gen/shadows`, read via **`(:rf.gen/shadows (rf/frame-generation f))`** — a single key off the frame's sealed generation, no dedicated accessor. Each entry is exactly three keys — the registration, the image it was defined in, and the image that shadowed it:
 
 ```clojure
 (let [frame (rf/make-frame {:images [app-image test-doubles]})]
-  (rf/frame-shadows frame))
+  (:rf.gen/shadows (rf/frame-generation frame)))
 ;; =>
 [{:registration [:fx :checkout.http/post]
   :image        :app/main

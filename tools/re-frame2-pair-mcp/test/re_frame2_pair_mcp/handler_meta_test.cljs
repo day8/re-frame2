@@ -604,7 +604,7 @@
 ;; The OPTIONAL `:frame` arg re-keys the lookup through THAT frame's running
 ;; image generation — routing through the per-frame runtime fns
 ;; `frame-registrar-describe` / `frame-registrar-list` (which consume the
-;; PUBLIC `(rf/handler-meta {:frame f …})` / `(rf/handler-ids {:frame f …})`
+;; PUBLIC `(rf/handler-meta {:frame f …})` / `(rf/registrations {:frame f …})`
 ;; facade reads). ABSENT ⇒ the byte-identical default path. PRESENT ⇒ the
 ;; frame-id threaded into the per-frame form + stamped on the response.
 ;; `:frame` + machine is rejected (machines are not in the resolver).

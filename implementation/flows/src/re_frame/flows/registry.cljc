@@ -21,7 +21,7 @@
   registrar slot is intentionally **empty** — matching the `:app-schema`
   (rf2-0frdi) and `:http-interceptor` precedents. Tools and source-coord
   introspection read the frame-scoped `flow-meta-at` / `flows-snapshot`
-  surface, NOT `handler-meta :flow` / `handler-ids :flow`.
+  surface, NOT `handler-meta :flow` / `registrations :flow`.
 
   Dirty-check storage is PER-FRAME by construction. Each frame owns its
   own `last-inputs` container (`atom {flow-id inputs}`), held in the

@@ -72,7 +72,8 @@
   ## Image id
 
   The image carries a stable `:id` (`:rf.story/runtime`) so the cross-image
-  shadow report (`rf/frame-shadows`) and tooling name it unambiguously. The id
+  shadow report (the generation's `:rf.gen/shadows`) and tooling name it
+  unambiguously. The id
   is library-owned under the `:rf.story/*` namespace (spec/Conventions.md).
 
   ## Composition position

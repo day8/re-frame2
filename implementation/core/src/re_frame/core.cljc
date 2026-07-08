@@ -105,7 +105,7 @@
             ;; EP-0023 collapse slice 2 (rf2-32siq3.32): the runnable-object
             ;; live-frame ns. Required for the ONE public frame constructor
             ;; `make-frame` (re-exported below as `rf/make-frame`) plus its
-            ;; generation reads `frame-generation` / `frame-shadows` /
+            ;; generation reads `frame-generation` /
             ;; `generation-diff` (EP-0023 §Hot Reload / §Public API — rf2-lxwpob
             ;; folded the dedicated `reload-images!` verb into re-`make-frame`-ing
             ;; an `:id`-bearing frame with a new `:images` vector; a caller that
@@ -1519,11 +1519,12 @@
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
 ;; The registrar query workhorses. Post-EP-0023 (rf2-10nggz) the public read
-;; grammar has exactly TWO shapes per trio member:
+;; grammar has exactly TWO shapes per registrar-query member (`registrations` /
+;; `handler-meta`):
 ;;
 ;;   * the POSITIONAL-KEYWORD arity — the UNFRAMED default source-store read
-;;     `(registrations :event)` / `(handler-meta :event id)` / `(handler-ids
-;;     :event)` over the process-global registrar;
+;;     `(registrations :event)` / `(handler-meta :event id)` over the
+;;     process-global registrar;
 ;;   * the `{:frame f :kind k …}` MAP arity — the FRAME-TARGETED read resolved
 ;;     through a live frame's OWN sealed image generation.
 ;;
@@ -1573,7 +1574,7 @@
 
   `where-sym` is the public fn the caller invoked, used in the diagnostic so the
   message names the user-facing surface (`rf/registrations` / `rf/handler-meta`
-  / `rf/handler-ids` / `rf/frame-generation`)."
+  / `rf/frame-generation`)."
   [frame-target where-sym]
   (let [frame-object (if (live-frame/frame-object? frame-target)
                        frame-target
@@ -1598,7 +1599,7 @@
 
 (defn- assert-registrar-query-has-frame!
   "Fail loud (`:rf.error/registrar-query-needs-frame`) when a map-shaped
-  registrar query (`rf/registrations` / `rf/handler-meta` / `rf/handler-ids`)
+  registrar query (`rf/registrations` / `rf/handler-meta`)
   carries NO `:frame` — OR when `arg` is not a map at all (e.g. a bare keyword
   reaching a map-only single-arg arity, per `rf/handler-meta`'s rf2-wa38hs
   guard). Post-EP-0023 (rf2-10nggz) the public read grammar has exactly two
@@ -1645,7 +1646,27 @@
     :rf.gen/kinds     #{kind …}                     kinds present, for tools
     :rf.gen/shadows   [{:registration [kind id]
                         :image <loser> :shadowed-by <winner>} …]   the
-                      cross-image shadow report (`rf/frame-shadows` reads it)
+                      cross-image SHADOW REPORT (EP-0026 §Shadow Report,
+                      rf2-ke7w5j)
+
+  The `:rf.gen/shadows` shadow report is the data the programmer reads to see
+  exactly what a LATER image overrode in an EARLIER one. A FLAT vector, one
+  entry per cross-image shadow — three keys, nothing else (no winner descriptor,
+  image index, tier, source namespace, or scope tag): the shadowed
+  `:registration` `[kind id]`, the `:image` id the LOSER was defined in, and the
+  `:shadowed-by` id of the FINAL live winner. An EMPTY vector when no later image
+  shadowed an earlier one (the common deliberate-no-override case —
+  `(empty? (:rf.gen/shadows (frame-generation f)))` asserts nothing was
+  overridden). For a shadow CHAIN — `[base override-a override-b]` defining one
+  `[kind id]` — every loser names the FINAL winner (`override-b`), not the
+  immediate predecessor, so an assertion never walks a chain. Every shadow is
+  cross-image (a within-image collision is an error, not a resolved winner). This
+  is the EP-0026 model that REPLACED the retired `:replace` / `:replace-standard`
+  declared-winner keys: define the winner in a later image, image order decides,
+  and read this report to assert on (or log / ignore) what each later image
+  shadowed. A tool wanting fuller detail (source namespace, etc.) reads the live
+  registration's `:rf.provenance/*` via the `:frame` arity of `rf/registrations`
+  / `rf/handler-meta`.
 
   (EP-0026, rf2-dlvmpc: `:rf.gen/requires` was retired with the image-capability
   feature; the shadow report `:rf.gen/shadows` is rf2-ke7w5j.)
@@ -1653,63 +1674,14 @@
   FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
   resolve to a live frame carrying a generation: NO nil-as-default, NO fallback
   to the default/realm registrar — a frame-generation read needs a live EP-0023
-  frame. Use the `:frame` arity of `registrations` / `handler-meta` /
-  `handler-ids` for per-`(kind, id)` resolution WITH provenance; use this when a
-  view needs the whole generation (selected registrations, kinds) without
+  frame. Use the `:frame` arity of `registrations` / `handler-meta` for
+  per-`(kind, id)` resolution WITH provenance; use this when a view needs the
+  whole generation (selected registrations, kinds, shadow report) without
   per-kind round-trips. Per Spec 002 §The public registrar query API; EP-0023
   §Public API / Use-Case 7."
   [frame-target]
   (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
       (live-frame/frame-resolution-generation)))
-
-(defn frame-shadows
-  "Return the cross-image SHADOW REPORT for the image composition a live frame is
-  running (EP-0026 §Shadow Report, rf2-ke7w5j) — the data the programmer reads to
-  see exactly what a LATER image overrode in an EARLIER one. The public accessor
-  for the report a frame's resolved generation carries at `:rf.gen/shadows`.
-
-  `frame-target` is a REGISTERED frame id (keyword, looked up in the process-local
-  live-frame registry) OR a direct live frame VALUE (`rf/make-frame`'s return
-  value) — the same target shape `rf/frame-generation` accepts.
-
-  Returns a FLAT vector, one entry per cross-image shadow — three keys, nothing
-  else (no winner descriptor, image index, tier, source namespace, or scope tag):
-
-    [{:registration [kind id]    ;; the shadowed registration
-      :image        <defined-in> ;; the image id the LOSER was defined in
-      :shadowed-by  <winner>}    ;; the image id of the FINAL live winner
-     …]
-
-  An EMPTY vector when no later image shadowed an earlier one (the common
-  deliberate-no-override case — `(empty? (rf/frame-shadows frame))` asserts
-  nothing was overridden). For a shadow CHAIN — `[base override-a override-b]`
-  defining one `[kind id]` — every loser names the FINAL winner (`override-b`),
-  not the immediate predecessor, so an assertion never walks a chain. Every shadow
-  is cross-image (a within-image collision is an error, not a resolved winner), so
-  the two image ids name exactly one image each.
-
-  This is the EP-0026 model that REPLACED the retired `:replace` /
-  `:replace-standard` declared-winner keys: define the winner in a later image,
-  image order decides, and read this report to assert on (or log / ignore) what
-  each later image shadowed. A tool wanting fuller detail (source namespace, etc.)
-  reads the live registration's `:rf.provenance/*` via the `:frame` arity of
-  `rf/registrations` / `rf/handler-meta`.
-
-  FAILS LOUD (`:rf.error/frame-no-generation`) when `frame-target` does not
-  resolve to a live frame carrying a generation: NO nil-as-default, NO fallback to
-  the default/realm registrar — a shadow-report read needs a live EP-0023 frame
-  (the same contract as `rf/frame-generation`). Per Spec 002 §The public registrar
-  query API; EP-0026 §Shadow Report."
-  [frame-target]
-  ;; Resolve the live frame object FIRST (fail-loud on a non-live target, exactly
-  ;; like `rf/frame-generation`), then read the shadow report off its sealed
-  ;; generation. The `:rf.gen/shadows` key is read directly so the façade keeps
-  ;; its existing load edges (it requires `re-frame.live-frame`, not
-  ;; `re-frame.image-assembly`); `live-frame/frame-shadows` is the equivalent
-  ;; internal accessor.
-  (-> (resolve-live-frame-object frame-target 'rf/frame-shadows)
-      (live-frame/frame-resolution-generation)
-      (:rf.gen/shadows)))
 
 (def ^{:doc "Compute the DIFF between two sealed image generations as four
   `[kind id]` sets (EP-0023 §Hot Reload — \"A good reload result should be a
@@ -1835,8 +1807,8 @@
   is a keyword, never a map) — the byte-identical default source-store path is
   unchanged for every existing keyword caller.
 
-  This 1-arg arity is the map-only form — unlike `registrations` / `handler-
-  ids` (whose 1-arg arity ALSO serves the default-source-store keyword read),
+  This 1-arg arity is the map-only form — unlike `registrations` (whose 1-arg
+  arity ALSO serves the default-source-store keyword read),
   `handler-meta`'s positional read needs `id` too and so lives on the separate
   `([kind id] …)` arity below. A single non-map arg here (e.g. a bare `(handler-
   meta :event)` missing `id`) is therefore never a valid default-store read; the
@@ -1856,43 +1828,6 @@
    (case kind
      (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
      (registrar/handler-meta kind id))))
-
-(defn handler-ids
-  "Return the set of registered ids under `kind` (no metadata). Per Spec 002
-  §The public registrar query API.
-
-  `handler-ids` is a PROJECTION over `registrations` (`(-> (registrations …)
-  keys set)`), not a separate addressing axis — it has the same two read shapes.
-
-  Arities:
-    `(handler-ids kind)` — the id set under `kind` in the default source store.
-    `(handler-ids {:frame f :kind k})` — FRAME-TARGETED (EP-0023, rf2-wkw8na):
-      the id set under `:kind` resolved through live frame `:frame`'s OWN sealed
-      image generation — only the ids that frame's image carries. `:frame` is a
-      REGISTERED frame id (keyword) OR a direct live frame OBJECT (the same
-      target shape `rf/frame-generation` accepts). FAILS LOUD when `:frame` does
-      not resolve to a live frame generation (`:rf.error/frame-no-generation` —
-      NO default fallback).
-
-  A map argument is ALWAYS a frame-targeted read (rf2-10nggz): a map WITHOUT
-  `:frame` is an error (`:rf.error/registrar-query-needs-frame`). The retired
-  pre-EP-0023 `:realm` map arity is GONE — there is no realm coordinate in the
-  public read grammar. The map-shaped form is unambiguous against the keyword
-  arity (a `kind` is a keyword, never a map) — the default source-store path is
-  byte-identical for every existing keyword caller."
-  [arg]
-  (cond
-    (and (map? arg) (contains? arg :frame))
-    (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-ids)]
-      (live-frame/call-with-frame-resolution
-        frame
-        #(registrar/ids (:kind arg))))
-
-    (map? arg)
-    (assert-registrar-query-has-frame! arg 'rf/handler-ids)
-
-    :else
-    (registrar/ids arg)))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
   Spec 002 §The public registrar query API."}
