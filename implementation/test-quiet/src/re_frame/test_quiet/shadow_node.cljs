@@ -76,16 +76,30 @@
   from the `:end-run-tests` reporter ONLY on a red run, restoring the
   diagnostic context the green-path quieting withheld.
 
-  Each buffered arg is replayed VERBATIM."
+  Each buffered arg is replayed VERBATIM.
+
+  SYNCHRONOUS WRITE (rf2-4co7oo). The replay writes to fd 2 via
+  `fs.writeSync`, NOT `js/process.stderr.write`.  On POSIX a pipe-backed
+  `process.stderr` is ASYNCHRONOUS, and the `:end-run-tests` reporter calls
+  `js/process.exit 1` IMMEDIATELY after this returns — `process.exit` forces
+  the process to exit with pending async stdout/stderr I/O still queued, so a
+  large red replay (up to `warn-buffer-cap` = 256 arbitrarily-sized entries)
+  could be TRUNCATED before it reached captured CI output, dropping the tail
+  of the diagnostic context the ns docstring promises a red run keeps.
+  `fs.writeSync` blocks until the bytes reach the fd, so the exit cannot drop
+  them.  This matches the JVM runner, whose blocking `PrintWriter` over
+  `System.err` is likewise synchronous (Windows dev-box pipe writes are
+  synchronous too, which is why the bug is CI-only)."
   []
   (let [buffered @warn-buffer]
     (when (seq buffered)
-      (binding [*print-fn* (fn [s] (js/process.stderr.write s))]
-        (println (str "[test-quiet] " (count buffered)
-                      " console.warn message(s) buffered during this run"
-                      " (replayed because the run was RED):"))
-        (doseq [args buffered]
-          (apply println "[test-quiet] console.warn:" args))))))
+      (let [fs (js/require "fs")]
+        (binding [*print-fn* (fn [s] (.writeSync fs 2 s))]
+          (println (str "[test-quiet] " (count buffered)
+                        " console.warn message(s) buffered during this run"
+                        " (replayed because the run was RED):"))
+          (doseq [args buffered]
+            (apply println "[test-quiet] console.warn:" args)))))))
 
 ;; The stub carries a `re-frame.test-quiet/silenced` marker property so it
 ;; is IDENTIFIABLE: a contract test can assert the live `console.warn` is

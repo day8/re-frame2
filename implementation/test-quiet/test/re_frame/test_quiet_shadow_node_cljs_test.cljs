@@ -572,6 +572,53 @@
                  " got:\n" (str/join "\n" non-blank)))))))
 
 ;; ----------------------------------------------------------------------
+;; Large red-replay is not truncated by js/process.exit (rf2-4co7oo).
+;;
+;; The red-replay writes to fd 2 synchronously (`fs.writeSync`), NOT the
+;; async `js/process.stderr.write`, so `js/process.exit 1` fired immediately
+;; after it cannot drop the tail. On POSIX a pipe-backed `process.stderr` is
+;; async and `process.exit` forces exit with pending writes still queued, so a
+;; large replay (near `warn-buffer-cap` = 256 arbitrarily-sized entries) could
+;; be truncated before it reached captured CI output — the exit code stays
+;; correct (never a false green) but the tail of the diagnostic context is
+;; lost. This drives the REAL runner across a process boundary against the
+;; ring-cap-filling volume fixture and asserts the NEWEST warning (replayed
+;; LAST — the exact byte range the async bug drops) survives to the output.
+;; Windows dev-box pipe writes are synchronous, so the pre-fix bug would not
+;; reproduce here, but this pin locks the fix and catches a POSIX (CI)
+;; regression back to the async write.
+
+(deftest large-red-replay-is-not-truncated
+  (testing "a RED replay that fills the ring to cap with large warnings keeps its TAIL (rf2-4co7oo)"
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error
+           timed-out? :timed-out?}
+          (spawn-runner [(str "--test=" red-ns)]
+                        {:env {:RF2_TQ_RED_REPLAY_VOLUME "1"}})
+          combined (str stdout stderr)]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (not timed-out?)
+          "the armed volume fixture run must not time out")
+      (is (and (number? status) (not (zero? status)))
+          (str "the armed volume fixture is RED; must exit NONZERO; got " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      ;; The head of the large replay is present (the replay genuinely ran and
+      ;; was large — not a trivially-short buffer that would fit a pipe anyway).
+      (is (str/includes? combined "RED-REPLAY-VOLUME-0")
+          (str "the HEAD of the large replay must be present; got\n"
+               "--- stderr ---\n" stderr))
+      ;; The CORE pin: the NEWEST warning — replayed LAST — is the exact tail
+      ;; that an async `process.stderr` + `process.exit` truncation would drop.
+      ;; Its presence proves the synchronous `fs.writeSync` replay is not
+      ;; truncated (rf2-4co7oo).
+      (is (str/includes? combined "RED-REPLAY-TAIL-MARKER")
+          (str "the TAIL of a large red replay must NOT be truncated by"
+               " js/process.exit — fs.writeSync makes the write synchronous"
+               " (rf2-4co7oo); got\n--- stdout ---\n" stdout
+               "\n--- stderr ---\n" stderr)))))
+
+;; ----------------------------------------------------------------------
 ;; Exit-code integrity — a printed failure MUST exit non-zero (rf2-jmrdhn).
 ;;
 ;; The false-green trap the bead closes: the runner PRINTS a failing
