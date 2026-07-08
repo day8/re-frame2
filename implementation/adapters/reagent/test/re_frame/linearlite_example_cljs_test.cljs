@@ -155,10 +155,10 @@
 (defn- issue-by-id [id] (some #(when (= id (:id %)) %) (issues)))
 
 (defn- mutation-state
-  "The passive `[:rf.mutation/state {:instance …}]` view-model the example's
+  "The passive `[:rf/mutation {:instance …}]` view-model the example's
    card view reads (`{:pending? :success? :error? :settled? :optimistic? …}`)."
   [instance]
-  (rf/compute-sub [:rf.mutation/state {:instance instance}]
+  (rf/compute-sub [:rf/mutation {:instance instance}]
                   (rf/frame-state-value :rf/default)))
 
 (defn- reply-success!

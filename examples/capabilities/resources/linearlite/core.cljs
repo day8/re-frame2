@@ -44,7 +44,7 @@
      moved card jumps home.
 
    The board is read passively through `[:rf.resource/data …]`. Each in-flight
-   write is watched through `[:rf.mutation/state {:instance …}]`, whose
+   write is watched through `[:rf/mutation {:instance …}]`, whose
    `:optimistic?` flag stays true while that write's optimistic value is still on
    screen — so a card can wear a 'saving…' badge over the value you're hoping
    sticks.
@@ -502,9 +502,9 @@
         ;; Watch this card's in-flight writes, passively. `:optimistic?` stays
         ;; true while an optimistic value is on screen; `:error?` flags the last
         ;; write's failure — by which point the value has already rolled back.
-        edit-state    @(subscribe [:rf.mutation/state {:instance [:edit id]}])
-        status-state  @(subscribe [:rf.mutation/state {:instance [:status id]}])
-        create-state  @(subscribe [:rf.mutation/state {:instance [:create id]}])
+        edit-state    @(subscribe [:rf/mutation {:instance [:edit id]}])
+        status-state  @(subscribe [:rf/mutation {:instance [:status id]}])
+        create-state  @(subscribe [:rf/mutation {:instance [:create id]}])
         pending?      (or optimistic?
                           (:optimistic? edit-state) (:optimistic? status-state)
                           (:optimistic? create-state))
@@ -549,7 +549,7 @@
   ;; when it commits or rolls back. The view never has to ask for the data; it
   ;; just shows whatever's currently there.
   (let [board   @(subscribe [:rf.resource/data board-query])
-        state   @(subscribe [:rf.resource/state board-query])
+        state   @(subscribe [:rf/resource board-query])
         editing @(subscribe [:linearlite/editing])
         issues  (:issues board)]
     [:div.linearlite

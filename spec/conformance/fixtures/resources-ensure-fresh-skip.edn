@@ -22,7 +22,7 @@
 ;; resets the resource host-caches before each fixture).
 ;;
 ;; The entry is read through the PUBLIC passive subscription
-;; `[:rf.resource/state {:resource :scope :params}]` (Spec 016 §Subscriptions —
+;; `[:rf/resource {:resource :scope :params}]` (Spec 016 §Subscriptions —
 ;; a sub NEVER fetches), which projects the durable facts plus the derived
 ;; booleans. Reading through the sub is host-agnostic: the entry itself is
 ;; keyed on a CEDN-1 byte identity in runtime-db, which pure EDN cannot spell.
@@ -30,7 +30,7 @@
 {:fixture/id           :resources/ensure-fresh-skip
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:resources/ensure}
- :fixture/doc          "ensure :res/article (global scope, slug=w) → :loading gen 1; the succeeded reply settles :loaded with the decoded data; a second ensure serves cache (fresh-skip) emitting :rf.resource/cache-hit with no new generation. The public :rf.resource/state sub projects the loaded view-model."
+ :fixture/doc          "ensure :res/article (global scope, slug=w) → :loading gen 1; the succeeded reply settles :loaded with the decoded data; a second ensure serves cache (fresh-skip) emitting :rf.resource/cache-hit with no new generation. The public :rf/resource sub projects the loaded view-model."
 
  :fixture/registry
  {:resource
@@ -70,7 +70,7 @@
  {;; The public state view-model after the fresh-skip: :loaded with the
   ;; decoded data; not loading / fetching / stale; has usable data.
   :sub-values
-  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+  {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :loaded :data {:title "Welcome"} :error nil :refresh-error nil
     :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
 

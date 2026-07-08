@@ -59,7 +59,7 @@
  {;; The refresh failed but the prior data is preserved: :loaded, has-data,
   ;; :refresh-error carries the failure, :error is nil.
   :sub-values
-  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+  {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :loaded :data {:title "Welcome"} :error nil
     :refresh-error {:kind :rf.http/http-5xx :status 503}
     :loading? false :fetching? false :stale? false :has-data? true :previous? false}}

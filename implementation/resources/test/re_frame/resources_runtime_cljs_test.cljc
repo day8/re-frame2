@@ -684,7 +684,7 @@
       (is (= {:status :idle :data nil :error nil :refresh-error nil
               :loading? false :fetching? false :stale? false :has-data? false
               :previous? false}
-             @(rf/subscribe [:rf.resource/state q])))
+             @(rf/subscribe [:rf/resource q])))
       (is (nil? (entry scoped-key)) "subscribing did not cause a fetch / entry"))
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sub/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:lease :s 1]}])
@@ -694,7 +694,7 @@
                           :data {:title "Welcome"}}]))
     (testing "after load the derived booleans are computed in the sub
               (loaded / has-data?), not stored on the entry"
-      (is (= :loaded (:status @(rf/subscribe [:rf.resource/state q]))))
+      (is (= :loaded (:status @(rf/subscribe [:rf/resource q]))))
       (is (true?  @(rf/subscribe [:rf.resource/has-data? q])))
       (is (false? @(rf/subscribe [:rf.resource/loading? q])))
       (is (= {:title "Welcome"} @(rf/subscribe [:rf.resource/data q]))))))
@@ -1400,7 +1400,7 @@
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
                     (subs/state-sub-fn (runtime-db)
-                                       [:rf.resource/state
+                                       [:rf/resource
                                         {:resource :sm/article :scope {:user "b"}
                                          :params {:slug "w"}}])))]
       (is (= 1 (count warns)) "exactly one warning fired")
@@ -1415,14 +1415,14 @@
                   (fn []
                     (dotimes [_ 5]
                       (subs/state-sub-fn (runtime-db)
-                                         [:rf.resource/state
+                                         [:rf/resource
                                           {:resource :sm/article :scope {:user "b"}
                                            :params {:slug "w"}}]))))]
       (is (zero? (count warns)) "already-warned mismatch is not re-emitted")))
   (testing "rf2-rsmiru — the sub STILL reads the documented :idle empty-state
             projection (fail-closed is preserved; the warning is advisory)"
     (is (= :idle (:status (subs/state-sub-fn (runtime-db)
-                                             [:rf.resource/state
+                                             [:rf/resource
                                               {:resource :sm/article :scope {:user "b"}
                                                :params {:slug "w"}}]))))))
 
@@ -1434,7 +1434,7 @@
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
                     (subs/state-sub-fn (runtime-db)
-                                       [:rf.resource/state
+                                       [:rf/resource
                                         {:resource :sm/article :scope {:user "a"}
                                          :params {:slug "w"}}])))]
       (is (zero? (count warns)) "matching scope reads the live entry — no warning")))
@@ -1448,7 +1448,7 @@
                     ;; is active, so this is an un-ensured resource (the empty
                     ;; :idle projection), not a likely mismatch.
                     (subs/state-sub-fn (runtime-db)
-                                       [:rf.resource/state
+                                       [:rf/resource
                                         {:resource :sm/article :scope {:user "c"}
                                          :params {:slug "w"}}])))]
       (is (zero? (count warns))
@@ -1468,7 +1468,7 @@
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
                     (subs/state-sub-fn (runtime-db)
-                                       [:rf.resource/state
+                                       [:rf/resource
                                         {:resource :smg/article :scope :rf.scope/global
                                          :params {:slug "w"}}])))]
       (is (zero? (count warns)) "global-scope resources are out of scope for the heuristic"))))

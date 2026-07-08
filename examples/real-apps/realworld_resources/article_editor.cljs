@@ -12,7 +12,7 @@
       showing the article, and the session feed all refetch with no further wiring
       — one mutation reaching across both scopes. `:realworld/delete-article`
       invalidates the same tags. The write lifecycle is the mutation INSTANCE,
-      watched through `[:rf.mutation/state {:instance …}]`; there's no `:status`
+      watched through `[:rf/mutation {:instance …}]`; there's no `:status`
       field in app-db.
 
    2. The can-submit gate is a flow. `:editor/can-submit?` materialises one
@@ -428,7 +428,7 @@
         title-err   @(subscribe [:editor/field-error :title])
         desc-err    @(subscribe [:editor/field-error :description])
         body-err    @(subscribe [:editor/field-error :body])
-        save        @(subscribe [:rf.mutation/state {:instance save-instance}])
+        save        @(subscribe [:rf/mutation {:instance save-instance}])
         editing?    (some? slug)
         busy?       (:pending? save)]
     [:div.editor-page

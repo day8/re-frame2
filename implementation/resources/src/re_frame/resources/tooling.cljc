@@ -127,8 +127,9 @@
   #{:on-route :on-reply :scheduled :manual})
 
 (def ^:private resource-selectors
-  "The public `:rf.resource/*` passive read-fact ids that derive over a
-  resource's runtime-db cache entry (Derivations §Resources expose process
+  "The public resource passive read-fact ids that derive over a
+  resource's runtime-db cache entry — the bare whole-read `:rf/resource`
+  plus the `:rf.resource/*` per-field selectors (Derivations §Resources expose process
   nodes — \"the public selectors listed in `:selectors`\"; Spec 016
   §Subscriptions). They are SEPARATE on-demand derivations over the
   entry — reading them does NOT start resource work (Derivations §Evaluation
@@ -136,7 +137,7 @@
   can see the read facts a resource projects, without minting them as
   separate process nodes here. Matches the `register-subs!` family in
   `re-frame.resources.subs`."
-  [:rf.resource/state
+  [:rf/resource
    :rf.resource/data
    :rf.resource/status
    :rf.resource/loading?

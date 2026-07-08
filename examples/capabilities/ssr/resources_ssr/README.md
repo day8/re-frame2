@@ -71,7 +71,7 @@ per-request, and the wire payload stays minimal.
   directly via the public `rf/resource-state` introspection read until it
   reaches `:loaded` / `:error`, or a render-deadline budget elapses. The
   [view](../../../../docs/core/glossary.md#view) reads through the passive
-  `[:rf.resource/state …]`
+  `[:rf/resource …]`
   [subscription](../../../../docs/core/glossary.md#subscription), and by the
   time it runs the data is simply *there*. No hung `:loading` skeleton
   reaches the HTML.

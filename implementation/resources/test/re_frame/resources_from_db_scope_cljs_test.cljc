@@ -215,7 +215,7 @@
   (testing "a {:from-db} spec-policy sub resolves the same session key and
             reads the loaded entry (no payload :scope needed)"
     (let [q {:resource :t/feed :params {:page 1}}]
-      (is (= :loaded (:status @(rf/subscribe [:rf.resource/state q]))))
+      (is (= :loaded (:status @(rf/subscribe [:rf/resource q]))))
       (is (= {:articles [:a :b]} @(rf/subscribe [:rf.resource/data q]))))))
 
 (deftest sub-from-db-nil-raises-unresolved-scope
@@ -240,7 +240,7 @@
                                           :owner [:lease :s 1]}])
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   (let [q   {:resource :t/feed :params {:page 1}}
-        sub (rf/subscribe [:rf.resource/state q])]
+        sub (rf/subscribe [:rf/resource q])]
     (testing "the live sub reads jake's loaded entry"
       (is (= :loaded (:status @sub)))
       (is (= {:for "jake"} (:data @sub))))

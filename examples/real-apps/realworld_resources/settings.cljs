@@ -3,7 +3,7 @@
 
    Updating settings is a write, so it's a mutation (`:realworld/update-settings`
    over in realworld-resources.mutations). The form fires `:rf.mutation/execute`
-   and watches the instance through `[:rf.mutation/state {:instance …}]`
+   and watches the instance through `[:rf/mutation {:instance …}]`
    (`:pending?` / `:success?` / `:error?`), with no app-db submission-status slice
    to keep in sync. On success the saved User comes back as the reply value; the
    continuation pushes it into the auth slice and navigates to the profile, and
@@ -27,7 +27,7 @@
    flowing through the tape / interceptors / replay — not a callback. That's what
    lets the view stay a plain Form-1, a pure function of subs that never dispatches
    out of band. The alternative would be an off-render Form-3 `reagent.ratom/run!`
-   reaction watching `[:rf.mutation/state …]` for settlement, which drags a
+   reaction watching `[:rf/mutation …]` for settlement, which drags a
    side-effecting reaction into the view. `:reply-to` gives you the same settle
    hook as a declarative, replayable event instead. See the reply map:
    ../../../docs/resources/glossary.md#reply-map."
@@ -120,7 +120,7 @@
                    out of band."}
           settings-page []
   (let [draft     @(subscribe [:settings/draft])
-        save      @(subscribe [:rf.mutation/state {:instance settings-instance}])
+        save      @(subscribe [:rf/mutation {:instance settings-instance}])
         pending?  (:pending? save)]
     [:div.settings-page
      [:div.container.page

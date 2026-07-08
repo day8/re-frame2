@@ -121,7 +121,7 @@
 (def FormSlice
   "The standard form-draft slice, shared by the login / register / settings
    drafts in app-db. The submission lifecycle isn't here — that's a mutation
-   instance (`:rf.mutation/state`) — so this slice carries only the editable draft
+   instance (`:rf/mutation`) — so this slice carries only the editable draft
    plus a little touched-field bookkeeping."
   [:map
    [:draft   :map]

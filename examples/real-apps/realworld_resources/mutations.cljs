@@ -23,7 +23,7 @@
 
    Runtime state is keyed by mutation INSTANCE id, not mutation id, so two
    submissions in flight at once never step on each other. A view watches an
-   instance through the passive `[:rf.mutation/state {:instance …}]` sub
+   instance through the passive `[:rf/mutation {:instance …}]` sub
    (`{:pending? :success? :error? :settled? :result :error :optimistic?}`).
 
    Optimistic rollback is the fun part

@@ -47,13 +47,13 @@ Part-2 leak-boundary **scenario 5** (rf2-5e22yc, spun from rf2-wwhedk).
 
 ## Observables
 
-- **Active dashboard panel** (`dashboard-panel`) — reads `:rf.resource/state` /
+- **Active dashboard panel** (`dashboard-panel`) — reads `:rf/resource` /
   `:rf.resource/data` with NO explicit scope; resolves the active tenant's
   scope from app-db. `active-tenant` / `status` / `motto` testids. This is the
   read seam where a leak would be visible — it structurally cannot read another
   tenant's entry.
 - **Cache witnesses** (`witness-acme` / `witness-globex`) — one EXPLICIT-scope
-  `:rf.resource/state` read per tenant, side by side, regardless of who is
+  `:rf/resource` read per tenant, side by side, regardless of who is
   active. Once both dashboards are loaded, both witnesses read `:loaded` with
   their OWN distinct motto at the same time (`witness-status-<id>`,
   `witness-motto-<id>`): the load-bearing evidence that both entries are

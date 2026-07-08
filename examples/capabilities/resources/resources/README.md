@@ -93,7 +93,7 @@ running with no backend at all.
 
 ### The read side: one passive subscription, five distinctions
 
-Views read everything through one **passive** subscription, `[:rf.resource/state …]`.
+Views read everything through one **passive** subscription, `[:rf/resource …]`.
 (One small derived sub also layers over the narrower `[:rf.resource/data …]` to
 pull out the top article's slug.) The view-model is rich enough that a network
 hiccup never blanks the page. It draws these distinctions:

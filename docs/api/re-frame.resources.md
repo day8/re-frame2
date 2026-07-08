@@ -363,7 +363,7 @@ A view reads the merged list and dispatches the causal `[:rf.resource/load-more 
 [:rf.resource/has-next-page? {…}]   [:rf.resource/fetching-next? {…}]
 [:rf.resource/has-prev-page? {…}]   ;; the bidirectional mirror (observable; the prepend event is deferred)
 [:rf.resource/page-count     {…}]   [:rf.resource/page-error     {…}]
-[:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf.resource/state)
+[:rf.resource/infinite-state {…}]   ;; combined view-model (the feed analogue of :rf/resource)
 ```
 
 `:rf.resource/items`, `:rf.resource/pages`, and `:rf.resource/infinite-state` are framework-owned memoised subscriptions; `:rf.resource/ensure` (and a route entry) loads **page 0 only**, and a mutation touching an item inside a feed **invalidates the whole feed** (coarse, correct; in-place item patching inside a feed's page vector is a distinct deferred axis — not the single-entry optimistic surface — homed at [spec/016 §Refetch and invalidation of an infinite feed](../../spec/016-Resources.md#refetch-and-invalidation-of-an-infinite-feed)).
@@ -650,7 +650,7 @@ Resource events take a **map payload**, not a positional argument vector. The re
 A subscription is a pure passive read — it never fetches. It resolves scope per the sub-side precedence and raises `:rf.error/resource-sub-unresolved-scope` rather than reading global or returning a silent `:idle`.
 
 ```clojure
-[:rf.resource/state         {:resource … :scope … :params …}]   ;; the full view-model
+[:rf/resource         {:resource … :scope … :params …}]   ;; the full view-model
 [:rf.resource/data          {…}]   [:rf.resource/status        {…}]
 [:rf.resource/loading?      {…}]   [:rf.resource/fetching?     {…}]
 [:rf.resource/stale?        {…}]   [:rf.resource/error         {…}]
@@ -658,7 +658,7 @@ A subscription is a pure passive read — it never fetches. It resolves scope pe
 [:rf.resource/previous-data {…}]
 ```
 
-The `:rf.resource/state` view-model — facts plus **derived** booleans:
+The `:rf/resource` view-model — facts plus **derived** booleans:
 
 ```clojure
 {:status        :idle | :loading | :fetching | :loaded | :error
@@ -723,7 +723,7 @@ Status invariants:
 A `:rf.mutation/*` subscription is a pure passive read keyed by **instance** id — it never executes a write.
 
 ```clojure
-[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :affected-keys
+[:rf/mutation    {:instance :form/save-1}]   ;; {:status :result :error :affected-keys
                                                    ;;  :pending? :success? :error? :settled? :optimistic?}
 [:rf.mutation/status   {:instance :form/save-1}]
 [:rf.mutation/pending? {:instance :form/save-1}]
@@ -743,7 +743,7 @@ Resource and mutation state are read with the ordinary `subscribe` naming their 
 
 ```clojure
 ;; a view reads a resource passively — never fetches
-@(rf/subscribe [:rf.resource/state {:resource :article :params {:slug "hello"}}])
+@(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
 ;; => {:status :loading}  …then  {:status :loaded :data {…}}
 ```
 
@@ -751,7 +751,7 @@ Resource and mutation state are read with the ordinary `subscribe` naming their 
 
 ```clojure
 ;; a form reads its own submission's state, keyed by instance
-@(rf/subscribe [:rf.mutation/state {:instance :form/save-1}])
+@(rf/subscribe [:rf/mutation {:instance :form/save-1}])
 ;; => {:status :idle …}  …then  {:pending? true …}  …then  {:success? true …}
 ```
 

@@ -44,7 +44,7 @@
  {;; The entry is still in flight on its single generation — the join added a
   ;; lease, not a new load. :loading (first load, no usable data yet).
   :sub-values
-  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+  {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :loading :data nil :error nil :refresh-error nil
     :loading? true :fetching? false :stale? false :has-data? false :previous? false}}
 

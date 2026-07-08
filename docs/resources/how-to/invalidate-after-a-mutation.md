@@ -81,11 +81,11 @@ What happens next depends on whether anything is still *using* that entry. A rea
 
 You have a write that knows what it breaks. Now fire it from a view and watch its progress.
 
-One thing about the code below: the read uses the `[:rf.mutation/state {:instance …}]` [subscription](../../core/glossary.md#subscription), and the write fires with the bare [dispatch](../../core/glossary.md#dispatch), not the fully-qualified `rf/dispatch`. That's because `reg-view` injects `subscribe` / `dispatch` as [frame](../../core/glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you, and the injected `subscribe` resolves that same ambient frame on the read side.
+One thing about the code below: the read uses the `[:rf/mutation {:instance …}]` [subscription](../../core/glossary.md#subscription), and the write fires with the bare [dispatch](../../core/glossary.md#dispatch), not the fully-qualified `rf/dispatch`. That's because `reg-view` injects `subscribe` / `dispatch` as [frame](../../core/glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you, and the injected `subscribe` resolves that same ambient frame on the read side.
 
 ```cljs-rf2
 (rf/reg-view article-editor [article]
-  (let [save @(rf/subscribe [:rf.mutation/state {:instance [:article-save (:slug article}])])]
+  (let [save @(rf/subscribe [:rf/mutation {:instance [:article-save (:slug article}])])]
     [:<>
      [editor-fields article]
      [:button {:disabled (:pending? save)
@@ -98,7 +98,7 @@ One thing about the code below: the read uses the `[:rf.mutation/state {:instanc
      (when (:error? save) [save-error (:error save)])]))
 ```
 
-A quick tour of what that view is doing. The `[:rf.mutation/state {:instance …}]` read is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
+A quick tour of what that view is doing. The `[:rf/mutation {:instance …}]` read is a passive read of one write's lifecycle: it never fires the write, it just watches it, and it yields a map: `{:status :pending? :success? :error? :settled? :result :error :optimistic?}`. That's what the button reads to flip its label to "Saving…" and disable itself. The `:instance` id — `[:article-save (:slug article)]` — is per-slug on purpose: it keeps two articles being saved at once from clobbering each other's pending/success/error state. (`editor-fields` and `save-error` are your own child views.)
 
 Now notice what's *absent*: the view never dispatches an invalidate, never refetches a list, and never touches [app-db](../../core/glossary.md#app-db) — your app's single state map. It doesn't have to, because the registration in §2 already declared which reads this write breaks. That absence is the payoff of doing the work once, at registration.
 
@@ -123,7 +123,7 @@ The execute event takes a map payload with these keys:
 If you only ever need a slice of the instance state, the focused subs project just that slice — handy when a button cares about nothing but "am I in flight?":
 
 ```clojure
-[:rf.mutation/state    {:instance [:article-save slug]}]   ;; the whole view-model
+[:rf/mutation    {:instance [:article-save slug]}]   ;; the whole view-model
 [:rf.mutation/status   {:instance [:article-save slug]}]   ;; :idle | :pending | :success | :error
 [:rf.mutation/pending? {:instance [:article-save slug]}]   ;; boolean
 [:rf.mutation/result   {:instance [:article-save slug]}]   ;; the decoded reply value, or nil
@@ -367,7 +367,7 @@ What the runtime guarantees, so you don't hand-roll any of it:
 - **The inverse is captured for you — you never write a rollback.** Before each forward patch the runtime snapshots the *whole entry* as it stood (or records that the key was absent), so a rollback restores exactly what existed, never a reconstructed approximation. An author-written inverse — which drifts the moment the forward patch changes — is never required.
 - **Settle is deterministic: commit, roll back, or reconcile.** On an accepted `:ok` reply the authoritative `:populates` / `:patches` / `:invalidates` overwrite the optimistic value and the snapshot is discarded (`:rf.mutation/optimistic-reconciled`). On an `:error` or `:cancelled` reply it rolls back (`:rf.mutation/optimistic-rolled-back`). A stale/superseded reply rolls back nothing — its snapshot is simply dropped.
 - **`:on-conflict` governs a *contested* rollback.** If a concurrent write landed on the entry between your optimistic apply and the rollback, restoring your snapshot would clobber newer truth. So the default `:on-conflict :invalidate` does *not* blind-restore — it marks the entry stale in its own scope and lets the read path refetch the authoritative value. `:force` restores your snapshot anyway (single-writer last-write-wins) and trips a `:rf.warning/optimistic-force-clobber`. This deference to the read path is a deliberate divergence from TanStack/SWR's unconditional context restore. An out-of-enum value is a loud `reg-mutation` error.
-- **The view can tell it's showing an optimistic value.** `[:rf.mutation/state {:instance …}]` carries a derived `:optimistic?` — true between the apply and settle — so you can render "pending, but already showing your change."
+- **The view can tell it's showing an optimistic value.** `[:rf/mutation {:instance …}]` carries a derived `:optimistic?` — true between the apply and settle — so you can render "pending, but already showing your change."
 
 Two guardrails worth internalizing:
 

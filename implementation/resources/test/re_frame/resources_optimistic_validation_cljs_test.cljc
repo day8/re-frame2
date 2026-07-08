@@ -112,7 +112,7 @@
   (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
 
 (defn- mutation-state [instance-id]
-  @(rf/subscribe [:rf.mutation/state {:instance instance-id}]))
+  @(rf/subscribe [:rf/mutation {:instance instance-id}]))
 
 (defn- trace-of
   "Run `body-fn`; return the LAST trace event with `op` (its top-level data map;
@@ -619,7 +619,7 @@
           "the recorded :before the restore-dangle path restores on a no-conflict dangle"))))
 
 ;; ===========================================================================
-;; RIDER 1 — the :optimistic? derived sub flag on :rf.mutation/state.
+;; RIDER 1 — the :optimistic? derived sub flag on :rf/mutation.
 ;; ===========================================================================
 
 (deftest rider1-optimistic-flag-true-between-apply-and-settle

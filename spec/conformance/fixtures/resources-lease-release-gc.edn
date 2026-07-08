@@ -84,12 +84,12 @@
  {;; After GC the entry is gone; the passive state sub projects the documented
   ;; idle empty-state (a sub never re-fetches).
   :sub-values
-  {[:rf.resource/state {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
+  {[:rf/resource {:resource :res/article :scope :rf.scope/global :params {:slug "w"}}]
    {:status :idle :data nil :error nil :refresh-error nil
     :loading? false :fetching? false :stale? false :has-data? false :previous? false}
    ;; rf2-bbpu11 — the default-GC'd resource is still :loaded (nothing fired
    ;; its GC timer in this fixture; only its ARMING is under test here).
-   [:rf.resource/state {:resource :res/no-gc-policy :scope :rf.scope/global :params {:slug "d"}}]
+   [:rf/resource {:resource :res/no-gc-policy :scope :rf.scope/global :params {:slug "d"}}]
    {:status :loaded :data {:title "Defaulted"} :error nil :refresh-error nil
     :loading? false :fetching? false :stale? false :has-data? true :previous? false}}
 

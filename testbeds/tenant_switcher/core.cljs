@@ -42,7 +42,7 @@
             ;; app boot triggers its load-time registrations (the
             ;; :rf.resource/* events + subs and the named-resolver scope
             ;; plumbing). Without it, dispatching :rf.resource/ensure or
-            ;; subscribing :rf.resource/state would fail late-bound.
+            ;; subscribing :rf/resource would fail late-bound.
             [re-frame.resources]
             [re-frame.resources.registry]
             ;; Managed-HTTP is the resource runtime's single built-in read
@@ -193,7 +193,7 @@
 ;; Views
 ;; ----------------------------------------------------------------------------
 ;;
-;; The active-scope panel subscribes `:rf.resource/state` / `:rf.resource/data`
+;; The active-scope panel subscribes `:rf/resource` / `:rf.resource/data`
 ;; with NO explicit :scope — the sub resolves the active tenant's scope from
 ;; app-db (the {:from-db} spec policy), so it ALWAYS reads the active tenant's
 ;; entry and can never address another tenant's. That is the read seam where a
@@ -206,7 +206,7 @@
 (reg-view dashboard-panel []
   (let [active (subscribe [:active-tenant])
         q      {:resource :tenant/dashboard :params {:page 1}}
-        state  (subscribe [:rf.resource/state q])
+        state  (subscribe [:rf/resource q])
         data   (subscribe [:rf.resource/data q])]
     (fn []
       (let [tenant @active
@@ -223,7 +223,7 @@
          [:p "motto=" [:span {:data-testid "motto"} (or (:motto d) no-data)]]]))))
 
 ;; The CACHE WITNESS row — one explicit-scope read per tenant, side by side.
-;; Each subscribes `:rf.resource/state` at an EXPLICIT `[:rf.scope/tenant …]`
+;; Each subscribes `:rf/resource` at an EXPLICIT `[:rf.scope/tenant …]`
 ;; scope, so it reads THAT tenant's entry regardless of who is active. This is
 ;; the load-bearing evidence for scenario 5: once each tenant's dashboard is
 ;; loaded, BOTH witnesses read `:loaded` with their OWN distinct motto at the
@@ -232,7 +232,7 @@
 (reg-view cache-witness [tenant]
   (let [scope [:rf.scope/tenant {:tenant-id tenant}]
         q     {:resource :tenant/dashboard :params {:page 1} :scope scope}
-        state (subscribe [:rf.resource/state q])
+        state (subscribe [:rf/resource q])
         data  (subscribe [:rf.resource/data q])]
     (fn [tenant]
       (let [st @state

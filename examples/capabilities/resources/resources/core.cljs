@@ -368,7 +368,7 @@
 ;; `:resources.app/preview-opened`, and will be released by
 ;; `:resources.app/preview-closed`. The panel's whole job is to read and render.
 (rf/reg-view preview-panel [slug]
-  (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
+  (let [state @(subscribe [:rf/resource {:resource :article/by-slug
                                                :params  {:slug slug}}])]
     [:div.preview {:data-testid "preview-panel"}
      (cond
@@ -388,7 +388,7 @@
 ;; for its whole lifetime; the panel just reads it passively. Hit stop and the
 ;; actor is destroyed, which is what releases the owner.
 (rf/reg-view reader-panel [slug]
-  (let [state @(subscribe [:rf.resource/state {:resource :article/by-slug
+  (let [state @(subscribe [:rf/resource {:resource :article/by-slug
                                                :params  {:slug slug}}])]
     [:div.reader {:data-testid "reader-panel"}
      [:strong "Reader (machine-owned): "]
@@ -409,7 +409,7 @@
   ;; Getting here already ensured the list — that's what this route's
   ;; `:resources` metadata bought us. All the view has to do now is read the
   ;; resource's full state, passively.
-  (let [state        @(subscribe [:rf.resource/state {:resource :articles/list :params {}}])
+  (let [state        @(subscribe [:rf/resource {:resource :articles/list :params {}}])
         preview-slug @(subscribe [:resources.app/preview-slug])
         reader       @(subscribe [:resources.app/reader])
         ;; The top article's slug, for the quick-preview button — courtesy of the
@@ -468,7 +468,7 @@
   ;; Same deal as the list page: arriving here already ensured :article/by-slug
   ;; for the slug in the URL. The view just reads the result.
   (let [slug  (:slug @(subscribe [:rf.route/params]))
-        state @(subscribe [:rf.resource/state {:resource :article/by-slug
+        state @(subscribe [:rf/resource {:resource :article/by-slug
                                                :params  {:slug slug}}])]
     [:div
      (cond

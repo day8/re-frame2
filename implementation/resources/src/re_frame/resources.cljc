@@ -4,7 +4,7 @@
 
   A resource is a named, cached read of remote or external state.
   `reg-resource` registers it; views read it through PASSIVE subscriptions
-  (`[:rf.resource/state …]`); route entry, events, and machines CAUSE it
+  (`[:rf/resource …]`); route entry, events, and machines CAUSE it
   to fetch. The resource runtime owns identity, cache scope, staleness,
   dedupe, invalidation, GC, in-flight ownership, SSR hydration, and tool
   metadata, so an app stops re-implementing that bookkeeping per feature.
@@ -235,7 +235,7 @@
   (let [;; EP-0016 D3 slice 3: a `{:from-db <id>}` scope on the introspection
         ;; target resolves against the frame's app-db value (the same db the
         ;; reactive sub resolves against), so `resource-state` and a live
-        ;; `[:rf.resource/state …]` sub resolve the SAME scoped key.
+        ;; `[:rf/resource …]` sub resolve the SAME scoped key.
         scoped-key (resource-subs/resolve-scoped-key
                      opts (frame/frame-app-db-value frame))
         runtime-db (frame/frame-runtime-db-value frame)]
@@ -295,8 +295,8 @@
 
 ;; The `sub-mutation` / `sub-resource` reactive-read sugar fns that once lived
 ;; here were REMOVED (rf2-il99l3, reversing rf2-2cmcas). A resource / mutation
-;; state read is a subscription VECTOR — `(subscribe [:rf.resource/state
-;; <query>])` / `(subscribe [:rf.mutation/state {:instance <instance>}])` —
+;; state read is a subscription VECTOR — `(subscribe [:rf/resource
+;; <query>])` / `(subscribe [:rf/mutation {:instance <instance>}])` —
 ;; one read grammar; `subscribe`'s own frame-first arity carries the
 ;; `{:frame …}` target for an explicit frame.
 

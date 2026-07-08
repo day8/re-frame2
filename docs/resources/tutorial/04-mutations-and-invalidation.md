@@ -119,7 +119,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
 
 (reg-view favorite-button [{:keys [article]}]
   (let [{:keys [slug favorited favoritesCount]} article
-        fav @(rf/subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
+        fav @(rf/subscribe [:rf/mutation {:instance [:favorite slug]}])]
     [:button.btn.btn-outline-primary.btn-sm
      {:type     "button"
       :class    (when favorited "active")
@@ -130,7 +130,7 @@ A resource is "a subscription you read and an event you fire" (a [*subscription*
 
 Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other.
 
-The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` subscription, which returns the durable facts plus some derived booleans, computed for you:
+The view watches its instance through the passive `[:rf/mutation {:instance …}]` subscription, which returns the durable facts plus some derived booleans, computed for you:
 
 ```clojure
 {:status :idle      ;; :idle | :pending | :success | :error
@@ -150,7 +150,7 @@ Notice what the view *doesn't* do: it never invalidates anything. Add this butto
 
 ??? info "Coming from RTK Query?"
 
-    `[:rf.mutation/state {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
+    `[:rf/mutation {:instance …}]` is the tuple `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id *you* choose, not bound to one component instance. Two views can watch the *same* in-flight write by naming the same instance, and a write survives the unmount of the component that fired it.
 
 ### Watch it happen
 
@@ -170,10 +170,10 @@ You've used three keys on `:rf.mutation/execute` (`:mutation`, `:instance`, `:ca
 | `:reply-to` | no | A continuation event target dispatched once the write settles — the subject of the **Publish** section below. |
 | `:optimistic?` | no | A per-call escape hatch: `{:optimistic? false}` forces the **pessimistic** path for this one call even when the mutation registered an optimistic plan. It's a boolean disable, never a per-call forward patch — call-site cache logic stays off the call site. |
 
-And the sub family is wider than the one you've used. `:rf.mutation/state` returns the whole instance view-model; for the common single-fact reads there are convenience subs that project one slot each, all keyed the same way by `:instance`:
+And the sub family is wider than the one you've used. `:rf/mutation` returns the whole instance view-model; for the common single-fact reads there are convenience subs that project one slot each, all keyed the same way by `:instance`:
 
 ```clojure
-[:rf.mutation/state    {:instance [:favorite slug]}]   ;; the whole map
+[:rf/mutation    {:instance [:favorite slug]}]   ;; the whole map
 [:rf.mutation/status   {:instance [:favorite slug]}]   ;; :idle | :pending | :success | :error
 [:rf.mutation/pending? {:instance [:favorite slug]}]   ;; true while in flight
 [:rf.mutation/result   {:instance [:favorite slug]}]   ;; the decoded reply value on success

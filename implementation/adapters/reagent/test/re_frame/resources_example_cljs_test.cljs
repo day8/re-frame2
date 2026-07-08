@@ -175,9 +175,9 @@
 
 (defn- route-state
   "The passive resource view-model the example's views read, via the
-   `[:rf.resource/state …]` sub, computed against :rf/default's frame-state."
+   `[:rf/resource …]` sub, computed against :rf/default's frame-state."
   [query]
-  (rf/compute-sub [:rf.resource/state query] (rf/frame-state-value :rf/default)))
+  (rf/compute-sub [:rf/resource query] (rf/frame-state-value :rf/default)))
 
 ;; ============================================================================
 ;; 1. ROUTE-DRIVEN PAGE LOAD — `:resources` metadata owns the read

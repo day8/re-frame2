@@ -26,7 +26,7 @@ A **resource instance** is identified by a **scoped resource key** — the tripl
 
 Three roles never blur:
 
-- **Views are passive.** A `[:rf.resource/state …]` subscription reads cached state; it never fetches.
+- **Views are passive.** A `[:rf/resource …]` subscription reads cached state; it never fetches.
 - **Causes explain why work happened.** `[:route-entry …]`, `[:manual …]`, `:focus`, `:reconnect` — trace/diagnostic metadata that does not change liveness.
 - **Owners keep a resource alive** (a liveness lease) and have a matching **release path**. Route owners carry the nav-token; machine owners are released on actor-destroy; app-minted leases need an explicit `:rf.resource/release-owner`.
 
@@ -56,7 +56,7 @@ The request fn returns a managed-HTTP args map but MUST NOT supply `:request-id`
 ```clojure
 ;; In a reg-view — `subscribe` is reg-view's injected frame-aware local; the
 ;; scope + params name the same instance the owner ensured under.
-(let [state @(subscribe [:rf.resource/state
+(let [state @(subscribe [:rf/resource
                          {:resource :article/by-slug
                           :scope    :rf.scope/global
                           :params   {:slug slug}}])]

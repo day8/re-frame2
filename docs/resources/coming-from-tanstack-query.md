@@ -10,10 +10,10 @@ The honest framing up front: TanStack Query is a *hook* library. Its primitives 
 
 | TanStack Query | re-frame2 | Notes |
 |---|---|---|
-| `useQuery({ queryKey, queryFn })` | `reg-resource` (register) + `[:rf.resource/state …]` (read) + a *cause* (fetch) | One hook splits into three jobs. See [Where it diverges](#where-it-diverges). |
+| `useQuery({ queryKey, queryFn })` | `reg-resource` (register) + `[:rf/resource …]` (read) + a *cause* (fetch) | One hook splits into three jobs. See [Where it diverges](#where-it-diverges). |
 | `queryKey: ['article', slug]` | `:params` (the `{:slug …}` map) under a [`:scope`](glossary.md#scope) | Identity is `[scope resource-id canonical-params]`. The user/tenant segment is a *separate, required* axis, not just another key element. |
 | `queryFn` (returns a promise) | the third slot of `reg-resource` — `(fn [params ctx] {:request … :decode …})` | Returns request *data*, not a promise. The runtime owns `fetch`. |
-| `data`, `error`, `status`, `isPending`, `isFetching` | `:rf.resource/state` view-model: `:data` `:error` `:status` `:loading?` `:fetching?` `:has-data?` | Five statuses: `:idle` `:loading` `:fetching` `:loaded` `:error`. `:error` is *first-load only*. |
+| `data`, `error`, `status`, `isPending`, `isFetching` | `:rf/resource` view-model: `:data` `:error` `:status` `:loading?` `:fetching?` `:has-data?` | Five statuses: `:idle` `:loading` `:fetching` `:loaded` `:error`. `:error` is *first-load only*. |
 | `staleTime` | `:stale-after-ms` | Same semantics: fresh window, then refetch on next access. **Default diverges**: TanStack's `staleTime` defaults to `0` (stale-immediately); re-frame2's `:stale-after-ms` defaults to *never* time-stale (freshness is explicit-invalidation-driven, not wall-clock). |
 | `gcTime` (was `cacheTime`) | `:gc-after-ms` | Reclaim after the entry goes *owner-free* for this long. **Default matches**: both are finite by default — TanStack's `gcTime` defaults to 5 minutes, re-frame2's `:gc-after-ms` defaults to `300000` (5 minutes); `:gc-after-ms :never` is the explicit opt-out (TanStack's analogue is `Infinity`). |
 | an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or explicit lease) | Owner = liveness lease. Decoupled from any component mounting. |
@@ -26,7 +26,7 @@ The honest framing up front: TanStack Query is a *hook* library. Its primitives 
 | `queryClient.setQueryData(key, data)` | a mutation's `:populates` / `:patches` | `:populates` seeds a key; `:patches` transforms one. |
 | `queryClient.removeQueries(key)` | a mutation's `:removes`, or `[:rf.resource/remove …]` | Evict an exact key. |
 | `queryClient.clear()` | `[:rf.resource/clear-scope …]` | But you clear *one scope*, not the whole cache — that's the point. |
-| `useMutation({ mutationFn })` | `reg-mutation` (register) + `[:rf.mutation/execute …]` (run) + `[:rf.mutation/state …]` (read) | Same three-way split as queries. Keyed by an **instance**. |
+| `useMutation({ mutationFn })` | `reg-mutation` (register) + `[:rf.mutation/execute …]` (run) + `[:rf/mutation …]` (read) | Same three-way split as queries. Keyed by an **instance**. |
 | `onMutate` + rollback `context` / `onError` | `:optimistic` / `:optimistic-tags` (forward) — runtime records the inverse | You declare the forward change only; rollback is automatic. |
 | `useInfiniteQuery` | `:infinite true` on a resource | One scoped entry holding a vector of pages. |
 | `getNextPageParam(lastPage, allPages)` | `:next-page-param` | Terminal is **`nil`** (not `undefined`). |
@@ -51,7 +51,7 @@ re-frame2 splits those into three lanes that never blur:
 
 - **Register** — `(rf/reg-resource …)` at boot. Teaches the runtime *how* to fetch. Fetches nothing.
 - **Cause** — a route entry, an event, or a [machine](../machines/glossary.md#machine) dispatches `[:rf.resource/ensure …]`. This is what makes a fetch happen.
-- **Project** — `@(subscribe [:rf.resource/state …])` in a [view](../core/glossary.md#view), the read an author writes today. Passive. Reads the cache; never triggers a fetch.
+- **Project** — `@(subscribe [:rf/resource …])` in a [view](../core/glossary.md#view), the read an author writes today. Passive. Reads the cache; never triggers a fetch.
 
 The cost: you write a cause that `useQuery` gave you for free. The payoff: the view is now a pure function of the cache. The *same* view renders on the server, in a unit test, or after a cache hit — with **no network call hiding in the render**. That's also why "I registered the resource but my view is a permanent skeleton" almost always means *you forgot the cause*, not the read. A subscription that finds no entry reads `:idle` and stays there until something causes the fetch. (TanStack's `enabled: false` is this same idea — a read that doesn't fetch — except here it's the default shape rather than a flag.)
 
@@ -187,7 +187,7 @@ The mapping above is the vocabulary; this is the exhaustive reference card, each
 | **Refetch on window focus / reconnect** | `refetchOnWindowFocus` / `refetchOnReconnect` | `refetchOnFocus` / `refetchOnReconnect` | `revalidateOnFocus` / `revalidateOnReconnect` | `install-revalidation-listeners!` per frame; refetches only entries that are *stale AND owned* | **Landed** |
 | **Prefetch / route-plan preload** | `queryClient.prefetchQuery` / `<Link prefetch>` (Router) | `prefetch` endpoint action | `preload` | per-resource warm `ensure` works today (ownerless, cause-only); a **route-plan-level** prefetch verb (`[:rf.route/prefetch target]` in WARM mode) is deferred to post-v1 — the resources side is already warm-capable ([spec/016 §Warm-mode prefetch](../../spec/016-Resources.md#warm-mode-prefetch--a-route-plan-preload-verb-over-ownerless-ensure--post-v1-tracked); [spec/012 §Route-plan prefetch](../../spec/012-Routing.md#route-plan-prefetch--warm-mode-on-hover-preload-post-v1)) | **Deferred (later slice)** |
 | **Infinite / load-more** | `useInfiniteQuery` | `infiniteQuery` (recent) | `useSWRInfinite` | `:infinite true` + `:next-page-param` — one scoped feed entry accumulates an ordered page vector; a causal `:rf.resource/load-more` extends it; `:rf.resource/items` is the merged read | **Landed** |
-| **Keep-previous-data while paging** | `placeholderData: keepPreviousData` | n/a (manual) | `keepPreviousData` | `:keep-previous?` on the route/resource; `:rf.resource/state` projects `:previous-data` / `:previous-key` | **Landed** |
+| **Keep-previous-data while paging** | `placeholderData: keepPreviousData` | n/a (manual) | `keepPreviousData` | `:keep-previous?` on the route/resource; `:rf/resource` projects `:previous-data` / `:previous-key` | **Landed** |
 | **SSR / hydration** | `dehydrate` / `HydrationBoundary` | `getRunningQueries` + preload | fallback data | per-request frames; blocking route resources are the render wait point; allowlist projection serialized + hydrated under freshness rules | **Landed** |
 | **Devtools / observability** | React Query Devtools | RTK devtools (Redux) | external | Xray Resources panel + a `:rf.resource/*` / `:rf.mutation/*` trace family; static registry, live instance table, scope-audit + orphaned-owner lints | **Landed** |
 | **Normalized / GraphQL cache** | normalizr (external) | partial | external | Apollo/Relay-class — not a resources concern; transport is HTTP-only this phase | **Out of scope** |
@@ -205,9 +205,9 @@ re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in te
 |---|---|---|---|
 | **Registration** (functions, at boot) | Declare a handler once — it does not fetch or read | `rf/reg-resource`, `rf/reg-mutation`, `rf/reg-resource-scope` (+ their `clear-*`) | app code, once, at startup |
 | **Commands** (causal event vectors, dispatched) | *Cause* work — they are not reads | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.resource/invalidate-tags …]`, `[:rf.resource/release-owner …]`, `[:rf.resource/clear-scope …]`, `[:rf.resource/remove …]`, `[:rf.resource/load-more …]`, `[:rf.mutation/execute …]` | routes, events, machines |
-| **Reads** (passive subscription vectors) | Project runtime state — the only lane a view touches | `[:rf.resource/state …]`, `[:rf.resource/data …]`, `[:rf.resource/items …]`, `[:rf.resource/infinite-state …]`, `[:rf.mutation/state …]`, and the narrower single-fact subs | views, via `subscribe` |
+| **Reads** (passive subscription vectors) | Project runtime state — the only lane a view touches | `[:rf/resource …]`, `[:rf.resource/data …]`, `[:rf.resource/items …]`, `[:rf.resource/infinite-state …]`, `[:rf/mutation …]`, and the narrower single-fact subs | views, via `subscribe` |
 
-The two whole-view-model reads are `@(rf/subscribe [:rf.resource/state query])` and `@(rf/subscribe [:rf.mutation/state {:instance instance-id}])`; in a view that's the form you'd reach for. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads are read the same way — every framework read is a subscription vector, one grammar.
+The two whole-view-model reads are `@(rf/subscribe [:rf/resource query])` and `@(rf/subscribe [:rf/mutation {:instance instance-id}])`; in a view that's the form you'd reach for. The narrower projection subs (`[:rf.resource/data …]`) and the single-fact reads are read the same way — every framework read is a subscription vector, one grammar.
 
 !!! note "The whole `rf/` resource surface is the optional Resources artefact"
 

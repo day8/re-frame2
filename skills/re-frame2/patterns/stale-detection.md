@@ -21,7 +21,7 @@ Do NOT load for:
 - A reply whose event id is unique to its request (`:auth/succeeded`, `:cart/loaded`). Re-frame's standard "unhandled event" fallback already drops it cleanly when the receiving state has moved past handling it. The epoch is needed only when the *same event id* may be dispatched against *different state instances* of the same container.
 - Cancellation as an optimisation (saving bandwidth or CPU). That's an `AbortController` concern, not stale-detection. The epoch handles correctness regardless.
 
-> **Do not use post-mutation watcher reactions.** Watching mutation state from a component lifecycle hook to drive post-write workflow (a Reagent Form-3 reaction watching `@(rf/subscribe [:rf.mutation/state {:instance …}])`, dispatching once the instance became successful) is adapter-specific, per-site, lifecycle-sensitive boilerplate that inverts ownership. **Use call-site `:reply-to` instead** (above); do not author the watcher idiom for new code.
+> **Do not use post-mutation watcher reactions.** Watching mutation state from a component lifecycle hook to drive post-write workflow (a Reagent Form-3 reaction watching `@(rf/subscribe [:rf/mutation {:instance …}])`, dispatching once the instance became successful) is adapter-specific, per-site, lifecycle-sensitive boilerplate that inverts ownership. **Use call-site `:reply-to` instead** (above); do not author the watcher idiom for new code.
 
 ## The shape
 

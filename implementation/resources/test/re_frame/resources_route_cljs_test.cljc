@@ -441,7 +441,7 @@
   (rf/dispatch-sync [:rf.route/navigate :route/list {} {:query {:page 2}}])
   (let [k1   (state/scoped-resource-key :rf.scope/global :articles/list {:page 1})
         k2   (state/scoped-resource-key :rf.scope/global :articles/list {:page 2})
-        view @(rf/subscribe [:rf.resource/state {:resource :articles/list
+        view @(rf/subscribe [:rf/resource {:resource :articles/list
                                                  :scope   :rf.scope/global
                                                  :params  {:page 2}}])]
     (testing "the new key shows the previous key's data while it loads"

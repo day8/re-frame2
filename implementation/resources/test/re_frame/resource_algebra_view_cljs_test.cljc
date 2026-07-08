@@ -126,7 +126,7 @@
       (testing "declared inputs lower to params + the scope policy"
         (is (= [[:param :rf.params] [:scope :rf.scope/global]] (:inputs node))))
       (testing "the :rf.resource/* read facts are listed as selectors"
-        (is (contains? (set (:selectors node)) :rf.resource/state))
+        (is (contains? (set (:selectors node)) :rf/resource))
         (is (contains? (set (:selectors node)) :rf.resource/data))
         (is (contains? (set (:selectors node)) :rf.resource/loading?)))
       (testing "the transport command descriptor + its reply targets"
