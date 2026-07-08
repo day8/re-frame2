@@ -509,10 +509,11 @@
 ;; Provider also gets double-rendered; the resolution chain MUST land
 ;; on the same frame keyword across both invocations.
 ;;
-;; The bead lists this as "React-19 strict-mode composition"; under
-;; React 18 (the test infra's installed version, package.json
-;; pinning) StrictMode produces the same double-invoke contract and
-;; is sufficient to validate the property.
+;; This IS the "React-19 strict-mode composition" validation: the
+;; test infra pins react/react-dom to 19.2.0 (implementation/
+;; package.json; Reagent 2.0.1's React-19.2.0 Floor), so StrictMode
+;; here double-invokes under React 19 — the scenario exercises the
+;; property on the version the framework actually ships against.
 
 (deftest scenario-6-strict-mode-composition
   "Scenario 6 — React StrictMode composition.
