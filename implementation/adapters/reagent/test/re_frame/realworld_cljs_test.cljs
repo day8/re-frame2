@@ -999,6 +999,65 @@
     (is (= 3 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
 
 ;; ============================================================================
+;; auth — session-restore-with-token (the documented "restore stays put"
+;; invariant, previously untested — token-nil tests only hit the :idle no-op)
+;; (rf2-svj926)
+;; ============================================================================
+
+(defn- session-restore-with-token-test []
+  ;; A URL-routed stub: GET /user (and the login POST) return a User envelope;
+  ;; everything else (the deep-link article's on-match reads) returns empty.
+  ;; "/users/login" and "/users" both contain the substring "/user", so this
+  ;; one predicate covers the restore GET and the login POST.
+  (reg-canned-success-by-url! :realworld.test/restore-user
+                              (fn [url]
+                                (if (str/includes? url "/user")
+                                  {:user {:username "alice"
+                                          :email    "alice@example.com"
+                                          :token    "jwt-restore"}}
+                                  {})))
+
+  ;; --- RESTORE STAYS PUT: a cold boot with a saved token restores the session
+  ;;     without navigating (a deep link must survive a refresh) ---
+  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
+                                                    :auth.session/persist :rf/no-op}})]
+    ;; Land on a deep link (a public article), as a refresh would.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
+    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "cold boot lands on the deep-linked article")
+
+    ;; Boot with a saved JWT: the :has-token? guard routes to :begin-restore
+    ;; (NOT the token-nil :idle no-op the pre-existing tests exercised). The
+    ;; canned stub resolves the GET /user synchronously, so the machine settles.
+    (rf/dispatch-sync [:auth/initialise]
+                      {:frame f :rf.cofx {:auth.session/token "jwt-restore"}})
+    (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
+        "guard true → :begin-restore → :restoring → (GET /user success) → :restore-session → :authed")
+    (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f))))
+        "the restored session is stored")
+    (is (= "jwt-restore" (get-in (rf/app-db-value f) [:auth :token]))
+        "the token rode :auth/initialise into durable app-db")
+    ;; THE INVARIANT: restore must NOT navigate — the deep link survives.
+    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "restore stays put — :restore-session does NOT fire :auth/post-login-redirect"))
+
+  ;; --- CONTRAST: an INTERACTIVE login DOES bounce (proves navigation is
+  ;;     observable here, so the restore's non-navigation above is a real
+  ;;     signal, not a harness that simply never navigates) ---
+  (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
+                                                    :auth.session/persist :rf/no-op}})]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
+    (rf/dispatch-sync [:auth/initialise]
+                      {:frame f :rf.cofx {:auth.session/token nil}})
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
+        "no token → the :idle no-op branch (the only path the old tests hit)")
+    (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com" :password "x"}]]
+                      {:frame f})
+    (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "interactive login bounces home via :store-session → :auth/post-login-redirect")))
+
+;; ============================================================================
 ;; core — top-level smoke: boots the app, checks per-feature initialisers
 ;; populate the expected slices.
 ;; ============================================================================
@@ -1098,6 +1157,10 @@
     (pagination-helpers-test))
   (testing "page-nav events carry the active feed / tag / route forward (rf2-yt7ay6)"
     (pagination-nav-events-test)))
+
+(deftest realworld-session-restore
+  (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate (rf2-svj926)"
+    (session-restore-with-token-test)))
 
 (deftest realworld-core-smoke
   (testing "app boot populates :auth, :articles, and :tags slices"

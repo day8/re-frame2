@@ -626,3 +626,64 @@
             "the editor slice is cleared to a blank create draft on delete")
         (is (= :realworld/home (route-id f))
             "a successful delete navigates home")))))
+
+;; ============================================================================
+;; 10. SESSION-RESTORE-WITH-TOKEN — the documented "restore stays put" invariant,
+;;     plus the passive-re-key feed re-ensure (rf2-svj926)
+;; ============================================================================
+
+(deftest session-restore-with-token-stays-put-and-re-ensures-the-feed
+  (testing "examples/real-apps/realworld_resources — a cold boot with a saved token
+            drives :idle → :restoring → :authed via :restore-session, stores the
+            session, re-ensures the session feed under the restored principal (the
+            passive-re-key footgun fix), and does NOT navigate (a deep link must
+            survive a refresh)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op
+                                                      :realworld-resources.session/persist :rf/no-op}})]
+      ;; Land on a resource-free public route (a deep link stand-in), as a refresh
+      ;; would; assert restore leaves us right here.
+      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/register] {:frame f})
+      (is (= :realworld.auth/register (route-id f)) "cold boot lands on the deep link")
+      ;; Boot WITH a saved token → the :has-token? guard routes to :begin-restore
+      ;; (the actual restore path; the pre-existing tests only pass token nil, which
+      ;; takes the :idle no-op branch).
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-restore"}})
+      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f)))
+          "a non-blank token → :begin-restore (GET /user in flight)")
+      ;; the GET /user reply settles the machine
+      (reply-success! @last-managed-args
+                      {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
+                      f)
+      (is (= :authed (rf/compute-sub [:auth/state] (state-value f)))
+          ":auth/success in :restoring → :restore-session → :authed")
+      (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f))))
+          "the restored session is stored")
+      (is (= "jwt-restore" (get-in (rf/app-db-value f) [:auth :token]))
+          "the token rode :auth/initialise into durable app-db")
+      ;; THE PASSIVE-RE-KEY FIX: restore re-ensures the feed under the new principal
+      ;; (a `{:from-db :realworld/session}` re-key alone is passive — it won't fetch).
+      (is (some? (entry f (feed-key "alice" 1)))
+          ":restore-session re-ensures the session feed under the restored scope")
+      ;; THE INVARIANT: restore stays put — it does NOT fire :auth/post-login-redirect.
+      (is (= :realworld.auth/register (route-id f))
+          "restore stays put — it does NOT navigate (unlike interactive login)"))
+
+    ;; CONTRAST — an interactive login DOES bounce home, proving navigation is
+    ;; observable in this harness (so the non-navigation above is a real signal).
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op
+                                                      :realworld-resources.session/persist :rf/no-op}})]
+      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/login] {:frame f})
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f :rf.cofx {:realworld-resources.session/token nil}})
+      (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+          "no token → the :idle no-op branch")
+      (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com" :password "x"}]] {:frame f})
+      (reply-success! @last-managed-args
+                      {:user {:username "alice" :email "alice@example.com" :token "jwt"}}
+                      f)
+      (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
+      (is (= :realworld/home (route-id f))
+          "interactive login bounces home via :store-session → :auth/post-login-redirect"))))
