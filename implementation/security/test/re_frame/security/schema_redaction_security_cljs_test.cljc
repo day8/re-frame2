@@ -116,6 +116,17 @@
       [[[:string {:sensitive? true}] [sentinel]] rng])
     (fn [rng]
       (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :tuple
+                                           ;; rf2-gocef0 / rf2-6ijdgh — the
+                                           ;; sensitive :map-of KEY class. Every
+                                           ;; other :map-of shape here puts the
+                                           ;; sensitive slot in the VALUE; this
+                                           ;; arm plants the sentinel AS the key
+                                           ;; under a `:sensitive?` key schema, so
+                                           ;; Malli reports the secret verbatim as
+                                           ;; the :in KEY segment and the walker's
+                                           ;; :map-of key-scrub branch must scrub
+                                           ;; it from :path / :reason.
+                                           :map-of-key
                                            ;; rf2-ss06u.1 / rf2-ss06u.2 — the
                                            ;; set-element-value `:path` leak
                                            ;; and the consumed-ancestor
@@ -138,6 +149,18 @@
 
           :map-of
           [[[:map-of :string inner-schema] {"k" inner-val}] rng2]
+
+          ;; rf2-gocef0 / rf2-6ijdgh — the sensitive slot is the :map-of KEY
+          ;; (not the value): [:map-of [:string {:sensitive? true}] inner], the
+          ;; sentinel planted AS the key. Malli reports the failing key VALUE
+          ;; verbatim as the :in segment, so `sanitize-sensitive-path`'s
+          ;; :map-of key-scrub branch must scrub it from :path / :reason — the
+          ;; one collection-navigation-segment-carries-the-secret sibling this
+          ;; tier pinned for its neighbours (:set element, :tuple) but not
+          ;; itself. inner-val ALSO carries the sentinel at the leaf, so BOTH
+          ;; the key AND the value must redact.
+          :map-of-key
+          [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-val}] rng2]
 
           :tuple
           ;; sensitive slot is element 1; element 0 is an int filler.
@@ -238,6 +261,12 @@
              ["map-of-value"
               [:map-of :string [:map [:secret {:sensitive? true} :string]]]
               {"a" {:secret [sentinel]}}]
+             ;; rf2-gocef0 / rf2-6ijdgh — the sensitive :map-of KEY sibling
+             ;; (the secret is the KEY, not the value). Both the key AND the
+             ;; nested value carry the sentinel; both must redact.
+             ["map-of-sensitive-key"
+              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
+              {sentinel {:age [sentinel]}}]
              ["sequential"
               [:sequential [:map [:pw {:sensitive? true} :string]]]
               [{:pw [sentinel]}]]
@@ -286,6 +315,31 @@
           (str "the sentinel leaked into the :path tag: " (pr-str (-> v :tags :path))))
       (is (not (contains-sentinel? v))
           (str "the sentinel leaked somewhere in the trace: " (pr-str (:tags v)))))))
+
+(deftest map-of-sensitive-key-path-tag-carries-no-secret
+  (testing "rf2-gocef0 / rf2-6ijdgh - a :map-of with a :sensitive? KEY must not
+            ship the failing key VALUE in ANY slot, including the structural
+            :path tag; :path carries :rf/redacted for the key, not the secret.
+            The one collection-navigation-segment sibling pinned for its
+            neighbours (:set ss06u.1, :tuple, :cat/:catn) but not itself."
+    (let [v (failure-trace
+              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
+              {sentinel {:age [sentinel]}})]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The crux: the sensitive KEY is :rf/redacted in :path, not the secret;
+      ;; the navigable inner :age key (a real :map key) survives.
+      (is (= [:root :rf/redacted :age] (-> v :tags :path))
+          (str "the sensitive :map-of key must be :rf/redacted in :path: "
+               (pr-str (-> v :tags :path))))
+      (is (not (contains-sentinel? (-> v :tags :path)))
+          (str "the secret key leaked into the :path tag: " (pr-str (-> v :tags :path))))
+      (is (not (contains-sentinel? (-> v :tags :reason)))
+          (str "the secret key leaked into the :reason tag: " (pr-str (-> v :tags :reason))))
+      (is (not (contains-sentinel? v))
+          (str "the secret leaked somewhere in the trace: " (pr-str (:tags v)))))))
 
 (deftest ss06u-ancestor-sensitive-wrapper-corpus-all-redacted
   (testing "rf2-ss06u.2 - a sensitive container whose failing leaf is under a
