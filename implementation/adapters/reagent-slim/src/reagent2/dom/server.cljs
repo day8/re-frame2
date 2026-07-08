@@ -540,10 +540,64 @@
 ;; (`:key`, `:ref`, `:dangerouslySetInnerHTML` — handled by caller).
 ;; ---------------------------------------------------------------------------
 
+;; WHATWG event-handler content attributes (HTML Living Standard
+;; §"Event handlers on elements, Document objects, and Window objects",
+;; plus the IDL `on*` attributes on Window/Document/Element), and the
+;; W3C Touch Events Level 2 §8 `GlobalEventHandlers` touch attributes
+;; (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`).
+;; All lower-case; the lookup lower-cases the candidate name first so
+;; every casing (`onclick`, `ONCLICK`, `OnClick`) is covered.
+;;
+;; rf2-ut3mod: `event-handler-prop?`'s structural check (`on-` kebab /
+;; `on[A-Z]` camel) misses lowercase inline HTML event attributes —
+;; `:onclick`, `:onchange`, `"onclick"` — because there's no `-` and no
+;; upper-case letter after `on`. Those are exactly the canonical names
+;; a browser fires on, so a string-valued `:onclick "alert(1)"` rode
+;; through to the wire as `onclick="alert(1)"`, an XSS vector of the
+;; same class rf2-dwds9 closed for the structural forms. An allowlist
+;; (not a bare `on` + lowercase wildcard) is required so legitimate
+;; non-handler keys (`:once`, `:onyx`, `:only`, `:online`) survive.
+;;
+;; Curated to match `re-frame.ssr.html-helpers/event-handler-allowlist`
+;; (lifted by intent, not require — bundle isolation forbids `:require`
+;; between artefacts; see ns docstring). If HTML5 extends the
+;; event-handler list, both copies update.
+(def ^:private event-handler-allowlist
+  #{"onabort" "onafterprint" "onanimationcancel" "onanimationend"
+    "onanimationiteration" "onanimationstart" "onauxclick"
+    "onbeforeinput" "onbeforematch" "onbeforeprint" "onbeforetoggle"
+    "onbeforeunload" "onblur" "oncancel" "oncanplay" "oncanplaythrough"
+    "onchange" "onclick" "onclose" "oncontextlost" "oncontextmenu"
+    "oncontextrestored" "oncopy" "oncuechange" "oncut" "ondblclick"
+    "ondrag" "ondragend" "ondragenter" "ondragleave" "ondragover"
+    "ondragstart" "ondrop" "ondurationchange" "onemptied" "onended"
+    "onerror" "onfocus" "onformdata" "onfullscreenchange"
+    "onfullscreenerror" "ongotpointercapture" "onhashchange" "oninput"
+    "oninvalid" "onkeydown" "onkeypress" "onkeyup" "onlanguagechange"
+    "onload" "onloadeddata" "onloadedmetadata" "onloadstart"
+    "onlostpointercapture" "onmessage" "onmessageerror" "onmousedown"
+    "onmouseenter" "onmouseleave" "onmousemove" "onmouseout"
+    "onmouseover" "onmouseup" "onoffline" "ononline" "onpagehide"
+    "onpagereveal" "onpageshow" "onpageswap" "onpaste" "onpause"
+    "onplay" "onplaying" "onpointercancel" "onpointerdown"
+    "onpointerenter" "onpointerleave" "onpointermove" "onpointerout"
+    "onpointerover" "onpointerrawupdate" "onpointerup" "onpopstate"
+    "onprogress" "onratechange" "onrejectionhandled" "onreset"
+    "onresize" "onscroll" "onscrollend" "onsecuritypolicyviolation"
+    "onseeked" "onseeking" "onselect" "onselectionchange"
+    "onselectstart" "onslotchange" "onstalled" "onstorage" "onsubmit"
+    "onsuspend" "ontimeupdate" "ontoggle" "ontouchcancel" "ontouchend"
+    "ontouchmove" "ontouchstart" "ontransitioncancel"
+    "ontransitionend" "ontransitionrun" "ontransitionstart"
+    "onunhandledrejection" "onunload" "onvolumechange" "onwaiting"
+    "onwheel"})
+
 (defn- ^boolean event-handler-prop?
   "True when `k`'s name looks like a React event-handler prop
-  (`onClick`, `onChange`, `on-click`, …). Matches both kebab- and
-  camelCase forms before `attr-name` lowercasing."
+  (`onClick`, `onChange`, `on-click`, …) OR is a canonical lowercase
+  HTML event-handler attribute (`onclick`, `onchange`, …). Matches
+  kebab-, camel-, and lowercase forms before `attr-name` lowercasing
+  (rf2-ut3mod)."
   [k]
   (let [n (cond
             (keyword? k) (name k)
@@ -552,12 +606,14 @@
             :else        nil)]
     (and (some? n)
          (>= (count n) 3)
-         ;; Match `on-` (kebab) and `on[A-Z]` (camel).
+         ;; Match `on-` (kebab), `on[A-Z]` (camel), or a canonical
+         ;; lowercase HTML event-handler name.
          (or (and (str/starts-with? n "on-") (> (count n) 3))
              (and (str/starts-with? n "on")
                   (let [ch (.charAt n 2)]
                     (and (>= (.charCodeAt ch 0) 65)   ; 'A'
-                         (<= (.charCodeAt ch 0) 90)))))))) ; 'Z'
+                         (<= (.charCodeAt ch 0) 90)))) ; 'Z'
+             (contains? event-handler-allowlist (str/lower-case n))))))
 
 (defn- emit-attr
   "Emit one [k v] attribute pair to the StringBuilder. Skips nil and
