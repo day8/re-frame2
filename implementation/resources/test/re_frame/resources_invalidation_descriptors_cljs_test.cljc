@@ -664,6 +664,56 @@
         "the article was marked stale by the lone-vector :tags")))
 
 ;; ===========================================================================
+;; rf2-ypgayg — the DESCRIPTOR-MAP arm missed the shared lone-vector-tag fix
+;; ===========================================================================
+
+(deftest lone-vector-tag-descriptor-map-normalizes-to-one-tag
+  ;; rf2-ru73k6 F1 fixed the bare tag-set shorthand and the direct
+  ;; `:rf.resource/invalidate-tags` `:tags`, but `normalize-one-descriptor`
+  ;; (the per-target DESCRIPTOR MAP arm) still lowered `:tags` through a naive
+  ;; `(set tags)` — a lone vector tag `{:tags [:article "w"]}` split into the
+  ;; scalar set `#{:article "w"}`, silently matching nothing. It must route
+  ;; through the SAME `state/normalize-tag-set` normalizer.
+  (testing "a single descriptor map with a lone vector :tags normalizes to one tag"
+    (let [[d & more] (mstate/normalize-invalidation-descriptors
+                       {:tags [:article "w"]} 'test)]
+      (is (nil? more))
+      (is (= :rf.scope/same (:scope d)))
+      (is (= #{[:article "w"]} (:tags d))
+          "the lone tag is the single tag, NOT #{:article \"w\"}")))
+  (testing "a vector of descriptor maps also normalizes each lone vector :tags"
+    (let [[d1 d2] (mstate/normalize-invalidation-descriptors
+                    [{:scope :rf.scope/global :tags [:article "w"]}
+                     {:tags [:article-list]}] 'test)]
+      (is (= #{[:article "w"]} (:tags d1)))
+      (is (= #{[:article-list]} (:tags d2))))))
+
+(deftest lone-vector-tag-descriptor-map-matches-end-to-end
+  ;; The adversarial end-to-end for the descriptor-map arm: a mutation whose
+  ;; :invalidates returns a DESCRIPTOR MAP `{:tags [:article slug]}` — the
+  ;; per-target form, not the bare shorthand — must still invalidate the
+  ;; entry carrying that lone vector tag.
+  (reg-article-resource!)
+  (rf/reg-mutation :m/save-descriptor
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     ;; a descriptor MAP whose :tags is a LONE vector tag written directly
+     ;; (not wrapped in a set) — the bug this bead fixes.
+     :invalidates (fn [{:keys [slug]} _result] {:tags [:article slug]})}
+    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
+                                                 :params {:slug "w"} :owner [:v :a]}])
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-descriptor :params {:slug "w"} :instance :lv2}])
+  (reply-success! @last-managed-args {:title "new"})
+  (testing "the descriptor-map lone vector tag matched + invalidated the [:article \"w\"] entry"
+    (is (some? (:invalidated-at (entry global-key)))
+        "the article carrying tag [:article \"w\"] was marked stale")))
+
+;; ===========================================================================
 ;; rf2-fi6tda.4 finding 3 — pin the per-pass :rf.resource/invalidated EP fields
 ;; ===========================================================================
 

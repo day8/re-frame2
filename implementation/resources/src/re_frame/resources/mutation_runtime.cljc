@@ -1030,12 +1030,18 @@
   `{:scope <scope-or-same-marker> :tags #{…} :cross-scope? bool
   :refetch-populated? bool}`, validating fail-closed. `:scope` defaults to
   `:rf.scope/same` (Spec 016 §Scoped invalidation descriptors). `:tags` must
-  be a non-nil collection of tags; the boolean flags default false. The
-  `:scope` VALUE is NOT canonicalized here (a `:rf.scope/same` marker and a
-  `{:from-db …}` reference are not concrete scopes yet) — the events layer
-  resolves + canonicalizes the concrete scope at settle time. Returns the
-  canonical descriptor map; throws `:rf.error/mutation-invalid-invalidation`
-  on a non-map descriptor or a non-collection `:tags`."
+  be a non-nil collection of tags; the boolean flags default false. `:tags`
+  is lowered through the shared `state/normalize-tag-set` (the SAME
+  normalizer the bare tag-set shorthand and the direct
+  `:rf.resource/invalidate-tags` `:tags` use), so a LONE vector tag written
+  directly (`{:tags [:article slug]}`) is the ONE tag `#{[:article slug]}`,
+  NOT a scalar set of its elements `#{:article slug}` (a naive `(set tags)`
+  silently matches nothing — rf2-ypgayg). The `:scope` VALUE is NOT
+  canonicalized here (a `:rf.scope/same` marker and a `{:from-db …}`
+  reference are not concrete scopes yet) — the events layer resolves +
+  canonicalizes the concrete scope at settle time. Returns the canonical
+  descriptor map; throws `:rf.error/mutation-invalid-invalidation` on a
+  non-map descriptor or a non-collection `:tags`."
   [descriptor raw where]
   (when-not (map? descriptor)
     (throw (invalidation-descriptor-error
@@ -1054,7 +1060,7 @@
                     "descriptors.")
                raw {:descriptor (pr-str descriptor) :tags (pr-str tags)})))
     {:scope              (if (contains? descriptor :scope) scope same-scope-marker)
-     :tags               (set tags)
+     :tags               (state/normalize-tag-set tags)
      :cross-scope?       (boolean cross-scope?)
      :refetch-populated? (boolean refetch-populated?)}))
 
