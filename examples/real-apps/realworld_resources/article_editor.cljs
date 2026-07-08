@@ -20,8 +20,9 @@
       into app-db at `[:editor :can-submit?]`. The submit handler then reads it as
       plain data (no subscribing mid-handler), and the submit button reads the same
       value through a plain sub over the flow's `:output-path`. The flow is
-      registered per-frame from `:editor/initialise` via `:rf.fx/reg-flow`, so it
-      binds to whatever frame the app booted on. See the flow glossary:
+      registered ONCE at boot from `:editor/register-flow` (dispatched by
+      `:app/initialise`) via `:rf.fx/reg-flow`, so it binds to the boot frame and
+      isn't re-registered on every editor entry. See the flow glossary:
       ../../../docs/core/glossary.md#flow.
 
    3. A navigation `:can-leave` guard. The editor route declares
@@ -118,10 +119,12 @@
 ;; through a plain sub over the `:output-path`. One derived fact, two readers, no
 ;; duplication. See the flow glossary: ../../../docs/core/glossary.md#flow.
 ;;
-;; It's registered per-frame via `:rf.fx/reg-flow` from `:editor/initialise` (not
-;; at ns-load), so it binds to whatever frame the app booted on. The flow's first
-;; walk fires on the next drain; a fresh editor starts invalid and clean anyway,
-;; so that one-event lag never carries a stale value.
+;; It's registered ONCE at boot via `:rf.fx/reg-flow` from `:editor/register-flow`
+;; (dispatched by `:app/initialise`, not at ns-load and not per route entry), so it
+;; binds to the boot frame and lives as long as it — the same lifetime as the
+;; `[:editor …]` slice it derives over. The flow's first walk fires on the next
+;; drain; a fresh editor starts invalid and clean anyway, so that one-event lag
+;; never carries a stale value.
 
 ;; The 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr) — the exact
 ;; shape both `reg-flow` and `:rf.fx/reg-flow` take, so `[:rf.fx/reg-flow
@@ -210,19 +213,34 @@
 ;; EVENTS
 ;; ============================================================================
 
+(rf/reg-event :editor/register-flow
+  {:doc "Boot-time one-shot: register the `:editor/can-submit?` flow ONCE against
+         the boot frame. Dispatched from `:app/initialise` at boot — NOT per route
+         entry. `:rf.fx/reg-flow` replaces by id, so re-registering on every
+         `/editor` entry wouldn't stack copies — but it WOULD leave the flow
+         registered after you leave the editor, quietly recomputing over the
+         editor slice for the rest of the session. Registering once at boot (the
+         flow lives as long as the frame, like the `[:editor …]` slice it derives
+         over) is the honest singleton shape; each route entry then only resets
+         the slice. (The http sibling reuses its same-named `:editor/initialise`
+         as this boot one-shot; here `:editor/initialise` is the create-route
+         `:on-match`, so the boot registration gets its own event.)"}
+  (fn [_ _]
+    {:fx [[:rf.fx/reg-flow can-submit-flow]]}))
+
 (rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Resets the editor
-         slice to a blank draft, clears any leftover save instance, registers the
-         `:editor/can-submit?` flow against the dispatching frame, and — because
-         edit and create share the one `editor-page` component (core.cljs), so an
-         edit -> new navigation never unmounts it — releases the outgoing edit
-         lease (mirroring the slug-change branch of `:editor/load-article`) so its
-         `:realworld/article` cache entry can go inactive and GC."}
+         slice to a blank draft and clears any leftover save instance. Because
+         edit and create share the one `editor-page` component (core.cljs), an
+         edit -> new navigation never unmounts it, so this also releases the
+         outgoing edit lease (mirroring the slug-change branch of
+         `:editor/load-article`) so its `:realworld/article` cache entry can go
+         inactive and GC. The `:editor/can-submit?` flow is registered ONCE at
+         boot by `:editor/register-flow`, not per entry."}
   (fn [{:keys [db]} _]
     (let [prev-slug (get-in db [:editor :slug])]
       {:db (assoc db :editor (editor-slice))
-       :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-                    [:rf.fx/reg-flow can-submit-flow]]
+       :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]]
              ;; edit -> new re-uses the same `editor-page` component, so no
              ;; unmount fires to release the edit lease — and blanking the slice
              ;; to a nil slug here would strand it. Release the outgoing slug's
@@ -237,16 +255,16 @@
          from the existing article via a one-shot resource ensure under a
          releaseable lease, and asks to be told when that read settles with the
          ensure's call-site `:reply-to [:editor/article-loaded]` — no off-render
-         reaction. Registers the flow, clears any leftover save instance, and (on
-         a same-component `/editor/A` -> `/editor/B` re-match) releases the
-         outgoing slug's lease before taking the new one. The seeded baseline is
-         what gives the dirty-check something to compare against."}
+         reaction. Clears any leftover save instance, and (on a same-component
+         `/editor/A` -> `/editor/B` re-match) releases the outgoing slug's lease
+         before taking the new one. The `:editor/can-submit?` flow is registered
+         ONCE at boot by `:editor/register-flow`, not per entry. The seeded
+         baseline is what gives the dirty-check something to compare against."}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
           prev-slug (get-in db [:editor :slug])]
       {:db (assoc db :editor (editor-slice slug blank-draft))
        :fx (cond-> [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
-                    [:rf.fx/reg-flow can-submit-flow]
                     ;; Ensure the article read so the editor can seed its
                     ;; baseline. A fresh entry is a cache-hit (the `:reply-to`
                     ;; continuation fires immediately); otherwise it fetches and
