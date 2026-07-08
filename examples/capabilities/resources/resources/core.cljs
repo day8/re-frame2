@@ -263,11 +263,20 @@
 ;; instance-id this workflow owns get to ride in on `:reader/load`.
 ;;
 ;; The `:reading` state handles that `:reader/load` with the `:ensure-article`
-;; action. The action pulls slug + instance-id out of the event, tucks them into
-;; the snapshot `:data` (so the owner is self-describing — handy for tools and
-;; SSR), and ensures the article under the owner `[:machine machine-id
-;; instance-id]`. When the actor is later destroyed, the runtime releases that
-;; owner for us.
+;; action. The action pulls slug + instance-id out of the event, records them in
+;; the snapshot `:data` as the reader's domain state, and ensures the article
+;; under the owner `[:machine :resources.app/reader]` — the runtime ACTOR-ID
+;; owner (a singleton actor's id IS its machine-id). That two-part key is the ONE
+;; machine owner the framework auto-releases on actor destroy (Spec 016 §Release
+;; authority is per owner kind): destroying the actor releases exactly this owner
+;; for us, so the read is not left pinned.
+;;
+;; The owner is the actor-id, deliberately NOT `[:machine machine-id
+;; instance-id]`. A three-part owner that folds a DOMAIN instance-id into the key
+;; is an *app-authoritative* lease (like any `[:lease …]`) — the framework does
+;; NOT auto-release it, so leaning on actor-destroy to free it would leak the
+;; entry (it would pin the read alive, refetching forever). The reader keeps its
+;; instance-id in `:data`, never in the owner. See Spec 016 §Release authority.
 (rf/reg-machine :resources.app/reader
   {:doc     "A reader workflow that owns the article it is reading."
    :initial :reading
@@ -280,7 +289,7 @@
          :fx   [[:dispatch [:rf.resource/ensure
                             {:resource :article/by-slug
                              :params   {:slug slug}
-                             :owner    [:machine :resources.app/reader instance-id]
+                             :owner    [:machine :resources.app/reader]
                              :cause    [:machine-action :resources.app/reader.reading]}]]]}))}
    :states
    ;; `:reader/load` is a targetless transition — it runs `:ensure-article` and

@@ -311,24 +311,54 @@
       (is (nil? (rf/compute-sub [:resources.app/reader] (rf/frame-state-value :rf/default)))
           "stop-reader clears the reader slice"))))
 
-;; NOTE on the machine-owned resource pattern (the example's `:resources.app/
-;; reader` actor that ensures :article/by-slug under a `[:machine …]` owner,
-;; released on actor destroy): the example's start/stop EVENT glue is pinned by
-;; `reader-start-stop-events-record-and-clear-the-reader-slice` above. The
-;; machine-owned ENSURE itself runs on the reader's `:reading` :entry inside the
-;; spawn cascade, and a `[:machine …]` owner is fail-closed bound to a LIVE actor
-;; (a machine-owned ensure with no live actor is an orphan), so pinning the
-;; entry's first-load `:status` + owner deterministically in a headless node test
-;; would require driving the framework's machine spawn/destroy internals beyond
-;; the example surface. The generic ensure-under-owner + release-on-owner-drop
-;; mechanics this pattern composes are already pinned in the resources artefact
-;; runtime suites (`implementation/resources/test/`); this example is therefore
-;; semantic-pinned on the four causal patterns route / event-lease / manual-
-;; refresh / machine-start-stop, and the machine-owned resource ENSURE step is
-;; left to the artefact runtime + compile coverage (see examples/README.md's
-;; coverage table). Driving it via the live spawn here proved order-fragile in
-;; the shared cljs.test bundle; the start/stop glue is the stable example-
-;; specific assertion.
+;; The test above pins the example's start/stop EVENT glue (the app-db slice).
+;; The test below pins the MACHINE-OWNED RESOURCE contract the example teaches:
+;; the reader ensures its detail under the runtime ACTOR-ID owner
+;; `[:machine :resources.app/reader]`, and stop-reader (actor destroy) releases
+;; exactly that owner. This is the regression pin for rf2-lbtqw4 — the example
+;; previously ensured under a three-part `[:machine machine-id instance-id]`
+;; owner while relying on actor-destroy auto-release, which the framework fires
+;; ONLY for the two-part `[:machine actor-id]` key (Spec 016 §Release authority
+;; is per owner kind, 016:291), so the lease leaked. The generic
+;; ensure-under-owner + release-on-owner-drop mechanics are also pinned in the
+;; resources artefact suites (`implementation/resources/test/`); this pins the
+;; EXAMPLE's specific owner shape + stop-reader cleanup end-to-end against the
+;; example's own events.
+
+(deftest reader-owns-its-article-under-the-actor-id-owner-released-on-stop
+  (testing "examples/capabilities/resources/resources — start-reader births the
+            :resources.app/reader actor and drives :reader/load, whose
+            :ensure-article action ensures :article/by-slug under the TWO-PART
+            runtime actor-id owner [:machine :resources.app/reader] — the one
+            machine owner the framework auto-releases on destroy (Spec 016:291) —
+            and NOT a three-part [:machine machine-id instance-id] key (an
+            app-authoritative lease the framework would NOT auto-release: the
+            leak the old example shape caused). stop-reader destroys the actor,
+            releasing that owner so the read is not left pinned (rf2-lbtqw4)."
+    (let [slug        "resources-101"
+          instance-id (str "reader-" slug)
+          actor-owner [:machine :resources.app/reader]
+          three-part  [:machine :resources.app/reader instance-id]
+          dkey        (detail-key slug)]
+      ;; START — births the actor, then :reader/load runs :ensure-article, which
+      ;; ensures the detail under the actor-id owner. Managed-HTTP is the
+      ;; capturing stub, so the entry sits :loading; the owner attaches at ensure.
+      (rf/dispatch-sync [:resources.app/start-reader slug])
+      (let [e (entry dkey)]
+        (is (some? e)
+            "the reader's machine-owned detail entry exists after start-reader")
+        (is (contains? (:active-owners e) actor-owner)
+            "ensured under the two-part actor-id owner [:machine :resources.app/reader]")
+        ;; ADVERSARIAL/NEGATIVE — the three-part [:machine machine-id instance-id]
+        ;; key must NOT be an owner. The old (buggy) shape attached it here and
+        ;; then leaked, because actor-destroy auto-releases only the two-part key.
+        (is (not (contains? (:active-owners e) three-part))
+            "the domain instance-id is NOT folded into the owner (that would leak)"))
+      ;; STOP — destroy the actor; teardown releases [:machine :resources.app/reader].
+      (rf/dispatch-sync [:resources.app/stop-reader])
+      (let [e (entry dkey)]
+        (is (or (nil? e) (not (contains? (:active-owners e) actor-owner)))
+            "stop-reader released the machine owner — the read is not left pinned")))))
 
 ;; ============================================================================
 ;; 5. LAYERED PROJECTION SUB — a projection OVER the resource, not a hook

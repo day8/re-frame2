@@ -62,11 +62,16 @@ live. They go from "the framework decides" to "a workflow decides":
   per-row **Open in reader** button starts the `:resources.app/reader` machine,
   then dispatches `[:reader/load …]` into it (the birth cascade carries no
   event, so the slug rides in on that dispatch). The `:reading` state handles it
-  with the `:ensure-article` action, which ensures the article under a
-  `[:machine machine-id instance-id]` owner. **Stop reader** runs the
-  `[:rf.machine/destroy …]` effect; destroying the actor releases the owner. The
-  machine stays the workflow; the resource runtime just handles the cached-read
-  mechanics underneath it.
+  with the `:ensure-article` action, which ensures the article under the actor's
+  `[:machine actor-id]` owner (`[:machine :resources.app/reader]`) — the one
+  machine-owner key the framework auto-releases on actor destroy. **Stop reader**
+  runs the `[:rf.machine/destroy …]` effect; destroying the actor releases that
+  owner, so the read is not left pinned. (A three-part `[:machine machine-id
+  instance-id]` owner would be an *app-authoritative* lease the framework does
+  NOT auto-release — see [Spec 016 §Release authority is per owner
+  kind](../../../../spec/016-Resources.md#release-authority-is-per-owner-kind).)
+  The machine stays the workflow; the resource runtime just handles the
+  cached-read mechanics underneath it.
 
 ### No backend, real lifecycle
 
