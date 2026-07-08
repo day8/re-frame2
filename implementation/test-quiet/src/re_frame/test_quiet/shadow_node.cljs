@@ -106,12 +106,45 @@
 ;; break CI's pass/fail signal.  On a RED run we first replay any
 ;; buffered `console.warn` diagnostics (the green-path stub withheld
 ;; them) so a failing run keeps the context that may explain it.
+;;
+;; EXIT-CODE INTEGRITY (rf2-jmrdhn). This defmethod is the ONLY thing that
+;; turns a RED cljs.test summary into a non-zero node exit, so two hazards
+;; must never let a failing run go out the door GREEN:
+;;   1. The red replay is DIAGNOSTIC-ONLY. If `replay-buffered-warnings!`
+;;      threw, the old `(do (replay…) (js/process.exit 1))` never reached
+;;      the `exit 1` — the throw propagated out of the reporter and node
+;;      could unwind to a 0 exit. The replay is wrapped so a throw in it can
+;;      never SWALLOW the red exit.
+;;   2. Reaching a GREEN exit is the ONLY way `main` clears the seeded
+;;      failure exit code (`execute-cli` sets `process.exitCode = 1` before
+;;      running). So a run that executes tests but never dispatches THIS
+;;      defmethod — a torn-down async run, or a reporter whose env does not
+;;      match the `[:cljs.test/default …]` dispatch key — leaves the process
+;;      to drain its event loop and exit with the seeded 1, failing loudly
+;;      instead of a silent false-green.
 
 (defmethod ct/report [:cljs.test/default :end-run-tests] [m]
   (if (ct/successful? m)
     (js/process.exit 0)
-    (do (replay-buffered-warnings!)
+    (do (try
+          (replay-buffered-warnings!)
+          (catch :default _
+            ;; Diagnostic-only: a throw here must never mask the red exit.
+            nil))
         (js/process.exit 1))))
+
+(defn- seed-failure-exit!
+  "Seed the node process's exit code to FAILURE just before a test run
+  begins.  The ONLY path that clears it back to 0 is a confirmed GREEN
+  `:end-run-tests` (which `js/process.exit 0`s — see that defmethod's
+  EXIT-CODE INTEGRITY note).  So a run that starts tests but never reaches a
+  green summary — a torn-down async run, or a reporter env that never
+  dispatches our exit defmethod — drains the event loop and exits with this
+  seeded 1 rather than a silent false-green (rf2-jmrdhn).  It is a no-op on
+  the normal green/red paths, where the `:end-run-tests` defmethod calls
+  `js/process.exit` and overrides it."
+  []
+  (set! (.-exitCode js/process) 1))
 
 ;; ----------------------------------------------------------------------
 ;; Test-data reset (mirrors shadow.test.node/reset-test-data!).
@@ -186,10 +219,12 @@
                      (str/join ", " (map str unmatched)))
             (println "Use --list to see known test names.")
             (js/process.exit 1))
-          (st/run-test-vars test-env test-vars)))
+          (do (seed-failure-exit!)
+              (st/run-test-vars test-env test-vars))))
 
       :else
-      (st/run-all-tests test-env nil))))
+      (do (seed-failure-exit!)
+          (st/run-all-tests test-env nil)))))
 
 (defn main [& args]
   (reset-test-data!)
