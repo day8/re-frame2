@@ -90,11 +90,21 @@
 
   The timeout/kill policy lives HERE (rf2-8dfq5j.3) so EVERY subprocess
   test inherits fail-fast behaviour: on expiry the child is force-killed
-  (`destroyForcibly`), the drain threads are interrupted, and the result
+  (`destroyForcibly`) AND then REAPED under a bounded `waitFor` before the
+  helper returns, the drain threads are interrupted, and the result
   carries `:timed-out? true` plus whatever stdout/stderr drained before
   the kill — so an assertion sees a structured failure with command
   context, not a hung suite.  `:exit` is -1 on a timeout (no real exit
-  code).  Pass `timeout-ms` to override the default ceiling."
+  code).  Pass `timeout-ms` to override the default ceiling.
+
+  Why block for the reap (rf2-16n94y): `destroyForcibly` only REQUESTS
+  termination (SIGKILL on *nix) and returns immediately — the OS reaper
+  records the child's exit asynchronously, so a caller that checks
+  `.isAlive` right after the kill can still observe a LIVE process.  That
+  race intermittently reddened the `jvm-test-quiet` CI gate on loaded
+  runners.  Waiting for the reap here makes `:timed-out? true` guarantee a
+  genuinely dead child for every subprocess path, not merely a kill
+  request in flight."
   ([^Process proc] (drain-process proc default-drain-timeout-ms))
   ([^Process proc timeout-ms]
    (let [out-f (future (slurp (.getInputStream proc)))
@@ -103,9 +113,19 @@
      (if done?
        {:exit (.exitValue proc) :out @out-f :err @err-f :timed-out? false}
        (do
-         ;; The child outlived the ceiling — force-kill it and interrupt
-         ;; the drain threads so neither this helper nor the futures hang.
+         ;; The child outlived the ceiling — force-kill it, then BLOCK on a
+         ;; bounded `waitFor` until it is actually reaped.  `destroyForcibly`
+         ;; is asynchronous: it returns before the OS reaper records the
+         ;; exit, so without this wait a caller checking `.isAlive` could
+         ;; still see a live process (the rf2-16n94y CI flake).  SIGKILL
+         ;; always terminates, so this returns promptly; the 10s bound is a
+         ;; belt so a pathologically un-reapable child cannot wedge the
+         ;; helper (the caller's own outer deadline is the final guard).
          (.destroyForcibly proc)
+         (.waitFor proc 10000 java.util.concurrent.TimeUnit/MILLISECONDS)
+         ;; The child is dead now, so its pipes are at EOF and the drain
+         ;; futures complete on their own; the cancels are a no-op belt for
+         ;; the rare case a future is still mid-read.
          (future-cancel out-f)
          (future-cancel err-f)
          {:exit       -1
