@@ -18,6 +18,7 @@
   :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.disposable :as rf-disposable]
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -121,3 +122,33 @@
     (is (not (contains? (cache-keys) [:a*4])))
     (is (not (contains? (cache-keys) [:a*2])))
     (is (not (contains? (cache-keys) [:a])))))
+
+(deftest dispose-is-re-entrant-safe-on-cljs-plain-atom
+  (testing "rf2-kmuc46 — the plain-atom CLJS derived value's -dispose is
+            re-entrant safe + idempotent (rf2-1bzlai): a -dispose re-entered
+            from inside an on-dispose callback (and a plain second call) fires
+            every registered callback EXACTLY once"
+    ;; Reach the derived-value constructor via the public adapter map (the
+    ;; ctor is artefact-private). Pre-fix -dispose had no `disposed?` guard: a
+    ;; callback that re-entered -dispose re-deref'd the still-full callback
+    ;; vector (the `reset!` ran only AFTER the doseq), firing every callback a
+    ;; SECOND time. On a real host that double-fires an input-release callback,
+    ;; decrementing a still-referenced input's ref-count one extra time →
+    ;; premature eviction. The fix flips the guard FIRST and snapshots-and-
+    ;; clears the callbacks before firing (mirroring the spine).
+    (let [make-dv (:make-derived-value plain-atom/adapter)
+          dv      (make-dv [(atom 0)] identity)
+          fires   (atom 0)]
+      (is (= 0 @dv) "sanity: derived value recomputes from its source")
+      ;; First callback RE-ENTERS -dispose on the same object; second counts.
+      ;; Callbacks fire in registration order, so the re-entrant call happens
+      ;; while the counter callback is still pending — the exact double-fire
+      ;; window the guard must close.
+      (rf-disposable/-add-on-dispose dv (fn [] (rf-disposable/-dispose dv)))
+      (rf-disposable/-add-on-dispose dv (fn [] (swap! fires inc)))
+      (rf-disposable/-dispose dv)
+      (is (= 1 @fires)
+          "counting callback fired exactly once despite the re-entrant dispose")
+      ;; A plain sequential second call stays a no-op too (idempotency).
+      (rf-disposable/-dispose dv)
+      (is (= 1 @fires) "a subsequent plain -dispose does not re-fire callbacks"))))
