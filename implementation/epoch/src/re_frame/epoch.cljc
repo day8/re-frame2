@@ -352,6 +352,16 @@
       `:ok` as `outcome` explicitly. Skips recording when the captured
       buffer is empty (a truly empty cascade — likely a rejected
       dispatch — is degenerate and would emit a misleading record).
+    (settle! frame-id frame-state-before frame-state-after committed-at settling-dispatch-id)
+      Clean per-event settle threading the settling ENVELOPE's dispatch-id —
+      the arity the ROUTER's per-event seam (`settle-event-epoch!`) calls.
+      `settling-dispatch-id` scopes the NO-RUN-START harvest (rf2-erczwd): a
+      rejected / aborted dispatch (no-handler / frame-destroyed) emits a
+      frame-stamped, dispatch-id-bearing error trace that buffers but fired no
+      `:event/run-start`; the harvest drops THAT dispatch's own traces so the
+      empty-buffer skip suppresses the misleading `:ok` epoch, while an
+      unrelated buffered child marker survives for its own settle. `:outcome`
+      is `:ok`.
     (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
       Drain-boundary commit with explicit outcome. The runtime commits
       one of three outcomes: `:ok` / `:halted-depth` / `:halted-destroy`
@@ -389,8 +399,12 @@
   synthesises the halting event's trigger explicitly while `settle!` lets
   `build-record` derive it from the harvested buffer."
   ([frame-id frame-state-before frame-state-after committed-at]
-   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil))
+   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil nil))
+  ([frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]
+   (settle! frame-id frame-state-before frame-state-after committed-at :ok nil settling-dispatch-id))
   ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason]
+   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason nil))
+  ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id]
    (when interop/debug-enabled?
      ;; Per rf2-nj6p7: scoped harvest — take only the settling event's
      ;; traces (its `:dispatch-id` + pre-cascade tagalongs), LEAVING any
@@ -398,13 +412,18 @@
      ;; do-fx, carrying the child's id) in the buffer for the child's own
      ;; settle. Keeps each epoch's `:trace-events` to one `:dispatch-id`
      ;; (Spec 009 §Dispatch correlation: one dispatch-id = one epoch).
-     (let [events (state/harvest-buffer-for-event! frame-id)]
+     ;; rf2-erczwd: `settling-dispatch-id` (the router-threaded envelope id)
+     ;; scopes the NO-RUN-START branch so a rejected/aborted dispatch's own
+     ;; error trace is dropped (not returned) rather than committed as a fake
+     ;; `:ok` epoch.
+     (let [events (state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
        ;; Empty-buffer policy (consistent across outcomes): an empty
        ;; capture buffer means no cascade context was recorded for
        ;; this event — skip emission rather than commit a record with
        ;; no :event-id / :trigger-event. A rejected/aborted dispatch
        ;; (no `:event/run-start` ever fired) reaches this seam with an
-       ;; empty buffer and is correctly suppressed. Halt paths whose
+       ;; empty harvest (its own traces dropped by the scoped no-run-start
+       ;; branch, rf2-erczwd) and is correctly suppressed. Halt paths whose
        ;; halting event never ran (the per-event depth-exceed boundary,
        ;; per rf2-nj6p7) use `commit-halt-record!` instead, which
        ;; synthesises the halting event's trigger explicitly.

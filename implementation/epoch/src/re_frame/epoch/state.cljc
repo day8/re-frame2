@@ -843,10 +843,12 @@
     (swap! capture-buffers dissoc frame-id)
     buffer))
 
-(defn- settling-dispatch-id
+(defn- run-start-dispatch-id
   "The `:dispatch-id` of the event being settled, read off the FIRST
   `:rf.event/run-start` emit in the buffer. nil when no run-start fired (a
-  rejected / aborted dispatch, or a halt path whose event never ran)."
+  rejected / aborted dispatch, or a halt path whose event never ran) — the
+  no-run-start branch of `harvest-buffer-for-event!` then falls back to the
+  settling ENVELOPE's dispatch-id (rf2-erczwd) to scope its drop."
   [events]
   (some (fn [ev]
           (when (= :rf.event/run-start (:operation ev))
@@ -883,8 +885,12 @@
 ;; the whole frame buffer (frame destroyed / drain-interrupted), the per-event
 ;; depth-halt `commit-halt-record!` reads-and-CLEARS the whole buffer
 ;; (`harvest-buffer!`), and a rejected/aborted child dispatch reaches the
-;; no-run-start branch below which clears-and-returns the whole buffer. Each of
-;; those wholesale-clears the stranded marker; none leaves it to accrete. The
+;; no-run-start branch below which — given the settling ENVELOPE's dispatch-id
+;; (rf2-erczwd) — drops THAT dispatch's OWN traces (the child's marker is "mine"
+;; when the child itself is the rejected settling event) plus orphans, while
+;; retaining any UNRELATED sibling's marker for its own settle. Each terminal
+;; path drops the stranded marker at the point its own dispatch is rejected /
+;; the frame torn down; none leaves it to accrete. The
 ;; nil-id orphan self-cleaning rf2-ee38b established at this same seam (an
 ;; orphan has no settle to ever claim it AND rides no terminal clear of its own)
 ;; is unchanged — orphans are still dropped here on every harvest.
@@ -916,13 +922,29 @@
   clear the whole buffer (frame destroy / drain-interrupt / depth-halt /
   rejected dispatch); see the design note above this defn.
 
-  Falls back to a full read-and-clear when the buffer carries no
-  `:event/run-start` (a rejected / aborted dispatch) — there is no
-  settling id to scope by, and `settle!`'s empty-buffer / no-trigger
-  policy handles the degenerate record."
-  [frame-id]
+  NO-RUN-START (rejected / aborted dispatch — rf2-erczwd). When the buffer
+  carries no `:event/run-start`, no cascade ran to completion, so there is
+  NOTHING legitimate to commit — a no-handler / frame-destroyed dispatch still
+  emits a frame-stamped, dispatch-id-bearing ERROR trace that lands in this
+  buffer, and returning it made `settle!` commit a misleading `:ok` epoch
+  (the no-run-start / no-epoch invariant was violated). So:
+
+    * 2-arity — given the settling ENVELOPE's `settling-dispatch-id` (threaded
+      from the router's per-event settle seam), DROP this dispatch's OWN traces
+      (`:dispatch-id` = `settling-dispatch-id`, e.g. its `:no-such-handler`
+      error trace) AND orphans (nil id), RETAIN any UNRELATED child marker
+      (`:dispatch-id` ≠ settling, non-nil) for its own settle, and RETURN [].
+      `settle!`'s empty-buffer skip then commits no epoch — the rejection's
+      own trace is dropped while a legitimately-buffered sibling marker
+      survives. Symmetric with the run-start branch's claim-based retention.
+    * 1-arity — no envelope id to scope by (a direct low-level test call);
+      falls back to a full read-and-clear returning the whole buffer, and
+      `settle!`'s empty-buffer / no-trigger policy handles the degenerate
+      record."
+  ([frame-id] (harvest-buffer-for-event! frame-id nil))
+  ([frame-id settling-dispatch-id]
   (let [buffer (get @capture-buffers frame-id [])]
-    (if-let [settling-id (settling-dispatch-id buffer)]
+    (if-let [settling-id (run-start-dispatch-id buffer)]
       ;; Three-way partition by the event's :rf.trace/dispatch-id:
       ;;   * MINE   (= event-dispatch-id settling-id)
       ;;       — the settling event's own traces; returned to ride this epoch.
@@ -973,9 +995,26 @@
           (swap! capture-buffers assoc frame-id theirs)
           (swap! capture-buffers dissoc frame-id))
         mine)
-      ;; No run-start — rejected/aborted dispatch. Clear and return all.
-      (do (swap! capture-buffers dissoc frame-id)
-          buffer))))
+      ;; No run-start — rejected/aborted dispatch (no-handler / frame-destroyed).
+      ;; No cascade ran, so nothing legitimate to commit (rf2-erczwd).
+      (if settling-dispatch-id
+        ;; Scope the drop to THIS dispatch: drop its own traces (the rejection's
+        ;; frame-stamped error trace, `:dispatch-id` = settling) + orphans, RETAIN
+        ;; any unrelated sibling marker for its own settle, RETURN [] so `settle!`
+        ;; commits no misleading `:ok` epoch. Symmetric with the run-start branch.
+        (let [theirs (filterv (fn [ev]
+                                (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
+                                  (and (some? event-dispatch-id)
+                                       (not= event-dispatch-id settling-dispatch-id))))
+                              buffer)]
+          (if (seq theirs)
+            (swap! capture-buffers assoc frame-id theirs)
+            (swap! capture-buffers dissoc frame-id))
+          [])
+        ;; 1-arity fallback (no envelope id — a direct low-level test call):
+        ;; full read-and-clear, returning the whole buffer.
+        (do (swap! capture-buffers dissoc frame-id)
+            buffer))))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."

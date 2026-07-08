@@ -2808,7 +2808,12 @@
 
   `settle!` itself skips an empty buffer (a rejected/aborted dispatch that
   never fired `:event/run-start`), so a no-handler / frame-destroyed early
-  exit commits no misleading record.
+  exit commits no misleading record. rf2-erczwd: a rejected dispatch still
+  buffers a frame-stamped, dispatch-id-bearing ERROR trace (`:no-such-handler`
+  / `:frame-destroyed`), so the buffer is NOT empty at this seam. Threading the
+  settling envelope's `:dispatch-id` lets the scoped no-run-start harvest drop
+  THAT dispatch's own traces — so the skip fires and no fake `:ok` epoch lands
+  — while any unrelated buffered child marker survives for its own settle.
 
   EP-0001 (rf2-3aizt1, decision #2): `frame-state-before` / `frame-state-after`
   are whole frame-state values (both partitions); `build-record` derives the
@@ -2819,9 +2824,9 @@
   Threaded into the epoch record's `:committed-at` so the durable
   causal-time fact is replayable per EP-0010 §Time / Spec 002 §Recordable
   coeffects, not an ambient assembly-time host-clock read."
-  [frame-id frame-state-before frame-state-after committed-at]
+  [frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]
   (when-let [settle! (late-bind/get-fn-cached :epoch/settle!)]
-    (settle! frame-id frame-state-before frame-state-after committed-at)))
+    (settle! frame-id frame-state-before frame-state-after committed-at settling-dispatch-id)))
 
 ;; ---- drain-loop! phases ---------------------------------------------------
 ;;
@@ -3016,7 +3021,13 @@
                     frame/*run-time-ms*            time-ms]
             (process-event! envelope))
           (let [fs-after (frame/frame-state-value frame-id)]
-            (settle-event-epoch! frame-id fs-before fs-after time-ms))
+            ;; rf2-erczwd: thread the settling envelope's :dispatch-id so a
+            ;; rejected/aborted dispatch (no-handler / frame-destroyed) whose
+            ;; only buffered emit is its own dispatch-id-bearing error trace
+            ;; commits no fake :ok epoch — the scoped no-run-start harvest drops
+            ;; that trace, and settle!'s empty-buffer skip fires.
+            (settle-event-epoch! frame-id fs-before fs-after time-ms
+                                  (:dispatch-id envelope)))
           (let [event    (:event envelope)
                 ;; rf2-fcbrjo: append this settled event's id to the bounded
                 ;; cycle-evidence ring (ids only; drop the head past K).
