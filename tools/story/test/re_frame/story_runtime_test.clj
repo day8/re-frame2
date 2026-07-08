@@ -1795,6 +1795,78 @@
             "the malformed path did not land in the elision registry (no partial commit)")))
     (story/destroy-variant! :story.classif/bad)))
 
+;; ---- rf2-lsr95i: registered `:extends` inherits `:sensitive`/`:large` -----
+;;
+;; The plan compiler (`plan.cljc` `context-keys`) already folds a variant's
+;; `:sensitive` / `:large` root→child through its `:extends` chain into the
+;; compiled plan's `[:world :sensitive]` / `[:world :large]` — the SAME merge
+;; `[:world :decorators]` / `[:world :setup]` get (`extends-inherits-
+;; decorators-when-child-declares-none` above documents the sibling case for
+;; decorators). But `frames/allocate!` ignored that compiled plan for
+;; classification and re-read a variant's RAW (un-merged) body instead — so a
+;; child that only `:extends`ed a `:sensitive`/`:large` parent, declaring no
+;; classification of its own, silently dropped the parent's redaction: the
+;; inherited secret rode into the child frame's wire trace unredacted (a
+;; privacy gap). The fix threads the compiled plan's `[:world :sensitive]` /
+;; `[:world :large]` into `allocate!`, mirroring how `allocate-inline!`
+;; already receives it for an inline plan (rf2-cmjly3 finding 12, below).
+
+(deftest extends-inherits-sensitive-classification-when-child-declares-none
+  (testing "rf2-lsr95i — a registered variant that only `:extends`es a
+            `:sensitive`-classified parent, declaring no classification of
+            its own, still redacts the inherited path at wire egress"
+    (rf/reg-event :auth/login-lsr95i
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-lsr95i")}))
+    (story/reg-variant :story.classif-ext.lsr95i/parent
+      {:events    [[:auth/login-lsr95i]]
+       :sensitive {:app-db [[:auth :token]]}})
+    ;; The child ONLY `:extends`es the parent — no `:events`, no
+    ;; `:sensitive` of its own. Setup APPENDS root→child (§Merge rules), so
+    ;; the bare child inherits the parent's `:events` and runs the SAME
+    ;; login step under its own frame; the classification must inherit
+    ;; identically (both are `context-keys` in the plan compiler).
+    (story/reg-variant :story.classif-ext.lsr95i/child
+      {:extends :story.classif-ext.lsr95i/parent})
+    (let [r (async/deref-blocking (story/run-variant :story.classif-ext.lsr95i/child) 5000)]
+      (is (= :ready (:lifecycle r))
+          "the extended child runs to :ready")
+      (is (= "BEARER-secret-lsr95i"
+             (get-in (rf/app-db-value :story.classif-ext.lsr95i/child) [:auth :token]))
+          "the inherited :events wrote the raw secret into the child's app-db")
+      (let [walked (rf/elide-wire-value
+                     (rf/app-db-value :story.classif-ext.lsr95i/child)
+                     {:frame :story.classif-ext.lsr95i/child})]
+        (is (= :rf/redacted (get-in walked [:auth :token]))
+            "the PARENT's :sensitive declaration, inherited through a bare
+             :extends, redacts the child frame's path at egress — RED
+             against the pre-fix `allocate!`, which read the child's raw
+             (un-merged) body and saw no :sensitive declaration at all")))
+    (story/destroy-variant! :story.classif-ext.lsr95i/child)
+    (story/destroy-variant! :story.classif-ext.lsr95i/parent)))
+
+(deftest extends-child-own-classification-still-applies
+  (testing "rf2-lsr95i companion — a child that DECLARES its own
+            `:sensitive` axis on an `:extends`ed variant still redacts (the
+            plan-threaded fix must not regress the non-inherited case)"
+    (rf/reg-event :docs/upload-lsr95i
+      (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] "large-blob-lsr95i")}))
+    (story/reg-variant :story.classif-ext.lsr95i/base
+      {:events [[:docs/upload-lsr95i]]})
+    (story/reg-variant :story.classif-ext.lsr95i/override
+      {:extends :story.classif-ext.lsr95i/base
+       :large   {:app-db [[:docs :blob]]}})
+    (let [r (async/deref-blocking (story/run-variant :story.classif-ext.lsr95i/override) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (let [walked (rf/elide-wire-value
+                     (rf/app-db-value :story.classif-ext.lsr95i/override)
+                     {:frame :story.classif-ext.lsr95i/override})
+            elided (get-in walked [:docs :blob])]
+        (is (and (map? elided) (contains? elided :rf.size/large-elided))
+            "the child's OWN :large declaration on an :extends'd variant
+             still elides at egress")))
+    (story/destroy-variant! :story.classif-ext.lsr95i/override)
+    (story/destroy-variant! :story.classif-ext.lsr95i/base)))
+
 ;; ---- rf2-cmjly3 finding 12: inline-plan :sensitive/:large classification --
 ;;
 ;; Prior to the fix, `allocate-inline!` never called
