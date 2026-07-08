@@ -62,7 +62,11 @@
             [re-frame.trace.tooling :as trace-tooling]
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
-            [realworld-resources.scope :as scope])
+            [realworld-resources.scope :as scope]
+            ;; Pagination pure helpers (page->limit-offset / query-string),
+            ;; exercised directly by the pagination-helpers test (rf2-yt7ay6).
+            [realworld-resources.http :as rrh]
+            [realworld-resources.resources :as rres])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 ;; ============================================================================
@@ -196,6 +200,10 @@
                      {:frame frame})))
 
 (defn- state-value [frame] (rf/frame-state-value frame))
+
+(defn- route-id [frame] (rf/compute-sub [:rf.route/id] (state-value frame)))
+(defn- route-params [frame] (rf/compute-sub [:rf.route/params] (state-value frame)))
+(defn- route-query [frame] (rf/compute-sub [:rf.route/query] (state-value frame)))
 
 ;; ============================================================================
 ;; 1. SESSION-SCOPE RESOLVER — :realworld/session (EP-0016 D3)
@@ -433,3 +441,69 @@
           "the cofx is NOT provided — it is generator-backed (the app supplies it)")
       (is (fn? (:handler-fn cofx-meta))
           "a recordable generator carries a value-returning supplier fn"))))
+
+;; ============================================================================
+;; 8. PAGINATION — pure limit/offset helpers + the page-nav semantics (rf2-yt7ay6)
+;; ============================================================================
+
+(deftest pagination-helpers-are-pure-limit-offset-and-encoded-query
+  (testing "examples/real-apps/realworld_resources — page->limit-offset clamps a
+            nil/sub-1 page to page 1 (the one place page arithmetic lives), and
+            query-string drops nil params, URL-encodes reserved characters, and
+            never emits a bare \"?\""
+    ;; page->limit-offset: 1-indexed page → {:limit :offset}, clamped at page 1.
+    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset nil)) "nil → page 1")
+    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset 0))   "page 0 clamps to page 1")
+    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset -3))  "a negative page clamps to page 1")
+    (is (= {:limit 10 :offset 0}  (rres/page->limit-offset 1))   "page 1 → offset 0")
+    (is (= {:limit 10 :offset 10} (rres/page->limit-offset 2))   "page 2 → offset one page in")
+    (is (= {:limit 10 :offset 20} (rres/page->limit-offset 3))   "page 3 → offset two pages in")
+    ;; query-string: parity with the http sibling — drop nils, encode reserved,
+    ;; empty (or all-nil) → "".
+    (is (= "" (rrh/query-string {})) "empty map yields \"\", not \"?\"")
+    (is (= "" (rrh/query-string {:page nil})) "an all-nil map still yields \"\"")
+    (is (= "?author=jake" (rrh/query-string {:author "jake" :tag nil}))
+        "nil-valued params are dropped")
+    (is (= "?tag=a%20b" (rrh/query-string {:tag "a b"}))
+        "a space is URL-encoded")
+    (is (= "?tag=a%26b%3Dc%23d" (rrh/query-string {:tag "a&b=c#d"}))
+        "reserved query characters (& = #) are percent-encoded")))
+
+(deftest pagination-nav-events-carry-feed-tag-and-drop-page-1
+  (testing "examples/real-apps/realworld_resources — :home/go-to-page and
+            :profile/go-to-page keep the active feed / tag / route + username and
+            swap only ?page=, and page 1 drops the ?page= param (the canonical
+            first-page URL) so page N and N+1 share a filter under distinct keys"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      ;; global feed, page 2 → ?page=2 on the home route
+      (rf/dispatch-sync [:home/show-global-feed] {:frame f})
+      (rf/dispatch-sync [:home/go-to-page 2] {:frame f})
+      (is (= :realworld/home (route-id f)))
+      (is (= 2 (:page (route-query f))) "global feed page 2 sets ?page=2")
+      ;; page 1 drops the param entirely
+      (rf/dispatch-sync [:home/go-to-page 1] {:frame f})
+      (is (nil? (:page (route-query f))) "page 1 drops ?page= (canonical first-page URL)")
+      ;; the following feed is carried forward across a page change
+      (rf/dispatch-sync [:home/show-your-feed] {:frame f})
+      (rf/dispatch-sync [:home/go-to-page 2] {:frame f})
+      (is (= 2 (:page (route-query f))))
+      (is (= "following" (:feed (route-query f)))
+          "paging the following feed carries ?feed=following forward")
+      ;; the tag is carried forward (re-aims at the /tag/:tag PATH route)
+      (rf/dispatch-sync [:home/apply-tag "clojure"] {:frame f})
+      (rf/dispatch-sync [:home/go-to-page 2] {:frame f})
+      (is (= :realworld/home-tag (route-id f)) "paging a tag list re-aims at /tag/:tag")
+      (is (= "clojure" (:tag (route-params f))) "the tag param is preserved")
+      (is (= 2 (:page (route-query f))))
+      (rf/dispatch-sync [:home/go-to-page 1] {:frame f})
+      (is (= :realworld/home-tag (route-id f)) "still on the tag route")
+      (is (nil? (:page (route-query f))) "tag page 1 drops ?page= too")
+      ;; the profile tab pages independently, on its own route + username
+      (rf/dispatch-sync [:rf.route/navigate :realworld.profile/show {:username "eve"}] {:frame f})
+      (rf/dispatch-sync [:profile/go-to-page 3] {:frame f})
+      (is (= :realworld.profile/show (route-id f)) "profile page-nav stays on the same tab")
+      (is (= "eve" (:username (route-params f))) "the username is unchanged")
+      (is (= 3 (:page (route-query f))))
+      (rf/dispatch-sync [:profile/go-to-page 1] {:frame f})
+      (is (nil? (:page (route-query f))) "profile page 1 drops ?page="))))
