@@ -480,6 +480,14 @@
                          sensitive?
                          {:frame (:frame ctx)})]
         (trace/emit-error! :rf.http/aborted redacted)))
+    ;; rf2-k47b3d — an abort is TERMINAL for this request-id (this is the
+    ;; direct abort-fn choke: user / actor-destroy / supersede / epoch-restore
+    ;; all land here). Evict the issuance counter so an unbounded distinct-id
+    ;; space does not accumulate a permanent entry. Conditional-atomic: a
+    ;; supersede has ALREADY bumped the counter past this (superseded) attempt's
+    ;; issuance, so the evict skips and the live successor keeps the id; only a
+    ;; genuinely-quiescent id is dropped.
+    (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
     (cond
       ;; Per rf2-lxd3 (supersede) / rf2-u5kmf8 (epoch-restore) — these reasons
       ;; suppress the reply (the cancellation replaces the original outcome; the
@@ -641,6 +649,9 @@
     (finalise-failure! ctx (aborted-failure ctx abort-state))
     (when-not (already-replied? ctx)
       (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
+      ;; (conditional-atomic; skips when a live re-issue has bumped past it).
+      (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
       (if-let [post-cas-abort (aborted-snapshot ctx)]
         ;; Sample (2): abort flipped between our pre-CAS sample and
         ;; our CAS-win. We hold the once-only token AND have cleared the
@@ -726,6 +737,11 @@
                         (aborted-failure ctx abort-state)
                         failure)]
       (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
+      ;; (conditional-atomic; skips when a live re-issue has bumped past it, so
+      ;; a superseded-then-reclassified attempt does not drop the successor's
+      ;; live counter).
+      (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
       ;; rf2-sixs3 — the redact + emit-error! + supersede-suppressed
       ;; dispatch tail is shared with finalise-success!'s sample-(2) abort
       ;; path via `emit-and-dispatch-failure!`. We have already won the

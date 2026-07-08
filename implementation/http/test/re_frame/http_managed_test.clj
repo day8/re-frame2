@@ -19,6 +19,7 @@
             [re-frame.http.decode :as http-decode]
             [re-frame.http.encoding :as http-encoding]
             [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as registry]
             [re-frame.late-bind :as late-bind]
             ;; rf2-cdmle — the canned-stub fxs no longer register at
             ;; `re-frame.http.managed` load time. This test file uses
@@ -2265,3 +2266,58 @@
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
           (trace/unregister-listener! listener-id)
           (late-bind/set-fn! :router/dispatch! original))))))
+
+;; ---- rf2-k47b3d — issuance-counter eviction bounds the map -----------------
+
+(deftest issuance-counter-evicts-on-completion
+  (testing "rf2-k47b3d — a request-id's issuance counter is EVICTED when its
+  final attempt reaches a terminal completion, so an app minting an UNBOUNDED
+  distinct-id space (e.g. `[:fetch-doc uuid]` over an unbounded id space) does
+  NOT accumulate one permanent `issuance-counters` entry per id ever requested
+  on a long-running JVM (the leak the monotonic-forever design carried)."
+    (registry/reset-issuance-counters-for-test!)
+    (is (zero? (registry/issuance-counter-count)))
+    ;; Adversarial: 500 DISTINCT single-issuance request-ids, each issued once
+    ;; then completed. Pre-fix the map would end holding 500 entries; the
+    ;; conditional-atomic evict on completion keeps it at zero.
+    (doseq [i (range 500)]
+      (let [rid      [:fetch-doc i]
+            issuance (registry/next-issuance! rid)]
+        (is (= 1 issuance) "a fresh distinct id starts at issuance 1")
+        (is (= 1 (registry/issuance-counter-count))
+            "exactly one live counter while the request is in flight")
+        (registry/evict-issuance-on-completion! rid issuance)
+        (is (zero? (registry/issuance-counter-count))
+            "the counter is evicted the moment the request completes")))
+    (is (zero? (registry/issuance-counter-count))
+        "the map stays bounded across 500 distinct single-issuance request-ids")))
+
+(deftest issuance-counter-eviction-preserves-live-successor
+  (testing "rf2-k47b3d — the eviction is CONDITIONAL-ATOMIC (evict only when
+  the counter still equals the completing attempt's issuance), preserving the
+  rf2-azcmd3 anti-collision invariant: a SUPERSEDED attempt's terminal eviction
+  MUST NOT drop the live successor's counter, because `next-issuance!` already
+  bumped it past the superseded attempt's issuance BEFORE the supersede."
+    (registry/reset-issuance-counters-for-test!)
+    (let [rid [:search-box :q]
+          n1  (registry/next-issuance! rid)   ; attempt A: issuance 1
+          n2  (registry/next-issuance! rid)]  ; supersede → attempt B: issuance 2
+      (is (= 1 n1))
+      (is (= 2 n2) "the superseding attempt gets a distinct, higher issuance")
+      ;; Attempt A (the SUPERSEDED one) terminates. Its evict keys on issuance 1,
+      ;; but the counter is already at 2 → the atomic compare-and-drop SKIPS.
+      (registry/evict-issuance-on-completion! rid n1)
+      (is (= 1 (registry/issuance-counter-count))
+          "the superseded attempt's eviction does NOT drop the live counter")
+      (is (= 3 (registry/next-issuance! rid))
+          "the counter survived at 2, so the next issuance is 3 — no work-id collision")
+      ;; The final live attempt terminates with the counter at its own issuance.
+      (registry/evict-issuance-on-completion! rid 3)
+      (is (zero? (registry/issuance-counter-count))
+          "the id's final attempt evicts cleanly, bounding the map")))
+  ;; A nil request-id never had a counter (anonymous requests stay at issuance 1
+  ;; without touching the map) — eviction is a no-op.
+  (registry/reset-issuance-counters-for-test!)
+  (registry/evict-issuance-on-completion! nil 1)
+  (is (zero? (registry/issuance-counter-count))
+      "evicting a nil request-id is a no-op"))
