@@ -1275,7 +1275,7 @@
   <defined-in> :shadowed-by <winner>}]` list, one entry per cross-image shadow,
   naming the loser image + the FINAL winner. An empty vector when no later image
   shadowed an earlier one (the common deliberate-no-override case). The public
-  `rf/frame-shadows` accessor reads this directly (an ordinary read, not a
-  bespoke reload-report field). Pure."
+  `(:rf.gen/shadows (rf/frame-generation f))` read surfaces this directly (an
+  ordinary read, not a bespoke reload-report field). Pure."
   [generation]
   (:rf.gen/shadows generation))

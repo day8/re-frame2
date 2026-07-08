@@ -4,8 +4,9 @@
 EP-0026 (rf2-dlvmpc) RETIRES five EP-0023 image source keys and the three
 image-capability surfaces with FAIL-LOUD rejection. The public `rf/image` value
 now accepts exactly `:id`, `:select-ns`, and `:registrations`; composition
-resolves by IMAGE ORDER and reports shadows via `rf/frame-shadows`; framework
-standards are protected; image-declared host capabilities are removed end-to-end.
+resolves by IMAGE ORDER and reports shadows via
+`(:rf.gen/shadows (rf/frame-generation f))`; framework standards are protected;
+image-declared host capabilities are removed end-to-end.
 
 This gate keeps that retirement done. It fails if a RETIRED spelling reappears as
 LIVE, copy-pasteable API on the teaching/reference/source surface — outside the
@@ -463,7 +464,8 @@ _FIX_HINT = (
     "Migrate the example/code:\n"
     "  :include-ns / :exclude-ns -> :select-ns {:include [globs] :exclude [globs]}\n"
     "  :replace                  -> compose a LATER image (image order wins); "
-    "read rf/frame-shadows to assert on what it shadowed\n"
+    "read (:rf.gen/shadows (rf/frame-generation f)) to assert on what it "
+    "shadowed\n"
     "  :replace-standard         -> framework standards are protected; an app "
     "image cannot shadow one\n"
     "  :rf.image/requires / make-frame :capabilities / :rf.gen/requires -> "

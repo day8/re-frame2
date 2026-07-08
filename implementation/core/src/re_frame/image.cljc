@@ -483,9 +483,9 @@
                           "selection).")
    :replace          (str ":replace is RETIRED — composition resolves by IMAGE "
                           "ORDER (the later image in :images wins). Define the "
-                          "override in a LATER image and read rf/frame-shadows to "
-                          "assert on what it shadowed; there is no acknowledgement "
-                          "key.")
+                          "override in a LATER image and read "
+                          "(:rf.gen/shadows (rf/frame-generation f)) to assert on "
+                          "what it shadowed; there is no acknowledgement key.")
    :replace-standard (str ":replace-standard is RETIRED — framework standards are "
                           "protected and not an ordinary app extension point. An "
                           "app image cannot shadow a standard.")
@@ -624,8 +624,8 @@
   and `:rf.image/requires` are RETIRED (EP-0026, rf2-dlvmpc): a spec carrying one
   fails loud (`check-retired-keys!`) with a migration diagnostic. Composition now
   resolves by IMAGE ORDER (the later image in `:images` wins) and reports
-  shadows via `rf/frame-shadows`; standards are protected; host-capability
-  declarations are removed end-to-end.
+  shadows via `(:rf.gen/shadows (rf/frame-generation f))`; standards are
+  protected; host-capability declarations are removed end-to-end.
 
   Returns a normalized image value:
 
