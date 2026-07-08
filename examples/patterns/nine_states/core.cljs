@@ -114,10 +114,13 @@
 ;; SCHEMAS
 ;; ============================================================================
 ;;
-;; The machine carries its own `:data` shape (see the declaration below), so
-;; the only thing left to describe here is the form slice: what the form
-;; collects plus its per-field validation state. Note there's no `:status`
-;; field — the form region's state-keyword already IS the status.
+;; The machine schema-checks its own `:data` shape via `NineStatesData`
+;; below, attached on its `[:schemas :data]` slot — a machine's snapshot
+;; lives in runtime-db, so that (not a `reg-app-schema`, which guards
+;; app-db) is its validation surface. What's left to describe HERE is the
+;; form slice: what the form collects plus its per-field validation state.
+;; Note there's no `:status` field — the form region's state-keyword already
+;; IS the status.
 
 ;; A subtle but important call: `:draft` is a bare `:map`, not the stricter
 ;; "this is a valid submission" shape. A draft is meant to hold
@@ -140,6 +143,29 @@
 ;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
 (rf/with-frame :rf/default
   (rf/reg-app-schema [:new-todo] NewTodoSlice))
+
+;; ---- The machine's own :data shape ----
+;; A todo, as it rides in the machine's `:items` list. Both producers build
+;; exactly this: the demo server's `gen-todos` and `:new-todo/submit`.
+(def Todo
+  [:map
+   [:id    :any]        ;; a random-uuid; it doubles as the row's React :key
+   [:title :string]
+   [:done? :boolean]])
+
+;; The parallel machine's shared `:data`. It hangs off the machine's
+;; `[:schemas :data]` slot (see `nine-states-machine`), so the runtime
+;; checks it after every transition and at each snapshot write — the machine
+;; equivalent of an app-schema, but for runtime-db-resident snapshot data.
+;; Three fields, one per axis's needs: `:items` (the list the `:data`
+;; region's cardinality guards count), `:error` (the failure the `:error`
+;; branch records), and `:archived-at` (the stamp the `:mode` region writes
+;; on `:archive`).
+(def NineStatesData
+  [:map
+   [:items       [:vector Todo]]
+   [:error       [:maybe :any]]
+   [:archived-at [:maybe :int]]])
 
 ;; ============================================================================
 ;; RECORDABLE COEFFECTS
@@ -232,6 +258,12 @@
 
 (def nine-states-machine
   {:type :parallel
+
+   ;; The machine validates its own `:data` here, on every transition and at
+   ;; each snapshot write. A machine's `:data` lives in runtime-db, so it
+   ;; carries its own `[:schemas :data]` — not an app-schema, which guards
+   ;; the app-db partition. See docs/machines/concepts.md#validating-a-machines-data.
+   :schemas {:data NineStatesData}
 
    ;; The machine's shared :data — :items for the data region, plus the
    ;; mode region's :archived-at stamp. One shared bag rather than
