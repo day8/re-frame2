@@ -265,7 +265,7 @@
             (handler write AND flow write) is wound back to the pre-handler
             value"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
-    (rf/reg-app-schema [:derived] {:schema [:map [:doubled [:int {:min 0}]]]})
+    (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1 :derived {:doubled 0}}}))
     ;; The handler writes :n; the flow reads :n and writes a value that the
     ;; app-db schema will REJECT (negative when :n is negative).

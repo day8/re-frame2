@@ -55,7 +55,7 @@
 
 (deftest live-dispatch-validates-app-db-under-reagent
   (testing "a malformed :db commit emits :rf.error/schema-validation-failure under the Reagent adapter"
-    (rf/reg-app-schema [:n] {:schema [:int]})
+    (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [traces (atom [])]
@@ -80,7 +80,7 @@
 
 (deftest live-dispatch-well-typed-passes-silently
   (testing "well-typed :db commits trigger no schema-validation-failure trace"
-    (rf/reg-app-schema [:n] {:schema [:int]})
+    (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (let [traces (atom [])]
@@ -118,7 +118,7 @@
             The fix's load-bearing contract — historically the CLJS
             runtime `resolve` returned nil and Malli was never consulted,
             so this trace silently never fired."
-    (rf/reg-app-schema [:user :age] {:schema :int})
+    (rf/reg-app-schema [:user :age] :int)
     (rf/reg-event :user/set-age-bad
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :age] "twenty-three")}))
     (let [traces (atom [])]
@@ -148,7 +148,7 @@
       (late-bind/set-fn! :schemas/malli-validate nil)
       (late-bind/set-fn! :schemas/malli-explain  nil)
       (try
-        (rf/reg-app-schema [:n] {:schema :int})
+        (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
         (let [traces (atom [])]
           (trace-tooling/register-listener! ::no-adapter (fn [ev] (swap! traces conj ev)))
@@ -248,7 +248,7 @@
 (deftest diag-app-schema-present-sync-bad-event-args
   (testing "DIAGNOSTIC — with an app-db schema registered for the frame
             (live wiring), a dispatch-SYNC bad event arg"
-    (rf/reg-app-schema [:auth] {:schema [:map [:token :string]]})
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
       (rf/reg-event :rf2-lo28u/diag-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/diag-bad-event-args] pos-int?]}
@@ -295,7 +295,7 @@
     ;; Mirror the live testbed: an app-db schema is registered for this
     ;; frame (button 19). The bad-event-args event is registered with the
     ;; inline `:schema` meta verbatim from button 18.
-    (rf/reg-app-schema [:auth] {:schema [:map [:token :string]]})
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
       (rf/reg-event :rf2-lo28u/async-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/async-bad-event-args] pos-int?]}
@@ -326,8 +326,8 @@
   (testing "Per Spec 010 §Digest algorithm (rf2-0z1z): the digest fn
             is wired under CLJS (goog.crypt.Sha256) and produces the
             canonical wire form."
-    (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]})
-    (rf/reg-app-schema [:todos] {:schema [:vector :string]})
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+    (rf/reg-app-schema [:todos] [:vector :string])
     (let [d (schemas/app-schemas-digest)]
       (is (string? d)
           "digest returns a string")
@@ -351,7 +351,7 @@
           custom (fn [_s v] (swap! calls inc) (= v 42))]
       (schemas/set-schema-validator! custom)
       (try
-        (rf/reg-app-schema [:n] {:schema :int})
+        (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 42}}))
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n 99)}))
         (let [traces (atom [])]
@@ -376,7 +376,7 @@
             the live :db commit that would otherwise fire."
     (schemas/set-schema-validator! nil)
     (try
-      (rf/reg-app-schema [:n] {:schema :int})
+      (rf/reg-app-schema [:n] :int)
       (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::nv (fn [ev] (swap! traces conj ev)))

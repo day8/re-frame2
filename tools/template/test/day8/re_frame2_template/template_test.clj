@@ -160,24 +160,23 @@
               "schema.cljs registers a whole-app-db schema")
           (is (.contains schema-text "CounterDb")
               "schema.cljs ships the CounterDb Malli schema")
-          ;; -- Emitted source must not teach the positional
-          ;;    reg-app-schema grammar (schema-in-metadata).
-          ;; The schema lives in the metadata map's :schema key; a bare
-          ;; positional schema throws :rf.error/app-schema-bad-metadata.
-          ;; Scan emitted source comments too, so events.cljs's schema-load
-          ;; comment cannot cite the stale (reg-app-schema [] CounterDb).
-          (is (not (.contains events-text "(reg-app-schema [] CounterDb)"))
-              "events.cljs must NOT cite the retired positional
-               (reg-app-schema [] CounterDb) form in a comment — the
-               canonical grammar is the metadata map
-               (reg-app-schema [] {:schema CounterDb})")
-          (is (not (.contains schema-text "(rf/reg-app-schema [] CounterDb)"))
-              "schema.cljs must NOT emit the retired positional
-               (rf/reg-app-schema [] CounterDb) call — the canonical grammar
-               is the metadata map (rf/reg-app-schema [] {:schema CounterDb})")
-          (is (.contains schema-text "{:schema CounterDb}")
-              "schema.cljs emits the canonical schema-in-metadata grammar
-               (rf/reg-app-schema [] {:schema CounterDb})")
+          ;; -- Emitted source must teach the canonical positional
+          ;;    reg-app-schema grammar (rf2-qm7k83 Part A).
+          ;; The schema is the POSITIONAL value slot: (reg-app-schema [] schema).
+          ;; The retired schema-in-metadata form {:schema CounterDb} must not
+          ;; survive in emitted source OR comments. Scan events.cljs's schema-
+          ;; load comment too, so it cannot cite the stale grammar.
+          (is (not (.contains events-text "{:schema CounterDb}"))
+              "events.cljs must NOT cite the retired schema-in-metadata
+               (reg-app-schema [] {:schema CounterDb}) form in a comment — the
+               canonical grammar is positional (reg-app-schema [] CounterDb)")
+          (is (not (.contains schema-text "{:schema CounterDb}"))
+              "schema.cljs must NOT emit the retired schema-in-metadata
+               (rf/reg-app-schema [] {:schema CounterDb}) call — the canonical
+               grammar is positional (rf/reg-app-schema [] CounterDb)")
+          (is (.contains schema-text "(rf/reg-app-schema [] CounterDb)")
+              "schema.cljs emits the canonical positional grammar
+               (rf/reg-app-schema [] CounterDb)")
 
           ;; -- EP-0011 / rf2-ibksxg: HTTP exemplar teaches the ONE canonical
           ;;    uniform reply envelope (no compat dialect) --

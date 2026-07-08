@@ -150,8 +150,8 @@
 ;; reg-app-schema is frame-local, so either form must run under a live
 ;; frame scope — never at ns-load.
 (defn register-schema!
-  ([] (rf/reg-app-schema [] {:schema CounterDb}))
-  ([frame-id] (rf/reg-app-schema [] {:schema CounterDb :frame frame-id})))
+  ([] (rf/reg-app-schema [] CounterDb))
+  ([frame-id] (rf/reg-app-schema [] {:frame frame-id} CounterDb)))
 
 ;; The schema-attach step — dispatched FIRST by `server-init-events`
 ;; (below), never by the client (`:platforms #{:server}`; the client

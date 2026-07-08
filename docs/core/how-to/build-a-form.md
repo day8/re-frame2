@@ -62,8 +62,8 @@ Now bind two [schemas](../glossary.md#schema), one for the slice's shape and one
 ;; App-db schemas are frame-scoped: register inside a frame scope (or pass
 ;; :frame) — a bare top-level call fails loud with :rf.error/no-frame-context.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:auth :login]        {:schema FormSlice})
-  (rf/reg-app-schema [:auth :login :draft] {:schema LoginForm}))
+  (rf/reg-app-schema [:auth :login]        FormSlice)
+  (rf/reg-app-schema [:auth :login :draft] LoginForm))
 ```
 
 Two schemas, because they answer two different questions. `FormSlice` describes the *machinery* — the status enum, the touched set, the errors map. `LoginForm` describes the *payload* — what a valid email and password look like. They evolve independently: you change `LoginForm` when the business rules change, and you'll basically never touch `FormSlice`.

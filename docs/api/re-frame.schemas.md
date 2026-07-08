@@ -19,19 +19,19 @@ The registration macros live in `re-frame.core` and route through the schemas ar
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-app-schema path {:schema schema})
-  (reg-app-schema path {:schema schema :frame frame})
+  (reg-app-schema path schema)
+  (reg-app-schema path metadata schema)
   ```
 - **Description**: Attach a Malli schema to an `app-db` path.
-  - The schema rides the metadata map under `:schema`; the optional frame target (a frame-id keyword or a frame value) rides `:frame` in the same map.
+  - The schema is the **positional value slot** (rf2-qm7k83 Part A), uniform with the rest of the `reg-*` family; the optional middle metadata map carries the frame target (a frame-id keyword or a frame value) under `:frame` (plus `:doc` / open `:my/*` keys).
   - The **path is the registration id** — app-db schemas are path-keyed, live in the schemas artefact's per-frame side-table, and are NOT a registrar kind. `(app-schema-at [:user])` looks up by the same path vector.
   - `path` is a sequential `get-in` path of concrete segments (`[]` registers a whole-`app-db` root schema), normalized to canonical vector form. Returns the normalized path.
-  - Raises: `:rf.error/app-schema-bad-metadata` (non-map metadata, or no `:schema` key); `:rf.error/app-schema-bad-path` (non-sequential path or non-concrete segment); `:rf.error/app-schema-runtime-path` (first segment reaches the runtime-db partition — `:rf.runtime/*`, `:rf.db/runtime`, or the legacy `:rf/runtime` root); `:rf.error/app-schemas-bad-arg` (a `:frame` target that does not resolve to a keyword frame id); `:rf.error/no-frame-context` (no `:frame` and no established frame scope).
+  - Raises: `:rf.error/app-schema-bad-metadata` (a non-map middle metadata arg in the 3-slot form); `:rf.error/app-schema-bad-path` (non-sequential path or non-concrete segment); `:rf.error/app-schema-runtime-path` (first segment reaches the runtime-db partition — `:rf.runtime/*`, `:rf.db/runtime`, or the legacy `:rf/runtime` root); `:rf.error/app-schemas-bad-arg` (a `:frame` target that does not resolve to a keyword frame id); `:rf.error/no-frame-context` (no `:frame` and no established frame scope).
   - Dev-only diagnostics: re-registering a schema at a path whose live `app-db` value fails the new schema emits an `:rf.schema/violation` warning trace; registering an opaque compiled schema the per-slot walker cannot introspect warns once per process with `:rf.warning/schema-walker-opaque`.
 - **Example**:
   ```clojure
   (rf/reg-app-schema [:cells]
-    {:schema [:map [:cells/grid [:map-of :keyword :string]]]})
+    [:map [:cells/grid [:map-of :keyword :string]]])
   ```
 
 ### `reg-app-schemas`

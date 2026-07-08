@@ -52,7 +52,7 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; (Contrast reg-event / reg-sub, which are frame-agnostic global
 ;; registrations and are fine at ns-load.)
 (defn register-schema! []
-  (rf/reg-app-schema [] {:schema CounterDb}))   ;; :schema-in-metadata grammar
+  (rf/reg-app-schema [] CounterDb))   ;; schema is the positional value slot
 
 ;; -- Events ----------------------------------------------------------------
 

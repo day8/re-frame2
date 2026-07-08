@@ -253,7 +253,7 @@
 (deftest app-db-validation-redacts-sensitive
   (testing ":where :app-db (validate-app-schema!) redacts the sensitive
             post-commit slice"
-    (rf/reg-app-schema [:root] {:schema sensitive-map-schema})
+    (rf/reg-app-schema [:root] sensitive-map-schema)
     (let [trace (capture-failure
                   #(schemas/validate-app-schema!
                      {:root failing-sensitive-value} :root/bad))]
@@ -337,7 +337,7 @@
             the genuinely narrowed slot — but the WHOLE-PAYLOAD `:explain` slot
             (the whole reg-slice, conforming :jwt included) redacts under the
             root check, so the conforming sibling never egresses"
-    (rf/reg-app-schema [:root] {:schema sibling-sensitive-map-schema})
+    (rf/reg-app-schema [:root] sibling-sensitive-map-schema)
     (let [trace (capture-failure
                   #(schemas/validate-app-schema!
                      {:root failing-sibling-value} :root/bad))]

@@ -506,7 +506,7 @@
     (rf/reg-frame :composed/leak-audit {:doc "leak-audit"})
 
     ;; --- schemas: register a schema rooted at the frame -------------------
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :composed/leak-audit})
+    (rf/reg-app-schema [:n] {:frame :composed/leak-audit} [:int])
     (is (contains? (schemas/snapshot-schemas-by-frame) :composed/leak-audit)
         "precondition: schema row exists for the frame")
 

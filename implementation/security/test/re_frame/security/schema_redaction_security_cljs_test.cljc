@@ -193,7 +193,7 @@
 
 (defn- failure-trace
   [schema db]
-  (rf/reg-app-schema [:root] {:schema schema})
+  (rf/reg-app-schema [:root] schema)
   (let [traces (atom [])
         kw     (keyword "rf2-3cfvt" (name (gensym "listen")))]
     (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))

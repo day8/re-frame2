@@ -29,6 +29,6 @@
   "Bundle-probe init-fn — see the no-Malli sibling for the rationale."
   []
   (schemas/set-schema-validator! nil)
-  (schemas/reg-app-schema [:probe] {:schema [:int]})
+  (schemas/reg-app-schema [:probe] [:int])
   (schemas/app-schemas)
   (schemas/app-schemas-digest))

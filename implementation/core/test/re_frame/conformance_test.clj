@@ -1953,7 +1953,7 @@
           ;; `reg-app-schema` is frame-scoped — establish the scope explicitly.
           _            (rf/with-frame scope-frame
                          (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
-                           (rf/reg-app-schema path {:schema schema})))
+                           (rf/reg-app-schema path schema)))
           _            (cond
                          (seq frames-spec)
                          ;; Multi-frame fixture: register each declared frame.

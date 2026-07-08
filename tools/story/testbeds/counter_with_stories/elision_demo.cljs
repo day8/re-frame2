@@ -115,7 +115,7 @@
 ;; lands at module-load before `init!`.
 (with-frame :rf/default
   (rf/reg-app-schema [:user/avatar-pdf]
-                     {:schema [:maybe :string]}))
+                     [:maybe :string]))
 
 ;; ============================================================================
 ;; EVENTS  (Spec 009 §`:sensitive?`)

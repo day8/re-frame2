@@ -75,7 +75,7 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 - [ ] `shadow-cljs.edn` has one `:builds` entry for the app, `:init-fn` pointing at the entry ns's `init`, and `:devtools/preloads [day8.re-frame2-xray.preload]`.
 - [ ] `index.html` has the `[data-rf-xray-host]` aside beside `#app`.
 - [ ] Entry ns calls `(rf/init! reagent-adapter/adapter)` before any render.
-- [ ] Entry ns requires `re-frame.schemas` + `re-frame.schemas.malli` and attaches the app-db schema via `(rf/reg-app-schema [] {:schema CounterDb})` inside the boot `(rf/with-frame :rf/default …)` scope.
+- [ ] Entry ns requires `re-frame.schemas` + `re-frame.schemas.malli` and attaches the app-db schema via `(rf/reg-app-schema [] CounterDb)` inside the boot `(rf/with-frame :rf/default …)` scope.
 - [ ] `shadow-cljs watch <build-id>` compiles cleanly.
 - [ ] Browser shows the counter and the `+1` button increments it.
 

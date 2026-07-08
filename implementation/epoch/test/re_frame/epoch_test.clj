@@ -1242,7 +1242,7 @@
     ;; Per Spec 010 §Per-frame schemas reg-app-schema is frame-scoped;
     ;; restore-epoch! runs on :test/main so the schema must register
     ;; against that frame, not the (current-frame)-default :rf/default.
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/main})
+    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
 
     (let [pre      (rf/app-db-value :test/main)
           history  (rf/epoch-history :test/main)
@@ -1279,7 +1279,7 @@
 
     ;; Tighten the schema set — the recorded epoch's digest now
     ;; differs from the live (current) digest.
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/main})
+    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
 
     (let [history  (rf/epoch-history :test/main)
           target   (some (fn [r]
@@ -1310,7 +1310,7 @@
   (testing "Per Spec-Schemas §:rf/epoch-record (rf2-0z1z): every epoch
             record carries a :schema-digest pinned at record time."
     (rf/reg-frame :test/digest {})
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/digest})
+    (rf/reg-app-schema [:n] {:frame :test/digest} [:int])
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:init] {:frame :test/digest})
     (let [r (last (rf/epoch-history :test/digest))]
@@ -2892,7 +2892,7 @@
             :rf.epoch/replace-schema-mismatch; app-db unchanged"
     (rf/reg-frame :test/main {})
     ;; Per Spec 010 §Per-frame schemas — schema is frame-scoped.
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/main})
+    (rf/reg-app-schema [:n] {:frame :test/main} [:int])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -3359,7 +3359,7 @@
             real cascade for that frame."
     ;; Use the schema-mismatch path — easier to drive than during-drain.
     (rf/reg-frame :test/sm {})
-    (rf/reg-app-schema [:n] {:schema [:int] :frame :test/sm})
+    (rf/reg-app-schema [:n] {:frame :test/sm} [:int])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/sm})

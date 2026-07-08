@@ -274,7 +274,7 @@
            ;; schema weren't already registered against this per-request frame
            ;; (the gensym `fid`), there'd be nothing to validate that commit
            ;; against by the time it fires.
-           _   (rf/reg-app-schema [:articles] {:schema ArticlesSchema :frame fid})
+           _   (rf/reg-app-schema [:articles] {:frame fid} ArticlesSchema)
            f   (rf/reg-frame fid
                  {:doc       "ssr-example per-request frame"
                   :platform  :server
@@ -417,7 +417,7 @@
      ;; `:articles` commit, and every interactive commit the reader triggers
      ;; afterward, get validated on the client just as they were on the server.
      ;; (Also no-op-safe on hot-reload.)
-     (rf/reg-app-schema [:articles] {:schema ArticlesSchema :frame app-frame})
+     (rf/reg-app-schema [:articles] {:frame app-frame} ArticlesSchema)
      ;; One call, all three steps — READ, HYDRATE, VERIFY — against the same
      ;; `app-frame` the mount below will use. The one subtlety is `:render-tree-fn`:
      ;; VERIFY has to hash the *exact* tree the server hashed, or it'll cry

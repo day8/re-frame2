@@ -159,12 +159,12 @@
   ;; The :spawn-all children stage their payloads into [:boot/staging] before
   ;; signalling done, and :enter-hydrating reads them back out. We register
   ;; the slot so those staging writes get schema-checked like everything else.
-  (rf/reg-app-schema [:boot/staging] {:schema [:maybe BootStagingSlice]})
+  (rf/reg-app-schema [:boot/staging] [:maybe BootStagingSlice])
 
   ;; The boot machine promotes its final payloads into these top-level slices
   ;; on entering `:hydrating` — the very slices the main app reads through subs
   ;; once the boot hits `:ready`.
-  (rf/reg-app-schema [:config] {:schema [:maybe Config]})
-  (rf/reg-app-schema [:flags]  {:schema [:maybe Flags]})
-  (rf/reg-app-schema [:user]   {:schema [:maybe User]})
-  (rf/reg-app-schema [:routes] {:schema [:maybe Routes]}))
+  (rf/reg-app-schema [:config] [:maybe Config])
+  (rf/reg-app-schema [:flags]  [:maybe Flags])
+  (rf/reg-app-schema [:user]   [:maybe User])
+  (rf/reg-app-schema [:routes] [:maybe Routes]))

@@ -53,7 +53,7 @@
 ;; name that same frame here and bind the schema to it. From then on, every
 ;; commit to the `[:temp]` slice is checked against `TempState`.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:temp] {:schema TempState}))
+  (rf/reg-app-schema [:temp] TempState))
 
 ;; ============================================================================
 ;; EVENTS

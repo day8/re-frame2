@@ -73,19 +73,21 @@ Concretely:
 - A user-registered app schema whose path's **first segment** reaches into runtime-db (a `:rf.runtime/*` keyword, the `:rf.db/runtime` container root, or the `:rf/runtime` root) is a **category error**, not a warnable misuse, and is **hard-rejected at registration** with `:rf.error/app-schema-runtime-path` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys) and [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). `reg-app-schema` validates only app-db (`(get-in app-db path)`), so a runtime path either detonates every dev commit (a normal `[:map …]` schema over the `nil` app-db slot) or silently installs a validator the author falsely believes guards runtime-db — there is no behaviour to soft-land, and no legitimate caller. `reg-app-schemas` rejects the whole batch atomically before any entry lands; the migration agent flags it. The runtime-db partition is **framework-owned**, so there is no public schema surface to redirect the user to: the honest remedy is to **drop the runtime path** (the `:reason` says exactly that, and does NOT name a non-public, framework-owned API).
 - The framework registers a separate **runtime-db** validator (`:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition at boot. That is a **framework-owned, internal** validator, NOT an application-owned app schema and NOT a public `rf/*` registration surface — user code never registers it (there is no `rf/reg-runtime-schema` export; the name appears only as internal boot vocabulary). Runtime-db is validated as a partition by the framework-owned internal validator, never via `reg-app-schema` — there is no public app-schema surface over runtime-db.
 - Because app-db now holds nothing but app data, `(rf/app-schema)` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
-- The whole-`app-db` root schema `(rf/reg-app-schema [] {:schema …})` validates the whole **app-db partition** — never frame-state, never runtime-db.
+- The whole-`app-db` root schema `(rf/reg-app-schema [] …)` validates the whole **app-db partition** — never frame-state, never runtime-db.
 
 The validation timing, rollback, and per-step recovery rules below apply unchanged; they operate over the app-db partition.
 
 ### `app-db` schemas — path-based
 
-Rather than one giant schema for the whole `app-db`, schemas are registered **at paths**. The schema rides under `:schema` in the metadata map, uniform with every other `reg-*` surface; the path is the registration id:
+Rather than one giant schema for the whole `app-db`, schemas are registered **at paths**. The path is the registration id (the one principled asymmetry); the schema is the **positional value slot**, uniform with every other `reg-*` surface (rf2-qm7k83 Part A):
 
 ```clojure
-(rf/reg-app-schema [:user]   {:schema UserSchema})
-(rf/reg-app-schema [:todos]  {:schema TodosSchema})
-(rf/reg-app-schema [:auth]   {:schema AuthSchema})
+(rf/reg-app-schema [:user]   UserSchema)
+(rf/reg-app-schema [:todos]  TodosSchema)
+(rf/reg-app-schema [:auth]   AuthSchema)
 ```
+
+An optional **middle metadata map** carries the `:frame` target (and `:doc` / open `:my/*` keys) for the 3-slot form: `(rf/reg-app-schema [:user] {:frame :session} UserSchema)`. A non-map middle argument is a loud `:rf.error/app-schema-bad-metadata` (the common slip is passing the schema where the metadata map goes).
 
 This fits re-frame's grain — code already accesses `app-db` via paths; schemas are similarly path-anchored. Composable. Hot-reload-friendly per slice. Tooling and agents can ask "what's the schema at path P?" and get a precise local answer.
 
@@ -119,7 +121,7 @@ The singular `reg-app-schema` remains available — use it when a feature spans 
 The empty path `[]` means "the whole `app-db`" — same convention as `get-in`/`assoc-in`. Use it to register a root schema:
 
 ```clojure
-(rf/reg-app-schema [] {:schema WholeAppDbSchema})
+(rf/reg-app-schema [] WholeAppDbSchema)
 ```
 
 The root schema validates against the entire app-db **partition** after every handler. It composes with sub-path schemas: both validate; either failing reports a violation.
@@ -321,7 +323,7 @@ The `:large?` flag may live in two structural positions inside the schema:
 
 2. **Container-level props** — the schema's own properties map when the schema is registered at the path directly:
    ```clojure
-   (rf/reg-app-schema [:user :uploaded-pdf] {:schema [:string {:large? true}]})
+   (rf/reg-app-schema [:user :uploaded-pdf] [:string {:large? true}])
    ```
    Path is the `reg-app-schema` path itself.
 
@@ -364,7 +366,7 @@ Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--s
 
 ;; (b) container-level — the schema's own props when the schema is
 ;;     registered at the path directly
-(rf/reg-app-schema [:auth :token] {:schema [:string {:sensitive? true}]})
+(rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
 ;; ⇒ [:auth :token] sensitive
 ```
 
@@ -387,7 +389,7 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 ```clojure
 ;; Failing app-db at a sensitive slot:
 (rf/reg-app-schema [:auth]
-  {:schema [:map [:token {:sensitive? true} :string]]})
+  [:map [:token {:sensitive? true} :string]])
 
 (rf/dispatch [:auth/init-bad])   ;; commits {:auth {:token 42}} — int, not string
 
@@ -428,12 +430,12 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 ```clojure
 ;; Registers against the carried active frame; raises outside any frame scope.
-(rf/reg-app-schema [:user] {:schema UserSchema})
+(rf/reg-app-schema [:user] UserSchema)
 
 ;; Registers explicitly against a named frame (the :frame target rides in the
 ;; metadata map; the with-frame scope also resolves it).
 (rf/with-frame :story.auth.login-form/empty
-  (rf/reg-app-schema [:user] {:schema StoryUserSchema}))
+  (rf/reg-app-schema [:user] StoryUserSchema))
 
 ;; Public query API takes an optional frame-id.
 (rf/app-schema-at [:user])                                ;; → schema in the active frame
@@ -493,8 +495,8 @@ The **boot-once invariant** makes this memo safe without eviction: **app schemas
 **Test vector.** A frame with two registrations:
 
 ```clojure
-(rf/reg-app-schema [:user]   {:schema [:map [:id :uuid]]})
-(rf/reg-app-schema [:todos]  {:schema [:vector :string]})
+(rf/reg-app-schema [:user]   [:map [:id :uuid]])
+(rf/reg-app-schema [:todos]  [:vector :string])
 ```
 
 After the procedure above (using the CLJS reference's `pr-str` serialisation for Malli forms; a port substituting a different validator will produce a different digest for the same `{path → schema-value}` map iff its `schema-print` produces different bytes — that's the intended cross-port distinction), the digest is deterministic. Conformance fixtures pin a small number of schema sets to expected digest values so port implementations can self-check their digest pipeline.
@@ -659,7 +661,7 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; Schemas attach as usual — they're inert data the framework still
 ;; surfaces via app-schemas / app-schemas-digest, but no validate
 ;; call ever runs against them.
-(rf/reg-app-schema [:user] {:schema [:map [:id :uuid]]})
+(rf/reg-app-schema [:user] [:map [:id :uuid]])
 (rf/reg-event :auth/login
   {:schema [:cat [:= :auth/login] [:map [:email :string]]]}
   ...)
@@ -750,7 +752,7 @@ This is **one shape of the property-based-testing pattern, not a second deferred
 
 ### Schema versioning (post-v1)
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] {:schema UserSchema :version 3})`) for schema-aware migration tooling is post-v1. Untracked note — no bead filed yet; the reconsideration trigger below is what files one.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] {:version 3} UserSchema)`) for schema-aware migration tooling is post-v1. Untracked note — no bead filed yet; the reconsideration trigger below is what files one.
 
 #### Post-v1 Tracking
 

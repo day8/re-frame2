@@ -126,7 +126,7 @@
   ;; ns-load idiom (examples/patterns/websocket/schema.cljs) — the fixture has
   ;; already `ensure-default-frame!`'d it.
   (with-frame :rf/default
-    (rf/reg-app-schema [:messages]                 {:schema ws.schema/MessagesSlice}))
+    (rf/reg-app-schema [:messages]                 ws.schema/MessagesSlice))
 
   ;; --- websocket.connection ----------------------------------------------
   (rf/reg-machine :ws/connection ws.connection/connection-machine)

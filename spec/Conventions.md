@@ -1413,15 +1413,15 @@ Tooling, generators, and CP scaffolds rely on the return value to chain registra
 
 ## `reg-*` frame-binding convention — opts kwarg, not main arg
 
-The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides in the registration-metadata map, never mixed into the main registration arg or the handler/value slot**. For surfaces that carry an explicit metadata middle slot (`reg-app-schema`, `reg-flow`), `:frame` is a key in that map alongside `:schema` / `:doc` / `:inputs`; for a teardown surface whose primary arg is itself the id (`clear-flow`), `:frame` rides a trailing `opts` map (there is no metadata slot on a `clear-*` surface).
+The `:frame` keyword is **the mounting concern** for `reg-*` surfaces whose registrations are frame-scoped — it answers "which frame's registry does this slot live in", and is orthogonal to the registration's identity and behaviour. The uniform shape across the family is therefore: **`:frame` rides in the registration-metadata map, never mixed into the main registration arg or the handler/value slot**. For surfaces that carry an explicit metadata middle slot (`reg-app-schema`, `reg-flow`), `:frame` is a key in that middle map alongside `:doc` (and, for `reg-flow`, `:inputs` / `:schema`; `reg-app-schema`'s schema is the positional value slot, NOT a metadata key — rf2-qm7k83 Part A); for a teardown surface whose primary arg is itself the id (`clear-flow`), `:frame` rides a trailing `opts` map (there is no metadata slot on a `clear-*` surface).
 
 ```clojure
 ;; correct — :frame separated from the registration's identity/behaviour
 (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area]} (fn [w h] (* w h)))
 (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area] :frame :session} (fn [w h] (* w h)))
 
-(rf/reg-app-schema [:user] {:schema UserSchema})
-(rf/reg-app-schema [:user] {:schema UserSchema :frame :session})
+(rf/reg-app-schema [:user] UserSchema)
+(rf/reg-app-schema [:user] {:frame :session} UserSchema)
 
 (rf/clear-flow :flow-id)
 (rf/clear-flow :flow-id {:frame :session})

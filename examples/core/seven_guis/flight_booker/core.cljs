@@ -50,7 +50,7 @@
 ;; it runs at ns-load — before the provider has actually created the frame.
 ;; From here on, every commit to the `[:flight]` slice is validated.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:flight] {:schema FlightState}))
+  (rf/reg-app-schema [:flight] FlightState))
 
 ;; ============================================================================
 ;; EVENTS
