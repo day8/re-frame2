@@ -578,21 +578,27 @@
        :tags            [<tag> …]
        :gc-eligible?    false}
 
-  Optional `egress-fn` (rf2-tgm1xu): `(fn [value slot-key] -> egressed)`
-  applied to the PAYLOAD-bearing values (the key's scope/params + the
-  entry's `:data`/`:error`/`:refresh-error`) BEFORE `summarize`, so a
-  `:sensitive?` slot summarizes as `[redacted]` and a `:large?` slot as
-  `[large — elided]` on the off-box path. The METADATA (status, owners,
-  tags, request-id, generation, timestamps) is projected from the raw entry
-  and NEVER routed through egress — a redacted summary STILL exposes the
-  metadata. The RAW `scoped-key` is kept verbatim as `:scoped-key` (the
-  identity / react key), so per-row egress can never collapse two entries
-  whose scope/params redact to the same sentinel. A `nil` slot is left as
-  nil (nothing to redact) so the derived `:has-data?` fact survives."
+  Optional `egress-fn` (rf2-tgm1xu, rf2-aw9cfs): `(fn [value slot-key key-id]
+  -> egressed)` applied to the PAYLOAD-bearing values (the key's
+  scope/params + the entry's `:data`/`:error`/`:refresh-error`) BEFORE
+  `summarize`, so a `:sensitive?` slot summarizes as `[redacted]` and a
+  `:large?` slot as `[large — elided]` on the off-box path. `key-id` is the
+  entry's own `map-key` (the CEDN-1 byte key-id the live `:entries` map uses,
+  rf2-9e0tyq) — threaded so the off-box `resource-egress-fn` can re-root its
+  declaration-matching `:path` at the SAME absolute coordinate the resources
+  artefact lowers its per-instance `:sensitive?` / `:large?` declarations to
+  (a slot-only path, missing the key-id, never matches — rf2-aw9cfs). The
+  METADATA (status, owners, tags, request-id, generation, timestamps) is
+  projected from the raw entry and NEVER routed through egress — a redacted
+  summary STILL exposes the metadata. The RAW `scoped-key` is kept verbatim
+  as `:scoped-key` (the identity / react key), so per-row egress can never
+  collapse two entries whose scope/params redact to the same sentinel. A
+  `nil` slot is left as nil (nothing to redact) so the derived `:has-data?`
+  fact survives."
   ([entry+key now-ms] (instance-row entry+key now-ms nil))
   ([[map-key entry] now-ms egress-fn]
-   (let [egress       (or egress-fn (fn [v _slot] v))
-         eg           (fn [v slot] (when (some? v) (egress v slot)))
+   (let [egress       (or egress-fn (fn [v _slot _key-id] v))
+         eg           (fn [v slot] (when (some? v) (egress v slot map-key)))
          ;; rf2-9e0tyq — the `:entries` map key is now the opaque CEDN-1 byte
          ;; `key-id` STRING; the kind-preserving scoped-key VECTOR lives on the
          ;; entry as `:resource/key`. Read the scope/rid/params from there (fall
@@ -1783,8 +1789,8 @@
 ;;     facts the operator needs to answer "is it stale, who owns it, what's
 ;;     the request id". They ALWAYS project, never routed through egress.
 ;;
-;; `instance-row` takes an optional `egress-fn` `(fn [value slot-key])` and
-;; applies it to ONLY the value-bearing slots before `summarize`, keeping
+;; `instance-row` takes an optional `egress-fn` `(fn [value slot-key key-id])`
+;; and applies it to ONLY the value-bearing slots before `summarize`, keeping
 ;; the RAW scoped-key as the row identity. The PRIOR design routed the WHOLE
 ;; entry through `egress-runtime-db-value` BEFORE projection: with the
 ;; off-box runtime-db default the entry collapsed to the bare `:rf/redacted`

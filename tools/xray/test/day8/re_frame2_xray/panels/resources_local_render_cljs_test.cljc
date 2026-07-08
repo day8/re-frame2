@@ -142,10 +142,10 @@
 ;; A frame-keyed egress fn matching how the Resources panel SHOULD route a
 ;; frame-sourced value through the EP-0015 on-box default before summarizing —
 ;; the `instance-row` egress-fn seam (rf2-tgm1xu) wired to the local-render
-;; profile. `slot` is ignored: the observed frame's path policy governs which
-;; nested slots redact, exactly as the App-DB local render does.
+;; profile. `slot` / `key-id` are ignored: the observed frame's path policy
+;; governs which nested slots redact, exactly as the App-DB local render does.
 (defn- local-egress-fn [observed-frame]
-  (fn [v _slot] (local-render/local-render-value v observed-frame)))
+  (fn [v _slot _key-id] (local-render/local-render-value v observed-frame)))
 
 (defn- no-raw-secret?
   "The render-safe summary must NEVER carry the raw secret in ANY of its

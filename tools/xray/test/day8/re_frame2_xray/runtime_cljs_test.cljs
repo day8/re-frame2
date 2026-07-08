@@ -54,6 +54,14 @@
             ;; are JVM-only aliases (core.cljc `#?(:clj ...)`). The runtime
             ;; itself requires this same ns (rf2-qwm0a).
             [re-frame.trace.tooling :as trace-tooling]
+            ;; rf2-497rv7 / rf2-aw9cfs — the live `:rf.runtime/resources
+            ;; :entries` map is keyed on the CEDN-1 byte `key-id` STRING
+            ;; (rf2-9e0tyq), not the `[scope resource-id params]` scoped-key
+            ;; vector. `state/key-id` builds faithful byte-keyed fixtures —
+            ;; the same precedent `panels/resources-helpers-cljs-test` sets.
+            ;; Xray's `src/` never requires the resources artefact (bundle
+            ;; isolation); this is a TEST-only fixture-building require.
+            [re-frame.resources.state :as state]
             [day8.re-frame2-xray.runtime :as runtime]))
 
 ;; ---------------------------------------------------------------------------
@@ -1265,11 +1273,22 @@
    :active-owners #{}
    :tags          #{[:article "old"]}})
 
+(defn- byte-keyed-entries
+  "Re-key a `{scoped-key-vector entry}` fixture map into the LIVE runtime
+  shape (rf2-9e0tyq / rf2-497rv7): `{<key-id-string> (assoc entry
+  :resource/key scoped-key)}`. Callers write fixtures in the natural
+  scoped-key-vector form; this is the SAME re-keying `runtime-db-with` /
+  `entries*` apply in the resources artefact's own SSR tests."
+  [entries]
+  (into {}
+        (map (fn [[sk e]] [(state/key-id sk) (assoc e :resource/key sk)]))
+        entries))
+
 (defn- seed-resource-entries! [entries]
   (rf/reg-event :test/seed-resources
     {:rf/machine? true}
     (fn [_ _]
-      {:rf.db/runtime {:rf.runtime/resources {:entries entries}}}))
+      {:rf.db/runtime {:rf.runtime/resources {:entries (byte-keyed-entries entries)}}}))
   (rf/dispatch-sync [:test/seed-resources]))
 
 (deftest list-resource-instances-exposes-metadata-on-default-path
@@ -1394,6 +1413,126 @@
                :params      {:slug "does-not-exist"}})]
       (is (false? (:ok? r)))
       (is (= :no-such-instance (:reason r))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-497rv7 — `get-resource-state` resolves the LIVE byte-key-id entry.
+;; ---------------------------------------------------------------------------
+;;
+;; BEFORE the fix, `get-resource-state` looked the entry up via a direct
+;; `get-in` on the `[scope resource-id params]` scoped-key VECTOR — but the
+;; live `:entries` map is keyed on the opaque CEDN-1 byte `key-id` STRING
+;; (rf2-9e0tyq), so a valid, present resource instance ALWAYS surfaced
+;; `:no-such-instance`. Every `get-resource-state-*` test above already seeds
+;; through `seed-resource-entries!` (now byte-keyed) and would have failed
+;; pre-fix; this test additionally pins the byte-keyed contract explicitly
+;; and adversarially — a SECOND distractor entry is seeded so the fix must
+;; be resolving by the FULL key match, not by "the only entry present"."
+
+(deftest get-resource-state-resolves-the-live-byte-keyed-entry
+  (testing "rf2-497rv7 — the entries map is byte-key-id keyed, not scoped-key
+            keyed; get-resource-state must scan/match by :resource/key (the
+            same mechanism list-resource-instances' select-raw-entries uses),
+            not by a direct map-key lookup on the scoped-key vector"
+    (seed-resource-entries! {tgm1xu-key   tgm1xu-entry
+                             tgm1xu-key-2 tgm1xu-entry-2})
+    (let [r (runtime/get-resource-state
+              {:resource-id :article/by-slug
+               :scope       tgm1xu-scope
+               :params      {:slug "welcome"}})]
+      (is (true? (:ok? r)) "a present, correctly-keyed instance resolves")
+      (is (= :loaded (:status (:state r)))
+          "resolves THE RIGHT entry (not the distractor :error one)")
+      (is (= [:w 4] (:request-id (:state r)))))
+    (let [r2 (runtime/get-resource-state
+               {:resource-id :article/by-slug
+                :scope       tgm1xu-scope
+                :params      {:slug "old"}})]
+      (is (true? (:ok? r2)) "the distractor entry ALSO resolves by its own key")
+      (is (= :error (:status (:state r2)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-aw9cfs — resource payload egress paths thread the entry's key-id, so a
+;; REAL lowered `:sensitive?` / `:large?` declaration (the resources
+;; artefact's per-instance registry lowering,
+;; `re-frame.resources.classification/reconcile-registry`) actually redacts /
+;; elides the payload under `:include-runtime-db? true`.
+;; ---------------------------------------------------------------------------
+;;
+;; BEFORE the fix, `resource-egress-fn` threaded a SLOT-ONLY path
+;; (`[:rf.runtime/resources :entries :data]`, missing the entry's key-id), so
+;; it could never match a real declaration lowered at
+;; `[:rf.runtime/resources :entries <key-id> :data]` — a `:sensitive?` /
+;; `:large?` resource's payload rode RAW under the trusted-local opt-in
+;; instead of redacting/eliding per its own declared classification. We seed
+;; a declaration directly at the CORRECT absolute (key-id-rooted) coordinate
+;; via `elision/apply-classification-effects` — the same commit-plane
+;; primitive `reconcile-registry` itself writes through — so the test proves
+;; the accessor honours a REAL lowered declaration without depending on the
+;; optional resources artefact's runtime event handlers.
+
+(defn- declare-resource-classification!
+  "Seed a `:source :effect` `:sensitive` / `:large` declaration directly onto
+  `:rf/default`'s runtime-db (the fixture's sole registered frame, same as
+  `seed-sensitive-schema!` above) at absolute `paths` — the SAME primitive
+  (`elision/apply-classification-effects`) the resources artefact's
+  `reconcile-registry` per-instance lowering writes through, so the fixture
+  models a REAL lowered declaration without requiring that optional
+  artefact."
+  [axis paths]
+  (frame/swap-runtime-db! :rf/default
+    (fn [rt] (elision/apply-classification-effects rt {axis paths}))))
+
+(deftest resource-egress-fn-threads-key-id-for-sensitive-data
+  (testing "rf2-aw9cfs — a :sensitive? declaration lowered at the entry's
+            key-id-rooted :data path redacts the payload under
+            :include-runtime-db? true; the pre-fix slot-only path never
+            matched this declaration"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [key-id (state/key-id tgm1xu-key)]
+      (declare-resource-classification!
+        :sensitive [[:rf.runtime/resources :entries key-id :data]])
+      (let [row (:state (runtime/get-resource-state
+                          {:resource-id         :article/by-slug
+                           :scope               tgm1xu-scope
+                           :params              {:slug "welcome"}
+                           :include-runtime-db? true}))]
+        (is (:redacted? (:data row))
+            "the key-id-rooted :sensitive? declaration redacts :data even
+             under the trusted-local runtime-db opt-in")
+        (is (= "[redacted]" (:preview (:data row)))))
+      ;; list-resource-instances threads the SAME resource-egress-fn — pin it
+      ;; there too so both live-cache accessors share the fix.
+      (let [row (first (:instances (runtime/list-resource-instances
+                                     {:include-runtime-db? true})))]
+        (is (:redacted? (:data row))
+            "list-resource-instances honours the SAME key-id-rooted declaration")))))
+
+(deftest resource-egress-fn-threads-key-id-for-sensitive-params
+  (testing "rf2-aw9cfs — a :sensitive? declaration lowered at the entry's
+            key-id-rooted PARAMS offset (`:resource/key 2` — the scoped key
+            is [scope resource-id params], so a :params-rooted declaration
+            re-roots at index 2, distinct from the :data re-rooting the
+            sibling test pins) redacts the params under
+            :include-runtime-db? true — proving `resource-payload-path-
+            suffix`'s :params branch, not just its :data default"
+    (seed-resource-entries! {tgm1xu-key tgm1xu-entry})
+    (let [key-id (state/key-id tgm1xu-key)]
+      (declare-resource-classification!
+        :sensitive [[:rf.runtime/resources :entries key-id :resource/key 2]])
+      (let [row (:state (runtime/get-resource-state
+                          {:resource-id         :article/by-slug
+                           :scope               tgm1xu-scope
+                           :params              {:slug "welcome"}
+                           :include-runtime-db? true}))]
+        (is (:redacted? (:params row))
+            "the key-id-rooted :sensitive? declaration on the params offset
+             redacts :params even under the trusted-local runtime-db opt-in")
+        (is (= "[redacted]" (:preview (:params row))))
+        ;; The :data sibling slot is UNDECLARED at this offset — it must NOT
+        ;; be swept up by the params-only declaration (precision, not a
+        ;; blanket entry-wide redaction).
+        (is (not (:redacted? (:data row)))
+            "an undeclared sibling slot is untouched by the params decl")))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-e0mq7a — get-resource-history / list-resource-invalidations egress the

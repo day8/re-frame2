@@ -471,7 +471,7 @@
 ;; (`:data` / `:error` / `:refresh-error`) and the key's scope/params carry
 ;; PII or a large blob, so ONLY they follow the off-box egress posture.
 ;;
-;; `resource-egress-fn` builds the `(fn [value slot-key])` closure
+;; `resource-egress-fn` builds the `(fn [value slot-key key-id])` closure
 ;; `resources-helpers/project-instances` / `instance-row` call on each
 ;; payload value (scope / params / data / error / refresh-error) BEFORE
 ;; summarizing. It routes the value through `egress-runtime-db-value` so the
@@ -481,24 +481,56 @@
 ;; per-slot `:sensitive?` / `:large?` posture (a value already redacted/
 ;; elided upstream keeps its sentinel). The in-panel
 ;; `resources-helpers/summarize` always wraps the result, so even an
-;; opted-in raw payload renders as a bounded summary, never a flood. The
-;; helper threads the slot's relative runtime-db path so a per-slot
-;; declaration (e.g. all `:data` payloads) can match under the opt-in.
+;; opted-in raw payload renders as a bounded summary, never a flood.
+;;
+;; rf2-aw9cfs: the resources artefact LOWERS a resource's `:sensitive?` /
+;; `:large?` declarations PER INSTANCE onto the entry's ABSOLUTE runtime-db
+;; path, rooted at the entry's byte `key-id`
+;; (`re-frame.resources.classification/reconcile-registry`:
+;; `[:rf.runtime/resources :entries <key-id> :data …]` for data,
+;; `[… :resource/key 2 …]` for params, `[… :resource/key 0 …]` for scope —
+;; the scoped key is `[scope resource-id params]`). A SLOT-ONLY path (missing
+;; the `<key-id>` segment — the pre-fix shape) never matches those lowered
+;; declarations, so a real `:sensitive?`/`:large?` resource silently rode
+;; raw under `:include-runtime-db? true`. The helper therefore threads the
+;; entry's `key-id` (its literal `:entries` map key, per rf2-9e0tyq) into the
+;; path, re-rooting each slot exactly where the lowering wrote it.
+
+(defn- resource-payload-path-suffix
+  "The lowered-declaration path SUFFIX, relative to an entry's `key-id`, a
+  payload `slot-key` re-roots under (rf2-aw9cfs) — mirrors
+  `re-frame.resources.classification/instance-declaration-paths`'s re-rooting:
+  a `:data`-rooted declaration lands directly under the entry (`[key-id
+  :data]`); a `:scope`- / `:params`-rooted one lands under the scoped-key
+  `:resource/key` carrier at index 0 / 2 (the scoped key is `[scope
+  resource-id params]`). `:error` / `:refresh-error` are not currently
+  lowered by the resources registry but live at the entry's own key, so they
+  re-root there too — a harmless no-match today that is correct the day the
+  registry starts classifying them."
+  [slot-key]
+  (case slot-key
+    :scope  [:resource/key 0]
+    :params [:resource/key 2]
+    [slot-key]))
 
 (defn- resource-egress-fn
-  "Return the `(fn [value slot-key] -> egressed)` payload-egress closure for
-  the resource accessors (rf2-tgm1xu). Each value routes through
-  `egress-runtime-db-value` with `egress-opts` — the runtime-db partition
-  default (redact unless `:include-runtime-db? true`) composed with the
-  per-slot value posture under the opt-in. The slot's relative runtime-db
-  path (`[:rf.runtime/resources :entries <slot>]`) is threaded so a
-  declaration keyed by that path still matches under the opt-in."
+  "Return the `(fn [value slot-key key-id] -> egressed)` payload-egress
+  closure for the resource accessors (rf2-tgm1xu, rf2-aw9cfs). Each value
+  routes through `egress-runtime-db-value` with `egress-opts` — the
+  runtime-db partition default (redact unless `:include-runtime-db? true`)
+  composed with the per-slot value posture under the opt-in. `key-id` is the
+  entry's CEDN-1 byte key-id (its literal `:entries` map key); the
+  `:path` threaded is the ABSOLUTE `[:rf.runtime/resources :entries <key-id>
+  …]` coordinate the resources artefact lowers its per-instance declarations
+  to, so a real `:sensitive?` / `:large?` resource matches under the opt-in
+  instead of silently riding raw."
   [egress-opts]
-  (fn [value slot-key]
+  (fn [value slot-key key-id]
     (egress-runtime-db-value
       value
       (assoc egress-opts
-             :path (conj (vec resources-helpers/entries-rel-path) slot-key)))))
+             :path (into (conj (vec resources-helpers/entries-rel-path) key-id)
+                         (resource-payload-path-suffix slot-key))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Event-level default-suppress gate (rf2-to36uj)
@@ -1067,8 +1099,17 @@
 (defn get-resource-state
   "Tool: `get-resource-state`. The LIVE durable state of ONE resource
   instance addressed by its scoped key (Spec 016 §Introspection /
-  §Status semantics). Resolves the entry at `[:rf.runtime/resources
-  :entries [scope resource-id params]]` in the frame's runtime-db.
+  §Status semantics).
+
+  rf2-497rv7: the frame's `:rf.runtime/resources :entries` map is keyed on
+  the opaque CEDN-1 **byte `key-id` string** (rf2-9e0tyq), NOT the
+  `[scope resource-id params]` scoped-key vector — a direct `get-in … [scope
+  resource-id params]` lookup therefore never hits a live entry. This
+  resolves the entry the SAME way `list-resource-instances` selects its raw
+  entries (`resources-helpers/select-raw-entries`): scanning `:entries` and
+  matching each candidate's kind-preserving `:resource/key` stamp (falling
+  back to the map key for a legacy entry that lacks the stamp) against the
+  full `[scope resource-id params]` triple.
 
   Required: `:resource-id` + `:scope` + `:params` (the scoped key). Per
   EP-0002 the frame target is carried explicitly (`:frame`); a frameless
@@ -1107,10 +1148,16 @@
        :hint "Pass :resource-id + :scope + :params (the full scoped key)."}
 
       :else
-      (let [scoped-key  [scope resource-id params]
-            runtime-db  (:rf.db/runtime (rf/frame-state-value fid))
-            entry-path  (conj (vec resources-helpers/entries-rel-path) scoped-key)
-            entry       (get-in runtime-db entry-path)]
+      (let [runtime-db      (:rf.db/runtime (rf/frame-state-value fid))
+            all-entries     (get-in runtime-db resources-helpers/entries-rel-path)
+            ;; rf2-497rv7 — scan by the SAME key axes list-resource-instances
+            ;; uses upstream, rather than a direct map-key lookup on the
+            ;; scoped-key vector (which never matches the byte-key-id `:entries`
+            ;; map). All three axes are bound, so at most one entry matches.
+            matches         (resources-helpers/select-raw-entries
+                              all-entries
+                              {:scope scope :resource-id resource-id :params params})
+            [map-key entry] (first matches)]
         (if (nil? entry)
           {:ok? false :reason :no-such-instance
            :frame fid :resource-id resource-id}
@@ -1123,12 +1170,13 @@
                              :frame               fid}]
             ;; PER-SLOT egress (rf2-tgm1xu): the projection redacts only the
             ;; payload values (scope/params/data/error) before summarizing;
-            ;; the metadata projects from the raw entry. The RAW scoped-key
+            ;; the metadata projects from the raw entry. The RAW map-key
+            ;; (the entry's `:resource/key` scoped-key, per `instance-row`)
             ;; is the row identity.
             {:ok?   true
              :frame fid
              :state (resources-helpers/instance-row
-                      [scoped-key entry] (.now js/Date)
+                      [map-key entry] (.now js/Date)
                       (resource-egress-fn egress-opts))}))))))
 
 ;; rf2-e0mq7a — the trace-value egress closure for the resource
