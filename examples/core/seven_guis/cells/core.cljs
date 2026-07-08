@@ -50,11 +50,17 @@
   100)
 
 (def cell-re
-  "Matches a cell id: one capital letter, then 1-3 digits (A1, Z99, A100).
-   The three-digit allowance is load-bearing. Row 100 really exists, so its
-   ids (A100..Z100) need three digits — leave those out and a formula pointing
-   at a perfectly valid row-100 cell would be rejected as #PARSE. Off-by-one
-   errors love a good fencepost."
+  "A cheap *syntactic* gate for a cell id: one capital letter, then 1-3 digits
+   (A1, Z99, A100). The three-digit allowance is load-bearing. Row 100 really
+   exists, so its ids (A100..Z100) need three digits — leave those out and a
+   formula pointing at a perfectly valid row-100 cell would be rejected as
+   #PARSE. Off-by-one errors love a good fencepost.
+
+   Note this shape alone is *too permissive*: it also admits refs like A0, A101,
+   or Z999 that are outside the 26×100 grid. Range is not a job a regex should
+   do; `in-grid?` (via `parse-cell-id` / `cell-ref?`) is the authority that pins
+   a ref to a real cell, so out-of-range refs fail loud at parse time rather
+   than silently evaluating as an empty cell."
   #"^[A-Z]\d{1,3}$")
 
 ;; The two directions between a grid coordinate and its name. 65 is the
@@ -63,12 +69,32 @@
   "Coordinate → name: `(cell-id 0 1)` => \"A1\"."
   [col row] (str (char (+ 65 col)) row))
 
+(defn in-grid?
+  "True iff coordinate `[col row]` names a real cell: column 0..25, row 1..100.
+   This — not `cell-re` — is what actually bounds a ref to the grid."
+  [col row]
+  (and (<= 0 col (dec cols))
+       (<= 1 row rows)))
+
 (defn parse-cell-id
-  "Name → coordinate: \"A1\" => `[0 1]`. Returns nil for anything that isn't
-   a valid cell id."
+  "Name → coordinate: \"A1\" => `[0 1]`. Returns nil for anything that isn't a
+   real, in-grid cell id — including refs that are *shaped* like a cell id but
+   point outside the 26×100 grid (A0, A101, Z999). The regex is only a cheap
+   syntactic gate; the `in-grid?` check is what rejects out-of-range refs."
   [s]
   (when (re-matches cell-re s)
-    [(- (int (.charAt s 0)) 65) (js/parseInt (subs s 1))]))
+    ;; `.charCodeAt` gives the letter's numeric code (A=65), the exact inverse
+    ;; of `cell-id`'s `(char (+ 65 col))`. (`.charAt` would hand back a
+    ;; one-char *string*, not a code.)
+    (let [col (- (.charCodeAt s 0) 65)
+          row (js/parseInt (subs s 1) 10)]
+      (when (in-grid? col row) [col row]))))
+
+(defn cell-ref?
+  "True iff `s` names a real, in-grid cell (A1..Z100). The single authority the
+   parser consults when deciding whether a token is a cell reference."
+  [s]
+  (some? (parse-cell-id s)))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -168,7 +194,13 @@
         (let [num (parse-num t)]
           (cond
             (some? num)                    [num                             more]
-            (re-matches cell-re t)         [{:cell t}                       more]
+            (cell-ref? t)                  [{:cell t}                       more]
+            ;; Shaped like a cell ref but off the grid (A0, A101, Z999). Reject
+            ;; it here with a targeted message instead of letting it slip
+            ;; through as a `{:cell …}` node that evaluates as an empty cell.
+            (re-matches cell-re t)         (throw (ex-info (str "'" t "' is shaped like a cell ref but "
+                                                                "falls outside the grid (A1..Z100)")
+                                                           {:token t}))
             (#{"+" "-" "*" "/"} t)         [(symbol t)                      more]
             :else                          (throw (ex-info (str "'" t "' is not a number, a cell ref "
                                                                 "(A1..Z100), or one of + - * /")
