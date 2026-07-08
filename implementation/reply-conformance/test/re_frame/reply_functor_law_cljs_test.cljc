@@ -12,9 +12,10 @@
   CANNOT exercise a real family relocation seam; instead it pins the
   functor laws over SYNTHETIC event-transforms (`route-relay`,
   `spawn-on-done`, `grandparent-relay` below) that MODEL THE SHAPE such a
-  relocation would take, applied to REAL family reply maps (`route-reply`,
-  `spawn-reply` are genuine route-loader / machine-spawn replies). It is a
-  substrate-shape proof, not an integration proof: it proves
+  relocation would take, applied to canonical family reply values
+  (`route-reply` is a canonical-SHAPE route-loader :ok fixture carrying a real
+  route work-id; `spawn-reply` is a genuine machine-spawn builder output). It
+  is a substrate-shape proof, not an integration proof: it proves
   `re-frame.reply/map-completed-event` + `complete` obey the laws for the relay
   SHAPES a relocating family would build — it does NOT prove that any
   family actually wires those shapes through `map-completed-event` end to end.
@@ -92,11 +93,15 @@
             [re-frame.machines.reply :as m-reply]))
 
 ;; ---------------------------------------------------------------------------
-;; Canonical replies for the two relocating families. Both are REAL family
-;; reply maps (a genuine route-loader :ok reply / a genuine machine-spawn
-;; success reply) — so the law is exercised over a real family reply, not a
-;; synthetic stub. NOTE the asymmetry the docstring calls out: the replies
-;; are real, but the TRANSFORMS below are synthetic stand-ins — no family
+;; Canonical replies for the two relocating families. Their PROVENANCE
+;; differs after the rf2-b2a3a2 fixtures extraction: the ROUTE reply is a
+;; canonical-SHAPE fixture — built via `fixtures/canonical-ok-reply`, it
+;; carries a REAL `route-reply/work-id` but is NOT the output of a route
+;; loader's `live-reply`. The SPAWN reply IS a genuine family-builder output
+;; (`m-reply/success-reply`). Either way the law runs over a real, well-formed
+;; reply value (the route work-id is real; the canonical shape is pinned by the
+;; vocab suite), not an opaque stub. NOTE the further asymmetry the docstring
+;; calls out: the TRANSFORMS below are synthetic stand-ins too — no family
 ;; exposes a map-completed-event relocation seam to point at.
 ;; ---------------------------------------------------------------------------
 
