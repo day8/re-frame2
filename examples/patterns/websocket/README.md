@@ -41,8 +41,11 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 - **Stale-message rejection via the connection epoch.** The live socket-actor id
   — read from the runtime-maintained `:rf/spawned` slot in `:data` — is the
   epoch; the `:current-socket?` [guard](../../../docs/machines/glossary.md#guard)
-  rejects a `:ws/received` (or a `:ws/request-timeout`) from a socket that has
-  since been replaced. [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md),
+  rejects any socket-sourced event from a connection that has since been
+  replaced — the lifecycle transitions (`:ws/opened`, `:ws/auth-ok`,
+  `:ws/auth-failed`, `:ws/closed`) as much as `:ws/received` and the
+  request-timeout — so a straggler can neither advance nor tear down the new
+  connection. [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md),
   composed against a value already in `:data`.
 
 - **`:after` exponential backoff** on `:reconnecting` — a delay computed at state

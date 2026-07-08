@@ -39,6 +39,11 @@
         clock: every inbound event names the socket it came from, and the
         `:current-socket?` guard drops anything from a socket we've since
         replaced — the slow message that lands just after a reconnect.
+        This covers the whole socket-sourced surface — the lifecycle
+        transitions (`:ws/opened`, `:ws/auth-ok`, `:ws/auth-failed`,
+        `:ws/closed`) as much as `:ws/received` and the request timeout — so
+        a straggler from a dead socket can neither advance nor tear down the
+        new connection.
 
    The thing that actually owns the JS WebSocket is the `:websocket/socket`
    actor, over in `websocket.messages`. We spawn it on the `:active`
@@ -294,7 +299,8 @@
        ;; Transitions every leaf inherits. A leaf can override any of these
        ;; (deepest state wins); anything it doesn't handle falls through to
        ;; here. See docs/machines/glossary.md#transition.
-       :on    {:ws/closed   {:target :reconnecting
+       :on    {:ws/closed   {:guard  :current-socket?
+                             :target :reconnecting
                              :action :bump-retry}
                :ws/fatal    {:target :failed
                              :action :record-error}
@@ -313,18 +319,28 @@
        :states
        {:connecting
         {:tags #{:websocket/active :websocket/connecting}
-         :on   {:ws/opened {:target :authenticating}}}
+         ;; Guarded like every socket-sourced lifecycle event: an `:ws/opened`
+         ;; from a socket we've already replaced (a slow open landing after a
+         ;; disconnect+reconnect) must not advance THIS connection.
+         :on   {:ws/opened {:guard  :current-socket?
+                            :target :authenticating}}}
 
         :authenticating
         {:tags  #{:websocket/active :websocket/authenticating}
          :entry :send-auth
-         :on    {:ws/auth-ok     {:target :connected}
+         ;; Both auth outcomes are epoch-guarded: a straggler `:ws/auth-ok`
+         ;; from a replaced socket must not prematurely mark us `:connected`,
+         ;; and a straggler `:ws/auth-failed` must not tear a fresh
+         ;; authentication attempt down to `:failed`.
+         :on    {:ws/auth-ok     {:guard  :current-socket?
+                                  :target :connected}
                  ;; Note the vector: `[:failed]`, not bare `:failed`.
                  ;; `:failed` lives at the top level, not under `:active`,
                  ;; and a bare keyword would be read as the sibling
                  ;; `[:active :failed]` — which doesn't exist. The absolute
                  ;; vector says "from the root, please".
-                 :ws/auth-failed {:target [:failed]
+                 :ws/auth-failed {:guard  :current-socket?
+                                  :target [:failed]
                                   :action :record-error}}}
 
         :connected
