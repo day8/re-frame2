@@ -89,7 +89,9 @@ delete env.SHADOW_CLJS_NREPL_PORT;
 // redaction, the eval/write gates' SUCCESS/refusal under a real runtime)
 // are pinned by the gated live harnesses. This table is EMPTY: the
 // degraded walk below drives a cheap probe for every advertised tool, so
-// all 28 are SDK-called here. The table is wired through
+// every one of them is SDK-called here (the live count is printed at
+// runtime and pinned by the classification ratchet — no hardcoded total
+// to restale). The table is wired through
 // `assertCallCoverageRatchet` so a FUTURE tool that is genuinely
 // unreachable degraded has a reviewed home (e.g. `{ 'some-live-only-tool':
 // 'live-only; covered by live-re-frame2-pair-<x>.cjs under a real nREPL'
