@@ -456,6 +456,58 @@
                    " failure must not leak into it; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; test-ns-hook failure banner — rf2-g92dsm.
+;;
+;; The quiet reporter suppresses `:begin-test-ns` and derives the failure
+;; banner ns from `*testing-vars*` (the failing var).  But a namespace's
+;; `test-ns-hook` — a supported clojure.test path (`test-ns` calls it in
+;; place of `test-all-vars`) — runs OUTSIDE `test-var`, so a bare failing
+;; assertion inside it reports with an EMPTY `*testing-vars*`: the
+;; var-derived ns is nil and the failure printed with NO banner, violating
+;; the failure-banner contract.  The fix maintains a begin/end ns stack and
+;; falls back to the innermost open ns when no failing var is in scope.
+;; This pin drives the REAL `-main` against a fixture whose `test-ns-hook`
+;; fails, and asserts the ns banner is present above the FAIL block.
+
+(deftest test-ns-hook-failure-gets-ns-banner
+  (testing "a failing test-ns-hook (no test-var in scope) still prints its ns banner (rf2-g92dsm)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; `test-ns-hook` TAKES PRECEDENCE over test-all-vars, so the bare
+        ;; `(is ...)` inside it is what runs — with an empty *testing-vars*.
+        ;; The `deftest` is present only so cognitect's `contains-tests?`
+        ;; discovery filter includes this ns (it requires >=1 :test var); it
+        ;; does NOT run, because the hook replaces test-all-vars.  The ns
+        ;; name ends in `-test` so cognitect's default ns-filter selects it.
+        (write-raw-fixture! dir "ns_hook_fail_test"
+          (str "(ns probe.ns-hook-fail-test\n"
+               "  (:require [clojure.test :refer [deftest is]]\n"
+               "            [re-frame.test-quiet]))\n"
+               ;; satisfies cognitect's contains-tests? (>=1 :test var);
+               ;; never runs — test-ns-hook replaces test-all-vars.
+               "(deftest a-discovery-anchor (is (= 1 1)))\n"
+               "(defn test-ns-hook []\n"
+               "  (is (= :hook-expected :hook-actual)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (= 1 exit)
+              (str "the failing test-ns-hook must exit 1; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE of rf2-g92dsm: pre-fix `failing-ns` was nil (no var in
+          ;; scope) so print-banner! no-op'd and the FAIL had no heading. The
+          ;; ns-stack fallback must now supply the banner.
+          (is (str/includes? out "Testing probe.ns-hook-fail-test")
+              (str "a failing test-ns-hook must still carry its ns banner —"
+                   " the var-derived ns is nil, so the ns-stack fallback must"
+                   " supply it (rf2-g92dsm); got:\n" out))
+          (is (str/includes? out "FAIL in")
+              (str "the FAIL block must reach stdout; got:\n" out))
+          (is (and (str/includes? out "expected:")
+                   (str/includes? out "actual:"))
+              (str "expected:/actual: lines must reach stdout; got:\n" out))
+          (is (str/includes? out "1 failures, 0 errors.")
+              (str "the failing summary must reach stdout; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
 ;; Diagnostics-survive contract — rf2-lbo79.2.
 ;;
 ;; The wrapper used to bind `*out*` to a blanket SINK for the whole
