@@ -39,8 +39,16 @@
 
   A payload with no repeated subtrees deduplicates to a one-entry cache
   (the wire shape is very slightly larger than the input). The encoder
-  skips wrapping in that case via the `empty-payload?` short-circuit, so
-  empty / single-record responses don't grow.
+  skips wrapping in two cases so no-repeat payloads stay raw:
+
+  - Empty / scalar values short-circuit BEFORE `de-dupe-eq` via
+    `empty-payload?`.
+  - A NON-EMPTY collection with no repeated subtrees runs `de-dupe-eq`
+    but produces a one-entry root-only cache
+    (`{de-dupe.cache/cache-0 <original>}`, no `cache-N` substitutions);
+    `no-substitutions?` detects that and returns the original value
+    unchanged. Without this, ordinary no-repeat payloads would grow by
+    the wrapper + `cache-0` slot on every response.
 
   ## What does NOT live here — the inverse (`dedup-expand`)
 
@@ -73,14 +81,45 @@
       (and (coll? v) (empty? v))
       (not (coll? v))))
 
+(def ^:private root-cache-key
+  "The slot `de-dupe-eq` always emits for the whole structure
+  (`de-dupe.cache/cache-0`). Every substituted subtree adds a further
+  `cache-N` entry, so a cache carrying ONLY this key made no
+  substitutions."
+  (dd/make-cache-element 0))
+
+(defn no-substitutions?
+  "True when a `de-dupe-eq` cache made NO substitutions — it holds
+  exactly the one root entry (`cache-0`) and nothing else, because the
+  payload had no repeated subtrees. A non-empty collection with no
+  repeats deduplicates to exactly this one-entry root-only cache, whose
+  wrapped wire shape is strictly LARGER than the raw input; `dedup-value`
+  detects it and returns the original value so the documented
+  no-repeat-payloads-stay-raw contract holds for ordinary (not just
+  empty / scalar) payloads too.
+
+  Checked on the cache SHAPE (single entry keyed by `cache-0`), not by
+  re-walking the value: any repeated subtree would have added a second
+  `cache-N` entry, so `(= 1 (count cache))` already implies root-only —
+  the explicit key check guards against a future `de-dupe` change that
+  keyed the root differently."
+  [cache]
+  (and (map? cache)
+       (= 1 (count cache))
+       (contains? cache root-cache-key)))
+
 (defn dedup-value
   "Apply structural dedup to `v` and wrap the result in the cross-MCP
   marker (`vocab/dedup-table-key`). Returns `v` unchanged when
-  `enabled?` is false or when `v` is empty / scalar (no dedup
-  opportunity). Uses `de-dupe.core/de-dupe-eq` (equality-based) — see
-  the namespace docstring for the identity-vs-equality rationale."
+  `enabled?` is false, when `v` is empty / scalar (no dedup opportunity),
+  or when the `de-dupe-eq` cache made no substitutions (a non-empty
+  collection with no repeated subtrees — `no-substitutions?`). Uses
+  `de-dupe.core/de-dupe-eq` (equality-based) — see the namespace
+  docstring for the identity-vs-equality rationale."
   [v enabled?]
   (if (or (not enabled?) (empty-payload? v))
     v
     (let [cache (dd/de-dupe-eq v)]
-      {vocab/dedup-table-key cache})))
+      (if (no-substitutions? cache)
+        v
+        {vocab/dedup-table-key cache}))))

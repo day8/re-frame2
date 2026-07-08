@@ -20,7 +20,8 @@ The encode step (`empty-payload?` + `dedup-value`) was byte-identical across bot
 
 `dedup` owns:
 
-- `empty-payload?` — the no-win short-circuit predicate.
+- `empty-payload?` — the no-win short-circuit predicate (nil / empty / scalar, checked BEFORE `de-dupe-eq`).
+- `no-substitutions?` — the post-`de-dupe-eq` one-entry-root-only-cache detector (a non-empty collection with no repeated subtrees).
 - `dedup-value` — the equality-based encode + cross-MCP wrap.
 
 `dedup` does NOT own:
@@ -41,7 +42,18 @@ The encode step (`empty-payload?` + `dedup-value`) was byte-identical across bot
       (not (coll? v))))
 ```
 
-True for values where dedup yields no win — `nil`, empty collections, scalars. A payload with no repeated subtrees deduplicates to a one-entry cache whose wire shape is *very slightly larger* than the input; the predicate lets `dedup-value` skip the wrap for those degenerate cases so empty / single-record responses don't grow.
+True for values where dedup yields no win *without even running `de-dupe-eq`* — `nil`, empty collections, scalars. These short-circuit up front. (The related but distinct one-entry-root-only-cache case — a NON-empty collection that runs `de-dupe-eq` and turns out to have no repeated subtrees — is caught AFTER the walk by `no-substitutions?`, below.)
+
+### `no-substitutions? cache` → boolean
+
+```clojure
+(defn no-substitutions? [cache]
+  (and (map? cache)
+       (= 1 (count cache))
+       (contains? cache (de-dupe.core/make-cache-element 0))))
+```
+
+True when a `de-dupe-eq` cache made **no** substitutions — it carries exactly the one root entry (`de-dupe.cache/cache-0`) and nothing else, because the payload had no repeated subtrees. `de-dupe-eq` always emits `cache-0` for the whole structure and adds a further `cache-N` entry per substituted subtree, so a **one-entry** cache is unambiguously root-only. Such a cache, once wrapped, is strictly LARGER than the raw input (the `{:rf.mcp/dedup-table {cache-0 …}}` envelope adds two map layers for zero sharing win), so `dedup-value` returns the original value instead — the documented no-repeat-payloads-stay-raw contract must hold for ordinary collections, not just the empty / scalar degenerate cases. The check is on cache SHAPE, not a re-walk of the value; the explicit `cache-0` key guard hedges a future `de-dupe` change that keyed the root differently.
 
 ### `dedup-value v enabled?` → value
 
@@ -49,10 +61,13 @@ True for values where dedup yields no win — `nil`, empty collections, scalars.
 (defn dedup-value [v enabled?]
   (if (or (not enabled?) (empty-payload? v))
     v
-    {vocab/dedup-table-key (de-dupe.core/de-dupe-eq v)}))
+    (let [cache (de-dupe.core/de-dupe-eq v)]
+      (if (no-substitutions? cache)
+        v
+        {vocab/dedup-table-key cache}))))
 ```
 
-Applies structural dedup to `v` and wraps the result in the cross-MCP marker `{:rf.mcp/dedup-table <cache-map>}`. Returns `v` unchanged when `enabled?` is false or when `empty-payload?` short-circuits.
+Applies structural dedup to `v` and wraps the result in the cross-MCP marker `{:rf.mcp/dedup-table <cache-map>}`. Returns `v` unchanged when `enabled?` is false, when `empty-payload?` short-circuits, or when `de-dupe-eq` yielded a one-entry root-only cache (`no-substitutions?` — a non-empty collection with no repeated subtrees). Only a cache with an actual `cache-N` substitution is wrapped.
 
 #### Why `de-dupe-eq` (equality), not `de-dupe` (identity)
 
