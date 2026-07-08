@@ -29,9 +29,11 @@
       sanctioned second identity for process-global transport
       correlation; `transport-request-id` builds it.
 
-   2. **Canonical reply map** (`success-reply` / `failure-reply` /
-      `aborted-reply`). The transport's success / failure / abort facts
-      become a single `re-frame.reply`-conformant reply map with one
+   2. **Canonical reply map** (`success-reply` / `failure-reply`; the
+      standalone `aborted-reply` mirrors the abort case for conformance
+      tests only and has no production caller — production lowers aborts
+      through `failure-reply`). The transport's success / failure / abort
+      facts become a single `re-frame.reply`-conformant reply map with one
       closed `:status` (`:ok` / `:error` / `:cancelled`), `:value` on
       `:ok`, the classified `:rf.http/*` failure map riding verbatim
       under `:error`, plus `:work/id`, `:work/kind :http`,
@@ -200,8 +202,10 @@
   the closed-set `:rf.http/*` failure map the transport classified.
 
   Status mapping (Managed-Effects §Status taxonomy):
-   - `:rf.http/aborted`  → `:status :cancelled` (see `aborted-reply` for the
-     dedicated builder; this fn handles it too for completeness);
+   - `:rf.http/aborted`  → `:status :cancelled` (this is the PRODUCTION abort
+     path — `dispatch-failure!` always lowers aborts through `failure-reply`;
+     the standalone `aborted-reply` builder produces the identical map but has
+     no production caller, existing only for conformance/lowering tests);
    - `:rf.http/timeout`  → `:status :error` + `:work/status :timed-out`
      (timeout is NOT a top-level status);
    - everything else     → `:status :error` + `:work/status :failed`.
