@@ -221,4 +221,4 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 ---
 
-*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: the `:events` stream / `dispatch-on-event!` (`event_emit.cljc`), the `:errors` stream / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); registration is via the stream-parameterized `register-listener!` / `unregister-listener!` / `clear-listeners!` verb; record shapes and the `:outcome` enum per each ns docstring §Record shape.*
+*Derived from `re-frame.event-emit` and `re-frame.error-emit` @ main. Verified surfaces: the `:events` stream / `dispatch-on-event!` (`event_emit.cljc`), the `:errors` stream / `dispatch-on-error!` / `dispatch-frame-teardown-report!` (`error_emit.cljc`); registration is via the stream-parameterized `register-listener!` / `unregister-listener!` verb; record shapes and the `:outcome` enum per each ns docstring §Record shape.*

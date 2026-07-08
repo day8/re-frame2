@@ -1566,7 +1566,7 @@ As the seventh and final per-feature artefact split (Strategy B), the [Tool-Pair
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/epoch-history` / `restore-epoch!` / `register-epoch-listener!` / `unregister-epoch-listener!`.
+- Any call to `re-frame.core/epoch-history` / `restore-epoch!`, or the `:epoch` stream of `register-listener!` / `unregister-listener!`.
 - Any `(rf/configure! {:epoch-history {...}})` call.
 - A direct `(:require [re-frame.epoch])` clause.
 - Any reference to `:rf.epoch/*` trace ops in custom listeners.
@@ -1580,9 +1580,9 @@ As the seventh and final per-feature artefact split (Strategy B), the [Tool-Pair
         day8/re-frame2-epoch   {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-Every namespace that calls `rf/epoch-history` / `rf/restore-epoch!` / `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` or `(rf/configure! {:epoch-history ...})` SHOULD `(:require [re-frame.epoch])` at boot so the namespace's load-time hook publications fire before the call sites run. Without the artefact on the classpath the four core re-exports degrade silently — `epoch-history` returns `[]`, `restore-epoch!` returns `false`, the listener register / remove return `nil`, the configure call is a no-op — because the surface is dev-tier and a release build that omits the artefact must not raise from a leftover dev-time call site. (Compare M-32: SSR raises `:rf.error/ssr-artefact-missing` because rendering server-side is a production behaviour; epoch is dev-only and degrades silently.)
+Every namespace that calls `rf/epoch-history` / `rf/restore-epoch!`, the `:epoch` stream of `rf/register-listener!` / `rf/unregister-listener!`, or `(rf/configure! {:epoch-history ...})` SHOULD `(:require [re-frame.epoch])` at boot so the namespace's load-time hook publications fire before the call sites run. Without the artefact on the classpath the four core re-exports degrade silently — `epoch-history` returns `[]`, `restore-epoch!` returns `false`, the listener register / remove return `nil`, the configure call is a no-op — because the surface is dev-tier and a release build that omits the artefact must not raise from a leftover dev-time call site. (Compare M-32: SSR raises `:rf.error/ssr-artefact-missing` because rendering server-side is a production behaviour; epoch is dev-only and degrades silently.)
 
-**Public API** (in `re-frame.core`) is unchanged — `(rf/epoch-history ...)`, `(rf/restore-epoch! ...)`, `(rf/register-epoch-listener! ...)`, `(rf/unregister-epoch-listener! ...)`, and `(rf/configure! {:epoch-history ...})` still work; the wrappers in core late-bind through the hook table to the epoch artefact's implementations.
+**Public API** (in `re-frame.core`) is unchanged by the artefact split — `(rf/epoch-history ...)`, `(rf/restore-epoch! ...)`, the `:epoch` stream of `(rf/register-listener! ...)` / `(rf/unregister-listener! ...)`, and `(rf/configure! {:epoch-history ...})` still work; the wrappers in core late-bind through the hook table to the epoch artefact's implementations.
 
 **Why:** see [Conventions §Adapter shipping convention](../../spec/Conventions.md#adapter-shipping-convention) (extended for per-feature artefacts); per-feature artefact splits give bundle-isolation through artefact split. This is the seventh and final per-feature split, closing out the Strategy B set.
 
@@ -2248,10 +2248,10 @@ Per the listener-registration verb-shape unification, the trace and epoch listen
 |---|---|---|
 | `rf/register-trace-cb!` | `rf/register-listener!` | trace listener registration (dev-only; elides under `:advanced + goog.DEBUG=false`) |
 | `rf/remove-trace-cb!` | `rf/unregister-listener!` | trace listener unregistration |
-| `rf/clear-trace-cbs!` | `rf/clear-listeners!` | clear all trace listeners |
-| `rf/register-epoch-cb!` | `rf/register-epoch-listener!` | epoch listener registration (via `day8/re-frame2-epoch`) |
-| `rf/remove-epoch-cb!` | `rf/unregister-epoch-listener!` | epoch listener unregistration |
-| `rf/clear-epoch-cbs!` | `rf/clear-epoch-listeners!` | clear all epoch listeners |
+| `rf/clear-trace-cbs!` | *(no facade verb — retired)* | clear all trace listeners; the `clear-listeners!` facade was retired in API-shrink #4 — between-test isolation clears via `re-frame.test-support` reset (`re-frame.trace.tooling/clear-listeners!`) |
+| `rf/register-epoch-cb!` | `(rf/register-listener! :epoch …)` | epoch listener registration (via `day8/re-frame2-epoch`); the dedicated `rf/register-epoch-listener!` facade was retired in API-shrink #4 |
+| `rf/remove-epoch-cb!` | `(rf/unregister-listener! :epoch …)` | epoch listener unregistration |
+| `rf/clear-epoch-cbs!` | *(no facade verb — retired)* | clear all epoch listeners; the `:epoch/clear-epoch-listeners!` reset hook clears via test fixtures |
 
 **Late-bind hook keys** (only relevant to tool authors that publish into the framework's late-bind hook table — most apps will not touch this surface):
 
@@ -2278,7 +2278,7 @@ Per the listener-registration verb-shape unification, the trace and epoch listen
 ;; after
 (rf/register-listener! :my-app/audit (fn [ev] ...))
 (rf/unregister-listener! :my-app/audit)
-(rf/register-epoch-listener! :my-app/post-mortem-shipper (fn [epoch] ...))
+(rf/register-listener! :epoch :my-app/post-mortem-shipper (fn [epoch] ...))
 ```
 
 **No alias.** Per pre-alpha posture (no back-compat shims), the old names are **removed** — stale call sites raise unresolved-symbol at compile time. There is no deprecation cycle.

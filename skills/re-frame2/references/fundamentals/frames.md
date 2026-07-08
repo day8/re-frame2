@@ -189,7 +189,7 @@ same behaviour, different memory  -> same image, different frames
 different behaviour               -> different images
 ```
 
-A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped (may repeat across images); frame ids are process-local and unique. When the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames), reach for explicit `rf/image` values — the `rf/image` grammar, image-order composition (`rf/frame-shadows`), image hot-reload via re-`make-frame`, and the frame-isolation-is-everything rule live in [`images.md`](images.md).
+A single-frame app never spells `image` — `reg-*` writes the default registration source and a frame with no `:images` resolves the implicit *default image* over it. Registration ids are image-scoped (may repeat across images); frame ids are process-local and unique. When the default process-wide set stops being the right boundary (two surfaces on one page, a tool beside its target, progressive doc examples, library packaging, isolated test/story frames), reach for explicit `rf/image` values — the `rf/image` grammar, image-order composition (shadow report via `rf/frame-generation`), image hot-reload via re-`make-frame`, and the frame-isolation-is-everything rule live in [`images.md`](images.md).
 
 ## Deeper material
 

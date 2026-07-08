@@ -26,7 +26,7 @@ cycle re-runs without double-registration:
 2. Registers the trace collector under `:rf.xray/trace-collector`
    via `re-frame.core/register-listener!` (sentinel-guarded).
 3. Registers the epoch-settle pump under `:rf.xray/epoch-collector`
-   via `re-frame.core/register-epoch-listener!` (sentinel-guarded; no-op
+   via `re-frame.core/register-listener!` on the `:epoch` stream (sentinel-guarded; no-op
    when the `day8/re-frame2-epoch` artefact is absent).
 4. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).

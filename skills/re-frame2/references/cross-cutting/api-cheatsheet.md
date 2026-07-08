@@ -59,7 +59,7 @@ The public composition model is `image → frame → event stream`; there is **n
 
 | Surface | Shape |
 |---|---|
-| `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → **inert image value** (pure data, no registrar side effect). `:select-ns :include` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match include pattern fails image assembly; `:exclude` subtracts. Supplied to a frame via the `:images` vector — composition resolves by **image order** (the later image wins; assert on shadows via `rf/frame-shadows`). There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud. |
+| `rf/image` | `({:id … :select-ns {:include [<ns-glob> …] :exclude [<ns-glob> …]} :registrations {…}})` → **inert image value** (pure data, no registrar side effect). `:select-ns :include` selects by source-ns (`:rf.provenance/ns`); glob grammar `*`=one segment, `**`=zero-or-more; a zero-match include pattern fails image assembly; `:exclude` subtracts. Supplied to a frame via the `:images` vector — composition resolves by **image order** (the later image wins; assert on shadows via the `:rf.gen/shadows` report on `rf/frame-generation`). There are no `:include-ns` / `:exclude-ns` / `:replace` / `:replace-standard` / `:rf.image/requires` keys — passing them fails loud. |
 | re-`make-frame` | frame-targeted; re-calling `make-frame` against the SAME `:id` with a new `:images` vector swaps a live frame's image generation while preserving its memory (no separate reload verb — see `spec/002-Frames.md` §Resolved decisions, "Frame-lifecycle facade collapse") |
 | `rf/generation-diff` | `(before after)` → `{:added :changed :removed :retained}` — a pure diff between two `frame-generation` reads |
 
@@ -156,7 +156,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring — **JVM-only aliases**; CLJS callers use `re-frame.trace.tooling/trace-buffer` / `clear-trace-buffer!` directly (core trace tooling, not the epoch artefact) |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
 | `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
-| `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
+| `rf/register-listener! :epoch` / `rf/unregister-listener! :epoch` | per-drain-settle listener (the `:epoch` stream; the dedicated `rf/register-epoch-listener!` facade pair was retired) |
 | `rf/replace-frame-state!` | `(frame-id frame-state)` → bool — the ONE frame-state write surface; `frame-state` is a PARTIAL map (any subset of `{:rf.db/app … :rf.db/runtime …}`) — a present key replaces that partition, an absent key is preserved. App-db-only injection: `{:rf.db/app v}`; app-db reset: `{:rf.db/app {}}`; runtime-db-only write: `{:rf.db/runtime v}`; full-frame install: both keys. A map with no recognized key, or an unrecognized key, is rejected |
 
 ## Interceptors, boot, introspection
@@ -172,7 +172,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-sub-cache!` | targeted deregistration. `clear-flow` is the owned-ns surface `re-frame.flows/clear-flow`, **not** on the `rf/` façade (the `reg-flow` registration macro stays on `rf/`) |
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
-| `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
+| `rf/registrations` / `rf/handler-meta` | registrar reads (ids via `(-> (registrations …) keys set)` — the `rf/handler-ids` projection was retired) |
 | `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
 | `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` `:resources` |
 | `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
