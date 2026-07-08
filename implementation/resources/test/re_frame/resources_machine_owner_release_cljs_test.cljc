@@ -1,8 +1,8 @@
 (ns re-frame.resources-machine-owner-release-cljs-test
   "Per rf2-xw5t0y — a destroyed state-machine actor MUST release its resource
-  leases (Spec 016 §Release authority is per owner kind, 016:290:
+  leases (Spec 016 §Release authority is per owner kind, 016:291:
 
-    | Machine | [:machine machine-id instance-id] | Actor destroy — when the
+    | Machine | [:machine actor-id] | Actor destroy — when the
     owning machine instance is stopped/destroyed, its resource leases are
     released. |
 
