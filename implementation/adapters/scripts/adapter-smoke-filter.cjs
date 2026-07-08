@@ -51,6 +51,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 
 // __dirname is <repo>/implementation/adapters/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
@@ -138,6 +139,64 @@ function selectEntries(patterns, smokes = ADAPTER_SMOKES) {
   return smokes.filter((e) => entryMatches(e, patterns));
 }
 
+// ---- spec-file discovery + manifest reconciliation ----------------------
+// The Playwright runner (run-adapter-smokes.cjs) reconciles this manifest
+// against the spec.cjs files actually on disk before running, failing loud
+// on drift in either direction. The walker + the missing/undeclared
+// partition used to live ONLY in the runner, so the fast JS tier could only
+// exercise a RE-IMPLEMENTED copy of them (rf2-qf45gu): the copies could
+// drift, and a bug in the runner's OWN walk/partition (node_modules skip,
+// sort, the set-difference) surfaced only at Playwright-run time, never at
+// the JS gate. Own them here — next to the manifest they reconcile against —
+// so the runner AND its fast-tier test import the SAME real code.
+
+// A spec file is the unprefixed `spec.cjs` (the adapter-testbed convention)
+// or any `*.spec.cjs`. `examples/` is test-free, but the walker accepts the
+// suffixed form defensively.
+function isSpecFile(name) {
+  return name === 'spec.cjs' || name.endsWith('.spec.cjs');
+}
+
+// Recursively walk `roots`, returning the resolved absolute paths of every
+// spec file found, sorted. Skips `node_modules` dirs (defensive — none live
+// under a spec root today). A missing root is skipped, not an error, so a
+// not-yet-created root doesn't crash discovery.
+function listSpecFiles(roots) {
+  const out = [];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    const stack = [root];
+    while (stack.length > 0) {
+      const dir = stack.pop();
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules') continue;
+          stack.push(full);
+        } else if (entry.isFile() && isSpecFile(entry.name)) {
+          out.push(path.resolve(full));
+        }
+      }
+    }
+  }
+  return out.sort();
+}
+
+// Pure set-difference of declared (manifest) vs discovered (on-disk) spec
+// paths. Both sides are resolved to absolute before diffing, so callers may
+// pass either form. `missing` = declared-but-absent-on-disk (a renamed or
+// removed smoke still listed in the manifest); `undeclared` =
+// present-on-disk-but-not-declared (a new spec added under a spec root with
+// no manifest entry). Either list non-empty is a fail-loud drift.
+function reconcile(declared, discovered) {
+  const dcl = declared.map((p) => path.resolve(p));
+  const dsc = discovered.map((p) => path.resolve(p));
+  return {
+    missing: dcl.filter((p) => !dsc.includes(p)),
+    undeclared: dsc.filter((p) => !dcl.includes(p)),
+  };
+}
+
 module.exports = {
   ADAPTER_SMOKES,
   ADAPTER_SMOKE_SPEC_ROOTS,
@@ -147,4 +206,7 @@ module.exports = {
   entryIdentities,
   entryMatches,
   selectEntries,
+  isSpecFile,
+  listSpecFiles,
+  reconcile,
 };
