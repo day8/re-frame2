@@ -532,8 +532,14 @@
   the cancel-reason taxonomy a cancelled-timer reply's `:cancel/reason`
   carries: `:on-exit` (state exit), `:on-destroy` (actor destroy),
   `:on-resolution` (subscription-delay re-resolution), `:on-supersede`
-  (in-place reschedule), `:on-frame-destroy` (frame teardown)."
-  #{:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy})
+  (in-place reschedule), `:on-frame-destroy` (frame teardown), and
+  `:on-restore` (epoch-restore host-timer cleanup — `timer/cancel-frame-
+  timers-on-restore!` releases the orphaned host handles the unwound epochs
+  left attached; Spec 005 §Root parallel `:after` trace catalogue). Matches
+  the closed `:reason` vocabulary spec/005's `:rf.machine.timer/cancelled`
+  catalogue enumerates (rf2-e3ryis)."
+  #{:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy
+    :on-restore})
 
 (defn cancelled-timer-reply
   "Build the `:status :cancelled` reply for a cancelled machine `:after`
