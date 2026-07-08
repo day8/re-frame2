@@ -16,10 +16,14 @@
    and the [Feature-modularity prefix
    convention](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#feature-modularity-prefix-convention).
 
-   The schemas artefact (`day8/re-frame2-schemas`) and the Malli adapter
-   (`re-frame.schemas.malli`) are loaded as side-effects in events.cljs
-   — that publishes Malli's `validate` and `explain` into the framework's
-   late-bind hook table before any `reg-app-schema` call runs.
+   The schemas artefact (`day8/re-frame2-schemas`) is loaded as a
+   side-effect in events.cljs. Requiring `re-frame.schemas` makes the
+   default Malli validator live — the artefact `:require`s its Malli
+   adapter (`re-frame.schemas.malli`) itself at ns-load, publishing
+   Malli's `validate` and `explain` into the framework's late-bind hook
+   table before any `reg-app-schema` call runs. \"Schema implies
+   validation\" (rf2-v96fh): there is no registered-but-silently-inert
+   state.
 
    Schemas validate **in dev** (and on JVM unless production-hardened);
    the validation check elides automatically under `:advanced`
