@@ -220,11 +220,21 @@
                                :handler-fn projector-fn))
    id))
 
+(defn- frame-configured-projector-id
+  "The `:public-error-id` the frame's `:ssr` config EXPLICITLY names, or nil
+  when the frame declares no `:ssr` config / no id. Distinct from
+  `frame-projector-id`, which resolves the raw config to the built-in
+  default — `project-error` needs the RAW configured id to tell a missing
+  EXPLICITLY-configured projector (a recognised-but-unhonourable config,
+  worth a diagnostic) apart from the plain default-fallback path (rf2-mlodrn)."
+  [frame-id]
+  (get-in (frame/frame-meta frame-id) [:ssr :public-error-id]))
+
 (defn- frame-projector-id
   "Read the :ssr config's :public-error-id for a frame, falling back
   to :rf.ssr/default-error-projector when no config / no id."
   [frame-id]
-  (or (get-in (frame/frame-meta frame-id) [:ssr :public-error-id])
+  (or (frame-configured-projector-id frame-id)
       :rf.ssr/default-error-projector))
 
 (defn- frame-dev-error-detail?
@@ -241,9 +251,19 @@
   or returns a non-conforming shape, emits :rf.error/sanitised-on-projection
   and returns the locked generic-500 fallback. Per Spec 011
   §Server error projection — \"the fallback ensures the boundary
-  cannot be bypassed by a bug in the projector.\""
+  cannot be bypassed by a bug in the projector.\"
+
+  rf2-mlodrn: when a frame EXPLICITLY configures `:ssr {:public-error-id …}`
+  but that id is NOT registered, the recognised config cannot be honoured —
+  it would silently downgrade the projector's intended 404 / 400 / custom
+  mappings into the generic 500. That case is surfaced as a sanitised
+  projection failure (dev trace + always-on axis) with
+  `:projection-failure-reason :missing-projector`, rather than swallowed. The
+  plain default-fallback path (no `:public-error-id` configured) stays silent
+  — the built-in default projector is always registered by the SSR façade."
   [frame-id trace-event]
-  (let [projector-id  (frame-projector-id frame-id)
+  (let [configured-id (frame-configured-projector-id frame-id)
+        projector-id  (frame-projector-id frame-id)
         projector-fn  (registrar/handler :error-projector projector-id)
         dev-detail?   (frame-dev-error-detail? frame-id)
         ;; Two failure modes for the projector:
@@ -285,11 +305,47 @@
           (public-error-shape? result)
           result
 
-          ;; Already-warned cases (the catch handled the trace) and the
-          ;; no-projector-registered case (silent — the user named an id
-          ;; that doesn't exist; the fallback is the safe behaviour).
-          (or (= ::threw result) (= ::no-projector result))
+          ;; The projector threw — the catch arm above already fired the
+          ;; sanitisation trace + always-on record; just fall back here.
+          (= ::threw result)
           fallback-public-error
+
+          ;; No projector registered under the resolved id.
+          (= ::no-projector result)
+          (do
+            ;; rf2-mlodrn: a frame that EXPLICITLY configured
+            ;; `:ssr {:public-error-id …}` naming an UNREGISTERED projector
+            ;; has a recognised config the runtime cannot honour — it would
+            ;; silently turn the intended public mappings (404 / 400 / custom
+            ;; auth codes) into the generic 500. Surface it as a sanitised
+            ;; projection failure (dev trace + always-on axis, the SAME
+            ;; category the throw / non-conforming arms use — NON-PROJECTING,
+            ;; the projection listener skips it, so no re-entry) with a
+            ;; `:projection-failure-reason :missing-projector` discriminator.
+            ;; The DEFAULT-fallback path (`configured-id` nil — no config)
+            ;; stays silent: the built-in default projector is always
+            ;; registered by the SSR façade, so a nil `configured-id` reaching
+            ;; here is only a bare test registrar, not a misconfiguration.
+            (when (some? configured-id)
+              (let [tags {:projector-id              configured-id
+                          :frame                     frame-id
+                          :original-operation        (:operation trace-event)
+                          :projection-failure-reason :missing-projector
+                          :reason                    (str "Configured :public-error-id "
+                                                          (pr-str configured-id)
+                                                          " names an unregistered error"
+                                                          " projector — using the locked"
+                                                          " generic-500 fallback.")
+                          :recovery                  :register-the-configured-projector-or-fix-the-id}]
+                (trace/emit-error! :rf.error/sanitised-on-projection tags)
+                ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis so an
+                ;; off-box shipper on a `-Dre-frame.debug=false` JVM SSR host
+                ;; sees the misconfiguration. One-shot + NON-PROJECTING.
+                (emit-always-on-error!
+                  (merge {:error :rf.error/sanitised-on-projection
+                          :time  (interop/now-ms)}
+                         tags))))
+            fallback-public-error)
 
           :else
           (do
