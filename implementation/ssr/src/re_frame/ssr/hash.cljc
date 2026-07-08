@@ -34,6 +34,52 @@
 
 (declare canonical-edn-into)
 
+(defn canonical-number
+  "Cross-runtime-stable print form of a number — shared by the render-tree
+  hash (`canonical-edn-into`'s numeric leaf) and the HTML emitter
+  (`re-frame.ssr.emit`'s number branch) so the hash and the emitted markup
+  stay byte-consistent (rf2-0ypnnk).
+
+  ClojureScript has only IEEE doubles: it unifies a whole-valued double to
+  an integer (`1.0` IS the JS number 1, printing `\"1\"`) and has no ratio
+  type. The JVM prints `\"1.0\"` for that same `Double` and `\"1/2\"` for a
+  `Ratio`, so a render tree carrying either hashed AND rendered divergently
+  across runtimes — a spurious hydration mismatch that CRASHES under
+  `:ssr {:on-mismatch :hard-error}`. Canonicalise to the CLJS form:
+
+    - a whole-valued double/float within IEEE exact-integer range prints as
+      its integer form (no trailing `.0`), matching CLJS;
+    - a `Ratio` prints as its IEEE-double form (mirroring the head emitter's
+      rf2-8jl26 ratio coercion, and a CLJS view that computed the same value
+      by division);
+    - every other number keeps its default `pr-str` form — integers and
+      common decimals already agree across runtimes, and `pr-str`/`str`
+      coincide for numbers (no quoting), so the emitter reuses this for HTML.
+
+  Residual: a whole-valued double of magnitude ≥ 2^53 (the IEEE exact-
+  integer limit) or one that prints in scientific notation keeps the JVM
+  default — the JVM/JS shortest-round-trip float algorithms diverge there
+  and no cheap normalisation closes it. Such values are vanishingly rare in
+  SSR view output; the common price/progress `9.0`/`0.0` case is fully
+  canonical."
+  [x]
+  #?(:clj
+     (cond
+       (ratio? x)
+       (canonical-number (double x))
+
+       (and (or (instance? Double x) (instance? Float x))
+            (let [d (double x)]
+              (and (not (Double/isNaN d))
+                   (not (Double/isInfinite d))
+                   (== d (Math/rint d))                       ;; whole-valued
+                   (<= -9.007199254740992E15 d 9.007199254740992E15))))
+       (str (long x))
+
+       :else (pr-str x))
+     :cljs
+     (pr-str x)))
+
 (defn- append-children!
   "Append canonical-EDN of each non-nil child of `xs` into `sb`,
   separated by `sep`. Maps with nil values and sequential children
@@ -172,12 +218,32 @@
     (do (append-sorted-set! sb x) sb)
 
     (fn? x)
-    (do #?(:clj  (.append ^StringBuilder sb "#fn[")
-           :cljs (.push sb "#fn["))
-        #?(:clj  (.append ^StringBuilder sb ^String (.toString ^Object x))
-           :cljs (.push sb (.toString x)))
-        #?(:clj  (.append ^StringBuilder sb \])
-           :cljs (.push sb "]"))
+    ;; A raw fn head — `[my-component props]`, the idiomatic Reagent/UIx/
+    ;; Helix SSR shape where `my-component` is the deref'd defn VALUE (a raw
+    ;; fn, not a Var). `(.toString fn)` is NOT cross-runtime stable: JVM =
+    ;; class-name + identity-hashcode, CLJS = the JS source — never equal.
+    ;; The server hashes the raw render tree and the client re-hashes the
+    ;; SAME raw tree, so a fn `.toString` in the canonical EDN made byte-
+    ;; identical HTML hash differently → a spurious
+    ;; `:rf.ssr/hydration-mismatch` that CRASHES under
+    ;; `:ssr {:on-mismatch :hard-error}` (rf2-jsa2ml). No cross-runtime-
+    ;; stable fn identity exists, so drop it: every raw fn head serialises
+    ;; to one fixed token. The fn's props (the rest of the child vector)
+    ;; still hash, and a Var head stays identity-stable — a Var is NOT `fn?`
+    ;; on the JVM, so `[#'ns/view …]` falls to `:else` → `(pr-str …)` →
+    ;; `#'ns/view`, identical on both runtimes.
+    (do #?(:clj  (.append ^StringBuilder sb "#fn[]")
+           :cljs (.push sb "#fn[]"))
+        sb)
+
+    (number? x)
+    ;; Canonicalise the numeric print form so the JVM `1.0`/`1/2` and the
+    ;; CLJS `1`/`0.5` agree (rf2-0ypnnk) — see `canonical-number`. The
+    ;; emitter (`re-frame.ssr.emit`) applies the SAME normalisation to the
+    ;; HTML so the structural hash and the rendered markup stay byte-
+    ;; consistent for the same logical tree.
+    (do #?(:clj  (.append ^StringBuilder sb ^String (canonical-number x))
+           :cljs (.push sb (canonical-number x)))
         sb)
 
     :else
@@ -188,9 +254,11 @@
 (defn canonical-edn
   "Print a render-tree node in a stable order. Maps are sorted by the
   canonical-EDN form of their keys (a total order — rf2-mff1ht);
-  sequences keep order. Functions and var-references appear
-  as their toString — stable enough for trees that re-render the same
-  view-fn from the same registry.
+  sequences keep order. A raw fn head serialises to one fixed identity-
+  free token (`#fn[]`) — its `.toString` is not cross-runtime stable
+  (rf2-jsa2ml); a Var reference keeps its `#'ns/name` print form (stable
+  both runtimes). Numeric leaves are canonicalised via `canonical-number`
+  so whole-valued doubles / ratios agree cross-runtime (rf2-0ypnnk).
 
   Per Spec 011 §Hydration-mismatch detection: **nil pruned**. Two render
   trees that differ only by absent-key vs nil-value are structurally

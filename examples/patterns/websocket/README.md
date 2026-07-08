@@ -93,7 +93,10 @@ Everything below builds on those three. The rest is ordinary machine grammar —
 - **Reconnect cascade with token refresh threaded through.** Leaving `:active`
   destroys the actor (the declarative `:spawn` desugars to a
   `:rf.machine/destroy` on exit), and the runtime clears its id from the
-  `:rf/spawned` slot — there's no `:exit` action to write. After the `:after`
+  `:rf/spawned` slot — so the *connection* machine needs no `:exit` action to
+  forget the id. The actor itself does carry one: an `:exit :close-socket` on
+  its `:open` state closes the host `WebSocket` on the way down, because a live
+  socket is a handle the runtime can't drop for you. After the `:after`
   backoff, re-entering `:active` re-runs the `:spawn`'s `:data` function, which
   re-reads the URL and token from `:data` — so a `:ws/refresh-token` arriving
   *between* reconnects flows into the next socket with no extra wiring.

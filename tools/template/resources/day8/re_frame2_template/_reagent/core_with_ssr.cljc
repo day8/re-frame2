@@ -30,12 +30,15 @@
      event), VERIFY the render hash — then mounts on top of the seeded
      state. No flash, no re-fetch."
   (:require [re-frame.core :as rf]
-            ;; Schema hooks + the Malli adapter — required as side-effecting
-            ;; loads so the `reg-app-schema` call below has a real validator
-            ;; to resolve to (without the Malli adapter the default validator
-            ;; soft-passes per Spec 010).
+            ;; Schema hooks — required as a side-effecting load so the
+            ;; `reg-app-schema` calls below have a live validator to resolve
+            ;; to. Requiring `re-frame.schemas` makes the default Malli
+            ;; validator live: the artefact `:require`s its Malli adapter
+            ;; itself at ns-load (on both platforms), so a registered schema
+            ;; validates rather than soft-passing — "schema implies
+            ;; validation" (rf2-v96fh). Mirrors the canonical SSR example
+            ;; (examples/capabilities/ssr/ssr/core.cljc).
             [re-frame.schemas]
-            #?(:cljs [re-frame.schemas.malli])
             ;; The SSR machinery: the framework-owned `:rf/hydrate` event, the
             ;; render/hash hooks, and (JVM-side) the pure hiccup -> HTML
             ;; emitter. Required on both platforms so `:rf/hydrate` is
