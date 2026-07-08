@@ -112,9 +112,8 @@
 
 (def CellsState
   [:map
-   [:cells       [:map-of :string CellEntry]]      ;; sparse: only edited cells exist
-   [:selected-id [:maybe :string]]
-   [:editing-id  [:maybe :string]]])
+   [:cells      [:map-of :string CellEntry]]       ;; sparse: only edited cells exist
+   [:editing-id [:maybe :string]]])
 
 ;; Hand the schema to the frame so every commit under `[:cells]` gets validated.
 ;; `reg-app-schema` needs a frame in scope, and `with-frame` supplies one by id
@@ -333,19 +332,12 @@
 (rf/reg-event :cells/initialise
   {:doc "Seed an empty spreadsheet."}
   (fn handler-cells-initialise [{:keys [db]} _]
-    {:db (assoc db :cells {:cells {} :selected-id "A1" :editing-id nil})}))
-
-(rf/reg-event :cells/select
-  {:doc "User clicked a cell. Marks it selected (without opening the editor)."}
-  (fn handler-cells-select [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:cells :selected-id] id)}))
+    {:db (assoc db :cells {:cells {} :editing-id nil})}))
 
 (rf/reg-event :cells/start-editing
-  {:doc "Open the inline editor for cell `id` (also selects it)."}
+  {:doc "Open the inline editor for cell `id`."}
   (fn handler-cells-start-editing [{:keys [db]} [_ id]]
-    {:db (-> db
-        (assoc-in [:cells :selected-id] id)
-        (assoc-in [:cells :editing-id]  id))}))
+    {:db (assoc-in db [:cells :editing-id] id)}))
 
 (rf/reg-event :cells/commit
   {:doc "Save the user's edit. Parses any formula up front and stashes the AST
@@ -400,10 +392,6 @@
     (try
       (evaluate-cell id cells #{})
       (catch :default _ :error/eval))))
-
-(rf/reg-sub :cells/selected-id
-  {:doc "Id of the currently selected cell, or nil."}
-  (fn sub-cells-selected-id [db _] (get-in db [:cells :selected-id])))
 
 (rf/reg-sub :cells/editing-id
   {:doc "Id of the cell whose inline editor is open, or nil."}
