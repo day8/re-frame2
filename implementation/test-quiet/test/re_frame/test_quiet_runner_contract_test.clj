@@ -680,6 +680,59 @@
                    " dropped; got " hits " occurrences:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; Blank-led banner-shape OVER-DROP after the real banner — rf2-6nrk8x.
+;;
+;; The rf2-m8dbb9 fix drops a banner-shaped line only when it is preceded
+;; by a held leading blank — but it applied that rule to EVERY blank-led
+;; `Running tests in #{...}` line, not just cognitect's one discovery
+;; banner.  cognitect prints its banner exactly ONCE (via `println`, before
+;; any test runs), so a test that ITSELF prints a blank line then
+;; banner-shaped text — `(println)` then `(println "Running tests in
+;; #{:fixture}")` — matched the same shape and was silently swallowed as a
+;; phantom SECOND banner, losing valid diagnostic stdout and violating the
+;; pass-through contract.  The fix latches `banner-dropped?` when the real
+;; banner is dropped and forwards every later blank-led banner-shaped line.
+;; This pin drives the REAL `-main`: the fixture's blank-led banner-shape
+;; line must survive while cognitect's genuine banner is still dropped.
+
+(deftest blank-led-banner-shape-user-line-survives
+  (testing "a test's own blank-line-then-banner-shape stdout survives after the real banner is dropped (rf2-6nrk8x)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The fixture prints a blank line IMMEDIATELY followed by an
+        ;; exact-shape banner line carrying a keyword-set body (distinct from
+        ;; cognitect's own `#{"<dir>"}` string-set banner). Pre-fix, the held
+        ;; leading blank + balanced-set shape made the filter overdrop it as a
+        ;; second banner; post-fix the `banner-dropped?` latch forwards it.
+        (write-fixture! dir "blank_led_banner_fixture_test" "blank-led-banner-fixture-test"
+                        (str "(deftest a-blank-then-banner-test"
+                             " (println)"
+                             " (println \"Running tests in #{:user-diagnostic}\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the fixture is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE of rf2-6nrk8x: the test's OWN blank-led banner-shape
+          ;; line is genuine stdout and must reach the real stdout.
+          (is (str/includes? out "Running tests in #{:user-diagnostic}")
+              (str "a test's blank-line-then-banner-shape stdout must survive"
+                   " once cognitect's one banner has already been dropped"
+                   " (rf2-6nrk8x over-drop); got:\n" out))
+          ;; cognitect's genuine banner renders the DIR set as a string set —
+          ;; `#{\"<dir>\"}` — so `Running tests in #{\"` uniquely identifies
+          ;; it. Its absence proves the real banner was STILL dropped (the
+          ;; latch narrowed the drop to exactly one banner, it did not stop
+          ;; dropping the real one).
+          (is (not (str/includes? out "Running tests in #{\""))
+              (str "cognitect's genuine discovery banner (`Running tests in"
+                   " #{\"<dir>\"}`) must STILL be dropped — the latch narrows"
+                   " the drop to the one real banner, it must not forward it;"
+                   " got:\n" out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
 ;; Unterminated-partial survival across System/exit — rf2-pjlx6.2.
 ;;
 ;; cognitect exits straight from the computed fail/error counts, so the

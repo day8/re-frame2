@@ -188,16 +188,22 @@
      literal's closing `}`.  We keep buffering the remainder and decide at
      the line's newline — drop the line only if the remainder is a
      balanced set literal followed by nothing but whitespace
-     (`banner-line-remainder?`) AND this line was preceded by the held
-     leading blank.  cognitect's banner is `(format \"\\nRunning tests in
-     %s\" dirs)`, so the genuine banner is ALWAYS opened by a blank line;
-     requiring that held blank means an exact-shape user/fixture line such
-     as a bare `(println \"Running tests in #{:fixture}\")` — same text,
-     but no leading blank — is forwarded rather than silently overdropped
-     (rf2-m8dbb9).  Otherwise the prefix was shared by a
-     user/fixture diagnostic such as `Running tests in #{:fixture} MARKER`
-     and the whole buffered line is forwarded (the rf2-14nojy.2 overdrop
-     guard).
+     (`banner-line-remainder?`), this line was preceded by the held
+     leading blank, AND cognitect's one discovery banner has NOT already
+     been dropped (`banner-dropped?`).  cognitect's banner is
+     `(format \"\\nRunning tests in %s\" dirs)`, so the genuine banner is
+     ALWAYS opened by a blank line; requiring that held blank means an
+     exact-shape user/fixture line such as a bare
+     `(println \"Running tests in #{:fixture}\")` — same text, but no
+     leading blank — is forwarded rather than silently overdropped
+     (rf2-m8dbb9).  cognitect emits the banner exactly ONCE, before any
+     test runs, so the `banner-dropped?` latch means a LATER blank-led
+     banner-shaped line — a test that prints `(println)` then
+     `(println \"Running tests in #{:fixture}\")` — is forwarded rather
+     than swallowed as a phantom second banner (rf2-6nrk8x).  Otherwise the
+     prefix was shared by a user/fixture diagnostic such as
+     `Running tests in #{:fixture} MARKER` and the whole buffered line is
+     forwarded (the rf2-14nojy.2 overdrop guard).
 
   cognitect's banner opens with a BLANK LINE — the format string is
   `\"\\nRunning tests in %s\"`, so the leading `\\n` renders an empty line
@@ -248,6 +254,14 @@
         ;;   :passthrough      — this line diverged; forward chars verbatim.
         buf   (StringBuilder.)
         state (volatile! :watching)
+        ;; cognitect emits its discovery banner EXACTLY ONCE, via `println`
+        ;; before any test runs (`cognitect.test-runner/test`), so it is the
+        ;; first — and only — blank-led `Running tests in #{...}` line on the
+        ;; stream.  Once we have dropped it, every later banner-shaped line is
+        ;; genuine test/fixture stdout and must pass through: a test that
+        ;; prints a blank line then banner-shaped text was otherwise
+        ;; over-dropped, violating the pass-through contract (rf2-6nrk8x).
+        banner-dropped? (volatile! false)
         ;; `pending-blank?` holds back a single empty line that MIGHT be
         ;; the banner's leading newline (`\nRunning tests in #{...}`). It
         ;; is resolved at the next line's first character: dropped if that
@@ -322,11 +336,21 @@
                                 ;; was indistinguishable from the banner and
                                 ;; silently overdropped, contradicting the
                                 ;; pass-through stdout contract.
+                                ;; The leading-blank + balanced-set-literal
+                                ;; shape is NECESSARY but, on its own, not
+                                ;; SUFFICIENT: cognitect prints the banner only
+                                ;; once, so once we have dropped it, a later
+                                ;; blank-led banner-shaped line is genuine test
+                                ;; stdout and must be forwarded, not swallowed
+                                ;; as a second "banner" (rf2-6nrk8x). Gate the
+                                ;; drop on `banner-dropped?` and latch it here.
                                 :banner-candidate
                                 (let [remainder (subs (.toString buf) prefix-len)]
-                                  (if (and @pending-blank?
+                                  (if (and (not @banner-dropped?)
+                                           @pending-blank?
                                            (banner-line-remainder? remainder))
-                                    (drop-pending-blank!)
+                                    (do (vreset! banner-dropped? true)
+                                        (drop-pending-blank!))
                                     (do (flush-pending-blank!)
                                         (.write target (.toString buf))
                                         (.write target (int \newline)))))
