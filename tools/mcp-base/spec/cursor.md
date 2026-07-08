@@ -90,9 +90,23 @@ A hostile / corrupt cursor therefore cannot smuggle any tagged literal — or th
 
 ## One-form requirement (rf2-ykv9a0)
 
-A cursor is **one** opaque EDN payload map. The reader requires the decoded text to be **exactly one form** and rejects any trailing form as `::malformed`. A plain `read-string` reads only the FIRST form and never checks exhaustion, so before this a token whose decoded text was a valid map followed by a second form — e.g. `{:v 1 :offset 0 :sig "s"} #inst "2024-01-01"` or `{…} {:junk 1}` — decoded as the valid map, silently ignoring the trailing object and weakening the opacity / corruption guard.
+A cursor is **one** opaque EDN payload map. The reader (`read-edn-no-tags`) requires the decoded text to be **exactly one form** and rejects any trailing form as `::malformed`. A plain `read-string` reads only the FIRST form and never checks exhaustion, so before this a token whose decoded text was a valid map followed by a second form — e.g. `{:v 1 :offset 0 :sig "s"} #inst "2024-01-01"` or `{…} {:junk 1}` — decoded as the valid map, silently ignoring the trailing object and weakening the opacity / corruption guard.
 
-The reader closes that by wrapping the decoded text in `[ … ]` and reading the WHOLE thing as one vector: a single clean form yields a one-element vector (trailing whitespace / comments absorbed), while ANY trailing form yields a 2+-element vector → rejected. This is a pure-`read-string` technique that behaves identically on the JVM (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either host's pushback-reader internals; tagged literals anywhere inside still throw via the readers above.
+### Why not the naive one-element-vector wrap — the injected-`]` bypass
+
+The obvious closure — wrap the decoded text in `[ … ]` and accept a ONE-element vector — is **bypassable by `]`-injection** and is NOT what the implementation does. Attacker text `{…valid map…}] <junk>` wraps to `[{…}] <junk>]`: the *injected* `]` closes the wrapper early, so `read-string` reads the clean one-element vector `[{…}]`, returns the inner map, and SILENTLY DISCARDS everything after the injected `]`. A one-element-vector check would accept that corrupted cursor.
+
+### The EOF-sentinel exhaustion check (what the implementation does)
+
+`read-edn-no-tags` instead asserts reader **exhaustion** via an appended sentinel — the string-host analog of an `:eof` read sentinel. It wraps as `[ <decoded-text> <eof-sentinel> ]` and requires the read to yield **exactly** `[<one-form> <eof-sentinel>]` — a **two**-element vector whose SECOND element is the sentinel. The sentinel can only land as the trailing element if the reader consumed the WHOLE wrapped string:
+
+- a single clean form (trailing whitespace / comments absorbed) yields `[<map> <sentinel>]` → accepted, returning the sole payload form so the caller's `map?` / `valid?` checks are unchanged;
+- an **injected `]`** truncates the read before the sentinel, so the vector does NOT end with it → `::malformed`;
+- any **genuine trailing form** pushes the element count past 2 → `::malformed`.
+
+The sentinel is a qualified, unguessable keyword (`:re-frame.mcp-base.cursor/cursor-eof-sentinel`); even attacker text that reproduces the literal cannot pass — the cursor must still be a single payload map FOLLOWED by the sentinel (two forms, no more), so a trailing sentinel keyword pushes the count to 3 and rejects.
+
+This is a pure-`read-string` technique that behaves identically on the JVM (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either host's pushback-reader internals; tagged literals anywhere inside the wrapped text still throw via the `:readers` / `:default` overrides above. The injected-`]` bypass and the reproduced-sentinel case are both pinned in `cursor_test`'s `decode-cursor-rejects-trailing-forms`.
 
 ## Why this ns
 
