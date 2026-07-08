@@ -191,6 +191,10 @@ A related but distinct JVM degradation is **shape**, not silent no-op: a binary 
 
 `:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is populated on BOTH hosts with the same semantics: a **measured wall-clock delta** captured across the attempt. The JVM uses a monotonic `System/nanoTime` start mark (`run-attempt!`); CLJS uses a `performance.now()` (or `Date.now()` fallback) delta stamped on the synthetic timeout rejection (`cljs-fetch`). On both hosts `:elapsed-ms` is therefore `>= :limit-ms` by the scheduling margin, so a consumer may compute overshoot (`(- :elapsed-ms :limit-ms)`) portably.
 
+#### JVM transport — absolute URLs required
+
+The browser Fetch transport resolves a relative `:url` (e.g. `"/api/items"`) against the page's document base; the JVM `java.net.http.HttpClient` transport has no equivalent base to resolve against. A relative `:url` reaching the JVM transport is therefore rejected at request-construction time (rf2-4y04lq) with a clear `:rf.http/transport` failure naming the offending url and the fix — supply an absolute URL, or add a `:before` HTTP interceptor ([§Middleware](#middleware)) that rewrites `:request :url` to an absolute form (e.g. prefixing a configured base) before the request reaches the transport, the same mechanism a base-URL-prefix use case already exercises. Without this guard the JDK's own rejection (`IllegalArgumentException: URI with undefined scheme`) surfaced with no actionable guidance. Every relative-URL example in this document (see [§Examples](#examples)) targets the CLJS host; a cross-host caller keeps the request absolute, or rewrites it via a `:before` interceptor, for JVM/SSR portability.
+
 ### Body encoding
 
 If `:body` is a thunk `(fn body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
