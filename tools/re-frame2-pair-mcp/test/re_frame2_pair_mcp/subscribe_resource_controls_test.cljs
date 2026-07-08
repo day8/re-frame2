@@ -121,7 +121,10 @@
       (resource/reset-for-tests!)
       (resource/acquire-stream!)
       (is (= 1 (resource/active-stream-count)) "slot reserved before run-acquired")
-      (-> (sub/run-acquired
+      ;; `run-acquired` is private (defn-); var-quote to reach it from the
+      ;; test, the codebase convention for exercising a private fn directly
+      ;; (mirrors #'record/start-recording-form in record_test).
+      (-> (#'sub/run-acquired
             {:conn (primed-conn) :raw-args #js {} :topic :bogus :build-id :app
              :filter-map nil :max-buf-events nil :max-buf-bytes nil
              :poll-ms 100 :max-ms 0 :max-events 0
