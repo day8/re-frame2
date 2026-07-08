@@ -26,7 +26,7 @@ Also notice:
 
 ## re-frame2-specific friction signals
 
-Most recurring re-frame2 friction has a catalogued class — with its own signals and typical improvements — in [`known-frictions.md`](known-frictions.md): frame ambiguity; wrong listener for the question (raw `register-listener!` trace stream vs assembled `register-epoch-listener!` epoch stream); time-travel restore failures (the six `:rf.epoch/restore-*` modes plus unknown-frame via `:rf.error/no-such-handler`); production-elision confusion; tool-catalogue / build-capability uncertainty; source-coordinate availability; private-namespace reach-through; error observability (recovery is framework-owned, observability is the always-on `:errors` listener); and multi-tool coexistence. Match the session against those classes by name rather than re-scanning a parallel list here.
+Most recurring re-frame2 friction has a catalogued class — with its own signals and typical improvements — in [`known-frictions.md`](known-frictions.md): frame ambiguity; wrong listener for the question (the raw `:trace` stream vs the assembled `:epoch` stream, both on `register-listener!`); time-travel restore failures (the six `:rf.epoch/restore-*` modes plus unknown-frame via `:rf.error/no-such-handler`); production-elision confusion; tool-catalogue / build-capability uncertainty; source-coordinate availability; private-namespace reach-through; error observability (recovery is framework-owned, observability is the always-on `:errors` listener); and multi-tool coexistence. Match the session against those classes by name rather than re-scanning a parallel list here.
 
 A few re-frame2-specific signals are not yet their own class — watch for them too:
 
