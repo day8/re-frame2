@@ -67,6 +67,11 @@
     NOT, and raw `:!x` authoring syntax never reaches the hash.
   - Variant `:viewport` / `:background` visual chrome
   - Variant `:args->events`, `:platforms`, `:substrates` targeting
+  - The variant's `:component` view-id override (rf2-bah5o2) — variant-
+    first resolution decides WHICH view renders
+  - The variant's `:sub-overrides` / `:db-seed` / `:network` render
+    inputs (rf2-9zj0nc) — pinned sub outputs, pre-script app-db seed,
+    stubbed HTTP replies
   - Parent story `:component` id
   - Parent story `:decorators`
   - The *registered* schema digest of the view (per spec/011
@@ -132,6 +137,20 @@
     screenshot, so a baseline must invalidate when they change.
   - `:args->events` / `:platforms` / `:substrates` — derivation +
     targeting that change what is rendered.
+  - `:component` — the per-variant view-id OVERRIDE (rf2-bah5o2). The
+    renderer resolves variant-first `(or (:component variant) (:component
+    story))`, so the variant's `:component` decides WHICH view renders;
+    two variants differing only in it — or a watch-session edit swapping
+    it — MUST get distinct hashes. (The parent story's `:component`
+    reaches the hash via `story-body-slice`; THIS is the variant-level
+    override slot, which the story slice cannot see.)
+  - `:sub-overrides` / `:db-seed` / `:network` — render inputs that change
+    the settled rendered state (rf2-9zj0nc): pinned subscription outputs
+    the renderer surfaces, the pre-script app-db seed, and stubbed HTTP
+    replies a fetch-on-mount view settles to. Plain authored data — the
+    canonicaliser handles them (hashing the raw authored map incl. any
+    `[:arg]` placeholders is sufficient for identity). All three already
+    land in the plan-hash; the snapshot path was the straggler.
 
   Excluded (documented, not an oversight):
   - `:args` — captured via `:effective-args` in `snapshot-tuple` (post-
@@ -162,7 +181,23 @@
                    [:events :play-script :plays
                     :loaders :loaders-complete-when :loaders-teardown
                     :decorators :args->events :platforms :substrates
-                    :viewport :background]))))
+                    :viewport :background
+                    ;; rf2-bah5o2 — the per-variant `:component` view-id
+                    ;; OVERRIDE (schemas §`:component`). The renderer resolves
+                    ;; variant-first `(or (:component variant) (:component
+                    ;; story))`, so a variant's own `:component` decides WHICH
+                    ;; view renders; without it two variants differing only in
+                    ;; `:component` collide and a watch-session `:component` swap
+                    ;; produces no drift. (Story-level `:component` rides
+                    ;; `story-body-slice`.)
+                    :component
+                    ;; rf2-9zj0nc — render inputs that change the settled
+                    ;; rendered state: `:sub-overrides` pins subscription outputs
+                    ;; the renderer surfaces, `:db-seed` seeds app-db before the
+                    ;; script, `:network` stubs the HTTP replies a fetch-on-mount
+                    ;; view settles to. All three already land in the plan-hash;
+                    ;; the snapshot-identity path was the straggler.
+                    :sub-overrides :db-seed :network]))))
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
