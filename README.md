@@ -16,30 +16,27 @@ Five things:
 
 ### **1. The spec is the artefact. The code is downstream.**
 
-This one is a little nerdy.
-
 Historically, here's how every other framework works: somebody writes the implementation, the implementation is the thing, and the documentation heroically tries — usually incompletely — to describe what the implementation does.
 
-re-frame2 inverts that. The pattern is defined by its specification, which currently runs to about 22K lines across 35+ documents in [spec/](spec/). What's in the [ClojureScript reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
+re-frame2 inverts that. The pattern is defined by its [specification](spec/). The [ClojureScript reference implementation](implementation/) is a consequence of the spec, not the source of truth. And the spec is complete enough — this is the part I find genuinely strange to type — that a sufficiently capable AI can one-shot a working implementation from it. In ClojureScript, which is what ships here. But also, in principle, in TypeScript, Melange/ReScript, Fable, PureScript, Scala.js, Kotlin/JS, Squint — any language that cross-compiles to JavaScript and reaches React.
 
 The implication, which I'd like you to sit with for a moment, is this: if you don't like this specification, change it, and one-shot your own framework. **Roll your own** with whatever fork of the spec pleases you. Value has moved up the chain. Code is trending toward $0 and disposable. The spec is the valuable, durable thing.
 
 Yes, I know how that sounds. Don't shoot the messenger. Let's keep going.
 
-### **2. Views are derivative, not central.**
+### **2. Views are derivative, not causal.**
 
-This is the one that bites every React-shaped brain on first contact, so let me set it up properly.
+Humans have a cognitive bias: "What is focal is perceived as causal." The React team seems to have a triple dose of this bias.
 
-For about ten years now, the React world has been organised around a particular gravitational centre: the component. Components own state via hooks. Components fetch data. Components route. Components subscribe to stores via a useFoo hook that some library or other plumbed in. Effects are colocated with the view tree because the view tree is what the framework can see, and so the view tree is where everything ends up living. Redux pushed back on this for a while, then everyone slowly migrated the Redux bits back into hooks anyway because the gravity was too strong. MobX tried. Zustand pretended it wasn't going to do this. Recoil, Jotai, signals, server components — every one of them is, at the end of the day, another attempt to attach state to the component tree without admitting that's what's happening.
+In the beginning, React embraced `v = f(s)` and it was beautiful. And Redux was clunky and incomplete, sure, but it was directionally right. And, unfortunately, it's all been downhill since. Views have been made more and more causal. Components own state via hooks. Components fetch data. Components route. Components subscribe to stores via a useFoo hook that some library or other plumbed in. Effects are colocated with the view tree. What a Turing-complete mess they have become.
 
-re-frame rejects that. Instead, events update centralised state. Subscriptions derive values from that state. Views sit at the end of the flow — they're render functions over reactive inputs, and they fire when their inputs change, and that is the entire job they have. There is no useState in a re-frame view. There is no useEffect. There is no "lifting state up" because state was never down there in the first place. Views are not causal, they are derivative.
+re-frame rejects all that. Views are not causal, they are simple and derivative.
 
-**A re-frame2 frame is, quite literally, a small virtual machine.** An image loads behavior — registered handlers — into a frame, and those handlers are the instruction set. Events — coming from user actions, FSM transitions, websocket frames, timers, whatever — are the instructions, and a frame processes them as an event stream. The runtime runs every event through the same six-step pipeline, every time, no exceptions, no escape hatches. We call one iteration of the pipeline an epoch.
+**A re-frame2 frame is, quite literally, a small virtual machine.** Registered handlers are loaded into a `frame`, and those handlers are like the instruction set. Events — coming from user actions, and other sources — are the instructions, and a `frame` processes them as an event stream, every event running the same six-step pipeline, no exceptions, no escape hatches. We call one turn of that pipeline an **epoch**. The stream of events is the program running on the machine you create via your registered handlers.
 
 > *Your language of choice should be Turing complete; your architecture shouldn't be.*
 >
 > — Me, being snarky about the direction of the JS/TS frameworks
-
 
 > *Beware of the Turing tar-pit in which everything is possible but nothing of interest is easy.*
 >
@@ -53,7 +50,7 @@ Result: your application is the ultimate surveillance state. With the ClojureScr
 
 Every tool attaches to that trace bus and gets the whole picture for free. Source-coord stamping on every registration and DOM element means click-to-source from any panel — a trace event, an epoch row, a story preview, whatever — lands you on the line in your editor where the handler was registered. Every event leaves an epoch you can scrub forwards and backwards through. Pair-programmer AI tooling can interact with your running system. Same with tests, stories. They all consume the same surface.
 
-And, yes, you can set policies to elide sensitive things, as well as too-large binary blobs.
+And, yes, you can set policies to elide sensitive things, like auth tokens, as well as too-large binary blobs.
 
 ### **4. Managed external effects.**
 
@@ -105,10 +102,7 @@ This implementation includes all of the above, plus:
 
 ## Status
 
-By part:
-  - The narrative is production grade.
-  - **The spec is Beta.** It has been audited end-to-end endless times — security passes, precision passes, correctness passes, readability passes, API surfaces, tooling contracts, AI-implementability, you name it.
-  - **The reference implementation and tooling are Beta-adjacent**. The first goal was to validate the spec. But there are now ~5,000 unit tests across the corpus, and a ton of integration tests (Playwright). Which tells me we are close.
+Alpha. I'm still preserving optionality.
 
 We are building apps against the ClojureScript reference implementation, however out of an abundance of caution I have not yet published artifacts to Clojars and NPM. Soon.
 
