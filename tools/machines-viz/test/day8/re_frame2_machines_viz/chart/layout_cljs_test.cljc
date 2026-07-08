@@ -1414,6 +1414,62 @@
       (is (= ["rf/time-ms"] (:guard-requires go-edge))
           "a region guard resolves its requires against the machine registry"))))
 
+(deftest cofx-requires-region-aware-node-attribution-across-parallel-regions
+  (testing "rf2-d6n72g — region-aware `raw-node-at` NODE resolution: two
+            parallel regions SHARING an in-region state path (`[:active]`)
+            but declaring DIFFERENT :entry / :exit actions with DISTINCT
+            :rf.cofx/requires each surface their OWN node requires. This is
+            `raw-node-at`'s whole raison d'être (rf2-6l01c8): a projected
+            node carrying `:region` pins to `[:regions <region> :states]`
+            using its in-region `:path`, so a sibling region that shares the
+            path is NEVER cross-attributed. A regression to the naive
+            cross-region scan (return the first region whose states match the
+            path) would paint region :audio's entry-requires onto region
+            :video's same-named node. The pre-existing parallel cofx test
+            (`cofx-requires-machine-scoped-across-parallel-regions`) only
+            exercises a GUARD on an EDGE (via `attach-edge-requires`), never
+            the region-aware NODE path `attach-node-requires` +
+            `raw-node-at` drive — this pins that gap."
+    (let [m {:type    :parallel
+             :actions {:enter-a {:rf.cofx/requires [:audio.cofx/enter] :fn (fn [_] nil)}
+                       :exit-a  {:rf.cofx/requires [:audio.cofx/exit]  :fn (fn [_] nil)}
+                       :enter-b {:rf.cofx/requires [:video.cofx/enter] :fn (fn [_] nil)}
+                       :exit-b  {:rf.cofx/requires [:video.cofx/exit]  :fn (fn [_] nil)}}
+             :regions {:audio {:initial :active
+                               :states  {:active {:entry :enter-a
+                                                  :exit  :exit-a
+                                                  :on    {:toggle :off}}
+                                         :off    {}}}
+                       :video {:initial :active
+                               :states  {:active {:entry :enter-b
+                                                  :exit  :exit-b
+                                                  :on    {:toggle :off}}
+                                         :off    {}}}}}
+          {:keys [nodes]} (layout/project-definition m)
+          node-in (fn [region]
+                    (first (filter #(and (= region (:region %))
+                                         (= [:active] (:path %)))
+                                   nodes)))
+          audio   (node-in :audio)
+          video   (node-in :video)]
+      (is (some? audio) "the :audio region's shared-path :active node projected")
+      (is (some? video) "the :video region's shared-path :active node projected")
+      (is (not= (:id audio) (:id video))
+          "the two shared-in-region-path leaves are DISTINCT region-scoped nodes")
+      ;; each region's node carries ITS OWN region's entry/exit requires …
+      (is (= ["audio.cofx/enter"] (:entry-requires audio)))
+      (is (= ["audio.cofx/exit"]  (:exit-requires  audio)))
+      (is (= ["video.cofx/enter"] (:entry-requires video)))
+      (is (= ["video.cofx/exit"]  (:exit-requires  video)))
+      ;; … and NEVER the sibling region's — the discriminating cross-
+      ;; attribution guard a naive scan would fail.
+      (is (not= (:entry-requires audio) (:entry-requires video))
+          "region :audio's entry-requires do NOT bleed onto region :video's
+           same-named node (region-aware raw-node-at)")
+      (is (not= (:exit-requires audio) (:exit-requires video))
+          "region :audio's exit-requires do NOT bleed onto region :video's
+           same-named node"))))
+
 ;; ---- a REGION's OWN top-level :on-done (rf2-2ydc87) ---------------------
 ;;
 ;; Spec 005 §Parallel `:on-done`: "A compound region reaching its own
