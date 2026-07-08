@@ -45,8 +45,7 @@
   in-place and merges the per-subtree `data-rf2-suspense-hydrate` delta as
   chunks arrive, reconciling against the final `__rf_payload`
   (`:replace-frame-state`) when it lands."
-  (:require [clojure.string :as str]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
@@ -642,32 +641,6 @@
 
 ;; ---- public surface ------------------------------------------------------
 
-(defn strip-content-length
-  "Remove any `Content-Length` header (case-insensitively) from a Ring
-  response header map. The streaming body is a chunk-producing
-  `PipedInputStream` whose final byte count is unknown when the head
-  commits, so the response MUST use `Transfer-Encoding: chunked`
-  framing (Spec 011 §Streaming SSR — the wire shape pins chunked
-  transfer). A stale fixed `Content-Length` — set/appended by app or
-  server init code (`:rf.server/set-header` / `:rf.server/append-header`
-  during the `:initial-events` drain) before streaming was chosen — would
-  otherwise survive onto the streamed response, and a Ring server may
-  honour that length instead of chunking: truncated HTML, clients
-  waiting on the wrong byte count, or lost progressive chunks.
-
-  Ring header NAMES are caller-cased verbatim by the materialiser
-  (`headers/merge-pair-into-header-map` preserves whatever casing the
-  fx supplied), so a `Content-Length` can land under any casing
-  (`Content-Length`, `content-length`, `CONTENT-LENGTH`, …). RFC 7230
-  §3.2 makes header names case-insensitive tokens, so we drop EVERY
-  key whose lower-case is `content-length` — letting the Ring server
-  own transfer framing for the InputStream body."
-  [headers-map]
-  (into {}
-        (remove (fn [[k _v]]
-                  (= "content-length" (str/lower-case (str k)))))
-        headers-map))
-
 (defn- redirect-response!
   "Short-circuit a streaming request to a bodiless Location response and
   destroy the per-request frame inline. Shared (rf2-tqjc7h) by BOTH redirect
@@ -739,14 +712,18 @@
   handler's outer catch BEFORE any thread or pipe exists → on-error, no detached
   writer, no orphaned pipe.
 
-  rf2-h3dg0 — STRIP any `Content-Length` header (case-insensitively) from the
-  materialised head before wiring the chunk-writer body. App / server init can
-  `:rf.server/set-header` (or `append-header`) a `Content-Length` during the
-  `:initial-events` drain — a fixed length that is meaningless (and actively harmful)
-  once the body becomes a chunk-producing PipedInputStream of unknown final
-  size. Left in place, a Ring server may honour that length instead of chunked
-  transfer framing → truncated HTML / clients blocked on the wrong byte count /
-  lost chunks, violating Spec 011's chunked-transfer streaming contract.
+  rf2-h3dg0 / rf2-d95m4i — any `Content-Length` header (case-insensitively) is
+  stripped from the materialised head before wiring the chunk-writer body. App
+  / server init can `:rf.server/set-header` (or `append-header`) a
+  `Content-Length` during the `:initial-events` drain — a fixed length that is
+  meaningless (and actively harmful) once the body becomes a chunk-producing
+  PipedInputStream of unknown final size. Left in place, a Ring server may
+  honour that length instead of chunked transfer framing → truncated HTML /
+  clients blocked on the wrong byte count / lost chunks, violating Spec 011's
+  chunked-transfer streaming contract. The strip now lives in the shared
+  `pipeline/ssr-response->ring-response` materialiser (rf2-d95m4i single-source
+  — the non-streaming path had the same exposure), so the head is already
+  Content-Length-free when it returns here.
 
   rf2-ekwda — the writer runs on a DAEMON thread: one blocked on `.write` to the
   bounded 16 KiB pipe of a slow-loris client must NOT keep the JVM alive at
@@ -754,9 +731,9 @@
   via the slower destroy)."
   [frame-id rendered resp2 content-type opts]
   (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
-        ;; assoc'd after the writer is wired below.
-        resp-map (-> (pipeline/ssr-response->ring-response resp2 "" content-type)
-                     (update :headers strip-content-length))
+        ;; assoc'd after the writer is wired below. Content-Length is already
+        ;; stripped by the shared materialiser (rf2-d95m4i / rf2-h3dg0).
+        resp-map (pipeline/ssr-response->ring-response resp2 "" content-type)
         ;; 16 KiB pipe buffer — large enough to absorb the shell chunk in one
         ;; write so the writer rarely blocks on a slow consumer, small enough
         ;; that one stuck client doesn't pin a non-trivial chunk of heap.

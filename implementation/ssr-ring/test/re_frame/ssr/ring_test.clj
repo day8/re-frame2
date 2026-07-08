@@ -2138,6 +2138,61 @@
           "the app-set content-type flows to the wire when the opt is absent"))))
 
 ;; ===========================================================================
+;; rf2-d95m4i — non-streaming materialiser strips a stale app-set
+;; Content-Length
+;;
+;; The non-streaming body is the adapter-assembled shell + hydration payload,
+;; built AFTER the :initial-events drain, so an app-set fixed Content-Length
+;; can never match it. Left in place a Ring server that honours the length
+;; truncates the HTML (too short) or blocks the client (too long). The
+;; streaming path was hardened (rf2-h3dg0); this pins the same guarantee on
+;; the non-streaming sibling path.
+;; ===========================================================================
+
+(deftest ssr-handler-strips-stale-app-set-content-length
+  (testing "rf2-d95m4i: an :initial-events-set Content-Length is stripped
+            (case-insensitively) from the non-streaming Ring response so the
+            server owns byte framing for the String body; the full HTML rides
+            the wire, not truncated to the stale length"
+    (rf/reg-event :init/cl-stale
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {:articles [{:id "a" :title "Article A"}]}
+         ;; A deliberately WRONG fixed length — canonical- AND lower-cased,
+         ;; proving the strip is case-insensitive across the materialiser's
+         ;; verbatim header casing.
+         :fx [[:rf.server/set-header    {:name "Content-Length" :value "7"}]
+              [:rf.server/append-header {:name "content-length" :value "13"}]]}))
+    (rf/reg-sub :articles (fn [db _] (:articles db)))
+    (rf/reg-view* :pages/cl-body
+      (fn []
+        (into [:ul]
+              (for [{:keys [title]} (rf/subscribe-once [:articles])]
+                [:li title]))))
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:init/cl-stale]]
+                      :root-view      [:pages/cl-body]
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          headers  (:headers response)
+          keys-lc  (into #{} (map (fn [k] (str/lower-case (str k)))) (keys headers))
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (string? body) "the non-streaming body is a materialised String")
+      (is (not (contains? keys-lc "content-length"))
+          (str "NO Content-Length header survives on the non-streaming "
+               "response (any casing) — the server frames the String body. "
+               "Header keys (lower-cased): " (pr-str keys-lc)))
+      ;; The stale values (7 / 13) are nowhere near the real body length;
+      ;; assert the full HTML rode the wire (not capped to a fake length).
+      (is (str/includes? body "<!DOCTYPE html>") "shell present")
+      (is (str/includes? body "Article A") "resolved view content present")
+      (is (str/includes? body "__rf_payload") "hydration payload present")
+      (is (> (count body) 13)
+          "the real body is far longer than the stale Content-Length — proof
+           the response was not capped to the fake length"))))
+
+;; ===========================================================================
 ;; rf2-7ksyr — hydration payload </script> injection (security audit §P1)
 ;;
 ;; A user-controlled string round-tripping through app-db that contains
