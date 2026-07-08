@@ -169,6 +169,65 @@
       (is (= 2 (:limit d))
           "the per-call cap is threaded through to the reader"))))
 
+;; ---- rf2-5a5qwp: malformed JSON under a schema :decode must NEVER fall
+;; back to raw body-text ------------------------------------------------
+;;
+;; Before this bead, the schema branch's `json-parse` catch fell back to
+;; the raw `body-text` for any throw NOT tagged `:rf.error/malformed-json`
+;; — but an ordinary JSON syntax error IS untagged (only the keyword-cap
+;; overflow is tagged), so malformed JSON was the common case hitting the
+;; fallback. That let malformed JSON spuriously VALIDATE under a
+;; string-like schema (the raw text just IS a string), and misclassify as
+;; a `:schema-validation-failure?` under a map schema instead of a plain
+;; decode failure. Per Spec 014 §Decoding, schema decode must JSON-parse
+;; first and classify a malformed 2xx payload as a decode failure — not a
+;; degenerate "successful" decode, and not a schema-validation failure.
+
+;; Genuinely-malformed JSON per Cheshire/Jackson (see
+;; `cheshire-rejects-malformed-input-cleanly` in util_json_test.clj):
+;; Jackson is tolerant of some shapes by design (trailing commas,
+;; missing close-braces fall through to its end-of-stream handler
+;; rather than throwing), so these pick inputs definitively rejected —
+;; an invalid token and a misspelt literal.
+
+(deftest decode-response-body-schema-branch-malformed-json-throws-not-string-schema
+  (testing "rf2-5a5qwp — a :string schema would happily validate the raw
+            malformed body-text (it IS a string) if the old fallback
+            fired; it must instead propagate the raw JSON-parse exception
+            (a Cheshire/Jackson `JsonParseException`, not an ex-info) so
+            the caller classifies the response as :rf.http/decode-failure,
+            NOT a successful string decode"
+    (let [thrown (try (decode/decode-response-body
+                         {:body-text "tru" ; truncated `true` — invalid token
+                          :headers   {"content-type" "application/json"}
+                          :decode    :string})
+                       ::no-throw
+                       (catch Exception e e))]
+      (is (not= ::no-throw thrown)
+          "malformed JSON under a :string schema must throw, not decode
+           to the raw text as if it were a valid string value")
+      (is (not= :rf.error/http-schema-validation-failed (:rf.error/id (ex-data thrown)))
+          "the throw must be the raw JSON-parse failure, not a (masking)
+           schema-validation-failed — there is no valid value to fail
+           validation against"))))
+
+(deftest decode-response-body-schema-branch-malformed-json-throws-not-schema-validation-failure
+  (testing "rf2-5a5qwp — a :map schema over malformed JSON must surface as
+            a plain decode failure (an unparseable body), NOT get
+            misclassified as :schema-validation-failure? true (which would
+            wrongly imply a well-formed-but-wrong-shaped payload)"
+    (let [thrown (try (decode/decode-response-body
+                         {:body-text "{\"id\":nul}" ; misspelt `null`
+                          :headers   {"content-type" "application/json"}
+                          :decode    [:map [:id :int]]})
+                       ::no-throw
+                       (catch Exception e e))]
+      (is (not= ::no-throw thrown)
+          "malformed JSON under a :map schema must throw")
+      (is (not= :rf.error/http-schema-validation-failed (:rf.error/id (ex-data thrown)))
+          "must not be misclassified as a schema-validation failure — the
+           body never parsed to a value in the first place"))))
+
 (deftest decode-response-body-json-branch-also-reraises-too-many-keys
   (testing "rf2-ohwgm — the plain :json branch likewise threads the cap
             (the cap-throw originates in the reader, so :json surfaces it
