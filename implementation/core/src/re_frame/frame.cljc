@@ -965,7 +965,9 @@
 (defn replace-runtime-db!
   "Replace ONLY the runtime-db partition of `id`'s frame-state, leaving
   app-db untouched (Spec 002 §Frame-state value accessors and mutators).
-  The privileged runtime / full-frame write surface. Atomic install through
+  Internal single-partition helper retained for symmetry with
+  `replace-app-db!`; the public/epoch-backed write surface is
+  `replace-frame-state!` (API-shrink #3, rf2-t3lftq). Atomic install through
   the one physical container. Returns the set of changed partition keys, or
   `nil` for an unknown / destroyed frame."
   [id runtime-db]
