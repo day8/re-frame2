@@ -719,12 +719,24 @@
   Source-coord stamping (§5.4 + §9.4): the first DOM-tag root inside
   a reg-view'd render gets the *source-coord* dynamic var merged in
   as `:data-rf2-source-coord`. The merge happens before
-  prop-conversion so the attr name flows through cached-prop-name."
+  prop-conversion so the attr name flows through cached-prop-name.
+
+  native-element is the emit path for BOTH real DOM tags AND `:>` interop
+  elements (interop-element builds a synthetic HiccupTag whose tag slot
+  holds the foreign COMPONENT, then calls native-element). Stamping is
+  gated on the tag being a string DOM tag — `(string? component)`, the
+  same discriminator convert-props uses for native? and the React-hook
+  spine uses via dom-element? — so a `:>`-rooted view does NOT stamp the
+  attr as a foreign prop on the component (React would drop it, and the
+  real DOM root would go unannotated). When the root is `:>`/interop the
+  *source-coord* binding is left UNCONSUMED so it flows to the first real
+  DOM element downstream (§5.4's 'first hiccup vector with a DOM-tag
+  head')."
   [^HiccupTag parsed argv first-pos]
   (let [component (.-tag parsed)
         [head has-props first-child] (hiccup-shape argv first-pos)
         props     (cond-> (when has-props head)
-                    *source-coord* merge-source-coord-attr)
+                    (and *source-coord* (string? component)) merge-source-coord-attr)
         js-props  (or (convert-props props parsed) #js {})]
     (when-some [key (get-react-key argv)]
       (set! (.-key js-props) key))
