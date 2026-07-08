@@ -67,15 +67,19 @@
                           slice-1); a conforming implementation with NO
                           delta support still conforms.
     (e) LIFECYCLE       — the §Conformance 'Lifecycle' bullet's RELEASE
-                          axis (rf2-pomhpf): destroying a frame releases
-                          frame-owned graph nodes; route exit / supersession
-                          releases the prior route owner; machine destroy
-                          (here, final-state auto-destroy) releases the
-                          machine-owned snapshot node. The per-family suites
-                          and the (c) live arm only ever read a PRESENT
-                          owner; this arm drives the teardown TRANSITION and
-                          asserts the node / owner has LEFT the live graph —
-                          the axis the lifecycle classification exists for.
+                          axis (rf2-pomhpf), all FOUR spec clauses
+                          (spec/Derivations.md §Conformance Lifecycle):
+                          (1) destroying a frame releases frame-owned graph
+                          nodes; (2) subscription disposal releases its
+                          cache-entry node (rf2-q72kuo); (3) route exit /
+                          supersession releases the prior route owner; and
+                          (4) machine destroy (here, final-state auto-destroy)
+                          releases the machine-owned snapshot node. The
+                          per-family suites and the (c) live arm only ever
+                          read a PRESENT owner; these arms drive the teardown
+                          TRANSITION and assert the node / owner has LEFT the
+                          live graph — the axis the lifecycle classification
+                          exists for.
     (f) EVALUATION      — the §Conformance 'Evaluation policy' bullet's
                           on-demand-no-write law (rf2-qdxvkb; §Evaluation
                           policy rule 1): reading an `:on-demand` node (a
@@ -132,6 +136,11 @@
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.machines.tooling :as machines-tooling]
             [re-frame.machines.paths :as machine-paths]
+            ;; rf2-q72kuo — the (e) subscription-disposal arm drives the real
+            ;; subscribe / unsubscribe cache path (CLJS): `subs/subscribe`
+            ;; mints the live cache entry, `subs/unsubscribe` drops the sole
+            ;; ref → sync dispose → eviction (Spec 006 §Reference counting).
+            [re-frame.subs :as subs]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -839,12 +848,16 @@
 ;; (e) LIFECYCLE — the §Conformance 'Lifecycle' bullet's RELEASE axis
 ;;     (rf2-pomhpf). Every prior arm (the per-family suites + the (c) live
 ;;     arm) only ever reads a PRESENT owner — positive presence. The lifecycle
-;;     classification exists for the RELEASE boundary: "destroying a frame
-;;     releases frame-owned graph nodes …; route exit releases route owners;
-;;     machine destroy releases machine-owned leases and timers" (§Lifecycle
-;;     and owner). These tests drive the teardown TRANSITION and assert the
-;;     node / owner has LEFT the live graph — the strongest adversarial arm,
-;;     a frame/route/machine teardown vacating the graph.
+;;     classification exists for the RELEASE boundary. The spec enumerates
+;;     FOUR release clauses (§Conformance Lifecycle): "destroying a frame
+;;     releases frame-owned graph nodes and host-transient state; subscription
+;;     disposal releases cache-entry nodes; route exit releases route owners;
+;;     machine destroy releases machine-owned leases and timers". These arms
+;;     drive each teardown TRANSITION and assert the node / owner has LEFT the
+;;     live graph — the strongest adversarial arm, a frame / subscription /
+;;     route / machine teardown vacating the graph. (Clause 2, subscription
+;;     disposal, is CLJS-only — the cached reactions are not deref-able on the
+;;     JVM — so its arm rides a reader conditional; rf2-q72kuo.)
 ;; ===========================================================================
 
 (deftest e-destroying-a-frame-releases-its-frame-owned-graph-nodes
@@ -984,6 +997,61 @@
           "the :machine-instance-owned snapshot node is gone after final-state auto-destroy")
       (is (nil? (get-in rt (machine-paths/snapshot-path :job/runner)))
           "the machine-owned snapshot is released from runtime-db (machine destroy releases its leases)"))))
+
+#?(:cljs
+   (deftest e-subscription-disposal-releases-its-cache-entry-node
+     ;; §Conformance Lifecycle, clause 2 ("subscription disposal releases
+     ;; cache-entry nodes") + §Lifecycle and owner (`:subscription-cache-entry`
+     ;; — the entry lives while a reader refs it; disposal on ref-count → 0
+     ;; releases it). The ONE family whose lifecycle RELEASE the (e) section
+     ;; did not drive: `b-storage-…` reads :subscription-cache-entry only as a
+     ;; PRESENT classification (the present-owner-only shape this section
+     ;; exists to go beyond). This is also the FIRST arm to drive the REAL
+     ;; live sub-cache → composer path end-to-end (`cplus-…` uses synthetic
+     ;; constantly-fn sub contributors; the only other real-path live arm,
+     ;; `gplus-…`, covers RESOURCES not subs). CLJS-only: `sub-cache-algebra-view`
+     ;; returns nil on the JVM (the cached reactions are not deref-able there),
+     ;; so the JVM gate elides this whole arm via the reader conditional.
+     (register-one-of-each!)
+     ;; A PARAMETRIC sub whose one realized input edge is a plain layer-1
+     ;; reader, so a concrete subscribe materializes exactly one clean cache
+     ;; entry (+ its :cart/items input) carrying a realized `[:sub q]` edge —
+     ;; no resource / unregistered-input fan-out.
+     (rf/reg-sub :cart/item-qty
+                 (fn [[_ _sku]] [[:cart/items]])
+                 (fn [[items] [_ sku]] (some #(when (= sku (:sku %)) (:qty %)) items)))
+     (rf/dispatch-sync [::seed-cart cart-items])
+     (let [q [:cart/item-qty "b"]
+           r (subs/subscribe q {:frame :rf/default})]
+       (is (= 3 @r)
+           "sanity: the parametric sub computes its whole value from the realized input")
+       ;; PRESENT in the composed LIVE graph — through the REAL
+       ;; `subs-tooling/sub-cache-algebra-view` the :subs contributor's
+       ;; :live-fn wires (`all-contributors`), reading live :sub-cache with
+       ;; :ref-count. A live cache-entry node is keyed `[:sub query-v]` by the
+       ;; composer (`graph/sub-node-id`), NOT the bare static sub-id. Presence
+       ;; is a FAILING PRECONDITION (rf2-djofbh): absence is a failure, not a
+       ;; skip — so the release assertion below cannot vacuously pass.
+       (let [g-before (graph/live-derivation-graph :rf/default all-contributors)
+             node     (get (:nodes g-before) [:sub q])]
+         (testing "the live subscribe materialized the cache-entry node (failing precondition)"
+           (is (some? node)
+               "subscribing MUST surface the [:sub [:cart/item-qty \"b\"]] cache-entry node in the composed live graph")
+           (is (= :derivation (:kind node)))
+           (is (= :subscription-cache-entry (:lifecycle node))
+               "the live node carries the :subscription-cache-entry lifecycle it is released under")
+           (is (= 1 (:ref-count node))
+               "one live reader keeps the cache entry alive — the :ref-count lifecycle evidence")))
+       ;; Dispose: the sole reader drops → synchronous ref-count → 0 → the
+       ;; reaction disposes and its on-dispose callback evicts the entry
+       ;; (Spec 006 §Reference counting and disposal; rf2-cmfln sync dispose).
+       (subs/unsubscribe :rf/default q)
+       (let [g-after (graph/live-derivation-graph :rf/default all-contributors)]
+         (testing "subscription disposal releases the cache-entry node from the live graph"
+           (is (nil? (get (:nodes g-after) [:sub q]))
+               "the :subscription-cache-entry node LEFT the composed live graph on disposal (ref-count → 0)")
+           (is (not (contains? (set (keys @(:sub-cache (frame/frame :rf/default)))) q))
+               "and the underlying :sub-cache entry is evicted — the release the node absence reflects"))))))
 
 ;; ===========================================================================
 ;; (f) EVALUATION POLICY — the §Conformance 'Evaluation policy' bullet's

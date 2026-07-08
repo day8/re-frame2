@@ -34,9 +34,11 @@
 ;;                         materialized derivation's output equals what its
 ;;                         derivation fn computes from the same inputs; the
 ;;                         optional delta law is deferred per item 10.
-;;   (e) LIFECYCLE       — the §Conformance 'Lifecycle' RELEASE axis: frame
-;;                         destroy / route exit-supersession / machine
-;;                         final-state destroy releases the owned graph node.
+;;   (e) LIFECYCLE       — the §Conformance 'Lifecycle' RELEASE axis, all four
+;;                         spec clauses: frame destroy / subscription disposal
+;;                         (ref-count → 0, CLJS-only) / route exit-supersession
+;;                         / machine final-state destroy releases the owned
+;;                         graph node.
 ;;   (f) EVALUATION      — the §Conformance 'Evaluation policy' on-demand
 ;;                         no-write law: reading an `:on-demand` node causes
 ;;                         NO durable write (no app-db / runtime-db mutation).
