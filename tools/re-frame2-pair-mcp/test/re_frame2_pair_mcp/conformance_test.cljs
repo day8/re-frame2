@@ -60,9 +60,10 @@
   without compiling a runtime or opening a socket. The TEST corpus
   pins SHAPE, not runtime semantics — the framework's own fixtures
   pin the runtime semantics."
-  (:require [cljs.test :refer-macros [deftest is async]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [cljs.reader :as edn]
             [clojure.string :as str]
+            [clojure.set :as set]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -70,6 +71,7 @@
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-cljs :as eval-cljs]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
+            [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
 ;; ---------------------------------------------------------------------------
@@ -1655,6 +1657,217 @@
                          :abuse-window {:count 0 :threshold 50 :tripped? false}}
      :edn-contains-keys #{:config :rate-limit :cross-check}}}
 
+   ;; ---------- orient ----------------------------------------------------
+   ;; The first-contact app-shape summary. One nREPL round-trip
+   ;; (`re-frame2-pair.runtime/orient`); the tool echoes the resolved
+   ;; `:build` and degrades a blank/non-map eval to `:unexpected-shape`
+   ;; (isError) rather than a null.
+   {:fixture/id    :orient/happy
+    :fixture/doc   "orient forwards the runtime's app-shape summary map with the resolved :build echoed."
+    :fixture/tool  "orient"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:ok?    true
+                                   :frames {:all [:rf/default] :app [:rf/default] :operating :rf/default}
+                                   :registry {:counts {:event 3 :sub 2 :fx 1}
+                                              :events [:counter/inc] :subs [:counter/value] :fx [:http]}}]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :build :app}
+     :edn-contains-keys #{:frames :registry}}}
+
+   {:fixture/id    :orient/blank-eval-unexpected-shape
+    :fixture/doc   "orient on a blank/non-map eval (dropped WebSocket / navigated tab) rides :unexpected-shape (isError:true), never a null structuredContent."
+    :fixture/tool  "orient"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :unexpected-shape}}}
+
+   ;; ---------- read-sub --------------------------------------------------
+   ;; Validated one-shot subscription read (signalled prelude — the
+   ;; configure-raw-state! tap posture rides first, then read-sub!).
+   {:fixture/id    :read-sub/happy
+    :fixture/doc   "read-sub forwards the runtime read-sub! hit — :ok? true :value <elided> with :elision echoed."
+    :fixture/tool  "read-sub"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:sub "[:counter/value]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["read-sub!"                 {:ok? true :query-v [:counter/value] :frame :rf/default :value 42}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["read-sub!"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :value 42}}}
+
+   {:fixture/id    :read-sub/missing-sub
+    :fixture/doc   "read-sub without :sub short-circuits on :missing-sub before any nREPL round-trip."
+    :fixture/tool  "read-sub"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-sub}}
+
+   ;; ---------- read-ui ---------------------------------------------------
+   ;; Typed ui/read — view-plane content + producing entity. The runtime
+   ;; fn always returns a map, projected via map-result-or-blank.
+   {:fixture/id    :read-ui/happy
+    :fixture/doc   "read-ui forwards the runtime ui-read envelope (content + entity) with the resolved :build echoed."
+    :fixture/tool  "read-ui"
+    :fixture/args  {:selector "#app .counter"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["ui-read"                   {:ok? true :via :selector
+                                   :entity {:view-id :my.app/counter :render-key 3 :subs-read [[:counter/value]]}
+                                   :content {:tag "div" :text "Count: 3" :attrs {"class" "counter"}}}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame2-pair.runtime/ui-read"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :via :selector}
+     :edn-contains-keys #{:entity :content}}}
+
+   {:fixture/id    :read-ui/no-target-arg
+    :fixture/doc   "read-ui with no entry point (view-id/point/selector) short-circuits on :no-target-arg before any nREPL round-trip."
+    :fixture/tool  "read-ui"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :no-target-arg}}
+
+   ;; ---------- describe-image --------------------------------------------
+   ;; EP-0023 forward read of a frame's resolved image generation. Routes
+   ;; through map-envelope-result — the isError-contract ratchet (rf2-01jwrq).
+   {:fixture/id    :describe-image/happy
+    :fixture/doc   "describe-image forwards the runtime's frame-generation summary (:images/:kinds/:counts)."
+    :fixture/tool  "describe-image"
+    :fixture/args  {:frame ":rf/default"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["describe-image"            {:ok? true :frame :rf/default
+                                   :images [:app] :kinds [:event :sub]
+                                   :counts {:event 3 :sub 2}}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :frame :rf/default}
+     :edn-contains-keys #{:images :kinds :counts}}}
+
+   {:fixture/id    :describe-image/ambiguous-frame-iserror
+    :fixture/doc   "describe-image surfaces the runtime's {:ok? false :reason :ambiguous-frame} as an isError envelope (map-envelope-result — every :ok? false is isError; rf2-01jwrq)."
+    :fixture/tool  "describe-image"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["describe-image"            {:ok? false :reason :ambiguous-frame
+                                   :frames [:rf/default :stories]}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :ambiguous-frame}}}
+
+   ;; ---------- record ----------------------------------------------------
+   ;; Installs a background signal recorder (signalled prelude). Returns a
+   ;; :recording-id immediately; routes through map-envelope-result.
+   {:fixture/id    :record/happy
+    :fixture/doc   "record installs the recorder and forwards the runtime's {:ok? true :recording-id …}."
+    :fixture/tool  "record"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:signals "[{:focus true}]"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["start-recording!"          {:ok? true :recording-id "rec-abc" :status :recording}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame2-pair.runtime/start-recording!"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true}
+     :edn-contains-keys #{:recording-id}}}
+
+   {:fixture/id    :record/no-signals
+    :fixture/doc   "record without :signals short-circuits on :no-signals before any nREPL round-trip."
+    :fixture/tool  "record"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :no-signals}}
+
+   ;; ---------- read-recording --------------------------------------------
+   ;; Reads back a recording's change-log; map-envelope-result routes the
+   ;; :no-such-recording refusal as isError (rf2-5m2oi1).
+   {:fixture/id    :read-recording/happy
+    :fixture/doc   "read-recording forwards the runtime change-log envelope (:ok? true :count :entries)."
+    :fixture/tool  "read-recording"
+    :fixture/args  {:recording-id "rec-abc"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["re-frame2-pair.runtime/read-recording"
+      {:ok? true :recording-id "rec-abc" :status :stopped :count 2 :entries []}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :recording-id "rec-abc" :count 2}}}
+
+   {:fixture/id    :read-recording/no-such-recording-iserror
+    :fixture/doc   "read-recording of an unknown/expired id surfaces {:ok? false :reason :no-such-recording} as isError (rf2-5m2oi1 — never a green result hiding a buried :ok? false)."
+    :fixture/tool  "read-recording"
+    :fixture/args  {:recording-id "rec-gone"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["re-frame2-pair.runtime/read-recording"
+      {:ok? false :reason :no-such-recording :recording-id "rec-gone"}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :no-such-recording :recording-id "rec-gone"}}}
+
+   ;; ---------- watch-until -----------------------------------------------
+   ;; Server-polls a compiled predicate until it holds or times out. The
+   ;; happy fixture makes the FIRST poll hold so it resolves immediately
+   ;; (no setTimeout, no real wait).
+   {:fixture/id    :watch-until/held-on-first-poll
+    :fixture/doc   "watch-until resolves {:ok? true :held? true …} on the first poll where the predicate holds."
+    :fixture/tool  "watch-until"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:signals "[{:app-db [:upload :status]}]"
+                    :pred "{:signal 0 :equals :done}"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["sample-signals"            {:held? true :sample {0 :done} :t 5}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame2-pair.runtime/sample-signals"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :held? true}}}
+
+   {:fixture/id    :watch-until/no-signals
+    :fixture/doc   "watch-until without :signals short-circuits on :no-signals before any nREPL round-trip."
+    :fixture/tool  "watch-until"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :no-signals}}
+
    ;; ---------- pipeline: unknown tool ------------------------------------
    {:fixture/id    :pipeline/unknown-tool
     :fixture/doc   "invoke against a name not in the registry returns :unknown-tool error carrying a recovery :hint + the :available-tools catalogue (rf2-tkmik)."
@@ -1802,3 +2015,41 @@
                          (count failed) " failed."))
                 (cache/clear!)
                 (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; Completeness guard (rf2-e5x5gd).
+;;
+;; The corpus ns docstring calls THIS namespace the cross-tool wire-shape
+;; RATCHET that pins, "for EACH MCP tool", the envelope tools/invoke
+;; produces — its whole point is catching cross-tool vocabulary renames
+;; that slip past the per-tool unit suites. But there was NO structural
+;; guard that every registered tool actually HAS a fixture, so 7 tools
+;; (orient / read-sub / read-ui / record / read-recording / watch-until /
+;; describe-image) drifted out of the corpus silently — three of them
+;; (describe-image / record / read-recording) carry recent isError-contract
+;; fixes the corpus is supposed to ratchet.
+;;
+;; This mirrors onboarding_catalogue_test's registered-tools coverage
+;; assertion: every `registry/tool-names` entry MUST own >=1 corpus
+;; fixture. A newly-registered tool with no fixture now fails HERE at
+;; compile-authoring time instead of escaping the ratchet.
+;;
+;; NB: unlike onboarding_catalogue_test we do NOT assert the reverse
+;; (no phantom fixture tools) — the corpus deliberately carries a
+;; `no-such-tool` fixture for the :unknown-tool pipeline path, which is
+;; not (and must not be) a registered tool.
+;; ---------------------------------------------------------------------------
+
+(deftest conformance-corpus-covers-every-registered-tool
+  (testing "every registered tool has at least one conformance corpus fixture"
+    (let [covered    (set (map :fixture/tool corpus))
+          registered (set registry/tool-names)
+          missing    (set/difference registered covered)]
+      (is (empty? missing)
+          (str "registered tools with NO conformance corpus fixture: "
+               (sort missing)
+               " — add at least a happy + one-error fixture for each. The "
+               "corpus is the cross-tool isError/vocabulary ratchet 'for "
+               "EACH MCP tool'; an uncovered tool escapes it silently. "
+               "Mirror an existing same-shape fixture (see the per-tool "
+               "sections above).")))))
