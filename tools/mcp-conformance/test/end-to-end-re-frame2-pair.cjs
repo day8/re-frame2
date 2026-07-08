@@ -227,10 +227,12 @@ runWithWatchdog(
       // (restore-epoch / replace-app-db) are NOT here — they are refused
       // PRE-connection with `:writes-disabled`, not `:nrepl-port-not-found`
       // (writes/refuse-pre-connection fires before ensure-connection!), so
-      // they get their own assertion block below. The closed-world inline
-      // tools (get-re-frame2-pair-instructions / get-stream-controls) DO
-      // appear here: dispatch still routes them through ensure-connection!,
-      // which rejects degraded before the inline body runs.
+      // they get their own assertion block below. The two CLOSED-WORLD
+      // tools (get-re-frame2-pair-instructions / get-stream-controls) are
+      // ALSO not here (rf2-6amhbt): they read only server-local state (no
+      // nREPL), so the server dispatches them at the pre-connection
+      // boundary — they SUCCEED degraded and are covered by the
+      // closed-world success block below, not this degraded walk.
       { name: 'discover-app', arguments: {} },
       // eval-cljs is default-ON (no pre-connection gate unless --no-eval),
       // so degraded it routes through ensure-connection! and returns the
@@ -242,8 +244,6 @@ runWithWatchdog(
       { name: 'dispatch-dry-run', arguments: { event: '[:rf-conformance/probe]' } },
       { name: 'get-operating-frame', arguments: {} },
       { name: 'get-path', arguments: { path: '[:does :not :matter]' } },
-      { name: 'get-re-frame2-pair-instructions', arguments: {} },
-      { name: 'get-stream-controls', arguments: {} },
       { name: 'handler-meta', arguments: { kind: 'event', id: ':rf-conformance/probe' } },
       { name: 'list-handlers', arguments: { kind: 'event' } },
       // EP-0017 cofx introspection over the SDK wire. The `cofx` kind is
@@ -312,6 +312,56 @@ runWithWatchdog(
     for (const tool of DEGRADED_TOOLS) {
       degradedResp[tool.name] = await assertDegraded(tool);
     }
+
+    // 3b-closed-world. Closed-world success path (rf2-6amhbt). Unlike
+    // every tool in the degraded walk above, `get-re-frame2-pair-instructions`
+    // and `get-stream-controls` read ONLY server-local state — inline
+    // onboarding text / the in-process resource-control atoms — with NO
+    // nREPL round-trip. The server dispatches them at the pre-connection
+    // boundary (bypassing `ensure-connection!`), so even in THIS degraded
+    // harness (no nREPL) they MUST SUCCEED (isError:false) rather than
+    // return the shared `:nrepl-port-not-found` envelope. This pins the
+    // spec/003 "answers even when the runtime is down" contract at the real
+    // MCP boundary — the exact behaviour the earlier harness mis-encoded as
+    // a degraded failure. Each still routes through the SDK's
+    // CallToolResultSchema + the declared outputSchema parse, so a
+    // structuredContent regression turns RED. Mirrors the analogous Story
+    // closed-world block in end-to-end-story.cjs. These two calls also keep
+    // both tools SDK-covered for the callTool coverage ratchet below.
+    for (const readTool of [
+      'get-re-frame2-pair-instructions',
+      'get-stream-controls',
+    ]) {
+      const r = await client.callTool({ name: readTool, arguments: {} });
+      if (r.isError) {
+        throw new Error(
+          'closed-world tool ' + readTool + ' MUST succeed (isError=false) ' +
+            'with no nREPL — it reads server-local state and is dispatched ' +
+            'pre-connection (rf2-6amhbt); got: ' + JSON.stringify(r),
+        );
+      }
+      const text = r.content?.[0]?.text || '';
+      if (text.includes('nrepl-port-not-found')) {
+        throw new Error(
+          readTool + ' MUST NOT return the degraded :nrepl-port-not-found ' +
+            'envelope — it answers without a runtime; got: ' + text.slice(0, 200),
+        );
+      }
+      if (r.structuredContent === undefined || r.structuredContent === null ||
+          typeof r.structuredContent !== 'object' ||
+          Array.isArray(r.structuredContent)) {
+        throw new Error(
+          readTool + ' success envelope MUST carry a JSON-object ' +
+            ':structuredContent slot; got: ' + JSON.stringify(r),
+        );
+      }
+      // isError:false MUST agree with :ok? true (universal cross-check).
+      assertIsErrorMatchesOk('tools/call ' + readTool + ' (closed-world)', r);
+    }
+    console.log(
+      'OK   closed-world tools (get-re-frame2-pair-instructions/' +
+        'get-stream-controls) -> success envelopes with no nREPL (rf2-6amhbt)',
+    );
 
     // 3c. Gated WRITE tools — pre-connection refusal. The two
     // state-mutating tools `restore-epoch` and `replace-app-db` are gated

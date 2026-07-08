@@ -269,6 +269,12 @@
     ;; control readings. Same posture as `list-streams` (volatile
     ;; streaming-registry read).
     :cacheable? false
+    ;; CLOSED-WORLD (rf2-6amhbt): the handler reads server-local atoms
+    ;; with NO nREPL round-trip, so the server dispatches it at the
+    ;; pre-connection boundary (bypassing `ensure-connection!`) — it
+    ;; answers even when no shadow build is running, honouring the
+    ;; spec/003 "answers even when the runtime is down" contract.
+    :closed-world? true
     :descriptor data/get-stream-controls}
    {:name       "handler-meta"
     :handler    (ignoring-extra #(handler-meta/handler-meta-tool %1 %2))
@@ -326,6 +332,12 @@
    {:name       "get-re-frame2-pair-instructions"
     :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
     :cacheable? true
+    ;; CLOSED-WORLD (rf2-6amhbt): the onboarding text is an inline `def`
+    ;; in the bundle — zero socket bytes — so the server dispatches it at
+    ;; the pre-connection boundary (bypassing `ensure-connection!`). An
+    ;; agent orienting on a fresh/degraded session gets the catalogue
+    ;; instead of a misleading `:nrepl-port-not-found`.
+    :closed-world? true
     :descriptor data/get-re-frame2-pair-instructions}])
 
 ;; ---------------------------------------------------------------------------
@@ -358,6 +370,28 @@
   "Materialised set of tool names whose `:cacheable?` is truthy.
   Built once at load time so `cacheable?` is an O(1) membership test."
   (into #{} (comp (filter :cacheable?) (map :name)) tools))
+
+(def ^:private closed-world-set
+  "Materialised set of tool names flagged `:closed-world?` — the tools
+  whose handler answers WITHOUT an nREPL round-trip (server-local reads:
+  `get-stream-controls`, `get-re-frame2-pair-instructions`). Built once at
+  load time so `closed-world-tool?` is an O(1) membership test."
+  (into #{} (comp (filter :closed-world?) (map :name)) tools))
+
+(defn closed-world-tool?
+  "Predicate — does this tool answer WITHOUT a live nREPL connection?
+
+  True for the server-local reads (`get-stream-controls`,
+  `get-re-frame2-pair-instructions`) whose handlers touch only in-process
+  state (resource-control atoms / an inline text `def`). The server
+  dispatches these at the pre-connection boundary — BEFORE
+  `ensure-connection!` — so they answer even on a stock / degraded install
+  with no shadow build running, symmetric with the unknown-tool
+  (rf2-4mc6q1) and gated-write (rf2-wz66k7) pre-connection guards.
+
+  Unknown names return false (they route to the `:unknown-tool` guard)."
+  [tool]
+  (contains? closed-world-set tool))
 
 (defn cacheable?
   "Predicate — should this tool consult the per-session response cache?
