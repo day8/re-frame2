@@ -128,7 +128,14 @@
     (when-some [fs after-render-queue]
       (set! after-render-queue nil)
       (dotimes [i (alength fs)]
-        ((aget fs i)))))
+        ;; Per-callback throw isolation (rf2-p27yih): swallow so one
+        ;; misbehaving :after-render callback cannot strand the rest of
+        ;; the queue or abort the flush. Mirrors
+        ;; `re-frame.substrate.spine/drain-after-render-queue!`, the
+        ;; shared React-adapter-spine flush path's identical guard.
+        (try
+          ((aget fs i))
+          (catch :default _ nil)))))
 
   (flush-queues [this]
     ;; Drain the reactive queue first — Reaction recomputes may enqueue
