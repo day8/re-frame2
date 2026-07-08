@@ -364,7 +364,8 @@
             ;; cleared its id from the :rf/spawned slot for us — no :exit
             ;; null-out needed. So the connection clock reads nil.
             (is (nil?   (socket-id-of s)))
-            ;; :bump-retry ran.
+            ;; :on-socket-lost bumped the retry counter (and cleared the
+            ;; then-empty in-flight map).
             (is (= 1 (get-in s [:data :retries]))))
           ;; Fire the :after timer to re-enter :active. The :after key
           ;; is the fn-form delay; the runtime stamps the matching key
@@ -596,6 +597,45 @@
            (get-in m [:states :active :on :ws/closed :guard]))
         ":ws/closed is epoch-guarded")))
 
+(defn- drop-fails-in-flight-request-test []
+  ;; rf2-r1rkvb — a request already put on the wire, then orphaned by a socket
+  ;; drop, must not leak in :in-flight forever. On the drop it is FAILED: the
+  ;; slot clears and the waiting :reply-event fires with an explicit
+  ;; connection-lost body (loss semantics = fail, not replay).
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        ;; A request whose wire :type the mock does NOT echo, so it sits
+        ;; in-flight with no reply to clear it.
+        (let [rid (random-uuid)]
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/request {:request-id rid
+                                           :body       {:type :silent-no-echo}
+                                           :reply      [:ws.app/request-reply]
+                                           :timeout-ms 5000}]]
+                            {:frame f})
+          (is (contains? (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                                 [:data :in-flight])
+                         rid)
+              "a request with no immediate reply sits in :in-flight")
+          ;; Drop the socket.
+          (messages/simulate-disconnect! (rf/capture-frame f))
+          (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                db (rf/app-db-value f)]
+            (is (= :reconnecting (:state s)))
+            (is (= {} (get-in s [:data :in-flight]))
+                ":in-flight cleared on socket drop — no indefinite leak")
+            (let [reply (get-in db [:messages :last-reply])]
+              (is (some? reply) "the waiting reply-event fired on the drop")
+              (is (false? (:ok reply)) "reply is an explicit failure")
+              (is (= :ws/connection-lost (:error reply)))
+              (is (= rid (:request-id reply))
+                  "the failure names the dropped request"))))))))
+
 ;; ============================================================================
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS
 ;; ============================================================================
@@ -809,6 +849,11 @@
             events, and :ws/opened / :ws/auth-ok / :ws/auth-failed / :ws/closed
             all carry it"
     (stale-auth-events-guarded-test)))
+
+(deftest websocket-drop-fails-in-flight-request
+  (testing "rf2-r1rkvb — a socket drop fails + clears every in-flight request
+            (no leak); the waiting reply-event gets a connection-lost body"
+    (drop-fails-in-flight-request-test)))
 
 (deftest websocket-request-reply-correlation
   (testing "request-reply correlation — :in-flight slot fills then clears on reply"
