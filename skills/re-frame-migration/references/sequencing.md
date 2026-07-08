@@ -136,7 +136,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 34 | **M-30** | Triggered by `reg-flow` or by M-21's `on-changes` rewrite. Add `day8/re-frame2-flows` — **and** apply the v1→v2 flow-map conversion (a Type-B `:live?` re-home rides along). See [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion). |
 | 35 | **M-31** | Triggered by `:rf.http/managed` fx. Add `day8/re-frame2-http`. |
 | 36 | **M-32** | Triggered by `render-to-string` (SSR). Add `day8/re-frame2-ssr`. |
-| 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch`. Add `day8/re-frame2-epoch`. |
+| 37 | **M-33** | Triggered by `epoch-history` / `restore-epoch!`. Add `day8/re-frame2-epoch`. |
 | 38 | **M-39** | If the codebase uses `reg-http-interceptor` / `clear-http-interceptor`. Pairs with M-31. |
 | 38a | **M-63** | If the codebase uses `reg-http-interceptor`. Reshape signature to single interceptor-map `(reg-http-interceptor id {:before … :after …})`. Pairs with M-39. |
 | 38b | **M-65** | If the codebase uses the HTTP stubbing macros (`with-managed-request-stubs` / `install-managed-request-stubs!` family). Add `[re-frame.http.test-support]` to the test ns require closure. Pairs with M-31. |
