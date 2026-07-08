@@ -1126,7 +1126,9 @@ settled epoch), `await-render` (bool, rf2-gfu33), `queued` (bool,
 rf2-3bu3d.2 — async transport-ack shape), `timeout-ms` (integer,
 default `5000` — render-settle deadline), `frame` (string, e.g.
 `":foo"`), `fx-overrides` (object, e.g. `{:http :stub-http}`),
-`cofx` (string — EDN map of scripted recordable coeffects, e.g.
+`interceptor-overrides` (object, e.g. `{:auth/required :story/skip-auth}`;
+rf2-m7x0qb — see *Envelope override re-supply* below), `cofx` (string —
+EDN map of scripted recordable coeffects, e.g.
 `"{:rf/time-ms 1781078400123}"`; rf2-q6s1nb / EP-0010 + EP-0017 — see
 *Reproducible dispatch* below), `replay` (bool, default `false` —
 re-drive the recorded event under `:rf.cofx/mint-policy :strict`; see
@@ -1233,7 +1235,8 @@ circuit to an `:isError` envelope BEFORE the dispatch eval, so a typo
 never reaches the runtime's deeper `:rf/dispatch-opts` validation. Omit
 the arg for the ordinary live path (the runtime stamps `:rf/time-ms`).
 `cofx` composes with every mode (`sync` / `trace` / `settle` /
-`await-render` / `queued`) and with `frame` / `fx-overrides`.
+`await-render` / `queued`) and with `frame` / `fx-overrides` /
+`interceptor-overrides`.
 
 ### Strict replay — `replay` (rf2-v52xsr / EP-0017 §6 / Tool-Pair §Replay)
 
@@ -1271,6 +1274,68 @@ still be strict. `replay` is strict even with **no** `cofx` token (an empty
 record still halts on any declared recordable fact). Omit `replay` (with or
 without `cofx`) for the ordinary live path; set it to **assert** a fixture
 reproduces.
+
+### Envelope override re-supply — `interceptor-overrides` (rf2-m7x0qb / Tool-Pair §Replay)
+
+`replay` alone hard-wires the strict `:rf.cofx` policy, but a **faithful**
+strict replay needs more than the recorded coeffects: per
+[Tool-Pair §Replay](../../../spec/Tool-Pair.md#replay-mint-policy)
+(rf2-yigokd), the recorded envelope's own per-call `:fx-overrides` /
+`:interceptor-overrides` must ride alongside `:rf.cofx`. `:interceptor-overrides`
+edits the pre-commit interceptor chain — a fold-changing fact exactly like
+`:rf.cofx` — so a run recorded with an active override would otherwise
+replay under a **different** effective chain and could silently commit a
+different `:db-after`.
+
+The `:rf/epoch-record` ([Spec-Schemas §:rf/epoch-record](../../../spec/Spec-Schemas.md#rfepoch-record))
+carries these as bare `:fx-overrides` / `:interceptor-overrides` slots —
+spelled identically to the dispatch-opts keys precisely so a replaying
+tool can re-supply them with no key translation. To replay a recorded
+epoch faithfully, read its `:fx-overrides` / `:interceptor-overrides` off
+the record and pass them straight through as the `fx-overrides` /
+`interceptor-overrides` dispatch args, alongside `replay true` and the
+recorded `cofx`:
+
+```
+dispatch {event "[:cart/checkout]"
+          replay true
+          cofx "{:rf/time-ms 1781078400123}"
+          fx-overrides {":http": ":stub-http"}
+          interceptor-overrides {":audit/record-event": null}}
+```
+
+**Wire shape.** `fx-overrides` and `interceptor-overrides` are BOTH
+threaded unconditionally whenever supplied — ordinary per-call
+substitution/removal, not gated on `replay`. `interceptor-overrides` is a
+colon-tolerant JSON object mirroring `:fx-overrides`'s wire posture, but
+generalised to the `InterceptorRef` vocabulary
+([Spec-Schemas §:rf/interceptor-ref](../../../spec/Spec-Schemas.md#rfinterceptor-ref-the-interceptor-reference-ep-0022)):
+each key / non-null value is EITHER a bare colon-tolerant keyword id
+(`":auth/required"`) OR a bracket-shaped EDN `"[id arg]"` string for a
+parameterized `:factory` ref (`"[:rf.interceptor/path [:cart]]"`) — a JSON
+object literal can only carry string keys, so a parameterized ref rides as
+its bracket-shaped EDN string. `null` is the documented remove-this-
+interceptor sentinel. A malformed key/replacement returns
+`:reason :rf.error/interceptor-override-invalid`, mirroring the runtime's
+own chain-assembly rejection for the same malformed shape.
+
+**Fail-loud on the `:rf/fn-override` sentinel.** A recorded `:fx-overrides`
+entry can carry the opaque `:rf/fn-override` marker
+(`re-frame.router/serializable-fx-overrides`'s stand-in for a CLJS-only
+fn-valued override the router could not serialize — fns are never EDN).
+Re-supplying that literal sentinel as an `fx-overrides` value would
+otherwise coerce as if it were a genuine keyword redirect to a
+(non-existent) fx named `:rf/fn-override`. The record is **UNREPLAYABLE**
+under `:strict` in that case: `dispatch` refuses with
+`:reason :rf.error/unreplayable-fx-override` (the same incomplete-record
+class as `:rf.error/missing-required-cofx`) rather than silently
+dispatching without the fn-valued override the original run had active.
+The check applies to every `fx-overrides` call, replay or not — the
+sentinel can never be a legitimate override target.
+
+`:interceptor-overrides` needs no such marker: EP-0022 retired
+value-valued replacements, so every recorded entry is already an EDN
+ref-or-`nil` and re-presents verbatim.
 
 ### Render-settle — `:await-render` (rf2-gfu33)
 

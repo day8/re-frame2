@@ -163,7 +163,7 @@
     (cond
       (or (nil? trimmed) (str/blank? trimmed))
       [:err {:ok? false :reason :missing-event
-             :hint "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}]}"}]
+             :hint "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}] [interceptor-overrides {...}]}"}]
 
       :else
       (let [parsed (try
@@ -379,6 +379,22 @@
         ;; and REJECTS any other value with a structured error.
         fx-r         (args/parse-fx-overrides (wire/arg args :fx-overrides))
         fx-overrides (when (= :ok (first fx-r)) (second fx-r))
+        ;; rf2-m7x0qb / Tool-Pair §Replay — the
+        ;; per-call `:interceptor-overrides` sibling of `:fx-overrides`
+        ;; above. Same wire posture (a colon-tolerant JSON object;
+        ;; `parse-interceptor-overrides` coerces both ref-shaped keys and
+        ;; values and REJECTS anything that isn't a bare keyword id or a
+        ;; bracket-shaped `[id arg]` EDN string). Threaded unconditionally
+        ;; whenever supplied — an ordinary per-call interceptor
+        ;; substitution/removal, exactly like `:fx-overrides` isn't gated
+        ;; on `replay?` either. A `:strict` replay re-supplies this
+        ;; alongside `:fx-overrides` + `:rf.cofx` by having the caller pass
+        ;; the recorded `:rf/epoch-record`'s own `:fx-overrides` /
+        ;; `:interceptor-overrides` slots verbatim as these two args
+        ;; (`(select-keys record [:fx-overrides :interceptor-overrides])`
+        ;; per Tool-Pair §Replay) alongside `replay true`.
+        icpt-r               (args/parse-interceptor-overrides (wire/arg args :interceptor-overrides))
+        interceptor-overrides (when (= :ok (first icpt-r)) (second icpt-r))
         ;; EP-0010 + EP-0017 — caller-scripted recordable
         ;; coeffects. The agent supplies `cofx "{:rf/time-ms …}"` (EDN data,
         ;; same data-not-source gate as `event`); the router PRESERVES the
@@ -455,9 +471,19 @@
 
       ;; An invalid fx-overrides target short-circuits to an
       ;; honest isError rather than silently falling through to the real
-      ;; fx (which the documented stub recipe promised was inert).
+      ;; fx (which the documented stub recipe promised was inert). This
+      ;; also catches the :rf/fn-override sentinel (rf2-m7x0qb) — a
+      ;; recorded entry the router could not serialize, which makes the
+      ;; run UNREPLAYABLE under :strict (Tool-Pair §Replay).
       (= :err (first fx-r))
       (js/Promise.resolve (wire/err-text (second fx-r)))
+
+      ;; An invalid interceptor-overrides key/replacement
+      ;; short-circuits to an honest isError, mirroring the runtime's own
+      ;; :rf.error/interceptor-override-invalid chain-assembly rejection
+      ;; (rf2-m7x0qb).
+      (= :err (first icpt-r))
+      (js/Promise.resolve (wire/err-text (second icpt-r)))
 
       ;; EP-0017 — a malformed `cofx` map (non-map / unreadable /
       ;; non-integer :rf/time-ms) short-circuits to an honest isError before
@@ -476,6 +502,17 @@
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
                         fx-overrides (assoc :fx-overrides fx-overrides)
+                        ;; rf2-m7x0qb / Tool-Pair §Replay — the
+                        ;; `:interceptor-overrides` sibling of
+                        ;; `:fx-overrides` above, threaded the same way
+                        ;; (unconditional on presence, not gated on
+                        ;; `replay?`). A recorded epoch's
+                        ;; `:interceptor-overrides` re-presents VERBATIM
+                        ;; on replay (EDN by construction — EP-0022
+                        ;; retired value-valued replacements, so no
+                        ;; :rf/fn-override-style marker is ever needed
+                        ;; here).
+                        interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)
                         ;; EP-0017 — thread the scripted
                         ;; recordable coeffects under the flat `:rf.cofx` opts
                         ;; key the router reads. The map is `pr-str`'d as an

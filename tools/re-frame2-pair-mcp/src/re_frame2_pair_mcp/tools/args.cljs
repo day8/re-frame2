@@ -142,7 +142,24 @@
   documented no-op placeholder). Anything else for the target — a bare
   non-colon string, a number, a nested object/array — is REJECTED with a
   structured error rather than passed through to fall silently through to
-  the original fx."
+  the original fx.
+
+  **rf2-m7x0qb — the `:rf/fn-override` sentinel fails loud, not just
+  malformed shapes.** `:rf/fn-override` (Spec-Schemas §`:rf/epoch-record`)
+  is the opaque marker `re-frame.router/serializable-fx-overrides` writes
+  in place of a fn-valued `:fx-overrides` entry the router could not
+  record — a fn is never EDN, so it never rides the epoch record. As a
+  WIRE VALUE it is structurally a well-formed colon-prefixed keyword
+  (`\":rf/fn-override\"`), so without this check it would sail through as
+  if it were a genuine registered fx id to redirect to; no such fx is
+  ever registered under that reserved id. A Tool-Pair `:strict` replay
+  that pastes a recorded `:fx-overrides` entry verbatim needs this caught
+  HERE, at the shared wire-parse seam both `dispatch` and
+  `dispatch-dry-run` route through — not re-implemented per call site.
+  Every target is checked, replay or not: the sentinel can never be a
+  legitimate override target on ANY dispatch, so gating the check on a
+  `replay` flag would leave a live, non-replay call free to (uselessly,
+  confusingly) redirect to it too."
   [o]
   (if (or (nil? o) (undefined? o))
     [:ok nil]
@@ -163,7 +180,8 @@
                               (nil? v)     nil
                               (and (string? v) (str/starts-with? v ":")) (base-args/fresh-keyword v)
                               :else        ::reject)]
-                (if (= ::reject coerced)
+                (cond
+                  (= ::reject coerced)
                   [:err {:ok?    false
                          :reason :rf.error/invalid-fx-overrides
                          :target fx-key
@@ -172,7 +190,110 @@
                                       "stub id string (e.g. \":stub-http\") or null, got "
                                       (pr-str v) ". A bare string or non-string value would "
                                       "silently fall through to the real fx instead of stubbing it.")}]
+
+                  ;; rf2-m7x0qb / Tool-Pair §Replay — the opaque
+                  ;; :rf/fn-override marker makes the recorded run
+                  ;; UNREPLAYABLE under :strict. Fail loud, the same
+                  ;; incomplete-record class as
+                  ;; :rf.error/missing-required-cofx, rather than
+                  ;; re-supplying the literal sentinel as if it were a
+                  ;; real id-valued redirect.
+                  (= :rf/fn-override coerced)
+                  [:err {:ok?    false
+                         :reason :rf.error/unreplayable-fx-override
+                         :target fx-key
+                         :hint   (str "fx-overrides target for `" fx-key "` is the opaque "
+                                      ":rf/fn-override marker — the original run's override was a "
+                                      "CLJS fn value that could not be recorded, so this run is "
+                                      "UNREPLAYABLE under :strict. Re-supplying the literal sentinel "
+                                      "would silently redirect to a non-existent fx instead of the "
+                                      "fn-valued override the original run had active.")}]
+
+                  :else
                   [:ok (assoc (second acc) fx-key coerced)]))))
+          [:ok {}]
+          m)))))
+
+(defn- interceptor-ref-token
+  "Coerce ONE `:interceptor-overrides` wire token — a JS/CLJS string —
+  into an `InterceptorRef` (Spec-Schemas §`:rf/interceptor-ref`): a bare
+  keyword id, or a parameterized `[id arg]` 2-vector. A bracket-shaped
+  string (`\"[:rf.interceptor/path [:cart]]\"`) is read as EDN and must
+  parse to a 2-vector whose head is a keyword; anything else (a bare
+  name) is a colon-tolerant keyword id via `fresh-keyword` (the same
+  colon-stripping path `->frame-keyword` / `parse-fx-overrides` use).
+  Returns `::invalid` when the input isn't a string, a bracket string
+  fails to read, or a bracket string doesn't shape-check as `[keyword
+  arg]`."
+  [s]
+  (cond
+    (not (string? s)) ::invalid
+
+    (str/starts-with? (str/trim s) "[")
+    (let [parsed (try (cljs.reader/read-string (str/trim s))
+                      (catch :default _ ::reader-fail))]
+      (if (and (vector? parsed) (= 2 (count parsed)) (keyword? (first parsed)))
+        parsed
+        ::invalid))
+
+    :else
+    (let [kw (base-args/fresh-keyword s)]
+      (if (keyword? kw) kw ::invalid))))
+
+(defn parse-interceptor-overrides
+  "Coerce the `interceptor-overrides` MCP arg (a JSON object) into the
+  CLJS `InterceptorOverrides` map core's `:interceptor-overrides` seam
+  expects (Spec 002 §`:interceptor-overrides` — exact-reference
+  substitution; Spec-Schemas §`:rf/interceptor-ref`), returning
+  `[:ok m]` or `[:err msg]`.
+
+  Mirrors `parse-fx-overrides`'s wire-parsing posture — colon-tolerant
+  string coercion instead of a naive `js->clj :keywordize-keys`, which
+  would mint the malformed `::auth/required` key and leave a string
+  value uncoerced — generalised to the REF-shaped vocabulary
+  `:interceptor-overrides` uses instead of a plain fx-id. Each key /
+  non-nil-value token is EITHER a bare colon-tolerant keyword
+  (`\":auth/required\"`) OR a bracket-shaped EDN 2-vector string
+  (`\"[:rf.interceptor/path [:cart]]\"`, a parameterized `:factory`
+  ref) — the two `InterceptorRef` shapes (Spec-Schemas
+  §`:rf/interceptor-ref`); a JS object literal can only carry string
+  keys, so a parameterized ref key rides as its bracket-shaped EDN
+  string. A `null`/absent value is the documented remove-this-
+  interceptor sentinel (`nil`). Anything else — a non-ref-shaped key, a
+  malformed bracket string, a non-string/non-null value — is REJECTED
+  with the SAME structured reason the runtime's own chain-assembly
+  validation raises for a malformed override
+  (`:rf.error/interceptor-override-invalid`, Spec 002 §Interceptor
+  error model) — a wire-parse rejection and a deep-runtime rejection
+  read identically to the caller."
+  [o]
+  (if (or (nil? o) (undefined? o))
+    [:ok nil]
+    (let [m (js->clj o)]
+      (if-not (map? m)
+        [:err {:ok?    false
+               :reason :rf.error/interceptor-override-invalid
+               :hint   (str "interceptor-overrides must be an object mapping an interceptor "
+                            "ref to a replacement ref or null, e.g. "
+                            "{\":auth/required\": \":story/skip-auth\", "
+                            "\"[:rf.interceptor/path [:cart]]\": null}.")}]
+        (reduce-kv
+          (fn [acc k v]
+            (if (= :err (first acc))
+              acc
+              (let [ref-k (interceptor-ref-token k)
+                    ref-v (if (nil? v) nil (interceptor-ref-token v))]
+                (if (or (= ::invalid ref-k) (= ::invalid ref-v))
+                  [:err {:ok?    false
+                         :reason :rf.error/interceptor-override-invalid
+                         :key    k
+                         :value  v
+                         :hint   (str "interceptor-overrides key `" (pr-str k) "` / value "
+                                      (pr-str v) " must each be an interceptor ref — a "
+                                      "colon-prefixed keyword id, or a bracket-shaped "
+                                      "\"[id arg]\" EDN string — or null for the value "
+                                      "(remove).")}]
+                  [:ok (assoc (second acc) ref-k ref-v)]))))
           [:ok {}]
           m)))))
 

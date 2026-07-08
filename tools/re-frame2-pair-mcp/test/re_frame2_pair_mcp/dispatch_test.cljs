@@ -1543,3 +1543,162 @@
                          "no strict opt without the replay affordance")
                      (is (not (contains? opts :rf.cofx))))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-m7x0qb — Tool-Pair pair-mcp re-supply: `:interceptor-overrides` wire
+;; arg + strict-replay re-supply of the recorded envelope overrides
+;; (`:fx-overrides` / `:interceptor-overrides`) alongside `:rf.cofx` +
+;; `:rf.cofx/mint-policy :strict`. Slice 3 follow-up of rf2-yigokd (#5292),
+;; which pinned `:fx-overrides` / `:interceptor-overrides` as bare slots on
+;; `:rf/epoch-record` and added the Tool-Pair §Replay re-supply rule. These
+;; tests pin the ACTUAL pair-mcp dispatch-tool wiring for that rule — the
+;; core+epoch capture is covered by rf2-yigokd's own tests.
+;;
+;; Pre-fix, `:interceptor-overrides` had NO wire arg at all: the dispatch
+;; tool silently ignored it (an unrecognised key on the JS args object), so
+;; a replay of a recorded epoch with an active `:interceptor-overrides`
+;; would replay under a DIFFERENT effective chain than the original run —
+;; the exact silent divergence Tool-Pair §Replay forbids. The headline
+;; regression test below is RED against pre-fix: the emitted opts map
+;; would be missing `:interceptor-overrides` entirely.
+;; ---------------------------------------------------------------------------
+
+(deftest interceptor-overrides-threaded-into-opts
+  ;; The headline wire-shape case: a bare colon-tolerant keyword ref key/
+  ;; value pair threads into the emitted opts under `:interceptor-overrides`
+  ;; as coerced keyword refs — the `:interceptor-overrides` sibling of the
+  ;; existing `:fx-overrides` wire contract.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 1 :db-changed? false
+                                         :changed-paths [] :effects-fired [] :no-op? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/checkout]"
+                                           :interceptor-overrides #js {":auth/required" ":story/skip-auth"}})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= {:auth/required :story/skip-auth} (:interceptor-overrides opts))
+                         "the ref key/value coerce to keyword refs in the emitted opts"))
+                   (done)))))))
+
+(deftest interceptor-overrides-parameterized-ref-and-null-removal
+  ;; A parameterized [id arg] ref (bracket-shaped EDN string, since a JSON
+  ;; object key can only be a string) alongside a null-removal entry — both
+  ;; ride through in the SAME override map.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 1}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:cart/checkout]"
+                                           :interceptor-overrides
+                                           #js {"[:rf.interceptor/path [:cart]]" nil
+                                                ":audit/record-event" nil}})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)
+                         overrides (:interceptor-overrides opts)]
+                     (is (= nil (get overrides [:rf.interceptor/path [:cart]]))
+                         "the parameterized ref key coerces to an [id arg] 2-vector")
+                     (is (contains? overrides [:rf.interceptor/path [:cart]]))
+                     (is (= nil (:audit/record-event overrides))
+                         "null threads through as the remove sentinel"))
+                   (done)))))))
+
+(deftest no-interceptor-overrides-arg-omits-the-opts-key
+  ;; Absent `interceptor-overrides` ⇒ no `:interceptor-overrides` key in the
+  ;; emitted opts — an override-free dispatch's opts map is unchanged,
+  ;; mirroring `:fx-overrides`'s own absent-arg contract.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 1}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:counter/inc]" :sync true})))
+          (.then (fn [_]
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (not (contains? opts :interceptor-overrides))
+                         "no :interceptor-overrides opt when the arg is absent"))
+                   (done)))))))
+
+(deftest interceptor-overrides-malformed-value-rejected-before-touching-nrepl
+  ;; A malformed replacement (non-ref, non-null — here a number, never a
+  ;; valid interceptor ref) short-circuits to an honest isError BEFORE the
+  ;; eval — mirroring the runtime's own
+  ;; :rf.error/interceptor-override-invalid chain-assembly rejection,
+  ;; never silently dropped or coerced.
+  (async done
+    (-> (dispatch/dispatch-tool (fresh-conn)
+                                #js {:event "[:cart/checkout]"
+                                     :interceptor-overrides #js {":auth/required" 42}})
+        (.then (fn [r]
+                 (is (err? r) "a malformed interceptor-overrides replacement ⇒ :isError")
+                 (let [edn (read-result-text r)]
+                   (is (= :rf.error/interceptor-override-invalid (:reason edn))))
+                 (done))))))
+
+(deftest replay-resupplies-recorded-fx-and-interceptor-overrides
+  ;; THE HEADLINE REGRESSION TEST (rf2-m7x0qb). A strict replay is
+  ;; faithful only when the recorded envelope's OWN `:fx-overrides` /
+  ;; `:interceptor-overrides` ride along with `:rf.cofx` +
+  ;; `:rf.cofx/mint-policy :strict` — per Tool-Pair §Replay's
+  ;;
+  ;;   (merge {:rf.cofx (:rf.cofx record) :rf.cofx/mint-policy :strict}
+  ;;          (select-keys record [:fx-overrides :interceptor-overrides]))
+  ;;
+  ;; splat. This simulates a caller re-supplying a recorded epoch's own
+  ;; `:fx-overrides` / `:interceptor-overrides` (read off the
+  ;; `:rf/epoch-record`) as the `fx-overrides` / `interceptor-overrides`
+  ;; wire args alongside `replay true` + the recorded `cofx` token, and
+  ;; asserts ALL FOUR re-supplied facts land in the SAME emitted opts map —
+  ;; never a partial re-supply that leaves the replay running under a
+  ;; different effective fx / interceptor chain than the original run.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 12 :db-changed? true}
+            (fn []
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:todo/add {:text \"buy milk\"}]"
+                                           :replay true
+                                           :cofx "{:rf/time-ms 1781078400123 :counter/delta 4}"
+                                           :fx-overrides #js {":http" ":stub-http"}
+                                           :interceptor-overrides #js {":audit/record-event" nil}})))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [opts (nth (cljs.reader/read-string @captured) 2)]
+                     (is (= {:rf/time-ms 1781078400123 :counter/delta 4} (:rf.cofx opts))
+                         "the recorded :rf.cofx token rides verbatim")
+                     (is (= :strict (:rf.cofx/mint-policy opts))
+                         "replay hard-wires :rf.cofx/mint-policy :strict")
+                     (is (= {:http :stub-http} (:fx-overrides opts))
+                         "the recorded :fx-overrides re-supplies alongside :rf.cofx")
+                     (is (= {:audit/record-event nil} (:interceptor-overrides opts))
+                         (str "the recorded :interceptor-overrides re-supplies alongside :rf.cofx — "
+                              "PRE-FIX this key was silently absent, replaying under a DIFFERENT "
+                              "effective interceptor chain than the original run")))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; `:rf/fn-override` sentinel fail-loud (rf2-m7x0qb / Tool-Pair §Replay). A
+;; recorded `:fx-overrides` entry carrying the opaque marker (a fn-valued
+;; override the router could not serialize) makes the run UNREPLAYABLE
+;; under :strict. The dispatch tool MUST refuse rather than re-supplying
+;; the literal sentinel as if it were a real fx redirect.
+;; ---------------------------------------------------------------------------
+
+(deftest replay-with-fn-override-sentinel-fails-loud-before-touching-nrepl
+  (async done
+    (-> (dispatch/dispatch-tool (fresh-conn)
+                                #js {:event "[:cart/checkout]"
+                                     :replay true
+                                     :cofx "{:rf/time-ms 1781078400123}"
+                                     :fx-overrides #js {":http" ":rf/fn-override"}})
+        (.then (fn [r]
+                 (is (err? r)
+                     (str "the opaque :rf/fn-override marker makes the record UNREPLAYABLE — "
+                          "the tool must refuse, never silently redirect to a non-existent fx"))
+                 (let [edn (read-result-text r)]
+                   (is (= :rf.error/unreplayable-fx-override (:reason edn)))
+                   (is (= :http (:target edn))))
+                 (done))))))
