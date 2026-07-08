@@ -214,7 +214,7 @@ The pieces (design; see *Status* above):
 2. `eval-cljs` (MCP tool `mcp__re-frame2-pair__eval-cljs`) sends short ClojureScript forms over nREPL into the browser runtime and returns edn.
 3. `preload/re_frame2_pair/runtime.cljs` is the `re-frame2-pair.runtime` namespace itself, loaded into the consumer app via shadow-cljs's `:devtools :preloads`. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), and installs the `js/globalThis.__re_frame2_pair_runtime` marker the connect-flow probes.
 4. `SKILL.md` teaches Claude a verb vocabulary (read / write / trace / watch / hot-reload / time-travel) mapped onto those forms, plus diagnostic recipes composed from them.
-5. All trace and epoch reads come from re-frame2's own surfaces — `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `register-epoch-listener!`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with source coords resolvable through the registrar's source-coord capture (Spec 001).
+5. All trace and epoch reads come from re-frame2's own surfaces — `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `rf/register-listener! :epoch`, `epoch-history`. Render entries are projected by re-frame2 itself in `:renders`, with source coords resolvable through the registrar's source-coord capture (Spec 001).
 
 The live operation catalogue and error surfaces are in [`references/ops.md`](references/ops.md) and [`references/errors.md`](references/errors.md); per-surface state is in [`STATUS.md`](STATUS.md).
 
