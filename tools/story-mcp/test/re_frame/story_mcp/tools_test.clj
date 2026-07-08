@@ -2915,6 +2915,46 @@
     (coll? tree) (boolean (some tree-contains-marker? tree))
     :else        false))
 
+(deftest scrub-rendered-empty-collection-non-live-frame-stays-empty
+  ;; rf2-f2noru: an EMPTY derived tree carries nothing to protect on ANY
+  ;; frame. The non-live-frame fail-closed branch must NOT fire for it —
+  ;; before the fix, `project-egress` redacted even `[]` to the `:rf/redacted`
+  ;; keyword on a non-live frame, breaking the `[:sequential :any]` shape the
+  ;; run-variant error branch's `[]` evidence slots must keep.
+  (testing "an empty [] projected against a NON-LIVE (unregistered) frame stays [] — never :rf/redacted"
+    (let [out (egress/scrub-rendered [] nil :no/such-frame-xyz false)]
+      (is (vector? out) "an empty [] stays a sequential, not the :rf/redacted keyword")
+      (is (= [] out))))
+  (testing "empty {} / #{} on a non-live frame also short-circuit unchanged"
+    (is (= {} (egress/scrub-rendered {} nil :no/such-frame-xyz false)))
+    (is (= #{} (egress/scrub-rendered #{} nil :no/such-frame-xyz false))))
+  (testing "a NON-empty tree on a non-live frame still fails closed (the empty short-circuit is narrow)"
+    (is (= :rf/redacted (egress/scrub-rendered [{:token "SECRET"}] nil :no/such-frame-xyz false))
+        "fail-closed still stands for a non-empty tree on a non-live frame")))
+
+(deftest run-variant-error-branch-keeps-empty-evidence-on-non-live-frame
+  ;; rf2-f2noru: a throw BEFORE frame allocation (e.g. a plan-compile error in
+  ;; the variant body) is caught by tool-run-variant, which mints a unified
+  ;; result via `story/run-result` — filling every `.4` evidence slot to `[]`.
+  ;; The frame was never allocated, so it is NON-LIVE at egress. Each `[]`
+  ;; slot must survive the egress projection as `[]` (a sequential), NOT be
+  ;; redacted to the `:rf/redacted` keyword the `[:sequential :any]` schema
+  ;; would reject.
+  (testing "run-variant catch branch on a non-live frame keeps [] evidence slots (rf2-f2noru)"
+    (with-clean-frame [vid :story.button/primary]
+      ;; Force the NON-LIVE-frame shape: a plan-compile-class error throws
+      ;; before run-variant would allocate the frame.
+      (destroy-variant-frame! vid)
+      (is (nil? (frame-container vid)) "precondition: the variant frame is non-live")
+      (with-redefs [story/run-variant (fn [& _] (throw (ex-info "plan compile failed" {})))]
+        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :error (:status s)) "the throw surfaces as an :error verdict")
+          (doseq [slot [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
+            (is (= [] (get s slot))
+                (str slot " is the empty evidence [] the frozen [:sequential :any] schema requires — not :rf/redacted"))))))))
+
 (deftest scrub-rendered-re-keyed-sensitive-ships-raw-fail-open
   (testing "EP-0025 FAIL-OPEN: a sensitive value RE-KEYED into a derived tree at a non-app-db position ships RAW — value-match redaction was removed"
     (with-clean-frame [vid :story.button/primary]

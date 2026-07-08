@@ -298,6 +298,17 @@
       covers BOTH axes, matching the `:rf.egress/local-raw` floor; this is the
       ONE deliberate way to ship a frameless tree raw off-box).
     - A nil `tree` returns `tree` (nothing to walk).
+    - An EMPTY collection `tree` (`[]` / `{}` / `#{}`) returns `tree` unchanged
+      (rf2-f2noru): an empty derived tree carries NOTHING to protect on ANY
+      frame, so it must NOT trip the non-live fail-closed branch below and
+      redact the whole (empty) tree to the `:rf/redacted` KEYWORD. That keyword
+      would break a downstream schema expecting a sequential — the
+      `run-variant` error branch mints `[]` evidence slots via
+      `story/run-result`, and a `:rf/redacted` where the frozen
+      `[:sequential :any]` schema requires a sequential re-breaks the exact
+      invariant the `(vec …)` guard was added to hold (rf2-5r6j96,
+      testing.cljc). `(coll? tree)` excludes scalars (a string is not a
+      `coll?`); the nil case is already handled above.
     - A NON-LIVE variant frame (nil / unknown / destroyed) FAILS CLOSED
       (rf2-vl0jur, ruled 2026-06-23): `project-egress` redacts the whole tree to
       `:rf/redacted` rather than ship it raw. A missing variant frame must NOT
@@ -315,6 +326,15 @@
     ;; which is a needless trip through the egress walker for a tree with
     ;; nothing in it to protect).
     (nil? tree) tree
+
+    ;; Empty-collection short-circuit (rf2-f2noru): an empty derived tree
+    ;; (`[]` / `{}` / `#{}`) has nothing to protect on ANY frame, so return it
+    ;; unchanged rather than route it through the non-live fail-closed branch
+    ;; below — which would redact even an empty `[]` to the `:rf/redacted`
+    ;; keyword and break the `[:sequential :any]` shape the run-variant error
+    ;; branch's `[]` evidence slots must keep (rf2-5r6j96). `(coll? tree)`
+    ;; excludes scalars; nil is handled above.
+    (and (coll? tree) (empty? tree)) tree
 
     include? tree
 
