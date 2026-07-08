@@ -227,27 +227,27 @@ A *within*-image collision is still an error — an image must resolve cleanly t
 
 Because an image is a value and a frame carries its *resolved* image as a sealed generation, you can ask a live frame what it ended up running. This is the read side of everything above — handy in tests, in tooling like Xray, and at the REPL when a composition didn't resolve the way you expected.
 
-The most common read is **`rf/frame-shadows`** — the cross-image override report. A flat vector, one entry per shadow, three keys each:
+The read is **`rf/frame-generation`** — it returns the whole sealed generation as inert data. The key you reach for most is **`:rf.gen/shadows`**, the cross-image override report: a flat vector, one entry per shadow, three keys each:
 
 ```clojure
-(rf/frame-shadows :docs/main)
+(:rf.gen/shadows (rf/frame-generation :docs/main))
 ;; => [{:registration [:fx :checkout.http/post]   ;; the shadowed (kind, id)
 ;;      :image        :app/main                   ;; the image the loser was defined in
 ;;      :shadowed-by  :test/doubles}]             ;; the image of the final winner
 ```
 
-An empty vector means nothing was overridden — so `(empty? (rf/frame-shadows frame))` is the assertion "this composition stacked cleanly, no surprises."
+An empty vector means nothing was overridden — so `(empty? (:rf.gen/shadows (rf/frame-generation frame)))` is the assertion "this composition stacked cleanly, no surprises."
 
 !!! warning "Gotcha — the read side needs a frame that carries a generation"
 
-    Every `make-frame` frame carries one — an explicit `:images` composition or the sealed default — so `rf/frame-shadows` answers `[]` on a default-image frame (nothing composed, nothing shadowed). The frame with nothing to read is one declared via bare `reg-frame`: it resolves live against the registrar, carries no generation, and the read side **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same holds for `rf/frame-generation` and the frame-targeted `{:frame …}` queries below.
+    Every `make-frame` frame carries one — an explicit `:images` composition or the sealed default — so the shadow report answers `[]` on a default-image frame (nothing composed, nothing shadowed). The frame with nothing to read is one declared via bare `reg-frame`: it resolves live against the registrar, carries no generation, and `rf/frame-generation` **fails loud** with `:rf.error/frame-no-generation` rather than returning `[]` or `nil`. The same holds for the frame-targeted `{:frame …}` queries below.
 
 ??? note "Going deeper"
 
-    Two more reads when the shadow report isn't enough. **`rf/frame-generation`** returns the whole sealed generation as inert data — `:rf.gen/resolver` (one descriptor per `(kind, id)`), `:rf.gen/images` (in `:images` order, later wins), `:rf.gen/kinds` (the kinds present), and `:rf.gen/shadows` (what `frame-shadows` reads). And **frame-targeted registrar queries** resolve *one* registration's metadata or the id set for *one* kind through this frame's image rather than the global registrar, by passing a `{:frame …}` map:
+    The rest of the generation is inert data too — `:rf.gen/resolver` (one descriptor per `(kind, id)`), `:rf.gen/images` (in `:images` order, later wins), and `:rf.gen/kinds` (the kinds present). And **frame-targeted registrar queries** resolve *one* registration's metadata or the id set for *one* kind through this frame's image rather than the global registrar, by passing a `{:frame …}` map:
 
     ```clojure
-    (rf/handler-ids {:frame :docs/main :kind :event})
+    (keys (rf/registrations {:frame :docs/main :kind :event}))
     (rf/handler-meta {:frame :docs/main :kind :sub :id :counter/value})
     ```
 
@@ -293,7 +293,7 @@ To override an existing `(kind, id)`, define the winning registration in a *late
              {:reg-fx [[:checkout.http/post recording-post]]}}))  ;; stub the effect
 
 (let [frame (rf/make-frame {:images [app-image test-doubles]})]   ;; test-doubles wins (later)
-  (rf/frame-shadows frame))
+  (:rf.gen/shadows (rf/frame-generation frame)))
 ;; => [{:registration [:fx :checkout.http/post] :image :app/main :shadowed-by :test/doubles}]
 ```
 

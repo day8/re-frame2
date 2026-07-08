@@ -15,7 +15,7 @@
   registrar path. PRESENT ⇒ the read routes through the per-frame runtime fns
   (`frame-registrar-describe` / `frame-registrar-list`), which consume the
   PUBLIC facade reads `(rf/handler-meta {:frame f :kind k :id id})` /
-  `(rf/handler-ids {:frame f :kind k})` and resolve the
+  `(rf/registrations {:frame f :kind k})` and resolve the
   `(kind, id)` set through that frame's OWN sealed image generation —
   surfacing the resolved descriptor's `:rf.provenance/ns` + inline/image +
   `:standard` facts (plus a normalized `:rf.image/coordinate` rollup naming
@@ -358,7 +358,7 @@
   EXPLICIT FRAME (`frame` set): route through
   `re-frame2-pair.runtime/frame-registrar-list`, which enumerates only the
   ids the frame's OWN image generation carries for the kind (the PUBLIC
-  `(rf/handler-ids {:frame f :kind k})` read). `:machine` is rejected before
+  `(rf/registrations {:frame f :kind k})` read, keys). `:machine` is rejected before
   reaching here when a frame is supplied (machines are not in the resolver)."
   [frame kind]
   (cond

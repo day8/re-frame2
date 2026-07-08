@@ -22,7 +22,7 @@
   elsewhere, NOT duplicated as an adversarial umbrella here:
 
     - the QUERY-shaped read contract (`rf/handler-meta` /
-      `rf/registrations` / `rf/handler-ids` `{:frame …}` resolving each
+      `rf/registrations` `{:frame …}` resolving each
       frame's own sealed image descriptors with provenance, `frame-
       generation`, both fail-loud cases, and the byte-identical default
       keyword path) is comprehensively locked in core's

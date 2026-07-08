@@ -37,7 +37,7 @@
 ;; (rf2-afdlyr / rf2-tu2vr7) — there is no public realm query coordinate;
 ;; the public read grammar is FRAME-TARGETED over a live frame's sealed
 ;; image generation. The frame/query read contract (`rf/handler-meta` /
-;; `rf/registrations` / `rf/handler-ids` `{:frame …}`) is locked in core's
+;; `rf/registrations` `{:frame …}`) is locked in core's
 ;; `re-frame.facade-frame-read-cljs-test`, and the live-dispatch isolation
 ;; leg in the sibling `re-frame.event-frame-isolation-conformance-cljs-test`
 ;; — not restated here.

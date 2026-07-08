@@ -7,8 +7,8 @@
   mutators (`rf/image`, `rf/make-frame`). This errata-class
   forward-extension ships the read:
 
-    * a `{:frame f :kind k …}` map ARITY on each of the three existing public
-      registrar reads — `rf/registrations` / `rf/handler-meta` / `rf/handler-ids`
+    * a `{:frame f :kind k …}` map ARITY on each of the two existing public
+      registrar reads — `rf/registrations` / `rf/handler-meta`
       — resolving the (kind, id) set through the target frame's OWN sealed image
       generation (NOT the realm/default registrar);
     * a dedicated raw read `rf/frame-generation` returning the sealed generation
@@ -156,15 +156,6 @@
                                             :pred  #(= :counter/reset (:id %))})]
           (is (= #{:counter/reset} (set (keys only-reset)))))))))
 
-(deftest handler-ids-frame-arity-enumerates-only-the-frames-ids
-  (testing "handler-ids {:frame …} returns the id SET under the kind resolved
-            through the frame's OWN generation"
-    (let [_blue  (rf/make-frame {:id :blue/main  :images [blue-img]}  blue-pool)
-          _green (rf/make-frame {:id :green/main :images [green-img]} green-pool)]
-      (is (= #{:counter/inc}              (rf/handler-ids {:frame :blue/main  :kind :event})))
-      (is (= #{:counter/inc :counter/reset} (rf/handler-ids {:frame :green/main :kind :event})))
-      (is (= #{:counter/value}            (rf/handler-ids {:frame :blue/main  :kind :sub}))))))
-
 ;; ===========================================================================
 ;; 2. :frame accepts a DIRECT frame OBJECT, not only a registered id
 ;; ===========================================================================
@@ -182,9 +173,8 @@
         (is (= ::blue-inc (:handler-fn (rf/handler-meta {:frame blue-obj
                                                          :kind  :event
                                                          :id    :counter/inc})))))
-      (testing "registrations + handler-ids via the OBJECT project blue's ids"
-        (is (= #{:counter/inc} (set (keys (rf/registrations {:frame blue-obj :kind :event})))))
-        (is (= #{:counter/inc} (rf/handler-ids {:frame blue-obj :kind :event}))))
+      (testing "registrations via the OBJECT projects blue's ids"
+        (is (= #{:counter/inc} (set (keys (rf/registrations {:frame blue-obj :kind :event}))))))
       (testing "frame-generation via the OBJECT returns blue's sealed generation"
         (is (= ::blue-inc (:handler-fn (asm/resolve-descriptor
                                          (rf/frame-generation blue-obj)
@@ -203,7 +193,11 @@
       (testing "the :rf.gen/* keys are present"
         (is (contains? gen :rf.gen/resolver))
         (is (contains? gen :rf.gen/images))
-        (is (contains? gen :rf.gen/kinds)))
+        (is (contains? gen :rf.gen/kinds))
+        (is (contains? gen :rf.gen/shadows)
+            "the sealed generation carries the cross-image shadow report key
+             (the read path that replaced the removed rf/frame-shadows accessor,
+             rf2-i4hk4b)"))
       (testing "the retired :rf.gen/requires key is absent (EP-0026)"
         (is (not (contains? gen :rf.gen/requires))))
       (testing "the resolver is the id-disjoint [kind id] -> descriptor map"
@@ -223,10 +217,12 @@
       (is (= (lf/frame-generation green-obj)      (rf/frame-generation green-obj))))))
 
 ;; ===========================================================================
-;; 3b. frame-shadows — the public cross-image SHADOW REPORT accessor (EP-0026
-;;     §Shadow Report, rf2-ke7w5j). Returns the flat [{:registration [kind id]
-;;     :image <defined-in> :shadowed-by <winner>}] list a frame's composition
-;;     resolved.
+;; 3b. The cross-image SHADOW REPORT — read off the frame's sealed generation
+;;     at :rf.gen/shadows (EP-0026 §Shadow Report, rf2-ke7w5j). The dedicated
+;;     rf/frame-shadows accessor was REMOVED (rf2-i4hk4b, API-shrink #5 —
+;;     avoidable single-key surface); the report is the flat
+;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
+;;     list read via (:rf.gen/shadows (rf/frame-generation f)).
 ;; ===========================================================================
 
 ;; An override image composed AFTER blue-img: it re-defines blue's
@@ -235,48 +231,32 @@
   (image/image {:id :blue/override
                 :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}}))
 
-(deftest frame-shadows-returns-the-report
-  (testing "rf/frame-shadows returns the cross-image SHADOW REPORT for the frame's
-            composition — one flat entry per override, naming the loser image + the
+(deftest generation-shadows-reports-the-override
+  (testing "the frame generation's :rf.gen/shadows carries the cross-image SHADOW
+            REPORT — one flat entry per override, naming the loser image + the
             FINAL winner (rf2-ke7w5j)"
     (let [_frame (rf/make-frame {:id :blue/main :images [blue-img blue-override]} blue-pool)]
       (is (= [{:registration [:event :counter/inc]
                :image        :blue/img
                :shadowed-by  :blue/override}]
-             (rf/frame-shadows :blue/main))
+             (:rf.gen/shadows (rf/frame-generation :blue/main)))
           "the override image shadowed blue's selected :counter/inc — reported by id")
       (testing "the live winner is the override image's descriptor"
         (let [m (rf/handler-meta {:frame :blue/main :kind :event :id :counter/inc})]
           (is (not= ::blue-inc (:handler-fn m))
               "blue's selected handler was shadowed by the later inline override"))))))
 
-(deftest frame-shadows-empty-when-no-override
-  (testing "a frame with no cross-image override returns an EMPTY report — the
-            common case (nothing was shadowed); reads via a direct frame OBJECT too"
+(deftest generation-shadows-empty-when-no-override
+  (testing "a frame with no cross-image override carries an EMPTY :rf.gen/shadows
+            report — the common case (nothing was shadowed); reads via a direct
+            frame OBJECT too"
     (let [_named (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
           obj    (rf/make-frame {:images [green-img]} green-pool)]
-      (is (= [] (rf/frame-shadows :blue/main))
+      (is (= [] (:rf.gen/shadows (rf/frame-generation :blue/main)))
           "no override image ⇒ empty shadow report")
       ;; A no-id frame value resolves through its own generation.
-      (is (= [] (rf/frame-shadows obj))
-          "frame-shadows accepts a direct frame value, like frame-generation"))))
-
-(deftest frame-shadows-matches-the-generation-shadows
-  (testing "rf/frame-shadows is the :rf.gen/shadows the frame's sealed generation
-            carries — the public accessor reads the same data"
-    (let [_frame (rf/make-frame {:id :blue/main :images [blue-img blue-override]} blue-pool)
-          gen    (rf/frame-generation :blue/main)]
-      (is (= (:rf.gen/shadows gen) (rf/frame-shadows :blue/main)))
-      (is (contains? gen :rf.gen/shadows)
-          "the sealed generation carries the :rf.gen/shadows report key"))))
-
-(deftest frame-shadows-fails-loud-on-unresolvable-target
-  (testing "rf/frame-shadows fails loud (:rf.error/frame-no-generation) when the
-            target names no live frame — the same contract as rf/frame-generation"
-    (is (= :rf.error/frame-no-generation
-           (err-id #(rf/frame-shadows :nope/missing))))
-    (is (= :rf.error/frame-no-generation
-           (err-id #(rf/frame-shadows "not-a-frame"))))))
+      (is (= [] (:rf.gen/shadows (rf/frame-generation obj)))
+          "the shadow report reads off a direct frame value's generation too"))))
 
 ;; ===========================================================================
 ;; 4. FAIL-LOUD — both ruled cases
@@ -292,8 +272,6 @@
     (is (= :rf.error/frame-no-generation
            (err-id #(rf/registrations {:frame :nope/missing :kind :event}))))
     (is (= :rf.error/frame-no-generation
-           (err-id #(rf/handler-ids {:frame :nope/missing :kind :event}))))
-    (is (= :rf.error/frame-no-generation
            (err-id #(rf/frame-generation :nope/missing))))
     ;; A non-frame value that is neither a frame object nor a registered id.
     (is (= :rf.error/frame-no-generation
@@ -301,7 +279,7 @@
     ;; A bare map with no generation slot is NOT a frame object → fail loud, no
     ;; silent default-registrar fallback.
     (is (= :rf.error/frame-no-generation
-           (err-id #(rf/handler-ids {:frame {:totally :fake} :kind :event}))))))
+           (err-id #(rf/registrations {:frame {:totally :fake} :kind :event}))))))
 
 (deftest map-without-frame-fails-loud
   (testing "a registrar-query map WITHOUT :frame fails loud
@@ -313,15 +291,13 @@
            (err-id #(rf/registrations {:kind :event}))))
     (is (= :rf.error/registrar-query-needs-frame
            (err-id #(rf/handler-meta {:kind :event :id :ff/inc}))))
-    (is (= :rf.error/registrar-query-needs-frame
-           (err-id #(rf/handler-ids {:kind :event}))))
     ;; the retired :realm spelling is now the same missing-:frame error
     (is (= :rf.error/registrar-query-needs-frame
            (err-id #(rf/registrations {:realm nil :kind :event}))))))
 
 (deftest handler-meta-non-map-single-arg-fails-loud
   (testing "rf2-wa38hs: handler-meta's 1-arg arity is MAP-ONLY — unlike
-            registrations / handler-ids, whose 1-arg arity ALSO serves the
+            registrations, whose 1-arg arity ALSO serves the
             default-source-store keyword read, handler-meta's positional read
             needs `id` too and lives on the separate (kind id) arity. So a
             bare non-map single arg here (the common mistake of omitting
@@ -354,6 +330,4 @@
     (testing "(registrations kind) — the default source-store keyword arity is unchanged"
       (is (contains? (rf/registrations :event) :ff/inc)))
     (testing "(handler-meta kind id) — unchanged"
-      (is (some? (rf/handler-meta :event :ff/inc))))
-    (testing "(handler-ids kind) — unchanged"
-      (is (contains? (rf/handler-ids :event) :ff/inc)))))
+      (is (some? (rf/handler-meta :event :ff/inc))))))
