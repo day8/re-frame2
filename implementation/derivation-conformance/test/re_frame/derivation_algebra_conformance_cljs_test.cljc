@@ -374,6 +374,24 @@
         (is (= :resource-process (:refinement res)))
         (is (= :route-fact       (:refinement route)))
         (is (= :machine-process  (:refinement mach)))))
+    (testing "the machine-selector SUB node carries the :machine-selector
+              refinement — the NODE-LABEL half of the 'Selector refinement'
+              conformance clause (spec/Derivations.md §Conformance line 842).
+              The :selector EDGE half is pinned by c-static-edges; this pins the
+              node-label half, stamped by mark-machine-selectors
+              (core .../derivation/graph.cljc:667-690) INDEPENDENTLY of the
+              :selector-edge emitter (machine-edges). A regression breaking
+              mark-machine-selectors while machine-edges still emits the edge
+              would drop the label and slip past BOTH the edge assertion and the
+              a- validate-if-present refinement loop — so this REQUIRES the
+              label. The refinement RIDES :derivation, never replaces it
+              (rf2-tp6wwb)."
+      (let [sel (node-by-family nodes :subs :upload/progress)]
+        (is (some? sel) "the machine-selector sub node is present")
+        (is (= :machine-selector (:refinement sel))
+            "the :upload/progress selector sub is enriched with :refinement :machine-selector")
+        (is (= :derivation (:kind sel))
+            "the machine-selector refinement rides the :derivation superkind, never replaces it")))
     (testing "the route fact's id is the ONE consumer-facing slice name :rf/route
               (one-name-per-fact), with the per-route id under :source-form"
       (let [route (node-by-family nodes :routes :route/article)]
