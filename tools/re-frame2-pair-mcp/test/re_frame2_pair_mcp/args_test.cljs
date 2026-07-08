@@ -282,3 +282,105 @@
 (deftest parse-fx-overrides-non-string-rejected
   (is (= :err (first (args/parse-fx-overrides #js {":http" 42}))) "number target rejected")
   (is (= :err (first (args/parse-fx-overrides #js {":http" true}))) "boolean target rejected"))
+
+;; ---------------------------------------------------------------------------
+;; `:rf/fn-override` sentinel (rf2-m7x0qb / Tool-Pair §Replay) — a recorded
+;; `:fx-overrides` entry carrying the opaque marker
+;; (`re-frame.router/serializable-fx-overrides`'s stand-in for a fn-valued
+;; override the router could not serialize) makes the run UNREPLAYABLE under
+;; :strict. It is structurally a well-formed colon-prefixed keyword, so
+;; without this check it would silently coerce as if it were a genuine
+;; fx-id redirect.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-fx-overrides-fn-override-sentinel-fails-loud
+  (let [[tag m] (args/parse-fx-overrides #js {":http" ":rf/fn-override"})]
+    (is (= :err tag) "the opaque sentinel is never a valid redirect target")
+    (is (= :rf.error/unreplayable-fx-override (:reason m)))
+    (is (= :http (:target m)) "the offending fx-id is named in the error")))
+
+(deftest parse-fx-overrides-fn-override-sentinel-among-other-valid-entries
+  ;; The sentinel check applies PER-ENTRY — a map with one valid override
+  ;; and one sentinel-carrying entry still rejects the whole map (never a
+  ;; partial success that silently drops just the bad entry).
+  (let [[tag _] (args/parse-fx-overrides #js {":http" ":stub-http" ":navigate" ":rf/fn-override"})]
+    (is (= :err tag))))
+
+;; ---------------------------------------------------------------------------
+;; `parse-interceptor-overrides` (rf2-m7x0qb) — the ref-shaped sibling of
+;; `parse-fx-overrides`. Keys/values are EITHER a bare colon-tolerant
+;; keyword id OR a bracket-shaped EDN `"[id arg]"` string (a parameterized
+;; ref); a `null` value is the documented remove sentinel.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-interceptor-overrides-nil-and-absent
+  (is (= [:ok nil] (args/parse-interceptor-overrides nil)) "absent ⇒ ok nil")
+  (is (= [:ok nil] (args/parse-interceptor-overrides js/undefined)) "undefined ⇒ ok nil"))
+
+(deftest parse-interceptor-overrides-bare-keyword-ref
+  (let [[tag m] (args/parse-interceptor-overrides #js {":auth/required" ":story/skip-auth"})]
+    (is (= :ok tag))
+    (is (= {:auth/required :story/skip-auth} m)
+        "colon-prefixed bare keyword key/value coerce to keyword refs")))
+
+(deftest parse-interceptor-overrides-null-value-removes
+  (let [[tag m] (args/parse-interceptor-overrides #js {":audit/record-event" nil})]
+    (is (= :ok tag))
+    (is (= {:audit/record-event nil} m)
+        "null ⇒ the documented remove-this-interceptor sentinel")))
+
+(deftest parse-interceptor-overrides-parameterized-ref-key-and-value
+  ;; A JS object literal can only carry string keys, so a parameterized
+  ;; [id arg] ref rides as its bracket-shaped EDN string.
+  (let [[tag m] (args/parse-interceptor-overrides
+                  #js {"[:rf.interceptor/path [:cart]]" "[:rf.interceptor/path [:cart :items]]"})]
+    (is (= :ok tag))
+    (is (= {[:rf.interceptor/path [:cart]] [:rf.interceptor/path [:cart :items]]} m)
+        "bracket-shaped EDN strings coerce to [id arg] 2-vector refs")))
+
+(deftest parse-interceptor-overrides-multiple-entries
+  (let [[tag m] (args/parse-interceptor-overrides
+                  #js {":auth/required" ":story/skip-auth"
+                       ":audit/record-event" nil})]
+    (is (= :ok tag))
+    (is (= {:auth/required :story/skip-auth :audit/record-event nil} m))))
+
+(deftest parse-interceptor-overrides-bare-no-colon-key-and-value-tolerated
+  ;; "colon-tolerant" per the bead: a bare name WITHOUT a leading colon is
+  ;; ALSO a valid keyword id, mirroring `->frame-keyword`'s tolerance (NOT
+  ;; `parse-fx-overrides`'s stricter colon-REQUIRED contract, which exists
+  ;; for a distinct reason — see that fn's docstring).
+  (let [[tag m] (args/parse-interceptor-overrides #js {"auth/required" "story/skip-auth"})]
+    (is (= :ok tag))
+    (is (= {:auth/required :story/skip-auth} m)
+        "bare (no leading colon) key/value still coerce to keyword refs")))
+
+(deftest parse-interceptor-overrides-blank-value-rejected
+  ;; An empty/blank string is not a valid keyword id — `fresh-keyword`
+  ;; returns nil for blank input, which `interceptor-ref-token` maps to
+  ;; `::invalid` rather than silently dropping or coercing to a bogus
+  ;; keyword.
+  (let [[tag m] (args/parse-interceptor-overrides #js {":auth/required" "   "})]
+    (is (= :err tag))
+    (is (= :rf.error/interceptor-override-invalid (:reason m)))))
+
+(deftest parse-interceptor-overrides-non-string-value-rejected
+  (is (= :err (first (args/parse-interceptor-overrides #js {":auth/required" 42})))
+      "number replacement rejected")
+  (is (= :err (first (args/parse-interceptor-overrides #js {":auth/required" true})))
+      "boolean replacement rejected"))
+
+(deftest parse-interceptor-overrides-malformed-bracket-string-rejected
+  ;; An unreadable / wrong-shaped bracket string is rejected, not
+  ;; silently treated as a bare string id.
+  (is (= :err (first (args/parse-interceptor-overrides #js {"[:bad" ":story/skip-auth"})))
+      "unreadable bracket EDN rejected")
+  (is (= :err (first (args/parse-interceptor-overrides #js {"[:a :b :c]" ":story/skip-auth"})))
+      "a 3-vector isn't a valid [id arg] ref")
+  (is (= :err (first (args/parse-interceptor-overrides #js {"[1 2]" ":story/skip-auth"})))
+      "a non-keyword-headed vector isn't a valid ref"))
+
+(deftest parse-interceptor-overrides-not-an-object-rejected
+  (let [[tag m] (args/parse-interceptor-overrides "not-an-object")]
+    (is (= :err tag))
+    (is (= :rf.error/interceptor-override-invalid (:reason m)))))

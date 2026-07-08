@@ -433,6 +433,19 @@
                      "`replay` is strict even with no `cofx` token (an empty record still halts on any declared "
                      "recordable fact). Use `replay true` to ASSERT a fixture reproduces; omit it (with or without "
                      "`cofx`) for ordinary live dispatch. "
+                     "Envelope override re-supply (rf2-m7x0qb / Tool-Pair §Replay): a strict replay is faithful "
+                     "only if the recorded envelope's own `:fx-overrides` / `:interceptor-overrides` ride along "
+                     "with `:rf.cofx` — a run recorded with an active `:interceptor-overrides` would otherwise "
+                     "replay under a DIFFERENT effective interceptor chain. To replay a recorded epoch, pass its "
+                     "OWN `fx-overrides` / `interceptor-overrides` (read off the `:rf/epoch-record`) alongside "
+                     "`replay true` and `cofx`. `interceptor-overrides` is a colon-tolerant JSON object mapping "
+                     "an interceptor ref to a replacement ref or null-to-remove — the key/value tokens are "
+                     "EITHER a bare colon-prefixed keyword (`\":auth/required\"`) OR a bracket-shaped `\"[id "
+                     "arg]\"` EDN string for a parameterized ref (`\"[:rf.interceptor/path [:cart]]\"`). A "
+                     "recorded `:fx-overrides` entry carrying the opaque `:rf/fn-override` marker (a fn-valued "
+                     "override the router could not serialize) makes the run UNREPLAYABLE under `:strict`: the "
+                     "tool FAILS LOUD with `:reason :rf.error/unreplayable-fx-override` rather than re-supplying "
+                     "the literal sentinel as if it were a real fx redirect. "
                      "Examples: "
                      "1. Default (consequence): {:event \"[:cart/checkout]\"} -> {:ok? true :mode :sync :epoch-id 7 :resolved [:cart/checkout] :db-changed? true :changed-paths [[:cart]] :effects-fired [:dispatch] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart]] :added-paths [] :removed-paths []} :fx-fired [:dispatch] :subs-recomputed 3 :renders 1 :outcome :ok :elapsed-ms 4}}. "
                      "2. No-op made visible: {:event \"[:noop/event]\"} -> {:ok? true :mode :sync :epoch-id 8 :db-changed? false :changed-paths [] :effects-fired [] :no-op? true}. "
@@ -441,7 +454,9 @@
                      "5. Render-settle then observe: {:event \"[:counter/inc]\" :await-render true} -> {:ok? true :mode :sync :settled? true :epoch-id 9 :db-changed? true :cascade-summary {:renders 1 ...}} — the DOM now reflects the new state; follow with eval-cljs / a DOM read. "
                      "6. Dispatch-and-settle (full settled epoch): {:event \"[:list/toggle]\" :settle true} -> {:ok? true :mode :settle :settled? true :epoch-id 11 :epoch {...} :render-events [{:operation :rf.view/render :tags {...}} {:operation :rf.view/unmounted :tags {...}}] :cascade-summary {:renders 2 ...}} — one call returns the dispatch's complete epoch WITH the view renders/unmounts. "
                      "7. Bad event shape: {:event \"42\"} -> {:ok? false :reason :not-an-event-vector :event-edn 42}. "
-                     "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}. 10. Strict replay (re-present a recorded token): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :replay true :cofx \"{:rf/time-ms 1781078400123 :counter/delta 4}\"} -> the dispatch re-drives under :rf.cofx/mint-policy :strict; a COMPLETE record reproduces the run, an INCOMPLETE one (missing a declared recordable fact) fails with :rf.error/missing-required-cofx instead of re-minting.")
+                     "8. Reproducible dispatch (scripted causal time): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :cofx \"{:rf/time-ms 1781078400123}\"} -> {:ok? true :mode :sync :epoch-id 7 :db-changed? true ...} — the new todo's :created-at reads the scripted 1781078400123, so a replay asserts the SAME app-db. 9. Bad cofx: {:event \"[:x]\" :cofx \"[:not :a :map]\"} -> {:ok? false :reason :invalid-cofx :hint \"cofx must be a MAP ...\"}. 10. Strict replay (re-present a recorded token): {:event \"[:todo/add {:text \\\"buy milk\\\"}]\" :replay true :cofx \"{:rf/time-ms 1781078400123 :counter/delta 4}\"} -> the dispatch re-drives under :rf.cofx/mint-policy :strict; a COMPLETE record reproduces the run, an INCOMPLETE one (missing a declared recordable fact) fails with :rf.error/missing-required-cofx instead of re-minting. "
+                     "11. Strict replay re-supplying the recorded envelope overrides (rf2-m7x0qb): {:event \"[:cart/checkout]\" :replay true :cofx \"{:rf/time-ms 1781078400123}\" :fx-overrides {\":http\": \":stub-http\"} :interceptor-overrides {\":audit/record-event\": null}} -> the replay re-drives under :rf.cofx/mint-policy :strict WITH the recorded :http stub AND the recorded interceptor removal active — the same effective chain the original run had, not a silently different one. "
+                     "12. Unreplayable fx-override sentinel: {:event \"[:cart/checkout]\" :replay true :fx-overrides {\":http\": \":rf/fn-override\"}} -> {:ok? false :reason :rf.error/unreplayable-fx-override :target :http :hint \"...\"} — the recorded override was a CLJS fn the router could not serialize; the tool refuses rather than silently redirecting to a non-existent fx.")
    :typicalTokens 300
    :annotations destructive-annotations
    :outputSchema envelope-or-marker
@@ -484,6 +499,20 @@
                               :frame {:type "string" :description "Operating frame (e.g. :stories)"}
                               :fx-overrides {:type "object"
                                              :description "Per-call fx redirects, e.g. {:http :stub-http}"}
+                              :interceptor-overrides {:type "object"
+                                                       :description (str "Per-call interceptor substitution/removal by exact "
+                                                                         "reference (Spec 002 §:interceptor-overrides), e.g. "
+                                                                         "{\":auth/required\": \":story/skip-auth\", "
+                                                                         "\":audit/record-event\": null}. Keys/values are each "
+                                                                         "EITHER a colon-prefixed keyword id or a bracket-shaped "
+                                                                         "\"[id arg]\" EDN string for a parameterized ref (e.g. "
+                                                                         "\"[:rf.interceptor/path [:cart]]\"); null removes the "
+                                                                         "matched interceptor. rf2-m7x0qb / Tool-Pair §Replay: "
+                                                                         "to replay a recorded epoch, pass its OWN "
+                                                                         "`:interceptor-overrides` (read off the "
+                                                                         ":rf/epoch-record) here alongside `replay true` — a "
+                                                                         "recorded active override re-presents verbatim rather "
+                                                                         "than silently replaying under a different chain.")}
                               :cofx {:type "string"
                                      :description (str "Reproducible dispatch (rf2-q6s1nb / EP-0010 + EP-0017): an EDN MAP "
                                                        "of scripted recordable coeffects threaded into the dispatch "
@@ -511,7 +540,11 @@
                                                          "with no `cofx` (an empty record still halts on any declared "
                                                          "recordable fact). Default false: a `cofx`-only dispatch stays "
                                                          ":live (a declared-absent generator-backed fact is freshly "
-                                                         "minted). Set true to ASSERT a fixture reproduces.")}
+                                                         "minted). Set true to ASSERT a fixture reproduces. `replay` "
+                                                         "hard-wires the strict cofx policy ONLY — a faithful replay ALSO "
+                                                         "needs the recorded envelope's own `fx-overrides` / "
+                                                         "`interceptor-overrides` (rf2-m7x0qb) passed as those separate "
+                                                         "args, read off the :rf/epoch-record, per Tool-Pair §Replay.")}
                               :include-sensitive {:type "boolean"
                                                   :description (str "Epoch-egress privacy opt-in for the :trace / :settle modes "
                                                                     "(rf2-olvr5 / rf2-m9duxl). Those modes return a RAW "
