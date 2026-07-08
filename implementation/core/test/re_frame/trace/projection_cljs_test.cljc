@@ -1,4 +1,4 @@
-(ns re-frame.trace.projection-test
+(ns re-frame.trace.projection-cljs-test
   "Tests for `re-frame.trace.projection/group-by-event` +
   `domino-bucket`. Pure-data — no fixture, no frame, no router; JVM and
   CLJS run the same suite.

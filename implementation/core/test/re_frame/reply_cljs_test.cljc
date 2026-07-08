@@ -1,4 +1,4 @@
-(ns re-frame.reply-test
+(ns re-frame.reply-cljs-test
   "Conformance for the EP-0011 uniform-reply-envelope substrate
   (`re-frame.reply`). Pins the three conformance groups EP-0011
   §Validation requires of the shared substrate slice:

@@ -1,4 +1,4 @@
-(ns re-frame.actor-resource-lease-release-test
+(ns re-frame.actor-resource-lease-release-cljs-test
   "Machine-SIDE contract for releasing an actor's resource leases on destroy
   (Spec 016 §Release authority is per owner kind, 016:290).
 
@@ -30,8 +30,9 @@
        release is silently skipped (`resource-release/release-owner-registered?`
        gates it).
 
-  Named `*-test.cljc` so both cognitect.test-runner (JVM, plain-atom) and
-  shadow-cljs (CLJS, reagent) discover + run it."
+  Named `*-cljs-test.cljc` so both cognitect.test-runner (JVM, plain-atom) and
+  shadow-cljs (CLJS, reagent) discover + run it — the `cljs-test$`
+  ns-regexp on the `:node-test` build only matches the `-cljs-test` suffix."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

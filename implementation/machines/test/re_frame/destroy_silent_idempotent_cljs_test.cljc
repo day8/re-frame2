@@ -1,4 +1,4 @@
-(ns re-frame.destroy-silent-idempotent-test
+(ns re-frame.destroy-silent-idempotent-cljs-test
   "Destroy idempotence is a deliberate contract, aligned with the XState
   convention.
 
@@ -24,9 +24,11 @@
   The spec contract lives at Spec 005 §Destroy is silent-idempotent,
   with a cross-link from §Final states D6.
 
-  The file is named `*-test.cljc` so it's discovered by both
+  The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect.test-runner (JVM) and shadow-cljs (CLJS); both paths
-  exercise the same destroy fx handler."
+  exercise the same destroy fx handler. (The `:node-test` build's
+  `cljs-test$` ns-regexp matches only the `-cljs-test` suffix, so a
+  plain `-test.cljc` would silently ride the JVM path alone.)"
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])

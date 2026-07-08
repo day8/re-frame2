@@ -1,4 +1,4 @@
-(ns re-frame.reg-meta-noswallow-test
+(ns re-frame.reg-meta-noswallow-cljs-test
   "No-silent-swallow on `reg-*` registration METADATA KEYS (rf2-x68lzo).
 
   Per Conventions §No silent swallow: a BARE (unqualified) registration-metadata
@@ -21,12 +21,21 @@
             [re-frame.cofx :as cofx]
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.registrar :as registrar]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
+;; `clear-all!` gives each test a clean registrar, but in the shared
+;; `:node-test` bundle (rf2-ezbzvm) it also drops sibling namespaces'
+;; ns-load registrations (e.g. reg-view'd components other suites render).
+;; Snapshot first and restore in `finally` so the clean-slate is scoped to
+;; this test and cross-namespace registrations survive.
 (defn- reset-registry [test-fn]
-  (registrar/clear-all!)
-  (test-fn)
-  (registrar/clear-all!))
+  (let [snapshot (test-support/snapshot-registrar)]
+    (registrar/clear-all!)
+    (try
+      (test-fn)
+      (finally
+        (test-support/restore-registrar! snapshot)))))
 
 (use-fixtures :each reset-registry)
 

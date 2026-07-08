@@ -1,4 +1,4 @@
-(ns re-frame.event-emit-test
+(ns re-frame.event-emit-cljs-test
   "Per rf2-rirbq — the always-on event-emit substrate. Substrate-level
   contract: one record per processed event, fan-out to every
   registered listener, listener exceptions are swallowed, registry is
@@ -18,6 +18,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 ;; The schema-validation and flow-run hooks are published by the optional
@@ -29,7 +30,14 @@
 ;; (`schemas-by-frame`, `flows`) so a schema / flow registered by an
 ;; earlier namespace cannot roll back this namespace's clean dispatches —
 ;; the same isolation `smoke_test`'s fixture performs.
+;;
+;; `clear-all!` wipes the WHOLE registrar; in the shared `:node-test`
+;; bundle (rf2-ezbzvm) that also drops sibling namespaces' ns-load view /
+;; sub registrations. Snapshot the registrar first and restore it in the
+;; `finally` so the clean-slate is scoped to this test and cross-namespace
+;; registrations survive (test-support/{snapshot,restore}-registrar!).
 (defn- reset-runtime [test-fn]
+  (let [registrar-before (test-support/snapshot-registrar)]
   (registrar/clear-all!)
   (reset! frame/frames {})
   (schemas/clear-schemas-by-frame!)
@@ -50,7 +58,8 @@
       (finally
         (reset! late-bind/hooks hooks-before)
         (late-bind/invalidate-cache! :schemas/validate-app-schema!)
-        (late-bind/invalidate-cache! :flows/run-flows-on-db)))))
+        (late-bind/invalidate-cache! :flows/run-flows-on-db)
+        (test-support/restore-registrar! registrar-before))))))
 
 (use-fixtures :each reset-runtime)
 

@@ -1,4 +1,4 @@
-(ns re-frame.after-fire-reap-test
+(ns re-frame.after-fire-reap-cljs-test
   "rf2-8cndln — a guard-suppressed `:after` timer fire must REAP its own
   registry entry at fire time, not leak it.
 

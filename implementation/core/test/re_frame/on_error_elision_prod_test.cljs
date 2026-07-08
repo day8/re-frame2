@@ -80,7 +80,7 @@
   (testing "A buggy listener cannot break the cascade under prod. The
             substrate catches listener throws silently — the dispatch
             settles and sibling listeners still run. Mirrors the dev-
-            mode contract from `re-frame.on-error-test`; pinned here
+            mode contract from `re-frame.on-error-cljs-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
       (rf/register-listener! :errors
@@ -177,7 +177,7 @@
 ;; throw lost its diagnostic entirely in production. Now they ALSO fan out
 ;; through the always-on error-emit listener (surface #4), which survives
 ;; `goog.DEBUG=false`. Each test here is the production-mode counterpart
-;; of the dev-mode test in `re-frame.on-error-test`. Recovery is
+;; of the dev-mode test in `re-frame.on-error-cljs-test`. Recovery is
 ;; framework-owned (the per-category typed defaults); there is no
 ;; app-steering policy (rf2-hiqtk8).
 ;; ==========================================================================

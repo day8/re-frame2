@@ -4,7 +4,7 @@
   is compile-time elided in production builds (`:advanced` +
   `goog.DEBUG=false`).
 
-  This file is the prod-mode companion to `re-frame.event-emit-test`
+  This file is the prod-mode companion to `re-frame.event-emit-cljs-test`
   (default JVM / Node runners). It mirrors the rf2-hqbeh shape used by
   `re-frame.on-error-elision-prod-test`: the shared runner is
   `re-frame.prod-elision-runner`; the shadow-cljs build is
@@ -77,7 +77,7 @@
   (testing "A buggy listener cannot break the cascade under prod. The
             substrate catches listener throws silently — the dispatch
             settles and sibling listeners still run. Mirrors the dev-
-            mode contract from `re-frame.event-emit-test`; pinned here
+            mode contract from `re-frame.event-emit-cljs-test`; pinned here
             so the prod-build behaviour is locked too."
     (let [seen (atom [])]
       (rf/register-listener! :events

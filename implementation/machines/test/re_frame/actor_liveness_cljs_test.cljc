@@ -1,4 +1,4 @@
-(ns re-frame.actor-liveness-test
+(ns re-frame.actor-liveness-cljs-test
   "A dynamically-spawned machine actor's LIVENESS is derived from its
   (revertible) runtime-db snapshot, NOT from a per-instance registrar entry.
 

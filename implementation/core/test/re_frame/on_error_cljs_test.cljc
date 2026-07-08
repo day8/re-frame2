@@ -1,4 +1,4 @@
-(ns re-frame.on-error-test
+(ns re-frame.on-error-cljs-test
   "Per rf2-bacs4 — exercise the corpus-wide `register-error-listener!`
   registry (the single always-on error observability surface; the
   per-frame `:on-error` recovery policy was REMOVED per rf2-hiqtk8 —
