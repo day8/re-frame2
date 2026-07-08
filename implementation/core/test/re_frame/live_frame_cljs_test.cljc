@@ -11,13 +11,15 @@
 
     * `:images` (a vector) resolves to a generation read by id off the record
       (`lf/frame-generation` accepts EITHER a frame value or a frame id);
-    * the NO-`:images` path (absent or `[]`) runs the DEFAULT IMAGE — the
+    * the ABSENT-`:images` path (`make-frame {}`) runs the DEFAULT IMAGE — the
       implicit selector over the WHOLE source store (rf2-32siq3.33): the
       generation includes the store's `reg-*` descriptors (+ standards), NOT the
       framework standards alone, and a cross-namespace same-`[kind id]` collision
       in that default projection FAILS LOUD at make-frame time
       (`:rf.error/image-duplicate-id`). Covered for both the explicit-pool
-      2-arity and the bare live-store 1-arity;
+      2-arity and the bare live-store 1-arity. (EP-0026 §Default Image, ruled
+      2026-06-22: an EMPTY `:images []` is now an ERROR, not the default path —
+      OMIT `:images` for the default; see §1b below);
     * an `:id` registers an image-loaded record in the ONE registry — `lf/
       live-frame` RECONSTRUCTS a fresh value from the record (routing to the same
       id, NOT `identical?` to the originally-returned value) and the id appears in
@@ -177,20 +179,38 @@
       (is (some? (asm/resolve-descriptor gen :event :counter/inc))))))
 
 ;; ===========================================================================
-;; 1b. EP-0026 §Default Image (rf2-fsd822, ruled 2026-06-22): `:images []` is an
-;;     ERROR (`:rf.error/make-frame-bad-images`) — pass at least one image, or
-;;     OMIT `:images`. This REVERSES EP-0023/EP-0024, where `:images []` was the
-;;     default-image path.
+;; 1b. EP-0026 §Default Image (rf2-fsd822, ruled 2026-06-22) — the THREE-WAY
+;;     `:images` boundary, WIRED at the `make-frame` constructor (rf2-igip5b):
+;;       * PRESENT non-empty `:images`  → the SELECTED image generation;
+;;       * PRESENT empty `:images []`   → an ERROR
+;;         (`:rf.error/make-frame-bad-images`) — pass at least one image, or OMIT
+;;         `:images`. REVERSES EP-0023/EP-0024, where `:images []` was the
+;;         default-image path;
+;;       * ABSENT `:images` (`make-frame {}`) → the DEFAULT IMAGE generation over
+;;         the active source store (`image-assembly/assemble-default`): the
+;;         implicit selector over the WHOLE store + framework standards, FAILING
+;;         LOUD on a cross-namespace same-`[kind id]` collision the SAME way an
+;;         explicit image does (`:rf.error/image-duplicate-id` — load order never
+;;         silently decides the survivor on the default path either).
 ;;
-;;     The ruling ALSO says OMITTING `:images` (`make-frame {}`) should resolve
-;;     the DEFAULT image generation. That OMIT→default BOUNDARY WIRING is
-;;     DEFERRED to a follow-up (a design-level conflict with the Story player /
-;;     owned-frame lifecycle, which deliberately create image-LESS registrar-
-;;     backed frames, plus the consolidated test bundle's shared source store
-;;     carrying cross-app collisions a whole-store default projection fails on).
-;;     So for now an ABSENT `:images` still carries NO generation (the EP-0023/
-;;     EP-0024 ordinary configured frame). The assembly-layer default-image
-;;     mechanics are unchanged and covered by `image-assembly-default-cljs-test`.
+;;     The Mike-ruled OMIT→default boundary is now LIVE (rf2-igip5b): an ABSENT
+;;     `:images` resolves the DEFAULT generation onto the frame's record — it no
+;;     longer carries NO generation. See `make-frame`'s three-way switch in
+;;     `re-frame.live-frame`; asserted below by
+;;     `absent-images-resolves-the-default-image-generation` (the default path
+;;     resolves the whole pool + fails loud on a default-projection collision) and
+;;     `omit-images-yields-default-explicit-images-untouched` (the adversarial
+;;     contrast: OMIT projects the whole store, a PRESENT explicit image resolves
+;;     ONLY its own selection). The assembly-layer default-image mechanics are
+;;     additionally covered by `image-assembly-default-cljs-test`.
+;;
+;;     The earlier bracketed design-level conflict (the Story player / owned-frame
+;;     lifecycle deliberately creating image-LESS registrar-backed frames, and
+;;     consolidated test bundles whose shared source store carries cross-app
+;;     collisions a whole-store default projection fails on) is NOT a conflict
+;;     with the make-frame boundary itself — it is the SEPARATE Story/owned-frame
+;;     migration to explicit images, which stays out of the EP-0026 image-boundary
+;;     surface and is tracked on its own follow-up.
 ;; ===========================================================================
 
 (deftest empty-images-vector-is-an-error
@@ -252,6 +272,36 @@
           (err-id #(lf/make-frame {:id :dup/default} colliding-pool))
           (is (= before (lf/live-frame-ids))
               "a rejected default projection leaves the live-frame registry untouched"))))))
+
+(deftest omit-images-yields-default-explicit-images-untouched
+  (testing "EP-0026 §Default Image boundary (rf2-igip5b) — the ADVERSARIAL
+            contrast between the two live paths off ONE source pool: OMITTING
+            `:images` projects the WHOLE store (the default image), while a
+            PRESENT explicit `:images` resolves ONLY its own selection. The
+            omit→default switch neither leaks the whole store into the explicit
+            path nor overrides an explicit image with the default."
+    (let [pool [(reg-desc "examples.counter" :event :counter/inc  ::inc)
+                (reg-desc "lib.widgets"       :event :widgets/init ::winit)]]
+      (testing "OMIT `:images` (make-frame {}) ⇒ the DEFAULT projection over the
+                WHOLE pool — BOTH namespaces' descriptors resolve"
+        (let [gen (lf/frame-generation (lf/make-frame {} pool))]
+          (is (some? gen) "the omit path carries a generation (EP-0026)")
+          (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+              "default projection resolves examples.counter's :counter/inc")
+          (is (some? (asm/resolve-descriptor gen :event :widgets/init))
+              "default projection ALSO resolves lib.widgets' :widgets/init")))
+      (testing "a PRESENT explicit `:images` selecting ONLY examples.counter is
+                UNTOUCHED by the default — it resolves its :counter/inc but NOT the
+                unselected :widgets/init (the whole-store default did not leak in)"
+        (let [img (image/image {:id        :examples/counter
+                                :select-ns {:include ["examples.counter"]}})
+              gen (lf/frame-generation (lf/make-frame {:images [img]} pool))]
+          (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+              "the explicit image resolves its selected :counter/inc")
+          (is (nil? (asm/resolve-descriptor gen :event :widgets/init))
+              "the explicit image does NOT resolve the unselected :widgets/init —
+               the omit→default whole-store projection did not bleed into the
+               explicit-image path"))))))
 
 ;; ===========================================================================
 ;; 2. :id registers an image-loaded record in the ONE `frames` registry
