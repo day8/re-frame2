@@ -1762,6 +1762,42 @@ it('TEETH rf2-cnu7qy: a content-first SVG og:image trips the raster contract', (
   );
 });
 
+// ---- rf2-3dzb6h: unquoted HTML attribute values ---------------------------
+//
+// HTML5 permits unquoted attribute values. The old quoted-only regexes missed
+// `<script src=main.js>` / `<link href=//cdn…>`, so an unquoted forbidden remote
+// dep shipped green and an unquoted broken local ref was never resolved on disk.
+
+it('rf2-3dzb6h: extractHtmlRefs reads an unquoted src/href', () => {
+  const refs = extractHtmlRefs('<script src=main.js></script><link href=base.css>');
+  assert.ok(refs.includes('main.js'));
+  assert.ok(refs.includes('base.css'));
+});
+
+it('rf2-3dzb6h: extractAssetRefs tags an unquoted remote script src + link href', () => {
+  const tagged = extractAssetRefs(
+    '<script src=https://cdn.evil/x.js></script>\n' +
+      '<link rel=stylesheet href=//cdn.evil/x.css>',
+  );
+  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
+  assert.ok(byRef['https://cdn.evil/x.js'] && byRef['https://cdn.evil/x.js'].includes('script'));
+  assert.ok(byRef['//cdn.evil/x.css'] && byRef['//cdn.evil/x.css'].includes('link'));
+});
+
+it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible)', () => {
+  const html = goodHtml().replace(
+    '<script src="main.js"></script>',
+    '<script src=https://cdn.example.com/sdk.js></script>\n<script src="main.js"></script>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+    ),
+    `expected the unquoted external script to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
 // ---- contract constant sanity -------------------------------------------
 
 it('REQUIRED_SHARED_ASSETS names favicon, the og.png raster, and style.css', () => {
