@@ -17,6 +17,13 @@
   Plus an ADVERSARIAL negative: a malformed `#`-URL fails closed to a
   route-miss, exactly as a malformed path-URL does.
 
+  5. The `with-base-path` combinator's three CLJS-only side-effecting legs
+     (rf2-33uv27): `:push!` / `:replace!` re-add the deployment base before
+     driving `window.history`, and `:install-listener!` STRIPS the base off
+     each browser-driven change before `on-change` — a `/realworld`-deployed
+     app's address bar carries the mount-point URL while the router stays
+     app-relative.
+
   Node has no `window`, so a jsdom-style history/location stub is installed
   per-test (mirroring `routing_history_cljs_test.cljs`). Per Spec 012 §URL
   strategies."
@@ -256,3 +263,89 @@
   (testing "hash-encode does not double-hash an already-`#`-prefixed input"
     (is (= "#/active" (strategy/hash-encode "#/active")))
     (is (= "#/active" (strategy/hash-encode (strategy/hash-encode "/active"))))))
+
+;; ==========================================================================
+;; 5. with-base-path (rf2-g8pbwg / rf2-33uv27) — the three CLJS-only
+;;    side-effecting legs (:push! / :replace! / :install-listener!) driven
+;;    against the live stubbed window.
+;;
+;; The JVM suite (`routing_url_strategy_test.clj`) pins the host-agnostic
+;; :encode/:decode wrapping + the blank-base no-op; these three side-effecting
+;; legs are CLJS-only and had ZERO executed coverage (rf2-33uv27). They are the
+;; egress (`:push!`/`:replace!` re-add the base so the address bar carries the
+;; real mount-point URL) and ingress (`:install-listener!` STRIPS the base so
+;; the app-side handler stays app-relative) halves the base-path combinator
+;; exists for — a `/realworld`-deployed app. Driven here over the DEFAULT
+;; history strategy (the case the bead describes); the wrapper's `:decode`
+;; strip is already round-tripped by section 3's live-window test for the
+;; shipped strategies.
+;; ==========================================================================
+
+(deftest with-base-path-push!-re-adds-base-to-history-entry-cljs
+  (testing "rf2-33uv27: a with-base-path-wrapped history strategy's :push!
+            re-adds the base before driving window.history — every pushed
+            entry carries the real /realworld mount-point href, not the bare
+            app-relative path"
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
+      ((:push! wrapped) "/active")
+      ((:push! wrapped) "/completed")
+      (is (= ["/" "/realworld/active" "/realworld/completed"]
+             (:entries @*history-state*))
+          "each :push! entry is the base-prefixed href (a new entry per push)")
+      (is (= "/realworld/completed" (current-url *history-state*))
+          "the address bar sits on the base-prefixed completed href"))))
+
+(deftest with-base-path-replace!-re-adds-base-and-overwrites-cljs
+  (testing "rf2-33uv27: the wrapped :replace! re-adds the base AND overwrites
+            the current history entry (no new entry) — mirroring the shipped
+            strategy's replace semantics under the base prefix"
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
+      ((:push! wrapped) "/active")
+      (let [before (count (:entries @*history-state*))]
+        ((:replace! wrapped) "/completed")
+        (is (= before (count (:entries @*history-state*)))
+            ":replace! did not add a history entry")
+        (is (= "/realworld/completed" (current-url *history-state*))
+            "the current entry was overwritten with the base-prefixed href")
+        (is (= "/realworld/completed" (last (:entries @*history-state*)))
+            "no stray /active remains as the tail — it was replaced in place")))))
+
+(deftest with-base-path-install-listener!-strips-base-before-on-change-cljs
+  (testing "rf2-33uv27: the wrapped :install-listener! STRIPS the base off each
+            browser-driven change before calling on-change — a /realworld app's
+            Back/Forward navs reach the router app-relative (/active), never the
+            base-prefixed /realworld/active that would route-miss on every
+            back-button"
+    (let [wrapped  (strategy/with-base-path strategy/history-url-strategy "/realworld")
+          received (atom [])
+          teardown ((:install-listener! wrapped) (fn [p] (swap! received conj p)))]
+      ;; Drive the browser to base-prefixed URLs and fire popstate: the inner
+      ;; history-decode reads /realworld/active off the stubbed location; the
+      ;; wrapper strips /realworld so on-change sees the app-relative /active.
+      (.pushState js/globalThis.window.history nil "" "/realworld/active")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (.pushState js/globalThis.window.history nil "" "/realworld/completed")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= ["/active" "/completed"] @received)
+          "on-change received the base-STRIPPED app-relative path on each change")
+      ;; the returned teardown thunk removes the browser listener.
+      (teardown)
+      (reset! received [])
+      (.pushState js/globalThis.window.history nil "" "/realworld/active")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= [] @received)
+          "the teardown thunk removed the popstate listener — no further deliveries"))))
+
+(deftest with-base-path-install-listener!-mount-root-delivers-app-root-cljs
+  (testing "rf2-33uv27: at the bare mount root (location == the base itself,
+            /realworld) the wrapped listener delivers `/` — the app root — not
+            an empty string, exactly as strip-base-path's mount-root case
+            specifies"
+    (let [wrapped  (strategy/with-base-path strategy/history-url-strategy "/realworld")
+          received (atom nil)
+          teardown ((:install-listener! wrapped) (fn [p] (reset! received p)))]
+      (.pushState js/globalThis.window.history nil "" "/realworld")
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= "/" @received)
+          "the mount root decodes+strips to the app root `/`")
+      (teardown))))
