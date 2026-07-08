@@ -138,6 +138,58 @@
         "The agent's explanation of the boundary matches the shipped hybrid split: authoring (register/preview/read-back) is static and owned here; running (run-variant / read-failures / record-as-variant) is runtime-bound and owned by re-frame2-pair — consistent with scripts/check_skill_mcp_drift.py's intentional_server_only partition.",
         "The agent does NOT propose adding run-variant / read-failures to the re-frame2 skill's allowed-tools as a workaround, nor does it hallucinate a successful run result it never executed."
       ]
+    },
+    {
+      "id": 9,
+      "name": "recipe-correctness-resource-scoped-read-lifecycle",
+      "dimension": "recipe-correctness",
+      "prompt": "In our re-frame2 admin console the current tenant's billing summary is shown on three different screens. Fetch it once and cache it, keep it fresh (re-fetch if it's older than a minute or when the window regains focus), and make sure it never leaks between tenants when an admin switches the impersonated tenant. Wire up the read side — how each screen reads it and what actually causes it to load.",
+      "expected_output": "The agent loads patterns/resources.md and models a shared, cached, revalidated server-state read with reg-resource. The tenant boundary forces a fail-closed :scope — a reg-resource-scope named resolver referenced as {:from-db ...}, NOT :rf.scope/global, and never omitted. Views read passively through a [:rf/resource ...] subscription; the fetch is CAUSED from a route :resources entry or an event-dispatched [:rf.resource/ensure ...] (owner + cause), never from a view. The tenant switch clears the old scope causally (:rf.resource/clear-scope with the old scope resolved via resolve-resource-scope from the cofx db). It does not hand-roll the cache key or a parallel loading/error slice.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and patterns/resources.md is read.",
+        "The output registers the read with (rf/reg-resource ...) carrying a REQUIRED :scope — it does NOT omit :scope (omission is the fail-closed :rf.error/resource-missing-scope-policy) and does NOT declare it :rf.scope/global (the tenant / impersonation boundary is viewer-relative, not a global claim).",
+        "The tenant identity is derived once as a named scope resolver via (rf/reg-resource-scope ...) and referenced as {:from-db <resolver-id>}, rather than hand-assembling the tenant id into params / the cache key at each call site (the TanStack query-key divergence).",
+        "Views read the cached state PASSIVELY through a [:rf/resource {:resource ... :scope ... :params ...}] subscription (or a sibling :rf.resource/* projection sub) — a view / subscription never triggers the fetch.",
+        "The fetch is CAUSED from a route :resources entry (owner [:route route-id nav-token]) OR an event that dispatches [:rf.resource/ensure {... :owner ... :cause ...}] — with an :owner (liveness lease) distinct from the :cause — not from render.",
+        "The resource request fn returns a managed-HTTP args map ({:request ... :decode ...}) and does NOT supply :request-id / :on-success / :on-failure (the runtime owns reply addressing and stale suppression).",
+        "On tenant switch / impersonation change the output clears the affected scope causally with [:rf.resource/clear-scope ...], resolving the old concrete scope from the handler's coeffect db via (rf/resolve-resource-scope db ...) — NOT via a :snapshot-db payload key.",
+        "The output does NOT hand-roll a resource cache keyed by raw params / host = / a hash and does NOT assoc-in to the framework-owned :rf.runtime/resources — it lets the framework compute the [scope resource-id params] identity (CEDN-1)."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "recipe-correctness-mutation-reply-to-workflow",
+      "dimension": "recipe-correctness",
+      "prompt": "Write the re-frame2 save flow for editing an article. On submit, PUT it to the server. When the save succeeds the article list and the article detail both need to reflect the change; then navigate to the saved article's page and pop a 'Saved' toast. If the server rejects with field-level errors, surface those back on the form. Two editors might hit Save on different articles at the same time.",
+      "expected_output": "The agent loads patterns/resources-mutations.md and models the write with reg-mutation dispatched via [:rf.mutation/execute ...] keyed by a per-submission :instance (so concurrent saves never clobber). It keeps the two axes apart: cache consequences (refresh the list via :invalidates, seed the detail via :populates) are DECLARATIVE on reg-mutation; app workflow (navigate, toast, fold field errors) lives in a call-site :reply-to handler — a causal event target, not a callback, and NOT a registration-level :reply-to (there is none). The :reply-to handler reads the appended reply map ({:status :value :error ...}) and cases on :ok / :error. It rejects putting navigation/toast on reg-mutation and rejects the component-watcher idiom.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and patterns/resources-mutations.md is read.",
+        "The write is registered with (rf/reg-mutation ...) whose request fn returns a managed-HTTP args map and does NOT set :request-id / :on-success / :on-failure.",
+        "The submit dispatches [:rf.mutation/execute {:mutation ... :params ... :instance ... :cause ...}] with a per-submission :instance id, and the output notes this instance keying is what stops two concurrent saves from clobbering each other.",
+        "Navigation, the toast, and folding server field-errors onto the form are done in a call-site :reply-to handler passed on [:rf.mutation/execute {... :reply-to [...]}] — described as a causal event target that lands on the event tape, NOT a callback, and NOT a registration-level :reply-to on reg-mutation.",
+        "The :reply-to handler reads the reply map appended as the final event arg — it destructures :status (:ok / :error) plus :value / :error and cases on status rather than assuming success.",
+        "Cache consequences are DECLARATIVE on reg-mutation: refreshing the article list is an :invalidates entry (tags) and seeding the detail entry is :populates (authoritative load) — NOT dispatched by hand from the :reply-to handler.",
+        "The output EXPLICITLY keeps the two axes apart — it does NOT put navigation / toast / auth-slice writes on reg-mutation's :populates / :invalidates (cache axis), and does NOT drive the post-save workflow by watching [:rf/mutation ...] from a component lifecycle hook (the watcher-reaction anti-pattern)."
+      ]
+    },
+    {
+      "id": 11,
+      "name": "recipe-correctness-mutation-optimistic-mixed-scope",
+      "dimension": "recipe-correctness",
+      "prompt": "In our re-frame2 feed, tapping the heart on an article should flip it to 'favorited' and bump the favorites count instantly — before the server replies — and roll back cleanly if the request fails. Favoriting also has to invalidate two separate things: the global article record and the current signed-in user's session-scoped feed list. Set this up.",
+      "expected_output": "The agent loads patterns/resources-mutations.md and declares an OPTIMISTIC reg-mutation plan (:optimistic and/or :optimistic-tags) that applies the flip/increment before the request is sent; it relies on the runtime to record the inverse and commit / roll back / reconcile on settle, and does NOT hand-write a rollback. The mixed-scope invalidation uses per-target DESCRIPTORS — one {:scope :rf.scope/global ...} target and one {:scope {:from-db ...} :tags #{[:feed]}} session-scoped target — NOT :cross-scope? true. It does not assoc into the framework-owned resource cache.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and patterns/resources-mutations.md is read.",
+        "The instant flip / count-bump is declared as an OPTIMISTIC plan on (rf/reg-mutation ...) — :optimistic (the exact-target twin of :patches) and/or :optimistic-tags — applied before the reply; the optimistic callback takes params only (its patch-fn takes old-data) with NO result arg, since the apply runs before any reply exists.",
+        "The output relies on the runtime to record the inverse and commit / roll back on settle (an accepted :ok commits, an :error / :cancelled rolls back) and does NOT hand-write the rollback / inverse.",
+        "The two-scope invalidation is expressed as per-target DESCRIPTORS on :invalidates — a vector of {:scope ... :tags ...} maps, one :rf.scope/global target and one session-scoped {:from-db <resolver-id>} target for #{[:feed]}.",
+        "The output does NOT reach for :cross-scope? true as the mixed-scope path (that is the audited scope-agnostic escape — it MUST carry :cause — not the ergonomic path when the scopes can be named).",
+        "The output does NOT hand-edit the framework-owned resource cache (:rf.runtime/resources) or hand-roll optimistic writes against reserved mutation keys — the optimistic plan plus the runtime-recorded inverse is the mechanism.",
+        "The optimistic mutation's request fn does NOT set :request-id / :on-success / :on-failure, and the output either names :on-conflict (default :invalidate) or notes optimistic plans are incompatible with :invalidate-timing :before-request."
+      ]
     }
   ]
 }
