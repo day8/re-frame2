@@ -368,6 +368,86 @@
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the slice tracks the legitimate same-origin navigation")))
 
+;; ---- rf2-aftbmz: external-url? BROWSER js/URL branch — the open-redirect gate
+;;
+;; `external-url?` (url.cljc:203-236) is fail-closed by TWO impls of one
+;; contract: a JVM/no-window LEXICAL path (`safe-in-app-url?`, exhaustively
+;; adversarial in routing_navigation_test.clj) and the CLJS LIVE-WINDOW path
+;; (js/URL + protocol-allowlist + origin-compare, url.cljc:224-231). The
+;; browser path is the classifier that actually runs where an open redirect
+;; is the live risk. Its `or` has TWO clauses:
+;;
+;;   (or (not (#{"http:" "https:"} protocol))        ; A — protocol allowlist
+;;       (not= (.-origin parsed) (.-origin loc)))     ; B — origin compare
+;;
+;; The window stub above (document origin https://app.example, node global
+;; `js/URL`) makes THIS branch run in the node-test target. Pre-existing
+;; coverage reached ONLY clause B (the single https://elsewhere.example
+;; vector at :320, plus the non-string guard which short-circuits BEFORE
+;; js/URL). Clause A — the non-http(s)-scheme gate — was reached by NO CLJS
+;; test, so a regression there (dropped allowlist, `.-host` vs `.-origin`,
+;; inverted compare) is a SILENT browser open-redirect the gates never catch.
+;; These deftests drive the JVM lexical bypass matrix through the browser
+;; classifier so BOTH clauses are exercised + asserted.
+
+(deftest external-url-browser-protocol-allowlist-cljs-rf2-aftbmz
+  (testing "rf2-aftbmz: the live-window js/URL branch fails closed on
+            non-http(s) schemes AND off-origin authorities — driving BOTH the
+            protocol-allowlist clause and the origin-compare clause"
+    (register-routes!)
+    (let [doc-origin (.-origin (.-location js/globalThis.window))]
+      (is (= "https://app.example" doc-origin)
+          "precondition: the window stub's document origin is https://app.example")
+
+      (testing "protocol-allowlist clause is LOAD-BEARING — a SAME-ORIGIN
+                blob: URL (matching origin, non-http(s) scheme) is EXTERNAL
+                ONLY via clause A; a dropped allowlist would class it in-app
+                (the exact silent open-redirect / scheme-smuggling regression)"
+        (is (true? (routing-url/external-url? (str "blob:" doc-origin "/1234-uuid")))
+            "blob:<same-origin> classes EXTERNAL — origins MATCH here, so the
+             protocol-allowlist clause is the sole gate that catches it"))
+
+      (testing "non-http(s) schemes reach the allowlist clause and fail closed"
+        (doseq [u ["javascript:alert(1)"
+                   "data:text/html,<script>alert(1)</script>"
+                   "file:///etc/passwd"]]
+          (is (true? (routing-url/external-url? u))
+              (str "non-http(s) scheme " (pr-str u)
+                   " classes EXTERNAL via the protocol allowlist (clause A)"))))
+
+      (testing "off-origin http(s) authorities fail closed via origin-compare"
+        (doseq [u ["//evil.example/x"                ;; protocol-relative → https://evil.example
+                   "http://other-host.example/x"     ;; different host + scheme
+                   "https://good@evil.example/x"]]    ;; userinfo-confusion → origin evil.example
+          (is (true? (routing-url/external-url? u))
+              (str "off-origin URL " (pr-str u)
+                   " classes EXTERNAL via the origin-compare clause (clause B)"))))
+
+      (testing "a SAME-ORIGIN ABSOLUTE http(s) URL is the one in-app case —
+                proving the browser gate is not blanket-true"
+        (is (false? (routing-url/external-url? (str doc-origin "/cart?q=1#frag")))
+            "same-origin absolute URL passes BOTH clauses → in-app (false)")))))
+
+(deftest request-url->app-url-canonicalizes-same-origin-absolute-cljs-rf2-aftbmz
+  (testing "rf2-aftbmz: request-url->app-url canonicalizes a SAME-ORIGIN
+            ABSOLUTE URL to its origin-relative pathname+search+hash via the
+            live-window js/URL leg (url.cljc:249-250) — the canonicalization
+            leg every prior nav test routed around by passing already-relative
+            URLs, so it was reached by no test"
+    (register-routes!)
+    (let [doc-origin (.-origin (.-location js/globalThis.window))]
+      (is (= "/cart?q=1#frag"
+             (routing-url/request-url->app-url (str doc-origin "/cart?q=1#frag")))
+          "a same-origin ABSOLUTE URL is reduced to pathname+search+hash")
+      (is (= "/cart?q=1#frag"
+             (routing-url/request-url->app-url "/cart?q=1#frag"))
+          "an already-relative in-app URL canonicalizes to itself")
+      (is (= "https://evil.example/x"
+             (routing-url/request-url->app-url "https://evil.example/x"))
+          "an EXTERNAL URL is passed through unchanged — the external? gate
+           short-circuits the canonicalize (canonicalising it could fabricate
+           an in-app-looking path)"))))
+
 (deftest scroll-position-captured-before-forward-nav-cljs
   (testing "leaving a route captures the current browser scroll position under that route's URL"
     (register-routes!)
