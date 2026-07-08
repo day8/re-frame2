@@ -175,17 +175,22 @@ The map is required to carry `:rf/time-ms` on the envelope (the runtime guarante
 > **Owner:** [001-Registration §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)
 > **Status:** v1-required
 
-The registration-metadata value declaring a handler's (or machine named-entry's) consumed coeffects — a vector of registered coeffect ids, each either a bare id keyword or a `[id arg]` 2-vector for a call-site-parameterized supplier (mirroring the binary supplier arity). EP-0017.
+The registration-metadata value declaring a handler's (or machine named-entry's) consumed coeffects — a vector of registered coeffect ids, each either a bare id keyword or a `[id arg]` 2-vector for a call-site-parameterized supplier (mirroring the binary supplier arity), or — on a **machine** named entry only — the map form `{:rf/sub query-v :as fact-id}` (a sub-valued recordable source; below). EP-0017.
 
 ```clojure
 (def CofxRequires
   [:vector
    [:or
     :keyword                                                               ;; a bare coeffect id
-    [:tuple :keyword :any]]])                                              ;; [id arg] — parameterized supplier; delivers under the bare `id`
+    [:tuple :keyword :any]                                                 ;; [id arg] — parameterized supplier; delivers under the bare `id`
+    [:map {:closed true}                                                   ;; machines-only sub-valued recordable source `{:rf/sub query-v :as fact-id}` (EP-0017 Option A rider); a `reg-event` handler declaring one is `:rf.error/cofx-request-invalid`
+     [:rf/sub [:cat :keyword [:* :any]]]                                   ;; the subscription query-vector — non-empty, keyword-headed; sampled once and recorded on the token under `:as`
+     [:as :qualified-keyword]]]])                                          ;; MANDATORY owner-qualified fact-id — the recorded fact's id AND the callback's destructure key
 ```
 
 A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key lives uniformly on `reg-event` — with the one event form (EP-0018) there is no db-only handler exempt from coeffect declaration (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
+
+The **map member** — `{:rf/sub query-v :as fact-id}`, a machines-only sub-valued recordable source ([001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key), [005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)) — is accepted **only** on a machine `:guards` / `:actions` named entry; a `reg-event` handler declaring one is `:rf.error/cofx-request-invalid` (its handler already holds `:db`). Its own registration-time errors are all `:rf.error/cofx-request-invalid`: a `:rf/sub` value that is not a non-empty, keyword-headed query-vector; a missing / non-owner-qualified `:as` fact-id (`:as` is mandatory — the recorded fact's id AND the destructure key, and the dedup key that lets a machine carry two `:rf/sub` sources without colliding under the bare id); or any key other than `:rf/sub` / `:as`. It carries no `reg-cofx` registration (its value is a subscription read, not a supplier), so `:rf.error/unregistered-cofx` does not apply.
 
 ### `:rf/handler-context` (the map handlers receive — event-context and fx-handler-ctx)
 
