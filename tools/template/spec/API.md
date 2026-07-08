@@ -6,9 +6,9 @@
 ## Invocation
 
 The template is invoked via deps-new's `-Tnew create`. The template
-arguments (`:name`, `:substrate`, `:include-story?`) are identical
-across the pre-split and post-split paths; only the `:template` coord
-+ the surrounding resolution differ.
+arguments (`:name`, `:substrate`, `:include-story?`, `:include-ssr?`,
+`:css`) are identical across the pre-split and post-split paths; only
+the `:template` coord + the surrounding resolution differ.
 
 > **Pre-split status (current):** the dedicated
 > `github.com/day8/re-frame2-template` repo does not exist yet, so the
@@ -27,15 +27,22 @@ Post-split steady-state form:
 clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name <coord> \
         [:substrate <kw>] \
-        [:include-story? <bool>]
+        [:include-story? <bool>] \
+        [:include-ssr? <bool>] \
+        [:css <kw>]
 ```
 
 Where:
 
 - `<coord>` is a group-qualified Clojure name — e.g. `acme/my-app`.
   `:name` is required.
-- `<kw>` is one of `:reagent` `:uix` `:helix`. Optional. Defaults
-  to `:reagent`.
+- `:substrate <kw>` is one of `:reagent` `:uix` `:helix`. Optional.
+  Defaults to `:reagent`.
+- `:include-story? <bool>` and `:include-ssr? <bool>` are `true` /
+  `false` (default `false`). Both are **Reagent-only in v1** and
+  **mutually exclusive** — pass at most one.
+- `:css <kw>` is `:tailwind` (the Tailwind v4 scaffold) or omitted
+  (the plain-CSS default). Substrate-invariant.
 
 The `-Tnew` tool is the standard deps-new tool. See
 [deps-new's README](https://github.com/seancorfield/deps-new#installation)
@@ -47,8 +54,8 @@ The examples below use the post-split `io.github.day8/re-frame2-template`
 coord. To run them against the **current** tree (pre-split), substitute
 the `:local/root` invocation from
 [Local-development invocation](#local-development-invocation) — the
-template arguments (`:name`, `:substrate`, `:include-story?`) are the
-same in both.
+template arguments (`:name`, `:substrate`, `:include-story?`,
+`:include-ssr?`, `:css`) are the same in both.
 
 ```bash
 # Reagent — canonical substrate (default)
@@ -69,6 +76,16 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
 clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name acme/my-app \
         :include-story? true
+
+# Reagent with server-side rendering + hydration
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :include-ssr? true
+
+# Reagent with a Tailwind v4 stylesheet (composes with any substrate + flag)
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app \
+        :css :tailwind
 
 # Pinned to a specific release tag
 clojure -Tnew create \
@@ -91,7 +108,9 @@ clojure -Tnew create \
 | Arg | Required | Meaning | Default |
 |---|---|---|---|
 | `:substrate` | no | One of `:reagent` `:uix` `:helix`. | `:reagent` |
-| `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Reagent only in v1** — non-Reagent substrates throw a clear error (UIx + Helix follow once those variants' app-shells catch up to Reagent's). | `false` |
+| `:include-story?` | no | When `true`, scaffolds the Story playground alongside the live app — adds the `day8/re-frame2-story` coord, emits `src/.../stories.cljs`, and swaps the entry `core.cljs` for the hash-routing `core_with_stories.cljs` variant. **Reagent only in v1** — non-Reagent substrates throw a clear error (UIx + Helix follow once those variants' app-shells catch up to Reagent's). Mutually exclusive with `:include-ssr?`. | `false` |
+| `:include-ssr?` | no | When `true`, scaffolds a server-side-rendered app (JVM render + client hydration). The registration root becomes a single shared `src/.../core.cljc` (folding in the events / subs / schema / view), a Ring/Jetty `server.clj` host is added (run with `clojure -X:server`), and a headless JVM `test/.../ssr_test.clj` gate replaces the CLJS `events_test.cljs`. An SSR-flavoured `README.md` overlays the default SPA one. The per-slice CLJS sources (`events.cljs` / `subs.cljs` / `schema.cljs` / `views.cljs`) are **not** emitted — they live in `core.cljc`. **Reagent-only in v1** (non-Reagent substrates throw a clear error) and **mutually exclusive with `:include-story?`**. | `false` |
+| `:css` | no | `:tailwind` swaps the plain-CSS scaffold for a Tailwind v4 one — an `@import "tailwindcss";` `app.css` (v4 is CSS-first; no `tailwind.config.js`) and an `index.html` that loads the `@tailwindcss/browser@4` dev CDN compiler (zero build step). Omit (or pass `nil`) for the plain-CSS default. **Substrate-invariant** — identical across Reagent / UIx / Helix — and composes with `:include-story?` / `:include-ssr?`. | `nil` (plain CSS) |
 
 `:substrate` accepts only a keyword (or omission, which defaults
 to `:reagent`). Anything else — string, symbol, number, … — throws
@@ -106,12 +125,27 @@ throws. The branching exception is justified in
 are permitted when they enable optional shared scaffolding whose
 absence would force the user into hand-wiring known idioms.
 
+`:include-ssr?` likewise accepts `true` / `false` / `nil`; anything
+else throws `:rf.error/template-bad-include-ssr-flag`. It is
+**Reagent-only in v1** (a non-Reagent substrate throws
+`:rf.error/template-include-ssr-reagent-only`) and **mutually
+exclusive with `:include-story?`** — passing both throws
+`:rf.error/ssr-and-story-mutually-exclusive`, because the
+`_with_story_and_ssr` file-naming would blow up combinatorially and
+each combination needs its own template test (see
+[004-SSR-Validation-Report.md §2.1](004-SSR-Validation-Report.md)).
+
+`:css` accepts `:tailwind` or `nil` (omission ⇒ the plain-CSS
+default); anything else — a string, a typo like `:tailwnid`, a bogus
+keyword — fails closed with `:rf.error/template-bad-css-flag`. The
+flag is orthogonal to `:substrate` / `:include-story?` /
+`:include-ssr?` and composes with all of them.
+
 The v1 set is locked at three flags total (`:include-story?`,
-`:css`, `:include-ssr?`) — all now live. `:css` (rf2-gthro
-verification; wiring rf2-nxqcov) accepts `:tailwind` (Tailwind v4
-scaffold) or nil (plain-CSS default); a bogus value fails closed
-with `:rf.error/template-bad-css-flag`. `:include-ssr?` (rf2-0m5ea
-validation; wiring rf2-675qdb) accepts `true` / `false` / `nil`.
+`:include-ssr?`, `:css`) — all now live (`:css` under rf2-gthro
+verification + rf2-nxqcov wiring; `:include-ssr?` under rf2-0m5ea
+validation + rf2-675qdb wiring). Their accepted values and
+constraints are documented per-flag above.
 There are no reserved-but-unimplemented flags today; the fail-closed
 `reserved-flag-gates` list (empty) stays as the home for any future
 one — passing a reserved flag would throw
@@ -161,7 +195,7 @@ git-clone.
 What lands in the user's directory: see
 [002-Generated-Shape.md §What lands in the user's directory](002-Generated-Shape.md#what-lands-in-the-users-directory).
 
-What console output to expect:
+What console output to expect (the default SPA path):
 
 ```
 Generated a re-frame2 application acme/my-app (reagent substrate).
@@ -172,8 +206,24 @@ Next steps:
 Then open http://localhost:8280
 ```
 
-The substrate name and an optional `(with Story playground)` tag
-mirror the chosen `:substrate` + `:include-story?` flags.
+The parenthetical after the substrate name mirrors the chosen flags:
+an optional feature tag — `(with Story playground)` under
+`:include-story? true` **or** `(with SSR)` under `:include-ssr? true`
+(never both — they are mutually exclusive) — followed by an optional
+`(Tailwind CSS)` tag under `:css :tailwind`.
+
+Under `:include-ssr? true` the "Next steps" also gain the render-server
+line and the SSR port:
+
+```
+Generated a re-frame2 application acme/my-app (reagent substrate (with SSR)).
+Next steps:
+  cd my-app
+  npm install
+  npx shadow-cljs watch app
+  clojure -X:server   # in a second terminal — the SSR/Jetty host
+Then open http://127.0.0.1:8030
+```
 
 ## Errors
 
@@ -182,6 +232,9 @@ mirror the chosen `:substrate` + `:include-story?` flags.
 | `:substrate` not one of `#{:reagent :uix :helix}` | `:rf.error/template-substrate-must-be-one-of` (keyword arg outside the valid set) / `:rf.error/template-substrate-must-be-keyword` (non-keyword shape — string, symbol, number, …) | `ex-info` thrown; message names the valid set; `ex-data` carries `{:substrate <bad-value> :valid #{...}}`. |
 | `:include-story?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-story-flag` | `ex-info` thrown; message gives the offending value. |
 | `:include-story? true` with non-Reagent substrate | `:rf.error/template-include-story-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
+| `:include-ssr?` not `true` / `false` / `nil` | `:rf.error/template-bad-include-ssr-flag` | `ex-info` thrown; message gives the offending value. |
+| `:include-ssr? true` with non-Reagent substrate | `:rf.error/template-include-ssr-reagent-only` | `ex-info` thrown; message says "Reagent-only in v1" and names the chosen substrate. |
+| `:include-story? true` **and** `:include-ssr? true` together | `:rf.error/ssr-and-story-mutually-exclusive` | `ex-info` thrown; message says the two flags are mutually exclusive in v1 and to pass at most one; `ex-data` carries both flag values. |
 | `:css` not `:tailwind` / `nil` | `:rf.error/template-bad-css-flag` | `ex-info` thrown; message names the valid set (`#{:tailwind}`, or omit for the plain-CSS default) and the offending value. Fails closed. |
 | Reserved-but-unimplemented flag passed (none today) | `:rf.error/template-unsupported-flag` | `ex-info` thrown; message names the flag and its gating bead. Fails closed — does **not** silently scaffold a vanilla app. The v1 flags (`:include-story?` / `:css` / `:include-ssr?`) are all live; `reserved-flag-gates` (empty) is the home for any future reserved flag. |
 | Unknown template flag (incl. typos like `:include-story`, `:include-stories?`) | `:rf.error/template-unknown-flag` | `ex-info` thrown; message lists the unknown key(s) and the accepted flag set. Distinguished from deps-new harness keys via a pinned allowlist. |
