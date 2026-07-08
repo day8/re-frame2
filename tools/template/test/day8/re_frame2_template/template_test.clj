@@ -1206,7 +1206,45 @@
             (is (.contains ssr-test-text "data-rf-render-hash")
                 "ssr_test.clj asserts the render-hash marker on the emitted HTML")
             (is (.contains ssr-test-text "[acme.my-app.core :as app]")
-                "ssr_test.clj requires the app core ns by derived namespace")))
+                "ssr_test.clj requires the app core ns by derived namespace"))
+
+          ;; -- the emitted README is the SSR variant, NOT the SPA shape
+          ;;    (rf2-6ikgyr) — README_with_ssr.md overwrote the default
+          ;;    root/README.md the bulk-copy laid down --
+          (let [readme-text (slurp (io/file root "README.md"))]
+            ;; SSR-specific dev workflow: the JVM render server + its port +
+            ;; the second-terminal boot step the SPA README never mentions.
+            (is (.contains readme-text "clojure -X:server")
+                "SSR README documents the `clojure -X:server` JVM host boot step")
+            (is (.contains readme-text "127.0.0.1:8030")
+                "SSR README points at the SSR host (127.0.0.1:8030)")
+            ;; SSR-specific emitted files (the SPA README lists the per-slice
+            ;; sources instead).
+            (is (.contains readme-text "core.cljc")
+                "SSR README describes core.cljc (shared server render + client hydration)")
+            (is (.contains readme-text "server.clj")
+                "SSR README describes the Ring host server.clj")
+            (is (.contains readme-text "ssr_test.clj")
+                "SSR README describes the headless JVM ssr_test.clj gate")
+            ;; SSR concepts.
+            (is (re-find #"(?i)hydrat" readme-text)
+                "SSR README explains server render + client hydration")
+            (is (.contains readme-text "reg-error-projector")
+                "SSR README documents the SSR error-projector surface")
+            ;; The gate is JVM ssr_test.clj (`clojure -M:test`), NOT the
+            ;; CLJS-only node runner the SPA README ships.
+            (is (.contains readme-text "clojure -M:test")
+                "SSR README runs the JVM ssr_test.clj with `clojure -M:test`")
+            ;; -- and NOT the SPA-shape content that mis-describes this branch --
+            (is (not (.contains readme-text "8280"))
+                "SSR README does NOT tell the user to open the SPA dev port 8280")
+            (is (not (.contains readme-text "out/node-test.js"))
+                "SSR README does NOT ship the CLJS-only `node out/node-test.js`
+                 command — the SSR gate is JVM ssr_test.clj")
+            (doseq [spa-file ["events.cljs" "subs.cljs" "views.cljs" "schema.cljs"]]
+              (is (not (.contains readme-text spa-file))
+                  (str "SSR README does NOT reference the SPA-shape source "
+                       spa-file " — those slices are folded into core.cljc")))))
         (finally
           (delete-recursively tmp))))))
 

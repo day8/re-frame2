@@ -523,7 +523,11 @@
        schema / view, the shared per-slice CLJS sources
        (`events.cljs` / `subs.cljs` / `schema.cljs` / `events_test.cljs` /
        `views.cljs`) are NOT emitted; the shared file-map instead emits a
-       headless JVM `ssr_test.clj`. See 004-SSR-Validation-Report §3.
+       headless JVM `ssr_test.clj` AND overlays an SSR-flavoured
+       `README_with_ssr.md` → `README.md` (rf2-6ikgyr) over the default SPA
+       README the `root/` bulk-copy laid down — the default one describes the
+       static dev-server workflow + per-slice file names the SSR branch does
+       not emit. See 004-SSR-Validation-Report §3 / §188.
      - CSS overlay (substrate-invariant, under `:css :tailwind`; Q6 lock /
        rf2-gthro, wiring rf2-nxqcov): overwrites the plain-CSS `app.css` +
        `index.html` (emitted by the `root/` bulk-copy) with the Tailwind v4
@@ -590,10 +594,23 @@
                          ;; SSR shape: the events / subs / schema / view all
                          ;; live in `core.cljc` (see the per-substrate
                          ;; branch), so the only shared source is the
-                         ;; headless JVM SSR gate.
+                         ;; headless JVM SSR gate. The SSR path also swaps in
+                         ;; an SSR-flavoured README (rf2-6ikgyr): the default
+                         ;; `root/README.md` (bulk-copied first) describes the
+                         ;; static-SPA dev-server workflow + the per-slice
+                         ;; file names this branch does NOT emit, so
+                         ;; `README_with_ssr.md` overwrites it with the SSR
+                         ;; quick-start (JVM render server + client watcher),
+                         ;; the core.cljc / server.clj / ssr_test.clj shape,
+                         ;; and the error-projector surface. Since all
+                         ;; transforms run AFTER the `root/` bulk-copy (and
+                         ;; tools.build's copy-dir overwrites), the SSR README
+                         ;; wins — the same overlay mechanism the Tailwind CSS
+                         ;; variant uses (004-SSR-Validation-Report §188).
                          include-ssr?
                          (assoc "ssr_test.clj"
-                                (str "test/" nested "/ssr_test.clj")))
+                                (str "test/" nested "/ssr_test.clj")
+                                "README_with_ssr.md" "README.md"))
         shared         [["_shared" "." shared-files :only]]
 
         ;; Per-substrate transforms. `:only` keeps each substrate
