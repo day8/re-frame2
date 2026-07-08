@@ -524,6 +524,101 @@
   [schema]
   (not (or (vector? schema) (keyword? schema))))
 
+(defn- opaque-nested-tail?
+  "Private recursive helper for `schema-has-opaque-child?`. Identical to
+  `schema-opaque?`'s notion of opaque EXCEPT a bare fn or symbol reached
+  as a nested TAIL is NOT opaque here — see `schema-has-opaque-child?`'s
+  docstring for why a bare fn/symbol below the root is provably
+  flag-free. Only ever called on a value already reached by descending
+  through `children-of`, i.e. never on the caller's original root
+  argument — see `schema-has-opaque-child?` for the root/nested split."
+  [schema]
+  (cond
+    (keyword? schema) false
+    (fn? schema) false
+    (symbol? schema) false
+    (and (vector? schema) (pos? (count schema)))
+    (boolean (some opaque-nested-tail? (children-of schema)))
+    :else true))
+
+(defn schema-has-opaque-child?
+  "True when `schema` is itself opaque (`schema-opaque?`) OR contains, at
+  any depth BENEATH the root, a nested opaque child — a compiled
+  `m/schema` value, map, or other form the pure-data walker cannot
+  introspect for per-slot props — reachable by descending through
+  vector-form Malli EDN structure.
+
+  Per rf2-hi0tf8: `schema-opaque?` alone classifies only the ROOT form.
+  A schema whose root IS introspectable vector-form EDN can still embed
+  an opaque child at a deeper slot — e.g. `[:map [:token (m/schema
+  [:string {:sensitive? true}])]]` — and the per-slot `:sensitive?` /
+  `:large?` flags Malli honours inside that nested compiled value are
+  exactly as invisible to `walk-flagged-schema` as a top-level opaque
+  schema's flags are (the walk's terminal `:else acc` bailout silently
+  skips it, contributing NO declaration). Every fail-closed
+  redaction / warning gate that used to OR in `schema-opaque?` to catch a
+  top-level opaque schema must use this recursive predicate instead, or
+  the nested case leaks fail-OPEN while the equivalent top-level shape
+  redacts.
+
+  BARE FUNCTIONS (`pos-int?`, `string?`, a `(fn [v] …)` literal, …) AND
+  BARE SYMBOLS (a `'pos-int?` reader form — Malli resolves a symbol
+  schema to the named fn/var, e.g. an EDN-sourced fixture that cannot
+  embed a live fn literal) are opaque to `schema-opaque?` and stay
+  opaque HERE too when they are the schema being checked directly — a
+  bare fn/symbol used AS THE WHOLE registered `:schema` (no wrapper at
+  all, e.g. `re-frame.flows`' `{:schema (fn [v] …)}`) has no sibling
+  `{props}` position anywhere in its registration shape, so there is
+  genuinely no way it could carry a `:sensitive?`/`:large?` flag except
+  by wrapping (`[:fn {:sensitive? true} pred]`, itself vector-form and
+  walkable) — `schema-opaque?`'s fail-closed root treatment is correct
+  and stays UNCHANGED here
+  (`flows_schema_validation_test/non-conforming-output-emits-violation-
+  but-still-writes` pins exactly this).
+
+  A bare fn/symbol reached as a NESTED TAIL, however — `[:map [:n
+  pos-int?]]`, the idiomatic Malli shorthand exercised throughout this
+  codebase's own conformance corpus and machine/resource schemas — IS
+  the deliberate divergence: it cannot itself carry a `{props}` map, but
+  unlike the root case it DOES have a sibling props position one level
+  up — the entry `[:n {:sensitive? true} pos-int?]` — which
+  `walk-flagged-schema` ALREADY captures before ever looking at the
+  tail (same provably-flag-free reasoning as the walker's keyword
+  exception, rf2-ee38b.6). Without this root/nested split, every
+  ordinary `pos-int?`/`string?`-style leaf anywhere in a schema would
+  fail closed and over-redact (confirmed against the
+  `:machine/data-schema-rollback` conformance fixture, whose EDN-sourced
+  `[:map [:n pos-int?]]` data-schema — `pos-int?` reads as a bare SYMBOL
+  via `clojure.edn/read-string`, Malli resolves it at validate-time —
+  must NOT redact `{:n 0}`); collapsing the two positions the OTHER way
+  (treating a nested fn/symbol as opaque too) would have been the
+  simpler implementation but breaks that corpus fixture, and collapsing
+  them by making the ROOT case non-opaque instead would break the flows
+  fixture above — the split is load-bearing, not incidental.
+
+  Descends via `children-of` — the same child-extraction `walk-flagged-
+  schema` uses for every op category. This works uniformly without
+  per-op branching because both the outer `[op props? children...]` form
+  and every child ENTRY shape it produces (`:map`/`:multi`/`:orn`/`:altn`
+  `[k props? tail]` pairs, `:catn` `[name props? schema]` triples,
+  `:tuple`/`:cat`/`:vector`/`:set`/… bare positional children) share the
+  identical position-0-discriminator / optional-position-1-props-map /
+  trailing-payload convention — `children-of` always peels off exactly
+  the props-carrying wrapper and hands back the descendable tail(s),
+  regardless of which op produced the entry. A pure existence check
+  doesn't need per-op path bookkeeping the way the flag walk does.
+
+  Not memoised (unlike `extract-sensitive-paths-from-schema`): every call
+  site is a validation-FAILURE emit path, not the per-dispatch hot path,
+  so re-walking on each failure is the same cost profile as the sibling
+  `schema-has-sensitive?` / `schema-has-large?` checks already pay there.
+
+  Returns boolean. Pure; same input always produces the same output."
+  [schema]
+  (or (schema-opaque? schema)
+      (and (vector? schema) (pos? (count schema))
+           (boolean (some opaque-nested-tail? (children-of schema))))))
+
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
   indexed vectors compared element-wise. Single-pass: counts each
@@ -577,12 +672,13 @@
   match because the walker never emits index segments. Dropping each
   index-bearing op's segment while descending re-aligns the two.
 
-  Returns `[:ok aligned-path]` when the whole path resolves against
-  recognised ops, or `[:fallback subschema aligned-prefix]` when an
-  unrecognised / opaque op is hit with path remaining — the caller then
-  redacts fail-SAFE iff the leftover `subschema` OR the **already-aligned
-  prefix** carries any sensitive declaration. `:map` segments are kept
-  (real app-db keys); index-bearing-op segments are dropped.
+  Returns `[:ok aligned-path leaf-schema]` when the whole path resolves
+  against recognised ops, or `[:fallback subschema aligned-prefix]` when
+  an unrecognised / opaque op is hit with path remaining — the caller
+  then redacts fail-SAFE iff the leftover `subschema` OR the
+  **already-aligned prefix** carries any sensitive declaration, OR
+  either subtree is opaque. `:map` segments are kept (real app-db
+  keys); index-bearing-op segments are dropped.
 
   Per rf2-ss06u.2 the fallback MUST carry `aligned-prefix` (the segments
   consumed so far) alongside the leftover subschema: a `:sensitive?`
@@ -595,13 +691,24 @@
   to protect. Returning the prefix lets `schema-sensitive-at?` test the
   consumed-ancestor sensitivity (`prefix? decl-path aligned-prefix`)
   too, so a descendant failure under a sensitive ancestor stays
-  redacted + stamped."
+  redacted + stamped.
+
+  Per rf2-hi0tf8 the `:ok` outcome ALSO carries the `leaf-schema` the
+  walk arrived at (the schema at `in-path`'s terminus), not just the
+  aligned path: a path can resolve cleanly through vector-form `:map` /
+  `:tuple` / … structure right up to a NESTED opaque child (a compiled
+  `m/schema` value used as a map slot's tail, e.g. `[:map [:token
+  (m/schema [:string {:sensitive? true}])]]`) — the walk successfully
+  \"arrives\" at that slot (the path is fully consumed), but the slot
+  itself is unintrospectable. Without `leaf-schema` the caller has no
+  way to notice the arrival point is opaque; `schema-sensitive-at?`
+  consults it via `schema-has-opaque-child?` to fail closed."
   [schema in-path]
   (loop [schema  schema
          in      (vec in-path)
          aligned []]
     (if (empty? in)
-      [:ok aligned]
+      [:ok aligned schema]
       (if-not (and (vector? schema) (pos? (count schema)))
         ;; Path remains but the schema is a bare keyword / opaque leaf —
         ;; cannot descend further; hand the leaf to the conservative
@@ -876,8 +983,9 @@
   extractable from the explainer output.
 
   When `in-path` is nil or empty the check is equivalent to
-  `schema-has-sensitive?` (the failing slot IS the whole registered
-  schema, so any sensitive declaration anywhere counts).
+  `(or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))`
+  (the failing slot IS the whole registered schema, so any sensitive
+  declaration OR any unintrospectable nested child anywhere counts).
 
   Malli's `:in` carries collection indices / `:map-of` keys
   (`[1 :token]`, `[\"a\" :secret]`) whereas the walker's decl paths are
@@ -889,39 +997,74 @@
   redacted) just like a top-level one. When the path cannot be fully
   aligned (opaque / unrecognised op with path remaining) the check is
   fail-SAFE: it redacts iff the leftover subschema declares anything
-  sensitive (descendant under the unresolved op) OR a sensitive
-  declaration is an ANCESTOR of the already-consumed prefix (rf2-ss06u.2
-  — a `:sensitive?` container the alignment already descended through and
-  discarded, e.g. `[:s]` sensitive with the leaf `[:s :k]` under a
-  transparent `:and` / `:multi` / `:orn` wrapper).
+  sensitive OR is itself opaque / hides a nested opaque child (descendant
+  under the unresolved op) OR a sensitive declaration is an ANCESTOR of
+  the already-consumed prefix (rf2-ss06u.2 — a `:sensitive?` container
+  the alignment already descended through and discarded, e.g. `[:s]`
+  sensitive with the leaf `[:s :k]` under a transparent `:and` /
+  `:multi` / `:orn` wrapper).
+
+  Per rf2-hi0tf8: even when the path DOES fully align (every segment
+  resolves through recognised vector-form ops), the walk can arrive
+  exactly AT a nested opaque child — e.g. `[:map [:token (m/schema
+  [:string {:sensitive? true}])]]` resolving `[:token]` lands cleanly on
+  the compiled leaf. `align-in-path` returns that arrival schema so this
+  check can fail closed on it too (`schema-has-opaque-child?`), the same
+  way a top-level opaque schema already fails closed via `schema-opaque?`
+  — a nested opaque leaf's invisible `:sensitive?` flag is exactly as
+  dangerous as a root one's.
 
   Returns boolean. Pure; same `(schema, in-path)` always produces the
   same output."
   [schema in-path]
   (if (or (nil? in-path) (empty? in-path))
-    (schema-has-sensitive? schema)
-    (let [[outcome aligned-or-sub aligned-prefix] (align-in-path schema in-path)]
+    (or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))
+    (let [[outcome aligned-or-sub aligned-third] (align-in-path schema in-path)]
       (if (= outcome :fallback)
         ;; Couldn't fully resolve the path. Redact fail-SAFE iff EITHER:
         ;;   - the leftover subschema carries any sensitive declaration
         ;;     (a descendant under the unresolved op), OR
+        ;;   - the leftover subschema is itself opaque or hides a nested
+        ;;     opaque child (rf2-hi0tf8 — the unresolved op MAY be an
+        ;;     opaque compiled value directly, or a resolvable wrapper
+        ;;     that embeds one further down), OR
         ;;   - a sensitive declaration is an ancestor of (or equal to) the
         ;;     prefix align-in-path already consumed (rf2-ss06u.2 — the
         ;;     consumed-ancestor `:sensitive?` is invisible in the leftover
         ;;     subtree; without this the failing value under a sensitive
         ;;     ancestor wrapped by :and/:multi/:orn LEAKS verbatim).
-        ;; The ancestor check is `prefix? decl-path aligned-prefix` only —
+        ;; The ancestor check is `prefix? decl-path aligned-third` only —
         ;; a sensitive SIBLING outside the consumed prefix must NOT taint
-        ;; the failing slot (preserves the precise-narrowing win).
+        ;; the failing slot (preserves the precise-narrowing win). Here
+        ;; `aligned-third` is the aligned PREFIX (the `:fallback` shape).
+        ;;
+        ;; `opaque-nested-tail?`, not `schema-has-opaque-child?`: `aligned-
+        ;; or-sub` was reached by DESCENDING from the root (exactly the
+        ;; nested position `schema-has-opaque-child?`'s docstring
+        ;; describes), so a bare fn/symbol found here is provably
+        ;; flag-free the same way a nested `pos-int?` tail is — it is
+        ;; NOT the whole-registration root case `schema-opaque?` fails
+        ;; closed on.
         (or (schema-has-sensitive? aligned-or-sub)
+            (opaque-nested-tail? aligned-or-sub)
             (let [decls (extract-sensitive-paths-from-schema schema [])]
               (boolean
-                (some (fn [decl-path] (prefix? decl-path aligned-prefix))
+                (some (fn [decl-path] (prefix? decl-path aligned-third))
                       (keys decls)))))
+        ;; Fully aligned (`:ok`). `aligned-or-sub` is the aligned decl-path;
+        ;; `aligned-third` is the LEAF SCHEMA the walk arrived at (the
+        ;; `:ok` shape). Per rf2-hi0tf8 that leaf may itself be a nested
+        ;; opaque child the path resolution walked straight into — check
+        ;; it alongside the existing ancestor/descendant sensitive-decl
+        ;; scan. `opaque-nested-tail?` (not `schema-has-opaque-child?`) for
+        ;; the same reason as the `:fallback` branch above — `leaf` was
+        ;; reached by descent, so a bare fn/symbol there is flag-free.
         (let [decls   (extract-sensitive-paths-from-schema schema [])
-              in-v    aligned-or-sub]
-          (boolean
-            (some (fn [decl-path]
-                    (or (prefix? decl-path in-v)   ;; ancestor sensitive
-                        (prefix? in-v decl-path))) ;; descendant sensitive
-                  (keys decls))))))))
+              in-v    aligned-or-sub
+              leaf    aligned-third]
+          (or (opaque-nested-tail? leaf)
+              (boolean
+                (some (fn [decl-path]
+                        (or (prefix? decl-path in-v)   ;; ancestor sensitive
+                            (prefix? in-v decl-path))) ;; descendant sensitive
+                      (keys decls)))))))))

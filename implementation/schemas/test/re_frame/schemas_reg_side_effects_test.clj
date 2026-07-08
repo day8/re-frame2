@@ -181,6 +181,36 @@
 ;; the `:rf/redacted` and `not str/includes? secret` assertions both fail, and
 ;; the violation egresses the credential — the leak this test pins closed.
 
+(deftest violation-redacts-mismatching-value-when-new-schema-nested-opaque-and-sensitive
+  (testing "rf2-hi0tf8 — when the NEW (re-registered) schema is a VECTOR-FORM
+            (root introspectable) schema that NESTS a compiled / opaque
+            m/schema value carrying a {:sensitive? true} slot, the hot-reload
+            violation still FAILS CLOSED. Pre-fix: the root-only
+            `schema-opaque?` disjunct saw a walkable :map form and returned
+            false, `schema-has-sensitive?`'s walk silently skipped the opaque
+            :secret child (no declaration recorded), so `sensitive?` computed
+            false and the live value egressed verbatim — the same leak
+            `violation-redacts-mismatching-value-when-new-schema-opaque-and-sensitive`
+            already pins for the FULLY opaque shape."
+    (let [secret "NESTED-OPAQUE-HOTRELOAD-SECRET-hi0tf8"]
+      (rf/reg-app-schema [:token] {:schema :int})
+      (set-app-db! {:token {:secret secret}})
+      (let [violations (capture :rf.schema/violation
+                         (fn []
+                           (rf/reg-app-schema
+                             [:token]
+                             {:schema [:map
+                                       [:secret
+                                        (m/schema [:string {:sensitive? true :min 999}])]]})))]
+        (is (= 1 (count violations)) "exactly one violation trace")
+        (let [{:keys [sensitive? tags] :as ev} (first violations)]
+          (is (= :rf/redacted (:mismatching-value tags))
+              "nested-opaque schema fails closed: live value scrubbed to :rf/redacted")
+          (is (true? sensitive?) ":sensitive? hoisted to top level (fail-closed stamp)")
+          (is (= [:token] (:path tags)) "structural :path is kept")
+          (is (not (str/includes? (pr-str ev) secret))
+              "the secret survives nowhere in the nested-opaque hot-reload violation trace"))))))
+
 (deftest violation-is-per-frame
   (testing "rf2-ee38b.6 — the violation check reads the live app-db of
             the registration's frame, not :rf/default"
