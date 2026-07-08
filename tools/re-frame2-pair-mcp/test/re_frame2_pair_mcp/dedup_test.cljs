@@ -71,13 +71,27 @@
   (is (= {} (dedup/dedup-value {} true)))
   (is (= 42 (dedup/dedup-value 42 true))))
 
-(deftest dedup-non-empty-collection-emits-marker
-  (let [payload [{:a 1} {:b 2}]
+(deftest dedup-repeated-subtree-collection-emits-marker
+  ;; A non-empty collection WITH a repeated subtree is a genuine dedup
+  ;; opportunity, so the wrap fires. (A non-empty collection with NO
+  ;; repeats stays raw — see `dedup-no-repeat-collection-stays-raw`;
+  ;; mcp-base's `no-substitutions?` skips the wrapper there.)
+  (let [shared  {:big :subtree}
+        payload [shared shared]
         wrapped (dedup/dedup-value payload true)]
     (is (map? wrapped))
     (is (contains? wrapped :rf.mcp/dedup-table))
     (is (map? (:rf.mcp/dedup-table wrapped))
         "the table itself is a hash-map keyed by namespaced symbols")))
+
+(deftest dedup-no-repeat-collection-stays-raw
+  ;; The corrected wire contract (rf2-fwaolt): a non-empty collection
+  ;; with no repeated subtrees deduplicates to a one-entry root-only
+  ;; cache whose wrapped shape is strictly larger than the input, so
+  ;; `dedup-value` returns it RAW rather than growing the wire.
+  (let [payload [{:a 1} {:b 2}]]
+    (is (= payload (dedup/dedup-value payload true))
+        "no dedup opportunity ⇒ verbatim passthrough, not a dedup-table wrap")))
 
 (deftest dedup-marker-key-is-the-cross-mcp-vocabulary
   ;; The marker key matches the cross-MCP §5 (Structural dedup):
