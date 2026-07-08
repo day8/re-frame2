@@ -242,12 +242,17 @@
 
 (defn strip-base-path
   "Strip `base` off the front of path-form `url`, returning the app-relative
-  `/`-rooted remainder. `url` that does not start with `base` is returned
-  UNCHANGED (defensive — should not happen for a correctly-mounted app; fails
-  safe rather than mis-slicing an unrelated URL). A blank `base` is a no-op.
-  Pure."
+  `/`-rooted remainder. `url` is under the base only when it EQUALS `base` (the
+  mount root) or starts with `(str base \"/\")` (a path-SEGMENT boundary) — a
+  bare string-prefix test would mis-slice a prefix-sharing SIBLING (base `/app`
+  must NOT strip `/application`, `/apple`, `/app-admin`). A `url` that is not
+  under the base — including such a sibling, or a fully unrelated URL — is
+  returned UNCHANGED (defensive: fails safe rather than mis-slicing the path).
+  A blank `base` is a no-op. Pure. (rf2-vuv84a)"
   [base url]
-  (if (and (seq base) (clojure.string/starts-with? url base))
+  (if (and (seq base)
+           (or (= url base)
+               (clojure.string/starts-with? url (str base "/"))))
     (let [remainder (subs url (count base))]
       (if (clojure.string/starts-with? remainder "/")
         remainder
