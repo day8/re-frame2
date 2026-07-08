@@ -55,17 +55,30 @@
 
 ;; -- The live-app frame ----------------------------------------------------
 ;;
-;; The live `#/` surface needs the same demo-HTTP override the standalone
-;; example uses, so `:rf.http/managed` lands on the in-process
-;; `:auth.login.demo/managed-stub` and not on a backend that isn't there.
+;; The live `#/` surface needs the same two pieces of frame config the
+;; standalone example's `login.core/run` sets up, so this hand-rolled frame
+;; behaves identically:
+;;
+;; - `:fx-overrides` swaps in the in-process demo backend, so
+;;   `:rf.http/managed` lands on `:auth.login.demo/managed-stub` and not on
+;;   a backend that isn't there.
+;; - `:initial-events` seeds the login-form slice at [:auth :login-form]
+;;   *before* the first render. Drop it and the inputs read `nil` for their
+;;   `:value` on that first paint — and React quietly demotes a `nil`-valued
+;;   input to an uncontrolled one, then logs the "changing an uncontrolled
+;;   input to be controlled" warning on the first keystroke. The machine
+;;   seeds itself; the slice is app-db, so it has to be seeded here — exactly
+;;   as `login.core/run`'s frame-provider does.
+;;
 ;; Since the host is running its own boot from top to bottom, it sets the
-;; override up itself here rather than calling `login.core/run` (which would
+;; frame up itself here rather than calling `login.core/run` (which would
 ;; insist on running its own mount lifecycle).
 
 (defn- install-live-frame! []
   (rf/reg-frame :rf/default
-    {:doc          "Login showcase live-app frame."
-     :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}}))
+    {:doc            "Login showcase live-app frame."
+     :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
+     :initial-events [[:auth.login/initialise-form]]}))
 
 (rf/reg-view login-app []
   [:div {:style {:padding "1.5em" :font-family "system-ui, sans-serif"}}
