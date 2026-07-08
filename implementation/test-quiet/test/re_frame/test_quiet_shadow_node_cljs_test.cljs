@@ -572,6 +572,67 @@
                  " got:\n" (str/join "\n" non-blank)))))))
 
 ;; ----------------------------------------------------------------------
+;; Exit-code integrity — a printed failure MUST exit non-zero (rf2-jmrdhn).
+;;
+;; The false-green trap the bead closes: the runner PRINTS a failing
+;; assertion but exits 0, so a local gate reads green while CI goes red.
+;; This drives the REAL runner across a process boundary (the only place the
+;; exit code is observable) against a deliberately-failing suite and asserts
+;; BOTH halves at once — the FAIL block reaches stdout AND the process exits
+;; non-zero — so a regression that decouples the two (a swallowed red exit, a
+;; run torn down before the `:end-run-tests` exit fires) is caught. The
+;; negative control proves the exit is tied to the ACTUAL failure, not always
+;; non-zero.
+
+(deftest deliberately-failing-test-exits-nonzero
+  (testing "a real failing test PRINTS its FAIL block AND exits non-zero (rf2-jmrdhn)"
+    ;; The armed red fixture runs a genuine `(is (= :expected :actual))` that
+    ;; fails — the ordinary counted-failure path, not an edge case. The whole
+    ;; point of rf2-jmrdhn is that this must NOT be able to print a failure
+    ;; while exiting 0.
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error
+           timed-out? :timed-out?}
+          (spawn-runner [(str "--test=" red-ns)]
+                        {:env {:RF2_TQ_RED_WARN_FIXTURE "1"}})]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (not timed-out?)
+          "the armed fixture run must not time out")
+      ;; The CORE pin: a printed failure MUST drive a non-zero exit.
+      (is (and (number? status) (not (zero? status)))
+          (str "a deliberately-failing test must exit NON-ZERO — a printed"
+               " failure with a 0 exit is the local-green≠CI-red trap"
+               " (rf2-jmrdhn); got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      ;; It genuinely RAN (not a false green from running nothing)…
+      (is (str/includes? stdout "Ran ")
+          (str "the suite must have actually run (a `Ran ...` summary) — a"
+               " non-zero exit with no run would be a different failure;"
+               " got:\n" stdout))
+      ;; …and the failure was PRINTED — the exact symptom the exit code must
+      ;; now agree with.
+      (is (str/includes? stdout "FAIL in")
+          (str "the FAIL block must reach stdout AND the exit must be"
+               " non-zero — the two must never disagree (rf2-jmrdhn); got:\n"
+               stdout))))
+  (testing "the SAME fixture is GREEN + exits 0 when unarmed (negative control)"
+    ;; Proving the non-zero exit is tied to the ACTUAL failure, not a runner
+    ;; that always exits non-zero.
+    (let [red-ns "re-frame.test-quiet-red-warn-fixture-cljs-test"
+          {status :status stdout :stdout stderr :stderr err :error}
+          (spawn-runner [(str "--test=" red-ns)])]
+      (is (nil? err)
+          (str "spawning the real runner must not error; got: " (pr-str err)))
+      (is (zero? status)
+          (str "the unarmed fixture is GREEN; a correct run must still exit 0"
+               " — the exit code tracks the real result, it is not always"
+               " non-zero; got status " status
+               "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr))
+      (is (not (str/includes? stdout "FAIL in"))
+          (str "the unarmed fixture prints no failure; got:\n" stdout)))))
+
+;; ----------------------------------------------------------------------
 ;; Shared spawn timeout/output policy (rf2-8dfq5j.3).
 ;;
 ;; The process-level pins above all route through `spawn-runner`, which

@@ -280,6 +280,77 @@
                    " captured stdout:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; Exit-code integrity for failures that ESCAPE clojure.test's counters —
+;; rf2-jmrdhn.
+;;
+;; `red-runner-contract` / `error-runner-contract` above pin the COUNTED
+;; paths (a failing `is`, a throwing `is`) — clojure.test tallies those and
+;; cognitect exits 1 from the tally.  But the false-green trap the bead
+;; closes is a failure that clojure.test NEVER counts, so a naive runner
+;; could print/emit the problem yet exit 0.  Two such cases exist on the JVM
+;; and MUST still exit non-zero:
+;;   - a namespace that THROWS at load time (cognitect `require`s it during
+;;     discovery, so the throw is outside any `is`/report);
+;;   - a `:once` fixture that throws (it runs OUTSIDE `test-var`, so its
+;;     exception is not tallied as an `:error`).
+;; Both propagate out of `-main`, so `clojure.main` exits non-zero — this
+;; pins that no counter-escaping failure can slip out GREEN.
+
+(deftest namespace-load-throw-exits-nonzero
+  (testing "a test ns that throws at LOAD time exits non-zero (uncounted failure; rf2-jmrdhn)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-raw-fixture! dir "load_throw_test"
+          (str "(ns probe.load-throw-test\n"
+               "  (:require [clojure.test :refer [deftest is]]\n"
+               "            [re-frame.test-quiet]))\n"
+               ;; anchor so cognitect's contains-tests? selects the ns…
+               "(deftest anchor (is (= 1 1)))\n"
+               ;; …then a top-level throw at require time — outside any `is`,
+               ;; so clojure.test never tallies it.
+               "(throw (ex-info \"LOAD-THROW-MARKER\" {}))"))
+        (let [{:keys [exit out err timed-out?]}
+              (run-runner dir "-n" "probe.load-throw-test")]
+          (is (not timed-out?)
+              "the load-throw run must terminate, not hang")
+          ;; The CORE pin: a load-time exception is not a counted test
+          ;; failure, but it MUST still fail the process.
+          (is (not (zero? exit))
+              (str "a namespace that throws at load time must exit NON-ZERO"
+                   " even though clojure.test never counts it (rf2-jmrdhn);"
+                   " got exit " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? (str out err) "LOAD-THROW-MARKER")
+              (str "the load-time exception message must surface so the"
+                   " failure is diagnosable; got\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err)))))))
+
+(deftest once-fixture-throw-exits-nonzero
+  (testing "a :once fixture that throws exits non-zero (uncounted failure; rf2-jmrdhn)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-raw-fixture! dir "fixture_throw_test"
+          (str "(ns probe.fixture-throw-test\n"
+               "  (:require [clojure.test :refer [deftest is use-fixtures]]\n"
+               "            [re-frame.test-quiet]))\n"
+               ;; A :once fixture runs OUTSIDE test-var; its throw is not
+               ;; tallied as an :error, so a naive runner could exit 0.
+               "(use-fixtures :once (fn [f] (throw (ex-info \"FIXTURE-THROW-MARKER\" {}))))\n"
+               "(deftest a-test (is (= 1 1)))"))
+        (let [{:keys [exit out err timed-out?]}
+              (run-runner dir "-n" "probe.fixture-throw-test")]
+          (is (not timed-out?)
+              "the fixture-throw run must terminate, not hang")
+          (is (not (zero? exit))
+              (str "a :once fixture that throws must exit NON-ZERO even though"
+                   " its exception is never tallied as a test error"
+                   " (rf2-jmrdhn); got exit " exit "\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? (str out err) "FIXTURE-THROW-MARKER")
+              (str "the fixture exception message must surface; got"
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
+
+;; ----------------------------------------------------------------------
 ;; Nested-run banner correctness — rf2-8n97n.1 (mislabel) + .2 (orphan).
 ;;
 ;; A `deftest` that nests a `run-tests` over a sibling namespace and then
