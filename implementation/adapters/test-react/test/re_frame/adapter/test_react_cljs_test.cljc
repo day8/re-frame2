@@ -370,6 +370,22 @@
                  (test-react/unmount! panel-a))}))
           "the guard fires organically: the unmount happens while the host's
            render is in flight, which is React's actual guard condition")
+      ;; The host's render body THREW, yet run-render!'s `finally` decremented
+      ;; the global render-depth back to zero on unwind. Assert that invariant
+      ;; DIRECTLY: without the finally-restore a leaked non-zero depth would
+      ;; poison every LATER test — the next unmount! anywhere would spuriously
+      ;; trip :rf.error/sync-unmount-during-render. Previously this was only
+      ;; covered indirectly (the trailing unmount! below would throw a
+      ;; confusing uncaught ExceptionInfo if depth leaked, and that coverage
+      ;; vanished if the trailing unmount was ever refactored away).
+      (is (false? (test-react/rendering?))
+          "run-render!'s finally restored render-depth to zero even though the
+           render body threw — no leaked in-flight state poisons later tests")
+      ;; mount-tree! registers into active-mounts only AFTER run-render!
+      ;; returns, so a throw mid-render never registers the host — the
+      ;; partially-constructed root cannot leak into the live forest.
+      (is (= 1 (count (test-react/mounted-roots)))
+          "only panel A is live — the throwing host never registered, no leak")
       ;; Panel A is still mounted — the guard short-circuited the unmount
       ;; before it could tear the root down (matching React: it refuses the
       ;; synchronous unmount rather than racing).
@@ -681,6 +697,18 @@
                                  (fn [_child]
                                    (reset! grandchild-ref
                                            (test-react/mount-child! [:span "leaf"])))})))})]
+      ;; The parent's render nested two levels deep (parent → child →
+      ;; grandchild), so the global render-depth climbed to 3 then unwound.
+      ;; Because it is a COUNTER, not a boolean (src note ~lines 128-129), each
+      ;; nested render's run-render! `finally` decremented exactly its own
+      ;; level, leaving depth at zero once the outermost mount! returned. A
+      ;; boolean would have been clobbered to false by the innermost unwind
+      ;; while an outer render was still notionally in flight. This pins the
+      ;; counter-not-boolean nested-unwind restore, which no test checked
+      ;; directly before.
+      (is (false? (test-react/rendering?))
+          "render-depth restored to zero after a two-level nested render
+           unwound — the counter decrements each nested level independently")
       (is (= 3 (count (test-react/mounted-roots)))
           "parent + child + grandchild all live")
       (is (= [@child-ref] (test-react/children parent))
