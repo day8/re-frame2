@@ -107,12 +107,36 @@
       (is (some? thrown) "nested invalid :after delay SHOULD throw")
       (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
 
-(deftest invalid-delay-key-on-root-after-rejected
-  (testing "an invalid :after key on the machine-root :after fallback fails registration"
+(deftest invalid-delay-key-on-non-parallel-root-after-rejected-categorically
+  (testing "a non-parallel root :after fails registration regardless of delay-key validity (rf2-b6znpi)"
+    ;; Per rf2-b6znpi, a non-parallel (flat/compound) machine root's :after
+    ;; has no runtime scheduling / resolution path at ALL, so it is now
+    ;; rejected CATEGORICALLY by `validate-non-parallel-root-after!` — which
+    ;; runs BEFORE `validate-after-delays!` — regardless of whether its
+    ;; delay key would otherwise be well-formed. This supersedes the old
+    ;; assertion that an invalid root :after key surfaced
+    ;; :rf.error/machine-bad-after-delay: the machine shape itself is now
+    ;; rejected first, with the more specific / more correct diagnostic.
     (let [m {:initial :idle
              :data    {}
              :after   {0 :idle}
              :states  {:idle {}}}
           thrown (registration-throws? :adv/root m)]
-      (is (some? thrown) "root-level invalid :after delay SHOULD throw")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
+      (is (some? thrown) "root-level :after (invalid delay key or not) SHOULD throw")
+      (is (= :rf.error/machine-non-parallel-root-after-not-supported
+             (:rf.error/id (ex-data thrown)))
+          "the categorical non-parallel-root-:after rejection wins over the delay-key shape check"))))
+
+(deftest invalid-delay-key-on-parallel-root-after-still-rejected
+  (testing "the :after delay-key shape check STILL applies to a :type :parallel root's :after"
+    ;; A :type :parallel root's :after IS the supported, scheduled,
+    ;; resolved feature (Spec 005 §Root-level :after) — it is UNAFFECTED by
+    ;; the rf2-b6znpi non-parallel-root rejection, so its delay-key shape is
+    ;; still gated by validate-after-delays! exactly as before.
+    (let [m {:type    :parallel
+             :after   {0 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}}}
+          thrown (registration-throws? :adv/parallel-root m)]
+      (is (some? thrown) "an invalid delay key on a parallel root's :after SHOULD throw")
+      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))
+          "the delay-key shape check still fires for the supported parallel-root :after"))))

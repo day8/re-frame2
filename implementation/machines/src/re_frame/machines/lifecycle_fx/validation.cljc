@@ -467,6 +467,50 @@
                     (walk (conj path k) (:states n)))))]
         (walk [] (:states region-body))))))
 
+;; ---- non-parallel root `:after` / `:timeout` — reject loud (rf2-b6znpi) ---
+;;
+;; Per Spec 005 §Root-level `:after` — the timer-driven ancestor fallback:
+;; the feature is scoped to a `:type :parallel` machine root. Its runtime
+;; support is likewise parallel-only — `transition/schedule-root-after-fx`
+;; (the birth-time scheduler) is called ONLY from
+;; `parallel/run-initial-cascade`'s parallel branch; a flat/compound
+;; machine's birth (`parallel/bootstrap-step`) never calls it, and there is
+;; no root resolver that would fire a flat root `:after` at the decl-path
+;; `[]` empty-path node (`grammar/node-at` resolves an empty path to nil).
+;; `timeout/validate-timeouts!` + `validate-after-delays!` both happily
+;; accept a WELL-FORMED root `:timeout` / `:after` on a flat/compound
+;; machine (they validate the pairing / duration / delay-key SHAPE, not
+;; whether the runtime can ever schedule or resolve it), so — absent this
+;; check — such a machine registers cleanly and its "whole-machine
+;; deadline" silently never fires. Reject it loudly here instead, on the
+;; DESUGARED machine (`validate-machine!` calls this after
+;; `timeout/desugar-timeouts`), so a root `:timeout` — which lowers onto
+;; `:after` — is caught via its lowered form in the SAME check as a
+;; directly-authored root `:after`.
+
+(defn- validate-non-parallel-root-after!
+  "Reject a non-parallel (flat / compound) machine root's `:after` map —
+  whether hand-authored or lowered from a root `:timeout` / `:on-timeout`
+  — with `:rf.error/machine-non-parallel-root-after-not-supported`. A
+  `:type :parallel` root's `:after` is unaffected (that IS the supported,
+  scheduled, resolved feature per Spec 005). Absent / empty root `:after`
+  is fine on either machine shape."
+  [machine]
+  (when (and (not (parallel/parallel? machine))
+             (seq (:after machine)))
+    (throw (validation-error
+             :rf.error/machine-non-parallel-root-after-not-supported
+             (str "a non-parallel (flat/compound) machine root declares "
+                  ":after " (pr-str (:after machine)) " — either "
+                  "hand-authored or lowered from a root :timeout / "
+                  ":on-timeout. Root-level :after scheduling + resolution "
+                  "is supported ONLY for a :type :parallel machine root "
+                  "(Per Spec 005 §Root-level :after). On a flat/compound "
+                  "root the timer would register but NEVER schedule or "
+                  "fire. Move the deadline onto the machine's :initial "
+                  "state's own :after / :timeout instead.")
+             {:after (:after machine)}))))
+
 (defn- walk-state-nodes
   "Yield `[state-key state-node]` pairs for every node under `:states`,
   recursing through `:states` maps. Used by the registration-time
@@ -803,6 +847,65 @@
                    {:state    state-key
                     :on-error oe})))))))
 
+;; ---- `:on-spawn` keyword-ref resolution (rf2-b4qbx0) -----------------------
+;;
+;; Per Spec 005 §Declarative `:spawn` §`:on-spawn`: a KEYWORD `:on-spawn`
+;; resolves through the machine's `:on-spawn-actions` map, falling back to
+;; `:actions` — mirroring the runtime `transition/apply-on-spawn`'s
+;; `(or (chase-ref (:on-spawn-actions machine) aref)
+;;      (chase-ref (:actions machine) aref))`. Registration never validated
+;; this: `apply-on-spawn` silently treats a nil resolution as "no callback"
+;; (the same branch a genuinely-absent `:on-spawn` takes), so a dangling ref
+;; — a typo, a retired action name, a broken multi-hop indirection, a cycle
+;; — registers cleanly and the intended side effect just never runs, with
+;; no signal anywhere. `validate-on-spawn-ref!` closes the gap, following the
+;; FULL `ref-resolves?` chase (through EITHER registry, in order) so a
+;; multi-hop or cyclic indirection is caught here too, exactly as the
+;; `:guard` / `:action` ref checks already are.
+
+(defn- validate-on-spawn-ref!
+  "Validate one spawn-spec's `:on-spawn` keyword ref (if present) against
+  `machine`'s `:on-spawn-actions` map, falling back to `:actions` — the
+  SAME two-registry fallback `transition/apply-on-spawn` resolves through
+  at runtime. `where` (`:spawn` / `:spawn-all-child`) names the declaring
+  site for diagnostics. An inline fn `:on-spawn` needs no resolution;
+  absent `:on-spawn` is fine (the spawn simply has no callback). Emits
+  `:rf.error/machine-unresolved-on-spawn`."
+  [machine state-key spawn-spec where]
+  (when (map? spawn-spec)
+    (let [aref (:on-spawn spawn-spec)]
+      (when (and (keyword? aref)
+                 (not (ref-resolves? (:on-spawn-actions machine) aref))
+                 (not (ref-resolves? (:actions machine) aref)))
+        (throw (validation-error
+                 :rf.error/machine-unresolved-on-spawn
+                 (str where " on state " state-key " references :on-spawn "
+                      aref " which does not resolve — chased against the "
+                      "machine's :on-spawn-actions map, then its :actions "
+                      "map as a fallback (mirroring the runtime resolution "
+                      "order), and neither terminates at a fn. Register the "
+                      "callback under one of those maps, or fix the "
+                      ":on-spawn ref. Known :on-spawn-actions: "
+                      (pr-str (vec (keys (:on-spawn-actions machine))))
+                      "; known :actions: "
+                      (pr-str (vec (keys (:actions machine)))) ".")
+                 {:state                  state-key
+                  :where                  where
+                  :on-spawn               aref
+                  :known-on-spawn-actions (vec (keys (:on-spawn-actions machine)))
+                  :known-actions          (vec (keys (:actions machine)))}))))))
+
+(defn- validate-on-spawn-refs!
+  "Validate EVERY `:on-spawn` keyword ref on `state-node` — the single
+  `:spawn`'s `:on-spawn`, plus every `:spawn-all` child's `:on-spawn` — per
+  `validate-on-spawn-ref!`. `:spawn` / `:spawn-all` are mutually exclusive
+  (enforced by `validate-spawn-all!`), so at most one of the two doseqs
+  below does real work per node."
+  [machine state-key state-node]
+  (validate-on-spawn-ref! machine state-key (:spawn state-node) :spawn)
+  (doseq [child (get-in state-node [:spawn-all :children])]
+    (validate-on-spawn-ref! machine state-key child :spawn-all-child)))
+
 (defn- compound?
   "A state node is compound iff it declares a non-empty `:states` map."
   [state-node]
@@ -1138,7 +1241,21 @@
   `{:target [:missing]}` (unresolved → `:rf.error/machine-unresolved-target`)
   at registration rather than at the triggering dispatch (where a malformed
   target would otherwise throw `:rf.error/machine-bad-state-form` and an
-  unresolved one would commit an invalid snapshot)."
+  unresolved one would commit an invalid snapshot).
+
+  Per Spec 005 §Transition resolution steps 6-7 (rf2-nvgolg): a NON-PARALLEL
+  (flat / compound) machine root's OWN `:on` is the ancestor-fallback
+  transition slot `pick-transition` consults, at runtime, when no state-path
+  node handles the event — stamped with decl-path `[]`, so a keyword
+  `:target` resolves as a TOP-LEVEL sibling (`target-path`'s
+  `(drop-last [])` → `[]`) exactly like `resolves-to-state?` with an empty
+  `owning-path`. `walk-state-nodes-with-scope` only yields nodes INSIDE
+  `:states` (region or flat), so the root's own `:on` was UNCHECKED — an
+  invalid root `:on` target registered cleanly and committed an unresolved
+  `:state` at the first dispatch that fell through to it instead of failing
+  fast here. (A non-parallel root's `:after` cannot reach this point — it is
+  rejected outright by `validate-non-parallel-root-after!`, called earlier —
+  so only `:on` needs checking here.)"
   [machine]
   (doseq [[scope path node] (walk-state-nodes-with-scope machine)]
     (let [state-key (peek path)
@@ -1155,7 +1272,15 @@
       (when (contains? node :on-done)
         (check! :on-done (:on-done node)))
       (when-let [oe (get-in node [:spawn :on-error])]
-        (check! :spawn/on-error oe)))))
+        (check! :spawn/on-error oe))))
+  (when-not (parallel/parallel? machine)
+    (let [scope  (:states machine)
+          check! (fn [v]
+                   (doseq [{:keys [present? target]} (candidate-targets v)]
+                     (when present?
+                       (validate-target! scope [] :on :rf/root target))))]
+      (doseq [[_event v] (:on machine)]
+        (check! v)))))
 
 ;; ---- machine-level :schemas map (EP-0029 A3) -------------------------------
 ;;
@@ -1427,6 +1552,19 @@
   shape — `:regions` non-empty, mutually exclusive with `:initial` /
   `:states`, no nested parallel.
 
+  Per Spec 005 §Root-level `:after` (scoped to a `:type :parallel` root):
+  a NON-parallel (flat / compound) machine root's `:after` — hand-authored
+  or lowered from a root `:timeout` / `:on-timeout` — has no runtime
+  scheduling / resolution path and is rejected with
+  `:rf.error/machine-non-parallel-root-after-not-supported`.
+
+  Per Spec 005 §Transition resolution steps 6-7: a non-parallel machine
+  root's own `:on` (the ancestor fallback, decl-path `[]`) is validated
+  for target shape + resolution exactly like a state's `:on`, throwing
+  `:rf.error/machine-bad-target` / `:rf.error/machine-unresolved-target`
+  on a malformed or dangling target (a parallel root's region-qualified
+  `:on` is validated separately by `validate-parallel!`).
+
   Per Spec 005 §Schema validation / EP-0029 A3: the machine-level `:schemas`
   map (when present) must be a map whose sub-keys are within the closed set
   `#{:data :events :output :tags :meta}`. An unknown sub-key — including
@@ -1451,6 +1589,15 @@
   and action keyword refs must resolve against the machine's `:guards` /
   `:actions` maps. Throws `:rf.error/machine-unresolved-guard` /
   `:rf.error/machine-unresolved-action` on dangling refs.
+
+  Per Spec 005 §Declarative `:spawn` §`:on-spawn`: every `:on-spawn`
+  keyword ref (a single `:spawn`, or a `:spawn-all` child) must resolve
+  against the machine's `:on-spawn-actions` map, falling back to
+  `:actions` — the SAME two-registry order the runtime resolves through.
+  Throws `:rf.error/machine-unresolved-on-spawn` on a dangling ref
+  (mirroring `:rf.error/machine-unresolved-action`'s fail-fast contract;
+  previously a dangling `:on-spawn` ref silently resolved to \"no
+  callback\" at runtime).
 
   Per Spec 005 §Initial-state cascading: every compound state-node
   (declares `:states`) MUST declare `:initial`. Throws
@@ -1553,6 +1700,12 @@
   (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
+  ;; rf2-b6znpi — a non-parallel root's `:after` (hand-authored or lowered
+  ;; from a root `:timeout` / `:on-timeout`) has no runtime scheduling /
+  ;; resolution path; reject it loudly rather than silently registering a
+  ;; whole-machine deadline that never fires. Runs on the DESUGARED machine
+  ;; so a root `:timeout` is caught via its lowered `:after` form too.
+  (validate-non-parallel-root-after! machine)
   ;; The machine-level `:schemas` map (EP-0029 A3) — closed sub-key set; an
   ;; unknown sub-key (incl. `:input`) or a non-map `:schemas` fails loud.
   (validate-schemas! machine)
@@ -1562,7 +1715,11 @@
     (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
     (validate-spawn-on-error! s n)
-    (validate-compound-initial! s n))
+    (validate-compound-initial! s n)
+    ;; rf2-b4qbx0 — every `:on-spawn` keyword ref (single `:spawn` or a
+    ;; `:spawn-all` child) must resolve against `:on-spawn-actions`,
+    ;; falling back to `:actions`, at registration.
+    (validate-on-spawn-refs! machine s n))
   ;; The self-loop check needs each declaring node's absolute path to
   ;; resolve vector `:target`s, so it drives off the path-aware walker.
   (doseq [[path n] (walk-state-nodes-with-path machine)]
