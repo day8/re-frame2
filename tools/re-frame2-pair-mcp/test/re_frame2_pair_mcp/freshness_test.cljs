@@ -10,6 +10,9 @@
   The load-bearing case is `:stale-build`: a build whose last flush is
   newer than the moment the browser code loaded."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [cljs.reader]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.freshness :as fresh]))
 
 ;; ---------------------------------------------------------------------------
@@ -357,3 +360,174 @@
           (.then (fn [half]
                    (is (nil? half) "no socket ⇒ nil, never a TCP connect")
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; build-state-jvm-form + jvm-build-freshness-once — the JVM half END TO END
+;; on a SUCCESS response (rf2-nwgaxu).
+;;
+;; Every `assemble` test above stubs `fresh/jvm-build-freshness` WHOLESALE
+;; (`with-jvm-half!`), and the `retry-once-on-nil` tests drive a pure thunk
+;; — so the ACTUAL JVM-side form (`build-state-jvm-form`) and the round-trip
+;; that emits + parses it (`jvm-build-freshness-once`) are NEVER exercised
+;; on a success-shaped response. A malformed form — an unbalanced paren, a
+;; fat-fingered token from a bad string concat, a shape that no longer reads
+;; back the four documented keys — would stay GREEN because nothing proves
+;; the form PARSES or that a realistic JVM payload lands as the
+;; {:compile-cycle :build-flushed-at :runtime-count :heartbeat-age-ms} map.
+;;
+;; These drive the REAL public `fresh/jvm-build-freshness` (threading
+;; through the private `jvm-build-freshness-once` + `build-state-jvm-form`)
+;; against a socket-bearing conn and a stubbed `nrepl/jvm-eval`, so BOTH the
+;; form emission AND the value parse run for real. `jvm-eval` is stubbed to
+;; capture the emitted form AND to answer with a realistic success payload —
+;; mirroring `port_to_build_test`'s approach for its sibling JVM form
+;; (`port->build-jvm-form`), which build-state-jvm-form previously lacked.
+;; ---------------------------------------------------------------------------
+
+(defn- socket-conn
+  "A conn-atom that PASSES `conn-has-socket?` (a live, non-closed socket),
+  so `jvm-build-freshness` runs the real JVM round-trip instead of
+  short-circuiting to nil. The socket value is inert — the round-trip is
+  stubbed at `nrepl/jvm-eval`."
+  []
+  (atom {:socket :fake-live-socket :closed? false}))
+
+(deftest jvm-build-freshness-emits-a-parseable-well-formed-form
+  ;; The parse ratchet: the build-state form the REAL jvm-build-freshness
+  ;; emits MUST read back as a single well-formed `(try ...)` s-expression.
+  ;; A malformed form (unbalanced parens / a mangled token from a bad string
+  ;; concat) throws in `cljs.reader/read-string` here instead of silently
+  ;; staying green behind the wholesale stub.
+  (async done
+    (let [seen (atom nil)
+          orig nrepl/jvm-eval
+          payload {:compile-cycle 3 :build-flushed-at 100 :runtime-count 1 :heartbeat-age-ms 20}
+          stub (fn
+                 ([_c form] (reset! seen form)
+                            (js/Promise.resolve {:value (pr-str payload)}))
+                 ([_c form _o] (reset! seen form)
+                               (js/Promise.resolve {:value (pr-str payload)})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/jvm-build-freshness (socket-conn) :app)
+          (.then
+            (fn [_]
+              (let [form @seen]
+                (is (string? form) "the real jvm-build-freshness emitted a JVM form")
+                ;; Substring-pin the shadow internals the form reaches into
+                ;; (mirrors port_to_build_test's substring pins on its form).
+                (is (re-find #"shadow\.cljs\.devtools\.server\.runtime/get-instance!" form))
+                (is (re-find #"shadow\.cljs\.devtools\.server\.supervisor/get-worker" form))
+                (is (re-find #":build-state" form))
+                (is (re-find #":shadow\.build/build-info" form))
+                (is (re-find #":compile-cycle" form))
+                (is (re-find #":flush-complete" form))
+                (is (re-find #":runtimes" form))
+                (is (re-find #":last-pong" form))
+                (is (re-find #"System/currentTimeMillis" form))
+                (is (re-find #"catch Throwable" form)
+                    "the form is defended so a missing worker collapses to nil, not a throw")
+                (is (re-find #"get-worker sup :app" form)
+                    "the build-id is rendered as its :app keyword literal")
+                ;; THE PARSE RATCHET: the emitted form reads back as ONE
+                ;; well-formed (try (let ...) (catch ...)) s-expression.
+                ;; read-string THROWS on an unbalanced / mangled form.
+                (let [parsed (cljs.reader/read-string form)]
+                  (is (seq? parsed) "the emitted form parses as a single s-expression")
+                  (is (= 'try (first parsed))
+                      "the form is the defended (try (let ...) (catch ...)) shape")))
+              nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
+
+(deftest jvm-build-freshness-renders-a-namespaced-build-id-literal
+  ;; The bid rendering branch for a namespaced keyword build-id — the real
+  ;; caller (`assemble`) passes keyword build-ids like :examples/machine-epochs.
+  (async done
+    (let [seen (atom nil)
+          orig nrepl/jvm-eval
+          stub (fn
+                 ([_c form] (reset! seen form) (js/Promise.resolve {:value "nil"}))
+                 ([_c form _o] (reset! seen form) (js/Promise.resolve {:value "nil"})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/jvm-build-freshness (socket-conn) :examples/machine-epochs)
+          (.then
+            (fn [_]
+              (is (re-find #"get-worker sup :examples/machine-epochs" @seen)
+                  "a namespaced build-id rides as its full keyword literal")
+              ;; Still a parseable (try ...) form for the namespaced id.
+              (is (= 'try (first (cljs.reader/read-string @seen))))
+              nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
+
+(deftest jvm-build-freshness-parses-a-success-payload-into-the-documented-shape
+  ;; A realistic JVM success payload must parse back into the four
+  ;; documented keys — proving `jvm-build-freshness-once`'s
+  ;; `(some-> (:value resp) cljs.reader/read-string)` + `map?` guard read
+  ;; the emitted form's return shape, not a degraded nil.
+  (async done
+    (let [payload {:compile-cycle 12 :build-flushed-at 1699999999999
+                   :runtime-count 2 :heartbeat-age-ms 42}
+          orig nrepl/jvm-eval
+          stub (fn
+                 ([_c _form] (js/Promise.resolve {:value (pr-str payload)}))
+                 ([_c _form _o] (js/Promise.resolve {:value (pr-str payload)})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/jvm-build-freshness (socket-conn) :app)
+          (.then
+            (fn [half]
+              (is (map? half) "a success payload parses back to a map (not nil-degraded)")
+              (is (= payload half) "the four documented keys round-trip verbatim")
+              (is (= 12 (:compile-cycle half)))
+              (is (= 1699999999999 (:build-flushed-at half)))
+              (is (= 2 (:runtime-count half)))
+              (is (= 42 (:heartbeat-age-ms half)))
+              nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
+
+(deftest jvm-build-freshness-blank-value-degrades-to-nil
+  ;; A blank/non-map JVM value (a socket hiccup, an old shadow) must degrade
+  ;; to nil through the REAL once + retry so the caller sees :liveness
+  ;; :unknown — driven end-to-end, not via the pure-thunk retry tests.
+  (async done
+    (let [orig nrepl/jvm-eval
+          stub (fn
+                 ([_c _form] (js/Promise.resolve {:value ""}))
+                 ([_c _form _o] (js/Promise.resolve {:value ""})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/jvm-build-freshness (socket-conn) :app)
+          (.then (fn [half]
+                   (is (nil? half) "a blank value ⇒ nil (a non-map read degrades, never throws)")
+                   nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
+
+(deftest assemble-drives-the-real-jvm-half-end-to-end
+  ;; The fullest ratchet: `assemble` WITHOUT stubbing jvm-build-freshness —
+  ;; only `nrepl/jvm-eval` is stubbed — so the real `build-state-jvm-form`
+  ;; is emitted, the real round-trip parses a realistic success payload, and
+  ;; the parsed half drives the liveness verdict. A malformed form or a
+  ;; shape drift would surface as a WRONG verdict / a dropped field HERE,
+  ;; not as a green wholesale stub.
+  (async done
+    (let [;; flush (500) < load (1000) ⇒ :fresh; runtime connected, hb recent.
+          payload {:compile-cycle 9 :build-flushed-at 500
+                   :runtime-count 1 :heartbeat-age-ms 100}
+          orig nrepl/jvm-eval
+          stub (fn
+                 ([_c _form] (js/Promise.resolve {:value (pr-str payload)}))
+                 ([_c _form _o] (js/Promise.resolve {:value (pr-str payload)})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/assemble (socket-conn) :app browser-half)
+          (.then
+            (fn [token]
+              (is (= 9 (:compile-cycle token)) "the REAL JVM half's compile-cycle merged in")
+              (is (= 500 (:build-flushed-at token)))
+              (is (= 1 (:runtime-count token)))
+              (is (= :fresh (:liveness token))
+                  "load (1000) > flush (500), runtime connected ⇒ :fresh via the REAL form")
+              (is (nil? (:hint token)) "a fresh verdict carries no hint")
+              nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
