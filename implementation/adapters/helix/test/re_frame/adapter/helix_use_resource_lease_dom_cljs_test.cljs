@@ -144,3 +144,70 @@
                       (fn []
                         (is (= 1 (count @releases)) "release fired on unmount")
                         (done)))))))))))))
+
+;; ---- StrictMode double-mount (rf2-ui5ahy) ---------------------------------
+;;
+;; use-resource-lease is an EFFECT-driven mount-lifecycle hook (ensure on
+;; setup, release on cleanup) — the seam React's dev double-invoke stresses
+;; most. React 18/19's default dev scaffold wraps the tree in
+;; `React.StrictMode`, which double-invokes the mount effect
+;; (setup → cleanup → setup). The lease token is minted ONCE per instance via
+;; `useRef` (re-frame.adapter.resource-lease), so it must be STABLE across the
+;; double-invoke: the mount cycle emits ensure(T) → release(T) → ensure(T)
+;; (net one held lease T), and unmount emits release(T) (net zero) — ALL under
+;; the SAME lease token. A per-invoke token (the regression this pins) would
+;; leak a second, never-released lease: two distinct tokens and an unbalanced
+;; ledger. Mirrors the use-subscribe StrictMode refcount-balance gate
+;; (rf2-nymuy); use-resource-lease is at least as effect-centric.
+
+(deftest use-resource-lease-strictmode-double-mount-balances
+  (testing "Helix — use-resource-lease under React.StrictMode: ONE stable lease token across the dev double-invoke; balanced ensure/release ledger (rf2-ui5ahy)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (async done
+            (binding [frame/*current-frame* nil]
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+              (install-spies!)
+              (let [mount-node (.createElement js/document "div")
+                    root       (react-dom-client/createRoot mount-node)]
+                ;; Mount ProbeLease wrapped in React.StrictMode — the mount
+                ;; effect double-invokes setup → cleanup → setup.
+                (act-fn
+                  (fn []
+                    (.render root
+                      (React/createElement
+                        (.-StrictMode React) nil
+                        ($ helix-adapter/frame-provider {:frame lease-frame}
+                           ($ ProbeLease))))))
+                (after-drain
+                  (fn []
+                    ;; StrictMode double-invoked the mount effect: the setup
+                    ;; ran on mount AND again after the dev cleanup.
+                    (is (<= 2 (count @ensures))
+                        (str "StrictMode double-invoked the mount effect (ensure on mount + remount) — got "
+                             (count @ensures) " ensures"))
+                    ;; The crux: the useRef-minted lease token is STABLE across
+                    ;; the double-invoke — exactly ONE distinct lease owner.
+                    ;; A per-invoke token would show two distinct owners here.
+                    (is (= 1 (count (distinct (map :owner @ensures))))
+                        (str "exactly ONE distinct lease token across all ensures — the useRef token survived StrictMode's mount→cleanup→mount; owners="
+                             (pr-str (distinct (map :owner @ensures)))))
+                    ;; net one held lease after the mount cycle settles
+                    ;; (ensure → release → ensure).
+                    (is (= 1 (- (count @ensures) (count @releases)))
+                        (str "net one held lease after the mount double-invoke settles — ensures="
+                             (count @ensures) " releases=" (count @releases)))
+                    (act-fn (fn [] (.unmount root)))
+                    (after-drain
+                      (fn []
+                        ;; Fully balanced after unmount — no leaked lease.
+                        (is (= (count @ensures) (count @releases))
+                            (str "ensure/release ledger balanced after unmount (no leaked lease) — ensures="
+                                 (count @ensures) " releases=" (count @releases)))
+                        (is (= (set (map :owner @ensures))
+                               (set (map :owner @releases)))
+                            "every ensured lease token was released — the SAME stable token acquired was dropped")
+                        (done)))))))))))))
