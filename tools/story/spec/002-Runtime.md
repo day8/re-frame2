@@ -677,7 +677,15 @@ the hash includes:
   canonicalised — per `re-frame.story.identity/variant-body-slice`)
 - Effective `:args` (post-merge with story + mode)
 - Decorator id sequence and their args
-- Tag set
+- The variant's **effective tag set** — resolved through the shared
+  `re-frame.story.tags` resolver (`:extends`-chain / parent-story
+  inheritance + `:!x` removal-marker resolution — see
+  [001 §Effective tags](001-Authoring.md)), NOT the raw child `:tags`.
+  This single slot subsumes both the variant's own tags and the parent
+  story's tags (as fallback), so identity keys off the same effective
+  classification every other tag consumer reads: an `:extends`-parent tag
+  edit perturbs the hash, a `:!x` marker that cancels an inherited tag
+  does not, and raw `:!x` authoring syntax never reaches the hash.
 - Parent story `:component` id
 - Parent story decorators
 - Registered schema digest of `:component` (per
