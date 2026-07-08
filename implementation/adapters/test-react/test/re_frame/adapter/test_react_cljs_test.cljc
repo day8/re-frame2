@@ -450,31 +450,32 @@
           "the orphaned root leaks — subscribe/dispose imbalance detected")
       (is (true? @(:mounted? @orphan-ref))
           "the specific leaked root is the orphan the host forgot to track")
-      (is (not (zero? (count (test-react/mounted-roots))))
-          "a balanced teardown would zero the live-mount count; this buggy path leaks")
       ;; Clean up the orphan so the fixture's drain has nothing to forcibly tear.
       (test-react/unmount! @orphan-ref))))
 
 (deftest balanced-subscribe-dispose-returns-to-zero
   (testing "the CORRECT counterpart: a parent that lets the cascade tear all
-            children down returns the live-mount count and ref count to zero —
-            the green state a regression in B.2 would break"
-    (let [live   (atom 0)
-          parent (test-react/mount!
+            children down returns the live-mount count to zero and empties its
+            tracked-child set — the green state a regression in B.2 would break"
+    (let [parent (test-react/mount!
                    {:rf/component
                     (fn [_parent]
-                      (test-react/mount-child! [:li "a"]) (swap! live inc)
-                      (test-react/mount-child! [:li "b"]) (swap! live inc))})]
+                      (test-react/mount-child! [:li "a"])
+                      (test-react/mount-child! [:li "b"]))})]
       (is (= 3 (count (test-react/mounted-roots))))
-      ;; Correct teardown: just unmount the parent; the cascade handles
-      ;; children, and we mirror the ref release per child it tears down.
-      (let [n-children (count (test-react/children parent))]
-        (test-react/unmount! parent)
-        (dotimes [_ n-children] (swap! live dec)))
+      (is (= 2 (count (test-react/children parent)))
+          "both children are tracked under the parent before teardown")
+      ;; Correct teardown: just unmount the parent; the cascade tears every
+      ;; child down leaf-first — no per-resource bookkeeping needed.
+      (test-react/unmount! parent)
       (is (zero? (count (test-react/mounted-roots)))
           "cascade tore every child down — nothing leaks")
-      (is (zero? @live)
-          "ref count balanced back to zero"))))
+      ;; `children` returns only STILL-MOUNTED children, so an empty result
+      ;; after teardown is a REAL framework property: the cascade set every
+      ;; tracked child's mounted? false. A child the cascade failed to reach
+      ;; would still read as mounted and show up here.
+      (is (empty? (test-react/children parent))
+          "the parent's live-child set drained — the cascade reached every child"))))
 
 ;; ----------------------------------------------------------------------------
 ;; B.3 — Double-render
