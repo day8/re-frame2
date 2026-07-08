@@ -53,7 +53,7 @@ Two harness extensions on top of the base schema:
 
 ## Coverage
 
-Eight evals, covering the three dimensions:
+Eleven evals, covering the three dimensions:
 
 | ID | Name | Dimension | What it probes |
 |---:|---|---|---|
@@ -65,14 +65,20 @@ Eight evals, covering the three dimensions:
 | 6 | `routing-correctness-greenfield-scaffold` | routing-correctness | Prompt is "start a new re-frame2 project from scratch". Does the agent defer to the sibling `re-frame2-setup` skill rather than improvising `deps.edn` / `shadow-cljs.edn` from the authoring skill? |
 | 7 | `recipe-correctness-story-recorder-sensitive-login` | recipe-correctness | Story-recorder privacy prompt (login + 2FA into a `:script`). Does the agent teach the CURRENT (path-based, fail-open) owner-classification contract — recorder filters off the emitted trace event's `:sensitive?`, stamped by the runtime from OWNER-declared path classification (a durable app-db secret via the writing event's `:sensitive` classification effect; the transient 2FA payload key in the submit handler's REGISTRATION `:sensitive` metadata), NOT handler metadata — and EXPLICITLY REJECT handler-meta `{:sensitive? true}` (a no-op) and the retired `redact-interceptor` / `add-marks` / frame `:sensitive {:app-db …}` annotation / schema-attached app-db marks as the mechanism? |
 | 8 | `recipe-correctness-story-variant-authoring-handoff` | recipe-correctness | Story variant authoring through the hybrid split. The prompt asks to author a variant AND "run it and keep iterating against the running library". Does the agent author with only the tools `re-frame2` is allow-listed for (`register-variant` / `preview-variant` / `get-variant` / `explain-variant`), and **hand off** the run/self-heal loop (`run-variant` / `read-failures`) to `re-frame2-pair` rather than claiming to call tools it cannot reach? Fails if the documented loop requires run-side tools unavailable to this skill. |
+| 9 | `recipe-correctness-resource-scoped-read-lifecycle` | recipe-correctness | Tenant-scoped billing-summary read shared across three screens (`patterns/resources.md`). Does the output register it with `reg-resource` under a REQUIRED fail-closed `:scope` (a `reg-resource-scope` named resolver referenced `{:from-db …}`, NOT `:rf.scope/global`, never omitted), read it PASSIVELY via a `[:rf/resource …]` sub, and CAUSE the fetch from a route `:resources` entry / `[:rf.resource/ensure …]` (owner + cause) — never from a view — while clearing the old scope causally on tenant switch (`resolve-resource-scope` + `:rf.resource/clear-scope`, no `:snapshot-db`) and never hand-rolling the cache key (CEDN-1)? |
+| 10 | `recipe-correctness-mutation-reply-to-workflow` | recipe-correctness | Article-save flow with post-success navigate + toast + field-error folding, concurrent saves (`patterns/resources-mutations.md`). Does the output use `reg-mutation` via `[:rf.mutation/execute …]` keyed by `:instance`, and keep the two axes apart — cache consequences (`:invalidates` list / `:populates` detail) DECLARATIVE on `reg-mutation`, app workflow in a call-site `:reply-to` handler (a causal event target reading the appended `{:status :value :error}` reply map, NOT a callback, NOT registration-level) — rejecting workflow-on-`reg-mutation` and the component-watcher idiom? |
+| 11 | `recipe-correctness-mutation-optimistic-mixed-scope` | recipe-correctness | Optimistic favorite (instant heart/count, clean rollback) invalidating a global article fact AND the session-scoped feed (`patterns/resources-mutations.md`). Does the output declare an `:optimistic` / `:optimistic-tags` plan (params / old-data, NO `result` arg) relying on the runtime-recorded inverse (no hand-written rollback), express the mixed-scope invalidation as per-target DESCRIPTORS (`{:scope :rf.scope/global …}` + `{:scope {:from-db …} :tags #{[:feed]}}`) rather than `:cross-scope? true`, and never `assoc` into `:rf.runtime/resources`? |
 
-Three is Anthropic's minimum. Eight gives **four** recipe-correctness evals
+Three is Anthropic's minimum. Eleven gives **seven** recipe-correctness evals
 and **two** each for discovery and routing-correctness, so every dimension keeps
 multi-eval coverage and any single eval can flake without the dimension going
 dark. The skew toward recipe-correctness reflects that dimension's higher defect
-risk (idiom drift in produced code, including the
-Story-recorder privacy contract eval 7 guards and the Story authoring/run
-boundary eval 8 guards).
+risk (idiom drift in produced code) — including the Resources/mutations recipe
+surface (evals 9–11), the most idiom-dense recipe area the skill teaches: the
+fail-closed mandatory `:scope`, the passive-view / causal-fetch split, call-site
+`:reply-to` workflow vs declarative cache consequences, and optimistic plans with
+runtime-recorded inverses — plus the Story-recorder privacy contract eval 7
+guards and the Story authoring/run boundary eval 8 guards.
 
 > **Staying in sync.** The table above, the eval count in this paragraph, and
 > the per-dimension breakdown are checked against `evals.json` by
