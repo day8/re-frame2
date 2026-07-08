@@ -1158,6 +1158,33 @@
               (is (contains? (:exec-args server-alias) :static-root)
                   ":server :exec-args carries a :static-root the server serves main.js from")))
 
+          ;; -- :test alias wiring — the headless JVM ssr_test.clj gate --
+          ;; The SSR scaffold ships NO cljs.test suite, so `clojure -M:test`
+          ;; (this alias) is the ONLY automated test — what `npm test` and the
+          ;; generated CI run (rf2-97eebb). Without the alias the emitted
+          ;; ssr_test.clj is orphaned and never executes.
+          (let [test-alias (get-in (read-edn (io/file root "deps.edn"))
+                                   [:aliases :test])]
+            (is (some? test-alias)
+                "SSR deps.edn declares a :test alias (runs ssr_test.clj on the JVM)")
+            (is (= ["test"] (:extra-paths test-alias))
+                ":test alias puts the test/ dir on the classpath")
+            (is (contains? (:extra-deps test-alias)
+                           'io.github.cognitect-labs/test-runner)
+                ":test alias pulls in the cognitect test-runner")
+            (is (= ["-m" "cognitect.test-runner"] (:main-opts test-alias))
+                ":test alias runs `clojure -M:test` via the cognitect test-runner"))
+
+          ;; -- package.json `test` script runs the JVM gate, NOT an empty
+          ;;    CLJS node-test bundle (the SSR scaffold has no cljs.test suite,
+          ;;    so a node-test run would false-green on zero tests) --
+          (let [pkg-text (slurp (io/file root "package.json"))]
+            (is (.contains pkg-text "\"test\":    \"clojure -M:test\"")
+                "SSR package.json `test` npm script runs the JVM `clojure -M:test` gate")
+            (is (not (.contains pkg-text "node out/node-test.js"))
+                "SSR package.json `test` script does NOT run the CLJS node-test
+                 bundle — the SSR path ships no cljs.test suite (rf2-97eebb)"))
+
           ;; -- core.cljc carries the SSR wiring --
           (let [core-text (slurp (io/file root "src/acme/my_app/core.cljc"))]
             (is (.contains core-text "(ns acme.my-app.core")

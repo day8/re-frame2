@@ -67,6 +67,19 @@
   {:exec-fn   {{namespace}}.server/-main
    :exec-args {:port 8030 :static-root "resources/public/js"}}
 
+  ;; `clojure -M:test` runs the headless JVM SSR gate
+  ;; (test/{{nested-dirs}}/ssr_test.clj) via the cognitect test-runner.
+  ;; The SSR scaffold's ONLY automated test is this JVM gate — the client
+  ;; `:app` bundle ships no cljs.test suite — so this alias is what
+  ;; `npm test` invokes (see package.json) and what the generated CI
+  ;; (.github/workflows/ci.yml) runs. The runner discovers `*-test`
+  ;; namespaces on the `test` path.
+  :test
+  {:extra-paths ["test"]
+   :extra-deps  {io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "cognitect.test-runner"]}
+
   ;; `clojure -M:shadow` runs shadow-cljs in JVM mode via the alias.
   ;; You can also use `npx shadow-cljs ...` (shadow's own node-side CLI).
   ;; Both work; the npm-side route is the canonical workflow.
