@@ -686,7 +686,16 @@ the hash includes:
   classification every other tag consumer reads: an `:extends`-parent tag
   edit perturbs the hash, a `:!x` marker that cancels an inherited tag
   does not, and raw `:!x` authoring syntax never reaches the hash.
-- Parent story `:component` id
+- The variant's `:component` view-id **override** — the renderer resolves
+  variant-first (`(or (:component variant) (:component story))`), so a
+  variant's own `:component` decides which view renders; two variants
+  differing only in it must get distinct hashes (rf2-bah5o2)
+- The variant's `:sub-overrides` / `:db-seed` / `:network` render inputs
+  — pinned subscription outputs the renderer surfaces, the pre-script
+  app-db seed, and the stubbed HTTP replies a fetch-on-mount view settles
+  to (rf2-9zj0nc)
+- Parent story `:component` id (the story-level default, via
+  `re-frame.story.identity/story-body-slice`)
 - Parent story decorators
 - Registered schema digest of `:component` (per
   [spec/011 §`:rf/schema-digest`](../../../spec/011-SSR.md))

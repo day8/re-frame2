@@ -570,6 +570,63 @@
         (finally
           (late-bind/set-fn! :schemas/app-schemas-digest prior))))))
 
+(deftest snapshot-identity-changes-with-variant-component
+  (testing "rf2-bah5o2 — the per-variant `:component` view-id OVERRIDE
+            participates in the hash. The renderer resolves variant-first
+            `(or (:component variant) (:component story))`, so a variant's
+            OWN `:component` decides WHICH view renders. Before the fix
+            `variant-body-slice` omitted `:component`, so a watch-session
+            edit swapping the view produced NO drift (the re-registration
+            bumped the mutation-tick but the recomputed hash was unchanged)
+            and two variants differing only in `:component` shared a
+            content-hash. plan.cljc DID fold `:component` into the plan-
+            hash; only the snapshot path was incomplete."
+    (story/reg-story :story.id-comp {:component :app/parent})
+    (story/reg-variant :story.id-comp/v {:events [] :component :view-a})
+    (let [h1 (-> (story/snapshot-identity :story.id-comp/v) :content-hash)]
+      (story/reg-variant :story.id-comp/v {:events [] :component :view-b})
+      (let [h2 (-> (story/snapshot-identity :story.id-comp/v) :content-hash)]
+        (is (not= h1 h2)
+            "swapping the variant's :component override must produce a fresh hash"))
+      (testing "the :variant tuple slice now carries the variant's own
+                :component — the slot that resolves the two-variant collision"
+        (is (= :view-b (get-in (ident/snapshot-tuple :story.id-comp/v)
+                               [:variant :component]))
+            "variant-body-slice must select :component")))))
+
+(deftest snapshot-identity-changes-with-render-inputs
+  (testing "rf2-9zj0nc — the variant's `:sub-overrides` / `:db-seed` /
+            `:network` render inputs participate in the hash. Each changes
+            the settled rendered state (pinned sub outputs / pre-script
+            app-db seed / stubbed HTTP replies). Before the fix
+            `variant-body-slice` omitted all three, so an edit produced no
+            drift and the visual-regression baseline stayed stale — even
+            though the plan-hash DID capture them, confirming the snapshot
+            path was the incomplete one."
+    (story/reg-story :story.id-render {:component :app/v})
+    (testing ":sub-overrides edit perturbs the hash"
+      (story/reg-variant :story.id-render/v
+        {:events [] :sub-overrides {[:cart/total] 0}})
+      (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
+        (story/reg-variant :story.id-render/v
+          {:events [] :sub-overrides {[:cart/total] 999}})
+        (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
+            "editing a :sub-overrides value must produce a fresh hash")))
+    (testing ":db-seed edit perturbs the hash"
+      (story/reg-variant :story.id-render/v {:events [] :db-seed {[:count] 1}})
+      (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
+        (story/reg-variant :story.id-render/v {:events [] :db-seed {[:count] 2}})
+        (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
+            "editing a :db-seed value must produce a fresh hash")))
+    (testing ":network edit perturbs the hash"
+      (story/reg-variant :story.id-render/v
+        {:events [] :network {[:get "/api/x"] {:reply {:ok {:status 200}}}}})
+      (let [h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash)]
+        (story/reg-variant :story.id-render/v
+          {:events [] :network {[:get "/api/x"] {:reply {:ok {:status 500}}}}})
+        (is (not= h1 (-> (story/snapshot-identity :story.id-render/v) :content-hash))
+            "editing a :network reply must produce a fresh hash")))))
+
 ;; ---- rf2-chzryf: identity keys off EFFECTIVE tags, not raw child :tags ----
 ;;
 ;; Follow-on from rf2-n0vmq2/#5308. The shared `re-frame.story.tags`
