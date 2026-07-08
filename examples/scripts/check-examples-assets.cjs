@@ -73,6 +73,14 @@
  *      in scanned CSS, reusing EXTERNAL_IMPORT_ALLOWLIST. `data:` URIs (inlined,
  *      no request) and same-document `url(#fragment)` paint refs stay exempt.
  *
+ *      LOCAL url() TARGETS are resolved to disk too (rf2-35lfqo). A
+ *      `background-image: url('missing.png')`, a `@font-face { src: url(x.woff2) }`,
+ *      or a `cursor: url(img/cursor.png)` pointing at a missing LOCAL file fires
+ *      no network request (so the remote-url policy above skips it) yet still
+ *      ships a broken asset, so each local `url(...)` target inside scanned CSS
+ *      must resolve to a real file in the source tree — the local counterpart
+ *      of the @import resolution above.
+ *
  *      Staging-aware resolution: a page references _shared assets at the
  *      relative path `_shared/...`, but in the SOURCE tree _shared lives
  *      ONCE at examples/_shared/ (not next to each page) — the orchestrator
@@ -96,10 +104,44 @@
  *      preview while a pure "the file exists" check stays green. The .svg is
  *      kept only as editable source art. (rf2-lr4am3)
  *
- *   4. Asserts the _shared source tree itself is intact: the required
- *      _shared files exist on disk (incl. the og.png raster + its og.svg
- *      source art) and structure.css remains reachable from style.css's
- *      @import.
+ * Steps 4-6 run ONCE over the examples/_shared source tree itself, independent
+ * of any page's reference graph, so each contract holds even if no scanned page
+ * links the file. Together they make this an accessibility / cascade / responsive
+ * gate over the shared design system, not merely a "the files exist" check:
+ *
+ *   4. Asserts the _shared source tree is intact + the shipped card is valid:
+ *      (a) EXISTENCE: the required _shared files are present on disk (incl. the
+ *          og.png raster + its og.svg source art) and structure.css remains
+ *          reachable from style.css's @import.
+ *      (b) OG RASTER BYTES: og.png actually decodes as a PNG (signature + IHDR)
+ *          at the documented 1200x630 dimensions — a renamed SVG/text file or a
+ *          wrong-size export fails, not just a missing file (rf2-mon7tz).
+ *      (c) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
+ *          literal as a live paint value, so the re-exported card cannot drift
+ *          back below the shared palette's accessibility decisions (rf2-y82dk9).
+ *      (d) NO REMOTE STYLING: style.css / structure.css carry no external
+ *          @import (rf2-vou5mm) and no remote url() fetch (rf2-o18ava), checked
+ *          here so the contract holds even for an unlinked shared stylesheet.
+ *
+ *   5. Asserts the shared ACCESSIBILITY contracts on style.css:
+ *      (a) WCAG CONTRAST: every shipped foreground/background --ex-* token pair
+ *          clears its floor (AA 4.5:1 normal text, 3:1 focus ring), computed
+ *          from the parsed tokens; a palette edit that drops a pair below the
+ *          floor turns the gate RED (rf2-febmqu).
+ *      (b) FOCUS INDICATOR: form controls keep a visible ':focus-visible' ring
+ *          on the AA-safe --ex-accent-deep token, and the pre-fix low-alpha
+ *          amber ring (≈1.5:1) is banned from returning (rf2-mon7tz).
+ *
+ *   6. Asserts the shared CSS-CASCADE + RESPONSIVE contracts on structure.css
+ *      (static, since the gate cannot observe layout):
+ *      (a) CASCADE SCOPING: the WebSocket send-form text-input baseline stays
+ *          scoped to '.send-form' (no global 'input[type="text"]' rule) and the
+ *          7GUIs Cells grid keeps its compact '.cells-grid input { width:56px }',
+ *          so the send-form sizing cannot blow out the spreadsheet grid
+ *          (rf2-gv5xd).
+ *      (b) RESPONSIVE SHELL: the inline-Xray '.rf2-testbed-shell' carries a
+ *          max-width media query that stacks it to a column instead of
+ *          overflowing horizontally on narrow viewports (rf2-y82dk9).
  *
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free
  * (rf2-8cevm). It is a pure static scanner, wired into the always-run
