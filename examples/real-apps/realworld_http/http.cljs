@@ -99,14 +99,33 @@
   [articles-count]
   (max 1 (long (js/Math.ceil (/ (or articles-count 0) page-size)))))
 
+(defn query-string
+  "Assemble a `?k=v&k2=v2…` query string from a map of query params, with every
+   value URL-encoded via `js/encodeURIComponent` so a tag, username, or other
+   filter value carrying a reserved query character (`&`, `=`, `#`, a space,
+   …) reaches the API as that literal value instead of corrupting the query
+   string it's embedded in. Nil-valued params are dropped, and an empty (or
+   all-nil) map yields `\"\"`, not a bare `\"?\"`."
+  [params]
+  (let [pairs (for [[k v] params :when (some? v)]
+                (str (name k) "=" (js/encodeURIComponent (str v))))]
+    (if (seq pairs)
+      (str "?" (clojure.string/join "&" pairs))
+      "")))
+
 (defn paginate-path
-  "Tack the `limit` + `offset` query params for `page` (1-indexed) onto a list
-   `path`, keeping whatever params the path already has (so
-   `/articles?tag=foo` becomes `/articles?tag=foo&limit=10&offset=20`). The
-   API base gets prepended later, by the request builder via `full-url`."
-  [path page]
-  (let [sep (if (clojure.string/includes? path "?") "&" "?")]
-    (str path sep "limit=" page-size "&offset=" (page->offset page))))
+  "Assemble a Conduit list-endpoint `path` (e.g. `/articles` or
+   `/articles/feed`) plus optional `filters` — a map like `{:tag \"clojure\"}`,
+   `{:author \"jake\"}`, or `{:favorited \"jake\"}`; `nil`/`{}` for the
+   unfiltered list — plus the `limit`/`offset` pagination window for `page`
+   (1-indexed). Every value goes through `query-string`, so it's properly
+   URL-encoded rather than concatenated raw — a tag or username with a
+   reserved query character no longer corrupts the request. The API base gets
+   prepended later, by the request builder via `full-url`."
+  [path filters page]
+  (str path (query-string (assoc filters
+                                  :limit page-size
+                                  :offset (page->offset page)))))
 
 ;; ============================================================================
 ;; RETRY POLICIES

@@ -23,8 +23,7 @@
    the old data on screen (that's stale-while-revalidate). An inactive entry —
    one nobody owns — becomes GC-eligible after its own window. And re-`ensure`-ing
    a still-fresh entry is just a cache-hit: no fetch, no dedupe, nothing to see."
-  (:require [clojure.string]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Managed HTTP — the one built-in transport for resources and
             ;; mutations. Loading the ns registers the `:rf.http/managed` fx the
             ;; runtime lowers each ensure/refetch onto.
@@ -78,14 +77,18 @@
     {:limit  page-size
      :offset (* (dec p) page-size)}))
 
-(defn- with-pagination
-  "Tack the `limit` / `offset` pair (derived from `:page`) onto a list URL,
-   whether or not it already has a query string. Keeps the resource `:request`
-   fns short while every page stays its own distinct cache key."
-  [url page]
-  (let [{:keys [limit offset]} (page->limit-offset page)
-        sep (if (clojure.string/includes? url "?") "&" "?")]
-    (str url sep "limit=" limit "&offset=" offset)))
+(defn- list-path
+  "Assemble a Conduit list-endpoint `path` (e.g. `/articles` or
+   `/articles/feed`) plus optional `filters` — a map like `{:tag \"clojure\"}`,
+   `{:author \"jake\"}`, or `{:favorited \"jake\"}`; `nil`/`{}` for the
+   unfiltered list — plus the `limit`/`offset` pagination pair derived from
+   `:page`. Every value goes through `rh/query-string`, so it's properly
+   URL-encoded rather than concatenated raw — a tag or username with a
+   reserved query character no longer corrupts the request. Keeps the
+   resource `:request` fns short while every (filters, page) pair stays its
+   own distinct cache key."
+  [path filters page]
+  (str path (rh/query-string (merge filters (page->limit-offset page)))))
 
 ;; A simple rule runs through all of this: reads retry, writes don't. Each read's
 ;; `:request` returns the shared `rh/data-fetch-retry` policy in its managed-HTTP
@@ -127,11 +130,7 @@
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
   (fn [{:keys [tag page]} _ctx]
     {:request {:method :get
-               :url    (-> (if tag
-                             (str "/articles?tag=" tag)
-                             "/articles")
-                           rh/full-url
-                           (with-pagination page))}
+               :url    (rh/full-url (list-path "/articles" (when tag {:tag tag}) page))}
      :decode  schema/ArticlesResponse
      :retry   rh/data-fetch-retry}))
 
@@ -194,9 +193,7 @@
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
   (fn [{:keys [username page]} _ctx]
     {:request {:method :get
-               :url    (-> (str "/articles?author=" username)
-                           rh/full-url
-                           (with-pagination page))}
+               :url    (rh/full-url (list-path "/articles" {:author username} page))}
      :decode  schema/ArticlesResponse
      :retry   rh/data-fetch-retry}))
 
@@ -221,9 +218,7 @@
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
   (fn [{:keys [username page]} _ctx]
     {:request {:method :get
-               :url    (-> (str "/articles?favorited=" username)
-                           rh/full-url
-                           (with-pagination page))}
+               :url    (rh/full-url (list-path "/articles" {:favorited username} page))}
      :decode  schema/ArticlesResponse
      :retry   rh/data-fetch-retry}))
 
@@ -280,7 +275,6 @@
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
   (fn [{:keys [page]} _ctx]
     {:request {:method :get
-               :url    (-> (rh/full-url "/articles/feed")
-                           (with-pagination page))}
+               :url    (rh/full-url (list-path "/articles/feed" nil page))}
      :decode  schema/ArticlesResponse
      :retry   rh/data-fetch-retry}))

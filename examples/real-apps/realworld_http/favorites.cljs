@@ -66,7 +66,7 @@
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [page (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path (rh/paginate-path "/articles/feed" page)]
+          path (rh/paginate-path "/articles/feed" nil page)]
       {:db (-> db
                (assoc-in [:feed :status]
                          (if (seq (get-in db [:feed :data])) :fetching :loading))

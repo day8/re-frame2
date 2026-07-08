@@ -201,12 +201,13 @@
   {:doc "Fetch the articles this user wrote. Public; house retry. Also
          broadcasts `:show-articles` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
-         official RealWorld limit/offset shape)."
+         official RealWorld limit/offset shape), which also URL-encodes the
+         `:author` filter."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path     (rh/paginate-path (str "/articles?author=" username) page)]
+          path     (rh/paginate-path "/articles" {:author username} page)]
       {:db (-> db
                (assoc-in [:profile.articles :status] :loading)
                (assoc-in [:profile.articles :error] nil)
@@ -241,12 +242,13 @@
   {:doc "Fetch the articles this user favorited. Public; house retry. Also
          broadcasts `:show-favorites` so the `:ui/profile` :tab region knows
          which tab is live. `?page=` paginates via `rh/paginate-path` (the
-         official RealWorld limit/offset shape)."
+         official RealWorld limit/offset shape), which also URL-encodes the
+         `:favorited` filter."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [username (username-from-db rt)
           page     (or (get-in rt [:rf.runtime/routing :current :query :page]) 1)
-          path     (rh/paginate-path (str "/articles?favorited=" username) page)]
+          path     (rh/paginate-path "/articles" {:favorited username} page)]
       {:db (-> db
                (assoc-in [:profile.favorites :status] :loading)
                (assoc-in [:profile.favorites :error] nil)
