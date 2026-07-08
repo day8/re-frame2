@@ -203,8 +203,8 @@
 ;; element, and exactly one of them would win. Lazy keeps that drama away.
 (defonce react-root (atom nil))
 
-;; All the frame's lifecycle happens in one spot — the `frame-provider` below.
-;; On first mount it creates the frame, applies its config, and fires
+;; All the frame's lifecycle happens in one spot — the `frame-provider` in
+;; `mount!` below. On first mount it creates the frame, applies its config, and fires
 ;; `:initial-events` once to seed app-db. After that, every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame. On hot reload it reuses the
 ;; frame it already has and skips re-seeding, so the timer keeps right on ticking
@@ -214,14 +214,23 @@
 ;; block up top binds to.
 (def app-frame :rf/default)
 
-(defn run []
-  ;; `init!` tells the runtime to render through the Reagent adapter. That's all
-  ;; it does — it does *not* create a frame. The `frame-provider` below does that.
-  (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
+;; `mount!` is browser setup: create the root lazily, then render the view tree
+;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; each reload so your edited views re-render into the same root and same frame.
+;; This is the canonical mount/boot shape, spelled the same in the counter and
+;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
                                     :initial-events [[:timer/initialise]]}
                  [timer-view]])))
+
+(defn run []
+  ;; `init!` tells the runtime to render through the Reagent adapter. That's all
+  ;; it does — it does *not* create a frame. The `frame-provider` in `mount!` does that.
+  (rf/init! reagent-adapter/adapter)
+  (mount!))

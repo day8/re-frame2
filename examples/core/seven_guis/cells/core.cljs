@@ -468,7 +468,7 @@
 (defonce react-root (atom nil))
 
 ;; The frame's whole life happens in one place: the `frame-provider` down in
-;; `run`. First mount creates the frame, applies its config, and fires
+;; `mount!`. First mount creates the frame, applies its config, and fires
 ;; `:initial-events` once to seed app-db. After that every `dispatch` and
 ;; `subscribe` in the tree finds *this* frame. On hot reload the provider reuses
 ;; the frame it already made and skips the seeding, so your grid keeps the
@@ -480,15 +480,24 @@
 ;; no special powers, despite the official-looking name.
 (def app-frame :rf/default)
 
+;; `mount!` is browser setup: create the root lazily, then render the view tree
+;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; each reload so your edited views re-render into the same root and same frame.
+;; This is the canonical mount/boot shape, spelled the same in the counter and
+;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    (rdc/render @react-root
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:cells/initialise]]}
+                 [cells-grid]])))
+
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through — here,
   ;; Reagent. Every adapter namespace exports an `adapter` var; you require the
   ;; namespace and hand that var straight in.
   (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root
-                [rf/frame-provider {:id app-frame
-                                    :initial-events [[:cells/initialise]]}
-                 [cells-grid]])))
+  (mount!))
