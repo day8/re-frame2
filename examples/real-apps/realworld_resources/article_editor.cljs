@@ -455,44 +455,66 @@
 
 (defn editor-page
   "The article-editor page, a Reagent Form-3 component. The inner render is the
-   pure `editor-form-view`; the mount hook installs exactly one off-render reaction,
-   which seeds the draft when an edit-mode article read settles with data. (Why
-   only one? The save/delete success continuation is the mutation's `:reply-to
-   [:editor/replied]` target, not a reaction — a reply-side continuation only
-   exists for a write. The seed watches a RESOURCE read settle, and a read has no
-   reply-to, so it has to stay a Form-3 reaction.) `rf/capture-frame` is captured
-   here during render, under the frame-provider, so the reaction's dispatch carries
-   the frame; unmount disposes the reaction and releases the edit-mode article
-   lease."
+   pure `editor-form-view`; the mount hook installs exactly one off-render
+   reaction, which seeds the draft when an edit-mode article read settles with
+   data. (Why only one? The save/delete success continuation is the mutation's
+   `:reply-to [:editor/replied]` target, not a reaction — a reply-side
+   continuation only exists for a write. The seed watches a RESOURCE read settle,
+   and a read has no reply-to, so it has to stay a Form-3 reaction.)
+
+   `/editor/A` -> `/editor/B` re-matches the SAME `:realworld.editor/edit` route
+   under a new slug, so `root-view`'s `case` never unmounts this component — the
+   same reaction has to also notice the slug changing under it, or the draft
+   keeps showing A forever and A's lease never releases. So the reaction tracks
+   the SLUG it last acted on rather than a plain seeded? boolean: whenever that
+   slug moves, it releases the outgoing lease and clears the seed marker so the
+   new slug reseeds from its own read the moment it settles, exactly as a fresh
+   mount would.
+
+   `rf/capture-frame` is captured here during render, under the frame-provider,
+   so the reaction's dispatch carries the frame; unmount disposes the reaction
+   and releases whatever lease is still held."
   []
   (let [{:keys [dispatch subscribe]} (rf/capture-frame)
-        seeded?   (atom false)
-        watcher   (atom nil)]
+        ;; The slug this component instance currently holds the article lease
+        ;; for, and has (or hasn't yet) seeded the draft from. `nil` means "no
+        ;; lease held" — true both before the first reaction run and in
+        ;; create-mode (no slug at all), so a transition away from `nil` never
+        ;; triggers a spurious release.
+        owned-slug  (atom nil)
+        seeded-slug (atom nil)
+        watcher     (atom nil)]
     (r/create-class
      {:display-name "realworld-resources.article-editor/editor-page"
       :component-did-mount
       (fn [_this]
-        ;; Edit-mode seed: when the article read first settles with data, copy it
-        ;; into the draft + baseline (so dirty-detection has something to compare
-        ;; against). The load-article event already ensured the read under a lease;
-        ;; this reaction only seeds.
         (reset!
          watcher
          (ratom/run!
-          (let [slug  @(subscribe [:editor/slug])
-                state (when slug
-                        @(subscribe [:rf.resource/state {:resource :realworld/article
-                                                         :params {:slug slug}}]))]
-            (when (and slug (:has-data? state) (not @seeded?))
-              (when-let [article (:article (:data state))]
-                (reset! seeded? true)
-                (dispatch [:editor/seed-from-article article])))))))
+          (let [slug @(subscribe [:editor/slug])]
+            ;; The slug moved since this reaction last ran (mount, or a
+            ;; same-component nav to a different edit target). Release the
+            ;; outgoing lease, if any, and clear the seed marker so the new
+            ;; slug's own read gets to seed the draft.
+            (when (not= slug @owned-slug)
+              (let [prev-slug @owned-slug]
+                (reset! owned-slug slug)
+                (reset! seeded-slug nil)
+                (when prev-slug
+                  (dispatch [:editor/release-article prev-slug]))))
+            (let [state (when slug
+                          @(subscribe [:rf.resource/state {:resource :realworld/article
+                                                           :params {:slug slug}}]))]
+              (when (and slug (:has-data? state) (not= @seeded-slug slug))
+                (when-let [article (:article (:data state))]
+                  (reset! seeded-slug slug)
+                  (dispatch [:editor/seed-from-article article]))))))))
       :component-will-unmount
       (fn [_this]
         (when @watcher (ratom/dispose! @watcher))
         (reset! watcher nil)
-        ;; Release the edit-mode article lease, if we were holding one.
-        (when-let [slug @(subscribe [:editor/slug])]
-          (dispatch [:editor/release-article slug])))
+        ;; Release whatever lease this instance still holds.
+        (when @owned-slug
+          (dispatch [:editor/release-article @owned-slug])))
       :reagent-render
       (fn [] [editor-form-view])})))
