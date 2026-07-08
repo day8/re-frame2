@@ -313,7 +313,7 @@ And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plai
 
 !!! warning "Gotcha — anchors that should behave like anchors aren't intercepted"
 
-    Two attributes opt a `route-link` *out* of SPA interception even on a plain left-click, because the DOM already promises something the framework must not override: `:target` set to anything but `"_self"` (e.g. `{:target "_blank"}`) and `:download`. A link carrying either looks like an ordinary anchor to the user — they expect a new tab, or a saved file — so the click falls through to the browser instead of dispatching `:rf/url-requested`. You rarely want `:target "_blank"` on an *internal* route, but it's worth knowing the rule exists the day you reach for it.
+    Two attributes opt a `route-link` *out* of SPA interception even on a plain left-click, because the DOM already promises something the framework must not override: `:target` set to anything but `"_self"` (e.g. `{:target "_blank"}`) and `:download`. A link carrying either looks like an ordinary anchor to the user — they expect a new tab, or a saved file — so the click falls through to the browser instead of dispatching `:rf.route/url-requested`. You rarely want `:target "_blank"` on an *internal* route, but it's worth knowing the rule exists the day you reach for it.
 
 To navigate from code — after a successful form submit, say — it's an event like everything else:
 

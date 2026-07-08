@@ -106,7 +106,7 @@
     ;; recorded \"pn-1\".
     (nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
     ;; LIVE re-mint (mirrors the ambient hole — no recorded allocation supplied).
-    (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
     (is (= "pn-2" (pending-id))
         "the re-mint produced pn-2 (NOT the recorded pn-1) — the hole")
     ;; The recorded continue carries the ORIGINAL id \"pn-1\".
@@ -124,7 +124,7 @@
     (nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
     ;; REPLAY: the recorded allocation rides the causal token; strict mode
     ;; (replay) re-presents it verbatim — the generator does NOT run.
-    (rf/dispatch-sync [:rf/url-requested {:url "/home"}]
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
                       {:rf.cofx {:rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
                        :rf.cofx/mint-policy :strict})
     (is (= "pn-1" (pending-id))
@@ -139,7 +139,7 @@
             pending-nav allocation is missing (`:rf.error/missing-required-cofx`)
             — an incomplete record must not silently re-read the host"
     (block-fixture!)
-    (let [ex (try (rf/dispatch-sync [:rf/url-requested {:url "/home"}]
+    (let [ex (try (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
                                     {:rf.cofx/mint-policy :strict})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
@@ -304,7 +304,7 @@
             fails with :rf.error/cofx-value-invalid BEFORE the handler writes
             pending-nav state (NOT folded in as a trusted value)"
     (block-fixture!)
-    (let [ex (try (rf/dispatch-sync [:rf/url-requested {:url "/home"}]
+    (let [ex (try (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
                                     {:rf.cofx {:rf.route/pending-nav-allocation
                                                {:id nil :counter "bad"}}
                                      :rf.cofx/mint-policy :strict})

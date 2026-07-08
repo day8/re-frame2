@@ -156,7 +156,7 @@
 ;;    active route untouched
 ;;
 ;; Active route :route/editor declares :can-leave returning false; user
-;; issues :rf/url-requested to a sibling URL; pending-nav slot
+;; issues :rf.route/url-requested to a sibling URL; pending-nav slot
 ;; populates. While pending, the active route still has a managed HTTP
 ;; request mid-flight (canned stub holds back via :on-success nil to
 ;; avoid auto-resolution). User cancels via :rf.route/cancel. The
@@ -232,7 +232,7 @@
         "precondition: in-flight registry holds the active-route request")
 
     ;; User requests navigation to /home — leave guard blocks; pending-nav populates.
-    (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending) "precondition: pending-nav slot populated")
       (is (= :can-leave (:reason pending)) ":reason is :can-leave")
@@ -293,7 +293,7 @@
 
       ;; Capture the :rf.nav/push-url so the continued nav doesn't
       ;; require a real browser-history. The route slice still updates
-      ;; via :rf.route/transitioned dispatched from :rf/url-requested.
+      ;; via :rf.route/transitioned dispatched from :rf.route/url-requested.
       (let [pushed (atom [])]
         (rf/clear-fx :rf.nav/push-url)
         (rf/reg-fx :rf.nav/push-url
@@ -301,7 +301,7 @@
                    (fn [_ url] (swap! pushed conj url)))
 
         ;; Issue navigation to /sibling — leave-guard blocks.
-        (rf/dispatch-sync [:rf/url-requested {:url "/sibling"}])
+        (rf/dispatch-sync [:rf.route/url-requested {:url "/sibling"}])
         (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
           (is (some? pending) "precondition: pending-nav slot populated")
 
@@ -372,7 +372,7 @@
 
           ;; Flip the sub so subsequent navigation requests block.
           (rf/reg-sub :editor/can-leave? (fn [_ _] false))
-          (rf/dispatch-sync [:rf/url-requested {:url "/articles/B"}])
+          (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/B"}])
           (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
             (is (some? pending) "precondition: pending-nav slot populated")
 

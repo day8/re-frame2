@@ -99,7 +99,7 @@
     ;; Set up a pending nav via the can-leave guard
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending @(rf/subscribe [:rf/pending-navigation])]
       (is (some? pending)
           ":rf/pending-navigation populated after a guard rejection"))

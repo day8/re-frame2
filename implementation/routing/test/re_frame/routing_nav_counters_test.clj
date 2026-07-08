@@ -167,7 +167,7 @@
     ;; Land on the editor (active route with a blocking :can-leave).
     (rf/dispatch-sync [:rf.route/transitioned "/editor"])
     ;; Attempt to leave — the guard blocks → pending-navigation is written.
-    (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
 
     (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing])
           pending    (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})]

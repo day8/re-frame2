@@ -904,7 +904,7 @@
 ;; which fires only on the public `register-event!` entry — does not reject the
 ;; framework's own seeding. The set is deliberately narrow (today only
 ;; `:rf/set-db`): the OTHER framework `:rf/*` events (`:rf/hydrate`,
-;; `:rf/url-requested`, `:rf/server-init`, …) are still registered through the
+;; `:rf.route/url-requested`, `:rf/server-init`, …) are still registered through the
 ;; public `reg-event` by their owning feature artefacts, so they are NOT listed
 ;; here; widening the set is a Spec change.
 

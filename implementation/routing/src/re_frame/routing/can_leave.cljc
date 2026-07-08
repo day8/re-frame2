@@ -5,7 +5,7 @@
   Per Spec 012 §Navigation blocking — pending-nav protocol. `:can-enter`
   is the first-class mirror of `:can-leave` (rf2-p69yaz Option A): ONE
   gate consulted for EVERY entry door — `:rf.route/navigate`,
-  `:rf/url-requested` (link clicks), and `:rf.route/transitioned` /
+  `:rf.route/url-requested` (link clicks), and `:rf.route/transitioned` /
   `:rf.route/handle-url-change` (popstate / deep-links) — evaluates the
   CURRENT route's `:can-leave` THEN the TARGET route's `:can-enter`. Owns:
 
@@ -18,8 +18,8 @@
       via `match-url` (canonical, round-trips);
     - `maybe-block-navigation` — the unified leave-THEN-enter gate used
       by `:rf.route/navigate`, `:rf.route/transitioned`,
-      `:rf.route/handle-url-change`, and `:rf/url-requested`;
-    - `:rf/url-requested` — the link-click + programmatic URL-request
+      `:rf.route/handle-url-change`, and `:rf.route/url-requested`;
+    - `:rf.route/url-requested` — the link-click + programmatic URL-request
       entry point (preventDefault + pushState + :rf.route/transitioned);
     - `:rf.route/continue` / `:rf.route/cancel` — pending-nav protocol
       resolution events. `:rf.route/continue` bypasses `:leave` only and
@@ -31,7 +31,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade registers the five events
-  (`events/reg-event :rf/url-requested`, `:rf.route/navigation-blocked`,
+  (`events/reg-event :rf.route/url-requested`, `:rf.route/navigation-blocked`,
   `:rf.route/entry-blocked`, `:rf.route/continue`, `:rf.route/cancel`) so
   a `:reload` of the façade re-wires them on a fresh registrar (the
   `clear-all!` test-fixture path). Per the rf2-2yabr cohesion split:
@@ -170,7 +170,7 @@
   "Resolve the pending TARGET the guards branch on, from the requested
   URL string via `match-url` (rf2-p69yaz point 2). The URL is the
   canonical, round-tripping representation every entry door shares —
-  `:rf/url-requested` / `:rf.route/transitioned` / `:rf.route/
+  `:rf.route/url-requested` / `:rf.route/transitioned` / `:rf.route/
   handle-url-change` all carry a URL, and `:rf.route/navigate` passes its
   BUILT url — so deriving the target here keeps ONE gate uniform across
   all doors without each caller pre-computing a target shape.
@@ -188,7 +188,7 @@
   whether a guard is declared. A raw `match-url` call here, left
   unhandled, would let any unexpected throw escape the guard phase and
   crash the event drain (rf2-6t1xb) for `:rf.route/navigate`,
-  `:rf/url-requested`, `:rf.route/transitioned`, and
+  `:rf.route/url-requested`, `:rf.route/transitioned`, and
   `:rf.route/handle-url-change` alike. `match-url-fail-closed` catches
   ANY throw and yields a nil match instead, so a hostile/throwing URL
   degrades to the same `:rf.route/not-found`-shaped target as a bare
@@ -233,14 +233,14 @@
   "Extract the trailing opts map from a nav event vector — the slot the
   resume-chain carries `:rf.route/enter-attempts` in. `:rf.route/navigate`
   keeps opts in the 4th slot (`[_ target params opts]`); the URL-driven
-  events + `:rf/url-requested` keep it in the 2nd (`[_ url-or-request
-  opts?]` — for `:rf/url-requested` the request map itself IS the opts
+  events + `:rf.route/url-requested` keep it in the 2nd (`[_ url-or-request
+  opts?]` — for `:rf.route/url-requested` the request map itself IS the opts
   carrier). Returns a map (possibly empty)."
   [event-vec]
   (let [event-id (first event-vec)]
     (case event-id
       :rf.route/navigate          (or (nth event-vec 3 nil) {})
-      :rf/url-requested           (let [a (second event-vec)] (if (map? a) a {}))
+      :rf.route/url-requested           (let [a (second event-vec)] (if (map? a) a {}))
       (:rf.route/transitioned
        :rf.route/handle-url-change) (or (nth event-vec 2 nil) {})
       {})))
@@ -275,7 +275,7 @@
 
   Public so the four event entry points (`:rf.route/navigate`,
   `:rf.route/transitioned`, `:rf.route/handle-url-change`,
-  `:rf/url-requested`) share ONE gate; the per-event handler `or`s the
+  `:rf.route/url-requested`) share ONE gate; the per-event handler `or`s the
   block result with its happy-path cofx so a single failure path
   collapses cleanly.
 
@@ -443,7 +443,7 @@
 ;; rf2-cylse.4: the open-redirect classifier (`safe-in-app-url?` /
 ;; `external-url?` / `request-url->app-url`) is now shared in
 ;; `re-frame.routing.url` so the programmatic `:rf.route/navigate {:url}`
-;; sink gates through the SAME fail-closed logic as `:rf/url-requested`.
+;; sink gates through the SAME fail-closed logic as `:rf.route/url-requested`.
 
 (defn- inject-bypass-guards
   "Re-issue the original navigation event with a `:bypass-guards?` SET
@@ -460,9 +460,9 @@
                    (cond-> (assoc (or opts {}) :bypass-guards? bypass)
                      enter-attempts (assoc :rf.route/enter-attempts enter-attempts)))]
     (case event-id
-      :rf/url-requested
+      :rf.route/url-requested
       (let [request (if (map? (second event-vec)) (second event-vec) {})]
-        [:rf/url-requested (add-opts request)])
+        [:rf.route/url-requested (add-opts request)])
 
       :rf.route/navigate
       (let [[_ target params opts] event-vec]
@@ -476,10 +476,10 @@
       (let [[_ url opts] event-vec]
         [:rf.route/handle-url-change url (add-opts opts)])
 
-      [:rf/url-requested (add-opts {:url fallback-url})])))
+      [:rf.route/url-requested (add-opts {:url fallback-url})])))
 
 (defn url-requested-handler
-  "`:rf/url-requested` event handler. Registered by the façade so a
+  "`:rf.route/url-requested` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar. rf2-vcop6y: declares only the
   RECORDABLE `:rf.route/pending-nav-allocation` cofx — its only allocation
   is a pending-nav id minted on a guard block (it never mints a nav-token;
@@ -489,7 +489,7 @@
     pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url bypass-guards?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
-    ;; runtime fires the leave-THEN-enter gate for every :rf/url-requested;
+    ;; runtime fires the leave-THEN-enter gate for every :rf.route/url-requested;
     ;; a block writes [:rf.runtime/routing :pending-navigation]. EP-0001
     ;; (rf2-vzld77): the pending-nav slot is durable routing runtime-db
     ;; state — read it from the `:rf.db/runtime` coeffect.
@@ -499,7 +499,7 @@
     ;; request without re-running the LEAVE guard (the enter guard still
     ;; runs — rf2-p69yaz point 6).
     (let [frame     (frame/require-frame-stamp!
-                      frame :rf/url-requested
+                      frame :rf.route/url-requested
                       {:where 'rf.route/url-requested-handler})
           external? (url/external-url? url)
           app-url   (url/request-url->app-url url)
@@ -522,7 +522,7 @@
         ;; can leave + can enter — push the URL and dispatch
         ;; :rf.route/transitioned. Per Spec 012 §URL changes are events
         ;; route-link clicks call `.preventDefault` and dispatch
-        ;; :rf/url-requested; the browser's URL has NOT updated. The handler
+        ;; :rf.route/url-requested; the browser's URL has NOT updated. The handler
         ;; pushes the new URL and synthesises the :rf.route/transitioned
         ;; event the slice + on-match write keys off. It bypasses BOTH
         ;; guards (:bypass-guards? #{:leave :enter}) on the synthesised
@@ -566,7 +566,7 @@
                              attempts (assoc :rf.route/enter-attempts attempts))
           dispatch-fx [:dispatch (if (vector? original)
                                    (inject-bypass-guards original url #{:leave} attempts)
-                                   [:rf/url-requested fallback-request])]]
+                                   [:rf.route/url-requested fallback-request])]]
       (if (and pending (= pn-id (:id pending)))
         (cond-> {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}
           (or (vector? original) url)

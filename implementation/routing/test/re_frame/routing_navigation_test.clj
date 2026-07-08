@@ -283,7 +283,7 @@
         (finally (restore))))))
 
 (deftest url-requested-classifies-external-before-push
-  (testing ":rf/url-requested does not pushState or rewrite the route for external URLs"
+  (testing ":rf.route/url-requested does not pushState or rewrite the route for external URLs"
     (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])
           traces (atom [])]
@@ -292,7 +292,7 @@
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/"])
       (rf/register-listener! :trace ::external-url (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}])
       (rf/unregister-listener! :trace ::external-url)
       (is (empty? @pushed)
           "external URL is classified before :rf.nav/push-url")
@@ -941,7 +941,7 @@
 ;; ============================================================================
 
 (deftest url-requested-fails-closed-on-ambiguous-urls-jvm
-  (testing ":rf/url-requested on the JVM (no browser origin) classes
+  (testing ":rf.route/url-requested on the JVM (no browser origin) classes
             ambiguous / bypass-shaped URLs as EXTERNAL — no :rf.nav/push-url,
             no slice rewrite — and only PROVABLY same-origin rooted paths
             push through. rf2-3bv8o."
@@ -962,7 +962,7 @@
                          "cart"                          ;; bare relative segment (not rooted)
                          ""]]
           (reset! pushed [])
-          (rf/dispatch-sync [:rf/url-requested {:url hostile}])
+          (rf/dispatch-sync [:rf.route/url-requested {:url hostile}])
           (is (empty? @pushed)
               (str "fail-closed: ambiguous/absolute URL " (pr-str hostile)
                    " classed external, not pushed"))
@@ -973,14 +973,14 @@
       (testing "provably same-origin rooted paths DO push through"
         (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
           (reset! pushed [])
-          (rf/dispatch-sync [:rf/url-requested {:url safe}])
+          (rf/dispatch-sync [:rf.route/url-requested {:url safe}])
           (is (= [safe] @pushed)
               (str "safe same-origin reference " (pr-str safe)
                    " pushes through verbatim")))))))
 
 ;; ============================================================================
 ;; rf2-cylse.4 — :rf.route/navigate {:url ...} gates through the SAME
-;; fail-closed open-redirect classifier as :rf/url-requested. Before this
+;; fail-closed open-redirect classifier as :rf.route/url-requested. Before this
 ;; fix the programmatic {:url ...} sink pushed the URL VERBATIM with no
 ;; external/safe-url gate — every rf2-3bv8o bypass vector escaped. This is
 ;; the rf2-3bv8o matrix re-run through the navigate {:url} sink.
@@ -990,7 +990,7 @@
   (testing ":rf.route/navigate {:url <hostile>} on the JVM (no browser
             origin) classes ambiguous / bypass-shaped URLs as EXTERNAL —
             no :rf.nav/push-url, no slice rewrite — IDENTICALLY to the
-            :rf/url-requested link-click path. rf2-cylse.4."
+            :rf.route/url-requested link-click path. rf2-cylse.4."
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :route/cart {} "/cart")
     (let [pushed (atom [])]

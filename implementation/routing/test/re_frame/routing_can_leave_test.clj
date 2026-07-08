@@ -19,7 +19,7 @@
   (testing "block via :can-leave; continue and cancel both clear the slot"
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol: a route
     ;; declares :can-leave (sub-id → boolean). When the sub returns false,
-    ;; :rf/url-requested writes :rf/pending-navigation and does not push.
+    ;; :rf.route/url-requested writes :rf/pending-navigation and does not push.
     ;; :rf.route/continue clears the slot AND completes the navigation.
     ;; :rf.route/cancel clears the slot WITHOUT navigating.
     (rf/reg-route :editor/article
@@ -48,7 +48,7 @@
     (rf/dispatch-sync [:editor/dirty true])
 
     ;; 3. Try to leave. Guard rejects → pending slot is set; URL unchanged.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending)
           ":rf/pending-navigation is populated on guard rejection")
@@ -59,7 +59,7 @@
       (is (= :editor/can-leave? (:rejecting-guard pending))
           ":rejecting-guard names the sub-id that rejected")
       (is (vector? (:requested-by-event pending))
-          ":requested-by-event captures the original :rf/url-requested vector")
+          ":requested-by-event captures the original :rf.route/url-requested vector")
       (is (= :editor/article
              (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "the :rf/route slice does NOT change when blocked"))
@@ -73,7 +73,7 @@
         "cancel does NOT navigate")
 
     ;; 5. Now block again — and CONTINUE this time.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
         "second blocked request reseats the slot")
     (rf/dispatch-sync [:rf.route/continue "pn-2"])
@@ -137,7 +137,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (string? (:id pending))
           ":id is the opaque pending-nav id")
@@ -147,7 +147,7 @@
           ":rejecting-route names the active route at rejection time")
       (is (= :editor/can-leave? (:rejecting-guard pending))
           ":rejecting-guard names the rejecting sub-id (for tooling)")
-      (is (= [:rf/url-requested {:url "/cart"}]
+      (is (= [:rf.route/url-requested {:url "/cart"}]
              (:requested-by-event pending))
           ":requested-by-event captures the original event vector"))))
 
@@ -168,7 +168,7 @@
     (rf/dispatch-sync [:editor/dirty true])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/unregister-listener! :trace ::blocked)
       (is (some (fn [ev]
                   (and (= :rf.route/navigation-blocked (:operation ev))
@@ -176,15 +176,15 @@
                 @traces)
           "navigation-blocked trace tags include :rejecting-guard"))))
 
-;; ---- rf2-yursn: :rf.route/continue re-issues :rf/url-requested ----------
+;; ---- rf2-yursn: :rf.route/continue re-issues :rf.route/url-requested ----------
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
 ;; "re-issue the original navigation request, *bypassing* the leave guard".
 ;; Pre-fix dispatched :rf.route/transitioned + :rf.nav/push-url directly, skipping
-;; the :rf/url-requested policy chain.
+;; the :rf.route/url-requested policy chain.
 
 (deftest continue-re-issues-via-url-requested-with-bypass
-  (testing ":rf.route/continue re-emits :rf/url-requested with
+  (testing ":rf.route/continue re-emits :rf.route/url-requested with
             :bypass-guards? #{:leave}, running the policy chain (the enter
             guard still re-runs — rf2-p69yaz point 6)"
     (rf/reg-route :editor/article
@@ -200,7 +200,7 @@
     ;; Land on editor; dirty the form; try to leave; guard blocks.
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
         "guard rejection set the pending slot")
     ;; CONTINUE — the slot clears AND the navigation completes
@@ -210,7 +210,7 @@
         "continue cleared the pending slot")
     (is (= :route/cart
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "continue completed the navigation through :rf/url-requested → :rf.route/transitioned")
+        "continue completed the navigation through :rf.route/url-requested → :rf.route/transitioned")
     (is (true? (get-in (rf/app-db-value :rf/default) [:editor :dirty?]))
         ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
 
@@ -228,7 +228,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending)
           "query-vector guard returning false blocks the navigation")
@@ -296,7 +296,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [pending-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :pending-navigation :id])]
       (rf/dispatch-sync [:rf.route/cancel "stale-id"])
@@ -343,7 +343,7 @@
                          {}))
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? @seen)
           "app-registered :rf.route/navigation-blocked handler fired")
       (is (= "/cart" (:requested-url @seen))
@@ -371,7 +371,7 @@
     (rf/dispatch-sync [:editor/set-dirty 42])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::nb-id (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/unregister-listener! :trace ::nb-id)
       (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
                               @traces))]
@@ -409,7 +409,7 @@
     (rf/dispatch-sync [:editor/set-dirty 42])
     (let [traces (atom [])]
       (rf/register-listener! :trace ::can-leave-nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/unregister-listener! :trace ::can-leave-nb)
       (let [db        (:rf.db/runtime (rf/frame-state-value :rf/default))
             pending   (get-in db [:rf.runtime/routing :pending-navigation])
@@ -462,7 +462,7 @@
     (rf/dispatch-sync [:editor/dirty true] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-blocked)
       (is (some (fn [ev]
                   (and (= :rf.route/navigation-blocked (:operation ev))
@@ -490,7 +490,7 @@
     (rf/dispatch-sync [:editor/set-dirty 42] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-nb)
       (is (some (fn [ev]
                   (and (= :rf.error/can-leave-non-boolean (:operation ev))
@@ -519,7 +519,7 @@
         (late-bind/set-fn! :subs/subscribe-once nil)
         (let [traces (atom [])]
           (rf/register-listener! :trace ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
-          (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+          (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}] {:frame :route/owner})
           (rf/unregister-listener! :trace ::dbmj6x-missing)
           (is (some (fn [ev]
                       (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
@@ -532,7 +532,7 @@
           (late-bind/set-fn! :subs/subscribe-once prior))))))
 
 (deftest external-url-requested-trace-carries-frame-rf2-dbmj6x
-  (testing "rf2-dbmj6x: :rf/url-requested external-URL branch stamps :frame
+  (testing "rf2-dbmj6x: :rf.route/url-requested external-URL branch stamps :frame
             for a non-default frame (symmetric with the programmatic
             `:rf.route/navigate {:url ...}` external path, which already tags)"
     (rf/reg-frame :rf/default {})
@@ -544,7 +544,7 @@
     (rf/dispatch-sync [:rf.route/transitioned "/"] {:frame :route/owner})
     (let [traces (atom [])]
       (rf/register-listener! :trace ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}]
+      (rf/dispatch-sync [:rf.route/url-requested {:url "https://example.invalid/cart"}]
                         {:frame :route/owner})
       (rf/unregister-listener! :trace ::dbmj6x-external)
       (is (some (fn [ev]
@@ -563,7 +563,7 @@
 ;; `pending-target` runs UNCONDITIONALLY inside `maybe-block-navigation`,
 ;; even when the route declares no `:can-leave` / `:can-enter` at all, so
 ;; any unexpected throw out of `match-url` escaped the guard phase and
-;; crashed the event drain for EVERY nav entry point (`:rf/url-requested`,
+;; crashed the event drain for EVERY nav entry point (`:rf.route/url-requested`,
 ;; `:rf.route/navigate`, `:rf.route/transitioned`,
 ;; `:rf.route/handle-url-change`) instead of failing closed to
 ;; `:rf.route/not-found` like a bare miss.
@@ -584,7 +584,7 @@
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
       ;; Pre-fix this call throws straight out of dispatch-sync (crashes
       ;; the event drain); post-fix it completes cleanly.
-      (rf/dispatch-sync [:rf/url-requested {:url "/hostile"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
       (is (= :rf.route/not-found
              (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      [:rf.runtime/routing :current :route-id]))
@@ -610,7 +610,7 @@
     (rf/dispatch-sync [:editor/dirty true])
     (with-redefs [registry/match-url
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
-      (rf/dispatch-sync [:rf/url-requested {:url "/hostile"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/hostile"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
           "the dirty-form :can-leave guard still blocks the throwing URL —

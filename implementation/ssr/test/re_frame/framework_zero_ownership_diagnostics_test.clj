@@ -42,7 +42,7 @@
     1. `:rf.route/navigate`             — programmatic navigation.
     2. `:rf.route/transitioned`         — URL-driven forward nav.
     3. `:rf.route/handle-url-change`    — popstate / initial / SSR URL feed.
-    4. can-leave pending-nav protocol   — `:rf/url-requested` /
+    4. can-leave pending-nav protocol   — `:rf.route/url-requested` /
        `:rf.route/cancel` / `:rf.route/continue`.
     5. `:rf.route.internal/settle-transition` — per-route `:on-match` settle.
     6. machine lifecycle                — reg + first-dispatch bootstrap,
@@ -157,20 +157,20 @@
     (stub-push-url!)
     (let [diags (record-ownership-diagnostics! ::can-leave)]
       ;; Land on the guarded route, dirty it, attempt to leave → blocked
-      ;; (`:rf/url-requested` writes the pending slot via `:rf.db/runtime`).
+      ;; (`:rf.route/url-requested` writes the pending slot via `:rf.db/runtime`).
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
-          ":rf/url-requested wrote the pending-navigation slot")
+          ":rf.route/url-requested wrote the pending-navigation slot")
       ;; CANCEL clears the slot (a :rf.db/runtime write).
       (rf/dispatch-sync [:rf.route/cancel "pn-1"])
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :pending-navigation]))
           ":rf.route/cancel cleared the pending slot")
       ;; Re-block, then CONTINUE (a :rf.db/runtime write + completion).
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
       (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))

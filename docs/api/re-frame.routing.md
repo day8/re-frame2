@@ -426,7 +426,7 @@ There is no imperative boot seam to call — the browser `popstate` / `hashchang
 
 ## Route links
 
-The `:route/link` registered view renders an `<a href=...>` from a route id and intercepts plain left-clicks into `:rf/url-requested` dispatches. The authoring surface is also published as `rf/route-link` on the `re-frame.core` facade.
+The `:route/link` registered view renders an `<a href=...>` from a route id and intercepts plain left-clicks into `:rf.route/url-requested` dispatches. The authoring surface is also published as `rf/route-link` on the `re-frame.core` facade.
 
 ### `route-link`
 
@@ -440,7 +440,7 @@ The `:route/link` registered view renders an `<a href=...>` from a route id and 
 - **Description**: The registered `:route/link` view.
 
   - `:to` is the only required key; `:params`, `:query`, and `:fragment` are forwarded to `route-url` for href synthesis, and every other props key passes through to the `<a>` element.
-  - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: `preventDefault`, then dispatch `[:rf/url-requested {:url ... :to ...}]` targeted at the frame that rendered the link.
+  - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: `preventDefault`, then dispatch `[:rf.route/url-requested {:url ... :to ...}]` targeted at the frame that rendered the link.
   - Modifier-key / middle-button clicks, and anchors carrying native-handling attributes (`:target` other than `_self`, or `:download`), defer to the browser.
   - A caller-supplied `:on-click` runs first; if it calls `preventDefault` the framework's interception is skipped.
   - The rendered href is encoded through the rendering frame's `:url-strategy`.
@@ -484,7 +484,7 @@ Standard events the runtime dispatches (or you dispatch) around routing.
 | `:rf.route/navigate` | Navigate to a registered route. Arities: `[:rf.route/navigate target]` / `[:rf.route/navigate target params]` / `[:rf.route/navigate target params opts]`. `target` is a route id, the reserved `:rf.route/self` (stay on the current route, reshape only the query), or a `{:url "..."}` map; `params` (2nd slot) are path params; `opts` (3rd slot) recognises `:query`, `:query-merge`, `:replace?`, `:scroll`, `:fragment`, `:bypass-guards?`. |
 | `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. |
 | `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. |
-| `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
+| `:rf.route/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. |
 | `:rf.route/navigation-blocked` | A `:can-leave` (leave) guard rejected a navigation. The pending nav slot carries the rejected navigation (`:direction :leave`). |
 | `:rf.route/entry-blocked` | A `:can-enter` (enter) guard rejected a navigation — the mirror of `:rf.route/navigation-blocked`. The pending nav slot carries the rejected entry (`:direction :enter`). The natural place to redirect (e.g. to login). |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." Re-runs `:can-enter` on resume. |

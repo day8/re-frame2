@@ -385,7 +385,7 @@ list browse-all surface with hermetic Simulate-URL preview.
 ### Hermetic-preview contract
 
 The Simulate-navigation preview MUST NOT call the host's navigation
-fx (`:rf/url-requested`, `:rf.route/navigate`, `history.pushState`,
+fx (`:rf.route/url-requested`, `:rf.route/navigate`, `history.pushState`,
 etc.). It MUST NOT write the host's current-route slice (the
 framework-owned runtime-db state at `[:rf.runtime/routing :current]`,
 EP-0001 rf2-vzld77). The preview is a pure-data

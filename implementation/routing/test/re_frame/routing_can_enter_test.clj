@@ -49,11 +49,11 @@
     (is (= :home (current-id)) "the slice did NOT move — entry was refused")))
 
 (deftest can-enter-blocks-through-link-door
-  (testing ":rf/url-requested (a link click) to a :can-enter target BLOCKS
+  (testing ":rf.route/url-requested (a link click) to a :can-enter target BLOCKS
             (the classic fail-open door — must fail CLOSED here)"
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (rf/dispatch-sync [:rf/url-requested {:url "/account"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/account"}])
     (is (some? (pending)) "link click to a guarded route sets the pending slot")
     (is (= :enter (:direction (pending))))
     (is (= :home (current-id)) "no transition — the link click was refused")))

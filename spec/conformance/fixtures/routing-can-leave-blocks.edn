@@ -45,7 +45,7 @@
   [:editor/set-dirty]
 
   ;; Step 3: Try to leave. Guard rejects; :rf/pending-navigation is set.
-  [:rf/url-requested {:url "/cart"}]
+  [:rf.route/url-requested {:url "/cart"}]
 
   ;; Step 4: User chooses Stay — :rf.route/cancel clears the slot.
   [:rf.route/cancel "pn-1"]]

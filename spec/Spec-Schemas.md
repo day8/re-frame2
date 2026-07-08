@@ -3363,7 +3363,7 @@ The shape of the pending-navigation slot, set by the runtime when a navigation i
 (def PendingNavigation
   [:map
    [:id                  :string]                                         ;; opaque pending-nav id; used by :rf.route/continue / :rf.route/cancel
-   [:requested-by-event  [:vector :any]]                                  ;; the original :rf/url-requested / :rf.route/navigate / :rf.route/handle-url-change event vector
+   [:requested-by-event  [:vector :any]]                                  ;; the original :rf.route/url-requested / :rf.route/navigate / :rf.route/handle-url-change event vector
    [:requested-url       :string]                                         ;; the URL the user was trying to reach
    [:reason              [:enum :can-leave :can-enter]]                   ;; which GUARD KIND rejected (rf2-p69yaz)
    [:direction           [:enum :leave :enter]]                           ;; which END of the transition blocked (:leave = current route's :can-leave; :enter = target route's :can-enter)

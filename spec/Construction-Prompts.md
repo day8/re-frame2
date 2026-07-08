@@ -759,7 +759,7 @@ When the user says "duplicate this feature for wishlists," the AI runs the same 
 4. **Identify per-route data dependencies.** Use `:on-match` (vector of events the runtime dispatches when this route becomes active, server- and client-side).
 5. **Verify the route ids are unused.** `(rf/registrations :route)` enumerates registered routes.
 
-Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
+Routing is *state plus events*. The URL is a derivable view of `app-db`; navigation is an event. The runtime ships `:rf.route/navigate`, `:rf.route/handle-url-change`, `:rf.route/transitioned`, `:rf.route/url-requested` as standard events; user code typically only calls `:rf.route/navigate`.
 
 **Template — register routes (declarative; the runtime owns dispatch):**
 
@@ -840,7 +840,7 @@ The handler reads the route slice — which lives in **runtime-db** at `[:rf.run
 [rf/route-link {:to :route/search :query {:q "clojure" :page 2}} "Search"]
 ```
 
-`route-link` dispatches `:rf/url-requested` on click; the runtime's default handler classifies internal vs external and dispatches `:rf.route/navigate` for matched routes.
+`route-link` dispatches `:rf.route/url-requested` on click; the runtime's default handler classifies internal vs external and dispatches `:rf.route/navigate` for matched routes.
 
 **Template — wiring (called once at app boot):**
 

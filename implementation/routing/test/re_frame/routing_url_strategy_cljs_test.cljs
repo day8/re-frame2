@@ -135,8 +135,8 @@
     (rf/reg-frame :rf/default {:url-bound?   true
                                :url-strategy strategy/hash-url-strategy})
     (register-routes!)
-    ;; :rf/url-requested resolves in-app, pushes, and synthesises the transition.
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
+    ;; :rf.route/url-requested resolves in-app, pushes, and synthesises the transition.
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (is (= ["/" "#/active"] (:entries @*history-state*))
         "the pushed history entry carries the `#`-prefixed href")
     (is (= :s/active
@@ -148,7 +148,7 @@
             no `#` — proving the default is unchanged by the seam"
     (rf/reg-frame :rf/default {:url-bound? true})   ;; no :url-strategy → history
     (register-routes!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (is (= ["/" "/active"] (:entries @*history-state*))
         "the default history strategy pushes the bare path — no `#`")))
 
@@ -158,7 +158,7 @@
     (rf/reg-frame :rf/default {:url-bound?   true
                                :url-strategy strategy/hash-url-strategy})
     (register-routes!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (let [before (count (:entries @*history-state*))]
       (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
       (is (= before (count (:entries @*history-state*)))
@@ -179,8 +179,8 @@
                                :url-strategy strategy/hash-url-strategy})
     (register-routes!)
     ;; Push two hash routes (forward nav via the owner).
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/completed"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/completed"}])
     (is (= :s/completed
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "slice on /completed before Back")
@@ -206,8 +206,8 @@
             preserves the existing history behaviour, zero install call"
     (rf/reg-frame :rf/default {:url-bound? true})
     (register-routes!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/completed"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/completed"}])
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :s/active

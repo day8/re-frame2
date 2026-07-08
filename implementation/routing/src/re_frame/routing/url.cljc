@@ -144,7 +144,7 @@
 ;; The shared lexical/origin gate that classifies a URL-string nav target
 ;; as same-origin in-app vs external. Hoisted here from
 ;; `re-frame.routing.can-leave` (rf2-cylse.4) so EVERY url-string nav sink
-;; — the gated `:rf/url-requested` link-click path AND the previously
+;; — the gated `:rf.route/url-requested` link-click path AND the previously
 ;; ungated `:rf.route/navigate {:url ...}` programmatic path — fails closed
 ;; through ONE classifier rather than each entry point re-deciding (and
 ;; only one of three being wired). Per Spec 012 §Target form — URL-string:

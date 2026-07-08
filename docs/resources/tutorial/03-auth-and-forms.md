@@ -479,7 +479,7 @@ First tag the routes that need a user (extending Part 1's registrations). `:tags
   "/settings")
 ```
 
-There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler).
+There's one trap here, and it's the kind that passes every casual test. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf.route/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler).
 
 !!! warning "Gotcha — gate all three entry points, not just one"
 
@@ -494,7 +494,7 @@ That normaliser is `nav-target` below. The link-click and URL-bar cases carry a 
   [[event-id a b]]
   (case event-id
     :rf.route/navigate          {:id a :params (or b {})}
-    :rf/url-requested           (if-let [to (:to a)]
+    :rf.route/url-requested           (if-let [to (:to a)]
                                   {:id to :params (or (:params a) {})}
                                   (when-let [m (routing/match-url (:url a))]
                                     {:id (:route-id m) :params (or (:params m) {})}))

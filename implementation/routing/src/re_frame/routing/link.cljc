@@ -2,7 +2,7 @@
   "`:route/link` registered view for re-frame2 routing.
 
   Per Spec 012 §Linking from views. Plain left-click → preventDefault
-  + dispatch `:rf/url-requested`; modifier-key / middle-click defers to
+  + dispatch `:rf.route/url-requested`; modifier-key / middle-click defers to
   the browser. CLJS-only render; JVM gets an SSR shell (no DOM events
   to intercept).
 
@@ -29,7 +29,7 @@
   (`/active`); `encode` maps it to the rendered `:href` — one of the four
   strategy consult points. The first return value is the PATH-FORM url
   (unencoded) — it is the behavioural navigation identity carried on the
-  `:rf/url-requested` dispatch (the click handler routes through the
+  `:rf.route/url-requested` dispatch (the click handler routes through the
   cascade, which is path-form throughout). The rendered `:href` is the
   ENCODED form so copy-link / open-in-new-tab land on the right address
   (`#/active` for a hash app). The CLJS render passes its captured frame's
@@ -61,7 +61,7 @@
   on a plain left-click. Per rf2-fwz29i — a `route-link` rendered with
   `{:target \"_blank\"}` or `{:download …}` looks like a normal anchor in
   the DOM and the user expects native new-tab / new-window / download
-  behaviour; intercepting it into a `:rf/url-requested` dispatch silently
+  behaviour; intercepting it into a `:rf.route/url-requested` dispatch silently
   breaks that contract.
 
   Native-handling attributes recognised:
@@ -116,7 +116,7 @@
      plain-left-click interception is skipped — the caller has taken
      responsibility for the navigation. Otherwise the standard rules
      apply: plain left-click → `preventDefault` + dispatch
-     `:rf/url-requested`; modifier-key or middle-click → no interception.
+     `:rf.route/url-requested`; modifier-key or middle-click → no interception.
 
      rf2-fwz29i: anchors carrying native-handling attributes
      (`:target` other than `_self`, or `:download`) are NOT intercepted on
@@ -175,7 +175,7 @@
                             (.preventDefault e)
                             ;; Per rf2-t1lxr: route-link click → :router
                             ;; origin so the L2 epoch timeline tags the
-                            ;; resulting :rf/url-requested cascade as a
+                            ;; resulting :rf.route/url-requested cascade as a
                             ;; routing-substrate dispatch (not :ui). Per
                             ;; rf2-1ve9h the single closed-enum
                             ;; functional-origin axis is `:source` —
@@ -188,7 +188,7 @@
                             ;; it verbatim (its resolution order #1) — no
                             ;; ambient read.
                             (router/dispatch!
-                              [:rf/url-requested
+                              [:rf.route/url-requested
                                (cond-> {:url url :to to}
                                  (seq params)   (assoc :params params)
                                  (seq query)    (assoc :query  query)

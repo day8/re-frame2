@@ -265,7 +265,7 @@
 ;; =========================================================================
 
 (deftest pushstate-round-trip-cljs
-  (testing "[:rf/url-requested {:url \"/cart\"}] → history.pushState pushes the URL onto the stack AND the :rf/route slice updates"
+  (testing "[:rf.route/url-requested {:url \"/cart\"}] → history.pushState pushes the URL onto the stack AND the :rf/route slice updates"
     (register-routes!)
 
     ;; Sanity: stub starts at "/" with one entry.
@@ -277,7 +277,7 @@
     (let [[_ traces]
           (with-route-traces
             (fn []
-              (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])))]
+              (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])))]
       ;; pushState side-effect: a new entry sits on top of the stack.
       (is (= ["/" "/cart"] (:entries @*history-state*))
           ":rf.nav/push-url appended /cart to the history stack")
@@ -301,12 +301,12 @@
           "the trace's :route-id matches the new route"))))
 
 (deftest pushstate-multiple-entries-cljs
-  (testing "successive :rf/url-requested dispatches stack history entries in order"
+  (testing "successive :rf.route/url-requested dispatches stack history entries in order"
     (register-routes!)
 
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
 
     (is (= ["/" "/cart" "/checkout" "/articles/intro"]
            (:entries @*history-state*))
@@ -321,7 +321,7 @@
   (testing "external absolute URLs are classified before pushState"
     (register-routes!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-    (rf/dispatch-sync [:rf/url-requested {:url "https://elsewhere.example/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "https://elsewhere.example/cart"}])
     (is (= ["/"] (:entries @*history-state*))
         "external URL did not append a history entry")
     (is (= :hist/home
@@ -337,7 +337,7 @@
             must fail closed identically to the JVM/no-window fallback."
     (register-routes!)
     ;; Land on /cart so we can prove the slice does NOT move on a bad URL.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (= :hist/cart
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "precondition: active route is :hist/cart")
@@ -351,8 +351,8 @@
         ;; external? → returns the value unchanged, never touching js/URL).
         (is (= bad (routing-url/request-url->app-url bad))
             (str "request-url->app-url leaves non-string " (pr-str bad) " unchanged"))
-        ;; End-to-end: the :rf/url-requested sink does not push or rewrite.
-        (rf/dispatch-sync [:rf/url-requested {:url bad}])
+        ;; End-to-end: the :rf.route/url-requested sink does not push or rewrite.
+        (rf/dispatch-sync [:rf.route/url-requested {:url bad}])
         (is (= entries-before (:entries @*history-state*))
             (str "non-string url " (pr-str bad) " appended NO history entry"))
         (is (= index-before (:index @*history-state*))
@@ -361,7 +361,7 @@
                (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
             (str "non-string url " (pr-str bad) " did not rewrite the route slice"))))
     ;; Sanity: a normal same-origin string STILL works through the same path.
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
     (is (= "/checkout" (current-url *history-state*))
         "a normal same-origin string still pushes through after the guard")
     (is (= :hist/checkout
@@ -371,9 +371,9 @@
 (deftest scroll-position-captured-before-forward-nav-cljs
   (testing "leaving a route captures the current browser scroll position under that route's URL"
     (register-routes!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
     ;; rf2-1hncp2: scroll-position caches are a HOST-SIDE TRANSIENT cache
     ;; (not runtime-db) — read the frame's host cache, not the runtime-db.
     (is (= [12 345]
@@ -436,8 +436,8 @@
     (register-routes!)
 
     ;; Push two routes.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
     (is (= :hist/checkout
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "slice is on /checkout before the back-button")
@@ -475,8 +475,8 @@
     ;; This is the wiring an app would actually do: register a
     ;; popstate listener that dispatches :rf.route/handle-url-change
     ;; with the URL the browser landed on.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
 
     (let [fired? (atom false)
           listener (fn [_event]
@@ -575,8 +575,8 @@
     (is (= :rf/default (routing/url-owner-frame-id))
         "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
     ;; Incumbent forward-navigates (it owns push), building a history stack.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
     (is (= :hist/checkout
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "incumbent slice on /checkout before Back")
@@ -598,8 +598,8 @@
     (is (= :rf/default (routing/url-owner-frame-id))
         ":rf/default owns the URL by default")
 
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
     (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "default slice on /checkout before Back")
 
@@ -628,7 +628,7 @@
         "the listener installed automatically when the owner frame was created")
 
     ;; Back/Forward already works with zero imperative wiring.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :hist/home
@@ -722,8 +722,8 @@
                   (not (boolean (get-in db [:editor :dirty?])))))
 
     ;; A → B: land on /cart, then push the guarded editor route.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor/articles/X"}])
     (is (= ["/" "/cart" "/editor/articles/X"] (:entries @*history-state*))
         "two forward pushes stacked the history entries")
     (is (= :hist/editor
@@ -785,13 +785,13 @@
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
 
-    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor/articles/X"}])
     (rf/dispatch-sync [:hist/dirty true])
 
     (let [entries-before (:entries @*history-state*)]
       ;; Forward nav attempt (link click / programmatic) — the browser URL
       ;; has NOT moved; the block declines to push.
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
           "the forward nav was blocked (pending slot set)")
@@ -830,8 +830,8 @@
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
 
     ;; A → B: land on /cart, then push the guarded editor route.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor/articles/X"}])
     (rf/dispatch-sync [:hist/dirty true])
 
     ;; Browser Back to /cart, then dispatch the popstate-style change. The
@@ -879,7 +879,7 @@
   (testing "URL fragment change → :rf.route/fragment-changed trace fires; no new nav-token allocation"
     (register-routes!)
     ;; Forward nav lands on /articles/intro.
-    (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
     (let [pre-nav-token (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                             :rf.runtime/routing :current :nav-token)]
@@ -929,7 +929,7 @@
 (deftest hashchange-via-window-listener-cljs
   (testing "a hashchange listener registered via window.addEventListener fires on dispatchEvent"
     (register-routes!)
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
 
     (let [fired? (atom 0)
           listener (fn [_event] (swap! fired? inc))]
@@ -1145,7 +1145,7 @@
     (register-routes!)
 
     ;; Land on /cart via a normal push so the stack is at length 2.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (is (= ["/" "/cart"] (:entries @*history-state*))
         "stack is at length 2 before the replace")
     (let [pre-index (:index @*history-state*)]
@@ -1187,12 +1187,12 @@
               [:rf.route/handle-url-change (current-url *history-state*)]))]
 
       ;; push A (/cart)
-      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
       (is (= :hist/cart (route-id)) "after push A → :hist/cart")
       (is (= ["/" "/cart"] (:entries @*history-state*)))
 
       ;; push B (/checkout)
-      (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
       (is (= :hist/checkout (route-id)) "after push B → :hist/checkout")
       (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*)))
 
@@ -1203,7 +1203,7 @@
           "the forward entry survives the pop (only index moved)")
 
       ;; push C (/articles/intro) → forward entry truncated, new entry appended.
-      (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
+      (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
       (is (= :hist/article (route-id)) "after push C → :hist/article")
       (is (= ["/" "/cart" "/articles/intro"] (:entries @*history-state*))
           "pushing after a pop truncates the forward stack (browser semantics)")
@@ -1272,7 +1272,7 @@
     (register-routes!)
     ;; Land on /cart via a normal push so a :replace? navigation routes
     ;; through :rf.nav/replace-url.
-    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
     (let [[_ failures]
           (with-fx-failure-traces
             (fn []
@@ -1311,9 +1311,9 @@
               (with-throwing-history-method!
                 "pushState" "boom-push"
                 (fn []
-                  (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+                  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
                   (is true
-                      ":rf/url-requested dispatch returned without an escaping exception")))))]
+                      ":rf.route/url-requested dispatch returned without an escaping exception")))))]
       (is (= 1 (count failures))
           "a single :rf.fx/push-url-failed trace fired for the throwing pushState")
       (let [tags (first failures)]
