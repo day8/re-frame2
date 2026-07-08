@@ -192,6 +192,26 @@
                  (is (= :no-signals (:reason (tu/extract-edn r))))
                  (done))))))
 
+(deftest record-runtime-ok-false-is-iserror
+  ;; Adversarial (rf2-5m2oi1): a REACHABLE runtime `:ok? false` — the
+  ;; `start-recording!` `:ambiguous-frame` refusal when an `:app-db`/`:sub`
+  ;; signal needs a frame and none resolves in a multi-frame session — MUST
+  ;; ride back as :isError, not a green tools/call carrying a buried
+  ;; `:ok? false`. Before the fix the handler wrapped every envelope in
+  ;; wire/ok-text with no `:ok?` guard. isError:true ⟺ :ok? false.
+  (async done
+    (let [canned {:ok? false :reason :ambiguous-frame :operation :start-recording}]
+      (-> (tu/with-stubbed-eval! canned
+            (fn []
+              (record/record-tool (fresh-conn) #js {:signals "[{:app-db [:cart]}]"})))
+          (.then (fn [r]
+                   (is (true? (tu/error? r))
+                       "an :ambiguous-frame refusal from the runtime rides isError:true")
+                   (let [edn (tu/extract-edn r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :ambiguous-frame (:reason edn))))
+                   (done)))))))
+
 (deftest record-tool-malformed-stop-errors-honestly
   ;; Regression: a malformed `stop` EDN makes `record-tool`
   ;; short-circuit to an honest `:ok? false` envelope
@@ -243,6 +263,48 @@
                  (is (tu/error? r))
                  (is (= :missing-recording-id (:reason (tu/extract-edn r))))
                  (done))))))
+
+(deftest read-recording-no-such-recording-is-iserror
+  ;; Adversarial (rf2-5m2oi1): reading a recording-id that aged out / was
+  ;; stopped returns the runtime `{:ok? false :reason :no-such-recording
+  ;; …}`. That MUST ride as :isError so the host can route recovery
+  ;; through the error channel — not a green result hiding a buried
+  ;; `:ok? false`. isError:true ⟺ :ok? false; a DISTINCT reason from the
+  ;; client-side :missing-recording-id short-circuit above.
+  (async done
+    (let [canned {:ok? false :reason :no-such-recording :recording-id "rec-gone"}]
+      (-> (tu/with-stubbed-eval! canned
+            (fn []
+              (record/read-recording-tool (fresh-conn) #js {:recording-id "rec-gone"})))
+          (.then (fn [r]
+                   (is (true? (tu/error? r))
+                       "an unknown/expired recording-id rides isError:true")
+                   (let [edn (tu/extract-edn r)]
+                     (is (false? (:ok? edn)))
+                     (is (= :no-such-recording (:reason edn)))
+                     (is (= "rec-gone" (:recording-id edn))))
+                   (done)))))))
+
+(deftest read-recording-legitimate-empty-drain-stays-ok
+  ;; Guard the non-regression: a legitimate empty drain is the runtime's
+  ;; `{:ok? true :count 0 :entries []}` MAP — a real success, NOT a fault.
+  ;; `map-envelope-result` only diverts an explicit `:ok? false`, so an
+  ;; empty-but-ok read must still ride as a non-error success.
+  (async done
+    (let [canned {:ok? true :recording-id "rec-x" :status :recording
+                  :count 0 :entries []}]
+      (-> (tu/with-stubbed-eval! canned
+            (fn []
+              (record/read-recording-tool (fresh-conn)
+                                          #js {:recording-id "rec-x" :drain true})))
+          (.then (fn [r]
+                   (is (not (tu/error? r))
+                       "an empty-but-ok drain is a success, not an error")
+                   (let [edn (tu/extract-edn r)]
+                     (is (true? (:ok? edn)))
+                     (is (= 0 (:count edn)))
+                     (is (= [] (:entries edn))))
+                   (done)))))))
 
 (deftest read-recording-drain-and-stop-ride-the-form
   ;; The :drain / :stop bool args must reach the runtime read-recording

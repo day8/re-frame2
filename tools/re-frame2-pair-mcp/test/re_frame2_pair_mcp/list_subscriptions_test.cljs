@@ -27,15 +27,24 @@
 
   The live end-to-end coverage runs against a real shadow-cljs runtime
   (`test/stdio-roundtrip.js`, the cross-server conformance harness)."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [cljs.reader]
             [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
-            [re-frame2-pair-mcp.tools.args :as args]))
+            [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.list-streams :as ls]
+            [re-frame2-pair-mcp.tools.list-subscriptions :as lsub]))
 
 (defn- descriptor-named [nm]
   (some #(when (= nm (:name %)) %) tools/tool-descriptors))
+
+(defn- fresh-conn []
+  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+    (swap! conn assoc :probed-builds #{:app})
+    conn))
 
 ;; ---------------------------------------------------------------------------
 ;; list-subscriptions — reactive sub-cache descriptor
@@ -183,3 +192,72 @@
   (testing "list-subscriptions reuses ->frame-keyword, so both arg shapes resolve"
     (is (= :rf/default (args/->frame-keyword "rf/default")))
     (is (= :rf/default (args/->frame-keyword ":rf/default")))))
+
+;; ---------------------------------------------------------------------------
+;; Degraded-eval contract (rf2-21vvfs) — a blank/non-map eval must NOT be
+;; fabricated into a fake `{:ok? true :subs []}` "everything fine, zero
+;; streams" answer on the very tools that diagnose a dead/quiet stream. A
+;; non-map surfaces as `:unexpected-shape` err-text (isError:true); a
+;; genuinely-empty read (the runtime's own `{:ok? true :subs []}` map) is
+;; unaffected.
+;; ---------------------------------------------------------------------------
+
+(deftest list-streams-blank-eval-is-iserror-not-fabricated-empty
+  ;; The narrow race: the browser tab closes/navigates between the
+  ;; liveness re-check and the drain eval, so `cljs-eval-value` reads a
+  ;; blank shadow result as nil. The tool MUST surface that degraded read
+  ;; as an error, not manufacture "zero streams".
+  (async done
+    (-> (tu/with-stubbed-eval! nil
+          (fn [] (ls/list-streams-tool (fresh-conn) #js {})))
+        (.then (fn [r]
+                 (is (true? (tu/error? r))
+                     "a blank/non-map eval rides isError:true, not a fabricated empty success")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :unexpected-shape (:reason edn))
+                       "the degraded read is :unexpected-shape, not a fake :subs []"))
+                 (done))))))
+
+(deftest list-subscriptions-blank-eval-is-iserror-not-fabricated-empty
+  (async done
+    (-> (tu/with-stubbed-eval! nil
+          (fn [] (lsub/list-subscriptions-tool (fresh-conn) #js {})))
+        (.then (fn [r]
+                 (is (true? (tu/error? r))
+                     "a blank/non-map eval rides isError:true, not a fabricated empty success")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :unexpected-shape (:reason edn))))
+                 (done))))))
+
+(deftest list-streams-genuine-empty-stays-ok
+  ;; Non-regression: a genuinely-empty listing is the runtime's own
+  ;; `{:ok? true :subs []}` MAP — a real success. `map-envelope-result`
+  ;; only diverts a non-map or an explicit `:ok? false`, so real emptiness
+  ;; must still ride as a non-error success.
+  (async done
+    (-> (tu/with-stubbed-eval! {:ok? true :subs []}
+          (fn [] (ls/list-streams-tool (fresh-conn) #js {})))
+        (.then (fn [r]
+                 (is (not (tu/error? r))
+                     "an empty-but-ok listing is a success, not an error")
+                 (let [edn (tu/extract-edn r)]
+                   (is (true? (:ok? edn)))
+                   (is (= [] (:subs edn))))
+                 (done))))))
+
+(deftest list-subscriptions-runtime-ok-false-is-iserror
+  ;; A runtime `{:ok? false :reason :ambiguous-frame}` refusal (multi-frame
+  ;; session, no selection) must ride isError too — not the old
+  ;; ok-text-wraps-any-map behaviour.
+  (async done
+    (-> (tu/with-stubbed-eval! {:ok? false :reason :ambiguous-frame}
+          (fn [] (lsub/list-subscriptions-tool (fresh-conn) #js {})))
+        (.then (fn [r]
+                 (is (true? (tu/error? r))
+                     "an :ambiguous-frame refusal rides isError:true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :ambiguous-frame (:reason edn))))
+                 (done))))))

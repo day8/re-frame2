@@ -20,11 +20,19 @@
    sees its own per-request frame id (`ssr-ring/ssr-handler` gensyms it
    internally), so a test that supplies the frame id itself cannot catch a
    regression in how the schema attaches to THAT path (rf2-hbobni). The
-   two tests below exercise the REAL `ssr-ring/ssr-handler` construction
-   server.clj uses — the happy path renders normally, and a deliberately
-   schema-violating commit is REJECTED, proving `:ssr/register-schema`
-   attaches the whole-app-db schema to the exact frame `ssr-handler`
-   constructs for the request, not a different/default one.
+   two tests below exercise the REAL server path — the happy path drives
+   `server.clj`'s own `make-handler` (not a hand-rolled copy) and renders
+   normally, and a deliberately schema-violating commit is REJECTED,
+   proving `:ssr/register-schema` attaches the whole-app-db schema to the
+   exact frame `ssr-handler` constructs for the request, not a
+   different/default one.
+
+   Requiring `{{namespace}}.server` here is load-bearing beyond the one
+   test that calls it: it is the ONLY thing that compiles the Ring host
+   under `clojure -M:test` (the SSR scaffold's sole automated gate). Before
+   this require nothing loaded `server.clj`, so a framework rename on the
+   host surface (`ssr-ring/ssr-handler`, `ssr/adapter`) shipped
+   broken-but-green and first broke on `clojure -X:server` (rf2-e0xspa).
 
    Run it with `clojure -M:test` (the `:test` alias picks it up alongside
    the CLJS node-test build)."
@@ -33,7 +41,13 @@
             [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
-            [{{namespace}}.core :as app]))
+            [{{namespace}}.core :as app]
+            ;; The Ring host. Requiring it compiles server.clj under
+            ;; `clojure -M:test`, so a rename on its framework surface fails
+            ;; the build here instead of on first `clojure -X:server`
+            ;; (rf2-e0xspa). The happy-path test below drives its real
+            ;; `make-handler`.
+            [{{namespace}}.server :as server]))
 
 (deftest ssr-render-produces-hydration-ready-html
   (testing "the SSR server flow renders the counter to HTML with a render hash"
@@ -83,17 +97,19 @@
                client-side hydration-mismatch check"))))))
 
 (deftest ssr-handler-renders-through-the-real-production-path
-  (testing "the REAL ssr-ring/ssr-handler construction (mirroring server.clj's
-            make-handler) renders normally end-to-end — :ssr/register-schema
-            doesn't disturb the happy path"
+  (testing "server.clj's OWN make-handler (the composite Ring handler
+            `clojure -X:server` serves) renders normally end-to-end —
+            :ssr/register-schema doesn't disturb the happy path, and
+            requiring the host ns compiles server.clj (rf2-e0xspa)"
     (rf/init! ssr/adapter)
-    (let [handler (ssr-ring/ssr-handler
-                    {:initial-events app/server-init-events
-                     :root-view      app/root-view
-                     :payload        [:counter/value]})
+    ;; Build the actual production handler from server.clj — not a
+    ;; hand-rolled `ssr-ring/ssr-handler` copy. `static-root` only matters
+    ;; for the `/main.js` route; the SSR render path below (`:uri \"/\"`)
+    ;; never touches it, so any path serves.
+    (let [handler (server/make-handler "resources/public/js")
           resp    (handler {:uri "/" :request-method :get})]
       (is (= 200 (:status resp))
-          "the production ssr-handler path renders a normal 200 response")
+          "the production server/make-handler path renders a normal 200 response")
       (is (string/includes? (:body resp) "data-rf-render-hash")
           "the response body carries the render-hash tripwire"))))
 

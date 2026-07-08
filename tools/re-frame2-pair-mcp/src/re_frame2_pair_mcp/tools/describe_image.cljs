@@ -57,7 +57,13 @@
         form        (ef/emit (ef/rt-call 'describe-image opts))]
     (probe/eval-after-runtime!
       conn build-id form :describe-image-failed
-      (fn [v]
-        (if (map? v)
-          (wire/ok-text v)
-          (wire/err-text {:ok? false :reason :unexpected-shape :value v}))))))
+      ;; The runtime `describe-image` returns a self-describing `{:ok? …}`
+      ;; envelope: `{:ok? true …}` on a read, `{:ok? false :reason
+      ;; :ambiguous-frame}` when a multi-frame session resolves no frame.
+      ;; `map-envelope-result` routes the `:ok? false` refusal — and a
+      ;; blank/non-map degraded eval — through `wire/err-text` (isError:true)
+      ;; per the universal `:ok? false` contract, rather than shipping the
+      ;; refusal as a success. describe-image is `:cacheable?` (registry),
+      ;; and the cache bypasses isError results, so this also keeps an
+      ;; ambiguous-frame error out of the response cache.
+      probe/map-envelope-result)))
