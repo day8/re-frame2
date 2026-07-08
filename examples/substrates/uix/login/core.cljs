@@ -21,6 +21,11 @@
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
+            ;; Malli directly — for the pre-submit form validator below
+            ;; (`m/explain` + `me/humanize`), the same pure validator the form
+            ;; recipe builds (docs/core/how-to/build-a-form.md).
+            [malli.core :as m]
+            [malli.error :as me]
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.http.managed]
@@ -285,6 +290,17 @@
 ;; enforces, so the form and the machine agree on what "valid" means.
 (def login-form-defaults {:email "" :password ""})
 
+;; The pre-submit validator. It checks the draft against the very same
+;; `Credentials` schema the machine's `:submit` boundary enforces, so the form
+;; and the machine agree on "valid" down to the last character. `m/explain` +
+;; `me/humanize` turn a schema miss into the form pattern's
+;; `{<field> ["msg" ...]}` shape — exactly what `:auth.login/field-error`
+;; renders — and a clean draft yields `{}`. See docs/core/how-to/build-a-form.md,
+;; "Validation is a pure function".
+(defn- validate
+  [schema value]
+  (or (some-> (m/explain schema value) me/humanize) {}))
+
 ;; Lay down the slice in its starting shape: empty `:draft`, `:status :idle`,
 ;; and the rest. Fires once, via the frame-provider's `:initial-events`.
 (rf/reg-event :auth.login/initialise-form
@@ -313,32 +329,49 @@
              (assoc-in  [:auth :login-form :draft field] value)
              (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 
-;; Submit. Pull the draft out of the slice, latch `:submit-attempted?`, flip the
-;; slice `:status` to `:submitting`, and hand the draft to the machine. That
-;; hand-off is the single place the draft ever crosses into the machine, and the
-;; machine's `:where :event` boundary checks it against `Credentials` on the way
-;; in. From there the machine — not the slice — owns the real story: in flight,
-;; authed, errored, locked. The slice's `:status` is just a mirror, kept around
-;; so the slice stays a tidy form-pattern shape.
+;; Submit. First it *validates* the draft against `Credentials` — the same
+;; schema the machine's `:submit` boundary enforces — and latches
+;; `:submit-attempted?` either way, which is what lets every invalid field
+;; speak up the moment the user first presses submit (the form pattern's
+;; visibility rule, docs/core/how-to/build-a-form.md).
 ;;
-;; And a word on the password. We read it off the draft, give it to the machine,
-;; then clear `[:draft :password]` in the very same commit. Once the request is
-;; on its way the secret has done its job, and there's no reason to leave it
-;; sitting in app-db where the next snapshot or recording would scoop it up. Its
-;; only trip off the box is inside the HTTP request body (scrubbed by that
-;; `:sensitive? true` flag), and it's never written to `:submitted` or the
-;; machine's `:data`. See docs/core/how-to/keep-secrets-out-of-traces.md.
+;; On a clean draft this is the hand-off: flip `:status` to `:submitting`,
+;; clear any stale field errors, and dispatch the draft into the machine. That
+;; hand-off is the single place the draft ever crosses into the machine. From
+;; there the machine — not the slice — owns the real story: in flight, authed,
+;; errored, locked. The slice's `:status` is just a mirror.
+;;
+;; On an *invalid* draft we stop here: the field errors land in `:errors`
+;; (rendered under each input) and nothing is dispatched. Handing a bad draft
+;; to the machine would only bounce off its `:submit` schema boundary — and
+;; because the view renders machine errors, that rejection would be *silent*,
+;; the password cleared and the form quietly inert. So the form catches it
+;; first, keeps the password for the fixup, and shows what's wrong.
+;;
+;; And a word on the password. On the clean branch we read it off the draft,
+;; give it to the machine, then clear `[:draft :password]` in the very same
+;; commit. Once the request is on its way the secret has done its job, and
+;; there's no reason to leave it sitting in app-db where the next snapshot or
+;; recording would scoop it up. Its only trip off the box is inside the HTTP
+;; request body (scrubbed by that `:sensitive? true` flag), and it's never
+;; written to `:submitted` or the machine's `:data`. See
+;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
-  {:doc "Submit the login form: read the draft from the slice, hand it to the
-         :auth.login/flow machine's :submit sub-event, and clear the password
-         out of the draft (secret-field hygiene)."}
+  {:doc "Submit the login form: validate the draft against Credentials. If
+         clean, hand it to the :auth.login/flow machine's :submit sub-event and
+         clear the password (secret-field hygiene); if not, surface the field
+         errors and don't submit. Latches :submit-attempted? either way."}
   (fn handler-login-form-submit [{:keys [db]} _]
-    (let [draft (get-in db [:auth :login-form :draft])]
-      {:db (-> db
-               (assoc-in [:auth :login-form :submit-attempted?] true)
-               (assoc-in [:auth :login-form :status] :submitting)
-               (assoc-in [:auth :login-form :draft :password] ""))
-       :fx [[:dispatch [:auth.login/flow [:auth.login/submit draft]]]]})))
+    (let [draft  (get-in db [:auth :login-form :draft])
+          errors (validate Credentials draft)
+          db'    (assoc-in db [:auth :login-form :submit-attempted?] true)]
+      (if (empty? errors)
+        {:db (-> db'
+                 (assoc-in [:auth :login-form :status] :submitting)
+                 (assoc-in [:auth :login-form :errors] {})
+                 (assoc-in [:auth :login-form :draft :password] ""))
+         :fx [[:dispatch [:auth.login/flow [:auth.login/submit draft]]]]}
+        {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
 
 ;; Wipe the slate: put the slice back to its empty, :idle starting shape.
 (rf/reg-event :auth.login/reset-form
@@ -422,11 +455,13 @@
 ;; The draft lives in app-db, which is exactly why you won't find a
 ;; `uix/use-state` anywhere in here.
 (defui login-form []
-  (let [draft    (uix-adapter/use-subscribe [:auth.login/draft])
-        busy?    (uix-adapter/use-subscribe [:rf/machine-has-tag?
-                                             :auth.login/flow :auth/busy])
-        err      (uix-adapter/use-subscribe [:auth.login/error])
-        dispatch (:dispatch (rf/capture-frame))]
+  (let [draft     (uix-adapter/use-subscribe [:auth.login/draft])
+        busy?     (uix-adapter/use-subscribe [:rf/machine-has-tag?
+                                              :auth.login/flow :auth/busy])
+        err       (uix-adapter/use-subscribe [:auth.login/error])
+        email-err (uix-adapter/use-subscribe [:auth.login/field-error :email])
+        pw-err    (uix-adapter/use-subscribe [:auth.login/field-error :password])
+        dispatch  (:dispatch (rf/capture-frame))]
     ($ :form.login-form
        {:data-testid "login-form"
         :on-submit (fn [e]
@@ -439,12 +474,14 @@
                    :data-testid "login-email"
                    :value       (:email draft)
                    :on-change   #(dispatch [:auth.login/edit-field :email (.. % -target -value)])})
+       (when email-err ($ :p.error {:data-testid "login-email-error"} email-err))
        ($ :input  {:type        "password"
                    :placeholder "Password"
                    :disabled    busy?
                    :data-testid "login-password"
                    :value       (:password draft)
                    :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])})
+       (when pw-err ($ :p.error {:data-testid "login-password-error"} pw-err))
        ($ :button {:type "submit" :disabled busy?
                    :data-testid "login-submit"}
           (if busy? "Signing in…" "Sign in"))
