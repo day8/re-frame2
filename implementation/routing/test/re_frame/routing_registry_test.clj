@@ -5,6 +5,7 @@
   parsing, and metadata validation). Split from routing_test.clj per
   rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.identity :as identity]
             [re-frame.routing :as routing]
@@ -885,22 +886,85 @@
 ;; Lens 5 T1-T8.
 
 (deftest invalid-route-patterns-fail-at-registration
-  (testing "non-canonical path patterns raise actionable errors at reg-route"
-    (doseq [[route-id pattern]
-            [[:route/no-leading-slash "cart"]
-             [:route/splat-not-final "/files/*rest/more"]
-             [:route/nested-optional "/a{/:b{/:c}?}?"]
-             [:route/optional-not-slash-prefixed "/articles{:id}?"]]]
+  ;; rf2-gsmxlj — one fixture per `match/validate-route-pattern!` rejection
+  ;; branch (match.cljc:151-253 + its helpers). The validator is the fail-loud
+  ;; reg-route authoring-boundary grammar gate; Spec 012 relies on it to stop a
+  ;; malformed `:path` producing surprising matcher / URL-emitter behaviour
+  ;; later. Each fixture drives the REAL boundary (`rf/reg-route`) with the
+  ;; malformed pattern class the branch is meant to reject and asserts the
+  ;; canonical thrown-error shape PLUS the specific `:reason` naming the
+  ;; offending construct — so a single-pass-loop refactor that drops a check or
+  ;; emits the wrong `:reason` fails here.
+  (testing "grammar-violating :path patterns raise :rf.error/invalid-route-pattern
+            at reg-route, each naming the offending construct via :reason"
+    (doseq [[route-id pattern reason-substr]
+            [;; ---- top-level shape (match.cljc:174-184) ----
+             [:route/empty-path               ""                  ":path must not be empty"]
+             [:route/no-leading-slash         "cart"              ":path must start with"]
+             ;; ---- empty path segments (match.cljc:201-203). A TRAILING `/` is
+             ;; canonicalised away before validation, so the empty-segment branch
+             ;; is reached via an INTERIOR double slash, not a trailing one.
+             [:route/interior-double-slash    "/x//y"             "empty path segments are not allowed"]
+             ;; ---- reserved `}` / `?` in the main loop (match.cljc:209-213) ----
+             [:route/bare-close-brace         "/a}b"              "`}` appears without a matching optional-group opener"]
+             [:route/bare-question            "/a?b"              "`?` is reserved for the optional-group suffix"]
+             ;; ---- params / splats not occupying a whole segment ----
+             [:route/param-mid-segment        "/a:id"             "named params must occupy a whole path segment"]
+             [:route/splat-mid-segment        "/a*rest"           "splats must occupy a whole path segment"]
+             ;; ---- bad param / splat identifier names (route-name-re) ----
+             [:route/bad-param-name           "/:1bad"            "param name must be a bare identifier"]
+             [:route/bad-splat-name           "/*1bad"            "splat name must be a bare identifier"]
+             ;; ---- splat not final (already covered pre-rf2-gsmxlj) ----
+             [:route/splat-not-final          "/files/*rest/more" "splats must be the final path segment"]
+             ;; ---- optional-group grammar (validate-optional-group!,
+             ;;      match.cljc:98-149) ----
+             [:route/group-unclosed           "/a{/:b"            "optional groups must close with `}?`"]
+             [:route/group-no-suffix          "/a{/:b}"           "optional groups must end with `}?`"]
+             [:route/group-empty              "/a{}?"             "optional groups must not be empty"]
+             [:route/group-empty-segment      "/a{//}?"           "optional groups may not contain empty segments"]
+             [:route/group-not-slash-prefixed "/articles{:id}?"   "optional groups must wrap a slash-prefixed sub-pattern"]
+             [:route/group-nested             "/a{/:b{/:c}?}?"    "nested optional groups are not part of the grammar"]
+             [:route/group-splat              "/a{/*rest}?"       "splats are not allowed inside optional groups"]
+             [:route/group-bad-param-name     "/a{/:1bad}?"       "param name must be a bare identifier"]
+             [:route/group-reserved-literal   "/shop{/a:b}?"      "literal path segments must percent-encode reserved characters"]]]
       (let [ex (try
                  (rf/reg-route route-id {} pattern)
                  nil
                  (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? ex) (str pattern " should be rejected"))
-        (is (= :rf.error/invalid-route-pattern (:rf.error/id (ex-data ex))))
-        (is (= route-id (:route-id (ex-data ex))))
-        (is (= pattern (:pattern (ex-data ex))))
-        (is (some? (:reason (ex-data ex)))
-            "ex-data includes an actionable reason"))))
+        (is (some? ex) (str (pr-str pattern) " should be rejected at reg-route"))
+        (when ex
+          (let [data (ex-data ex)]
+            (is (= :rf.error/invalid-route-pattern (:rf.error/id data))
+                (str (pr-str pattern) " → :rf.error/invalid-route-pattern"))
+            (is (= route-id (:route-id data))
+                (str (pr-str pattern) " → :route-id slot names the route"))
+            (is (= pattern (:pattern data))
+                (str (pr-str pattern) " → :pattern slot echoes the offending pattern"))
+            (is (integer? (:index data))
+                (str (pr-str pattern) " → :index slot names the offending position"))
+            (is (and (string? (:reason data))
+                     (string/includes? (:reason data) reason-substr))
+                (str (pr-str pattern) " → :reason must name the offending construct "
+                     (pr-str reason-substr) " (was " (pr-str (:reason data)) ")")))))))
+
+  (testing "a non-string :path is the one rejection branch with NO positional
+            :index — a type error, not a position in the string
+            (match.cljc:171-172)"
+    (let [ex (try
+               (rf/reg-route :route/non-string-path {} 42)
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "a non-string :path is rejected at reg-route")
+      (when ex
+        (let [data (ex-data ex)]
+          (is (= :rf.error/invalid-route-pattern (:rf.error/id data)))
+          (is (= :route/non-string-path (:route-id data)))
+          (is (= 42 (:pattern data)) ":pattern echoes the non-string value")
+          (is (nil? (:index data))
+              "a type error carries no positional :index (the pattern is not a string)")
+          (is (and (string? (:reason data))
+                   (string/includes? (:reason data) ":path is required and must be a string"))
+              ":reason names the type violation")))))
 
   (testing "canonical optional groups and final splats still register"
     (is (= :route/articles
