@@ -1302,6 +1302,42 @@
       (is (some #{:rf.error/reg-event-ctx-removed} @seen)
           "reg-event-ctx removal also fans out on the always-on channel"))))
 
+(deftest handled-event-fans-out-on-the-always-on-events-channel
+  ;; rf2-f5b8pd — the `:events` sibling of the error-channel fan-out above.
+  ;; The ns docstring (§`registries this tier asserts against`) AND the §8
+  ;; preamble both claim this tier asserts the always-on `register-event-
+  ;; listener!` fan-out, but only the error half (`retired-name-error-fans-
+  ;; out-…`) was ever driven — the `:events` half was a claim with no
+  ;; assertion behind it. This closes that gap so the claim is TRUE.
+  (testing "Spec 009 §Event-emit listener / EP-0018: a real one-form `reg-event`
+            dispatch fans out EXACTLY ONE tight record on the always-on
+            `:events` channel — `register-listener! :events` IS the low-level
+            `register-event-listener!` registry (core.cljc §stream verb), the
+            ADVANCED corpus-wide production-survivable hook fanned across EVERY
+            frame (survives `goog.DEBUG=false`), DISTINCT from the frame-owned
+            `:observability` sink locked in §8. A regression that stopped firing
+            the always-on per-event channel turns this RED"
+    (let [seen (atom [])]
+      (rf/register-listener! :events :evt-conf/handled-recorder
+        (fn [r] (swap! seen conj r)))
+      (rf/reg-frame :evt-conf/events-main {})
+      (rf/reg-event :evt-conf/events-probe
+        {:frame :evt-conf/events-main}
+        (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
+      (rf/dispatch-sync [:evt-conf/events-probe] {:frame :evt-conf/events-main})
+      (is (= 1 (count @seen))
+          "exactly one always-on event-emit record per processed event")
+      (let [r (first @seen)]
+        (is (= :evt-conf/events-probe (:event-id r))
+            "the record names the processed event")
+        (is (= :evt-conf/events-main (:frame r))
+            "the record carries the resolved frame-id (fanned across EVERY frame)")
+        (is (= :ok (:outcome r))
+            "a clean settle reports :ok on the always-on channel")
+        (is (contains? r :elapsed-ms)
+            "the tight record carries the wall-clock :elapsed-ms slot (Spec 009 §Record shape)"))
+      (rf/unregister-listener! :events :evt-conf/handled-recorder))))
+
 ;; ===========================================================================
 ;; (5) PUBLIC FACADE classification — reg-event-ctx is NOT a public (doc'd)
 ;;     facade var, while reg-event IS. JVM-only meta probe (CLJS has no
