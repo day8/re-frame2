@@ -457,23 +457,42 @@
          (delete-recursively tmp))))))
 
 (defn- run-ssr-emitted-test!
-  "The SSR variant of the emitted-test-run tier. The SSR scaffold's only
-  automated test is a headless JVM gate (`ssr_test.clj`) — no cljs.test
-  suite, no `:node-test` bundle — so it runs via the emitted deps.edn
-  `:test` alias (`clojure -M:test`), NOT `shadow compile test` + node.
-  That is the exact path `npm test` and the generated CI now invoke
-  (package.json `test` = `clojure -M:test` on the SSR path, per hooks.clj's
-  `{{test-script}}`); before this wiring nothing ran the emitted
-  ssr_test.clj, so an SSR-scaffold regression shipped uncaught (rf2-97eebb).
+  "The SSR variant of the emitted-test-run tier. The SSR scaffold has TWO
+  runtime halves, and this tier now covers both:
+
+    1. SERVER — the headless JVM gate (`ssr_test.clj`). No cljs.test suite,
+       no `:node-test` bundle, so it runs via the emitted deps.edn `:test`
+       alias (`clojure -M:test`), NOT `shadow compile test` + node. That is
+       the exact path `npm test` and the generated CI invoke (package.json
+       `test` = `clojure -M:test` on the SSR path, per hooks.clj's
+       `{{test-script}}`); before this wiring nothing ran the emitted
+       ssr_test.clj, so an SSR-scaffold regression shipped uncaught
+       (rf2-97eebb).
+
+    2. CLIENT — `clojure -M:shadow compile app`. `ssr_test.clj` loads only
+       the `#?(:clj)` render half of `core.cljc`, so the `#?(:cljs)`
+       HYDRATION branch (`reagent.dom.client/create-root` + `.render`
+       interop, `ssr/hydrate!`, `rf/frame-provider`, `rf/view`, the
+       `^:export init` entry point) was compile-UNTESTED — the sibling
+       static-parse (template_emission_test.clj) only checks re-frame.*
+       symbol EXISTENCE, missing reagent.dom.client interop / arity /
+       macro-expansion breaks. The other four CLJS-emitting variants all
+       get a real `shadow compile app`; the SSR client branch now does too
+       (rf2-ue5ev3). Compile-only — no `node` run — because the SSR
+       scaffold ships no client cljs.test bundle.
 
   Generate the SSR scaffold (`:include-ssr? true`), rewrite the framework
   coords — including day8/re-frame2-ssr + day8/re-frame2-ssr-ring — to
-  :local/root, then run `clojure -M:test` and assert exit 0 plus the
-  cljs.test summary lines, so a silent zero-test run can't false-green.
+  :local/root, link node_modules, `shadow compile app` (the client branch),
+  then `clojure -M:test` (the server gate) asserting exit 0 plus the
+  cljs.test summary lines so a silent zero-test run can't false-green.
 
-  Needs only `clojure` on PATH — no node, no node_modules: the JVM SSR
-  render is a pure hiccup -> HTML emitter (no React / JSDOM), so unlike
-  the CLJS variants this tier never shells out to `node`."
+  Needs `clojure` on PATH plus a project-local `node_modules`: the added
+  `:app` (`:browser`) compile resolves React (via reagent) at compile time
+  and — like the CLJS variants — searches ONLY the project-local
+  node_modules (it ignores NODE_PATH). No `node` RUNTIME is needed, though:
+  the browser compile is JVM/Closure-driven, and the JVM SSR render is a
+  pure hiccup -> HTML emitter (no React / JSDOM)."
   []
   (let [root (repo-root)
         tmp  (tmp-dir "rf2-template-run-reagent-ssr-")]
@@ -481,26 +500,56 @@
       (let [proj (run-template-opts! tmp "acme/my-app"
                                      {:substrate :reagent :include-ssr? true})]
         (rewrite-deps-for-local-run! root proj :reagent)
-        (testing "reagent-ssr — clojure -M:test (headless JVM ssr_test.clj)"
-          (let [{:keys [exit out]} (run-process! ["clojure" "-M:test"] proj)]
-            (is (zero? exit)
-                (str "`clojure -M:test` exited " exit
-                     " for the emitted SSR scaffold. The headless JVM "
-                     "ssr_test.clj gate did not pass against the in-repo SSR "
-                     "source (implementation/ssr + ssr-ring rewritten to "
-                     ":local/root). Output:\n" out))
-            ;; cljs.test's default reporter prints
-            ;;   "Ran N tests containing M assertions."
-            ;;   "0 failures, 0 errors."
-            ;; Pin both lines so a silent zero-exit (no tests discovered by
-            ;; the cognitect runner) doesn't false-green.
-            (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
-                (str "expected 'Ran N tests' summary line — a silent "
-                     "zero-test run (the very false-green rf2-97eebb "
-                     "guards) would otherwise pass. Got:\n" out))
-            (is (re-find #"0 failures, 0 errors" out)
-                (str "expected '0 failures, 0 errors' line in output. "
-                     "Got:\n" out)))))
+        (let [linked?   (link-node-modules! root proj)
+              node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
+              env-overrides {"NODE_PATH" node-path}]
+          (is linked?
+              (str "project-local node_modules must resolve for the SSR "
+                   "`:app` (:browser) compile — it ignores NODE_PATH. "
+                   "Symlink/junction into " (.getPath proj)
+                   " failed; ensure implementation/node_modules exists "
+                   "(`npm install` in implementation/) and the OS allows "
+                   "a symlink or `mklink /J` junction."))
+
+          ;; --- client compile ----------------------------------------------
+          ;; `shadow compile app` pulls core.cljc's #?(:cljs) hydration branch
+          ;; (reagent.dom.client interop, ssr/hydrate!, ^:export init) onto the
+          ;; compile classpath — the client half ssr_test.clj (JVM :clj) never
+          ;; touches. A broken react-dom.client interop / adapter API rename /
+          ;; macro-expansion error fails here rather than on a newcomer's first
+          ;; `npx shadow-cljs watch app`.
+          (testing "reagent-ssr — clojure -M:shadow compile app (client :cljs hydration branch)"
+            (let [{:keys [exit out]}
+                  (run-process! ["clojure" "-M:shadow" "compile" "app"]
+                                proj env-overrides)]
+              (is (zero? exit)
+                  (str "`clojure -M:shadow compile app` exited " exit
+                       " for the emitted SSR scaffold. The client #?(:cljs) "
+                       "hydration branch of core.cljc did not compile against "
+                       "the in-repo source (reagent/re-frame2-* rewritten to "
+                       ":local/root). Output:\n" out))))
+
+          ;; --- server gate -------------------------------------------------
+          (testing "reagent-ssr — clojure -M:test (headless JVM ssr_test.clj)"
+            (let [{:keys [exit out]} (run-process! ["clojure" "-M:test"] proj)]
+              (is (zero? exit)
+                  (str "`clojure -M:test` exited " exit
+                       " for the emitted SSR scaffold. The headless JVM "
+                       "ssr_test.clj gate did not pass against the in-repo SSR "
+                       "source (implementation/ssr + ssr-ring rewritten to "
+                       ":local/root). Output:\n" out))
+              ;; cljs.test's default reporter prints
+              ;;   "Ran N tests containing M assertions."
+              ;;   "0 failures, 0 errors."
+              ;; Pin both lines so a silent zero-exit (no tests discovered by
+              ;; the cognitect runner) doesn't false-green.
+              (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
+                  (str "expected 'Ran N tests' summary line — a silent "
+                       "zero-test run (the very false-green rf2-97eebb "
+                       "guards) would otherwise pass. Got:\n" out))
+              (is (re-find #"0 failures, 0 errors" out)
+                  (str "expected '0 failures, 0 errors' line in output. "
+                       "Got:\n" out))))))
       (finally
         (delete-recursively tmp)))))
 
@@ -592,16 +641,23 @@
             (compile-and-run-emitted-test! :reagent true {:release? true}))))))
 
 (deftest reagent-ssr-emitted-tests-run-test
-  ;; The SSR scaffold's headless JVM gate (`ssr_test.clj`), run via the
+  ;; The SSR scaffold's TWO halves: the client `:cljs` hydration branch via
+  ;; `clojure -M:shadow compile app` (rf2-ue5ev3 — core.cljc's #?(:cljs)
+  ;; reagent.dom.client interop + ssr/hydrate! + ^:export init, which the
+  ;; JVM `ssr_test.clj` :clj-only load never compiles), and the server
+  ;; render via the headless JVM gate (`ssr_test.clj`) run through the
   ;; emitted deps.edn `:test` alias (`clojure -M:test`) — the exact path
-  ;; `npm test` and the generated CI now invoke on the SSR scaffold.
-  ;; Reagent-only because `:include-ssr?` is Reagent-only in v1. Unlike
-  ;; the CLJS variants above this needs ONLY `clojure` on PATH (no node:
-  ;; the JVM SSR render is a pure hiccup -> HTML emitter), yet rides the
-  ;; same RF2_TEMPLATE_RUN_EMITTED_TESTS gate. Before this tier nothing
-  ;; ran the emitted ssr_test.clj — the empty CLJS node-test bundle the
-  ;; SSR package.json used to run false-greened on zero tests (rf2-97eebb).
-  (testing "the emitted SSR Reagent app's ssr_test.clj runs green via
+  ;; `npm test` and the generated CI invoke on the SSR scaffold.
+  ;; Reagent-only because `:include-ssr?` is Reagent-only in v1. Needs
+  ;; `clojure` on PATH plus a project-local node_modules for the `:app`
+  ;; compile (React via reagent; no `node` RUNTIME — the browser compile is
+  ;; JVM/Closure-driven and the JVM SSR render is a pure hiccup -> HTML
+  ;; emitter), and rides the same RF2_TEMPLATE_RUN_EMITTED_TESTS gate.
+  ;; Before this tier nothing ran the emitted ssr_test.clj — the empty CLJS
+  ;; node-test bundle the SSR package.json used to run false-greened on zero
+  ;; tests (rf2-97eebb); and the client branch shipped compile-untested.
+  (testing "the emitted SSR Reagent app's client :cljs branch compiles
+            (`shadow compile app`) + its ssr_test.clj runs green via
             `clojure -M:test` (the JVM gate npm/CI now invoke)"
     (if-not @enabled?
       (skip-if-disabled! "reagent-ssr")
