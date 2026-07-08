@@ -136,7 +136,26 @@
                  ;; per-tool `tools/template :test` alias already pulls
                  ;; it in; the aggregate runner needs the same dep.
                  io.github.seancorfield/deps-new
-                 {:git/tag "v0.12.1" :git/sha "883e82c"}}
+                 {:git/tag "v0.12.1" :git/sha "883e82c"}
+                 ;; rf2-ydu4od — Story's own `:test` alias
+                 ;; (tools/story/deps.edn) pins `org.clojure/test.check` on
+                 ;; the :test alias ONLY, to exercise the OPTIONAL
+                 ;; `re-frame.story.generate.test-check` adapter (rf2-6nk6d).
+                 ;; `re-frame.story.generate-test` (tools/story/test/...)
+                 ;; hard-requires `clojure.test.check.generators` behind a
+                 ;; `:clj` reader conditional, so the aggregate needs the
+                 ;; SAME dep the per-tool alias carries or that namespace
+                 ;; fails to load under `cd tools && clojure -M:test`. Before
+                 ;; this entry the aggregate happened to resolve a
+                 ;; DIFFERENT test.check version (1.1.3) purely as an
+                 ;; incidental transitive dep of deps-new → sci →
+                 ;; borkdude/dynaload — undocumented and one dependency bump
+                 ;; away from silently disappearing. Pinning it explicitly
+                 ;; here, at the SAME version as Story's own alias, makes
+                 ;; the dependency intentional and reproducible rather than
+                 ;; accidental.
+                 org.clojure/test.check
+                 {:mvn/version "1.1.1"}}
    :extra-paths ["xray/test"
                  "mcp-base/test"
                  "story/test"
