@@ -271,6 +271,35 @@
                                [:dispatch ev])))
             targets))))
 
+(defn- infinite-reply-value
+  "The canonical `:reply-to` `:value` for an INFINITE-feed read completion
+  (rf2-c64uiz): the MERGED / flattened item list — the headline
+  `:rf.resource/items` read — computed from the feed `entry`'s accumulated
+  pages via `state/merge-pages->items`. BOTH the fresh-skip cache-hit path and
+  the async page-0 settle deliver THIS shape, so a `:reply-to` continuation
+  reads ONE stable `:value` regardless of how the read settled — never the raw
+  page vector (the cache-hit `(:data entry)`) vs a single decoded page (the
+  fetch's `page-succeeded-handler`). Mirrors the `:rf.resource/items` sub's
+  projection (`subs/merged-items`) sans the frame-keyed memo (a `:reply-to`
+  completion is a one-shot, not a re-render). `where` names the public surface
+  for the loud `:page->items` missing-accessor diagnostic
+  (`:rf.error/infinite-missing-page-accessor`) — the same error the
+  `:rf.resource/items` sub raises for a misconfigured feed. Per Spec 016 §Read
+  completion continuations. Pure."
+  [entry where]
+  (let [spec (registry/resource-meta (:resource/id entry))]
+    (state/merge-pages->items
+      (:data entry)
+      (state/resolve-page->items (:page->items spec))
+      (:resource/id entry)
+      where)))
+
+(def ^:private reply-to-where
+  "The `where` diagnostic symbol both `:reply-to` continuation value sites pass
+  to `infinite-reply-value` so a misconfigured feed raises the IDENTICAL loud
+  error whether the read settled from cache or from a fetch (rf2-c64uiz)."
+  'rf.resource/reply-to)
+
 (defn- emit-resource-replied!
   "Emit the `:rf.resource/replied` trace (rf2-p1yri7) for an accepted read reply
   that DID continue into app workflow — the READ mirror of
@@ -499,6 +528,16 @@
             ;; continuations settles the cache-hit `:work/id` wrinkle
             ;; explicitly), and `:cache-hit?` is true. The ensure handler runs in
             ;; a drain, so a same-drain `:dispatch` is ordinary.
+            ;; rf2-c64uiz — the `:reply-to` `:value` for an INFINITE feed is the
+            ;; MERGED items list (the headline `:rf.resource/items` read), NOT
+            ;; the raw page vector `(:data entry)`. This makes the fresh-skip
+            ;; cache hit deliver the SAME `:value` shape the async page-0 settle
+            ;; (`page-succeeded-handler`) does — a `:reply-to` continuation reads
+            ;; one stable shape regardless of cache-hit vs fetch. A scalar entry
+            ;; delivers its decoded value (`(:data entry)`) unchanged. Computed
+            ;; only when a `:reply-to` continued (a misconfigured feed's loud
+            ;; merge error must not fire for a plain cache hit with no
+            ;; continuation).
             hit-reply  (when reply-to'
                          (read-continuation-reply
                            (rreply/success-reply
@@ -508,7 +547,9 @@
                               :scope        scope
                               :generation   (:generation entry)
                               :rf.frame/id  frame-id}
-                             (:data entry)
+                             (if (state/infinite-entry? entry)
+                               (infinite-reply-value entry reply-to-where)
+                               (:data entry))
                              {:work-kind    rreply/work-kind-resource
                               :completed-at time-ms})
                            {:resource-key scoped-key :cache-hit? true}))
@@ -2703,10 +2744,12 @@
         ;; `:rf.resource/refetch` of an INFINITE feed lowers through the page
         ;; reply, so its call-site `:reply-to` settles here at the page-0
         ;; completion (a `:rf.resource/load-more` carries no `:reply-to`, so its
-        ;; record has none). Fan out the canonical page reply on acceptance;
-        ;; nil-entry suppression delivers nothing.
-        record       (work-ledger/get-record runtime-db work-id)
-        cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
+        ;; record has none). The continuation fan-out (`cont-fxs`) is built in
+        ;; the accepted branch below, AFTER the page settles into `entry'`:
+        ;; rf2-c64uiz — an infinite `:reply-to` `:value` is the MERGED items
+        ;; list over the post-settle feed (the same shape the fresh-skip
+        ;; cache-hit path delivers), NOT this single decoded `page`.
+        record       (work-ledger/get-record runtime-db work-id)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory) — a superseded / vanished / cross-frame
       ;; page reply never appends to a newer feed. Recorded `:status :stale` /
@@ -2741,6 +2784,19 @@
             entry'    (if sweep-leg
                         (state/entry-advance-refetch-sweep replaced)
                         replaced)
+            ;; rf2-c64uiz — the accepted `:reply-to` continuation carries the
+            ;; MERGED items list over the POST-settle feed (`entry'`), the SAME
+            ;; `:value` shape the fresh-skip cache-hit path delivers, NOT the
+            ;; single decoded `page` the transport reply carries. `assoc :value`
+            ;; onto the canonical `reply` preserves every identity / correlation
+            ;; fact and swaps only the read-completion value. Guarded on
+            ;; reply-targets so the merge (and its loud misconfiguration error)
+            ;; never runs for a load-more / continuation-free page settle.
+            cont-fxs  (when (seq (:reply-targets record))
+                        (read-reply-continuation-fxs
+                          record
+                          (assoc reply :value (infinite-reply-value entry' reply-to-where))
+                          resource-key))
             poll-delay-ms (when (seq (:active-owners entry'))
                             (state/positive-or-nil (:poll-interval-ms spec)))
             rdb'      (-> runtime-db

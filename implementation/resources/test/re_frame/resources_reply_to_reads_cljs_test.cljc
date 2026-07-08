@@ -21,7 +21,12 @@
        (a forced-refetch supersession) NEVER fires the continuation;
     5. failure — an accepted terminal failure fires the continuation with
        `:status :error` (so a machine learns the read it caused failed);
-    6. the `:rf.resource/replied` trace mirrors `:rf.mutation/replied`.
+    6. the `:rf.resource/replied` trace mirrors `:rf.mutation/replied`;
+    7. INFINITE feed (rf2-c64uiz) — the fresh-skip cache-hit path and the async
+       page-succeeded fetch path deliver the SAME `:value` shape (the merged
+       `:rf.resource/items` list), never the raw page vector (cache-hit) vs a
+       single decoded page (fetch); the merged value flattens EVERY accumulated
+       page on both paths.
 
   Harness: the `:rf.http/managed` fx is overridden with a capturing stub; the
   reply is replayed explicitly via `reply-success!` / `reply-failure!` (the real
@@ -94,6 +99,58 @@
 
 (def ^:private article-request
   (fn [{:keys [slug]} _ctx] {:request {:method :get :url (str "/api/articles/" slug)}}))
+
+;; ---- infinite-feed helpers (rf2-c64uiz) -----------------------------------
+;;
+;; An infinite feed's page reply settles through `page-succeeded-handler` (the
+;; async fetch path), while a fresh-skip second ensure serves cache through the
+;; `ensure-load` fresh-skip branch. rf2-c64uiz pins that BOTH deliver the SAME
+;; `:reply-to` `:value` SHAPE — the MERGED / flattened `:rf.resource/items`
+;; list — rather than the raw page vector (cache-hit) vs a single decoded page
+;; (fetch). Pages are ENVELOPED (`{:items [...] :page-info {...}}`) with a
+;; `:page->items` accessor so the merged list is unambiguously distinct from
+;; both the raw page vector and any single page.
+
+(def ^:private feed-next
+  (fn [last-page _all-pages] (get-in last-page [:page-info :next])))
+
+(defn- feed-page
+  "An enveloped page: `:items` + a `:page-info` next cursor (nil ⇒ terminal)."
+  [items next-c]
+  {:items items :page-info {:next next-c}})
+
+(defn- feed-spec
+  ([] (feed-spec {}))
+  ([overrides]
+   (merge {:scope           :rf.scope/global
+           :infinite        true
+           :params-schema   [:map [:filter :keyword]]
+           :next-page-param feed-next
+           :page->items     :items
+           :tags            (fn [{:keys [filter]} _data] #{[:feed filter]})}
+          overrides)))
+
+(def ^:private feed-request
+  (fn [{:keys [filter]} {:rf.resource/keys [page-param page-index]}]
+    {:request {:method :get :url "/api/feed"
+               :params (cond-> {:filter filter :page-index page-index}
+                         page-param (assoc :cursor page-param))}}))
+
+(defn- feed-key [resource]
+  (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
+
+(defn- ensure-feed!
+  ([resource owner] (ensure-feed! resource owner nil))
+  ([resource owner reply-to]
+   (rf/dispatch-sync [:rf.resource/ensure
+                      (cond-> {:resource resource :scope :rf.scope/global
+                               :params {:filter :recent} :owner owner}
+                        reply-to (assoc :reply-to reply-to))])))
+
+(defn- load-more-feed! [resource]
+  (rf/dispatch-sync [:rf.resource/load-more
+                     {:resource resource :scope :rf.scope/global
+                      :params {:filter :recent} :cause [:user :feed/load-more]}]))
 
 (defn- record-replied-traces!
   "Return the vector of every `:rf.resource/replied` trace emitted while running
@@ -284,3 +341,91 @@
                                            :params {:slug "s"}}])
                        (reply-success! gen1 {:title "stale"}))))]
       (is (= 0 (count traces)) "suppressed reply emits no replied trace"))))
+
+;; ===========================================================================
+;; 7. INFINITE feed — cache-hit and async fetch deliver the IDENTICAL :value
+;;    SHAPE (the merged items list), NOT page-vector (cache-hit) vs single
+;;    page (fetch). rf2-c64uiz.
+;; ===========================================================================
+
+(deftest infinite-reply-to-cache-hit-and-fetch-value-shape-identical
+  ;; The headline adversarial test: a single terminal enveloped page settles
+  ;; through the async page-succeeded path, then a fresh-skip ensure serves the
+  ;; SAME feed from cache. BOTH `:reply-to` `:value`s MUST be the merged items
+  ;; list — never the raw page vector (a map inside a vector) nor a single page
+  ;; (a bare map). Because both observe the identical feed state, the values
+  ;; are byte-identical (rf2-c64uiz — the shape must not depend on how the read
+  ;; settled).
+  (rf/reg-resource :cf/feed (feed-spec) feed-request)
+  (let [rkey  (feed-key :cf/feed)
+        pg    (feed-page [{:id 1} {:id 2}] nil)          ;; terminal (nil next)
+        items [{:id 1} {:id 2}]]                         ;; the merged / flattened list
+    ;; ---- async FETCH path: ensure page-0 with :reply-to, settle it --------
+    (ensure-feed! :cf/feed [:view :a] [:test/read-replied])
+    (is (= 0 (count @replied)) "no continuation before page-0 settles")
+    (is (= :rf.resource.internal/page-succeeded (first (:on-success @last-managed-args)))
+        "an infinite ensure addresses the PAGE reply handler")
+    (reply-success! @last-managed-args pg)
+    (is (= 1 (count @replied)) "the fetch continuation fired once on the page-0 settle")
+    (let [[_ fetch-reply] (first @replied)
+          fetch-value     (:value fetch-reply)]
+      (is (= :loaded (:status (entry rkey))) "feed settled :loaded")
+      (is (false? (:cache-hit? fetch-reply)) "an async page settle is not a cache hit")
+      (testing "the FETCH :value is the merged items list — not a single page, not the page vector"
+        (is (= items fetch-value))
+        (is (not= pg fetch-value) "NOT the single decoded page (the pre-fix fetch shape)")
+        (is (not= [pg] fetch-value) "NOT the raw page vector"))
+      ;; ---- fresh-skip CACHE-HIT path: a second ensure serves cache ---------
+      (reset! last-managed-args nil)
+      (reset! replied [])
+      (ensure-feed! :cf/feed [:view :b] [:test/read-replied])
+      (is (nil? @last-managed-args) "fresh loaded feed served from cache — no new fetch")
+      (is (= 1 (count @replied)) "the cache-hit continuation dispatched immediately")
+      (let [[_ hit-reply] (first @replied)
+            hit-value     (:value hit-reply)]
+        (is (true? (:cache-hit? hit-reply)) "a fresh-skip is a cache hit")
+        (testing "the CACHE-HIT :value is the merged items list — not the raw page vector"
+          (is (= items hit-value))
+          (is (not= [pg] hit-value) "NOT the raw page vector (the pre-fix cache-hit shape)"))
+        (testing "rf2-c64uiz — cache-hit and fetch deliver the IDENTICAL :value"
+          (is (= fetch-value hit-value)
+              "an infinite-feed :reply-to :value must not depend on cache-hit vs fetch"))))))
+
+(deftest infinite-reply-to-value-spans-all-pages-both-paths
+  ;; Strengthens the shape contract across a MULTI-page feed: the merged
+  ;; `:value` flattens EVERY accumulated page (not just page-0). A refetch's
+  ;; page-0 settle (async, window-preserving R6) and a fresh-skip cache hit
+  ;; both observe the full 2-page feed and deliver the same merged list.
+  (rf/reg-resource :cm/feed (feed-spec) feed-request)
+  (let [rkey     (feed-key :cm/feed)
+        page-0   (feed-page [{:id 1}] "c1")
+        page-1   (feed-page [{:id 2} {:id 3}] nil)       ;; terminal after page-1
+        all-items [{:id 1} {:id 2} {:id 3}]]
+    ;; build a 2-page feed (ensure page-0 + one load-more) — no reply-to here
+    (ensure-feed! :cm/feed [:view :a] nil)
+    (reply-success! @last-managed-args page-0)
+    (load-more-feed! :cm/feed)
+    (reply-success! @last-managed-args page-1)
+    (is (= [page-0 page-1] (:data (entry rkey))) "2-page feed accumulated")
+    ;; ---- fresh-skip CACHE-HIT on the 2-page feed --------------------------
+    (reset! last-managed-args nil)
+    (reset! replied [])
+    (ensure-feed! :cm/feed [:view :b] [:test/read-replied])
+    (is (nil? @last-managed-args) "fresh 2-page feed served from cache")
+    (let [[_ hit-reply] (first @replied)]
+      (testing "the cache-hit :value spans BOTH pages (merged across the feed)"
+        (is (= all-items (:value hit-reply)))))
+    ;; ---- async REFETCH page-0 settle on the same 2-page feed --------------
+    (reset! replied [])
+    (rf/dispatch-sync [:rf.resource/refetch
+                       {:resource :cm/feed :scope :rf.scope/global
+                        :params {:filter :recent} :cause [:test :refresh]
+                        :reply-to [:test/read-replied]}])
+    (is (= 0 (:rf.resource/page-index (second (:on-success @last-managed-args))))
+        "the refetch fetches page-0 (window preserved)")
+    (reply-success! @last-managed-args page-0)              ;; same page-0 content
+    (is (= 1 (count @replied)) "the refetch continuation fired at the page-0 settle")
+    (let [[_ refetch-reply] (first @replied)]
+      (is (false? (:cache-hit? refetch-reply)) "a refetch settle is not a cache hit")
+      (testing "the refetch page-0 :value ALSO spans both pages (R6 window preserved)"
+        (is (= all-items (:value refetch-reply)))))))
