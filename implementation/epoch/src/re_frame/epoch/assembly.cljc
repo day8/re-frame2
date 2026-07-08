@@ -426,7 +426,8 @@
          ;; absent; `(:rf.db/app nil)` is nil, which consumers already tolerate.
          db-before (get frame-state-before frame/app-partition-key)
          db-after  (get frame-state-after  frame/app-partition-key)
-         {:keys [event-id event dispatch-id] trigger-cofx :rf.cofx}
+         {:keys [event-id event dispatch-id fx-overrides interceptor-overrides]
+          trigger-cofx :rf.cofx}
          (capture/find-trigger-event events)
          ;; Per rf2-ecu37: one fused walk producing all three
          ;; projections, replacing three independent transducer
@@ -511,4 +512,17 @@
        ;; no `:dispatch-id` (a rejected dispatch, a halt before run-start)
        ;; omits the slot, matching `:event-id` / `:trigger-event`.
        dispatch-id (assoc :dispatch-id dispatch-id)
-       halt-reason (assoc :halt-reason halt-reason)))))
+       halt-reason (assoc :halt-reason halt-reason)
+       ;; Per rf2-yigokd — pin the envelope's serializable per-call + lexical
+       ;; `:fx-overrides` (fn-valued entries already marker-ized to
+       ;; `:rf/fn-override` at the router's emission site) and per-call
+       ;; `:interceptor-overrides` (EDN by construction — EP-0022) as
+       ;; first-class record slots, spelled BARE to match the dispatch-opts
+       ;; key names a Tool-Pair strict replay splats straight back in
+       ;; alongside `:rf.cofx` (Tool-Pair §Replay). Omitted (not the shared
+       ;; empty sentinel) on the override-free hot path and on a halt path
+       ;; with no `:event/run-start` buffered — the open-map schema admits
+       ;; the slot's absence, matching `:event-id` / `:trigger-event` /
+       ;; `:rf.cofx` above.
+       fx-overrides (assoc :fx-overrides fx-overrides)
+       interceptor-overrides (assoc :interceptor-overrides interceptor-overrides)))))

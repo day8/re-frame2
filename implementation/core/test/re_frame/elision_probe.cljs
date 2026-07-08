@@ -603,6 +603,41 @@
                      {:rf.probe/override-summary-removed-ic  nil
                       :rf.probe/override-summary-replaced-ic :rf.probe/override-summary-stub-ic}}))
 
+;; ---- rf2-yigokd: dev-only epoch-record override capture -------------------
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` + Tool-Pair §Replay: the router
+;; stamps the envelope's per-call `:fx-overrides` / `:interceptor-overrides`
+;; onto the `:rf.event/run-start` trace tag (under `:rf.event/fx-overrides` /
+;; `:rf.event/interceptor-overrides`) so the epoch record can pin them for a
+;; strict replay to re-supply. Both bindings (`override-fx` / `override-icpt`
+;; in `run-handler-pipeline!`) sit inside their OWN `(when interop/debug-
+;; enabled? ...)` gate — same idiom as the pre-existing `run-cofx` /
+;; `override-summary` bindings on the same emit call — so the whole
+;; construction DCEs under :advanced + goog.DEBUG=false. The epoch-record
+;; surface itself is dev-tier (Spec-Schemas: "production builds elide
+;; entirely"), so NOTHING from this touch should survive production.
+;;
+;; NO keyword sentinel is needed for `:rf.event/fx-overrides` /
+;; `:rf.event/interceptor-overrides` themselves — those tag KEYWORDS would
+;; legitimately survive via the always-reachable marks chokepoint the same
+;; way `:rf.interceptor/override-summary` does (see the NOTE above), and
+;; their id-keyword VALUES here are the user's own dispatch-opts literals
+;; (`:rf.probe/override-capture-*`), already present in source regardless of
+;; this feature. The ONE genuinely NEW literal this feature introduces is the
+;; `:rf/fn-override` sentinel (`re-frame.router/serializable-fx-overrides`,
+;; marker-izing a fn-valued `:fx-overrides` entry at the emission site) — a
+;; dedicated `rf/fn-override` sentinel in `check-elision.cjs` proves THAT
+;; construction (and therefore the fn-valued branch that feeds it) DCEs.
+(defn ^:export touch-override-capture! []
+  (rf/reg-fx :rf.probe/override-capture-fx (fn [_m _args] nil))
+  (rf/reg-event :rf.probe/override-capture-event
+    (fn [_ _] {:fx [[:rf.probe/override-capture-fx nil]]}))
+  ;; A fn-valued :fx-overrides entry — roots `serializable-fx-overrides`'s
+  ;; `fn?` branch and the `:rf/fn-override` sentinel construction.
+  (rf/dispatch-sync [:rf.probe/override-capture-event]
+                    {:fx-overrides {:rf.probe/override-capture-fx (fn [_ _] nil)}
+                     :interceptor-overrides {:rf.probe/override-capture-icpt nil}}))
+
 ;; ---- rf2-32siq3.40: EP-0023 image-loaded frames — provenance survives, ----
 ;;       image-assembly fns elide when unused
 ;;
@@ -737,6 +772,7 @@
   (touch-teardown!)
   (touch-doc-metadata!)
   (touch-interceptor-override-summary!)
+  (touch-override-capture!)
   (touch-image-frame-provenance!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.

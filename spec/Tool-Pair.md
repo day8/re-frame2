@@ -138,6 +138,22 @@ All seven failures have `:op-type :error` and `:recovery :no-recovery`. Pair too
 
 A pair tool that re-dispatches a recorded event therefore always pairs the recorded `:rf.cofx` with `:rf.cofx/mint-policy :strict`; the strictness is a property of the *replay gesture*, not of any frame preset (replay can target a production `:live` frame and still be strict, because the per-call opt is the most-specific binding point and wins over the frame config).
 
+**Replay re-supplies the recorded envelope overrides too (rf2-yigokd).** `:interceptor-overrides` edits the pre-commit interceptor chain — it is fold-changing, exactly the same class of fact `:rf.cofx` is. A run recorded with an active `:interceptor-overrides` (say, a validator interceptor removed for a test) replays **with the validator reinstated** unless the replay dispatch re-supplies the override too — silently running a *different* effective chain than the original run and potentially committing a different `:db-after`. That violates this section's own rule: **faithful or fail-loud, never silent divergence.** A `:strict` replay therefore supplies THREE things alongside the recorded event, not two:
+
+```clojure
+(rf/dispatch trigger-event
+             (merge {:rf.cofx (:rf.cofx record)
+                     :rf.cofx/mint-policy :strict}
+                    (select-keys record [:fx-overrides :interceptor-overrides])))
+```
+
+`:fx-overrides` / `:interceptor-overrides` on the `:rf/epoch-record` ([Spec-Schemas §`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record)) are spelled BARE — identical to the `:rf/dispatch-opts` key names — precisely so `(select-keys record [:fx-overrides :interceptor-overrides])` splats straight into the dispatch opts with no key translation, and are ABSENT (not an empty map) when the original run carried no per-call/lexical override, so an override-free replay's opts map is unchanged by the merge. Two re-supply rules:
+
+- A recorded `:interceptor-overrides` re-presents verbatim — it is EDN by construction (EP-0022 retired value-valued replacements), so there is nothing to translate.
+- A recorded `:fx-overrides` entry carrying the opaque sentinel `:rf/fn-override` (a CLJS-reference fn-valued override the router could not record — fns are never EDN) makes the run **UNREPLAYABLE under `:strict`**: the replaying tool MUST fail loud on that entry, the same shape as `:rf.error/missing-required-cofx` (an incomplete record, not a silent partial replay), rather than dispatching without the fn-valued override the original run had active.
+
+**Scope is pinned to the envelope, not the frame.** The captured `:fx-overrides` / `:interceptor-overrides` are the recorded run's OWN per-call (+ lexical, for `:fx-overrides`) keys only — never the per-frame `reg-frame` tier. A replay target's per-frame overrides (if any) are a property of the LIVE frame config at replay time, not a recorded fact; they apply exactly as they would to any ordinary dispatch against that frame, merging with the re-supplied per-call keys per the normal per-frame ⋈ per-call precedence ([002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides)).
+
 **Production elision.** Per [009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code) and [API §Tracing — `re-frame.interop/debug-enabled?` row](API.md#tracing), the trace surface, schema validation, registrar trace emit, and epoch-history machinery share a single gate — `re-frame.interop/debug-enabled?`. On CLJS the gate is an alias of `goog.DEBUG` and production builds (`:advanced` + `goog.DEBUG=false`) elide every gated branch via Closure DCE; on JVM the same name is a ns-load-time `def` driven by `-Dre-frame.debug=false` / `RE_FRAME_DEBUG=false` (per [009 §JVM builds](009-Instrumentation.md#jvm-builds)). Setting either disables epoch-history capture and the restore surface entirely. CI's `npm run test:elision` job (Spec 009 §Production-elision verification) asserts the CLJS DCE contract holds for every gated surface, including the epoch-history primitives once they land; the JVM gate is covered by `epoch_jvm_prod_gate_test.clj` and `interop_debug_gate_test.clj`.
 
 ### Worked example: walking history and restoring
