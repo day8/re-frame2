@@ -638,11 +638,16 @@
   the frame exists (`make-frame` for `allocate!`, `rf/reg-frame` for
   `allocate-inline!`) and BEFORE the lifecycle / init events, so a
   classified path is already redacted in any trace the run's setup emits.
-  No-op when `v-body` declares no app-db classification. Shared by both
-  `allocate!` (a registered variant's own body) and `allocate-inline!`
-  (rf2-cmjly3 finding 12 — an inline plan's `[:world :sensitive]` /
-  `[:world :large]`, threaded through by the caller since an inline run
-  has no registered variant body for this fn to read).
+  No-op when `classification` declares no app-db classification. Shared by
+  both `allocate!` (the caller threads the ALREADY-COMPILED plan's
+  `[:world :sensitive]` / `[:world :large]` — rf2-lsr95i, see `allocate!`)
+  and `allocate-inline!` (rf2-cmjly3 finding 12 — an inline plan's
+  `[:world :sensitive]` / `[:world :large]`, threaded through the same
+  way since an inline run has no registered variant body). Both callers
+  hand this fn the plan's EFFECTIVE (`:extends`-merged) classification,
+  never the raw un-merged variant body — a registered variant that only
+  `:extends`es a classified parent, declaring none of its own, still
+  inherits + redacts the parent's paths.
 
   EP-0025 fail-loud: the lowered effects are validated through the SAME
   pure validator the router's FINAL-effects commit-plane boundary uses
@@ -667,8 +672,8 @@
   class: every other throw site between `rf/reg-frame` and the
   `allocated?` flip (`loaders/mount!` / `apply-frame-setup!`'s `:init`
   events) already shares it."
-  [subject-id v-body]
-  (let [effects (->classification-effects v-body)]
+  [subject-id classification]
+  (let [effects (->classification-effects classification)]
     (when (seq effects)
       (when-let [defect (elision/classification-effect-defect effects)]
         (rf-error/throw-error!
@@ -711,91 +716,114 @@
   `reg-frame`'s surgical-update path — config is replaced but the
   app-db / sub-cache are preserved. That's the wrong shape for a
   story-runtime which expects a fresh app-db; the caller (`runtime/
-  reset-variant`) destroys first."
-  [variant-id decorator-stack]
-  (when config/enabled?
-    (install-canonical-frame-events!)
-    (let [fx-stack       (decorators/fx-overrides-map (:fx-override decorator-stack))
-          fx-overrides   (register-fx-overrides! fx-stack)
-          ;; Inline the variant-body lookup (`variant-body` is defined
-          ;; lower in this ns) — go through the registrar directly so
-          ;; the events-only classification doesn't depend
-          ;; on the file's declaration order.
-          v-body         (registrar/handler-meta :variant variant-id)
-          ;; EP-0026 §Default Image / §Layered Resolution — the FULL `:images`
-          ;; vector this variant frame is created with:
-          ;;
-          ;;   [<story-images…> <variant-images…> runtime-image]   (later wins)
-          ;;
-          ;; A Story declares its APP image ONCE on the parent story body's
-          ;; `:images`; every variant inherits it and MAY layer its own
-          ;; `:images` (a BEHAVIOUR variant overriding specific `[kind id]`s).
-          ;; The canonical Story RUNTIME IMAGE is composed LAST so the Story
-          ;; machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub
-          ;; redirects, runtime helpers, toolbar cofx) is always live in the
-          ;; frame and never shadowed out by an app image. See
-          ;; `compose-variant-images`.
-          ;;
-          ;; `nil` when NO app image resolves anywhere (none on the variant,
-          ;; none on its story): the absence-is-DEFAULT signal — the frame is
-          ;; created with NO `:images`, so `rf/make-frame` resolves the EP-0026
-          ;; DEFAULT image (the whole-store projection) for the convenient
-          ;; single-app / standalone-testbed case.
-          composed-imgs  (compose-variant-images variant-id (:images v-body))
-          ;; The variant's own behaviour-variant image ids (for frame-meta
-          ;; tooling read-back) — the AUTHORED app images, NOT the
-          ;; library-composed runtime image (a library contract, not an
-          ;; author-declared behaviour set).
-          author-images  (into (vec (story-images variant-id))
-                                (:images v-body))
-          ;; Thread the variant's EP-0015 frame-owned
-          ;; `:sensitive` / `:large` classification onto the reg-frame config,
-          ;; plus the image ids (for frame-meta tooling read-back).
-          config-map     (variant-frame-config
-                           variant-id fx-overrides
-                           (assoc (select-keys v-body [:sensitive :large])
-                                  :image-ids (keep image-id author-images)))
-          events-only?   (loaders/events-only-variant? v-body decorator-stack)]
-      ;; EP-0023 §Stories / §Frame-derived live registration resolution
-      ;; — the frame carries the resolved, sealed image GENERATION so
-      ;; `process-event!`'s `call-with-frame-resolution` routes the whole cascade
-      ;; (event-handler lookup, cofx, fx) for any `{:frame variant-id}` dispatch
-      ;; through THIS frame's image generation. The runtime image keeps the Story
-      ;; machinery live in that generation; an app image scopes the frame to its
-      ;; own registrations so two variants reuse the SAME global id with
-      ;; DIFFERENT meanings ("behavior variant -> image", EP-0023 §Stories). When
-      ;; NO app image resolves, the frame resolves the EP-0026 DEFAULT image (the
-      ;; whole-store projection) — absence-is-default. The framework's `rf/image`
-      ;; / assembly own all validation — a malformed image or a zero-match
-      ;; `:select-ns :include` glob FAILS LOUDLY here at frame creation.
-      ;;
-      ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
-      ;; BOTH the image-selection opts AND the full record-config in one
-      ;; call over the one registry. `:images` is supplied only when an app
-      ;; image resolves (absent ⇒ the default image generation).
-      (rf/make-frame (cond-> {:id variant-id}
-                       (seq composed-imgs) (assoc :images composed-imgs)
-                       :always             (merge config-map)))
-      ;; EP-0025: apply the variant's durable app-db `:sensitive` / `:large`
-      ;; classification as commit-plane classification effects into the frame's
-      ;; elision registry NOW — after the container exists, BEFORE the
-      ;; lifecycle / init / frame-setup events run, so a classified path is
-      ;; already redacted in any trace the variant's setup emits. (The frame
-      ;; annotation that previously rode `reg-frame` is removed.)
-      (apply-variant-classification! variant-id v-body)
-      ;; Drive the lifecycle by variant shape. Events-only
-      ;; variants jump straight to :ready (no skeleton ever shows);
-      ;; everything else takes the classical four-phase route through
-      ;; :mounting → :loading → :ready.
-      (if events-only?
-        (loaders/mount-ready! variant-id)
-        (loaders/mount!       variant-id))
-      ;; Apply :frame-setup decorators (their :init events + :app-db-patch).
-      ;; By construction the events-only path has no :frame-setup
-      ;; decorators (that's part of the events-only? predicate), so this
-      ;; is a no-op on the fast-path branch.
-      (apply-frame-setup! variant-id (:frame-setup decorator-stack))
-      variant-id)))
+  reset-variant`) destroys first.
+
+  `classification` (optional, 3-arity; rf2-lsr95i) is the variant's
+  EFFECTIVE `:sensitive`/`:large` app-db classification — a map with
+  `:sensitive`/`:large` keys, already `:extends`-merged root→child. The
+  runtime (`run-phase-0!`) threads its ALREADY-COMPILED plan's `[:world
+  :sensitive]` / `[:world :large]` here (`plan/variant-plan` folds
+  `:sensitive`/`:large` through the `:extends` chain via `context-keys`
+  — the SAME merge `allocate-inline!` already receives for an inline
+  plan run, rf2-cmjly3 finding 12). Omitted (2-arity — direct/test
+  callers with no compiled plan on hand) falls back to the raw variant
+  body's OWN `:sensitive`/`:large`, i.e. no `:extends` inheritance; that
+  is only correct for a variant with no `:extends` parent, which is what
+  every such caller in this codebase exercises. Before this fn threaded
+  a classification arg, `allocate!` ALWAYS read the raw un-merged body —
+  so a variant that only `:extends`ed a classified parent, declaring no
+  classification itself, silently dropped the parent's redaction."
+  ([variant-id decorator-stack] (allocate! variant-id decorator-stack nil))
+  ([variant-id decorator-stack classification]
+   (when config/enabled?
+     (install-canonical-frame-events!)
+     (let [fx-stack       (decorators/fx-overrides-map (:fx-override decorator-stack))
+           fx-overrides   (register-fx-overrides! fx-stack)
+           ;; Inline the variant-body lookup (`variant-body` is defined
+           ;; lower in this ns) — go through the registrar directly so
+           ;; the events-only classification doesn't depend
+           ;; on the file's declaration order.
+           v-body         (registrar/handler-meta :variant variant-id)
+           ;; EP-0026 §Default Image / §Layered Resolution — the FULL `:images`
+           ;; vector this variant frame is created with:
+           ;;
+           ;;   [<story-images…> <variant-images…> runtime-image]   (later wins)
+           ;;
+           ;; A Story declares its APP image ONCE on the parent story body's
+           ;; `:images`; every variant inherits it and MAY layer its own
+           ;; `:images` (a BEHAVIOUR variant overriding specific `[kind id]`s).
+           ;; The canonical Story RUNTIME IMAGE is composed LAST so the Story
+           ;; machinery (lifecycle machine, `:rf.assert/*` handlers, fx-stub
+           ;; redirects, runtime helpers, toolbar cofx) is always live in the
+           ;; frame and never shadowed out by an app image. See
+           ;; `compose-variant-images`.
+           ;;
+           ;; `nil` when NO app image resolves anywhere (none on the variant,
+           ;; none on its story): the absence-is-DEFAULT signal — the frame is
+           ;; created with NO `:images`, so `rf/make-frame` resolves the EP-0026
+           ;; DEFAULT image (the whole-store projection) for the convenient
+           ;; single-app / standalone-testbed case.
+           composed-imgs  (compose-variant-images variant-id (:images v-body))
+           ;; The variant's own behaviour-variant image ids (for frame-meta
+           ;; tooling read-back) — the AUTHORED app images, NOT the
+           ;; library-composed runtime image (a library contract, not an
+           ;; author-declared behaviour set).
+           author-images  (into (vec (story-images variant-id))
+                                 (:images v-body))
+           ;; Thread the variant's EP-0015 frame-owned
+           ;; `:sensitive` / `:large` classification onto the reg-frame config,
+           ;; plus the image ids (for frame-meta tooling read-back).
+           config-map     (variant-frame-config
+                            variant-id fx-overrides
+                            (assoc (select-keys v-body [:sensitive :large])
+                                   :image-ids (keep image-id author-images)))
+           events-only?   (loaders/events-only-variant? v-body decorator-stack)]
+       ;; EP-0023 §Stories / §Frame-derived live registration resolution
+       ;; — the frame carries the resolved, sealed image GENERATION so
+       ;; `process-event!`'s `call-with-frame-resolution` routes the whole cascade
+       ;; (event-handler lookup, cofx, fx) for any `{:frame variant-id}` dispatch
+       ;; through THIS frame's image generation. The runtime image keeps the Story
+       ;; machinery live in that generation; an app image scopes the frame to its
+       ;; own registrations so two variants reuse the SAME global id with
+       ;; DIFFERENT meanings ("behavior variant -> image", EP-0023 §Stories). When
+       ;; NO app image resolves, the frame resolves the EP-0026 DEFAULT image (the
+       ;; whole-store projection) — absence-is-default. The framework's `rf/image`
+       ;; / assembly own all validation — a malformed image or a zero-match
+       ;; `:select-ns :include` glob FAILS LOUDLY here at frame creation.
+       ;;
+       ;; EP-0024 — ONE `make-frame` call. The unified constructor accepts
+       ;; BOTH the image-selection opts AND the full record-config in one
+       ;; call over the one registry. `:images` is supplied only when an app
+       ;; image resolves (absent ⇒ the default image generation).
+       (rf/make-frame (cond-> {:id variant-id}
+                        (seq composed-imgs) (assoc :images composed-imgs)
+                        :always             (merge config-map)))
+       ;; EP-0025: apply the variant's durable app-db `:sensitive` / `:large`
+       ;; classification as commit-plane classification effects into the frame's
+       ;; elision registry NOW — after the container exists, BEFORE the
+       ;; lifecycle / init / frame-setup events run, so a classified path is
+       ;; already redacted in any trace the variant's setup emits. (The frame
+       ;; annotation that previously rode `reg-frame` is removed.)
+       ;;
+       ;; rf2-lsr95i: prefer the caller-supplied EFFECTIVE (`:extends`-merged)
+       ;; classification; fall back to the raw body's own `:sensitive`/`:large`
+       ;; only when no `classification` was threaded (the 2-arity direct/test
+       ;; callers below `run-phase-0!`, none of which exercise `:extends`).
+       (apply-variant-classification!
+         variant-id (or classification (select-keys v-body [:sensitive :large])))
+       ;; Drive the lifecycle by variant shape. Events-only
+       ;; variants jump straight to :ready (no skeleton ever shows);
+       ;; everything else takes the classical four-phase route through
+       ;; :mounting → :loading → :ready.
+       (if events-only?
+         (loaders/mount-ready! variant-id)
+         (loaders/mount!       variant-id))
+       ;; Apply :frame-setup decorators (their :init events + :app-db-patch).
+       ;; By construction the events-only path has no :frame-setup
+       ;; decorators (that's part of the events-only? predicate), so this
+       ;; is a no-op on the fast-path branch.
+       (apply-frame-setup! variant-id (:frame-setup decorator-stack))
+       variant-id))))
 
 ;; ---- inline-plan allocation ----------------------------------------------
 ;;

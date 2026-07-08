@@ -875,10 +875,20 @@
   projected tape to just THIS run's records, not the whole frame's
   accumulated history — otherwise a second `run-variant` on the same id
   would project evidence (`:schema-violations` / `:warnings` / `:effects`
-  / `:narrative`) polluted with the FIRST run's stale records."
-  [{:keys [variant-id decorator-stack] :as ctx}]
+  / `:narrative`) polluted with the FIRST run's stale records.
+
+  rf2-lsr95i: thread the ALREADY-COMPILED plan's `[:world :sensitive]` /
+  `[:world :large]` — root→child `:extends`-merged by `plan/variant-plan`
+  (`context-keys`) — into `frames/allocate!`'s `classification` arg,
+  mirroring `run-inline-phase-0!`'s `allocate-inline!` call below. Before
+  this, `allocate!` read a variant's OWN raw (un-merged) body for its
+  classification, so a variant that only `:extends`ed a `:sensitive`/
+  `:large` parent — declaring none itself — silently dropped the
+  parent's redaction at wire egress."
+  [{:keys [variant-id decorator-stack plan] :as ctx}]
   (ensure-fresh-frame! variant-id)
-  (frames/allocate! variant-id decorator-stack)
+  (frames/allocate! variant-id decorator-stack
+                     (select-keys (:world plan) [:sensitive :large]))
   (swap! play/pending-exceptions assoc variant-id [])
   (play/install-trace-listener! variant-id)
   (assoc ctx :epoch-baseline (runner-events/last-epoch-id variant-id)))
