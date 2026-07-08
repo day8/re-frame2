@@ -715,8 +715,16 @@
         (.then
           (fn [subscribe-resp]
             (if-not (:ok? subscribe-resp)
+              ;; The runtime `subscribe!` refused (`:ok? false`, e.g.
+              ;; `:unknown-topic`, or a future resource-cap / frame-
+              ;; resolution reason). This IS a failure — we release the
+              ;; reserved stream slot — so it MUST ride `wire/err-text`
+              ;; (isError:true) per the universal `:ok? false` contract,
+              ;; not `ok-text`. Shipping it as a success would decouple the
+              ;; isError flag from the `:ok? false` payload the code just
+              ;; branched on as a fault.
               (do (resource/release-stream!)
-                  (wire/ok-text subscribe-resp))
+                  (wire/err-text subscribe-resp))
               (let [sub-id (:sub-id subscribe-resp)]
                 (js/Promise.
                   (fn [resolve _reject]
