@@ -427,9 +427,19 @@
     (testing "machine — runtime-db / on-transition (+scheduled for :after) / machine-instance"
       (is (= :runtime-db        (:storage mach)))
       (is (= :machine-instance  (:lifecycle mach)))
-      (is (contains? (:evaluation mach) :on-transition) "always evaluates :on-transition")
-      (is (contains? (:evaluation mach) :scheduled)
-          "an :after timer adds :scheduled to the policy set")
+      ;; EXACT set-equality (rf2-b366vj), matching the resource sibling at
+      ;; line 417. :upload/main has an :after timer and NO spawn, so it
+      ;; classifies to EXACTLY #{:on-transition :scheduled}
+      ;; (machines/tooling.cljc:198-200: cond-> #{:on-transition},
+      ;; declares-after?->conj :scheduled, declares-spawn?->conj :on-reply).
+      ;; The prior loose `contains?` pair asserted only presence, so a
+      ;; declares-spawn? false-positive (or any bug adding a spurious
+      ;; :on-reply / :manual to a non-spawning machine) stayed GREEN — the
+      ;; closed-vocabulary arm (b-every-classification-…) also passes because
+      ;; :on-reply is a member of the policy set. Exact-set-equality catches
+      ;; the over-classification.
+      (is (= #{:on-transition :scheduled} (:evaluation mach))
+          "a non-spawning machine with an :after timer classifies to EXACTLY on-transition + scheduled — no spurious member")
       (is (true? (:materialized? mach))))))
 
 (deftest b-every-classification-is-in-its-closed-vocabulary
