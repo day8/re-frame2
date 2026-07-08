@@ -682,10 +682,15 @@
                 ;; `{:sensitive? true}` slot leaks the failing value verbatim
                 ;; while the equivalent vector form redacts (the bead's
                 ;; asymmetry). A bare keyword is provably flag-free, so it is
-                ;; NOT opaque here (`walker/schema-opaque?`).
+                ;; NOT opaque here (`walker/schema-opaque?`). Per rf2-hi0tf8
+                ;; — `schema-opaque?` only classifies the ROOT form; a
+                ;; vector-form schema with a NESTED opaque child (e.g. a
+                ;; `:cat`/`:map` element that is itself a compiled `m/schema`
+                ;; value) is just as unintrospectable, so the whole-payload
+                ;; check uses the recursive `schema-has-opaque-child?`.
                 sensitive?  (and walk-schema?
                                  (or (walker/schema-has-sensitive? schema)
-                                     (walker/schema-opaque? schema)))
+                                     (walker/schema-has-opaque-child? schema)))
                 ;; Per rf2-vmhu4i — when the schema declares any `:large?`
                 ;; slot AND the failure is not sensitive (sensitive wins),
                 ;; elide the value-bearing slots to the `:rf.size/large-elided`
@@ -914,14 +919,25 @@
                        ;; sensitive. (`reg-app-schema` also warns once via
                        ;; `:rf.warning/schema-walker-opaque` at registration;
                        ;; this is the redaction half of the same fail-closed
-                       ;; posture.)
-                       opaque?          (walker/schema-opaque? schema)
-                       leaf-sensitive?  (or opaque?
-                                            (if in-path
-                                              (walker/schema-sensitive-at? schema in-path)
-                                              (walker/schema-has-sensitive? schema)))
-                       whole-sensitive? (or opaque?
-                                            (walker/schema-has-sensitive? schema))
+                       ;; posture.) Per rf2-hi0tf8 — a schema whose ROOT is
+                       ;; walkable vector-form EDN can still embed a NESTED
+                       ;; opaque child (e.g. `[:map [:token (m/schema
+                       ;; [:string {:sensitive? true}])]]`); `schema-opaque?`
+                       ;; alone only sees the root, so both decisions now
+                       ;; route through `schema-sensitive-at?`, which fails
+                       ;; closed on a nested opaque node exactly where it
+                       ;; sits — the failing LEAF's own opacity (or an
+                       ;; opaque ancestor/descendant along its path) for
+                       ;; `leaf-sensitive?`, and the WHOLE schema's opacity
+                       ;; anywhere for `whole-sensitive?` (`nil` path — the
+                       ;; same whole-schema scope `schema-has-sensitive?`
+                       ;; already used). Scoping `leaf-sensitive?` to the
+                       ;; failing path (rather than "opaque anywhere in the
+                       ;; schema") preserves the rf2-oh4se / rf2-3qam7b
+                       ;; leaf-precision contract — an opaque SIBLING must
+                       ;; not taint an unrelated non-opaque leaf's `:value`.
+                       leaf-sensitive?  (walker/schema-sensitive-at? schema in-path)
+                       whole-sensitive? (walker/schema-sensitive-at? schema nil)
                        ;; Per rf2-vmhu4i — a `:large?` (non-sensitive) schema
                        ;; elides the value-bearing slots to the size marker
                        ;; (sensitive wins; opaque is fail-closed sensitive,
@@ -1249,7 +1265,10 @@
   non-vector, non-keyword `m/schema` object the walker cannot introspect):
   it redacts as if sensitive, because Malli may have honoured a
   `{:sensitive? true}` slot the walker cannot see — without this an opaque
-  schema's failure leaks verbatim while the vector form redacts.
+  schema's failure leaks verbatim while the vector form redacts. Per
+  rf2-hi0tf8 the same fail-closed posture applies when the opaque value is
+  NESTED inside an otherwise-walkable vector-form schema (`schema-opaque?`
+  alone only sees the root) — `schema-has-opaque-child?` catches both.
 
   Per rf2-vmhu4i a `:large?`-flagged (and non-sensitive) schema elides the
   value-bearing slots to the `:rf.size/large-elided` marker (sensitive wins;
@@ -1261,7 +1280,7 @@
   tags map a path-based pre-scrub already touched) is safe."
   [schema tags]
   (let [sensitive? (or (walker/schema-has-sensitive? schema)
-                       (walker/schema-opaque? schema))
+                       (walker/schema-has-opaque-child? schema))
         large?     (and (not sensitive?)
                         (walker/schema-has-large? schema))]
     (cond-> tags

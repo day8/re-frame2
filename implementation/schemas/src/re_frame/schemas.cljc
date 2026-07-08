@@ -181,6 +181,14 @@
 ;; walker cannot introspect (its failure redacts as sensitive).
 (def schema-has-large?                walker/schema-has-large?)
 (def schema-opaque?                   walker/schema-opaque?)
+;; rf2-hi0tf8 — the RECURSIVE sibling of `schema-opaque?`: true when the
+;; schema itself is opaque OR embeds a nested opaque child at any depth
+;; (a compiled `m/schema` value used as, say, a `:map` slot's tail inside
+;; an otherwise-walkable vector-form schema). `schema-opaque?` alone only
+;; classifies the root, which under-redacts a nested opaque child; every
+;; fail-closed redaction / registration-warning gate consults this one
+;; instead.
+(def schema-has-opaque-child?         walker/schema-has-opaque-child?)
 ;; rf2-ss06u.1 — `walker/sanitize-sensitive-path` (the `:path`-tag sanitiser
 ;; that scrubs value-bearing `:set`-element segments so a sensitive `:set`
 ;; element never ships verbatim in the structural `:path` tag) is an INTERNAL

@@ -109,6 +109,19 @@
                           reason))
             "no positive recommendation to USE the registration-meta fallback")))))
 
+(deftest warning-fires-when-vector-form-schema-nests-an-opaque-child
+  (testing "rf2-hi0tf8 — a VECTOR-FORM schema (introspectable at its root)
+            that embeds a compiled m/schema value as a NESTED child (a
+            :map slot's tail) also emits the warning; the root-only
+            `schema-opaque?` check used to miss this and stay silent"
+    (let [recorded (record-traces! ::nested-opaque-child)]
+      (rf/reg-app-schema [:token]
+                         {:schema [:map [:secret {} {:malli/schema :compiled}]]})
+      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
+        (is (= 1 (count warns))
+            "a nested opaque child triggers the warning exactly once")
+        (is (= [:token] (-> warns first :tags :path)))))))
+
 ;; ---- negative paths (no warning) ------------------------------------------
 
 (deftest warning-suppressed-when-schema-is-vector-form

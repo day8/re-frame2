@@ -551,22 +551,30 @@
   (reset! walker-opaque-warned false))
 
 (defn- walker-introspectable?
-  "True when the schema value is a form the pure-data walker can
-  introspect for per-slot `:sensitive?` / `:large?` flags. Vector-form
-  Malli EDN is introspectable; so is a bare keyword (primitive type or
-  registry ref) — a keyword cannot carry per-slot props, so the walker
-  provably skips nothing and there is nothing to warn about (rf2-ee38b.6).
-  Compiled `m/schema` objects, maps, and other opaque values are NOT
-  introspectable — their internal per-slot flags are silently skipped."
+  "True when the schema value is a form the pure-data walker can fully
+  introspect for per-slot `:sensitive?` / `:large?` flags — the root is
+  vector-form Malli EDN or a bare keyword (primitive type or registry
+  ref — a keyword cannot carry per-slot props, so the walker provably
+  skips nothing and there is nothing to warn about, rf2-ee38b.6) AND no
+  NESTED child anywhere beneath it is itself opaque.
+
+  Per rf2-hi0tf8: a schema whose ROOT is walkable vector-form EDN can
+  still embed an opaque child at a deeper slot (e.g. `[:map [:token
+  (m/schema [:string {:sensitive? true}])]]`) — a root-only check would
+  call that schema introspectable even though the nested compiled
+  value's per-slot flags are exactly as invisible to the walk as a
+  top-level opaque schema's. `schema-has-opaque-child?` recurses the
+  whole tree so this predicate is accurate at any depth."
   [schema]
-  (or (vector? schema) (keyword? schema)))
+  (not (walker/schema-has-opaque-child? schema)))
 
 (defn- maybe-warn-walker-opaque!
   "Emit `:rf.warning/schema-walker-opaque` once per process when
-  `reg-app-schema` / `reg-app-schemas` is invoked with a genuinely
-  opaque schema value the walker cannot introspect (a compiled
-  `m/schema` object / other non-vector, non-keyword value). Vector
-  forms and bare keywords do not warn — see `walker-introspectable?`.
+  `reg-app-schema` / `reg-app-schemas` is invoked with a schema that is
+  opaque — at its ROOT or at any NESTED child — to the pure-data walker
+  (a compiled `m/schema` object / other non-vector, non-keyword value,
+  anywhere in the tree). Vector forms with no opaque descendant and bare
+  keywords do not warn — see `walker-introspectable?`.
 
   Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
@@ -582,20 +590,24 @@
                                :compiled-schema-object
                                :unknown)
                 :reason
-                (str "reg-app-schema was called with a compiled / opaque"
-                     " schema value (a non-vector, non-keyword form such"
-                     " as a compiled m/schema object). The schema-walker"
-                     " (used for per-slot `:sensitive?` / `:large?`"
-                     " extraction) can only introspect vector-form Malli"
-                     " EDN — per-slot flags inside an opaque value are"
-                     " silently skipped. The workable shape: register the"
-                     " vector form directly so the walker can introspect"
-                     " the per-slot flags. (The handler/cofx/sub"
-                     " registration-meta `:sensitive?` fallback has been"
-                     " removed — sensitivity is path-targeted and the"
-                     " redactor consults only per-slot schema"
-                     " declarations.) Per Spec 010 §The `:schema` value"
-                     " is opaque to re-frame.")})))))
+                (str "reg-app-schema was called with a schema that is"
+                     " opaque — either the registered value ITSELF is a"
+                     " compiled / opaque form (a non-vector, non-keyword"
+                     " value such as a compiled m/schema object), or a"
+                     " vector-form schema embeds one as a NESTED child."
+                     " The schema-walker (used for per-slot"
+                     " `:sensitive?` / `:large?` extraction) can only"
+                     " introspect vector-form Malli EDN — per-slot flags"
+                     " inside an opaque value, at any depth, are"
+                     " silently skipped. The workable shape: register"
+                     " the vector form directly, all the way down, so"
+                     " the walker can introspect every per-slot flag."
+                     " (The handler/cofx/sub registration-meta"
+                     " `:sensitive?` fallback has been removed —"
+                     " sensitivity is path-targeted and the redactor"
+                     " consults only per-slot schema declarations.) Per"
+                     " Spec 010 §The `:schema` value is opaque to"
+                     " re-frame.")})))))
 
 (defn- maybe-warn-validator-unavailable!
   "Emit `:rf.warning/schema-validator-unavailable` once per process when
@@ -692,10 +704,14 @@
             ;; return false and `:mismatching-value` would egress the live value
             ;; verbatim — the asymmetry the validate-*! redactor already closes
             ;; (`re-frame.schemas.validate` uses the same
-            ;; `(or schema-has-sensitive? schema-opaque?)` posture). A bare
-            ;; keyword is provably flag-free and is NOT opaque (`schema-opaque?`).
+            ;; `(or schema-has-sensitive? schema-has-opaque-child?)` posture). A
+            ;; bare keyword is provably flag-free and is NOT opaque
+            ;; (`schema-opaque?`). Per rf2-hi0tf8 the opaque check is the
+            ;; RECURSIVE `schema-has-opaque-child?`, not the root-only
+            ;; `schema-opaque?` — a vector-form `new-schema` can embed a nested
+            ;; opaque child the root-only check would miss.
             (let [sensitive? (or (walker/schema-has-sensitive? new-schema)
-                                 (walker/schema-opaque? new-schema))]
+                                 (walker/schema-has-opaque-child? new-schema))]
               (emit! :warning :rf.schema/violation
                      {:path               path
                       :pre-reload-schema  prior-schema

@@ -1656,6 +1656,167 @@
       (is (not (str/includes? (pr-str out) secret))
           "the secret survives nowhere through the opaque seam"))))
 
+;; ---- rf2-hi0tf8 — NESTED opaque schema fail-closed redaction --------------
+;;
+;; rf2-u9bjgr closed the TOP-LEVEL opaque case (a compiled `m/schema` value
+;; registered directly). It left one gap: a VECTOR-FORM schema — introspectable
+;; at its root — that embeds a compiled `m/schema` value as a CHILD somewhere
+;; inside it. `walk-flagged-schema` recurses into vector-form structure but its
+;; terminal `:else acc` bailout SILENTLY SKIPS a nested opaque child (no
+;; declaration, no warning) exactly like it would the root, but the
+;; `(or schema-has-sensitive? schema-opaque?)` fail-closed composition at every
+;; call site only consulted `schema-opaque?` on the ROOT, which is false for a
+;; vector-form schema regardless of what opaque values it nests. A nested
+;; `{:sensitive? true}` slot Malli honours therefore rode every value-bearing
+;; trace tag VERBATIM. The fix: `schema-has-opaque-child?` recurses the whole
+;; tree (and `align-in-path` / `schema-sensitive-at?` also check the schema a
+;; fully-resolved path ARRIVES at, since a leaf-precise app-db path can resolve
+;; cleanly right onto a nested opaque slot).
+
+(deftest schema-has-opaque-child-predicate
+  (testing "rf2-hi0tf8 — schema-has-opaque-child? is true for a schema that IS
+            opaque (mirrors schema-opaque?) AND for a vector-form schema that
+            NESTS an opaque child at any depth; false when no opaque value is
+            reachable anywhere in the tree"
+    (is (true? (schemas/schema-has-opaque-child?
+                 (m/schema [:map [:password {:sensitive? true} :string]])))
+        "a root-opaque compiled schema is caught (subsumes schema-opaque?)")
+    (is (true? (schemas/schema-has-opaque-child?
+                 [:map [:token (m/schema [:string {:sensitive? true}])]]))
+        "a :map slot whose tail is a compiled m/schema value is caught")
+    (is (true? (schemas/schema-has-opaque-child?
+                 [:cat [:= :auth/login]
+                  (m/schema [:map [:password {:sensitive? true} :string]])]))
+        "a :cat element that is a compiled m/schema value is caught")
+    (is (true? (schemas/schema-has-opaque-child?
+                 [:vector (m/schema [:string {:sensitive? true}])]))
+        "a homogeneous :vector element schema that is opaque is caught")
+    (is (true? (schemas/schema-has-opaque-child?
+                 [:multi {:dispatch :kind}
+                  [:a (m/schema [:map [:secret {:sensitive? true} :string]])]]))
+        "an :multi dispatch branch that is a compiled m/schema value is caught")
+    (is (false? (schemas/schema-has-opaque-child?
+                  [:map [:id :int] [:name :string]
+                   [:auth [:map [:token {:sensitive? true} :string]]]]))
+        "an all-vector-form schema (however deep, however sensitive) has no
+         opaque descendant")
+    (is (false? (schemas/schema-has-opaque-child? :int))
+        "a bare keyword has no opaque descendant")
+    ;; rf2-hi0tf8 confirm-by-corpus: [:map [:n pos-int?]] is the EXACT shape
+    ;; of the machine/data-schema-rollback conformance fixture's [:schemas
+    ;; :data] schema. A bare predicate fn NESTED as a :map slot's tail cannot
+    ;; carry a {props} map (there is no syntax for props on an unwrapped fn
+    ;; — that requires [:fn {...} pred], itself vector-form); any
+    ;; :sensitive?/:large? on the :n slot would live on the SLOT's entry
+    ;; ([:n {:sensitive? true} pos-int?]), which walk-flagged-schema already
+    ;; sees before touching the tail. A NESTED bare fn is therefore provably
+    ;; flag-free — the SAME reasoning the walker's keyword exception
+    ;; (rf2-ee38b.6) already applies — and must NOT be treated as opaque, or
+    ;; every ordinary pos-int?/string?-style leaf in the codebase's own
+    ;; conformance corpus would over-redact.
+    (is (false? (schemas/schema-has-opaque-child? [:map [:n pos-int?]]))
+        "a nested bare predicate fn (pos-int? / string? / …) is provably
+         flag-free, same as a bare keyword — not opaque")
+    ;; rf2-hi0tf8 — the ACTUAL runtime shape the conformance fixture hits:
+    ;; the EDN loader (`clojure.edn/read-string`, no reader-resolver) reads
+    ;; `pos-int?` as a bare SYMBOL, not a live fn value; Malli resolves the
+    ;; symbol to the named fn/var at validate-time (confirmed: `(m/validate
+    ;; [:map [:n 'pos-int?]] {:n 0})` => false, `{:n 5}` => true). A NESTED
+    ;; bare symbol is exactly as provably flag-free as a nested bare fn.
+    (is (false? (schemas/schema-has-opaque-child? [:map [:n 'pos-int?]]))
+        "a nested bare SYMBOL (the EDN-sourced shape Malli resolves) is
+         provably flag-free — not opaque")
+    ;; rf2-hi0tf8 — the ROOT case does NOT get the nested exclusion: a bare
+    ;; fn/symbol used AS THE WHOLE registered :schema (no wrapper at all,
+    ;; e.g. re-frame.flows' {:schema (fn [v] ...)}) has no sibling {props}
+    ;; position anywhere in ITS registration shape — unlike the nested-tail
+    ;; case there is no entry one level up that could carry the flag — so
+    ;; schema-opaque?'s existing fail-closed root treatment is preserved
+    ;; here (flows_schema_validation_test/non-conforming-output-emits-
+    ;; violation-but-still-writes pins exactly this via redact-validation-
+    ;; tags, the seam this predicate feeds)."
+    (is (true? (schemas/schema-has-opaque-child? pos-int?))
+        "a bare fn used AS the whole schema still fails closed, matching
+         schema-opaque? — the root/nested split is deliberate, not an
+         oversight")
+    (is (true? (schemas/schema-has-opaque-child? 'pos-int?))
+        "a bare symbol used AS the whole schema likewise fails closed")))
+
+(deftest event-validation-nested-opaque-schema-fails-closed
+  (testing "rf2-hi0tf8 — a VECTOR-FORM event schema (root introspectable) whose
+            :cat element is a NESTED compiled m/schema value with a
+            :sensitive? slot inside still redacts the failing payload
+            fail-closed. Pre-fix: schema-has-sensitive? silently skipped the
+            opaque :cat element (no declaration recorded) and schema-opaque?
+            on the ROOT [:cat ...] form was false, so sensitive? computed
+            false and the secret rode verbatim — the equivalent fully-opaque
+            schema (event-validation-opaque-schema-fails-closed above) already
+            redacted."
+    (let [secret        "NESTED-OPAQUE-EVENT-SECRET-hi0tf8"
+          nested-opaque (m/schema [:map [:password {:sensitive? true} :string]])
+          schema        [:cat [:= :auth/login] nested-opaque]
+          traces        (atom [])]
+      (rf/register-listener! :trace ::nested-opq-evt (fn [ev] (swap! traces conj ev)))
+      ;; :password is a VECTOR where a :string is required -> fails the schema.
+      (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
+                               {:schema schema})
+      (rf/unregister-listener! :trace ::nested-opq-evt)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "a validation-failure trace fired")
+        (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+        (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+        (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+        (is (not (str/includes? (pr-str v) secret))
+            "the secret survives nowhere in the nested-opaque event failure trace")))))
+
+(deftest app-db-validation-nested-opaque-schema-fails-closed
+  (testing "rf2-hi0tf8 — a VECTOR-FORM app-db schema (root introspectable)
+            whose failing slot's OWN tail is a nested compiled m/schema value
+            declaring :sensitive? redacts fail-closed, even though the
+            failing :in path resolves CLEANLY (align-in-path's :ok outcome)
+            straight onto that opaque leaf. Pre-fix: schema-sensitive-at?'s
+            :ok branch only consulted extract-sensitive-paths-from-schema
+            (which cannot see into the opaque leaf, so it found no
+            declaration) and never checked whether the arrival schema itself
+            was opaque — the narrowed :value leaked the secret verbatim."
+    (let [secret "NESTED-OPAQUE-APPDB-SECRET-hi0tf8"]
+      (rf/reg-app-schema [:token]
+                         {:schema [:map [:token (m/schema [:string {:sensitive? true}])]]})
+      (let [traces (atom [])]
+        (rf/register-listener! :trace ::nested-opq-db (fn [ev] (swap! traces conj ev)))
+        ;; :token's value is a VECTOR where the nested compiled schema
+        ;; requires a :string -> fails exactly at the opaque leaf ([:token]).
+        (schemas/validate-app-schema! {:token {:token [secret]}} :token/bad)
+        (rf/unregister-listener! :trace ::nested-opq-db)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a validation-failure trace fired")
+          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted at the leaf")
+          (is (not (str/includes? (pr-str v) secret))
+              "the secret survives nowhere in the nested-opaque app-db failure trace"))))))
+
+(deftest redact-validation-tags-nested-opaque-schema-fails-closed
+  (testing "rf2-hi0tf8 — the off-namespace redact-validation-tags seam
+            (machine-data / sub-override / flow-output / boundary) fails
+            closed for a VECTOR-FORM schema that nests a compiled / opaque
+            m/schema child"
+    (let [secret   "NESTED-OPAQUE-SEAM-SECRET-hi0tf8"
+          schema   [:map [:secret (m/schema [:string {:sensitive? true}])]]
+          tags     {:where    :machine-data
+                    :value    {:secret secret}
+                    :received {:secret secret}
+                    :explain  {:value {:secret secret}}}
+          out      (schemas/redact-validation-tags schema tags)]
+      (is (true? (:sensitive? out)) "fail-closed: :sensitive? stamped")
+      (is (= :rf/redacted (:value out)) ":value redacted")
+      (is (= :rf/redacted (:received out)) ":received redacted")
+      (is (= :rf/redacted (:explain out)) ":explain redacted")
+      (is (not (str/includes? (pr-str out) secret))
+          "the secret survives nowhere through the nested-opaque seam"))))
+
 ;; ---- rf2-vmhu4i — :large? value-bearing slot elision ----------------------
 ;;
 ;; The validation-failure redaction path consulted only schema-has-sensitive?;
