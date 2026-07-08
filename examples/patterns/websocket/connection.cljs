@@ -290,8 +290,25 @@
                             :source-socket-id (socket-id data)}]]}]]})
 
       :clear-request
+      ;; A request's deadline fired — a `:ws/request-timeout` that passed
+      ;; `:current-socket?`, so the socket is still live but the reply never
+      ;; came. FAIL the request, don't just forget it: clear the in-flight
+      ;; slot AND fire the waiting `:reply-event` with an explicit timeout
+      ;; body, so a request that times out on a live socket learns its
+      ;; outcome instead of hanging forever. This is `:on-socket-lost`'s
+      ;; per-request twin — same `{:ok false :error …}` failure shape, but
+      ;; scoped to the single request whose timer elapsed rather than the
+      ;; whole in-flight set. (A request registered without a `:reply` has a
+      ;; nil `:reply-event`, so the dispatch is guarded — same as
+      ;; `:receive-message`.)
       (fn action-clear-request [{data :data [_ {:keys [request-id]}] :event}]
-        {:data (update data :in-flight dissoc request-id)})
+        (let [{:keys [reply-event]} (get-in data [:in-flight request-id])]
+          {:data (update data :in-flight dissoc request-id)
+           :fx   (cond-> []
+                   reply-event (conj [:dispatch (conj reply-event
+                                                      {:request-id request-id
+                                                       :ok         false
+                                                       :error      :ws/timeout})]))}))
 
       :receive-message
       ;; A message arrived and the `:current-socket?` guard has already
