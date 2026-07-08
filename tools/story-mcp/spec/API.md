@@ -172,9 +172,13 @@ pagination metadata when active (see "Pagination" above).
 **Output.** `{:canonical [...] :custom [...] :all [...]}`. The
 `:canonical` set is the bounded 12-entry canonical-tag vector (the
 seven spec/007 inclusion tags plus the five rf2-k1k87 `:state/*`
-magnitude tags) and is always returned in full. `:custom` (project-registered tags)
-and `:all` (the union) are paginated together per the contract
-above when the custom-tag count exceeds `:limit`.
+magnitude tags) and is always returned in full. `:all` is the FULL tag
+catalogue — canonical ∪ ALL custom — and is likewise always returned in
+full (rf2-3jqwlh); a field named `:all` that omitted un-fetched custom
+tags under pagination was a semantic trap. Only `:custom`
+(project-registered tags) paginates per the contract above when the
+custom-tag count exceeds `:limit` — the `:has-more?` / `:next-cursor`
+cursor drives that one slot.
 
 ### `list-modes`
 

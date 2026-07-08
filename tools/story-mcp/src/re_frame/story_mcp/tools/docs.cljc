@@ -131,23 +131,32 @@
   `:canonical` is always the full canonical set (the seven
   spec/007 inclusion tags + the five `:state/*` magnitude
   tags = 12 entries total; bounded and not a function of registry
-  size, so pagination does not apply). `:custom` (project-registered
-  tags) and `:all` (their union) are paginated when the count exceeds
-  `:limit`. Small registries see no pagination metadata."
+  size, so pagination does not apply). `:all` is the FULL tag catalogue
+  — canonical ∪ ALL custom — and is likewise returned in full
+  (rf2-3jqwlh): a field named `:all` that omitted un-fetched custom tags
+  under pagination was a semantic trap (an agent reading `:all` from page
+  one believed it held the whole catalogue). Only `:custom`
+  (project-registered tags) paginates when the count exceeds `:limit`;
+  the `:has-more?` / `:next-cursor` cursor drives that one slot. Small
+  registries see no pagination metadata."
   [args]
   (let [registered (story/list-tags)
         canonical  (vec (sort-by str (into story/canonical-tags
                                            story/canonical-state-tags)))
         custom-set (set/difference (set registered) (set canonical))
-        custom     (vec (sort-by str custom-set))]
+        custom     (vec (sort-by str custom-set))
+        ;; :all is the FULL catalogue (canonical ∪ ALL custom), computed once
+        ;; from the whole custom-set — NOT the page slice (rf2-3jqwlh). Only
+        ;; :custom is page-sliced below; :canonical and :all are always
+        ;; complete, so a paginated read never mistakes a partial :all for the
+        ;; full tag set. (canonical and custom-set are disjoint by
+        ;; construction, so the union carries no duplicates.)
+        all        (vec (sort-by str (into canonical custom-set)))]
     (cursor/paged-result custom custom-set args "list-tags"
                          (fn [page]
-                           ;; :all is the union of :canonical + the (page-sliced)
-                           ;; :custom. When no pagination kicks in (small registry)
-                           ;; the result is the bare `{:canonical :custom :all}` shape.
                            {:canonical canonical
                             :custom    page
-                            :all       (vec (sort-by str (into canonical page)))}))))
+                            :all       all}))))
 
 (defn tool-list-modes
   "Docs: registered modes (from `reg-mode`). Returns each mode's id +
@@ -569,12 +578,12 @@
 
    {:name           "list-tags"
     :category       :docs
-    :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five rf2-k1k87 `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated per rf2-76sf6 — `:canonical` stays full (bounded 12); `:custom` and `:all` slice per `:limit` / `:cursor`. "
+    :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five rf2-k1k87 `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated per rf2-76sf6 — but ONLY the `:custom` slot slices per `:limit` / `:cursor`; `:canonical` stays full (bounded 12) and `:all` (canonical ∪ ALL custom) is the FULL catalogue on every page, never a partial page (rf2-3jqwlh). "
                          "Examples: "
                          "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :state/empty :state/large :state/medium :state/small :state/special :test] :custom [] :all [:agent :dev :docs ...]}. "
                          "2. Project with custom tags: {} -> {:canonical [...] :custom [:mobile :rtl] :all [:agent :dev :docs ... :mobile :rtl]}. "
                          "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue. "
-                         "4. Large custom set — paginated: {:limit 25} -> {:canonical [...12...] :custom [...25...] :all [...37...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"}.")
+                         "4. Large custom set — only :custom paginates: {:limit 25} -> {:canonical [...12...] :custom [...25 of 50...] :all [...62...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"} — :all carries all 12 canonical + all 50 custom, while :custom is the 25-entry page.")
     :typicalTokens  100
     :inputSchema    {:type "object"
                      :properties (s/with-max-tokens (s/with-pagination {}))

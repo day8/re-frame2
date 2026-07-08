@@ -1031,6 +1031,36 @@
       (is (= 5 (count (:custom s))) ":custom honours :limit")
       (is (true? (:has-more? s))))))
 
+(deftest list-tags-all-is-full-catalogue-under-pagination
+  ;; rf2-3jqwlh: `:all` is the FULL tag catalogue (canonical ∪ ALL custom),
+  ;; NOT canonical + the current page of custom. Before the fix a limit-5
+  ;; read returned an `:all` of 17 entries (12 canonical + 5 page) — silently
+  ;; omitting 45 custom tags behind a field literally named `:all`, with the
+  ;; only incompleteness signal on the `:custom` cursor. The agent that read
+  ;; `:all` from page one believed it had the whole catalogue.
+  (testing "a paginated list-tags returns the COMPLETE :all set (canonical ∪ all custom), not just the page"
+    (doseq [n (range 50)]
+      (story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
+    (let [r        (invoke "list-tags" {:limit 5})
+          s        (:structuredContent r)
+          all-set  (set (:all s))]
+      (is (success? r))
+      (is (= 5 (count (:custom s))) "precondition: :custom is a 5-entry page (pagination active)")
+      (is (true? (:has-more? s))    "precondition: more custom tags remain unfetched")
+      (is (= 62 (count (:all s)))
+          ":all is the FULL catalogue — 12 canonical + all 50 custom — regardless of the :custom page size")
+      (is (= (count all-set) (count (:all s))) ":all carries no duplicates")
+      ;; Every canonical tag AND every custom tag — including ones NOT on the
+      ;; current :custom page — must be present in :all.
+      (is (every? all-set (:canonical s)) ":all contains the whole canonical set")
+      (is (every? #(contains? all-set (keyword (str "tag/pager" %))) (range 50))
+          ":all contains every custom tag, including the 45 not on the current :custom page")
+      (let [unfetched (set/difference (set (map #(keyword (str "tag/pager" %)) (range 50)))
+                                      (set (:custom s)))]
+        (is (seq unfetched) "sanity: some custom tags are off the current page")
+        (is (every? all-set unfetched)
+            "the OFF-PAGE custom tags still appear in :all — the field named :all really is all")))))
+
 (deftest list-assertions-canonical-doc-stays-full
   (testing "the canonical assertion-doc vector is bounded (8) so it never paginates"
     (let [r (invoke "list-assertions" {:limit 3})
