@@ -287,13 +287,17 @@
 (def corpus
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
-  Coverage matrix:
+  Coverage matrix. Every advertised tool (see
+  `test/fixtures/tool-names.json` — 30 today) appears below: either with a
+  fixture in THIS inline corpus, or in the `Not exercised here` note that
+  follows — so a tool cannot silently drop out of the map by omission:
 
     | Tool                   | Happy | Missing-arg | Degraded-runtime |
     |------------------------|-------|-------------|-------------------|
     | discover-app           | yes   | n/a         | yes (+port-unresolved) |
     | eval-cljs              | yes   | yes         | (covered by ↑ )   |
     | dispatch               | yes   | yes         | yes               |
+    | dispatch-dry-run       | yes   | yes         | n/a (+gate/elision variants) |
     | restore-epoch          | yes   | yes         | gated-default     |
     | replace-app-db         | yes   | yes         | gated-default     |
     | trace-window           | yes   | n/a         | n/a               |
@@ -306,6 +310,7 @@
     | unsubscribe            | n/a   | yes         | n/a               |
     | list-subscriptions     | yes   | n/a         | n/a               |
     | list-streams           | yes   | n/a         | n/a               |
+    | get-stream-controls    | yes   | n/a         | n/a (no nREPL round-trip) |
     | handler-meta           | yes   | yes         | (short-circuit)   |
     | list-handlers          | yes   | yes         | (short-circuit)   |
     | set-operating-frame    | yes   | yes         | no-such-frame     |
@@ -313,6 +318,12 @@
     | get-operating-frame    | yes   | n/a         | ambiguous (nil)   |
     | get-re-frame2-pair-instructions | yes   | n/a         | n/a               |
     | (pipeline)             | cache-hit (precheck) ; unknown-tool error  |
+
+  Not exercised here (the 7 advertised tools with NO fixture in this
+  corpus; coverage lives in the named dedicated per-tool test namespaces):
+  `describe-image` (describe_image_test), `orient` (orient_test),
+  `read-sub` (read_sub_test), `read-ui` (read_ui_test), `record` +
+  `read-recording` (record_test), `watch-until` (watch_until_test).
 
   Streaming `subscribe` happy paths are covered exhaustively in
   `subscribe_test`; here we pin only the missing-arg shape because the
