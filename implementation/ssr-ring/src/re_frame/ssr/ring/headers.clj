@@ -110,6 +110,29 @@
           (remove (fn [[k _v]] (= target (str/lower-case (str k)))))
           headers-map)))
 
+(defn strip-content-length
+  "Remove any `Content-Length` header (case-insensitively) from a Ring
+  response header map. A re-frame2 SSR body is ALWAYS assembled by the
+  adapter AFTER the `:initial-events` drain — the non-streaming shell +
+  hydration payload, or the streaming chunk-producing `PipedInputStream` —
+  so app / server-init code CANNOT know the final byte count when it runs.
+  App / server init MAY nonetheless `:rf.server/set-header` (or
+  `append-header`) a `Content-Length` during the drain. Left in place, a
+  Ring server that honours that stale fixed length truncates the HTML (too
+  short) or blocks the client waiting for bytes (too long).
+
+  Stripping lets the Ring server own transfer framing — computing
+  `Content-Length` for the materialised String / empty body, or chunking the
+  streaming `InputStream` body (Spec 011 §Streaming SSR — chunked-transfer
+  framing).
+
+  rf2-d95m4i — single-sourced here and applied by BOTH materialiser paths:
+  the streaming head (rf2-h3dg0) AND the non-streaming
+  `pipeline/ssr-response->ring-response`, closing the asymmetry where only
+  the streaming path stripped a stale app-set length."
+  [headers-map]
+  (strip-header headers-map "content-length"))
+
 (defn headers->ring-map+content-type-override
   "Collapse an ordered vec-of-[name value] pairs into Ring's
   `{name string-or-vec}` shape, then apply the handler's `:content-type`

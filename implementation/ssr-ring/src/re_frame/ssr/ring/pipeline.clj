@@ -104,7 +104,15 @@
   valid Ring response regardless of what slipped past that gate: `:status`
   is coerced to an int (`fail-closed-status` — non-int fails closed to
   500), the Location target is coerced to a string, and header values are
-  coerced to strings in the fold (`headers/merge-pair-into-header-map`)."
+  coerced to strings in the fold (`headers/merge-pair-into-header-map`).
+
+  Content-Length is stripped from EVERY response (rf2-d95m4i): the body is
+  always adapter-assembled AFTER the drain (a String/empty body here, or the
+  streaming InputStream that swaps in downstream), so an app-set
+  `Content-Length` can never match it. The streaming path hardened against
+  this (rf2-h3dg0); doing it in the shared materialiser closes the same
+  hazard on the non-streaming (and redirect) paths and lets the Ring server
+  own transfer framing (`headers/strip-content-length`)."
   ([resp body] (ssr-response->ring-response resp body nil))
   ([{:keys [status headers cookies redirect]} body default-content-type]
    (if redirect
@@ -140,12 +148,20 @@
                      ;; boundary) is coerced so the Ring header map is valid.
                      (cond-> target (assoc "Location" (if (string? target)
                                                         target
-                                                        (str target)))))
+                                                        (str target))))
+                     ;; rf2-d95m4i — a bodiless redirect never matches a
+                     ;; stale app-set Content-Length either; strip it.
+                     (headers/strip-content-length))
         :body    ""})
      {:status  (fail-closed-status status 200)
       :headers (-> (headers/headers->ring-map+content-type-override
                      headers default-content-type)
-                   (headers/append-set-cookies cookies))
+                   (headers/append-set-cookies cookies)
+                   ;; rf2-d95m4i — strip any app-set Content-Length: the body
+                   ;; is the adapter-assembled shell + hydration payload built
+                   ;; AFTER the drain, so a drain-time fixed length will not
+                   ;; match it; let the Ring server frame the String body.
+                   (headers/strip-content-length))
       :body    (or body "")})))
 
 (defn setup-request-frame!
