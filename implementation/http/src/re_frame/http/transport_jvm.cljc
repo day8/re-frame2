@@ -130,9 +130,35 @@
      header (surfaced as a `:rf.warning/http-header-invalid` trace rather
      than sinking the whole request — rf2-9lun0). `sensitive?` is carried
      only so that warning's `:url` can be routed through the privacy
-     composer (rf2-1jcpm)."
+     composer (rf2-1jcpm).
+
+     rf2-4y04lq — a RELATIVE `url` (e.g. `\"/api/items\"`) is rejected here
+     with a clear `ex-info` before the JDK ever sees it. The browser Fetch
+     transport resolves a relative url against the page's document base;
+     the JVM has no such base. Left unchecked, `HttpRequest/newBuilder`
+     throws its own `IllegalArgumentException: URI with undefined scheme`
+     — a correct but unhelpful message that names neither the offending
+     url nor the fix. This throw is uncaught HERE by design: the caller
+     (`jvm-fetch`, called from `run-attempt!`'s try/catch) classifies any
+     escaping `Throwable` via `classify-jvm-error`, which routes an
+     `ex-info` like this one to the existing `:rf.http/transport`
+     catch-all — no new failure category, no new `:rf.error/*` id. Per
+     Spec 014 §JVM transport — absolute URLs required."
      [{:keys [method url headers body timeout-ms sensitive? frame]}]
-     (let [b (HttpRequest/newBuilder (URI/create url))
+     (let [uri (URI/create url)
+           _   (when-not (.isAbsolute uri)
+                 (throw (ex-info
+                          (str "JVM HTTP transport requires an absolute URL "
+                               "(scheme + host); got relative URL " (pr-str url)
+                               ". The CLJS Fetch transport resolves a relative "
+                               "URL against the browser's document base — the "
+                               "JVM has no such base to resolve against. Supply "
+                               "an absolute URL, or add a `:before` HTTP "
+                               "interceptor (Spec 014 §Middleware) that "
+                               "rewrites `:request :url` to an absolute form "
+                               "before dispatch.")
+                          {:url url})))
+           b (HttpRequest/newBuilder uri)
            publisher (cond
                        (nil? body) (HttpRequest$BodyPublishers/noBody)
                        (string? body) (HttpRequest$BodyPublishers/ofString ^String body)
