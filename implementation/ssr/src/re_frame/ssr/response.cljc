@@ -185,10 +185,11 @@
     s))
 
 (defn- validate-cookie-name!
-  "Throw `:rf.error/cookie-invalid-name` if the cookie name violates the
-  RFC 6265 §4.1.1 token grammar. Same shape as the rf2-rpedl validator
-  in `ssr-ring/cookie.clj` — applied here at the fx boundary so non-ring
-  host adapters get the same gate. Per rf2-z7gor."
+  "Throw `:rf.error/cookie-invalid-name` if the cookie name is nil, is not a
+  string / keyword / symbol, or violates the RFC 6265 §4.1.1 token grammar.
+  Same shape as the rf2-rpedl validator in `ssr-ring/cookie.clj` — applied
+  here at the fx boundary so non-ring host adapters get the same gate. Per
+  rf2-z7gor + rf2-9t17id (the TYPE guard)."
   [n]
   (when (nil? n)
     (error/throw-error!
@@ -196,6 +197,31 @@
       'rf.ssr/response
       "cookie :name is required; supply a non-nil :name on the cookie map."
       {:recovery :supply-a-cookie-name
+       :extra    {:name n}}))
+  ;; rf2-9t17id — type-guard BEFORE `(name n)`. A cookie `:name` is only a
+  ;; string or a Named (keyword / symbol); anything else (a Long `42`, a
+  ;; vector `[]`, a map `{}`, a boolean `true`, …) makes `name` throw a raw
+  ;; host exception (`ClassCastException` on the JVM) with nil ex-data,
+  ;; bypassing the documented `:rf.error/cookie-invalid-name` contract and
+  ;; reaching adapter / `:on-error` code as a generic host exception. The
+  ;; args-schema boundary catches this only when a validator is live and the
+  ;; schema pins the type — when schemas are absent or soft-pass (Spec 010),
+  ;; the fx boundary is the last line of defence, so reject the unsupported
+  ;; TYPE loudly through the same structured error id. Mirrors the Ring
+  ;; materialiser's guard (rf2-d95o1y in `re-frame.ssr.ring.cookie`); the JVM
+  ;; branch matches Ring's `clojure.lang.Named` check exactly (the fx runs
+  ;; server-only, `:platforms #{:server}`).
+  (when-not (or (string? n)
+                #?(:clj  (instance? clojure.lang.Named n)
+                   :cljs (or (keyword? n) (symbol? n))))
+    (error/throw-error!
+      :rf.error/cookie-invalid-name
+      'rf.ssr/response
+      (str "cookie :name must be a string or a keyword/symbol; got "
+           (pr-str n)
+           #?(:clj (str " (a " (.getName (class n)) ")") :cljs "")
+           ". Use a string or keyword token-grammar cookie name.")
+      {:recovery :use-a-token-grammar-cookie-name
        :extra    {:name n}}))
   (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
     (when-not (http-validation/valid-token-name? s)

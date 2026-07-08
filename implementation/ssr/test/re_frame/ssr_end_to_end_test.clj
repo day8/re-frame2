@@ -35,6 +35,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.ssr :as ssr]
+            [re-frame.ssr.response :as response]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.trace :as trace]))
 
@@ -2117,6 +2118,46 @@
           (expect-fx-error-keyword!
             traces :rf.error/cookie-invalid-max-age
             (str "hostile :max-age " (pr-str hostile))))))))
+
+(deftest ssr-set-cookie-rejects-non-string-name-type
+  (testing "rf2-9t17id — a cookie :name that is neither a string nor a Named
+            (keyword / symbol) is rejected at the fx boundary with the
+            documented :rf.error/cookie-invalid-name, NOT a raw host
+            ClassCastException. Exercised on the DIRECT fx-handler path — the
+            schema-soft-pass path the fx boundary must self-defend: with the
+            :rf.server/cookie args schema absent or soft-passing (Spec 010),
+            `(name n)` on a non-Named value would otherwise throw a bare host
+            exception with nil ex-data, bypassing the structured-error
+            contract and reaching adapter / :on-error code."
+    (let [f (frame/make-anon-frame-record! {:platform :server})]
+      (doseq [bad-name [42 3.14 [:not :a :name] {:cookie :map} true]]
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #":rf\.error/cookie-invalid-name"
+              (response/set-cookie-fx {:frame f} {:name bad-name :value "x"}))
+            (str "set-cookie-fx with a non-string/non-Named :name "
+                 (pr-str bad-name)
+                 " must throw :rf.error/cookie-invalid-name, not a raw host"
+                 " exception"))
+        (is (empty? (:cookies (response/response-of f)))
+            (str "the rejected cookie (" (pr-str bad-name)
+                 ") never lands on the accumulator")))
+      ;; delete-cookie is sugar over the same validator — same TYPE guard.
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/cookie-invalid-name"
+            (response/delete-cookie-fx {:frame f} {:name 99 :path "/"}))
+          "delete-cookie-fx runs the same cookie-name type guard")))
+
+  (testing "rf2-9t17id regression guard — string / keyword / symbol :name
+            still pass the type guard and reach the token-grammar check
+            (a keyword :name coerces via `name`)."
+    (let [f (frame/make-anon-frame-record! {:platform :server})]
+      (response/set-cookie-fx {:frame f} {:name "session" :value "a"})
+      (response/set-cookie-fx {:frame f} {:name :csrf     :value "b"})
+      (response/set-cookie-fx {:frame f} {:name 'tracker  :value "c"})
+      (is (= 3 (count (:cookies (response/response-of f))))
+          "string, keyword, and symbol cookie names all pass the type guard"))))
 
 (deftest ssr-set-cookie-clean-attributes-still-accepted
   (testing "rf2-kjf3m.1 regression guard: legitimate cookie attributes still
