@@ -36,7 +36,7 @@ timing, stay on Playwright.
 > body*, synchronously unmounts the previous panel's separately-tracked root.
 > The guard fires because React (the global render depth) is rendering
 > somewhere — the same condition React 18+ keys off, and the cross-root case
-> the old per-mount `:currently-rendering?` flag could not see. The companion
+> a per-mount render flag could not see. The companion
 > `deferred-unmount-after-render-is-safe-rf2-4l7t2-fix` proves the guard
 > discriminates in-render from after-render (the microtask-defer fix), so it is
 > not a blunt always-throw. The "**yes**" above now means "the bug condition is
