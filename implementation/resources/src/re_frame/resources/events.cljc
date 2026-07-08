@@ -2583,29 +2583,45 @@
   Verifies frame + work-id + generation; on match SPLITS the settlement by
   page identity (rf2-byl7bk.3.1, Spec 016 §Status semantics / §Infinite):
 
+    - a FIRST-LOAD (page 0) ABORT with NO accumulated pages (rf2-s54uzc) is
+      checked BEFORE the generic abort branch below: there is no usable data,
+      so it settles like the scalar first-load abort (`entry-abort-settled`'s
+      `:idle` branch) — `:status :idle`, no error, `:current-work nil` — NEVER
+      `:loaded`. Settling `:loaded` on an empty feed (the pre-fix behaviour)
+      lied about freshness and let a later `:rf.resource/ensure` fresh-skip a
+      feed that never actually loaded page 0. Drains blocking as `:success`
+      and marks the work row terminal `:cancelled` (an abort is not an
+      error), and ARMS the stale/GC timers — mirroring rf2-kz5op1's
+      `entry-abort-settled` fix in `failed-handler` — so an owner-free `:idle`
+      entry from a cancelled first load is reaped;
+
     - a FIRST-LOAD (page 0) failure with NO accumulated pages is NOT a
       load-more failure — it is a first load with no usable data. It settles
       the FIRST-load `:error` channel (`entry-failed` → `:status :error`,
       `:error` envelope, `:data nil`) and drains a blocking route as
       `:failure`, so a blocking infinite route flips to route `:error` exactly
       like a blocking SCALAR resource (`drain-blocking`'s `:status :error`
-      branch fires automatically — no route.cljc change). Spec 016 reserves
-      `:error` / `:status :error` for first-load (page 0) failure;
+      branch fires automatically — no route.cljc change), and ARMS the
+      stale/GC timers (rf2-s54uzc, mirroring rf2-ar9pcx's scalar `:error`
+      arming) so an owner-free errored empty feed is reaped. Spec 016
+      reserves `:error` / `:status :error` for first-load (page 0) failure;
 
-    - a LOAD-MORE (page N>0) failure — OR a page-0 failure when the feed
-      ALREADY has accumulated pages (an R6 window-preserving refetch that
-      fails its replacement page 0 is NOT a first load — there is a feed to
-      keep) — is the THIRD error channel: the feed returns to `:loaded`, KEEPS
-      ALL accumulated pages, and records `:page-error` (`entry-page-failed`),
-      so a view shows \"couldn't load more — retry\" without losing the feed.
-      The blocking slot drains as `:success` (the route blocks on page 0 only,
-      which already landed). Spec 016 reserves `:page-error` for load-more
-      (page N>0) failure only.
+    - a LOAD-MORE (page N>0) abort/failure — OR a page-0 abort/failure when
+      the feed ALREADY has accumulated pages (an R6 window-preserving refetch
+      that fails/aborts its replacement page 0 is NOT a first load — there is
+      a feed to keep) — settles to `:loaded` (data kept, no timer re-arming:
+      the timers were already armed on the feed's prior success). A FAILURE
+      here is the THIRD error channel: KEEPS ALL accumulated pages and records
+      `:page-error` (`entry-page-failed`), so a view shows \"couldn't load
+      more — retry\" without losing the feed. The blocking slot drains as
+      `:success` (the route blocks on page 0 only, which already landed).
+      Spec 016 reserves `:page-error` for load-more (page N>0) failure only.
 
   A stale / superseded / cross-frame reply is SUPPRESSED. An ABORT
   (`:rf.http/aborted`) is a cancellation, not a page error: the feed settles
   to `:loaded` (data kept) with NO `:page-error` written, and the work row
-  settles `:cancelled`.
+  settles `:cancelled` — UNLESS it is a first-load abort (see above), which
+  settles `:idle` (no data to keep).
 
   Event shape: `[_ <verification-payload> <http-result>]` — the transport
   appends the canonical `{:status :error :error <:rf.http/* envelope> …}` as the last arg."
@@ -2643,9 +2659,59 @@
                                        :outcome (if aborted? :aborted :page-failure)
                                        :completed-at completed-at})})
 
-      ;; ABORT — an intentional cancellation of the page fetch. The feed keeps
-      ;; its pages and returns to :loaded WITHOUT a :page-error (a cancellation
-      ;; is not a load-more failure). The work row settles terminal :cancelled.
+      ;; FIRST-LOAD ABORT (rf2-s54uzc) — a page-0 fetch with NO accumulated
+      ;; pages was aborted: there is no usable data, so this is a first load
+      ;; with no data, NOT the generic infinite-abort settle below. BEFORE
+      ;; this fix the generic abort branch unconditionally settled `:loaded`
+      ;; — including an EMPTY feed, which lied about freshness and let a
+      ;; later `:rf.resource/ensure` fresh-skip a feed that never actually
+      ;; loaded page 0. Settle instead like the scalar first-load abort
+      ;; (`entry-abort-settled`'s `:idle` branch): `:status :idle`, no error,
+      ;; `:current-work nil`. Drain blocking as `:success` (an aborted first
+      ;; load un-blocks the route rather than surfacing a spurious error,
+      ;; symmetric with the scalar path) and mark the work row terminal
+      ;; `:cancelled`. Arms the stale/GC timers — mirroring rf2-kz5op1's
+      ;; `entry-abort-settled` fix in `failed-handler` — so an owner-free
+      ;; `:idle` entry from a cancelled first load is reaped (GC timers are
+      ;; otherwise armed only on a successful settle or a first-load `:error`
+      ;; settle).
+      (and aborted? first-load?)
+      (let [entry' (-> (assoc entry :status :idle :current-work nil)
+                       state/clear-refetch-sweep
+                       state/bump-revision)
+            spec   (registry/resource-meta (:resource/id entry'))
+            rdb'   (-> runtime-db
+                       (assoc-in (state/entry-path resource-key) entry')
+                       (work-ledger/update-record
+                         work-id work-ledger/mark-terminal
+                         :cancelled {:reason :aborted :completed-at completed-at})
+                       (route/drain-blocking resource-key entry' :success))
+            stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
+            gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))]
+        (work-ledger/clear-handle! frame-id work-id)
+        (trace/emit! :rf.event :rf.resource/work-abort-requested
+                     {:rf.frame/id frame-id :resource/key resource-key
+                      :work/id work-id :generation generation
+                      :status-before (:status entry) :status-after (:status entry')})
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  nil
+                        :server?        (state/server-frame? frame-id)}]])))
+
+      ;; ABORT (non-first-load) — an intentional cancellation of a load-more,
+      ;; or a page-0 REFETCH abort over a feed that already has accumulated
+      ;; pages (R6 window-preserving — there is a feed to keep, so it is not a
+      ;; first load; the `first-load?` branch above handles the empty-feed
+      ;; case). The feed keeps its pages and returns to :loaded WITHOUT a
+      ;; :page-error (a cancellation is not a load-more failure). The work row
+      ;; settles terminal :cancelled. No timer re-arming here — the stale/GC
+      ;; timers were already armed on the feed's prior success (symmetric with
+      ;; the background-refresh-abort guard).
       aborted?
       ;; an abort during a multi-page refetch sweep STOPS the sweep (clear the
       ;; cursor — a cancelled leg does not chain the next; rf2-byl7bk.3.3). The
@@ -2680,12 +2746,22 @@
       ;; `:rf.resource/page-failed`) so the channel and the trace agree.
       first-load?
       (let [entry' (state/entry-failed entry {:error error})
+            spec   (registry/resource-meta (:resource/id entry'))
             rdb'   (-> runtime-db
                        (assoc-in (state/entry-path resource-key) entry')
                        (work-ledger/update-record
                          work-id work-ledger/mark-terminal
                          :failed {:error error :completed-at completed-at})
-                       (route/drain-blocking resource-key entry' :failure))]
+                       (route/drain-blocking resource-key entry' :failure))
+            ;; rf2-s54uzc — mirrors rf2-ar9pcx's scalar first-load `:error`
+            ;; arming (`failed-handler`'s `:else` branch): a first-load
+            ;; infinite-feed failure settles `:error` with `:current-work nil`
+            ;; the same as the scalar path, so it must arm the GC (+ stale)
+            ;; timer the same way — otherwise an owner-free errored empty feed
+            ;; is never reaped (the same unbounded per-frame cache leak this
+            ;; handler's abort twin, above, is also fixed against).
+            stale-delay-ms (state/positive-or-nil (:stale-after-ms spec))
+            gc-delay-ms    (state/positive-or-nil (:gc-after-ms spec))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource/key resource-key
@@ -2695,7 +2771,15 @@
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :error error})
-        {:rf.db/runtime rdb'})
+        (cond-> {:rf.db/runtime rdb'}
+          (or stale-delay-ms gc-delay-ms)
+          (assoc :fx [[:rf.resource/schedule-timers
+                       {:frame-id       frame-id
+                        :resource/key   resource-key
+                        :stale-delay-ms stale-delay-ms
+                        :gc-delay-ms    gc-delay-ms
+                        :poll-delay-ms  nil
+                        :server?        (state/server-frame? frame-id)}]])))
 
       ;; LOAD-MORE PAGE FAILURE — the third error channel: keep the feed,
       ;; record :page-error, return to :loaded. This is a page N>0 failure, OR
