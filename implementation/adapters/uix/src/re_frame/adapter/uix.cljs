@@ -5,9 +5,12 @@
   → core.
 
   Shares the React-shaped substrate machinery (container quartet,
-  derived value, render-root, render-to-string, frame-provider, use-
-  subscribe, flush-views!, source-coord wrapper, warn-once-cache) with
-  the Helix adapter via `re-frame.substrate.spine`. UIx-specific
+  derived value, render-root, render-to-string, use-subscribe, flush-
+  views!, source-coord wrapper, warn-once-cache) with the Helix adapter
+  via `re-frame.substrate.spine`. The frame-provider CORE
+  (`build-frame-provider-element`) is likewise shared, but the user-
+  facing `frame-provider` is a NATIVE UIx `defui` in this ns (rf2-z7hfp
+  moved the seam up), NOT a spine re-export. UIx-specific
   configuration: gensym prefixes, substrate name (used in warn-once
   text), and the runtime hook fns from `uix.hooks.alpha` (the
   `uix.core` macros expand to these)."
