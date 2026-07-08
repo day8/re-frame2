@@ -63,8 +63,11 @@
    And because the runtime CLEARS that slot the instant the actor is torn
    down (leaving `:active` by any door), a stale read is impossible: the
    moment the socket dies, `(socket-id data)` goes `nil` on its own. That is
-   what makes it a safe connection clock — no `:exit` action nulling
-   anything, nothing to remember to clean up."
+   what makes it a safe connection clock — THIS machine needs no `:exit`
+   action to null the id out. (The host socket itself is another matter: a
+   live `WebSocket` is not a value the runtime can drop, so the SPAWNED actor
+   carries an `:exit :close-socket` to close it — see `websocket.messages`.
+   The id auto-clears; the socket the id points at does not.)"
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
             ;; Requiring it is what wires up the machine vocabulary: the
