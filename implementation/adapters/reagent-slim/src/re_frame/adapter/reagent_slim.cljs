@@ -5,8 +5,13 @@
   internals route through the `reagent2.*` rewrite of Reagent (no
   stock-Reagent dep).
 
-      (require '[re-frame.adapter.reagent-slim :as reagent-slim])
-      (rf/init! reagent-slim/adapter)
+  A downstream app requires this adapter at its PUBLISHED namespace
+  `re-frame.adapter.reagent` — the slim jar ships its adapter there (the
+  in-tree `-slim` ns is renamed at publication; IMPL-SPEC §13.1), so the
+  usage example is rename-stable both in-tree and post-publish:
+
+      (require '[re-frame.adapter.reagent :as ra])
+      (rf/init! ra/adapter)
 
   See IMPL-SPEC.md §2.1 (adapter map contract), §9 (late-bind hook table),
   §13.1 (artefact-publication shape) and DESIGN-RATIONALE.md."
@@ -289,10 +294,12 @@
     klass))
 
 (def adapter
-  "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
+  "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install, using
+  the PUBLISHED ns `re-frame.adapter.reagent` (the in-tree `-slim` ns is
+  renamed at publication — IMPL-SPEC §13.1), so this is rename-stable:
 
-      (require '[re-frame.adapter.reagent-slim :as reagent-slim])
-      (rf/init! reagent-slim/adapter)
+      (require '[re-frame.adapter.reagent :as ra])
+      (rf/init! ra/adapter)
 
   Drop-in shape-compatible with `re-frame.adapter.reagent/adapter` per
   IMPL-SPEC §2.1 — the only difference is the substrate, not the keys.
