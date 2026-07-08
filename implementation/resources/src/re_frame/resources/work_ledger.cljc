@@ -227,9 +227,27 @@
                      `:rf.resource/fetching-next?` sub reads it to distinguish a
                      load-more in flight (positive index) from a whole-feed
                      `:fetching?` refresh (page-0). Plain EDN — it rides SSR /
-                     restore with the rest of the row."
+                     restore with the rest of the row.
+  - `:reply-targets`— EP-0016 D1 extension (rf2-p1yri7): the OPTIONAL vector of
+                     data-only call-site `:reply-to` completion continuations an
+                     `:rf.resource/ensure` / `:rf.resource/refetch` supplied. Each
+                     joining ensure appends its target here (`add-reply-target`,
+                     deduped) so ONE accepted terminal reply fans out to every
+                     target exactly once; a stale / superseded reply never
+                     reaches the fan-out. Each target is asserted data-only at the
+                     ensure boundary (`re-frame.reply/durable-target`), so this is
+                     plain EDN that rides SSR / restore / epoch snapshots with the
+                     rest of the row (a dangling restored row can never re-match a
+                     live entry, so a restored reply is suppressed, not delivered).
+                     Omitted entirely when the read carried no continuation — the
+                     row shape is unchanged for every ordinary read / mutation.
+                     This is the READ counterpart of the mutation `:reply-to`,
+                     which rides the transport payload (a mutation never joins);
+                     a read joins in flight, so its targets accumulate on the
+                     DURABLE record instead (Spec 016 §Read completion
+                     continuations)."
   [{:keys [work-id frame-id generation transport
-           owner cause cancellable? started-at deadline-at page-index]
+           owner cause cancellable? started-at deadline-at page-index reply-targets]
     resource-key :resource/key}]
   (cond-> {:work/id      work-id
            :work/kind    work-kind-resource
@@ -248,7 +266,11 @@
     ;; a positive index; a page-0 fetch / refetch = 0). Omitted entirely for
     ;; a non-infinite attempt (page-index nil) — the row shape is unchanged
     ;; for every ordinary resource / mutation.
-    (some? page-index) (assoc :page-index page-index)))
+    (some? page-index) (assoc :page-index page-index)
+    ;; EP-0016 D1 extension (rf2-p1yri7) — the call-site `:reply-to` targets an
+    ;; ensure / refetch supplied. Omitted when empty, so the common no-reply-to
+    ;; read keeps the unchanged row shape.
+    (seq reply-targets) (assoc :reply-targets (vec reply-targets))))
 
 ;; ---- durable reply-target (rf2-6kdcs9) ------------------------------------
 ;;
@@ -305,6 +327,23 @@
   (cond-> record
     owner (update :owners (fnil conj #{}) owner)
     cause (update :causes (fnil conj []) cause)))
+
+(defn add-reply-target
+  "Append a data-only call-site `:reply-to` completion continuation `target`
+  to a work record's `:reply-targets` vector (EP-0016 D1 extension to reads,
+  rf2-p1yri7). A joining ensure adds its target here so the ONE accepted
+  terminal reply fans out to every target exactly once. DEDUPED: a target
+  already present is not re-added (an ensure that re-joins with the same
+  target still fans out to it exactly once). The vector preserves append order
+  for deterministic fan-out. `target` is the data-only-validated
+  (`re-frame.reply/durable-target`) descriptor the ensure boundary produced;
+  a nil target is a no-op. Per Spec 016 §Read completion continuations."
+  [record target]
+  (if (nil? target)
+    record
+    (update record :reply-targets
+            (fn [ts] (let [ts (or ts [])]
+                       (if (some #(= % target) ts) ts (conj ts target)))))))
 
 (defn release-owner-from-record
   "Drop `owner` from a work record's `:owners`. Used by owner release /

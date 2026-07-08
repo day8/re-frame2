@@ -64,6 +64,7 @@
   (:require [clojure.set :as set]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
+            [re-frame.reply :as reply]
             [re-frame.resources.classification :as classification]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.reply :as rreply]
@@ -211,6 +212,79 @@
    page-reserved-ctx-param-key page-param
    page-reserved-ctx-index-key page-index})
 
+;; ---- read completion continuations — call-site :reply-to (EP-0016 D1 → reads,
+;; ---- rf2-p1yri7) ----------------------------------------------------------
+;;
+;; The READ counterpart of the mutation `:reply-to` (Spec 016 §Read completion
+;; continuations). An `:rf.resource/ensure` / `:rf.resource/refetch` MAY carry
+;; an optional call-site `:reply-to` event target; when the runtime ACCEPTS a
+;; terminal reply as current (the live-entry gate matched — frame + work-id +
+;; generation), the target is dispatched with ONE canonical reply map appended
+;; (the shared `re-frame.reply/complete` `:append` delivery), exactly-once, with
+;; stale / superseded replies never delivered. Subscriptions stay passive —
+;; this continuation rides the CAUSAL command (the ensure), not the read lane.
+;;
+;; Where the mutation target rides the TRANSPORT PAYLOAD (a mutation mints a
+;; fresh instance and never joins), a read JOINS in flight — N ensures share one
+;; work record and one transport request — so the targets accumulate on the
+;; DURABLE work record's `:reply-targets` (via `work-ledger/add-reply-target`),
+;; and the ONE accepted terminal reply fans out to each recorded target exactly
+;; once. A fresh-skip cache hit has no work record, so it dispatches immediately
+;; (see the `ensure-load` fresh-skip branch, `:cache-hit? true`).
+
+(defn- read-continuation-reply
+  "Augment the canonical resource reply map with the TOP-LEVEL read facts a
+  `:reply-to` workflow continuation reads directly (Spec 016 §Read completion
+  continuations): the resource id, the canonical params, the resolved scope,
+  the `:resource/key`, and `:cache-hit?`. The canonical reply already carries
+  `:status`, `:value` / `:error`, `:work/id`, `:work/kind :resource`,
+  `:work/status`, `:rf.frame/id`, `:completed-at`, and `:correlation`; this
+  layers on the resource facts a handler needs without reaching into
+  `:correlation`. Mirrors the mutation `continuation-reply`. Pure."
+  [reply {:keys [resource-key cache-hit?]}]
+  (let [[scope resource-id params] resource-key]
+    (assoc reply
+           :resource     resource-id
+           :params       params
+           :scope        scope
+           :resource/key resource-key
+           :cache-hit?   (boolean cache-hit?))))
+
+(defn- read-reply-continuation-fxs
+  "Build the `[:dispatch <completed-event>]` fx vector delivering an ACCEPTED
+  terminal resource reply to each call-site `:reply-to` target recorded on the
+  settling work `record` (EP-0016 D1 extension, rf2-p1yri7). Reads
+  `:reply-targets` off the DURABLE record (populated at ensure/refetch issue +
+  in-flight join), augments the canonical `reply` with the top-level read facts
+  (`:cache-hit? false` — an async settle is never a fresh-skip hit), and appends
+  it to each target via the shared `re-frame.reply/complete` (`:append`
+  delivery). ONE dispatch per target — the work record settles terminal exactly
+  once, so an accepted reply fans out exactly once per target. A stale /
+  superseded reply NEVER reaches here (the nil-entry suppression branch returns
+  before calling this). nil when the record carries no targets (the common
+  case). Pure."
+  [record reply resource-key]
+  (when-let [targets (seq (:reply-targets record))]
+    (let [enriched (read-continuation-reply reply {:resource-key resource-key
+                                                   :cache-hit? false})]
+      (into [] (keep (fn [t] (when-let [ev (reply/complete t enriched)]
+                               [:dispatch ev])))
+            targets))))
+
+(defn- emit-resource-replied!
+  "Emit the `:rf.resource/replied` trace (rf2-p1yri7) for an accepted read reply
+  that DID continue into app workflow — the READ mirror of
+  `:rf.mutation/replied`. Carries the continuation `:targets`, the work id,
+  resource key, and `:status`, plus `:cache-hit?` (true only for the fresh-skip
+  immediate dispatch). Never fires for a stale/suppressed reply (that path
+  delivers nothing) nor when the read carried no `:reply-to`. Returns nil."
+  [frame-id resource-key work-id status targets cache-hit?]
+  (when (seq targets)
+    (trace/emit! :rf.event :rf.resource/replied
+                 {:rf.frame/id frame-id :resource/key resource-key
+                  :work/id work-id :status status
+                  :targets (vec targets) :cache-hit? (boolean cache-hit?)})))
+
 ;; ---- ensure / refetch — the load-causing events ---------------------------
 
 (defn- ensure-load
@@ -247,9 +321,22 @@
   [{rt :rf.db/runtime, frame-id :rf.frame/id
     gen-allocation :rf.resource/generation-allocation
     time-ms :rf/time-ms, app-db :db}
-   {:keys [resource owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
+   {:keys [resource owner cause keep-previous? reply-to] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
+        ;; EP-0016 D1 extension (rf2-p1yri7) — the OPTIONAL call-site
+        ;; `:reply-to` read-completion continuation. It rides the durable work
+        ;; record (a read JOINS in flight, so N ensures share one record; the
+        ;; targets accumulate there and the ONE accepted terminal reply fans out
+        ;; to each exactly once), so it MUST be data-only. Run it through the
+        ;; shared `re-frame.reply/durable-target` HERE, at issuance — BEFORE any
+        ;; runtime-db / work-ledger write or transport lower — so a malformed
+        ;; target (missing / non-vector `:event`) or a host handle smuggled into
+        ;; a public slot FAILS LOUD now rather than silently mis-delivering (or
+        ;; stranding a non-serializable value on the durable row) at completion.
+        ;; A nil target stays nil (no continuation). Mirrors the mutation
+        ;; execute handler's reply-to hardening (rf2-6kdcs9).
+        reply-to'  (when (some? reply-to) (reply/durable-target reply-to))
         ;; EP-0016 D3 slice 3: a `{:from-db …}` payload-scope OR spec-policy
         ;; resolves against the handler's app-db coeffect (`app-db`, the
         ;; causal world input) at use time — fail-closed on nil. Concrete
@@ -396,7 +483,33 @@
             stale-delay-ms (when arm-timers?
                              (state/positive-or-nil (:stale-after-ms spec)))
             gc-delay-ms    (when arm-timers?
-                             (state/positive-or-nil (:gc-after-ms spec)))]
+                             (state/positive-or-nil (:gc-after-ms spec)))
+            ;; EP-0016 D1 extension (rf2-p1yri7) — a fresh-skip cache hit has NO
+            ;; work record (no fetch, no new generation), so a call-site
+            ;; `:reply-to` continuation dispatches IMMEDIATELY: build the
+            ;; canonical `:status :ok` reply for the cached value and append it.
+            ;; The completion `:work/id` is DERIVED from the current scoped key +
+            ;; the entry's generation (the load that produced this cached value —
+            ;; a truthful, uniform identity; Spec 016 §Read completion
+            ;; continuations settles the cache-hit `:work/id` wrinkle
+            ;; explicitly), and `:cache-hit?` is true. The ensure handler runs in
+            ;; a drain, so a same-drain `:dispatch` is ordinary.
+            hit-reply  (when reply-to'
+                         (read-continuation-reply
+                           (rreply/success-reply
+                             {:work/id      (work-ledger/resource-work-id
+                                              scoped-key (:generation entry))
+                              :resource/key scoped-key
+                              :scope        scope
+                              :generation   (:generation entry)
+                              :rf.frame/id  frame-id}
+                             (:data entry)
+                             {:work-kind    rreply/work-kind-resource
+                              :completed-at time-ms})
+                           {:resource-key scoped-key :cache-hit? true}))
+            hit-cont-fx (when hit-reply
+                          (when-let [ev (reply/complete reply-to' hit-reply)]
+                            [:dispatch ev]))]
         (trace/emit! :rf.event :rf.resource/cache-hit
                      {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause})
@@ -407,18 +520,27 @@
                        {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id nil :joined-in-flight? false}))
+        ;; the fresh-skip served a call-site `:reply-to` immediately — record
+        ;; the read-completion continuation (`:cache-hit? true`).
+        (when hit-cont-fx
+          (emit-resource-replied!
+            frame-id scoped-key (:work/id hit-reply) :ok [reply-to'] true))
         ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
-        ;; revived by a new lease, mirroring the success-path arming. Only
-        ;; emitted when the resource declares at least one of poll / stale / GC.
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms poll-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   scoped-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  poll-delay-ms
-                        :server?        (state/server-frame? frame-id)}]])))
+        ;; revived by a new lease, mirroring the success-path arming, and
+        ;; append the immediate cache-hit continuation dispatch. Only emitted
+        ;; when the resource declares a timer or a `:reply-to` continued.
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   scoped-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  poll-delay-ms
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (cond-> (vec timers-fx)
+                          hit-cont-fx (conj hit-cont-fx))]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx))))
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
       ;; do NOT start a new generation. Join the SAME work-ledger record
@@ -436,6 +558,14 @@
                        (assoc-in (state/entry-path scoped-key) joined)
                        (work-ledger/update-record
                          prior-work work-ledger/join-owner+cause owner cause)
+                       ;; EP-0016 D1 extension (rf2-p1yri7) — a joining ensure
+                       ;; appends its call-site `:reply-to` to the SHARED work
+                       ;; record's `:reply-targets` (deduped), so the one
+                       ;; accepted terminal reply fans out to every joined
+                       ;; target exactly once. No-op when the join carried none.
+                       (cond->
+                         reply-to' (work-ledger/update-record
+                                     prior-work work-ledger/add-reply-target reply-to'))
                        (cond->
                          owner (update-in (state/owner-index-path)
                                           update owner (fnil conj #{}) (state/key-id scoped-key))))]
@@ -543,7 +673,13 @@
                           ;; `:fetching?` refresh derives `:fetching-next?`
                           ;; FALSE. A non-infinite resource records no page-index
                           ;; (nil). Per Spec 016 §Subscription contract (R2).
-                          :page-index   (when infinite? page-index)})
+                          :page-index   (when infinite? page-index)
+                          ;; EP-0016 D1 extension (rf2-p1yri7) — seed the
+                          ;; call-site `:reply-to` continuation on the fresh work
+                          ;; record so the accepted terminal reply fans out to
+                          ;; it (a later joining ensure appends more targets).
+                          ;; Omitted when the read carried none.
+                          :reply-targets (when reply-to' [reply-to'])})
             rdb'       (-> runtime-db
                            (assoc-in (state/entry-path scoped-key) entry')
                            (cond->
@@ -2023,7 +2159,14 @@
         reply      (rreply/success-reply payload value
                                          {:work-kind rreply/work-kind-resource
                                           :completed-at completed-at})
-        entry      (live-entry-for-reply runtime-db frame-id payload)]
+        entry      (live-entry-for-reply runtime-db frame-id payload)
+        ;; EP-0016 D1 extension (rf2-p1yri7) — the accepted-reply fan-out to any
+        ;; call-site `:reply-to` recorded on the settling work record (read off
+        ;; the ORIGINAL runtime-db, before the row is marked terminal / pruned).
+        ;; Used ONLY on the live (accepted) branch below; the nil-entry stale
+        ;; branch delivers nothing (mandatory stale suppression).
+        record     (work-ledger/get-record runtime-db work-id)
+        cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
       ;; mutates a newer entry. Per Managed-Effects §Stale suppression the
@@ -2113,6 +2256,12 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
+        ;; EP-0016 D1 extension (rf2-p1yri7) — record the read-completion
+        ;; continuation dispatch (the read mirror of `:rf.mutation/replied`),
+        ;; AFTER `:rf.resource/succeeded` so the trace row follows settlement.
+        ;; No-op when the read carried no `:reply-to`.
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         ;; arm the advisory stale / GC / poll timers (host-side side table) for
         ;; this freshly-loaded entry — the WRITE rides an fx exactly as the
         ;; generation high-water bump + work-handle side-table writes do.
@@ -2121,16 +2270,21 @@
         ;; gate (the re-check handler re-derives freshness from the durable
         ;; :stale-at, so a never-fired server timer is harmless). Only emitted
         ;; when the resource declares at least one policy (stale / GC / poll).
-        ;; Per Spec 016 §Stale and GC scheduling / §Polling.
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms poll-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  poll-delay-ms
-                        :server?        (state/server-frame? frame-id)}]]))))))
+        ;; The accepted-reply `:reply-to` fan-out (`cont-fxs`) is appended LAST
+        ;; so a continuation runs after cache settlement (Spec 016 §Read
+        ;; completion continuations / §Phase order). Per Spec 016 §Stale and GC
+        ;; scheduling / §Polling.
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   resource-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  poll-delay-ms
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (into (vec timers-fx) cont-fxs)]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx)))))))
 
 (defn- entry-abort-settled
   "Settle a LIVE entry whose current attempt was ABORTED (a cancellation, NOT
@@ -2212,7 +2366,14 @@
                                          {:work-kind rreply/work-kind-resource
                                           :completed-at completed-at})
         aborted?   (= :cancelled (:status reply))
-        entry      (live-entry-for-reply runtime-db frame-id payload)]
+        entry      (live-entry-for-reply runtime-db frame-id payload)
+        ;; EP-0016 D1 extension (rf2-p1yri7) — the accepted-reply fan-out to any
+        ;; call-site `:reply-to` recorded on the settling work record. An
+        ;; accepted terminal FAILURE (`:status :error`) OR terminal cancellation
+        ;; (accepted `:status :cancelled`) both continue; only the nil-entry
+        ;; stale branch delivers nothing. Read off the ORIGINAL runtime-db.
+        record     (work-ledger/get-record runtime-db work-id)
+        cont-fxs   (read-reply-continuation-fxs record reply resource-key)]
     (cond
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
       ;; OR abort) never mutates a newer entry. Per Managed-Effects §Stale
@@ -2294,15 +2455,22 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  nil
-                        :server?        (state/server-frame? frame-id)}]])))
+        ;; EP-0016 D1 extension (rf2-p1yri7) — an accepted terminal cancellation
+        ;; continues a call-site `:reply-to` (`:status :cancelled`), Spec 016
+        ;; §Read completion continuations (the cancellation delivery rule).
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   resource-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  nil
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (into (vec timers-fx) cont-fxs)]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx))))
 
       :else
       (let [entry' (state/entry-failed entry {:error error})
@@ -2354,19 +2522,31 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
+        ;; EP-0016 D1 extension (rf2-p1yri7) — an accepted terminal failure
+        ;; continues a call-site `:reply-to` (`:status :error`), so a workflow
+        ;; handler learns the read it caused failed (Spec 016 §Read completion
+        ;; continuations). A background-refresh failure that KEEPS prior data
+        ;; (`:refresh-failed`) is still an accepted terminal reply for this
+        ;; attempt and fans out too.
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         ;; arm the GC (+ stale) timer on a first-load `:error` settle so an
         ;; owner-free errored entry is reaped (cancel-then-arm via the fx; the
         ;; re-check derives freshness/idle/owner-free from the durable facts).
-        ;; Only emitted when the resource declares at least one of GC / stale.
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  nil
-                        :server?        (state/server-frame? frame-id)}]]))))))
+        ;; The accepted-reply `:reply-to` fan-out is appended last. Only emitted
+        ;; when the resource declares a GC / stale policy or a `:reply-to`
+        ;; continued.
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   resource-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  nil
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (into (vec timers-fx) cont-fxs)]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx)))))))
 
 (def ^:private aborted-event-failure
   "The synthetic `:rf.http/aborted` failure envelope the legacy
@@ -2414,10 +2594,15 @@
         ;; `:rf.http/aborted` envelope yields `:status :cancelled`
         ;; (Managed-Effects §Status taxonomy), exactly as the production abort
         ;; arriving via `failed-handler` does.
-        _reply       (rreply/failure-reply payload aborted-event-failure
+        reply        (rreply/failure-reply payload aborted-event-failure
                                            {:work-kind rreply/work-kind-resource
                                             :completed-at completed-at})
-        entry        (live-entry-for-reply runtime-db frame-id payload)]
+        entry        (live-entry-for-reply runtime-db frame-id payload)
+        ;; EP-0016 D1 extension (rf2-p1yri7) — accepted terminal cancellation
+        ;; fans out to any call-site `:reply-to` on the settling work record;
+        ;; a stale / cross-frame aborted event delivers nothing (nil-entry).
+        record       (work-ledger/get-record runtime-db work-id)
+        cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
     (if (nil? entry)
       ;; STALE / CROSS-FRAME SUPPRESSION (mandatory): a superseded / vanished /
       ;; cross-frame aborted event never mutates a newer (or another frame's)
@@ -2449,7 +2634,10 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        {:rf.db/runtime rdb'}))))
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (cond-> {:rf.db/runtime rdb'}
+          (seq cont-fxs) (assoc :fx (vec cont-fxs)))))))
 
 ;; ---- infinite-feed page reply handlers (EP-0021 R1/R2) --------------------
 ;;
@@ -2495,7 +2683,15 @@
         reply        (rreply/success-reply payload page
                                            {:work-kind rreply/work-kind-resource
                                             :completed-at completed-at})
-        entry        (live-entry-for-reply runtime-db frame-id payload)]
+        entry        (live-entry-for-reply runtime-db frame-id payload)
+        ;; EP-0016 D1 extension (rf2-p1yri7) — an `:rf.resource/ensure` /
+        ;; `:rf.resource/refetch` of an INFINITE feed lowers through the page
+        ;; reply, so its call-site `:reply-to` settles here at the page-0
+        ;; completion (a `:rf.resource/load-more` carries no `:reply-to`, so its
+        ;; record has none). Fan out the canonical page reply on acceptance;
+        ;; nil-entry suppression delivers nothing.
+        record       (work-ledger/get-record runtime-db work-id)
+        cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory) — a superseded / vanished / cross-frame
       ;; page reply never appends to a newer feed. Recorded `:status :stale` /
@@ -2564,6 +2760,8 @@
                       :page-index page-index :page-count (state/page-count entry')
                       :next-page-param (:next-page-param entry')
                       :terminal? (state/terminal? (:next-page-param entry'))})
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
         (let [timers-fx (when (or stale-delay-ms gc-delay-ms poll-delay-ms)
                           [:rf.resource/schedule-timers
                            {:frame-id       frame-id
@@ -2574,7 +2772,9 @@
                             :server?        (state/server-frame? frame-id)}])
               fx        (cond-> []
                           timers-fx (conj timers-fx)
-                          sweep-fx  (conj sweep-fx))]
+                          sweep-fx  (conj sweep-fx))
+              ;; append the accepted-reply `:reply-to` fan-out last (rf2-p1yri7)
+              fx        (into fx cont-fxs)]
           (cond-> {:rf.db/runtime rdb'}
             (seq fx) (assoc :fx fx)))))))
 
@@ -2642,7 +2842,13 @@
         ;; load — it keeps `:page-error` + `:loaded` (data to keep).
         first-load?  (and (some? entry)
                           (= 0 page-index)
-                          (zero? (state/page-count entry)))]
+                          (zero? (state/page-count entry)))
+        ;; EP-0016 D1 extension (rf2-p1yri7) — a page-0 ensure/refetch reply-to
+        ;; settles here on failure/abort; a load-more (page N>0) carries no
+        ;; `:reply-to` (its record has none, so the fan-out is a no-op). Read off
+        ;; the ORIGINAL runtime-db; only the live branches fan out.
+        record       (work-ledger/get-record runtime-db work-id)
+        cont-fxs     (read-reply-continuation-fxs record reply resource-key)]
     (cond
       ;; STALE SUPPRESSION (mandatory) — stale wins over the natural status
       ;; (a stale abort settles :suppressed, never an accepted :cancelled).
@@ -2693,15 +2899,19 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  nil
-                        :server?        (state/server-frame? frame-id)}]])))
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   resource-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  nil
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (into (vec timers-fx) cont-fxs)]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx))))
 
       ;; ABORT (non-first-load) — an intentional cancellation of a load-more,
       ;; or a page-0 REFETCH abort over a feed that already has accumulated
@@ -2733,7 +2943,10 @@
                      {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
-        {:rf.db/runtime rdb'})
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (cond-> {:rf.db/runtime rdb'}
+          (seq cont-fxs) (assoc :fx (vec cont-fxs))))
 
       ;; FIRST-LOAD FAILURE (rf2-byl7bk.3.1) — a page-0 fetch with no
       ;; accumulated pages failed: there is no feed to keep, so this is a first
@@ -2771,15 +2984,19 @@
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :error error})
-        (cond-> {:rf.db/runtime rdb'}
-          (or stale-delay-ms gc-delay-ms)
-          (assoc :fx [[:rf.resource/schedule-timers
-                       {:frame-id       frame-id
-                        :resource/key   resource-key
-                        :stale-delay-ms stale-delay-ms
-                        :gc-delay-ms    gc-delay-ms
-                        :poll-delay-ms  nil
-                        :server?        (state/server-frame? frame-id)}]])))
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (let [timers-fx (when (or stale-delay-ms gc-delay-ms)
+                          [[:rf.resource/schedule-timers
+                            {:frame-id       frame-id
+                             :resource/key   resource-key
+                             :stale-delay-ms stale-delay-ms
+                             :gc-delay-ms    gc-delay-ms
+                             :poll-delay-ms  nil
+                             :server?        (state/server-frame? frame-id)}]])
+              fx        (into (vec timers-fx) cont-fxs)]
+          (cond-> {:rf.db/runtime rdb'}
+            (seq fx) (assoc :fx fx))))
 
       ;; LOAD-MORE PAGE FAILURE — the third error channel: keep the feed,
       ;; record :page-error, return to :loaded. This is a page N>0 failure, OR
@@ -2809,7 +3026,13 @@
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')
                       :page-error error})
-        {:rf.db/runtime rdb'}))))
+        ;; a page-0 refetch over an existing feed that fails is an accepted
+        ;; terminal reply for that attempt — fan out its `:reply-to` (rf2-p1yri7);
+        ;; a load-more (page N>0) carries no `:reply-to`, so this is a no-op.
+        (emit-resource-replied!
+          frame-id resource-key work-id (:status reply) (:reply-targets record) false)
+        (cond-> {:rf.db/runtime rdb'}
+          (seq cont-fxs) (assoc :fx (vec cont-fxs)))))))
 
 (defn stale-fired-handler
   "`:rf.resource.internal/stale-fired` — a stale timer fired. The timer is
