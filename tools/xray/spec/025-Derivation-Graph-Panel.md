@@ -211,7 +211,7 @@ classifications, `:source-form`, and `:refinement` are **structure, not
 values**, and are never walked. The value-bearing leaf fields inside node
 bodies are redacted by the policy walk above.
 
-#### Live resource IDENTITY redaction (rf2-k0meap.1)
+#### Live resource IDENTITY redaction (rf2-k0meap.1, extended rf2-qo1l8w)
 
 The value-path walk above matches a frame's declared `:sensitive` `:app-db`
 **paths** — but a live **resource** node carries its sensitive scope/params
@@ -219,20 +219,33 @@ in its **identity**, a place that walk can never reach: the concrete scoped
 key `[cache-scope resource-id canonical-params]` is the node **key**
 (`[:resource <scoped-key>]`), the node `:id`, and is embedded in the
 `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`,
-and the in-flight `:work-ledger :record :resource/key`; a route-owned
-activation names it on a `:param` edge endpoint. So `redact-graph-for-egress`
-**also** projects each scoped key's secret-bearing **scope** and **params**
-into **stable opaque handles** — minted from the core CEDN-1 identity
-primitive (`identity/canonical-bytes`) then **hashed one-way** so the same
-key maps to the same handle (connectivity survives) but the raw scope/params
-can never be read back off the wire (fail-closed to `:rf/redacted` for any
-value outside the CEDN-1 domain). The non-sensitive registration
-`resource-id` is **preserved** so a tool still sees *which* resource the node
-is. The **same** projection is applied consistently to the `:nodes` keys, the
-identity positions inside node bodies (`:id` / `:output` / `:inputs` /
-`:work-ledger`), **and** every `:edges` endpoint that names a resource node —
-a redacted resource node is still a node, and the edges naming it still
-connect. Structure survives; the identity-embedded secret does not egress.
+the in-flight `:work-ledger :record :resource/key`, the resource work-id
+embedded in **both** `:work-ledger :work/id` and `:work-ledger :record
+:work/id` (a **third** identity position, independent of `:resource/key`),
+and the `:host-transient` in-flight handle address (which names that SAME
+work-id); a route-owned activation names it on a `:param` edge endpoint. So
+`redact-graph-for-egress` **also** projects each scoped key's secret-bearing
+**scope** and **params** into **stable opaque handles** — minted from the
+core CEDN-1 identity primitive (`identity/canonical-bytes`) then
+**hashed one-way** so the same key maps to the same handle (connectivity
+survives) but the raw scope/params can never be read back off the wire
+(fail-closed to `:rf/redacted` for any value outside the CEDN-1 domain). The
+non-sensitive registration `resource-id` is **preserved** so a tool still
+sees *which* resource the node is. The **same** projection is applied
+consistently to the `:nodes` keys, the identity positions inside node bodies
+(`:id` / `:output` / `:inputs` / `:work-ledger` / `:host-transient`), **and**
+every `:edges` endpoint that names a resource node — a redacted resource
+node is still a node, and the edges naming it still connect. Structure
+survives; the identity-embedded secret does not egress.
+
+This work-id / host-transient position is currently masked in production —
+`re-frame.resources.tooling/live-node-for` already projects the work-id
+(`project-work-id`, rf2-0t0l3w) before the composer or this redaction call
+site ever sees the node — but `redact-graph-for-egress` is the documented
+wire-boundary defense-in-depth layer, so it projects these positions
+independently rather than relying on that upstream pre-projection holding
+(rf2-qo1l8w; mirrors the fix the derivation-conformance egress mirror
+carried, rf2-tmyfkn/rf2-uh2clr).
 
 The projection is **idempotent** (rf2-g197ep): a value may egress more than
 once (re-egress on re-render / re-subscribe / a forwarder cascade that ships
@@ -302,7 +315,18 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   equality across two (and three) passes plus per-position witnesses (node
   keys, `:id`, `:inputs`, `:output`, work-ledger `:resource/key`, edges), so a
   forwarder pipeline that re-egresses an already-projected graph cannot drift
-  the realized `:inputs` handles (rf2-g197ep).
+  the realized `:inputs` handles (rf2-g197ep). Plus the **work-id /
+  host-transient identity** arm (rf2-qo1l8w): a resource-shaped work-id
+  (`[:rf.work/resource <scoped-key> <generation>]`) embedding the same
+  session-token secret, planted directly into `:work-ledger :work/id`,
+  `:work-ledger :record :work/id`, and `:host-transient` (bypassing the
+  upstream `resources.tooling/project-work-id` pre-projection that masks this
+  gap in production) — asserting no raw secret survives in any of those three
+  positions, the resource work-id shape (`:rf.work/resource` head +
+  generation) survives projection, and the same opaque scoped-key handle is
+  consistent across all three positions (mirrors the derivation-conformance
+  egress mirror's `project-work-id` / `project-host-transient` fix,
+  rf2-tmyfkn/rf2-uh2clr, closing the same latent gap in the real call site).
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
   consumer** test (rf2-4wtllq): registers the panel handlers via
   `registry/register-xray-handlers!` + `test-support/install-test-overrides!`
