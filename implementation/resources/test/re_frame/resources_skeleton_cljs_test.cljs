@@ -223,7 +223,7 @@
 
 (deftest resource-subs-registered
   (testing "the passive :rf.resource/* sub family is registered"
-    (doseq [sub-id [:rf.resource/state :rf.resource/data :rf.resource/status
+    (doseq [sub-id [:rf/resource :rf.resource/data :rf.resource/status
                     :rf.resource/loading? :rf.resource/fetching?
                     :rf.resource/stale? :rf.resource/error
                     :rf.resource/refresh-error :rf.resource/has-data?

@@ -75,7 +75,7 @@ The whole point fits in four facts, all in one small app.
 
 The board is read passively through the resource sub `[:rf.resource/data …]`.
 Each in-flight write is watched through the mutation view-model
-`[:rf.mutation/state {:instance …}]`. Its **`:optimistic?`** flag is true while a
+`[:rf/mutation {:instance …}]`. Its **`:optimistic?`** flag is true while a
 write's optimistic value is on screen but not yet settled — so a card can wear a
 "saving…" badge over the value you're hoping sticks.
 

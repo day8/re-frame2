@@ -147,12 +147,12 @@
 ;; ===========================================================================
 ;; 1b. the SCALAR :has-data? / :state subs over an infinite feed (rf2-3fynns)
 ;;
-;;   The scalar `:rf.resource/has-data?` and `:rf.resource/state` subs ALSO
+;;   The scalar `:rf.resource/has-data?` and `:rf/resource` subs ALSO
 ;;   apply to an infinite feed (Spec 016 §Subscriptions — the family is
 ;;   resource-kind agnostic). An infinite feed's `:data` is the page VECTOR,
 ;;   seeded EMPTY (`[]`) before page 0 lands, so the scalar `(some? :data)`
 ;;   test would WRONGLY read an empty/never-loaded feed as `:has-data? true`
-;;   (and `:rf.resource/state` would return the self-contradictory
+;;   (and `:rf/resource` would return the self-contradictory
 ;;   `{:status :loading … :has-data? true}`). Both scalar subs must route
 ;;   through the shared `state/has-data?` derivation (the same one
 ;;   `:rf.resource/infinite-state` uses), so the two PUBLIC sub families agree.
@@ -169,15 +169,15 @@
     (testing "the scalar :rf.resource/has-data? reads FALSE (empty page vector)"
       (is (false? @(rf/subscribe [:rf.resource/has-data? (q :is1b/feed)]))
           "an empty page vector is NO usable data — must match state/has-data?"))
-    (testing "the scalar :rf.resource/state's :has-data? agrees (and isn't self-contradictory)"
-      (let [vm @(rf/subscribe [:rf.resource/state (q :is1b/feed)])]
+    (testing "the scalar :rf/resource's :has-data? agrees (and isn't self-contradictory)"
+      (let [vm @(rf/subscribe [:rf/resource (q :is1b/feed)])]
         (is (= :loading (:status vm)) "still first-loading")
         (is (false? (:has-data? vm))
             ":has-data? false for an empty feed — not the self-contradictory true")
         (is (true? (:loading? vm)) "first load with no usable data")))
     (testing "the scalar and infinite-feed sub families AGREE on :has-data?"
       (is (= @(rf/subscribe [:rf.resource/has-data? (q :is1b/feed)])
-             (:has-data? @(rf/subscribe [:rf.resource/state (q :is1b/feed)]))
+             (:has-data? @(rf/subscribe [:rf/resource (q :is1b/feed)]))
              (:has-data? @(rf/subscribe [:rf.resource/infinite-state (q :is1b/feed)]))
              false)
           "all three public :has-data? readings concur on the empty feed"))))
@@ -186,7 +186,7 @@
   (testing "once page 0 lands the scalar :has-data? flips TRUE (≥1 page)"
     (load-page-0! :is1c/feed (page [:a :b] "c1"))
     (is (true? @(rf/subscribe [:rf.resource/has-data? (q :is1c/feed)])))
-    (is (true? (:has-data? @(rf/subscribe [:rf.resource/state (q :is1c/feed)]))))
+    (is (true? (:has-data? @(rf/subscribe [:rf/resource (q :is1c/feed)]))))
     (is (= @(rf/subscribe [:rf.resource/has-data? (q :is1c/feed)])
            (:has-data? @(rf/subscribe [:rf.resource/infinite-state (q :is1c/feed)]))
            true)

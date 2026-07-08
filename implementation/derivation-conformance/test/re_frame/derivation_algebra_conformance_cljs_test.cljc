@@ -963,7 +963,7 @@
   ;; The on-demand-no-write invariant proven over BOTH `:on-demand` algebra
   ;; node forms: an ordinary subscription (a `:derivation`/`:ephemeral`/
   ;; `:on-demand`/`:subscription-cache-entry` node) AND a resource
-  ;; `:rf.resource/state` selector (the read-fact projection of a `:process`
+  ;; `:rf/resource` selector (the read-fact projection of a `:process`
   ;; node — "reading a selector does not start resource work"). Snapshot the
   ;; durable frame-state (app-db + runtime-db) before and after reading them;
   ;; the two partitions MUST be unchanged. The work-ledger lives at
@@ -978,8 +978,8 @@
         res   (node-by-family nodes :resources :article/by-slug)]
     (is (= :on-demand (:evaluation sub))
         "the subscription is the canonical :on-demand node whose read must be write-free")
-    (is (contains? (set (:selectors res)) :rf.resource/state)
-        "the resource exposes the :rf.resource/state read selector"))
+    (is (contains? (set (:selectors res)) :rf/resource)
+        "the resource exposes the :rf/resource read selector"))
   ;; Snapshot BOTH durable partitions, read the on-demand nodes, re-snapshot.
   (let [app-before (frame/frame-app-db-value :rf/default)
         rt-before  (frame/frame-runtime-db-value :rf/default)
@@ -988,7 +988,7 @@
         ;; Read the resource selector for an UNMATERIALIZED key — the idle
         ;; empty-state projection. Reading it MUST NOT start work or write a
         ;; cache entry / work-ledger record.
-        sel-val    @(rf/subscribe [:rf.resource/state
+        sel-val    @(rf/subscribe [:rf/resource
                                    {:resource :article/by-slug :params {:slug "welcome"}}])
         app-after  (frame/frame-app-db-value :rf/default)
         rt-after   (frame/frame-runtime-db-value :rf/default)]

@@ -227,7 +227,7 @@ Now require the view helpers and walk the tree the view returns:
       ;; class-2 bug: invoking :on-click must dispatch into THIS frame —
       ;; the favorite mutation's instance comes alive only if it landed here.
       (th/invoke-handler (th/find-by-testid tree "favorite-btn") :on-click)
-      (is (some? (rf/compute-sub [:rf.mutation/state {:instance [:favorite "x"]}]
+      (is (some? (rf/compute-sub [:rf/mutation {:instance [:favorite "x"]}]
                                  (rf/frame-state-value f)))))))
 ```
 

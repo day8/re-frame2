@@ -528,7 +528,7 @@
   ["re-frame.core" "mutations"]           {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; The `sub-mutation` / `sub-resource` reactive-read sugar fns were REMOVED
   ;; (rf2-il99l3, reversing rf2-2cmcas): a resource / mutation state read is
-  ;; the `[:rf.resource/state <query>]` / `[:rf.mutation/state {:instance …}]`
+  ;; the `[:rf/resource <query>]` / `[:rf/mutation {:instance …}]`
   ;; subscription VECTOR — one read grammar. (Also dropped from the generator's
   ;; `extra-vars`.)
   ;; Named resource-scope resolvers — the third resources kind (rf2-hls77w,
@@ -751,7 +751,7 @@
   ;; `make-machine-handler`) are no longer façade exports — reach them through
   ;; `re-frame.machines` (already classified below). The `machine-has-tag?` /
   ;; `sub-machine` subscription-sugar fns were REMOVED (rf2-il99l3, reversing
-  ;; rf2-2cmcas): a machine read is the `[:rf/machine-has-tag? id tag]` /
+  ;; rf2-2cmcas): a machine read is the `[:rf.machine/has-tag? id tag]` /
   ;; `[:rf/machine id]` subscription VECTOR — one read grammar.
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}

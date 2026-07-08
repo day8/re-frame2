@@ -31,7 +31,7 @@ A mutation is a named WRITE that, on success, patches / populates / invalidates 
                        :cause [:form-submit :article/save]}]
 
 ;; observe passively, keyed by instance id:
-@(rf/subscribe [:rf.mutation/state {:instance :form/save-1}])   ;; {:status :pending? :success? :result :error …}
+@(rf/subscribe [:rf/mutation {:instance :form/save-1}])   ;; {:status :pending? :success? :result :error …}
 ```
 
 `:patches` / `:populates` (optional) transform / seed resource entries before the success-time invalidation. For a write whose effect should show *immediately* — before the reply lands — declare an **optimistic plan** (`:optimistic` / `:optimistic-tags`); the runtime records the inverse and commits / rolls back / reconciles on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). Do **not** hand-roll optimistic rollback against the reserved cache keys.
@@ -79,7 +79,7 @@ Three load-bearing rules:
 - **Fires exactly once, after the cache settles.** Phase order is runtime-owned and deterministic: resolve scope → send → accept/suppress → **cache consequences** (`:patches` / `:populates` / `:invalidates`) → mutation instance settlement → **continuation**. So a `:reply-to` handler observes the cache already coherent and the instance already settled for that reply.
 - **Static args are preserved; the reply is appended after them.** `:reply-to [:toast/after-save {:kind :article}]` dispatches `[:toast/after-save {:kind :article} reply]`.
 
-Use this instead of the watcher-reaction idiom (watch `[:rf.mutation/state …]` from a component lifecycle hook, dispatch when it goes successful) — see [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md). There is **no** registration-level `:reply-to` on `reg-mutation`: invariant workflow is spelled by every call site passing the same target; the cache plan covers the declarative half.
+Use this instead of the watcher-reaction idiom (watch `[:rf/mutation …]` from a component lifecycle hook, dispatch when it goes successful) — see [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md). There is **no** registration-level `:reply-to` on `reg-mutation`: invariant workflow is spelled by every call site passing the same target; the cache plan covers the declarative half.
 
 ## Per-target scoped invalidation (descriptors)
 
@@ -182,11 +182,11 @@ Load-bearing rules:
 - **`:on-conflict`** governs a rollback when a competing write moved the entry's revision since the apply: **`:invalidate`** (default, recommended) marks the entry stale and lets the read path refetch the authoritative value — re-frame2's divergence from TanStack/SWR's unconditional context restore; **`:force`** restores the (possibly stale) inverse anyway (single-writer last-write-wins) with a tooling warning. An out-of-enum value is a loud `reg-mutation` error.
 - **Scope is fail-closed.** An optimistic `{:from-db …}` target that resolves nil is **dropped** (`:target-unresolved`), never an implicit global write — the same leak boundary a read has. There is no `:cross-scope?` optimistic form by construction: optimistic patching is exact-key or tag-within-named-scope only.
 - **Incompatible with `:invalidate-timing :before-request`** — a before-request invalidation stales the very entries the optimistic apply re-populates (stale-then-optimistic-fresh). Declaring both is a loud registration error (`:rf.error/mutation-optimistic-before-request`); optimistic plans use the default `:after-success` timing.
-- **Per-call opt-out** `{:optimistic? false}` on `[:rf.mutation/execute …]` forces the pessimistic path for one call (a boolean disable, never a per-call forward plan). The `[:rf.mutation/state …]` sub exposes a derived `:optimistic?` boolean — true while a live optimistic apply is showing — so a view can render "pending, but showing my optimistic value."
+- **Per-call opt-out** `{:optimistic? false}` on `[:rf.mutation/execute …]` forces the pessimistic path for one call (a boolean disable, never a per-call forward plan). The `[:rf/mutation …]` sub exposes a derived `:optimistic?` boolean — true while a live optimistic apply is showing — so a view can render "pending, but showing my optimistic value."
 
 ## Anti-patterns
 
-- **Watching mutation state from a component to drive workflow.** Do not use the watcher-reaction idiom (a Form-3 lifecycle hook watching `[:rf.mutation/state …]` and dispatching when it goes successful) — use call-site **`:reply-to`**. The runtime owns when it accepted and settled the reply; let it produce the causal continuation. See [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md).
+- **Watching mutation state from a component to drive workflow.** Do not use the watcher-reaction idiom (a Form-3 lifecycle hook watching `[:rf/mutation …]` and dispatching when it goes successful) — use call-site **`:reply-to`**. The runtime owns when it accepted and settled the reply; let it produce the causal continuation. See [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md).
 - **Putting app workflow on `reg-mutation`.** Navigation, toasts, auth-slice writes belong in the `:reply-to` handler (workflow axis), not in `:populates`/`:invalidates` (cache axis). Keep the two axes apart.
 - **Threading `db`/`ctx` into a `:populates`/`:invalidates` callback** to compute a scope. The callback signature is `(params result)`; derive db-relative scope through a named resolver reference `{:from-db …}`, which tooling can name and which gives descriptors a stable reference.
 - **`:cross-scope? true` as the ergonomic mixed-scope path.** It is the audited escape for scopes the call site *can't* enumerate. When you can name the scopes, use per-target **descriptors** — `:cross-scope?` invalidates a tag across *every* viewer (a privacy-relevant broad op).

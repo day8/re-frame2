@@ -144,7 +144,7 @@ This is the **don't-execute rule**: static inspection never runs your input, par
 
 Subscriptions and flows are derivations — pure formulas. Now we cross into **processes**: nodes that carry state, have a lifecycle, and run commands over time. The first one is the **resource**.
 
-A resource is a fact whose authoritative value lives on a server, with a local cached copy ([Server state: resources](../resources/concepts.md)). Here's the wrinkle that makes resources more than a fancy subscription: one `reg-resource` declaration lowers to *more than one* node — a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work. It just reads the cache.
+A resource is a fact whose authoritative value lives on a server, with a local cached copy ([Server state: resources](../resources/concepts.md)). Here's the wrinkle that makes resources more than a fancy subscription: one `reg-resource` declaration lowers to *more than one* node — a process node for the cache entry, plus its read selectors (`:rf/resource`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work. It just reads the cache.
 
 ```clojure
 ;; STATIC ALGEBRA VIEW of (rf/reg-resource :article/by-slug {…})
@@ -159,7 +159,7 @@ A resource is a fact whose authoritative value lives on a server, with a local c
  :evaluation  #{:on-route :on-reply :scheduled :manual}   ;; a set (#{…}) — this process has many triggers
  :lifecycle   :scoped-resource-key
  :materialized? true
- :selectors   [:rf.resource/state :rf.resource/data :rf.resource/status
+ :selectors   [:rf/resource :rf.resource/data :rf.resource/status
                :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}
 ```
 

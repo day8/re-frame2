@@ -246,7 +246,7 @@
 ;; :realworld/session` (see scope.cljs) — and the resource just points at it with
 ;; `:scope {:from-db :realworld/session}`, a reference the runtime resolves
 ;; against app-db wherever it's used. The payoff:
-;;   - a `[:rf.resource/state {:resource :realworld/feed :params {…}}]` sub
+;;   - a `[:rf/resource {:resource :realworld/feed :params {…}}]` sub
 ;;     resolves the scope itself — no view ever passes a `:scope` payload — and
 ;;     re-keys reactively the moment you log in or out;
 ;;   - the home route owns the feed as a plain `:resources` entry carrying

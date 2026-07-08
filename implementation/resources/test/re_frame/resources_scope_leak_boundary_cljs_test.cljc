@@ -161,7 +161,7 @@
   ;; globex's session now begins on the same frame
   (rf/dispatch-sync [:t/login "globex"])
   (let [q   {:resource :t/feed :params {:page 1}}   ;; no :scope — derived from app-db
-        st  (rf/subscribe [:rf.resource/state q])
+        st  (rf/subscribe [:rf/resource q])
         dat (rf/subscribe [:rf.resource/data q])]
     (testing "globex's live sub resolves GLOBEX's tenant scope and reads its
               own (un-ensured) idle empty-state — NEVER acme's cleared data.
@@ -206,7 +206,7 @@
   (ensure-feed! "acme" 1 [:lease :acme 1] {:secret "acme-only"})
   (let [wrong-q {:resource :t/feed :params {:page 1}
                  :scope [:rf.scope/tenant {:tenant-id "globex"}]}
-        st      (rf/subscribe [:rf.resource/state wrong-q])
+        st      (rf/subscribe [:rf/resource wrong-q])
         dat     (rf/subscribe [:rf.resource/data wrong-q])]
     (testing "a wrong-but-valid scope addresses ITS OWN (empty) key — the
               resolved scope is part of the key, so the wrong-scope sub
@@ -248,7 +248,7 @@
         k (fn [ev] (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
                      (swap! seen conj ev))))
       (try
-        (let [st (rf/subscribe [:rf.resource/state wrong-q])]
+        (let [st (rf/subscribe [:rf/resource wrong-q])]
           (is (= :idle (:status @st)) "wrong-scope read is idle (fail-closed)")
           (is (nil? (:data @st)) "never acme's notes"))
         (finally (trace-tooling/unregister-listener! k)))

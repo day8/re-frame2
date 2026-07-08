@@ -13,7 +13,7 @@
    See resource status: ../../../docs/resources/glossary.md#resource-status.
 
    Writes fire mutations (`:rf.mutation/execute`) and watch the instance just as
-   passively (`[:rf.mutation/state {:instance …}]`). The success continuation is
+   passively (`[:rf/mutation {:instance …}]`). The success continuation is
    the call-site `:reply-to` event target, dispatched once when the reply is
    accepted — AFTER the mutation's `:invalidates` refetched the affected reads.
    That's the read→write→invalidate→refetch loop, end to end, with not a single
@@ -233,7 +233,7 @@
 
 (reg-view ^{:doc "A single article card."} article-preview [{:keys [article]}]
   (let [{:keys [slug title description createdAt favoritesCount favorited author tagList]} article
-        fav-state @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
+        fav-state @(subscribe [:rf/mutation {:instance [:favorite slug]}])]
     [:div.article-preview {:data-testid (str "article-preview-" slug)}
      [:div.article-meta
       [rf/route-link {:to :realworld.profile/show :params {:username (:username author)}}
@@ -354,10 +354,10 @@
         your-feed?   @(subscribe [:home/your-feed?])
         selected-tag @(subscribe [:home/selected-tag])
         page         @(subscribe [:home/page])
-        tags-state   @(subscribe [:rf.resource/state {:resource :realworld/tags :params {}}])
+        tags-state   @(subscribe [:rf/resource {:resource :realworld/tags :params {}}])
         ;; The global list is keyed by the active `:tag` and `:page` — the same
         ;; params the route ensured under, so the sub lands on the right cache key.
-        list-state   @(subscribe [:rf.resource/state {:resource :realworld/articles
+        list-state   @(subscribe [:rf/resource {:resource :realworld/articles
                                                        :params  {:tag selected-tag :page page}}])
         ;; The personalised feed. The resource declares `:scope {:from-db
         ;; :realworld/session}`, so the subscription resolves the session scope
@@ -365,7 +365,7 @@
         ;; resolver yields nil (fail-closed), so we only subscribe when authed; the
         ;; `:page` matches the route-ensured key.
         feed-state   (when authed?
-                       @(subscribe [:rf.resource/state {:resource :realworld/feed
+                       @(subscribe [:rf/resource {:resource :realworld/feed
                                                         :params  {:page page}}]))]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"] [:p "A place to share your knowledge."]]]
@@ -413,7 +413,7 @@
 
 (reg-view comment-card [{:keys [comment slug current-user]}]
   (let [mine?     (= (:username current-user) (get-in comment [:author :username]))
-        del-state @(subscribe [:rf.mutation/state {:instance [:delete-comment slug (:id comment)]}])]
+        del-state @(subscribe [:rf/mutation {:instance [:delete-comment slug (:id comment)]}])]
     [:div.card {:data-testid (str "comment-card-" (:id comment))}
      [:div.card-block [:p.card-text {:data-testid "comment-body"} (:body comment)]]
      [:div.card-footer
@@ -479,9 +479,9 @@
           article-page []
   (let [slug          (:slug @(subscribe [:rf.route/params]))
         current-user  @(subscribe [:auth/user])
-        article-state @(subscribe [:rf.resource/state {:resource :realworld/article :params {:slug slug}}])
-        comments-state @(subscribe [:rf.resource/state {:resource :realworld/comments :params {:slug slug}}])
-        post-state    @(subscribe [:rf.mutation/state {:instance [:post-comment slug]}])
+        article-state @(subscribe [:rf/resource {:resource :realworld/article :params {:slug slug}}])
+        comments-state @(subscribe [:rf/resource {:resource :realworld/comments :params {:slug slug}}])
+        post-state    @(subscribe [:rf/mutation {:instance [:post-comment slug]}])
         draft         @(subscribe [:comment-form/body])]
     [:div.article-page
      (cond
@@ -495,8 +495,8 @@
        :else
        (let [article   (:article (:data article-state))
              {:keys [slug title description body tagList favoritesCount favorited]} article
-             fav-state @(subscribe [:rf.mutation/state {:instance [:favorite slug]}])
-             del-state @(subscribe [:rf.mutation/state {:instance [:delete-article slug]}])]
+             fav-state @(subscribe [:rf/mutation {:instance [:favorite slug]}])
+             del-state @(subscribe [:rf/mutation {:instance [:delete-article slug]}])]
          [:<>
           [:div.banner
            [:div.container
@@ -595,13 +595,13 @@
         favorites?     @(subscribe [:profile/favorites-tab?])
         page           @(subscribe [:profile/page])
         current-user   @(subscribe [:auth/user])
-        profile-state  @(subscribe [:rf.resource/state {:resource :realworld/profile :params {:username username}}])
+        profile-state  @(subscribe [:rf/resource {:resource :realworld/profile :params {:username username}}])
         ;; The active tab decides which list resource (and params) to read — the
         ;; same (resource, params) the matching route ensured under.
         list-state     (if favorites?
-                         @(subscribe [:rf.resource/state {:resource :realworld/favorited-articles
+                         @(subscribe [:rf/resource {:resource :realworld/favorited-articles
                                                           :params  {:username username :page page}}])
-                         @(subscribe [:rf.resource/state {:resource :realworld/author-articles
+                         @(subscribe [:rf/resource {:resource :realworld/author-articles
                                                           :params  {:username username :page page}}]))]
     [:div.profile-page
      (cond
@@ -614,7 +614,7 @@
        :else
        (let [{:keys [username bio image following]} (:profile (:data profile-state))
              own?       (= username (:username current-user))
-             follow-state @(subscribe [:rf.mutation/state {:instance [:follow username]}])]
+             follow-state @(subscribe [:rf/mutation {:instance [:follow username]}])]
          [:<>
           [:div.user-info
            [:div.container

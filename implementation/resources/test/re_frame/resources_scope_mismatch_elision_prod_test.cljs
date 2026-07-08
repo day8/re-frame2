@@ -115,7 +115,7 @@
     (let [seen (listener-fixture
                  (fn []
                    (subs/state-sub-fn (runtime-db)
-                                      [:rf.resource/state
+                                      [:rf/resource
                                        {:resource :sme/article :scope {:user "b"}
                                         :params {:slug "w"}}])))]
       (is (empty?
@@ -125,7 +125,7 @@
       (is (empty? seen)
           "no trace events at all from the sub read under prod")
       (is (= :idle (:status (subs/state-sub-fn (runtime-db)
-                                               [:rf.resource/state
+                                               [:rf/resource
                                                 {:resource :sme/article :scope {:user "b"}
                                                  :params {:slug "w"}}])))
           "the sub still returns the :idle empty-state projection — fail-closed

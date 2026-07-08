@@ -87,7 +87,7 @@ Scope is the cache's tenant / user / permission / locale / impersonation / SSR l
 
 - **`:scope :rf.scope/global`** — the resource is **explicitly global**. This is a *claim*: "the same params produce the same data for every user, tenant, permission-set, locale, and impersonation state." It is an auditable assertion, not a convenience hideaway.
 - **`:scope <resolver>`** — derive the scope deterministically. The resolver materializes as visible EDN in the resource key. A resolver may be a route-resource resolver `(fn [route ctx] …)`, a resource-spec resolver, or — for a sub-side resolver — a pure data value / fn-of-nothing (see [§Subscription-side scope resolution](#subscription-side-scope-resolution)).
-- **`:scope :rf.scope/from-caller`** — the scope is **required from the use site**: every `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf.resource/state` (and sibling) call MUST supply `:scope` on the payload, or a route-resource resolver MUST supply it. Enforcement lands where the scope is actually known.
+- **`:scope :rf.scope/from-caller`** — the scope is **required from the use site**: every `:rf.resource/ensure` / `:rf.resource/refetch` / `:rf/resource` (and sibling) call MUST supply `:scope` on the payload, or a route-resource resolver MUST supply it. Enforcement lands where the scope is actually known.
 - **No declared policy** — a loud **registration error** (`:rf.error/resource-missing-scope-policy`). "I forgot this read is user-scoped" is unrepresentable at registration rather than an Xray heuristic about `/me`-looking URLs.
 
 > **There is no `:rf.scope/global` default.** A user-scoped read can never be silently registered as global. Stating scope intent once, at the registration site, is the loud-failure ethos applied to the cache's leak boundary.
@@ -107,7 +107,7 @@ There is **no tier-4 `[:rf.scope/global]` fallthrough.** If none of the above yi
 
 ### Subscription-side scope resolution
 
-Subscriptions are **pure** — they cannot run a `(route, ctx)` resolver, because a sub has no access to the routing match or the event context. This is exactly the seam where a silent leak can hide: a route ensures a resource under `[:rf.scope/session {…}]`, but a view's `[:rf.resource/state {…}]` that omits `:scope` would resolve to a *different* scope than the one the data was loaded under and read `:idle` forever — a permanent skeleton with no error anywhere. That is the silent-wrong-target bug family [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) exists to kill, and resource subscriptions MUST close it the same way.
+Subscriptions are **pure** — they cannot run a `(route, ctx)` resolver, because a sub has no access to the routing match or the event context. This is exactly the seam where a silent leak can hide: a route ensures a resource under `[:rf.scope/session {…}]`, but a view's `[:rf/resource {…}]` that omits `:scope` would resolve to a *different* scope than the one the data was loaded under and read `:idle` forever — a permanent skeleton with no error anywhere. That is the silent-wrong-target bug family [EP-0002](../docs/EP/EP-0002-frame-target-resolution.md) exists to kill, and resource subscriptions MUST close it the same way.
 
 A subscription resolves its scope from, in order:
 
@@ -404,7 +404,7 @@ This **refines** Pattern-RemoteData's broad `:error` state. The load-bearing inv
 - **Freshness is orthogonal to load status.** A `:loaded` entry may be stale; a `:fetching` entry may be refreshing stale data.
 - **`:stale?`, `:loading?`, `:fetching?`, and `:has-data?` are public derived subscription values, NOT durable stored facts.** Views MUST NOT have to infer "error with stale data" from `(:status state)` plus `(:has-data? state)`.
 
-Worked projections (public `:rf.resource/state`, not durable entries):
+Worked projections (public `:rf/resource`, not durable entries):
 
 First-load failure:
 
@@ -472,7 +472,7 @@ This section is the **canonical home for the resource-trio grading rows** — `:
 |---|---|
 | **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
 | **2 Write authority** | ✅ Event-handler path — every resource `reg-event` stamps `:rf/framework-authority? true`; the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [§Write authority](#write-authority). |
-| **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`) plus tool accessors (`resource-meta`, `resource-state`, `resources`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
+| **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf/resource`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`) plus tool accessors (`resource-meta`, `resource-state`, `resources`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
 | **4 Projection / elision** | ✅ Allowlist-shaped — only the durable resource projection rides the `:rf/hydration-payload` `:rf/runtime-db` slice via the explicit projection hook ([§SSR and hydration](#ssr-and-hydration)); `:tag-index` / `:owner-index` are recomputable-from-`:entries` and need not ride the wire. Params, scopes, and data carry `:sensitive?` / `:large?` classification owned by the resource definition and projected through the merged frame-owned `rf/project-egress` over the shared `rf/elide-wire-value` walker ([EP-0015 §6](../docs/EP/EP-0015-frame-owned-egress-policy.md), [015-Data-Classification §Resource and mutation durable classification](015-Data-Classification.md#resource-and-mutation-durable-classification)); Xray sees redacted summaries, not raw values. |
 | **5 Teardown** | ✅ Side tables are keyed by frame id and work id; frame destroy cancels all resource timers and clears host handles for that frame ([§Stale and GC scheduling](#stale-and-gc-scheduling), [§Restore and replay](#restore-and-replay)). **Durable kept:** `:entries` (cache facts ride restore/SSR). **Transient dropped:** AbortControllers, stale/GC timers, transport promises (never serialized); `:tag-index` / `:owner-index` are recomputed from `:entries` on install. |
 
@@ -494,7 +494,7 @@ The causal-write counterpart of `:rf.runtime/resources`, shipped with the first 
 |---|---|
 | **1 Subtree** | ✅ `:rf.runtime/mutations` with serializable mutation **instance** rows keyed by instance id (`:mutation/id` / `:instance/id` / `:status` / `:result` / `:error` / `:scope` / `:params` / `:generation` / `:current-work` / `:started-at` / `:settled-at` / `:affected-keys` / `:patch-summary`; schema `MutationInstance` in [Spec-Schemas](Spec-Schemas.md#rfscoped-resource-key-rfresource-entry-rfresource-work-record-resources-spec-016)). Keyed by instance id (NOT mutation id) so concurrent submissions never clobber each other. Allocated lazily — absent in an app that registers no mutations ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). |
 | **2 Write authority** | ✅ Event-handler path — `:rf.mutation/execute` / `:rf.mutation/clear` (and the internal reply handlers) stamp `:rf/framework-authority? true`; the in-flight write lowers through the **same managed-HTTP transport as resources**, joining a `:rf.runtime/work-ledger` record (work-kind `:mutation`) rather than a private side-table. Generation + work-id stale suppression is the correctness boundary as for resources (per [§Mutations](#mutations-first-public-beta-gate)). |
-| **3 Read API** | ✅ The passive `:rf.mutation/*` sub family — `:rf.mutation/state`, `:rf.mutation/status`, `:rf.mutation/pending?`, `:rf.mutation/result`, `:rf.mutation/error` — keyed by instance id, projecting the instance view-model. App code reads these, never raw `[:rf.runtime/mutations …]` paths. |
+| **3 Read API** | ✅ The passive `:rf.mutation/*` sub family — `:rf/mutation`, `:rf.mutation/status`, `:rf.mutation/pending?`, `:rf.mutation/result`, `:rf.mutation/error` — keyed by instance id, projecting the instance view-model. App code reads these, never raw `[:rf.runtime/mutations …]` paths. |
 | **4 Projection / elision** | ✅ The instance rows store **facts, not derived booleans** (`:pending?` / `:success?` / `:settled?` are computed in the subs layer), so the durable row is a small projectable fact; `:affected-keys` / `:patch-summary` carry the optimistic-rollback trace shape ([§Optimistic mutations](#optimistic-mutations), [EP-0019](../docs/EP/EP-0019-optimistic-mutation-rollback.md)). Params, result, and error carry `:sensitive?` / `:large?` classification through `rf/elide-wire-value`; the `:error` envelope is the closed `:rf.http/*` failure shape. |
 | **5 Teardown** | ✅ Host handles live in the shared `[frame-id work-id]` side tables (cleared on frame destroy with the resource hook `:resources/on-frame-destroyed!`); `:rf.mutation/clear` is the causal instance reset (clears the runtime instance and best-effort aborts in-flight work). **Durable kept:** the instance rows (facts). **Transient dropped:** host handles; the in-flight work record reconciles to dangling on restore exactly as the resource writer's does (the generation allocator is monotonic and host-side — [§Restore and replay](#restore-and-replay)). |
 
@@ -564,7 +564,7 @@ The surface splits into **four lanes**, and they must not be read as competing r
 |---|---|---|
 | **Registration** | `reg-resource` / `clear-resource`, `reg-mutation` / `clear-mutation`, `reg-resource-scope` / `clear-resource-scope` (functions) | Author, once, at boot. Declares a handler; does **not** fetch or read state. |
 | **Commands (causal)** | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.mutation/execute …]`, … (dispatched event vectors) | App events / routes / machines. These **cause** work; they are not reads. |
-| **App reads (passive)** | `[:rf.resource/state …]`, `[:rf.resource/data …]`, `[:rf.mutation/state …]`, … (subscription vectors) | Views, via `subscribe`. The **only** lane app UI uses to project runtime state. |
+| **App reads (passive)** | `[:rf/resource …]`, `[:rf.resource/data …]`, `[:rf/mutation …]`, … (subscription vectors) | Views, via `subscribe`. The **only** lane app UI uses to project runtime state. |
 | **Tool/test projections** | `resource-meta`, `resource-state`, `resources`, `mutation-meta`, `mutation-state`, `mutations` (direct functions) | Tools (Xray), tests, SSR plumbing — an explicit-frame snapshot read. **Not** an app-UI alternative to the subscription lane. |
 
 The load-bearing distinction is between **registration** (the function that records a `:resource` / `:mutation` / `:resource-scope` handler in the registrar — analogous to `reg-event` / `reg-sub`) and **projection** (reading the runtime state that handler produces). Registering a resource never reads its cache, and projecting its state never registers anything. App code projects through the **passive subscription** lane; the direct `resource-state` / `mutation-state` functions are the **tool/test projection** of the same runtime state at an explicit frame, used where there is no reactive subscription context (Xray, a unit test, an SSR serializer) — they are **not** a second app-read API competing with the subs.
@@ -634,7 +634,7 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 ### Subscriptions (passive)
 
 ```clojure
-[:rf.resource/state         {:resource … :scope … :params …}]
+[:rf/resource         {:resource … :scope … :params …}]
 [:rf.resource/data          {:resource … :scope … :params …}]
 [:rf.resource/status        {:resource … :scope … :params …}]
 [:rf.resource/loading?      {:resource … :scope … :params …}]
@@ -648,7 +648,7 @@ The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.inter
 
 **No v1 subscription fetches.** A subscription is a pure passive read; it resolves scope per [§Subscription-side scope resolution](#subscription-side-scope-resolution) and raises `:rf.error/resource-sub-unresolved-scope` rather than reading global or returning a silent `:idle`. A future `:rf.resource/live` side-effecting convenience, if added, MUST be explicitly documented as side-effecting and kept separate from the recommended route/event pattern.
 
-For the common top-level state read, subscribe to the canonical `[:rf.resource/state <query>]` vector directly — `@(rf/subscribe [:rf.resource/state query])` returns a reaction over the resource view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}` (plus the `:previous?` previous-data projection). `query` is the `{:resource :params}` map (with the optional `:scope` the sub-side scope resolution reads), resolving the scoped key — including the fail-closed `:rf.error/resource-sub-unresolved-scope` boundary. To read an explicit frame from outside an established scope, name it with `subscribe`'s frame-first arity — `@(rf/subscribe <frame> [:rf.resource/state query])`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar.
+For the common top-level state read, subscribe to the canonical `[:rf/resource <query>]` vector directly — `@(rf/subscribe [:rf/resource query])` returns a reaction over the resource view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}` (plus the `:previous?` previous-data projection). `query` is the `{:resource :params}` map (with the optional `:scope` the sub-side scope resolution reads), resolving the scoped key — including the fail-closed `:rf.error/resource-sub-unresolved-scope` boundary. To read an explicit frame from outside an established scope, name it with `subscribe`'s frame-first arity — `@(rf/subscribe <frame> [:rf/resource query])`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar.
 
 #### Read completion continuations — call-site `:reply-to`
 
@@ -802,14 +802,14 @@ Run a mutation with the `:rf.mutation/execute` event and observe it through the 
 
 [:rf.mutation/clear {:instance :form/save-1}]   ;; the causal instance reset
 
-[:rf.mutation/state    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled? :optimistic?}
+[:rf/mutation    {:instance :form/save-1}]   ;; {:status :result :error :pending? :success? :error? :settled? :optimistic?}
 [:rf.mutation/status   {:instance :form/save-1}]
 [:rf.mutation/pending? {:instance :form/save-1}]
 [:rf.mutation/result   {:instance :form/save-1}]
 [:rf.mutation/error    {:instance :form/save-1}]
 ```
 
-For the common top-level state read, subscribe to the canonical `[:rf.mutation/state {:instance <instance>}]` vector directly — `@(rf/subscribe [:rf.mutation/state {:instance instance}])` returns a reaction over the mutation view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}` (the idle empty-state shape until the instance's first `:rf.mutation/execute`). The `{:instance <instance>}` map scopes the read to one form submission's state — `instance` is the key a view scopes it to. To read an explicit frame from outside an established scope, name it with `subscribe`'s frame-first arity — `@(rf/subscribe <frame> [:rf.mutation/state {:instance instance}])`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar.
+For the common top-level state read, subscribe to the canonical `[:rf/mutation {:instance <instance>}]` vector directly — `@(rf/subscribe [:rf/mutation {:instance instance}])` returns a reaction over the mutation view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}` (the idle empty-state shape until the instance's first `:rf.mutation/execute`). The `{:instance <instance>}` map scopes the read to one form submission's state — `instance` is the key a view scopes it to. To read an explicit frame from outside an established scope, name it with `subscribe`'s frame-first arity — `@(rf/subscribe <frame> [:rf/mutation {:instance instance}])`. There is no named-read-sugar fn: a runtime-db framework read is a subscription vector, one read grammar.
 
 A `:mutation` registrar kind is added (the causal-write counterpart of `:resource`). The load-bearing invariants (MUST):
 
@@ -1041,7 +1041,7 @@ When an optimistic write's reply settles (**phase 4**), the runtime **determinis
 
 **Epoch-restore dangle (Q3).** A `:pending` optimistic write **dangles** to a terminal `:error` on epoch restore (the [§Restore and replay](#restore-and-replay) `:dangling-on-restore` path) — the entry shows the optimistic value with no in-flight write to confirm it, an accepted-error-shaped terminal that triggers the **same conflict-aware rollback**. The rollback runs **inside the restore reconciler's single pure pass**, *not* as a second post-restore dispatched event (which could race a fresh load the restored timeline issues): an unmoved revision restores the recorded `:before` verbatim; a conflict marks the entry **durably stale in place** (`:invalidated-at` stamped from the restore's causal time — the read path refetches on the next live-owner ensure, no dispatch, no race), unless `:on-conflict :force` restores the inverse anyway.
 
-**The `:optimistic?` derived flag (Rider 1).** The instance-keyed [`:rf.mutation/state`](#mutations-first-public-beta-gate) sub gains a derived **`:optimistic?`** boolean — true while a live optimistic apply is showing (between phase 1.5 and settle), false otherwise — so a view can render "pending, but showing my optimistic value." It is **derived, never stored**: `:optimistic?` is true iff the instance is non-terminally `:pending` **and** its `:patch-summary` carries a `:snapshot-id` (an optimistic apply landed and has not yet committed / rolled back). A purely-pessimistic write is `:optimistic? false` throughout (no snapshot id); a committed or rolled-back write is `:optimistic? false` once it settles (no longer `:pending`). The optimistic apply is **not a reply** — it dispatches no [`:reply-to`](#mutation-completion-continuations--call-site-reply-to) continuation; the continuation fires exactly once, after settle, for the accepted terminal reply only.
+**The `:optimistic?` derived flag (Rider 1).** The instance-keyed [`:rf/mutation`](#mutations-first-public-beta-gate) sub gains a derived **`:optimistic?`** boolean — true while a live optimistic apply is showing (between phase 1.5 and settle), false otherwise — so a view can render "pending, but showing my optimistic value." It is **derived, never stored**: `:optimistic?` is true iff the instance is non-terminally `:pending` **and** its `:patch-summary` carries a `:snapshot-id` (an optimistic apply landed and has not yet committed / rolled back). A purely-pessimistic write is `:optimistic? false` throughout (no snapshot id); a committed or rolled-back write is `:optimistic? false` once it settles (no longer `:pending`). The optimistic apply is **not a reply** — it dispatches no [`:reply-to`](#mutation-completion-continuations--call-site-reply-to) continuation; the continuation fires exactly once, after settle, for the accepted terminal reply only.
 
 ##### Optimistic writes are fail-closed and scope-bounded
 
@@ -1255,7 +1255,7 @@ Routes are **not required** — an app can use resources entirely from events an
 
 ### Paginated and previous data
 
-Paginated tables, filtered lists, search results, and cursor feeds are ordinary resources in v1 (they do not wait for "infinite resources"). The pattern: include every filter, sort, page, cursor, and server-visible option in params; tag both the list identity and any returned item identities; keep old data visible while a new page/filter resource is first-loading when the route/resource declaration opts into `:keep-previous?`. The public `:rf.resource/state` projection makes the distinction explicit:
+Paginated tables, filtered lists, search results, and cursor feeds are ordinary resources in v1 (they do not wait for "infinite resources"). The pattern: include every filter, sort, page, cursor, and server-visible option in params; tag both the list identity and any returned item identities; keep old data visible while a new page/filter resource is first-loading when the route/resource declaration opts into `:keep-previous?`. The public `:rf/resource` projection makes the distinction explicit:
 
 ```clojure
 {:status :loading
@@ -1408,7 +1408,7 @@ A load-more in flight is the derived **`:fetching-next?`** subscription (below) 
 
 ### Subscription contract: the merged list and page metadata (R3)
 
-The existing `:rf.resource/state` / `:data` / `:status` / `:loading?` / `:fetching?` / `:stale?` / `:error` / `:refresh-error` / `:has-data?` family all apply to an infinite feed — but `:rf.resource/data` returns the **raw page vector**, which is rarely what a feed view wants. The artefact adds a small infinite-specific projection family, all passive, all derived (never stored), and **framework-owned + memoised** (the merge is a pure derivation the framework owns once, not an ordinary app sub over `:pages`):
+The existing `:rf/resource` / `:data` / `:status` / `:loading?` / `:fetching?` / `:stale?` / `:error` / `:refresh-error` / `:has-data?` family all apply to an infinite feed — but `:rf.resource/data` returns the **raw page vector**, which is rarely what a feed view wants. The artefact adds a small infinite-specific projection family, all passive, all derived (never stored), and **framework-owned + memoised** (the merge is a pure derivation the framework owns once, not an ordinary app sub over `:pages`):
 
 ```clojure
 ;; The merged / flattened list — the everyday feed read (the HEADLINE).
@@ -1427,7 +1427,7 @@ The existing `:rf.resource/state` / `:data` / `:status` / `:loading?` / `:fetchi
 [:rf.resource/page-error     {:resource … :scope … :params …}]   ;; last load-more failure
 ```
 
-And a combined infinite view-model (the feed analogue of `:rf.resource/state`):
+And a combined infinite view-model (the feed analogue of `:rf/resource`):
 
 ```clojure
 @(rf/subscribe [:rf.resource/infinite-state {:resource :feed/timeline :scope … :params …}])
@@ -1642,7 +1642,7 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
 
 (rf/reg-view article-page []
   (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
-        state @(rf/subscribe [:rf.resource/state
+        state @(rf/subscribe [:rf/resource
                               {:resource :article/by-slug
                                :scope    {:from-db :realworld/session}
                                :params   {:slug slug}}])]
@@ -1655,7 +1655,7 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
              (when (:refresh-error state)  [refresh-error (:refresh-error state)])])))
 ```
 
-The view is passive; the route caused the ensure; the runtime owns the state. The registration `:scope`, the route entry `:scope`, and the subscription `:scope` all reference the **same** named resolver `{:from-db :realworld/session}` — the one scope-resolution currency. The subscription re-resolves its scoped key reactively when the resolver's `:db` inputs change ([§A `{:from-db …}` subscription re-keys](#from-db-subscription-re-keying)), so the view tracks the current principal without re-subscribing. The booleans the `cond` reads — `:loading?` / `:fetching?` / `:has-data?` — are derived values projected onto the aggregate `:rf.resource/state` map (and are also available as the scalar `:rf.resource/loading?` / `:rf.resource/fetching?` / … subs, [§Subscriptions (passive)](#subscriptions-passive)); the durable entry stores only the underlying facts ([§Status semantics](#status-semantics)).
+The view is passive; the route caused the ensure; the runtime owns the state. The registration `:scope`, the route entry `:scope`, and the subscription `:scope` all reference the **same** named resolver `{:from-db :realworld/session}` — the one scope-resolution currency. The subscription re-resolves its scoped key reactively when the resolver's `:db` inputs change ([§A `{:from-db …}` subscription re-keys](#from-db-subscription-re-keying)), so the view tracks the current principal without re-subscribing. The booleans the `cond` reads — `:loading?` / `:fetching?` / `:has-data?` — are derived values projected onto the aggregate `:rf/resource` map (and are also available as the scalar `:rf.resource/loading?` / `:rf.resource/fetching?` / … subs, [§Subscriptions (passive)](#subscriptions-passive)); the durable entry stores only the underlying facts ([§Status semantics](#status-semantics)).
 
 ### Event-driven ensure
 

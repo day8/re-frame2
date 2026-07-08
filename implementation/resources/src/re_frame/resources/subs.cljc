@@ -4,7 +4,7 @@
   semantics.
 
   Subscriptions are PURE passive reads (Spec 016: \"No v1 subscription
-  fetches\"): a view reads a resource through `[:rf.resource/state …]` (or
+  fetches\"): a view reads a resource through `[:rf/resource …]` (or
   a narrower projection like `[:rf.resource/data …]`); route entry,
   events, and machines CAUSE the fetch. A resource sub resolves its scope
   per Spec 016 §Subscription-side scope resolution (payload `:scope`, or a
@@ -187,7 +187,7 @@
   the first such scope, or nil when no other scope for this resource is active.
 
   rf2-tluunj — visits ONLY entries that currently hold an active owner, via the
-  `owner-index` (`{<owner> #{<key-id> …}}`), so a `:rf.resource/state` sub
+  `owner-index` (`{<owner> #{<key-id> …}}`), so a `:rf/resource` sub
   recompute never scans the WHOLE `:entries` map. The heuristic only ever
   fires on an ACTIVE entry (`entry-active?`), and an entry is active IFF it is
   a member of some owner-index bucket, so the owner-index members are exactly
@@ -331,7 +331,7 @@
       {:previous? false})))
 
 (defn state-sub-fn
-  "Project the public `:rf.resource/state` view-model from a durable
+  "Project the public `:rf/resource` view-model from a durable
   entry: the stored facts plus the DERIVED booleans (`:loading?` /
   `:fetching?` / `:stale?` / `:has-data?`) computed here, never stored,
   plus the `:keep-previous?` previous-data projection (Spec 016 §Paginated
@@ -612,7 +612,7 @@
 
 (defn infinite-state-sub-fn
   "Project `:rf.resource/infinite-state` — the combined infinite view-model
-  (the feed analogue of `:rf.resource/state`): the merged `:items`, the raw
+  (the feed analogue of `:rf/resource`): the merged `:items`, the raw
   `:pages`, `:page-count`, `:has-next-page?` / `:has-prev-page?`, the DERIVED
   `:loading?` / `:fetching?` / `:fetching-next?` / `:stale?` / `:has-data?`,
   and the three error channels (`:error` first-load / `:refresh-error`
@@ -668,7 +668,7 @@
   runtime-db cache writes. Output `=` memoisation keeps the sub quiet when
   neither the resolved scoped key nor the read entry changed."
   []
-  (subs/reg-frame-state-sub :rf.resource/state
+  (subs/reg-frame-state-sub :rf/resource
     {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); raises :rf.error/resource-sub-unresolved-scope rather than reading global / returning a silent :idle. Per Spec 016 §Subscriptions."}
     state-sub-fn)
   (subs/reg-frame-state-sub :rf.resource/data
@@ -724,6 +724,6 @@
     {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
     page-error-sub-fn)
   (subs/reg-frame-state-sub :rf.resource/infinite-state
-    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf.resource/state, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry. Per Spec 016 §Subscription contract (R3)."}
+    {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry. Per Spec 016 §Subscription contract (R3)."}
     infinite-state-sub-fn)
   nil)

@@ -84,12 +84,12 @@ Navigate to an article page with [Xray](../core/glossary.md#xray) (the dev inspe
 
 ## Read it from a view
 
-A view reads the entry passively, through an ordinary subscription, and never fetches. The `:rf.resource/state` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show:
+A view reads the entry passively, through an ordinary subscription, and never fetches. The `:rf/resource` subscription hands you a single ready-to-render map — a *view-model* carrying everything the view needs to decide what to show:
 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view article-page [slug]
-  (let [state @(rf/subscribe [:rf.resource/state {:resource :realworld/article
+  (let [state @(rf/subscribe [:rf/resource {:resource :realworld/article
                                                   :params   {:slug slug}}])]
     (cond
       (:loading? state)                              [article-skeleton]
@@ -119,13 +119,13 @@ Those three steps you just wrote are three different jobs, and the whole surface
 |---|---|---|---|
 | **Register** | Declare the handler, once, at boot | `(rf/reg-resource …)` / `(rf/reg-mutation …)` — plain functions | Author |
 | **Cause** | Make a fetch or a write happen | `(rf/dispatch [:rf.resource/ensure …])`, `[:rf.mutation/execute …]` — event vectors | Routes, events, machines |
-| **Project (app read)** | Read the runtime state into a view | `@(subscribe [:rf.resource/state …])` — subscription vectors | Views |
+| **Project (app read)** | Read the runtime state into a view | `@(subscribe [:rf/resource …])` — subscription vectors | Views |
 
 A route's `:resources` is one *cause* spelling; dispatching `[:rf.resource/ensure {:resource :realworld/article :params {:slug "welcome"} :cause [:event :article/opened]}]` from an event handler is another. Both make the same entry fetch.
 
 ## What a view sees: five statuses
 
-The `:rf.resource/state` subscription projects one view-model with five statuses. Learn these five and the render `cond` above stops being mysterious:
+The `:rf/resource` subscription projects one view-model with five statuses. Learn these five and the render `cond` above stops being mysterious:
 
 | `:status` | Meaning | Show |
 |---|---|---|
@@ -147,10 +147,10 @@ The derived booleans — `:loading?`, `:fetching?`, `:has-data?`, `:stale?` — 
 
 You now have the working loop. Here is the rest of the vocabulary, in one place, for when the simple case isn't enough.
 
-**Reads** are subscription vectors — all passive, all taking the same `{:resource :scope :params}` key. `:rf.resource/state` is the one you'll reach for most, but the narrower projections exist so a view can subscribe to *just* the fact it cares about and re-render only when *that* fact changes:
+**Reads** are subscription vectors — all passive, all taking the same `{:resource :scope :params}` key. `:rf/resource` is the one you'll reach for most, but the narrower projections exist so a view can subscribe to *just* the fact it cares about and re-render only when *that* fact changes:
 
 ```clojure
-[:rf.resource/state         {:resource … :scope … :params …}]  ;; the whole view-model
+[:rf/resource         {:resource … :scope … :params …}]  ;; the whole view-model
 [:rf.resource/data          {:resource … :scope … :params …}]  ;; just :data
 [:rf.resource/status        {:resource … :scope … :params …}]  ;; the status keyword
 [:rf.resource/loading?      {:resource … :scope … :params …}]
@@ -261,7 +261,7 @@ The resolver is pure, and its declared `:inputs` are the app-db facts that decid
 
 There's one honest consequence of "subscriptions are passive": a re-keyed subscription does not fetch. The new viewer's data loads only when something *causes* it — usually the route re-entering after login. If your app switches viewer with *no* route change (a cold-boot session restore, say), dispatch an explicit `:rf.resource/ensure` under the new scope, carrying an app-minted owner lease with a matching release at logout so the entry stays alive. Without that lease, the entry just sits at `:idle`.
 
-There is a third `:scope` policy for the resource that legitimately has *no* fixed answer of its own — **`:rf.scope/from-caller`**. Instead of declaring `:rf.scope/global` or naming a resolver, the resource *defers the scope to its use site*: every `ensure` / refetch / `:rf.resource/state` call MUST supply `:scope` on the payload (or a route resolver must supply it). This suits a reusable read that different callers legitimately scope differently — the resource owns no scope policy, so it demands one at every call. It keeps the same fail-closed floor: a `from-caller` resource reached with no payload `:scope` and no route resolver is a loud use-time error, `:rf.error/resource-scope-required-from-caller` — never a silent global read.
+There is a third `:scope` policy for the resource that legitimately has *no* fixed answer of its own — **`:rf.scope/from-caller`**. Instead of declaring `:rf.scope/global` or naming a resolver, the resource *defers the scope to its use site*: every `ensure` / refetch / `:rf/resource` call MUST supply `:scope` on the payload (or a route resolver must supply it). This suits a reusable read that different callers legitimately scope differently — the resource owns no scope policy, so it demands one at every call. It keeps the same fail-closed floor: a `from-caller` resource reached with no payload `:scope` and no route resolver is a loud use-time error, `:rf.error/resource-scope-required-from-caller` — never a silent global read.
 
 ??? info "Coming from TanStack Query?"
 
@@ -360,7 +360,7 @@ The route example earlier ensured a single resource. A real page often needs sev
 | `:keep-previous?` | Keep the prior key's data visible while the new one first-loads — see below. |
 | `:id` / `:after` | A route-local id, and a `#{id …}` set ordering the *ensure-dispatch* of dependent entries. |
 
-`:keep-previous? true` on a paginated list keeps the prior page visible while the next one loads, so paging never flashes a skeleton ([Paginate a feed](how-to/paginate-a-feed.md) is the recipe). The prior data arrives in the new entry's `:rf.resource/state` projection as `:previous?`, `:previous-key`, and `:previous-data` — a *read* from the old key, never merged into the new entry, so it can't pollute the new key's tags.
+`:keep-previous? true` on a paginated list keeps the prior page visible while the next one loads, so paging never flashes a skeleton ([Paginate a feed](how-to/paginate-a-feed.md) is the recipe). The prior data arrives in the new entry's `:rf/resource` projection as `:previous?`, `:previous-key`, and `:previous-data` — a *read* from the old key, never merged into the new entry, so it can't pollute the new key's tags.
 
 ??? info "Coming from TanStack Query?"
 
@@ -431,12 +431,12 @@ Invalidation timing is explicit via **`:invalidate-timing`** — `:after-success
   :reply-to [:favorite/replied slug]}]  ;; optional continuation (below)
 ```
 
-A view reads the instance's progress through `:rf.mutation/state` (or the narrower `:rf.mutation/pending?` / `:result` / `:error`) — the whole-instance view-model:
+A view reads the instance's progress through `:rf/mutation` (or the narrower `:rf.mutation/pending?` / `:result` / `:error`) — the whole-instance view-model:
 
 ```clojure
 ;; Adapted from examples/real-apps/realworld_resources/views.cljs
 (rf/reg-view favorite-button [slug]
-  (let [m @(rf/subscribe [:rf.mutation/state {:instance [:favorite slug]}])]
+  (let [m @(rf/subscribe [:rf/mutation {:instance [:favorite slug]}])]
     [:button {:disabled (:pending? m)
               :on-click #(dispatch [:rf.mutation/execute
                                     {:mutation :realworld/favorite
@@ -450,7 +450,7 @@ A view reads the instance's progress through `:rf.mutation/state` (or the narrow
        :else         "Favorite")]))
 ```
 
-`:rf.mutation/state` projects `{:status :result :error :pending? :success? :error? :settled? :optimistic?}`. A failed write settles `:error` (there's no `:refresh-error` analogue — a write has no last-known-good to keep). `[:rf.mutation/clear {:instance …}]` is the causal reset: it clears the instance row and best-effort aborts in-flight work — the idiom for "dismiss this error and let the form retry cleanly."
+`:rf/mutation` projects `{:status :result :error :pending? :success? :error? :settled? :optimistic?}`. A failed write settles `:error` (there's no `:refresh-error` analogue — a write has no last-known-good to keep). `[:rf.mutation/clear {:instance …}]` is the causal reset: it clears the instance row and best-effort aborts in-flight work — the idiom for "dismiss this error and let the form retry cleanly."
 
 ??? note "Going deeper — `:reply-to` is a call-site event target, not a callback"
 
@@ -520,7 +520,7 @@ Resources lean hard on the [fail-loud](../core/glossary.md#fail-loud-not-silent)
 |---|---|---|
 | `:rf.error/resource-missing-scope-policy` | at `reg-resource` | You didn't declare `:scope`. "I forgot this read is user-scoped" is unrepresentable — say `:rf.scope/global` (a claim) or name a resolver. |
 | `:rf.error/resource-bad-spec` | at `reg-resource` | A malformed spec — usually `:request` left *inside* the metadata map (it's the third slot), or a missing/bad `:params-schema`, or a malformed `:sensitive` / `:large` path-vector. |
-| `:rf.error/resource-sub-unresolved-scope` | at a subscription | A `[:rf.resource/state …]` whose scope can't be resolved — pass `:scope` on the payload, the same scope the owning route/event ensured under. Never a silent `:idle`, never a silent global read. |
+| `:rf.error/resource-sub-unresolved-scope` | at a subscription | A `[:rf/resource …]` whose scope can't be resolved — pass `:scope` on the payload, the same scope the owning route/event ensured under. Never a silent `:idle`, never a silent global read. |
 | `:rf.error/resource-scope-unresolved-reference` | at an ensure / route site | The ensure/route counterpart to the sub-side error above: a `{:from-db <id>}` scope reference that resolved to `nil` against the current db (e.g. logged out) at a scope-*requiring* event or route. A derived scope that can't resolve is fail-closed — never a fall-through to global. |
 | `:rf.error/resource-invalidate-scope-required` | at `:rf.resource/invalidate-tags` | A bare invalidate with no scope. Name the scope, or opt into the audited `:cross-scope? true`. The fail-closed floor — never silently global. |
 | `:rf.error/resource-route-plan` | at a route with `:resources` | A route resource couldn't be planned — its params or scope didn't resolve, its params failed the schema, or a `:when` guard threw. Recorded on the route slice's `:error` (visible to the `:rf/route` sub and Xray) so navigation surfaces the failure instead of silently dropping the read. |

@@ -3,7 +3,7 @@
   mutation's pending / result / error state. Per Spec 016 §Deferred slices
   (mutations, first public-beta gate) and EP-0003 §Mutations.
 
-  A view reads a mutation instance through `[:rf.mutation/state {:instance
+  A view reads a mutation instance through `[:rf/mutation {:instance
   …}]` (or a narrower projection); `:rf.mutation/execute` causes the write.
   Subscriptions are PURE passive reads (mirroring the resource subs).
 
@@ -64,7 +64,7 @@
        (some? (-> instance :patch-summary :snapshot-id))))
 
 (defn state-sub-fn
-  "Project the public `:rf.mutation/state` view-model from a durable
+  "Project the public `:rf/mutation` view-model from a durable
   instance: the stored facts (`:status` / `:result` / `:error` /
   `:affected-keys`) plus the DERIVED booleans (`:pending?` / `:success?` /
   `:error?` / `:settled?` / `:optimistic?`) computed here, never stored.
@@ -117,7 +117,7 @@
   `re-frame.resources` façade so a `(require … :reload)` on a fresh
   registrar re-wires them. Per EP-0003 §Mutations."
   []
-  (subs/reg-runtime-sub :rf.mutation/state
+  (subs/reg-runtime-sub :rf/mutation
     {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}`, keyed by :instance id. The `:optimistic?` flag (EP-0019 Rider 1) is true while a live optimistic apply is showing (phase 1.5) and not yet settled. Per EP-0003 §Mutations."}
     state-sub-fn)
   (subs/reg-runtime-sub :rf.mutation/status

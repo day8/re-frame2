@@ -190,14 +190,14 @@ Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`,
 
 ## Step 4 — read the read, and handle every state it can be in
 
-The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf.resource/state` subscription — a [subscription](../../core/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale). It takes the `{:resource … :params …}` query and returns that map; it's the read the views below use.
+The data is fetching. Now the view reads it — passively, the same way it would read anything else. Views still never touch the cache directly. They read the `:rf/resource` subscription — a [subscription](../../core/glossary.md#subscription) being a read-only view into state that recomputes when that state changes — and what it hands back is a single ready-to-render map: the data, plus everything the view needs to know about *how* it's doing (loading, fetching, errored, stale). It takes the `{:resource … :params …}` query and returns that map; it's the read the views below use.
 
 Here's the rewritten home page. Read the resource, branch on its state:
 
 ```clojure
 ;; src/conduit/articles.cljs  (views; the subs and seed are gone)
 (reg-view home-page []
-  (let [state    @(rf/subscribe [:rf.resource/state {:resource :conduit/articles :params {}}])
+  (let [state    @(rf/subscribe [:rf/resource {:resource :conduit/articles :params {}}])
         articles (:articles (:data state))]
     [:div.home-page
      [:div.banner [:div.container [:h1.logo-font "conduit"]]]
@@ -218,7 +218,7 @@ That `cond` is the heart of this step. Each branch handles one state the feed ca
 
 ### The view-model: one fixed map
 
-`:rf.resource/state` returns a fixed map; here's every key it carries:
+`:rf/resource` returns a fixed map; here's every key it carries:
 
 ```clojure
 {:status        :idle | :loading | :fetching | :loaded | :error
@@ -248,7 +248,7 @@ You won't reach for the raw `:status` keyword much. The derived booleans — `:l
 
 !!! note "Don't want the whole map?"
 
-    `:rf.resource/state` is the workhorse, but there's a narrower sub for each field, taking the same `{:resource … :params …}` payload: `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, and `:rf.resource/previous-data`. A view that only needs the data reads `[:rf.resource/data {:resource … :params …}]` and re-renders only when *that* changes. They're projections of the same entry — pick the narrowest read the view actually uses.
+    `:rf/resource` is the workhorse, but there's a narrower sub for each field, taking the same `{:resource … :params …}` payload: `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, and `:rf.resource/previous-data`. A view that only needs the data reads `[:rf.resource/data {:resource … :params …}]` and re-renders only when *that* changes. They're projections of the same entry — pick the narrowest read the view actually uses.
 
 ### Failure: `:error` is for first-load only
 
@@ -296,7 +296,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
 ```clojure
 (reg-view article-page []
   (let [{:keys [slug]} @(subscribe [:rf.route/params])
-        state          @(rf/subscribe [:rf.resource/state {:resource :conduit/article :params {:slug slug}}])
+        state          @(rf/subscribe [:rf/resource {:resource :conduit/article :params {:slug slug}}])
         article        (:article (:data state))]
     (cond
       (and (:error state) (not (:has-data? state)))

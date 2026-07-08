@@ -145,7 +145,7 @@
 ;; The view does the simplest possible thing: it reads the resource through a
 ;; subscription and renders whatever's there. Reading never kicks off a fetch —
 ;; the preload (server) and the hydration (client) already warmed the cache, so
-;; the data is just sitting there waiting. `:rf.resource/state` is the
+;; the data is just sitting there waiting. `:rf/resource` is the
 ;; runtime's own subscription; it turns a cache entry into a tidy view-model —
 ;; a status flag and the data. Either side, the data is present by first render,
 ;; so there's no skeleton to flash. The same view code runs on both — the "one
@@ -153,7 +153,7 @@
 ;; See docs/ssr/glossary.md#render-to-string.
 
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  (let [state @(rf/subscribe [:rf.resource/state
+  (let [state @(rf/subscribe [:rf/resource
                               {:resource :articles/list
                                :scope    :rf.scope/global
                                :params   {}}])]

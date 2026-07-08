@@ -128,7 +128,7 @@ A resource splits cleanly into two halves: a **read** and a **cause**. The read 
                                  :cause    [:manual :checkout/opened]}]]
 
 ;; A view READS it passively — it never fetches.
-@(rf/subscribe [:rf.resource/state {:resource :article/by-slug :params {:slug "widget"}}])
+@(rf/subscribe [:rf/resource {:resource :article/by-slug :params {:slug "widget"}}])
 ;; → {:status :loaded :data {:title "Widget" :price 1200} :has-data? true ...}
 ```
 
@@ -144,7 +144,7 @@ Two ideas make a resource a resource. First, its **identity is the params**: `{:
 
     Get the scope wrong and you get a loud error, never a logged-out user quietly reading the previous user's data. There is no silent default scope — every resource declares its policy at registration, and a global cache is a deliberate, auditable claim (`:scope :rf.scope/global`), not a convenience hideaway. The policies you'll reach for: `:rf.scope/global` (the same params yield the same data for everyone — a public article), a resolver `{:from-db :app/session}` that derives the scope from the current viewer's identity (a per-user or per-tenant cache), or `:rf.scope/from-caller` (every `ensure`/`refetch`/`state` call must supply `:scope` itself). Treat scope as a security boundary, not a tuning knob.
 
-Reads are a small, passive family of subscriptions — you never poke at the raw cache. `[:rf.resource/state …]` is the aggregate projection shown above; when you want one fact, the scalar subs are `[:rf.resource/data …]`, `[:rf.resource/status …]`, `[:rf.resource/loading?]`, `[:rf.resource/fetching?]`, `[:rf.resource/stale?]`, `[:rf.resource/error]`, `[:rf.resource/refresh-error]`, and `[:rf.resource/has-data?]`. They keep the `:loading` / `:loaded` / `:error` distinction honest for you, so a view never has to infer "stale data plus a refresh warning" out of raw fields:
+Reads are a small, passive family of subscriptions — you never poke at the raw cache. `[:rf/resource …]` is the aggregate projection shown above; when you want one fact, the scalar subs are `[:rf.resource/data …]`, `[:rf.resource/status …]`, `[:rf.resource/loading?]`, `[:rf.resource/fetching?]`, `[:rf.resource/stale?]`, `[:rf.resource/error]`, `[:rf.resource/refresh-error]`, and `[:rf.resource/has-data?]`. They keep the `:loading` / `:loaded` / `:error` distinction honest for you, so a view never has to infer "stale data plus a refresh warning" out of raw fields:
 
 ```clojure
 ;; First-load failure — no data ever arrived.

@@ -764,16 +764,16 @@
   (testing "no instance — idle empty-state (incl. EP-0019 :optimistic? false)"
     (is (= :idle @(rf/subscribe [:rf.mutation/status {:instance :sub1}])))
     (is (false? @(rf/subscribe [:rf.mutation/pending? {:instance :sub1}])))
-    (is (false? (:optimistic? @(rf/subscribe [:rf.mutation/state {:instance :sub1}])))))
+    (is (false? (:optimistic? @(rf/subscribe [:rf/mutation {:instance :sub1}])))))
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :sub1}])
   (testing ":pending while in flight — a PESSIMISTIC write is :optimistic? false"
     (is (= :pending @(rf/subscribe [:rf.mutation/status {:instance :sub1}])))
     (is (true? @(rf/subscribe [:rf.mutation/pending? {:instance :sub1}])))
-    (is (false? (:optimistic? @(rf/subscribe [:rf.mutation/state {:instance :sub1}])))
+    (is (false? (:optimistic? @(rf/subscribe [:rf/mutation {:instance :sub1}])))
         "no :optimistic plan → no live optimistic value"))
   (reply-success! @last-managed-args {:saved true})
   (testing ":success settles the result"
-    (let [st @(rf/subscribe [:rf.mutation/state {:instance :sub1}])]
+    (let [st @(rf/subscribe [:rf/mutation {:instance :sub1}])]
       (is (= :success (:status st)))
       (is (:success? st))
       (is (:settled? st))
