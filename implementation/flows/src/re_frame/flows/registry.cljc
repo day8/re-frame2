@@ -475,6 +475,14 @@
      {:recovery :fix-registration
       :extra    (merge {:flow flow} extras)})))
 
+;; Forward reference: `runtime-partition-key` (the reserved `:rf.db/runtime`
+;; partition const) is defined below with the input-side partition primitives
+;; it co-documents. `validation-rules` only READS it at call time (when
+;; `validate-flow` runs a pred), by which point the ns is fully loaded; the
+;; `declare` also suppresses the CLJS undeclared-var warning. Same forward-ref
+;; idiom this ns already uses for `vacate-output-path!`.
+(declare runtime-partition-key)
+
 ;; The validation rules, in evaluation order. Each rule has a predicate
 ;; over the flow map (returns truthy to accept), a stable `:error-kw`
 ;; discriminator, a `:reason` diagnostic, and optional `:extras` that
@@ -535,6 +543,28 @@
     :error-kw :rf.error/flow-bad-path
     :reason   ":output-path elements must each be a path segment (the shared EP-0012 segment domain: keyword / string / symbol / boolean / integer / UUID / instant / nil)"
     :extras   (fn [flow] {:bad-elements (vec (remove valid-path-element? (:output-path flow)))})}
+
+   ;; A well-formed `:output-path` may NOT be rooted at the reserved runtime-db
+   ;; partition key (`:rf.db/runtime`). That leading key is reserved for the
+   ;; INPUT side — `runtime-input?` opts a flow input into the runtime-db
+   ;; partition — whereas a flow OUTPUT is always an app-db write:
+   ;; `evaluate-flow!` (flows.cljc) `assoc-in`s the derived value into the
+   ;; app-db partition, so a `[:rf.db/runtime …]` output would write the
+   ;; reserved partition key INSIDE app-db. This enforces at the registration
+   ;; boundary the invariant asserted in prose at flows.cljc §output-path (an
+   ;; app-db output can never prefix-collide with a runtime-db input), closing
+   ;; the namespace-squat / spurious-topo-edge / false-cycle footguns. Distinct
+   ;; from the `:rf.error/flow-bad-path` shape family — the path is well-formed,
+   ;; it just names a reserved partition — so it carries its own discriminator.
+   ;; Fires AFTER the shape rules above confirm a non-empty vector of valid
+   ;; segments, so `(first (:output-path flow))` is a real leading segment.
+   {:pred     (fn [flow] (not= runtime-partition-key (first (:output-path flow))))
+    :error-kw :rf.error/flow-reserved-output-path
+    :reason   (str ":output-path may not be rooted at the reserved runtime-db partition key "
+                   ":rf.db/runtime — a leading :rf.db/runtime is reserved for a runtime-db INPUT; "
+                   "a flow output is always an app-db write, so a :rf.db/runtime-rooted output "
+                   "would write the reserved partition key inside app-db")
+    :extras   (fn [flow] {:bad-elements [(first (:output-path flow))]})}
 
    ;; The OPTIONAL output data-classification keys (`:sensitive` / `:large`
    ;; per-path vectors; `:large?` whole-output boolean) are validated FAIL-FAST.

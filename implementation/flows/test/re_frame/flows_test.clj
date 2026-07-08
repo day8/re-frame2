@@ -25,6 +25,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            [re-frame.flows.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace]))
 
@@ -485,6 +486,46 @@
           "error id is :rf.error/flow-bad-path")
       (is (= [[:nested]] (:bad-elements (ex-data ex)))
           "ex-data names the offending element(s)"))))
+
+(defn- flow-reserved-output-path? [^Throwable t]
+  (= :rf.error/flow-reserved-output-path (:rf.error/id (ex-data t))))
+
+(deftest reg-flow-rejects-runtime-partition-rooted-output-path
+  ;; rf2-923gl4 — a flow `:output-path` may NOT be rooted at the reserved
+  ;; runtime-db partition key (`:rf.db/runtime`). The leading key is reserved
+  ;; for the INPUT side (`runtime-input?`); a flow output is always an app-db
+  ;; write, and `evaluate-flow!` `assoc-in`s the derived value into the app-db
+  ;; partition — so a `[:rf.db/runtime …]` output would write the reserved key
+  ;; INSIDE app-db, enabling namespace-squat / spurious-topo-edge / false-cycle
+  ;; footguns and leaving the flows.cljc prose invariant unenforced. Pre-fix
+  ;; the registration was accepted; the rule rejects it at the API boundary.
+  (testing "a multi-segment :rf.db/runtime-rooted :output-path is rejected"
+    (let [ex (try
+               (rf/reg-flow :bad {:inputs [[:n]] :output-path [registry/runtime-partition-key :cur]} identity)
+               (catch Throwable t t))]
+      (is (some? ex) "registration threw")
+      (is (flow-reserved-output-path? ex)
+          "error id is :rf.error/flow-reserved-output-path (distinct from the flow-bad-path shape family)")
+      (is (= 'rf/reg-flow (:where (ex-data ex))) ":where names the user-facing surface")
+      (is (= :fix-registration (:recovery (ex-data ex))) ":recovery names the disposition")
+      (is (= [registry/runtime-partition-key] (:bad-elements (ex-data ex)))
+          "ex-data names the offending leading segment")
+      (is (re-find #":rf\.db/runtime" (:reason (ex-data ex)))
+          ":reason names the reserved partition key")))
+  (testing "a single-segment [:rf.db/runtime] :output-path is likewise rejected"
+    (let [ex (try
+               (rf/reg-flow :bad2 {:inputs [[:n]] :output-path [registry/runtime-partition-key]} identity)
+               (catch Throwable t t))]
+      (is (flow-reserved-output-path? ex)
+          "a bare [:rf.db/runtime] output-path is rejected too")))
+  (testing ":rf.db/runtime is legal DEEPER in an output-path (only the leading
+            position is reserved — it names an ordinary app-db key there)"
+    ;; The reservation is positional: only a LEADING :rf.db/runtime confuses
+    ;; the topo/dirty-check partition logic. A :rf.db/runtime key nested under
+    ;; a real app-db root is just an ordinary keyword key and must still pass.
+    (is (some? (rf/reg-flow :deep {:inputs [[:n]] :output-path [:app registry/runtime-partition-key]} identity))
+        "a non-leading :rf.db/runtime segment registers cleanly")
+    (flows/clear-flow :deep)))
 
 (deftest reg-flow-accepts-shared-domain-path-elements
   (testing "path elements across the SHARED EP-0012 segment domain all pass
