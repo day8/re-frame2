@@ -37,6 +37,11 @@
             ;; sub, and the `:rf.route/entry-blocked` redirect handler the
             ;; auth-gate tests exercise (rf2-p69yaz).
             [realworld-http.routing]
+            ;; Pagination pure helpers (page->offset / page-count / query-string /
+            ;; paginate-path) exercised directly by the pagination-helpers test
+            ;; (rf2-yt7ay6). The example source stays test-free; the assertions
+            ;; live here.
+            [realworld-http.http :as rh]
             [realworld-http.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -899,6 +904,101 @@
         "the JWT must be redacted from the SSR hydration payload")))
 
 ;; ============================================================================
+;; pagination — pure limit/offset helpers + the page-nav semantics (rf2-yt7ay6)
+;; ============================================================================
+;;
+;; Pagination is flagship Conduit behaviour and was entirely untested. Two
+;; halves: (1) the pure request-building maths (`page->offset` / `page-count` /
+;; `query-string` / `paginate-path` in http.cljs) — clamps and URL-encoding
+;; edges that a hand-typed `?page=0` or a tag with a reserved query character
+;; would otherwise get wrong; and (2) the page-nav events (`:home/show-page` /
+;; `:profile/show-page`) which reset-to-page-1 on a fresh filter but carry the
+;; active feed / tag / route forward when only the page changes.
+
+(defn- pagination-helpers-test []
+  ;; page->offset: 1-indexed UI page → 0-based wire offset, sub-1 clamped to 1.
+  (is (= 0  (rh/page->offset nil)) "nil page clamps to page 1 → offset 0")
+  (is (= 0  (rh/page->offset 0))   "page 0 is not a thing → clamps to offset 0")
+  (is (= 0  (rh/page->offset -5))  "a negative page clamps up to page 1")
+  (is (= 0  (rh/page->offset 1))   "page 1 → offset 0")
+  (is (= 10 (rh/page->offset 2))   "page 2 → offset one page-size in")
+  (is (= 20 (rh/page->offset 3))   "page 3 → offset two page-sizes in")
+
+  ;; page-count: ceil(count / page-size), floored at 1 (an empty list is 1 page).
+  (is (= 1 (rh/page-count nil)) "nil count → 1 page")
+  (is (= 1 (rh/page-count 0))   "empty list is still one (empty) page")
+  (is (= 1 (rh/page-count 10))  "exactly one full page → 1")
+  (is (= 2 (rh/page-count 11))  "one over a full page → 2 pages")
+  (is (= 3 (rh/page-count 25))  "25 items at page-size 10 → 3 pages")
+
+  ;; query-string: nils dropped, empty → "" (never a bare "?"), values encoded.
+  (is (= "" (rh/query-string {})) "empty map yields \"\", not \"?\"")
+  (is (= "" (rh/query-string {:tag nil})) "an all-nil map still yields \"\"")
+  (is (= "?author=jake" (rh/query-string {:tag nil :author "jake"}))
+      "nil-valued params are dropped; the surviving one is emitted")
+  (is (= "?tag=a%20b" (rh/query-string {:tag "a b"}))
+      "a space is URL-encoded (not left raw)")
+  (is (= "?tag=a%26b%3Dc%23d" (rh/query-string {:tag "a&b=c#d"}))
+      "reserved query characters (& = #) are percent-encoded so they can't corrupt the query")
+
+  ;; paginate-path: path + optional filters + the limit/offset window for a page.
+  ;; Multi-key order isn't guaranteed, so assert on the (order-independent) parts.
+  (let [p (rh/paginate-path "/articles" nil 1)]
+    (is (str/starts-with? p "/articles?"))
+    (is (str/includes? p "limit=10"))
+    (is (str/includes? p "offset=0")))
+  (let [p (rh/paginate-path "/articles" {:tag "clojure"} 3)]
+    (is (str/includes? p "tag=clojure") "the filter rides the query")
+    (is (str/includes? p "limit=10"))
+    (is (str/includes? p "offset=20") "page 3 → offset 20")))
+
+(defn- pagination-nav-events-test []
+  (with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
+    ;; --- :home/show-page carries the active feed forward ---
+    ;; Global feed, then page 3: the home route, no ?feed=, ?page=3.
+    (rf/dispatch-sync [:home/show-global-feed] {:frame f})
+    (rf/dispatch-sync [:home/show-page 3] {:frame f})
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
+    (is (= 3 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f))))
+        "global feed page-nav sets ?page= on the home route")
+    (is (nil? (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f))))
+        "no feed was active, so ?feed= stays absent")
+
+    ;; Following feed, then page 2: the following token is carried forward.
+    (rf/dispatch-sync [:home/show-your-feed] {:frame f})
+    (rf/dispatch-sync [:home/show-page 2] {:frame f})
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
+    (is (= 2 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
+    (is (= "following" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f))))
+        "paging the following feed carries ?feed=following forward (you keep paging the same list)")
+
+    ;; --- :home/show-page carries the active tag forward (re-aims at /tag/:tag) ---
+    (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
+    (rf/dispatch-sync [:home/show-page 2] {:frame f})
+    (is (= :realworld/home-tag (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "paging a tag-filtered list re-aims at the /tag/:tag PATH route")
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/params] (rf/frame-state-value f))))
+        "the tag param is preserved so paging stays inside the tag")
+    (is (= 2 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
+
+    ;; --- :profile/show-page stays on the same tab + username, swaps only ?page= ---
+    (rf/dispatch-sync [:rf.route/navigate :realworld.profile/show {:username "eve"}] {:frame f})
+    (rf/dispatch-sync [:profile/show-page 2] {:frame f})
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "profile page-nav stays on the same (authored) tab")
+    (is (= "eve" (:username (rf/compute-sub [:rf.route/params] (rf/frame-state-value f))))
+        "the profile username is unchanged")
+    (is (= 2 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
+
+    ;; The favorites tab pages independently, still on its own route.
+    (rf/dispatch-sync [:rf.route/navigate :realworld.profile/favorites {:username "eve"}] {:frame f})
+    (rf/dispatch-sync [:profile/show-page 3] {:frame f})
+    (is (= :realworld.profile/favorites (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "the favorites tab stays on the favorites route when paging")
+    (is (= 3 (:page (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
+
+;; ============================================================================
 ;; core — top-level smoke: boots the app, checks per-feature initialisers
 ;; populate the expected slices.
 ;; ============================================================================
@@ -992,6 +1092,12 @@
 (deftest realworld-ssr
   (testing "hydration-payload selects the SSR-safe slice keys"
     (hydration-payload-test)))
+
+(deftest realworld-pagination
+  (testing "pure helpers: page->offset / page-count / query-string / paginate-path edges (rf2-yt7ay6)"
+    (pagination-helpers-test))
+  (testing "page-nav events carry the active feed / tag / route forward (rf2-yt7ay6)"
+    (pagination-nav-events-test)))
 
 (deftest realworld-core-smoke
   (testing "app boot populates :auth, :articles, and :tags slices"
