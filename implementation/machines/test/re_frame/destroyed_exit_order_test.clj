@@ -153,7 +153,7 @@
            :data    {}
            :states  {:working {:spawn {:machine-id :eo/final-child}}}})
         (rf/dispatch-sync [:eo/final-parent [:rf.machine.spawn/spawned]])
-        (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+        (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :spawned :eo/final-parent [:working]])]
           (rf/dispatch-sync [spawned-id [:finish]]))
         (is (= [:exit :destroyed] @log)

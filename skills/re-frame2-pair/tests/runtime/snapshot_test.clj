@@ -34,8 +34,10 @@
 ;; frame-id.
 
 ;; Machine snapshots are RUNTIME-DB-partition state. The fixture carries a
-;; `:runtime-db` partition per frame (read via `rf/runtime-db-value` in
-;; production); the `:machines` slice sources its `:state` from
+;; `:runtime-db` partition per frame (read via
+;; `(:rf.db/runtime (rf/frame-state-value frame-id))` in production —
+;; rf2-t3lftq API-shrink #3 retired the dedicated `rf/runtime-db-value`
+;; reader); the `:machines` slice sources its `:state` from
 ;; `[:rf.runtime/machines :snapshots]` there, NOT from app-db `:rf/runtime`.
 ;; KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
 (def fixture-frames

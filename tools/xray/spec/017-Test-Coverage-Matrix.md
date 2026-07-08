@@ -230,7 +230,7 @@ a cross-frame flip + a per-track frame-snapshot read off the
 `:machine/<track>` frame's **runtime-db** partition (machine snapshots
 are durable framework runtime-db state at `[:rf.runtime/machines
 :snapshots <machine-id>]` per EP-0001 / `re-frame.machines.paths`, read
-via `re-frame.core/runtime-db-value` — NOT app-db, and not
+via `(:rf.db/runtime (re-frame.core/frame-state-value id))` — NOT app-db, and not
 `:rf/default`).
 
 **Localized runner.** The multi-track / frame-per-machine machinery is

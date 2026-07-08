@@ -56,7 +56,7 @@
 (defn- snapshot
   "The live snapshot for `machine-id` in the default frame's runtime-db."
   [machine-id]
-  (get-in (rf/runtime-db-value :rf/default)
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :snapshots machine-id]))
 
 ;; ---- (1) adversarial: a bad escape-hatch :data patch is rejected ----------

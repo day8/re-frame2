@@ -1803,12 +1803,12 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame       :keyword]
    [:rf.epoch/id :any]])
 
-;; --- Tool-Pair §Pair-tool writes — partition-aware injection (replace-app-db! et al.) ---
+;; --- Tool-Pair §Pair-tool writes — partial-map injection (replace-frame-state!) ---
 
 (def DbReplacedTags
   ;; :rf.epoch/db-replaced — fired by a pair-tool injection
-  ;; (replace-app-db! / reset-app-db! / replace-runtime-db! /
-  ;; replace-frame-state!) on the success path. :op-type :rf.epoch
+  ;; (replace-frame-state!, the ONE partial-map mutator — rf2-t3lftq
+  ;; API-shrink #3) on the success path. :op-type :rf.epoch
   ;; (not :error). Carries the synthetic record's epoch-id so consumers
   ;; can correlate the trace with the recorded epoch in epoch-history.
   [:map
@@ -1835,6 +1835,18 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category      :keyword]
    [:frame         :keyword]
    [:failing-paths [:vector :any]]])
+
+(def ReplaceFrameStateBadKeysTags
+  ;; :rf.error/replace-frame-state-bad-keys — failure mode
+  ;; (rf2-t3lftq, API-shrink #3): the caller's frame-state map carried no
+  ;; recognized partition key (:no-recognized-keys), or carried an
+  ;; unrecognized key (:unknown-keys) — checked BEFORE frame resolution,
+  ;; so :frame may name an unregistered frame. :keys is the caller-
+  ;; supplied map's key set.
+  [:map
+   [:frame  :keyword]
+   [:reason [:enum :no-recognized-keys :unknown-keys]]
+   [:keys   [:vector :any]]])
 
 ;; --- Tool-Pair §Surface behaviour against destroyed frames ---
 

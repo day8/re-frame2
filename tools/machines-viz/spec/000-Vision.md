@@ -101,7 +101,7 @@ exports:
    surface; substrates' adapters re-export) that renders a
    directional state-chart for one registered machine. It reads
    the runtime-db slot `[:rf.runtime/machines :snapshots <id>]` (via the
-   `[:rf/machine <id>]` sub / `runtime-db-value`) for live-highlight and subscribes to the
+   `[:rf/machine <id>]` sub / `(:rf.db/runtime (frame-state-value id))`) for live-highlight and subscribes to the
    Spec 009 trace stream for transition / microstep / timer /
    invoke-all granularity.
 2. **The read-only viewer page.** A statically hostable single-file
@@ -183,7 +183,7 @@ must tell."
 
 | re-frame2 capability | Machines-Viz surface |
 |---|---|
-| **`[:rf.runtime/machines :snapshots <id>]` snapshot location** in runtime-db (Spec 005) | Live-highlight reads the snapshot via the `[:rf/machine <id>]` sub / `runtime-db-value`; deref drives node-pulse on the active state. |
+| **`[:rf.runtime/machines :snapshots <id>]` snapshot location** in runtime-db (Spec 005) | Live-highlight reads the snapshot via the `[:rf/machine <id>]` sub / `(:rf.db/runtime (frame-state-value id))`; deref drives node-pulse on the active state. |
 | **`:rf.machine/transition` trace events** (Spec 009) | Edges glow on the matching event; the chart animates the from→to transition. |
 | **`:rf.machine.microstep/transition`** | Microstep-granular replay within an `:always`-driven cascade; intermediate states render with a "microstep" badge. |
 | **`:rf.machine.timer/*` events** | `:after`-bearing states render a countdown ring; the ring fills at 60Hz when the panel is visible. |

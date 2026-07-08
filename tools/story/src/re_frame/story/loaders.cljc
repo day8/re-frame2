@@ -206,11 +206,12 @@
   EP-0001: machine snapshots are durable framework state and
   live in the `:rf.db/runtime` partition at
   `[:rf.runtime/machines :snapshots <machine-id>]`, NOT in app-db.
-  `rf/runtime-db-value` returns the value-form runtime-db map (per Spec 002
-  §Public registrar query API); we then `get-in` to the machine's snapshot
-  slot."
+  `(:rf.db/runtime (rf/frame-state-value frame-id))` returns the
+  value-form runtime-db map (rf2-t3lftq — API-shrink #3 retired the
+  dedicated `rf/runtime-db-value` reader); we then `get-in` to the
+  machine's snapshot slot."
   [frame-id]
-  (let [rt (rf/runtime-db-value frame-id)]
+  (let [rt (:rf.db/runtime (rf/frame-state-value frame-id))]
     (when rt
       (get-in rt [:rf.runtime/machines :snapshots lifecycle-machine-id]))))
 

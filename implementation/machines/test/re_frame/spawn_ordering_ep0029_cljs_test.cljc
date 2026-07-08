@@ -47,7 +47,7 @@
 
 (defn- spawned-id-for
   [parent-id invoke-id]
-  (get-in (rf/runtime-db-value :rf/default)
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 ;; ---- (1) two :spawn nodes entered in ONE cascade allocate in --------------
@@ -117,7 +117,7 @@
     (rf/dispatch-sync [:ord2/parent [:fan-out]])
     ;; The join-state records each child id under its declared :id key; the
     ;; allocation order is reflected in the per-TYPE counter (#1/#2/#3).
-    (let [children (get-in (rf/runtime-db-value :rf/default)
+    (let [children (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/machines :spawned :ord2/parent [:hydrating] :children])]
       (is (= :ord2/leaf#1 (:first children))
           "first-declared child allocated #1")

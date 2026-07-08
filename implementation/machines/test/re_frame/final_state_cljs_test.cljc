@@ -83,7 +83,7 @@
                   :on-done (fn [{data :data result :result}] (assoc data :token-from-child result))}}}})
     (rf/dispatch-sync [:rf2-gn80/parent [:start]])
     ;; Now the child is spawned. Drive its :finish to enter :final?.
-    (let [spawned-id (-> (rf/runtime-db-value :rf/default)
+    (let [spawned-id (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                          (get-in [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))]
       (is (some? spawned-id)
           "child was spawned and bound in the registry")
@@ -93,7 +93,7 @@
           "the parent's :on-done ran against the child's :output-key slot")
       (is (nil? (snapshot spawned-id))
           "the child's snapshot was synchronously dissoc'd (D4 auto-destroy)")
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))
           "the [:rf.runtime/machines :spawned <parent> <invoke-id>] slot was cleared"))))
 
@@ -134,7 +134,7 @@
           {:spawn {:machine-id :rf2-gn80/child2
                     :on-done (fn [{d :data r :result}] (assoc d :reported r))}}}})
       (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/parent2 [:working]])]
         (rf/dispatch-sync [spawned-id [:finish 42]])
         (let [dones (traces-for traces :rf.machine/done)]
@@ -162,7 +162,7 @@
          {:working
           {:spawn {:machine-id :rf2-gn80/child3}}}})
       (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/parent3 [:working]])]
         (rf/dispatch-sync [spawned-id [:done]])
         (let [dests (traces-for traces :rf.machine/destroyed)
@@ -219,7 +219,7 @@
                                           (machines/machine-by-system-id :auth-actor))
                                   (assoc d :result r))}}}})
       (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/sid-parent [:working]])]
         (is (= spawned-id (machines/machine-by-system-id :auth-actor))
             ":system-id is bound while the child is running")
@@ -268,7 +268,7 @@
                                   (reset! seen-result r)
                                   d)}}}})
       (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/observer [:working]])]
         (rf/dispatch-sync [spawned-id [:fin]])
         (is (nil? @seen-result)
@@ -289,7 +289,7 @@
        {:working
         {:spawn {:machine-id :rf2-gn80/just-final}}}})
     (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine.spawn/spawned]])
-    (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+    (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/machines :spawned :rf2-gn80/silent-parent [:working]])]
       (rf/dispatch-sync [spawned-id [:fin]])
       (is (nil? (snapshot spawned-id))
@@ -364,7 +364,7 @@
                                (reset! seen-result r)
                                d)}}}})
       (rf/dispatch-sync [:rf2-gn80/par-observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/par-observer [:working]])]
         (is (some? spawned-id) "parallel child was spawned")
         ;; :fin is broadcast to both regions; both reach :final? → the child
@@ -402,7 +402,7 @@
                                (reset! seen-result r)
                                d)}}}})
       (rf/dispatch-sync [:rf2-gn80/par-conflict-observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/par-conflict-observer [:working]])]
         (rf/dispatch-sync [spawned-id [:fin]])
         (is (= :alpha/value @seen-result)
@@ -454,7 +454,7 @@
                                          {:data (assoc data :captured (nth ev 2))})}}}
           :errored {}}})
       (rf/dispatch-sync [:rf2-encnvn/par-err-parent [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-encnvn/par-err-parent [:working]])]
         (is (some? spawned-id) "parallel child was spawned")
         ;; :fin is broadcast to both regions; :alpha reaches its plain final and

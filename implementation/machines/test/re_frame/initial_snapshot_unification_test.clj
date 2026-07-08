@@ -106,7 +106,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (= :worker/proc#1 spawned-id) "(precondition) spawn happened")
@@ -132,7 +132,7 @@
       (rf/reg-machine :worker/proc child)
       (rf/reg-machine :sup/main parent)
       (rf/dispatch-sync [:sup/main [:start]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :sup/main [:working]])
             child-snap (snapshot spawned-id)]
         (is (some? child-snap) "(precondition) snapshot installed")

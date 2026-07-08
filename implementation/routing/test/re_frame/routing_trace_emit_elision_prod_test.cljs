@@ -120,7 +120,7 @@
     ;; Cross-check: the routing slice DID update (handler still runs;
     ;; only the trace surface elides).
     (is (= :prod-elision/landing
-           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "routing slice was populated — only the trace surface elided")))
 
 ;; ---- :rf.warning/malformed-url elides under prod -------------------------
@@ -163,7 +163,7 @@
           "no trace events delivered for the blocked navigation under prod"))
     ;; Cross-check: the pending-navigation slot WAS populated — the
     ;; guard branch ran; only its trace emit elided.
-    (is (some? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
+    (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
         ":rf/pending-navigation slot populated — handler ran, only trace elided")))
 
 ;; ---- :rf.warning/route-shadowed-by-equal-score elides under prod ---------

@@ -1259,7 +1259,7 @@
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/welcome")] {:frame f})
       (is (= {:id "welcome"} (rf/subscribe-once [params-sub] {:frame f}))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/runtime-db-value f) [:rf.runtime/routing :current :nav-token]))
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 (defn assert-routing-multi-frame
@@ -1796,7 +1796,7 @@
           (is (= 1 @r) "the app sub still derefs to the unchanged value")
           (is (= after-prime @runs)
               "the app-db layer-1 sub body did NOT re-run — the app-db projection stayed `=` on a runtime-only commit")
-          (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value fid))
+          (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value fid)))
               "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
         (rf/unsubscribe fid [app-id])))))
 
@@ -2137,7 +2137,7 @@
     ;; and that is now a fail-loud error). This test models a TOP-LEVEL boot, so
     ;; the setup drains synchronously and its seed is observable.
     (rf/reg-frame :booted {:initial-events [[:init-shape]]})
-    (is (= :armed (get-in (rf/runtime-db-value :booted) [:rf.runtime/machines :snapshots :flow/boot :state]))
+    (is (= :armed (get-in (:rf.db/runtime (rf/frame-state-value :booted)) [:rf.runtime/machines :snapshots :flow/boot :state]))
         ":initial-events completed against an installed adapter — runtime-db carries the seed")))
 
 (defn assert-xspec-machines-under-ssr
@@ -2225,7 +2225,7 @@
                           (= :throwy (get-in % [:tags :rf.fx/id]))) @traces)
               "the throwing fx surfaces as :rf.error/fx-handler-exception")
           (is (= [:b] @seen) ":fx walk continued past the throwing fx — :record still ran")
-          (is (= :done (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :test/m :state]))
+          (is (= :done (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
               "the machine snapshot committed even though a downstream :fx threw"))))))
 
 (defn assert-xspec-hot-reload-machine-action
@@ -2239,11 +2239,11 @@
           machine-v2 (assoc-in machine-v1 [:actions :tag] (fn [data _] {:data (assoc data :who :v2)}))]
       (rf/reg-machine :test/m machine-v1)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v1 (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :test/m :data :who]))
+      (is (= :v1 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :data :who]))
           "v1 action ran on the first dispatch")
       (rf/reg-machine :test/m machine-v2)
       (rf/dispatch-sync [:test/m [:go]])
-      (is (= :v2 (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :test/m :data :who]))
+      (is (= :v2 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :data :who]))
           "the next dispatched event resolves to the new action body"))))
 
 (defn assert-xspec-dispatch-sync-from-handler-raises
@@ -2267,16 +2267,16 @@
                    :states  {:idle {:on {:go {:target :working}}} :working {:on {:go {:target :idle}}}}}]
       (rf/reg-machine :test/m machine)
       (rf/dispatch-sync [:test/m [:go]])
-      (let [post-go-db (rf/runtime-db-value :rf/default)]
+      (let [post-go-db (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (is (= :working (get-in post-go-db [:rf.runtime/machines :snapshots :test/m :state])) "machine reached :working")
         ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
         ;; state — revert via the runtime-db PARTITION write (swap-runtime-db!).
         (frame/swap-runtime-db! :rf/default
           (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :test/m :state] :idle)))
-        (is (= :idle (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :test/m :state]))
+        (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
             "after the partition revert the snapshot reads back as :idle")
         (rf/dispatch-sync [:test/m [:go]])
-        (is (= :working (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :test/m :state]))
+        (is (= :working (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
             "re-dispatch after revert advances from the restored state")))))
 
 (defn assert-xspec-server-error-projection

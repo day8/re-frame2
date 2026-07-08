@@ -65,10 +65,12 @@
                   ; whole-value state injection, bypassing the normal
                   ; cascade. `replace-app-db` (re-frame2-pair) is gated
                   ; behind `--allow-writes`; it wraps the framework's
-                  ; `replace-app-db!` Tool-Pair write primitive (renamed
-                  ; from the former `reset-frame-db` — a db-shaped name
-                  ; must never silently replace runtime-db). Mirrors
-                  ; NAMING.md §The verb table `replace-<thing>` row.
+                  ; `replace-frame-state!` Tool-Pair write primitive as an
+                  ; app-only partial map (rf2-t3lftq — API-shrink #3
+                  ; consolidated the former `replace-app-db!` into this —
+                  ; a db-shaped key must never silently replace
+                  ; runtime-db). Mirrors NAMING.md §The verb table
+                  ; `replace-<thing>` row.
     "set"         ; rf2-zomfq — the SOLE catalogued `set-` carve-out:
                   ; `set-operating-frame` (re-frame2-pair) pins ONE named
                   ; session setting the Tool-Pair contract mandates under

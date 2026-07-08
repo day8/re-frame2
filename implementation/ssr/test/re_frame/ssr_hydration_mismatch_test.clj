@@ -105,7 +105,7 @@
           "post-hydrate :hydrated? reads true even though the baked
            hash will mismatch the (future) client render")
       (is (= "deadbeef"
-             (get-in (rf/runtime-db-value client-frame)
+             (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                      [:rf.runtime/ssr :hydration :server-hash]))
           "the deliberately-wrong :rf/render-hash is stashed verbatim
            for verify-hydration! to pick up"))))

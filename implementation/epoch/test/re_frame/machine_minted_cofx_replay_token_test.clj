@@ -61,7 +61,7 @@
                 (epoch/clear-epoch-listeners!))}))
 
 (defn- machine-state [machine-id]
-  (-> (rf/runtime-db-value :test/main)
+  (-> (:rf.db/runtime (rf/frame-state-value :test/main))
       (get-in [:rf.runtime/machines :snapshots machine-id])
       :state))
 

@@ -1021,7 +1021,7 @@
                    :rf/app-db   {}
                    :rf/runtime-db (runtime-db-with {gkey e})}]
       (rf/dispatch-sync [:rf/hydrate payload])
-      (let [rdb (rf/runtime-db-value :rf/default)
+      (let [rdb (:rf.db/runtime (rf/frame-state-value :rf/default))
             installed (get-in rdb [state/resources-key :entries (state/key-id gkey)])]
         (is (= {:t "x"} (:data installed)) "entry data preserved through hydrate")
         (is (nil? (:current-work installed)) "transient current-work cleared")

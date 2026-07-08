@@ -398,8 +398,12 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; All app-db access is via the public Tool-Pair surfaces:
-;;   (rf/app-db-value frame-id)        — current value
-;;   (rf/snapshot-of path opts)        — path-scoped read with :frame opt
+;;   (rf/app-db-value frame-id)                    — current value
+;;   (get-in (rf/app-db-value frame-id) path)      — path-scoped read
+;;                                                    (rf2-t3lftq — API-shrink
+;;                                                    #3 retired the dedicated
+;;                                                    `rf/snapshot-of`
+;;                                                    convenience)
 
 (defn snapshot
   "Full current app-db value for the operating frame. No-arg form uses
@@ -410,10 +414,10 @@
 
 (defn app-db-at
   "Read a path in app-db for the operating frame.
-   Sugar over (rf/snapshot-of path {:frame frame-id})."
+   Sugar over (get-in (rf/app-db-value frame-id) path)."
   ([path] (app-db-at path (current-frame)))
   ([path frame-id]
-   (rf/snapshot-of path {:frame frame-id})))
+   (get-in (rf/app-db-value frame-id) path)))
 
 ;; ---------------------------------------------------------------------------
 ;; Raw-state posture
@@ -536,12 +540,14 @@
    `tap>` so the human sees what the agent changed.
 
    Delegates to the canonical Tool-Pair write surface
-   `(rf/replace-app-db! frame-id v)` (Tool-Pair §Pair-tool writes).
-   That surface bypasses the dispatch loop (no event, no
-   cascade) but DOES record a synthetic `:rf/epoch-record` with
-   `:event-id :rf.epoch/db-replaced` so that `restore-epoch` can
-   rewind past the injection. Use sparingly — prefer `dispatch` for
-   any change you want the data loop to see.
+   `(rf/replace-frame-state! frame-id {:rf.db/app v})` (Tool-Pair
+   §Pair-tool writes; rf2-t3lftq — API-shrink #3 consolidated the former
+   `rf/replace-app-db!` into this app-only partial-map form). That
+   surface bypasses the dispatch loop (no event, no cascade) but DOES
+   record a synthetic `:rf/epoch-record` with `:event-id
+   :rf.epoch/db-replaced` so that `restore-epoch` can rewind past the
+   injection. Use sparingly — prefer `dispatch` for any change you want
+   the data loop to see.
 
    The `tap>` emission default-elides both `:previous`
    and `:next` slots when the raw-state gate is OFF (the published-
@@ -571,7 +577,7 @@
           :next               (maybe-elide-for-tap v frame-id)
           :t                  (js/Date.now)})
    (try
-     (if (rf/replace-app-db! frame-id v)
+     (if (rf/replace-frame-state! frame-id {:rf.db/app v})
        ;; Surface the synthetic `:rf.epoch/db-replaced` epoch the
        ;; framework just appended (Tool-Pair §Pair-tool writes). The new
        ;; head IS this epoch by construction; reading the history head is
@@ -579,17 +585,18 @@
        (let [head-id (some-> (rf/epoch-history frame-id) peek :epoch-id)]
          (attach-cascade {:ok? true :frame frame-id :epoch-id head-id}
                          frame-id head-id))
-       ;; replace-app-db! returns false on the soft-failure modes
-       ;; (unknown frame, in-drain, schema-mismatch). The structured
-       ;; reason is in the trace stream (`:rf.error/no-such-handler`,
-       ;; `:rf.epoch/replace-during-drain`,
+       ;; replace-frame-state! returns false on the soft-failure modes
+       ;; (bad keys, unknown frame, in-drain, schema-mismatch). The
+       ;; structured reason is in the trace stream
+       ;; (`:rf.error/replace-frame-state-bad-keys`,
+       ;; `:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`,
        ;; `:rf.epoch/replace-schema-mismatch`); we surface a
        ;; `:reset-rejected` umbrella so callers know the call did
        ;; not land without having to interpret the trace.
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
+        :hint   "rf/replace-frame-state! returned false. Inspect (re-frame.trace.tooling/trace-buffer frame-id {:flat true :op-type :error}) (and :op-type :rf.epoch) for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. Frame-id is the first positional arg; :op-type is a :flat-only filter. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false
@@ -1206,11 +1213,13 @@
 (defn machine-state
   "Snapshot of one machine in the operating frame. Per Spec 005,
    machine snapshots live at `[:rf.runtime/machines :snapshots machine-id]`
-   in the durable RUNTIME-DB partition — read via `rf/runtime-db-value`,
-   NOT `rf/snapshot-of`, which reads app-db."
+   in the durable RUNTIME-DB partition — read via
+   `(:rf.db/runtime (rf/frame-state-value frame-id))`, NOT
+   `(rf/app-db-value frame-id)` (rf2-t3lftq — API-shrink #3 retired the
+   dedicated `rf/runtime-db-value` / `rf/snapshot-of` readers)."
   ([machine-id] (machine-state machine-id (current-frame)))
   ([machine-id frame-id]
-   (get-in (rf/runtime-db-value frame-id)
+   (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
            [:rf.runtime/machines :snapshots machine-id])))
 
 ;; ---------------------------------------------------------------------------
@@ -1257,7 +1266,7 @@
 ;; of app-db size or structure.
 ;;
 ;; The cache is updated whenever an epoch settles — every mutation path
-;; (dispatch via the router, `rf/replace-app-db!` synthetic `:rf.epoch/
+;; (dispatch via the router, `rf/replace-frame-state!` synthetic `:rf.epoch/
 ;; db-replaced`, `rf/restore-epoch!`) produces an assembled-epoch record
 ;; that arrives at `on-epoch-streaming`. We update the cache there from
 ;; `(:db-after record)`. On the first read for a frame, if the slot is
@@ -4432,11 +4441,13 @@
     ;; The global machine-id list is registrar-level (not per-frame).
     ;; Per Spec 005 each frame holds its own machine
     ;; snapshots at [:rf.runtime/machines :snapshots machine-id] in the
-    ;; durable RUNTIME-DB partition (read via `rf/runtime-db-value`, NOT
-    ;; `rf/app-db-value`), so the per-frame
+    ;; durable RUNTIME-DB partition (read via
+    ;; `(:rf.db/runtime (rf/frame-state-value frame-id))`, NOT
+    ;; `rf/app-db-value` — rf2-t3lftq API-shrink #3 retired the dedicated
+    ;; `rf/runtime-db-value` reader), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (machines/machines))
-                      state (or (get-in (rf/runtime-db-value frame-id)
+                      state (or (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
                                         [:rf.runtime/machines :snapshots])
                                 {})]
                   {:ids ids :state state})

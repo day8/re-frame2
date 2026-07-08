@@ -2,7 +2,9 @@
   "Shared test-support helpers for the machines artefact's test suite.
 
   This namespace is the suite's ONE home for the fixtures and probes the
-  machines tests share — a single `frame-db` (`rf/runtime-db-value`), a
+  machines tests share — a single `frame-db` (`(:rf.db/runtime
+  (rf/frame-state-value id))`, rf2-t3lftq — API-shrink #3 retired the
+  dedicated `rf/runtime-db-value` reader), a
   single `snapshot` (`get-in db [:rf.runtime/machines :snapshots id]`), and a
   single trace-capture register/unregister helper — so machine storage,
   frame handling, and trace-listener cleanup have one place to track rather
@@ -47,7 +49,7 @@
   `:rf/default` frame. The single home for the `frame-db` helper the
   machines tests repeated locally."
   ([] (runtime-db :rf/default))
-  ([frame-id] (rf/runtime-db-value frame-id)))
+  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
 
 (defn snapshot
   "The machine snapshot for `machine-id` (an actor / singleton id) in

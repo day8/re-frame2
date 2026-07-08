@@ -972,21 +972,25 @@
   (commit-frame-transition! id {runtime-partition-key runtime-db}))
 
 (defn replace-frame-state!
-  "Replace BOTH partitions of `id` atomically with `frame-state`
-  (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame install for
-  tool-driven replay / fixture install (epoch restore, time travel, SSR
-  hydration, frame reset). A db-shaped name never silently replaces
-  runtime-db; this is the explicit full-frame surface (Mike ruling #10).
-  Both partitions install in ONE atomic write. Returns the set of changed
-  partition keys, or `nil` for an unknown / destroyed frame.
+  "Atomically install `frame-state` — a PARTIAL frame-state map (any subset
+  of `{:rf.db/app … :rf.db/runtime …}`) — into `id`'s one physical
+  frame-state container: a PRESENT key replaces that partition, an ABSENT
+  key is carried forward UNCHANGED (rf2-t3lftq — API-shrink #3). A
+  db-shaped key never silently touches the other partition; this is the
+  one explicit frame-state write surface (Mike ruling #10, preserved and
+  generalised). Both a caller-supplied app-only, runtime-only, or
+  both-partition map install in ONE atomic write. Returns the set of
+  changed partition keys, or `nil` for an unknown / destroyed frame.
 
-  `frame-state` MUST carry both partition keys; a missing key installs
-  `nil` for that partition (a full-frame replace is whole-value by
-  contract). Use `replace-app-db!` / `replace-runtime-db!` for a
-  single-partition write."
+  This is a thin pass-through onto `commit-frame-transition!`, which
+  already implements the present-replaces / absent-preserves contract —
+  `replace-frame-state!` merely narrows `frame-state` to the two
+  recognized partition keys before delegating. Callers wanting the former
+  single-partition helpers compose a one-key map:
+  `(replace-frame-state! id {app-partition-key new-app-db})` /
+  `(replace-frame-state! id {runtime-partition-key new-runtime-db})`."
   [id frame-state]
-  (commit-frame-transition! id {app-partition-key     (get frame-state app-partition-key)
-                                runtime-partition-key (get frame-state runtime-partition-key)}))
+  (commit-frame-transition! id (select-keys frame-state [app-partition-key runtime-partition-key])))
 
 (defn- swap-partition!
   "Mutate ONE partition `pk` of `id`'s physical frame-state container in place:

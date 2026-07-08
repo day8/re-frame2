@@ -185,7 +185,7 @@
   "Read the live snapshot for `:hvac/controller` off the default frame.
   EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state."
   []
-  (get-in (rf/runtime-db-value :rf/default)
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :snapshots :hvac/controller]))
 
 (defn- drive!
@@ -633,7 +633,7 @@
           "the start runs its :initial-entry cascade — the boot action
            row carries the :initial-entry phase, NOT a 'staying in {state}'
            no-op notice")
-      (is (= :booting (-> (rf/runtime-db-value :rf/default)
+      (is (= :booting (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                           (get-in [:rf.runtime/machines :snapshots :iu3no/boot :state])))
           "the machine ENTERED its initial config (:booting) — it did not
            'stay' (the no-op cell's premise would read FALSE for a birth)"))))

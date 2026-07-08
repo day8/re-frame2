@@ -175,7 +175,7 @@
           "the throwing action ran (cascade reached the state) — necessary precondition")
 
       ;; (a) Snapshot NOT committed: no entry at [:rf.runtime/machines :snapshots ...].
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :snapshots :rf2-dd3b/throws]))
           "the bootstrap snapshot was NOT committed — cascade halt is atomic")
 
@@ -230,7 +230,7 @@
           (is (false? @spawn-fired?)
               ":spawn's spawn fx did not fire when :entry threw on the same state")
           ;; And the snapshot was not committed — there is no machine record.
-          (is (nil? (get-in (rf/runtime-db-value :rf/default)
+          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                             [:rf.runtime/machines :snapshots :rf2-dd3b/skip]))
               "the snapshot was not committed; no machine record exists"))
         ;; Restore.
@@ -268,7 +268,7 @@
       (is (= [:outer :inner-throws] @calls)
           "the cascade ran outer's :entry, then inner's :entry where it threw")
       ;; But the snapshot is NOT committed — the whole bootstrap is atomic.
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :snapshots :rf2-dd3b/compound]))
           "neither outer nor inner :entry's :data writes committed — bootstrap halted atomically")
       ;; The exception trace fired.

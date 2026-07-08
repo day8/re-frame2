@@ -1793,11 +1793,11 @@
             ;; :final-runtime-db / :final-runtime-dbs (paths under :rf.runtime/*).
             expected-rt  (:final-runtime-db expect)
             expected-rts (:final-runtime-dbs expect)
-            final-rt     (rf/runtime-db-value :rf/default)
+            final-rt     (:rf.db/runtime (rf/frame-state-value :rf/default))
             final-rts    (when expected-rts
                            (into {}
                                  (for [[fid _] expected-rts]
-                                   [fid (rf/runtime-db-value fid)])))
+                                   [fid (:rf.db/runtime (rf/frame-state-value fid))])))
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]

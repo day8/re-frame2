@@ -87,7 +87,7 @@
 
 (defn- runtime-db
   ([] (runtime-db :rf/default))
-  ([frame-id] (rf/runtime-db-value frame-id)))
+  ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
 
 (defn- entry
   "The durable cache entry for a scoped key in a frame (default
@@ -1232,7 +1232,7 @@
         (testing "the entry value is carried through unchanged (byte-keyed
                   in internal storage too)"
           (is (= :intro/article (-> entries (get (state/key-id k1)) :resource/key second)))
-          (let [raw (get-in (rf/runtime-db-value :rf/default) (state/entries-path))]
+          (let [raw (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entries-path))]
             (is (every? string? (keys raw))
                 "internal runtime storage remains byte-keyed (string key-ids)")))))))
 

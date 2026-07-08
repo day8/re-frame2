@@ -779,20 +779,10 @@
    {:key         :epoch/restore-epoch!
     :producer-ns 're-frame.epoch
     :description "Restore app-db / schemas to a previously-captured epoch."}
-   {:key         :epoch/replace-app-db!
-    :producer-ns 're-frame.epoch
-    :description "Replace a frame's app-db partition (state injection), preserving live runtime-db."}
-   {:key         :epoch/reset-app-db!
-    :producer-ns 're-frame.epoch
-    :description "Reset a frame's app-db partition to {}, preserving live runtime-db (app-db sibling of a full frame reset, destroy-frame! + reg-frame)."}
-   {:key         :epoch/replace-runtime-db!
-    :producer-ns 're-frame.epoch
-    :design-bead "rf2-szbzei"
-    :description "Replace a frame's runtime-db partition (state injection), preserving live app-db. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + framework-owned runtime-db schema-validation contract."}
    {:key         :epoch/replace-frame-state!
     :producer-ns 're-frame.epoch
-    :design-bead "rf2-szbzei"
-    :description "Replace BOTH of a frame's partitions atomically (full-frame install). Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + app-db / runtime-db schema-validation contract."}
+    :design-bead "rf2-t3lftq"
+    :description "Atomically install a PARTIAL frame-state map (any subset of {:rf.db/app ... :rf.db/runtime ...}) — a present key replaces that partition, an absent key is preserved. The ONE frame-state write surface (API-shrink #3 consolidated the former replace-app-db! / reset-app-db! / replace-runtime-db! / replace-frame-state! four-mutator family into this). Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + rejects a map with no recognized / an unrecognized partition key + per-present-partition schema-validation contract."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}

@@ -138,7 +138,7 @@
         ":log carries [:rf.runtime/ssr :hydration] metadata")
     ;; And the metadata didn't bleed onto the default frame
     ;; (which was never hydrated).
-    (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/ssr :hydration]))
+    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/ssr :hydration]))
         "the default frame was never hydrated — no metadata block")))
 
 ;; ===========================================================================

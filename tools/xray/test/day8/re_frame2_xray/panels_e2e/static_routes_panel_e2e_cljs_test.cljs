@@ -14,9 +14,10 @@
        `[:rf.runtime/routing :current]` (hermetic preview). EP-0001
        (rf2-vzld77) moved the framework-owned route slice into
        runtime-db; the guard compares that slice (via
-       `rf/runtime-db-value`) so a future accidental navigation /
-       runtime-db write can't slip past by leaving only the retired
-       app-db path untouched.
+       `(:rf.db/runtime (rf/frame-state-value id))`, rf2-t3lftq —
+       API-shrink #3 retired the dedicated `rf/runtime-db-value` reader)
+       so a future accidental navigation / runtime-db write can't slip
+       past by leaving only the retired app-db path untouched.
     4. The `:rf.xray.static.routes/jump-to-dynamic` cross-link flips
        mode → `:dynamic` and opens the Dynamic Routing tab.
 
@@ -104,7 +105,7 @@
         ;; path (not the retired app-db path) is what makes the guard
         ;; catch a future accidental runtime-db write.
         (let [counter-before    (e2e/sub-host [:counter/value])
-              host-route-before (some-> (rf/runtime-db-value :rf/default)
+              host-route-before (some-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                                         (get-in [:rf.runtime/routing :current]))]
           (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles"]
                             {:frame :rf/xray})
@@ -122,7 +123,7 @@
             (is (true? (:winner? winner))
                 "winner candidate not flagged :winner? true"))
           ;; Hermetic — the host's real runtime-db route slice is unchanged.
-          (let [host-route-after (some-> (rf/runtime-db-value :rf/default)
+          (let [host-route-after (some-> (:rf.db/runtime (rf/frame-state-value :rf/default))
                                           (get-in [:rf.runtime/routing :current]))]
             (is (= host-route-before host-route-after)
                 "Simulate-URL was NOT hermetic — host runtime-db route slice changed"))

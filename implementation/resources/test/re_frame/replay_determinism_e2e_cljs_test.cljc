@@ -217,7 +217,7 @@
                      {:scope :rf.scope/global :tags #{[:article "w"]}}]
                     {:frame frame-id :rf.cofx {:rf/time-ms (:invalidate-time log)}})
   {:rf.db/app     (rf/app-db-value frame-id)
-   :rf.db/runtime (rf/runtime-db-value frame-id)})
+   :rf.db/runtime (:rf.db/runtime (rf/frame-state-value frame-id))})
 
 ;; ---- determinism canonicalizer (strip diagnostic / host-transient) --------
 ;;

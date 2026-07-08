@@ -58,7 +58,7 @@
       (trace-tooling/register-listener! ::idn (fn [ev] (swap! traces conj ev)))
       ;; Spawn the child (deterministic instance id :idn/child#1).
       (rf/dispatch-sync [:idn/parent [:go]])
-      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :idn/parent [:working]])]
         (is (= :idn/child#1 spawned-id)
             "the spawned instance id is <type>#<n>, distinct from the TYPE :idn/child")
@@ -140,7 +140,7 @@
       ;; The explicit address wins: the runtime registry slot (keyed by the
       ;; invocation PATH [:working]) binds the explicit address, NOT a gensym.
       (is (= :idn3/pinned
-             (get-in (rf/runtime-db-value :rf/default)
+             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                      [:rf.runtime/machines :spawned :idn3/parent [:working]]))
           "the explicit :fixed-actor-id address is bound at the invocation-path slot")
       ;; The spawned actor's own :data carries BOTH facts under DISTINCT keys:

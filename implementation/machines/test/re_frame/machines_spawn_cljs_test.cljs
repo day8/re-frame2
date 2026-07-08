@@ -93,7 +93,7 @@
         ;; id at [:rf.runtime/machines :spawned <parent> <invoke-id>] instead
         ;; of relying on the user-supplied callback to write into `:data`.
         (is (= :http/post#1
-               (get-in (rf/runtime-db-value :rf/default)
+               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                        [:rf.runtime/machines :spawned :auth3/flow [:authenticating]]))
             "runtime-tracked spawn slot binds the deterministic actor id"))
       (is (some (fn [ev]
@@ -237,7 +237,7 @@
                        (= :literal (:delay-source (:tags ev)))))
                 @traces)
           "expected :rf.machine.timer/scheduled with :delay-source :literal")
-      (let [child-id (get-in (rf/runtime-db-value :rf/default)
+      (let [child-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/machines :spawned :sup/auth-after [:authenticating]])
             epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound to the spawned child id")
@@ -247,7 +247,7 @@
         (rf/dispatch-sync [:sup/auth-after [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
         (is (= :timed-out (:state (snapshot :sup/auth-after)))
             "parent transitioned :authenticating → :timed-out via :after firing")
-        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-listener! ::ato))))

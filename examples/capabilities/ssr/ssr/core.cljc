@@ -282,7 +282,7 @@
        (try
          (rf/with-frame f
            (let [final-db      (rf/app-db-value f)        ;; the app-db partition
-                 final-runtime (rf/runtime-db-value f)    ;; the runtime-db partition (serializable)
+                 final-runtime (:rf.db/runtime (rf/frame-state-value f))    ;; the runtime-db partition (serializable)
                  hiccup   ((rf/view :app/root))
                  ;; `:emit-hash?` stamps data-rf-render-hash="<hex>" onto the
                  ;; root element. That hex string is the tripwire: the client

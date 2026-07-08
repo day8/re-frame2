@@ -32,7 +32,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Capability | Status | Notes |
 |---|---|---|
 | Read all of `app-db` for any frame | *done* | `snapshot` (`:app-db` slice) via `rf/app-db-value` |
-| Read a specific path | *done* | `get-path` via `rf/snapshot-of`; `snapshot {path}` for a bounded subtree |
+| Read a specific path | *done* | `get-path` via `(get-in (rf/app-db-value frame-id) path)`; `snapshot {path}` for a bounded subtree |
 | Diff `app-db` before/after one event | *done* | Each `:rf/epoch-record` carries `:db-before` and `:db-after`; `dispatch` / `trace-window` surface the depth-1 `:db-diff` projection |
 | List registered handlers | *done* | `list-handlers {kind}` over `rf/registrations` |
 | Inspect handler + interceptor chain + source coords | *done* | `handler-meta {kind: "event", id}` over `rf/handler-meta` (returns `:ns` / `:line` / `:file` / `:column` / `:handler-fn`) |
@@ -43,7 +43,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation; the `:event-bundles` slot on the `subscribe` trace topics walks the tree |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
 | Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is a finalised **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` — resolve coords from `(first render-key)` via `handler-meta {kind: "view"}`, or `read-ui`'s `:source-coord` for anonymous fns (see `references/recipes.md` "Explain this dispatch") |
-| List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `re-frame.machines/machines` / `re-frame.machines/machine-meta` / `rf/snapshot-of` |
+| List registered machines, see their state | *done* | `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` over `re-frame.machines/machines` / `re-frame.machines/machine-meta` / `(:rf.db/runtime (rf/frame-state-value frame-id))` |
 | List registered app-schemas | *done* | `re-frame.schemas/app-schemas` (schemas are not a registrar kind — query via the runtime helper) |
 | Frame enumeration / metadata | *done* | `get-operating-frame` (lists all registered frames) over `rf/frame-ids` / `rf/frame-meta` |
 
@@ -72,7 +72,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | List recorded epochs per frame | *done* | `trace-window` / `snapshot` (`:epochs` slice) over `rf/epoch-history` |
 | Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf/restore-epoch!` |
-| Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `rf/replace-app-db!` — the JSON-loaded-bug-repro case |
+| Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `(rf/replace-frame-state! frame-id {:rf.db/app v})` — the JSON-loaded-bug-repro case |
 | Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
 | Configure ring depth | *done* | `(rf/configure! {:epoch-history {:depth N}})` |
 | Reverse side effects | *guardrail* | Restore rewinds durable **frame-state** (both partitions); it does NOT reverse side effects or transient host state. `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
@@ -83,7 +83,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 | Guardrail | Status | Notes |
 |---|---|---|
-| `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/replace-app-db!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
+| `replace-app-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/replace-frame-state!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
 | `snapshot` `:machines` slice is runtime-db state, redacted off-box by default | *done* | The `:machines` slice is runtime-db-partition state; per Spec 011 ruling #14 it egresses as `:rf/redacted` unless the operator opted in. The opt-in is **folded onto the existing sensitive axis** (`redact-runtime-db? = (not incl?)`, `incl?` = `--allow-sensitive-reads` gate + `:include-sensitive`) — there is **no separate `:include-runtime-db?` arg** (deliberately asymmetric with Xray's dedicated `:include-runtime-db?` axis; both fail closed, both satisfy ruling #14). See SKILL.md §privacy posture and `skills/re-frame2/references/cross-cutting/privacy-and-elision.md`. |
 | Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |

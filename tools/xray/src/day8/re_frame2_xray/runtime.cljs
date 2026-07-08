@@ -877,7 +877,7 @@
                 ;; correctness fix (the old app-db `:rf/runtime` slot is now
                 ;; empty) AND the off-box-redaction site (runtime-db state is
                 ;; redacted by default unless the trusted-local opt-in is set).
-                snapshot      (get-in (rf/runtime-db-value fid) snapshot-path)
+                snapshot      (get-in (:rf.db/runtime (rf/frame-state-value fid)) snapshot-path)
                 rt-egress     {:include-sensitive?  include-sensitive?
                                :include-large?      include-large?
                                :include-runtime-db? include-runtime-db?
@@ -1030,7 +1030,7 @@
    (let [fid (resolve-frame frame)]
      (if-let [fail (frame-failure frame fid)]
        fail
-       (let [runtime-db  (rf/runtime-db-value fid)
+       (let [runtime-db  (:rf.db/runtime (rf/frame-state-value fid))
              all-entries (get-in runtime-db resources-helpers/entries-rel-path)
              ;; upstream key-filter BEFORE projection (scope/resource-id/params
              ;; against the raw cache key)
@@ -1108,7 +1108,7 @@
 
       :else
       (let [scoped-key  [scope resource-id params]
-            runtime-db  (rf/runtime-db-value fid)
+            runtime-db  (:rf.db/runtime (rf/frame-state-value fid))
             entry-path  (conj (vec resources-helpers/entries-rel-path) scoped-key)
             entry       (get-in runtime-db entry-path)]
         (if (nil? entry)
@@ -1500,10 +1500,13 @@
 (defn replace-app-db!
   "Tool: `replace-app-db`. Inject `:value` into a frame's `app-db`,
   bypassing the event-bundle. Schema-validates against current schemas via
-  `rf/replace-app-db!` (renamed from `rf/reset-frame-db!`, EP-0001
-  rf2-tfepxu); the framework's wrapper returns `true` on success and
-  `false` on any of the three documented failure rows
-  (`:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`,
+  `(rf/replace-frame-state! fid {:rf.db/app value})` (rf2-t3lftq —
+  API-shrink #3 consolidated the former `rf/replace-app-db!` /
+  `rf/reset-app-db!` / `rf/replace-runtime-db!` / `rf/replace-frame-state!`
+  family into this ONE partial-map surface); the framework's wrapper
+  returns `true` on success and `false` on any of the four documented
+  failure rows (`:rf.error/replace-frame-state-bad-keys`,
+  `:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`,
   `:rf.epoch/replace-schema-mismatch` — each emits a structured
   trace and leaves `app-db` unchanged).
 
@@ -1521,7 +1524,7 @@
        :hint "Pass :value <edn-map> to inject."}
 
       :else
-      (let [ok? (rf/replace-app-db! fid value)]
+      (let [ok? (rf/replace-frame-state! fid {:rf.db/app value})]
         (cond-> {:ok?    (boolean ok?)
                  :frame  fid
                  :origin *current-origin*}

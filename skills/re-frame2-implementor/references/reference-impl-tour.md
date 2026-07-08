@@ -137,7 +137,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 ### `epoch/`
 
-The Tool-Pair time-travel artefact — epoch recording, query, restore, and state injection are NOT covered by EPs 001–015 (see [`phase-2-impl-order.md` §Tool-Pair attachment surface](phase-2-impl-order.md#tool-pair-attachment-surface-if-d3-q6-is-yes)). A bounded frame-state ring keyed by epoch id; the public API is `epoch-history` / `restore-epoch!` (rewinds the whole frame-state) / `register-epoch-listener!` plus the injection trio `replace-app-db!` / `replace-runtime-db!` / `replace-frame-state!`. Useful pattern; copy the shape if your port ships Q6 time-travel.
+The Tool-Pair time-travel artefact — epoch recording, query, restore, and state injection are NOT covered by EPs 001–015 (see [`phase-2-impl-order.md` §Tool-Pair attachment surface](phase-2-impl-order.md#tool-pair-attachment-surface-if-d3-q6-is-yes)). A bounded frame-state ring keyed by epoch id; the public API is `epoch-history` / `restore-epoch!` (rewinds the whole frame-state) / `register-epoch-listener!` plus the ONE injection surface `replace-frame-state!` (a PARTIAL frame-state map). Useful pattern; copy the shape if your port ships Q6 time-travel.
 
 ### `flows/`
 

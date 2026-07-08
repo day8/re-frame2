@@ -1049,7 +1049,7 @@
   (rf/reg-event :test/seed-before (fn [_ _] {:db before}))
   (rf/dispatch-sync [:test/seed-before])
   (let [fid (first (rf/frame-ids))]
-    (rf/replace-app-db! fid after)
+    (rf/replace-frame-state! fid {:rf.db/app after})
     (-> (rf/epoch-history fid) peek :epoch-id)))
 
 (deftest get-app-db-diff-returns-changed-paths-shape

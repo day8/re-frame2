@@ -155,7 +155,7 @@
 ;; HELPERS
 ;; ============================================================================
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- entry [scoped-key]
   (get-in (runtime-db) (state/entry-path scoped-key)))
@@ -244,7 +244,7 @@
         (is (= "fresh-skip"
                (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "the open preview slug is in app-db")
-        (let [e (get-in (rf/runtime-db-value f) (state/entry-path dkey))]
+        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
           (is (= :loading (:status e)) "the lease ensured a first load")
           (is (contains? (:active-owners e) lease-owner)
               "owned by the app lease [:lease :resources.app/preview slug]"))
@@ -252,7 +252,7 @@
         (rf/dispatch-sync [:resources.app/preview-closed "fresh-skip"] {:frame f})
         (is (nil? (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
             "closing clears the open slug")
-        (let [e (get-in (rf/runtime-db-value f) (state/entry-path dkey))]
+        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (state/entry-path dkey))]
           (is (not (contains? (:active-owners e) lease-owner))
               "the lease owner was released — no dangling lease pins the entry"))))))
 

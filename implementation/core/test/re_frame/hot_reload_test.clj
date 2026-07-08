@@ -278,7 +278,7 @@
     (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
     ;; Capture pre-reregistration state.
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-    (let [pre-rt          (rf/runtime-db-value :tenant)
+    (let [pre-rt          (:rf.db/runtime (rf/frame-state-value :tenant))
           pre-snapshot    (get-in pre-rt [:rf.runtime/machines :snapshots :traffic-light])
           pre-app-db-cont (frame/app-db-container :tenant)]
       (is (= :yellow (:state pre-snapshot))
@@ -293,7 +293,7 @@
       (is (identical? pre-app-db-cont (frame/app-db-container :tenant))
           "frame's app-db container is preserved (same identity)")
       ;; The [:rf.runtime/machines :snapshots] snapshot is preserved verbatim.
-      (let [post-rt (rf/runtime-db-value :tenant)]
+      (let [post-rt (:rf.db/runtime (rf/frame-state-value :tenant))]
         (is (= pre-snapshot
                (get-in post-rt [:rf.runtime/machines :snapshots :traffic-light]))
             "machine snapshot is preserved across frame re-registration"))
@@ -305,7 +305,7 @@
           "new :version key is present in the merged metadata")
       ;; The machine still progresses against its preserved snapshot.
       (rf/dispatch-sync [:traffic-light [:tick]] {:frame :tenant})
-      (let [final-snapshot (get-in (rf/runtime-db-value :tenant) [:rf.runtime/machines :snapshots :traffic-light])]
+      (let [final-snapshot (get-in (:rf.db/runtime (rf/frame-state-value :tenant)) [:rf.runtime/machines :snapshots :traffic-light])]
         (is (= :red (:state final-snapshot))
             "post-rereg :tick advances :yellow → :red — snapshot was live")
         (is (= 3 (get-in final-snapshot [:data :ticks]))

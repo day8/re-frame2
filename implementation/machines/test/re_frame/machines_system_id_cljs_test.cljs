@@ -48,25 +48,25 @@
       (let [spawned (machines/machine-by-system-id :worker)]
         (is (= :worker/proc#1 spawned)
             ":system-id resolves to the spawned machine id")
-        (is (= spawned (get-in (rf/runtime-db-value :rf/default)
+        (is (= spawned (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :system-ids :worker]))
             "[:rf.runtime/machines :system-ids] reverse index records the binding")
-        (is (some? (get-in (rf/runtime-db-value :rf/default)
+        (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/machines :snapshots spawned]))
             "snapshot initialised at [:rf.runtime/machines :snapshots <spawned-id>]")
         ;; (2) Dispatch-by-system-id reaches the actor.
         (rf/dispatch-sync [spawned [:ping]])
-        (is (= 1 (get-in (rf/runtime-db-value :rf/default)
+        (is (= 1 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/machines :snapshots spawned :data :hits]))
             "dispatch routed via system-id reached the live actor"))
       ;; (3) Destroy clears system-id binding and snapshot.
       (rf/dispatch-sync [:sup/flow [:done]])
       (is (nil? (machines/machine-by-system-id :worker))
           "post-destroy lookup returns nil")
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :system-ids :worker]))
           "[:rf.runtime/machines :system-ids] entry cleared on destroy")
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :snapshots :worker/proc#1]))
           "snapshot cleared on destroy")))
 
@@ -96,7 +96,7 @@
         ;; non-Reagent test runner there's no render to trigger the
         ;; drain. The lookup-then-dispatch chain is what we're verifying.
         (rf/dispatch-sync [(machines/machine-by-system-id :notifier) [:notify "hello"]])
-        (is (= ["hello"] (get-in (rf/runtime-db-value :rf/default)
+        (is (= ["hello"] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor")
         ;; And the implementation-tier sugar fn no-ops when the system-id is
@@ -175,7 +175,7 @@
         (fn [_ _]
           {:fx [[:rf.machine/spawn {:machine-id :w2/proc :id-prefix :w2/proc}]]}))
       (rf/dispatch-sync [::spawn-anon])
-      (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :system-ids]))
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :system-ids]))
           "[:rf.runtime/machines :system-ids] not allocated when no spawns carry :system-id")
       (is (nil? (machines/machine-by-system-id :anything))
           "lookup against an unbound system-id returns nil"))))

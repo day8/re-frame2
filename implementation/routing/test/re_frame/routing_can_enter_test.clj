@@ -27,10 +27,10 @@
   (rf/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (defn- current-id []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
 
 (defn- pending []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
 
 ;; ---- :can-enter BLOCKS through EACH of the three doors --------------------
 

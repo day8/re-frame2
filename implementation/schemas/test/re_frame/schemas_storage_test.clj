@@ -233,7 +233,7 @@
 ;; EP-0024 made frame VALUES (rf/make-frame's return token) first-class
 ;; frame targets alongside frame-id keywords. The schema opts surface must
 ;; route a frame VALUE — passed bare OR as the `:frame` opt — to the SAME
-;; frame id a read-by-id resolves, the same way `re-frame.core/snapshot-of`
+;; frame id a read-by-id resolves, the same way `re-frame.core/dispatch`
 ;; normalizes its `:frame` opt through `frame/frame-target->id`.
 ;;
 ;; Pre-fix two misroutes:

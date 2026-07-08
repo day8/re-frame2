@@ -105,7 +105,7 @@
   derefs the host frame via :rf.xray/target-frame-db."
   [db-value]
   (frame/reg-frame :rf/default {})
-  (rf/replace-app-db! :rf/default db-value))
+  (rf/replace-frame-state! :rf/default {:rf.db/app db-value}))
 
 (defn- seed-host-runtime-db!
   "Install `runtime-db-value` into the host (:rf/default) frame's
@@ -630,8 +630,8 @@
     (frame/reg-frame :rf/default {})
     (frame/reg-frame :checkout-frame {})
     ;; Give the two frames distinguishable values.
-    (rf/replace-app-db! :rf/default {:counter 0})
-    (rf/replace-app-db! :checkout-frame {:checkout {:step :payment}})
+    (rf/replace-frame-state! :rf/default {:rf.db/app {:counter 0}})
+    (rf/replace-frame-state! :checkout-frame {:rf.db/app {:checkout {:step :payment}}})
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
       (let [tree (app-db-diff/Panel)

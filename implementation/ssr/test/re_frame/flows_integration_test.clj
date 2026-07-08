@@ -145,7 +145,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots machine-id]))
 
 ;; ===========================================================================
 ;; 1. machine-macrostep × flow — a multi-microstep macrostep SETTLES, then
@@ -498,7 +498,7 @@
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
+      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "precondition: landed on :route/home")
       (is (= [:route/home] @flow-inputs)
           "precondition: flow ran once on the home slice (post-transition)")
@@ -511,10 +511,10 @@
       (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
 
       ;; The installed slice carries the new route.
-      (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           "the slice landed on :route/article")
-      (is (= {:id "42"} (get-in (rf/runtime-db-value :rf/default)
+      (is (= {:id "42"} (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/routing :current :params]))
           ":params landed alongside the route id (same install)")
 
@@ -566,7 +566,7 @@
 
       ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
+      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "precondition: clean landing on :route/home")
       (is (zero? @on-match-fired)
           "precondition: :route/home has no :on-match — counter still 0")
@@ -586,7 +586,7 @@
             "app-db is byte-for-byte the pre-transition value — the slice
              rewrite was rolled in with the flow's pending write and
              discarded wholesale by the flow throw")
-        (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
+        (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
             "the route slice stayed on :route/home — the transition's
              slice rewrite did NOT install")

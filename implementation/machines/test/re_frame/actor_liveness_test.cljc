@@ -162,12 +162,12 @@
                                           {:action (fn [_]
                                                      {:fx [[:rf.machine/destroy :al4/child#1]]})}))
     ;; Capture app-db BEFORE the actor exists (rewind-past-spawn target).
-    (let [db-before-spawn (rf/runtime-db-value :rf/default)]
+    (let [db-before-spawn (:rf.db/runtime (rf/frame-state-value :rf/default))]
       (rf/dispatch-sync [:al4/parent [:go]])
       (is (some? (snapshot :al4/child#1)) "actor alive after spawn")
       ;; Capture app-db while the actor IS alive (rewind-past-destroy
       ;; target).
-      (let [db-while-alive (rf/runtime-db-value :rf/default)]
+      (let [db-while-alive (:rf.db/runtime (rf/frame-state-value :rf/default))]
         (rf/dispatch-sync [:al4/child#1 [:bump]])
         (is (= 1 (:n (:data (snapshot :al4/child#1)))))
         (rf/dispatch-sync [:al4/parent [:drop]])

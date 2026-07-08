@@ -27,7 +27,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/dashboard"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :error (:transition slice))
           ":transition flips to :error on :on-match throw")
       (is (some? (:error slice))
@@ -58,7 +58,7 @@
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/cart"])
     (let [db    (rf/app-db-value :rf/default)
-          slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+          slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :error (:transition slice))
           ":transition still :error after :on-error ran")
       (is (some? (:handled-error db))
@@ -80,7 +80,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/page"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
       (is (= :error (:transition slice))
           ":transition :error even without :on-error declared")
       (is (some? (:error slice))
@@ -129,7 +129,7 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/attributed"])
-    (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])
           err   (:error slice)]
       (is (= :error (:transition slice))
           ":transition flips to :error on the attributed throw")
@@ -221,7 +221,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/collide"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default)
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current])]
         (is (not= :error (:transition slice))
             "the colliding non-routing throw did NOT flip the route to :error")
@@ -251,7 +251,7 @@
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/genuine"])
-      (let [slice (get-in (rf/runtime-db-value :rf/default)
+      (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current])]
         (is (= :error (:transition slice))
             "a genuine on-match throw (full-vector match) still flips :error")

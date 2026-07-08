@@ -96,7 +96,7 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; return a vector-keyed
 ;; VIEW (re-keyed from each entry's `:resource/key`) so the scope-isolation
 ;; assertions speak scoped-key vectors. Semantics unchanged.

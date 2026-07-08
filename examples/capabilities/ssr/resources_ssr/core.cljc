@@ -276,7 +276,7 @@
                                      :params   {}
                                      :frame    f})
            (let [final-db      (rf/app-db-value f)
-                 final-runtime (rf/runtime-db-value f)   ;; this is where :rf.runtime/resources lives
+                 final-runtime (:rf.db/runtime (rf/frame-state-value f))   ;; this is where :rf.runtime/resources lives
                  hiccup        ((rf/view :app/root))
                  html          (rf/render-to-string hiccup {:doctype? true :emit-hash? true})
                  render-hash   (rf/render-tree-hash hiccup)

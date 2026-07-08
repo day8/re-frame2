@@ -79,16 +79,16 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- slice []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
 (defn- entry [scoped-key]
-  (get-in (rf/runtime-db-value :rf/default) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
 
 (defn- entries []
-  (get-in (rf/runtime-db-value :rf/default) (state/entries-path)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entries-path)))
 
 (defn- blocking-slot [nav-token]
-  (get-in (rf/runtime-db-value :rf/default) (route/blocking-path nav-token)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (route/blocking-path nav-token)))
 
 (defn- article-spec [overrides]
   (merge {:scope         :rf.scope/global
@@ -293,7 +293,7 @@
 ;; hang waiting on a reply the aborted work will never send).
 
 (defn- work-record-for [scoped-key]
-  (work-ledger/get-record (rf/runtime-db-value :rf/default) (:current-work (entry scoped-key))))
+  (work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) (:current-work (entry scoped-key))))
 
 (deftest route-resupersede-same-key-does-not-join-abort-requested-non-blocking
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
@@ -312,7 +312,7 @@
       ;; leave (route B = home): releases token-1's route owner → wid1 becomes
       ;; :abort-requested; the entry still points at wid1.
       (rf/dispatch-sync [:rf.route/navigate :route/home])
-      (is (= :abort-requested (:status (work-ledger/get-record (rf/runtime-db-value :rf/default) wid1)))
+      (is (= :abort-requested (:status (work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
           "the superseded route's in-flight work is abort-requested")
       ;; re-enter the SAME route + same slug → re-ensure the same scoped key
       (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
@@ -337,7 +337,7 @@
     (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
     (let [wid1 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.route/navigate :route/home])
-      (is (= :abort-requested (:status (work-ledger/get-record (rf/runtime-db-value :rf/default) wid1))))
+      (is (= :abort-requested (:status (work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))))
       ;; re-enter the blocking route on the SAME key
       (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "intro"}])
       (let [token-2 (:nav-token (slice))]
@@ -540,7 +540,7 @@
         (is (= :idle (:transition (slice)))
             "the plain route is :idle; superseded blocking state is gone")
         (is (empty? (blocking-slot token-1)) "stale slot cleared")
-        (is (false? (route/route-blocking? (rf/runtime-db-value :rf/default)))
+        (is (false? (route/route-blocking? (:rf.db/runtime (rf/frame-state-value :rf/default))))
             "route-blocking? is false for the live token")))))
 
 ;; ===========================================================================

@@ -93,7 +93,7 @@
             concern as `restore-epoch!` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
     (with-redefs [interop/debug-enabled? false]
-      (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
+      (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-app-db! returns false (refuses to operate)"))))
 
 (deftest epoch-still-records-with-default-gate
@@ -200,7 +200,7 @@
         (rf/configure! {:epoch-history {:redact-fn (fn [r]
                                     (swap! invocations inc)
                                     r)}})
-        (is (false? (rf/replace-app-db! :rf/default {:any "db"}))
+        (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
             "replace-app-db! refuses under the disabled gate")
         (is (zero? @invocations)
             ":redact-fn was never reached — no synthetic record recorded

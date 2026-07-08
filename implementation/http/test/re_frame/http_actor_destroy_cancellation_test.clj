@@ -415,7 +415,7 @@
         ;; drives the parent's transition out of :working — the standard
         ;; exit cascade destroys the spawned :worker/slow#1 and the
         ;; rf2-wvkn hook aborts its in-flight HTTP.
-        (let [snap  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots :sup/timed])
+        (let [snap  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :sup/timed])
               epoch (get-in snap [:data :rf/after-epoch [:working]])]
           (rf/dispatch-sync [:sup/timed [:rf.machine.timer/after-elapsed 5000 epoch [:working]]]))
         (await-condition! #(seq @replies))
@@ -634,7 +634,7 @@
         ;; Precondition: the imperatively-spawned actor's snapshot is live,
         ;; carries the :rf/machine-type marker, and is ABSENT from the
         ;; :spawned registry — the exact shape step 1 could not classify.
-        (let [rt (rf/runtime-db-value :rf/default)]
+        (let [rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
           (is (some? (get-in rt [:rf.runtime/machines :snapshots :worker/imp#1 :rf/machine-type]))
               "imperatively-spawned actor's snapshot carries the :rf/machine-type marker")
           (is (nil? (get-in rt [:rf.runtime/machines :spawned]))

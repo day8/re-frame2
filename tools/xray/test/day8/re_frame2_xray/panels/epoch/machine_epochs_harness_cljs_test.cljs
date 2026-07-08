@@ -86,7 +86,7 @@
 
 (defn- snapshot [machine-id]
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-  (get-in (rf/runtime-db-value :rf/default)
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- drive!
@@ -474,7 +474,7 @@
       (is (= :authenticating (:state (snapshot :session/flow))))
       (is (some #(= :rf.machine.spawn/spawned (:operation %)) (:trace-events record))
           "(a) the spawn fx emitted :rf.machine.spawn/spawned")
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/machines :spawned :session/flow [:authenticating]]))
           "(c) the spawn-registry slot binds the child actor id"))))
 
@@ -487,7 +487,7 @@
             snapshot is cleared."
     (setup!)
     (drive! :session/flow [:session/open])              ; spawn child
-    (let [child-id (get-in (rf/runtime-db-value :rf/default)
+    (let [child-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/machines :spawned :session/flow [:authenticating]])
           record   (drive! child-id [:succeed :session/token-abc])
           dests    (filterv #(= :rf.machine/destroyed (:operation %)) (:trace-events record))]

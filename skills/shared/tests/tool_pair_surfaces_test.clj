@@ -447,38 +447,40 @@
                "frame id, so the arg is required (no implicit/realm target).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock — the four partition-aware state-injection mutators
+;; Lock — the ONE partial-map state-injection mutator (rf2-t3lftq)
 ;;
-;; spec/Tool-Pair.md §Pair-tool writes defines FOUR partition-aware
-;; mutators, not just the app-db-only `replace-app-db!` / `reset-app-db!`
-;; halves. A skill that omits the runtime-db / full-frame siblings can
-;; describe arbitrary repro / story state injection as app-db-only and miss
-;; the full-frame install (`replace-frame-state!`) for machine snapshots /
-;; routes / elision / SSR metadata. These pins fail loudly if the leaf
-;; mentions `replace-app-db!` but drops either partition-aware sibling.
+;; spec/Tool-Pair.md §Pair-tool writes defines ONE partial-map mutator,
+;; `replace-frame-state!` (rf2-t3lftq — API-shrink #3 consolidated the
+;; former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` /
+;; `replace-frame-state!` four-mutator family into this ONE surface). A
+;; skill that names only an app-db-only shape can describe arbitrary
+;; repro / story state injection as app-db-only and miss the full-frame
+;; (both-partition) shape for machine snapshots / routes / elision / SSR
+;; metadata. This pin fails loudly if the leaf mentions
+;; `replace-frame-state!` but drops the partial-map contract explanation,
+;; or if a retired name (`replace-app-db!` / `reset-app-db!` /
+;; `replace-runtime-db!`) reappears WITHOUT being clearly named as the
+;; historical/former surface.
 ;; ---------------------------------------------------------------------------
 
-(deftest state-injection-names-all-four-mutators
-  (testing "the leaf names the four partition-aware state-injection mutators"
+(deftest state-injection-names-the-one-partial-map-mutator
+  (testing "the leaf names the ONE partial-map state-injection mutator and
+            its partition-preserving contract"
     (let [body @surfaces-md]
-      (when (str/includes? body "replace-app-db!")
-        (is (and (str/includes? body "replace-runtime-db!")
-                 (str/includes? body "replace-frame-state!"))
-            (str "tool-pair-surfaces.md names `replace-app-db!` but no longer "
-                 "names both `replace-runtime-db!` (runtime-db-only privileged "
-                 "write) and `replace-frame-state!` (full-frame atomic "
-                 "install). The post-EP-0001 injection surface is FOUR "
-                 "partition-aware mutators, not the app-db-only pair "
-                 "(spec/Tool-Pair.md §Pair-tool writes, rf2-7g9htq.2)."))
-        (is (str/includes? body "reset-app-db!")
-            (str "tool-pair-surfaces.md dropped `reset-app-db!` from the "
-                 "four-mutator state-injection family (rf2-7g9htq.2).")))
+      (is (str/includes? body "replace-frame-state!")
+          "tool-pair-surfaces.md names `replace-frame-state!` — the ONE
+           frame-state write surface (rf2-t3lftq).")
+      (is (contains-any? body [":rf.db/app" "partial"])
+          (str "tool-pair-surfaces.md no longer describes `replace-frame-state!` "
+               "as a PARTIAL frame-state map — the present-key-replaces / "
+               "absent-key-preserves contract (rf2-t3lftq) is the load-bearing "
+               "guarantee a story/repro tool relies on."))
       (is (contains-any? body ["never silently touch" "never silently touches"
                                "never silently"])
-          (str "tool-pair-surfaces.md no longer warns that the db-shaped "
-               "names (`replace-app-db!` / `reset-app-db!`) preserve "
-               "runtime-db — the load-bearing partition guarantee a "
-               "story/repro tool relies on (rf2-7g9htq.2).")))))
+          (str "tool-pair-surfaces.md no longer warns that a db-shaped "
+               "partition key (e.g. `{:rf.db/app v}`) preserves the OTHER "
+               "partition — the load-bearing partition guarantee a "
+               "story/repro tool relies on (rf2-t3lftq).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock — restore-epoch is whole-frame-state, not app-db-only. The leaf must

@@ -408,7 +408,7 @@
              (:articles (rf/app-db-value client-frame)))
           ":rf/hydrate replaced app-db with the server slice")
       (is (= "abc12345"
-             (get-in (rf/runtime-db-value client-frame)
+             (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                      [:rf.runtime/ssr :hydration :server-hash]))
           "the server render-hash is stashed for the verify step"))))
 
@@ -690,7 +690,7 @@
             "hydrate! applied the payload (no frame-id conflict thrown)")
         ;; The client runtime-db carries the reconciled resource entry — the
         ;; reverse indexes are recomputed from `:entries` on install (Spec 016).
-        (let [client-entries (get-in (rf/runtime-db-value client-frame)
+        (let [client-entries (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
                                      [:rf.runtime/resources :entries])]
           (is (= 1 (count client-entries))
               "the hydrated resource entry installed into the client frame")

@@ -42,7 +42,7 @@
     (rf/reg-route :route/b {} "/b")
     (rf/dispatch-sync [:rf.route/transitioned "/a"])
     (rf/dispatch-sync [:rf.route/transitioned "/b"])
-    (let [routing-rt (get-in (rf/runtime-db-value :rf/default)
+    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing])]
       (is (= "nav-2" (get-in routing-rt [:current :nav-token]))
           "the active token still rides the durable route slice")
@@ -67,7 +67,7 @@
     (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])  ;; nav-1
     (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])  ;; nav-2
     (rf/dispatch-sync [:rf.route/transitioned "/articles/C"])  ;; nav-3
-    (is (= "nav-3" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "third navigation is the live nav-3")
     (is (= 3 (:nav-token-counter (nav-counters/counter-snapshot :rf/default)))
@@ -89,7 +89,7 @@
       ;; mechanism `restore-epoch!` / time-travel uses — frame/replace-
       ;; runtime-db!). This REWINDS the runtime-db route slice to nav-1.
       (frame/replace-runtime-db! :rf/default restored-runtime-db)
-      (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                              [:rf.runtime/routing :current :nav-token]))
           "the restore rewound the runtime-db slice's active token to nav-1")
       ;; The host counter is UNTOUCHED by the runtime-db replace — that is
@@ -101,7 +101,7 @@
       ;; — i.e. nav-4, NOT a recycled nav-1 / nav-2 / nav-3 that could
       ;; collide with the pre-restore in-flight "nav-1" continuation.
       (rf/dispatch-sync [:rf.route/transitioned "/articles/D"])
-      (let [fresh (get-in (rf/runtime-db-value :rf/default)
+      (let [fresh (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current :nav-token])]
         (is (= "nav-4" fresh)
             "post-restore navigation mints nav-4 — monotone past the high-water mark")
@@ -136,10 +136,10 @@
     ;; next alloc to "nav-2" if the allocator read runtime-db. It does NOT —
     ;; it reads the HOST high-water mark (2), so the next token is "nav-3".
     ;; This is the structural fix: the runtime-db counter is irrelevant.
-    (is (= "nav-3" (get-in (rf/runtime-db-value :rf/default)
+    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "the host high-water mark (2) drives the next alloc to nav-3, ignoring the planted stale runtime-db counter")
-    (is (not= "nav-2" (get-in (rf/runtime-db-value :rf/default)
+    (is (not= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                               [:rf.runtime/routing :current :nav-token]))
         "the allocator did NOT consult the planted runtime-db counter (which would have minted nav-2)")
     ;; The commit handler never WRITES the counter to runtime-db — the only
@@ -169,7 +169,7 @@
     ;; Attempt to leave — the guard blocks → pending-navigation is written.
     (rf/dispatch-sync [:rf/url-requested {:url "/home"}])
 
-    (let [routing-rt (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing])
+    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing])
           pending    (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})]
       (is (some? pending) ":pending-navigation is subscribable (stays in runtime-db)")
       (is (= "pn-1" (:id pending)) "the pending-nav id is minted from the host counter")

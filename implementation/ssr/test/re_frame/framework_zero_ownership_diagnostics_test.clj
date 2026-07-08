@@ -118,25 +118,25 @@
     (let [diags (record-ownership-diagnostics! ::routing)]
       ;; (1) :rf.route/navigate — programmatic navigation.
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
-      (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           ":rf.route/navigate wrote the route slice (:rf.db/runtime applied)")
 
       ;; (2) :rf.route/transitioned — URL-driven forward nav.
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
-      (is (= :route/search (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           ":rf.route/transitioned wrote the route slice")
 
       ;; (3) :rf.route/handle-url-change — popstate / initial / SSR feed.
       (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/handle-url-change wrote the route slice")
 
       ;; (5) :rf.route.internal/settle-transition — per-route :on-match settle.
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
-      (is (= :route/loaded (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
 
@@ -161,18 +161,18 @@
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
           ":rf/url-requested wrote the pending-navigation slot")
       ;; CANCEL clears the slot (a :rf.db/runtime write).
       (rf/dispatch-sync [:rf.route/cancel "pn-1"])
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :pending-navigation]))
           ":rf.route/cancel cleared the pending slot")
       ;; Re-block, then CONTINUE (a :rf.db/runtime write + completion).
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
-      (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
       (is (empty? @diags)
@@ -208,14 +208,14 @@
       ;; (a) singleton bootstrap: first dispatch synthesises + commits the
       ;; snapshot into runtime-db.
       (rf/dispatch-sync [:zod/child [:rf.machine/noop]])
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/machines :snapshots :zod/child]))
           "machine bootstrap committed a snapshot to runtime-db")
 
       ;; (b) declarative :spawn — parent enters :working, spawn fx allocates
       ;; the child actor into runtime-db.
       (rf/dispatch-sync [:zod/parent [:start]])
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/machines :snapshots :zod/parent]))
           "the parent machine committed its snapshot to runtime-db")
 
@@ -256,7 +256,7 @@
           "the :large path was classified into the elision registry")
       (is (seq (elision/sensitive-declarations :rf/default))
           "the :sensitive path was classified into the elision registry")
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/elision]))
           "the commit-plane effect wrote its declaration registry into runtime-db")
       (is (empty? @diags)
@@ -283,7 +283,7 @@
       (rf/dispatch-sync [:rf/hydrate payload])
       (is (= "hello from server" (:greeting (rf/app-db-value :rf/default)))
           ":rf/hydrate replaced app-db with the server slice")
-      (is (= "deadbeef" (get-in (rf/runtime-db-value :rf/default)
+      (is (= "deadbeef" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 [:rf.runtime/ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server-hash into the runtime-db partition")
       (is (empty? @diags)

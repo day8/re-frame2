@@ -95,13 +95,13 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- slice []
-  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
 (defn- entry [scoped-key]
-  (get-in (rf/runtime-db-value :rf/default) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
 
 (defn- blocking-slot [nav-token]
-  (get-in (rf/runtime-db-value :rf/default) (route/blocking-path nav-token)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (route/blocking-path nav-token)))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))

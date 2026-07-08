@@ -445,7 +445,7 @@ reference:
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |
-| `(rf/replace-app-db! frame-id value)` | Tool-Pair | Used for "try anyway" recovery. |
+| `(rf/replace-frame-state! frame-id {:rf.db/app value})` | Tool-Pair | Used for "try anyway" recovery. |
 | `(rf/app-db-value frame-id)` | Spec 002 | The app-db panel's live read (returns the app-db VALUE). |
 | `(rf/compute-sub query-v db)` | Spec 008 | The sub-graph panel's value display. |
 | `(rf/registrations kind)` / `(rf/handler-meta kind id)` | Spec 001 | Registry-browser metadata. |
@@ -911,7 +911,7 @@ call with no resolvable context fails closed (`{:ok? false :reason
 |---|---|---|---|
 | `dispatch!` | `dispatch` | `{:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}` | Fire `event-vec` tagged `:origin *current-origin*`. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors. |
 | `restore-epoch!` | `restore-epoch` | `{:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}` | Rewinds a frame to the named epoch's `:frame-state-after` via `rf/restore-epoch!` — the WHOLE frame-state (app-db AND runtime-db: machine snapshots, route slice, elision declarations, SSR metadata) in one atomic write, NOT app-db alone. `:frame-state-after` is the only restore source; the retained `:db-after` is an app-db projection used for diffs, never the restore source. Failures (per Tool-Pair §Time-travel — Restore, seven documented failure modes) emit a structured `:rf.epoch/*` trace and leave the frame-state unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus. |
-| `replace-app-db!` | `replace-app-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
+| `replace-app-db!` | `replace-app-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `(rf/replace-frame-state! frame-id {:rf.db/app value})`; the failure rows (`:rf.error/replace-frame-state-bad-keys` / `:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
 
 ### Streaming band (3 accessors — subscription bookkeeping)
 

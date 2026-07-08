@@ -83,7 +83,7 @@
       (let [scoped-key (state/scoped-resource-key
                          :rf.scope/global :clk/article {:slug "w"})
             orig       (.-fetch js/globalThis)
-            entry      #(get-in (rf/runtime-db-value :rf/default)
+            entry      #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                 (state/entry-path scoped-key))]
         (rf/reg-resource :clk/article (article-spec) article-spec-request)
         (set! (.-fetch js/globalThis)

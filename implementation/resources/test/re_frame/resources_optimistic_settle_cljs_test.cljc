@@ -72,7 +72,7 @@
 
 ;; ---- helpers ---------------------------------------------------------------
 
-(defn- runtime-db [] (rf/runtime-db-value :rf/default))
+(defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
 ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
 ;; byte `key-id` (`state/key-id`), not the raw id; resolve through it.

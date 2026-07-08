@@ -24,7 +24,8 @@
   without a cycle.
 
   Scope is `src/` only. Test assertions read these slots off
-  `(rf/runtime-db-value frame-id)`.")
+  `(:rf.db/runtime (rf/frame-state-value frame-id))` (rf2-t3lftq —
+  API-shrink #3 retired the dedicated `rf/runtime-db-value` reader).")
 
 #?(:clj (set! *warn-on-reflection* true))
 

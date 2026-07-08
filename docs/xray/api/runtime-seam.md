@@ -2,7 +2,7 @@
 
 This chapter is about the **Xray ↔ tool read-and-mutate seam** — the contract a tool client (an MCP server, an IDE plugin, a record-replay harness, a future AI co-pilot drop) composes against when it wants to drive a running re-frame2 app from out-of-process. The core of it is **a namespace of pure-data accessors** — `day8.re-frame2-xray.runtime/<accessor>` — that a tool client renders as EDN forms over an nREPL channel to shadow-cljs, which evaluates them in the browser tab against the runtime that Xray's preload installed. The return values come back over the bencode-framed channel.
 
-The seam is **public-for-tools, not public-for-host-apps**. A host application reaches for the runtime accessors only when it's writing tool-shaped code (a custom debug panel, a test-harness assertion, a record-replay export). The same Tool-Pair-style discipline that governs the framework's trace bus applies — Xray emits, the tool consumes — but the runtime is also a *mutation* surface (`dispatch!`, `restore-epoch!`, `replace-app-db!`) for tool clients that need to drive the app rather than just observe it.
+The seam is **public-for-tools, not public-for-host-apps**. A host application reaches for the runtime accessors only when it's writing tool-shaped code (a custom debug panel, a test-harness assertion, a record-replay export). The same Tool-Pair-style discipline that governs the framework's trace bus applies — Xray emits, the tool consumes — but the runtime is also a *mutation* surface (`dispatch!`, `restore-epoch!`, `replace-app-db!` — itself now a thin wrapper over `rf/replace-frame-state!`) for tool clients that need to drive the app rather than just observe it.
 
 A keybinding lifecycle pair (`attach!` / `detach!`) lives in a sibling namespace and is also documented here because the embed-host escape hatch shape is closer to the runtime seam than to the mount facade.
 
@@ -177,7 +177,7 @@ Three write accessors. Every mutation tags the runtime cascade with `:tags :orig
   ```clojure
   (replace-app-db! opts) → {:ok? true/false :frame <id> :origin <kw>}
   ```
-- **Description**: Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint.
+- **Description**: Inject `:value` into a frame's `app-db`. Schema-validates via `(rf/replace-frame-state! frame-id {:rf.db/app value})`; the failure rows (`:rf.error/replace-frame-state-bad-keys` / `:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint.
 
 The three together compose the Tool-Pair time-travel surface: read an epoch, restore to that epoch, or directly inject a known-good state for "try anyway" recovery.
 

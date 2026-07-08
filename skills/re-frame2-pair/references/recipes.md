@@ -187,7 +187,7 @@ When the user mentions a state machine (Spec 005), chain:
    ```
    mcp__re-frame2-pair__read-sub {sub: "[:rf/machine :auth]"}
    ```
-   or eval `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or `runtime-db-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
+   or eval `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots :auth])`. (Note: `get-path` reads app-db, so it will NOT find the snapshot — use the sub or the runtime-db partition of `frame-state-value`.) The snapshot shape is `{:state :data :tags? :meta?}` (`:rf/snapshot-version` lives under `:meta`, per Spec 005 §Snapshot shape). (The `machine-state` runtime helper is the eval equivalent.)
 4. To watch transitions live: `subscribe {topic: "epoch", filter: {":event-id-prefix": ":auth/"}}` and inspect each emitted epoch's `:trace-events` for `:rf.machine/transition` entries — `(some #(= :rf.machine/transition (:operation %)) (:trace-events e))`. Arbitrary-predicate filtering at the subscribe layer isn't supported; combine `:event-id-prefix` (to narrow by trigger) with caller-side filtering of the streamed epochs.
 5. The canonical machine sub is `[:rf/machine :auth]` — `read-sub {sub: "[:rf/machine :auth]"}` reads its current value (validated + elided).
 

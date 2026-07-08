@@ -57,7 +57,7 @@
   necessarily a frame-id keyword: EP-0024 made frame VALUES first-class, so
   `{:frame frame-value}` is a legal shape. The override is normalized through
   `frame/frame-target->id` (a keyword id passes byte-identically; a frame
-  value yields its runnable id) — the SAME pattern `re-frame.core/snapshot-of`
+  value yields its runnable id) — the SAME pattern `re-frame.core/dispatch`
   uses for its `:frame` opt — so a schema registered under a frame VALUE is
   keyed by the SAME id a read-by-id later resolves. Before the fix a
   `{:frame frame-value}` registration stored under the frame-value MAP itself

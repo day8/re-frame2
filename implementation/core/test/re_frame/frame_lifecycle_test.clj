@@ -211,7 +211,7 @@
       (is (= 3 (count (filter #{:rf2-vsigt/child#1
                                  :rf2-vsigt/child#2
                                  :rf2-vsigt/child#3}
-                              (keys (get-in (rf/runtime-db-value :rf2-vsigt/auth) [:rf.runtime/machines :snapshots])))))
+                              (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf2-vsigt/auth)) [:rf.runtime/machines :snapshots])))))
           "three spawned actor snapshots live at [:rf.runtime/machines :snapshots <id>]")
       ;; Destroy the frame.
       (rf/destroy-frame! :rf2-vsigt/auth)

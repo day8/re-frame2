@@ -2156,11 +2156,11 @@
             ;; runtime-db projection.
             expected-rt  (:final-runtime-db expect)
             expected-rts (:final-runtime-dbs expect)
-            final-rt     (rf/runtime-db-value :rf/default)
+            final-rt     (:rf.db/runtime (rf/frame-state-value :rf/default))
             final-rts    (when expected-rts
                            (into {}
                                  (for [[fid _] expected-rts]
-                                   [fid (rf/runtime-db-value fid)])))
+                                   [fid (:rf.db/runtime (rf/frame-state-value fid))])))
             ;; Realise sub-checks BEFORE trace-failures: subscribing computes
             ;; the reaction body, which may emit :rf.error/sub-exception traces
             ;; that the trace-emissions check expects to see.

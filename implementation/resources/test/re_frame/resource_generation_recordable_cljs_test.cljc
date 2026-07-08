@@ -117,7 +117,7 @@
                      {:frame frame-id :rf.cofx {:rf/time-ms 1781078400250}})))
 
 (defn- live-entry []
-  (get-in (rf/runtime-db-value frame-id) (state/entry-path @scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) (state/entry-path @scoped-key)))
 
 (defn- with-fresh-runtime
   "Run `body` (a zero-arg thunk) inside a FRESH runtime — re-runs the `:each`

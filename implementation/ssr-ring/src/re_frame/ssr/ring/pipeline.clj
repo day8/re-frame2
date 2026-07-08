@@ -423,7 +423,7 @@
                 ;; EP-0001 (rf2-30kzz2): the runtime-db rides as the
                 ;; serializable `:rf/runtime-db` slice.
                 app-db     (rf/app-db-value frame-id)
-                runtime-db (rf/runtime-db-value frame-id)
+                runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
                 rf-payload (payload/build-payload frame-id app-db runtime-db hash-str
                                                   {:version       version
                                                    :schema-digest schema-digest

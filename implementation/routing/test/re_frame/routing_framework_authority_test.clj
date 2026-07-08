@@ -62,7 +62,7 @@
     (let [warns (record-runtime-warnings! ::navigate)]
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
       ;; The slice actually changed (proves the :rf.db/runtime effect applied).
-      (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                     [:rf.runtime/routing :current :route-id]))
           "the navigate handler wrote the route slice (:rf.db/runtime applied)")
       (is (empty? @warns)
@@ -74,7 +74,7 @@
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::url-change)]
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
-      (is (= :route/search (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/search (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the url-change handler wrote the route slice")
       (is (empty? @warns)
@@ -97,18 +97,18 @@
       (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (is (some? (get-in (rf/runtime-db-value :rf/default)
+      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                          [:rf.runtime/routing :pending-navigation]))
           ":rf/url-requested wrote the pending-navigation slot")
       ;; CANCEL clears the slot (a :rf.db/runtime write).
       (rf/dispatch-sync [:rf.route/cancel "pn-1"])
-      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :pending-navigation]))
           ":rf.route/cancel cleared the pending slot")
       ;; Re-block, then CONTINUE (a :rf.db/runtime write + completion).
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
-      (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/cart (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
       (is (empty? @warns)
@@ -124,7 +124,7 @@
     (stub-push-url!)
     (let [warns (record-runtime-warnings! ::settle)]
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
-      (is (= :route/loaded (get-in (rf/runtime-db-value :rf/default)
+      (is (= :route/loaded (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
       (is (empty? @warns)

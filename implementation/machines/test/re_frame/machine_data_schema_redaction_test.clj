@@ -379,7 +379,7 @@
   "The `:rf/default` frame's elision registry, read off runtime-db. A nil
   registry (a frame that never classified) reads as `{}`."
   []
-  (or (get (rf/runtime-db-value :rf/default) :rf.runtime/elision) {}))
+  (or (get (:rf.db/runtime (rf/frame-state-value :rf/default)) :rf.runtime/elision) {}))
 
 (deftest machine-declared-classification-lowers-at-singleton-boot
   (testing "EP-0025 reversal — a SINGLETON's projection-relative :sensitive /
@@ -433,7 +433,7 @@
   "The live spawned-actor instance ids under `:rf/default`'s machines
   snapshots map whose name starts with `prefix` (the `<type>#n` ids)."
   [prefix]
-  (->> (get-in (rf/runtime-db-value :rf/default)
+  (->> (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                [:rf.runtime/machines :snapshots])
        keys
        (filter #(clojure.string/starts-with? (name %) prefix))))
