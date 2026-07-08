@@ -23,12 +23,13 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
             [re-frame.core            :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Schema artefact — required as side-effecting loads so the
+            ;; Schema artefact — required as a side-effecting load so the
             ;; late-bind validator hooks publish (Malli's validate/explain)
-            ;; BEFORE any reg-app-schema call runs. Pulls in Malli via the
-            ;; schemas artefact's deps.
-            [re-frame.schemas]
-            [re-frame.schemas.malli])
+            ;; BEFORE any reg-app-schema call runs. re-frame.schemas
+            ;; self-requires its Malli adapter (pulling in Malli via the
+            ;; schemas artefact's deps) — no separate re-frame.schemas.malli
+            ;; require is needed.
+            [re-frame.schemas])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Schema ----------------------------------------------------------------
@@ -117,7 +118,7 @@ The canonical worked example `examples/core/counter/core.cljs` uses the same `:c
 
 Two contracts make the attach work:
 
-- **The artefact must be loaded as a side effect before any `reg-app-schema` runs.** Requiring `re-frame.schemas` + `re-frame.schemas.malli` publishes Malli's `validate`/`explain` into the framework's late-bind hook table — so the registration actually validates rather than throwing `:rf.error/schemas-artefact-missing`. (On the CLJS reference, schema **implies** validation — Spec 010 §Schema implies validation; there is no silent soft-pass with the artefact on the classpath.)
+- **The artefact must be loaded as a side effect before any `reg-app-schema` runs.** Requiring `re-frame.schemas` publishes Malli's `validate`/`explain` into the framework's late-bind hook table (it self-requires its Malli adapter — no separate `re-frame.schemas.malli` require is needed) — so the registration actually validates rather than throwing `:rf.error/schemas-artefact-missing`. (On the CLJS reference, schema **implies** validation — Spec 010 §Schema implies validation; there is no silent soft-pass with the artefact on the classpath.)
 - **The attach is frame-local and runs at boot, not at ns-load.** `reg-app-schema` targets a frame (EP-0002 carried-frame invariant); at namespace-load time no frame is established, so registering there raises `:rf.error/no-frame-context`. The attach therefore lives in a `register-schema!` fn that `init` calls **after** `reg-frame` makes `:rf/default` live, inside `(rf/with-frame :rf/default …)`. (Contrast `reg-event` / `reg-sub`, which are frame-agnostic global registrations and are fine at ns-load.)
 
 A schema describes **shape**, not egress policy — whether a path is `:sensitive?` / `:large?` (redacted/elided at Xray/trace boundaries) is **frame-owned** on `reg-frame`, not on the schema (Spec 015).
