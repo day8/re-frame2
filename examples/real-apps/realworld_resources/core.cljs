@@ -60,16 +60,19 @@
 ;; ============================================================================
 
 (rf/reg-event :app/initialise
-  {:doc "App boot. Seeds the two form drafts and nothing else. Session restore
-         is deliberately not here — it's its own `:initial-events` step
-         (`:auth/initialise`) so its recordable token coeffect can ride its own
-         dispatch. And the page reads (articles, tags, feed, …) aren't here
-         either: the route's `:resources` metadata pulls those in on the first
-         URL→route sync. Booting an app is mostly about deciding what NOT to do
-         up front."}
+  {:doc "App boot. Seeds the two form drafts and registers the editor's
+         `:editor/can-submit?` flow once (the boot one-shot `:editor/register-flow`
+         — the editor route's `:on-match` handlers deliberately do NOT re-register
+         it per entry). Session restore is deliberately not here — it's its own
+         `:initial-events` step (`:auth/initialise`) so its recordable token
+         coeffect can ride its own dispatch. And the page reads (articles, tags,
+         feed, …) aren't here either: the route's `:resources` metadata pulls those
+         in on the first URL→route sync. Booting an app is mostly about deciding
+         what NOT to do up front."}
   (fn [_ _]
     {:fx [[:dispatch [:auth.login-form/initialise]]
-          [:dispatch [:auth.register-form/initialise]]]}))
+          [:dispatch [:auth.register-form/initialise]]
+          [:dispatch [:editor/register-flow]]]}))
 
 ;; The JWT at [:auth :token] is both durable and sensitive — exactly the kind of
 ;; thing you don't want leaking off the box. The `:sensitive` effect marks it as
