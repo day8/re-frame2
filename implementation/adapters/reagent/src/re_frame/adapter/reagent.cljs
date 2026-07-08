@@ -106,22 +106,63 @@
      :frame      (get opts :frame)
      :body       body}))
 
-(defn- lease-frame-from-context
-  "Resolve the frame this instance should lease into: an explicit `:frame`
-  opt wins; else the frame-provider's keyword read off the instance's React
-  context (`:contextType` = the shared frame-context; the no-provider
-  sentinel coerces to nil); else the dynamic-var tier; else a loud
-  `:rf.error/no-frame-context`. Mirrors the React-hook helper's resolution
-  contract, in the Reagent (class-context) idiom."
-  [^js this explicit-frame]
+(defn- resolve-lease-frame
+  "Resolve the frame this instance leases into, at RENDER time, honouring the
+  EP-0002 carried-invariant tier precedence (Spec 002 §Frame target
+  resolution): an explicit `:frame` opt pins the target; otherwise delegate
+  to the canonical reader `frame/require-current-frame!`, which observes the
+  dynamic-var tier (`*current-frame*`) FIRST and the React-context tier (the
+  `:adapter/current-frame` hook — here the class `:context-type` read on the
+  in-flight component) SECOND, and raises the always-on
+  `:rf.error/no-frame-context` when neither names a frame.
+
+  Called from `:reagent-render` (NOT a commit-phase lifecycle method) so the
+  dynamic var is observed while the render scope's `with-frame` binding is
+  still in effect and the resolving component is the in-flight one — the same
+  render-time, single-sourced resolution the React-hook twin
+  `use-resource-lease` uses. Resolving in `:component-did-mount` would see
+  `*current-frame*` already unwound (so the dynamic-var tier could never win —
+  the EP-0002 inversion) and no in-flight component."
+  [explicit-frame]
   (or explicit-frame
-      (let [ctx (.-context this)]
-        (when-not (= ctx adapter-context/no-provider-sentinel)
-          (adapter-context/coerce-context-value ctx)))
-      frame/*current-frame*
       (frame/require-current-frame!
         :with-resource-lease
         {:where 're-frame.adapter.reagent/with-resource-lease})))
+
+(defn- ensure-lease!
+  "Dispatch `:rf.resource/ensure` for the render-time-resolved `desired`
+  target (`#js {:frame :descriptor :cause}`) under owner `lease`. Returns the
+  HELD-lease record (frame + owner + descriptor + cause snapshot) so a later
+  re-lease diff and the unmount release act on the SAME target the ensure
+  used, even after the render scope has unwound.
+
+  Direct owning-ns dispatch (not the `rf/dispatch` macro) — framework-
+  internal plumbing, not an application call site."
+  [^js desired lease]
+  (let [frame-id (.-frame desired)
+        {:keys [resource scope params]} (.-descriptor desired)]
+    (router/dispatch! [:rf.resource/ensure
+                       {:resource resource :scope scope :params params
+                        :owner lease :cause (.-cause desired)}]
+                      {:frame frame-id})
+    #js {:frame frame-id :lease lease
+         :descriptor (.-descriptor desired) :cause (.-cause desired)}))
+
+(defn- release-lease!
+  "Dispatch `:rf.resource/release-owner` for the `held` lease into the frame
+  it was ensured against."
+  [^js held]
+  (router/dispatch! [:rf.resource/release-owner {:owner (.-lease held)}]
+                    {:frame (.-frame held)}))
+
+(defn- lease-target-changed?
+  "True when the render-time `desired` target differs from the currently
+  `held` lease on frame, descriptor, or cause — the same
+  `[frame descriptor cause]` tuple the React-hook twin keys its effect on."
+  [^js held ^js desired]
+  (or (not= (.-frame held)      (.-frame desired))
+      (not= (.-descriptor held) (.-descriptor desired))
+      (not= (.-cause held)      (.-cause desired))))
 
 (def with-resource-lease
   "Reagent component that takes a resource liveness LEASE for its mounted
@@ -159,49 +200,75 @@
   mint a fresh component type per render and remount). It declares
   `:context-type` = the shared frame-context (via
   `re-frame.adapter.context/frame-context`) so the instance receives the
-  surrounding `frame-provider`'s frame — the same wiring `reg-view` uses —
-  and resolves the lease frame in `:component-did-mount` (explicit `:frame`
-  opt → React-context → dynamic-var → loud `:rf.error/no-frame-context`),
-  stashing it so `:component-will-unmount` releases into the SAME frame even
-  though it runs after the render scope has unwound.
+  surrounding `frame-provider`'s frame — the same wiring `reg-view` uses.
 
-  Idempotency: the lease token is minted ONCE per instance (stashed on the
-  instance in `did-mount`), so a hot-reload re-mount settles to exactly one
-  held lease (ensure re-attaches the same lease; Spec 016 §Active owners).
-  Under SSR (`render-to-string`) lifecycle methods do not run, so the
-  acquire/release is a natural no-op — the lease is a client-lifetime
+  Frame resolution + timing (EP-0002 tier precedence): the lease frame is
+  resolved in `:reagent-render` via `resolve-lease-frame` — the explicit
+  `:frame` opt, else the canonical `frame/require-current-frame!` reader
+  (dynamic-var `*current-frame*` FIRST, then the React-context tier, else the
+  loud `:rf.error/no-frame-context`). Resolving at RENDER time (not in a
+  commit-phase lifecycle method) keeps the dynamic-var tier able to win and
+  mirrors the React-hook twin's render-time resolution. The resolved frame +
+  descriptor + cause are stashed on the instance so the commit-phase methods
+  act on the render-time target even after the render scope unwinds.
+
+  Re-lease on change: a `:component-did-update` diffs the render-time
+  `[frame descriptor cause]` against the currently-held lease and, on any
+  change, RELEASES the old lease (into its old frame) then ENSURES the new
+  target — mirroring the twin's `deps-key`-keyed effect. So a descriptor
+  whose `:params` change across re-renders releases the old resource and
+  ensures the new one WITHOUT waiting for unmount; a value-equal descriptor
+  holds ONE lease with no churn. (React does not re-run
+  `:component-did-mount` on a props change, so re-leasing must live here.)
+
+  Idempotency: the lease token is minted ONCE per instance (in `did-mount`)
+  and reused across re-leases, so a hot-reload re-mount settles to exactly
+  one held lease (ensure re-attaches the same lease; Spec 016 §Active
+  owners). Under SSR (`render-to-string`) lifecycle methods do not run, so
+  the acquire/release is a natural no-op — the lease is a client-lifetime
   concern."
   (r/create-class
     {:display-name "re-frame.adapter.reagent/with-resource-lease"
      ;; Reagent's create-class copies `:context-type` (camelCased to the
-     ;; React static `contextType`) onto the class, so `(.-context this)`
-     ;; carries the enclosing frame-provider's value — the class-component
-     ;; parity of the reg-view `{:contextType frame-context}` wiring.
+     ;; React static `contextType`) onto the class, so the in-flight
+     ;; component's context carries the enclosing frame-provider's value —
+     ;; the class-component parity of the reg-view `{:contextType
+     ;; frame-context}` wiring, read via the canonical `:adapter/current-frame`
+     ;; hook during `resolve-lease-frame`.
      :context-type adapter-context/frame-context
+     :reagent-render
+     (fn [d & args]
+       (let [{:keys [cause descriptor frame body]} (lease-args (cons d args))
+             frame-id (resolve-lease-frame frame)]
+         ;; Stash the render-time-resolved lease target (dynamic-var-honouring
+         ;; frame + current descriptor/cause) so the commit-phase lifecycle
+         ;; methods take + re-lease against it after the render scope unwinds.
+         (set! (.-rf2LeaseDesired ^js (r/current-component))
+               #js {:frame frame-id :descriptor descriptor :cause cause})
+         (body)))
      :component-did-mount
      (fn [^js this]
-       (let [{:keys [descriptor cause frame]} (lease-args (rest (r/argv this)))
-             {:keys [resource scope params]}  descriptor
-             frame-id (lease-frame-from-context this frame)
-             token    (swap! lease-token-counter inc)
-             lease    [:lease token]]
-         ;; Stash the per-instance lease + frame so unmount releases exactly
-         ;; this instance's lease into the same frame.
-         (set! (.-rf2ResourceLease this) #js {:frame frame-id :lease lease})
-         ;; Direct owning-ns dispatch (not the `rf/dispatch` macro) —
-         ;; framework-internal plumbing, not an application call site.
-         (router/dispatch! [:rf.resource/ensure
-                            {:resource resource :scope scope :params params
-                             :owner lease :cause cause}]
-                           {:frame frame-id})))
+       ;; Mint the per-instance lease token ONCE (reused across re-leases,
+       ;; matching the twin's stable useRef token) + take the first lease.
+       (let [lease [:lease (swap! lease-token-counter inc)]]
+         (set! (.-rf2ResourceLease this)
+               (ensure-lease! (.-rf2LeaseDesired this) lease))))
+     :component-did-update
+     (fn [^js this _ _ _]
+       (let [held    (.-rf2ResourceLease this)
+             desired (.-rf2LeaseDesired this)]
+         (when (and held desired (lease-target-changed? held desired))
+           ;; Descriptor / frame / cause changed across re-render — release the
+           ;; old lease then re-ensure the new target under the SAME token, so
+           ;; neither is the old resource over-retained nor the new one
+           ;; under-provisioned until unmount.
+           (release-lease! held)
+           (set! (.-rf2ResourceLease this)
+                 (ensure-lease! desired (.-lease held))))))
      :component-will-unmount
      (fn [^js this]
        (when-let [held (.-rf2ResourceLease this)]
-         (router/dispatch! [:rf.resource/release-owner {:owner (.-lease held)}]
-                           {:frame (.-frame held)})))
-     :reagent-render
-     (fn [_descriptor & args]
-       ((:body (lease-args (cons _descriptor args)))))}))
+         (release-lease! held)))}))
 
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
