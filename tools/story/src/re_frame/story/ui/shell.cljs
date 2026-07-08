@@ -56,7 +56,6 @@
             [re-frame.story.config :as config]
             [re-frame.story.decorators :as decorators]
             [re-frame.story.frames :as frames]
-            [re-frame.story.identity :as identity]
             [re-frame.story.play.runner-events :as play-runner-events]
             [re-frame.story.predicates :as pred]
             [re-frame.story.registrar :as registrar]
@@ -86,6 +85,7 @@
             [re-frame.story.ui.share :as share]
             [re-frame.story.ui.shell.rails :as rails]
             [re-frame.story.ui.url-state :as url-state]
+            [re-frame.story.ui.watch :as watch]
             [re-frame.story.ui.shell-styles :refer [styles]]
             [re-frame.story.ui.sidebar :as sidebar]
             [re-frame.story.theme.typography :as theme-typography]
@@ -165,76 +165,19 @@
 
 ;; ---- watch-mode detector (rf2-z1h0f) -------------------------------------
 ;;
-;; The chrome-level test widget's eye-icon toggles `[:tests :watch-
-;; mode?]` in the shell state. When on, this poll computes a snapshot-
-;; identity content-hash per testable variant, compares it against the
+;; The chrome-level test widget's eye-icon toggles `[:tests :watch-mode?]`
+;; in the shell state. When on, `detect-watch-drift!` polls a snapshot-
+;; identity content-hash per testable variant (via
+;; `watch/compute-testable-content-hashes`), compares it against the
 ;; recorded `[:tests :content-hashes]` slot, and dispatches
-;; `sidebar/watch-rerun!` for the variants whose hash drifted.
+;; `sidebar/watch-rerun!` for the variants whose hash drifted. Detection
+;; runs on the same 500ms cadence as the hot-reload poll.
 ;;
-;; Detection runs on the same 500ms cadence as the existing hot-reload
-;; poll — both polls share `setInterval` for v1.
-;;
-;; HOT PATH (rf2-zrswb): `compute-testable-content-hashes` runs every
-;; 500ms while watch mode is on. The naïve walk hashed every testable
-;; variant on every tick — pr-str of the canonical tuple per variant,
-;; cost O(V × variant-body-size). For a corpus of N testable variants
-;; the steady-state cost is dominated by serialisation that produces
-;; the same hash 99.9% of the time.
-;;
-;; The cache below keys on `[registrar-mutation-tick, active-modes,
-;; substrate, cell-overrides]` — the four inputs that can perturb a
-;; snapshot-identity hash across two polls. Registrar writes invalidate
-;; every variant entry; shell-state mode/substrate changes do too; and
-;; per-cell control edits land in `:cell-overrides` and ARE threaded
-;; through `args/resolve-args` into `snapshot-tuple`'s `:effective-args`
-;; slot (identity.cljc:213 + args.cljc:125-134) — they DO perturb the
-;; hash. When the key matches the previous tick's key, we return the
-;; cached map — zero hashing work. When it drifts, we recompute the lot
-;; once and re-seed the cache.
-;;
-;; Pre-rf2-mclvi the cache key dropped `:cell-overrides` citing
-;; `snapshot-identity` as the source of truth, but `snapshot-tuple`
-;; DOES read them via `resolve-args` — the cache was stale after every
-;; control edit, watch-mode missed re-runs.
-
-(defonce ^:private testable-hash-cache
-  (atom {:key nil :hashes nil}))
-
-(defn- compute-testable-content-hashes
-  "Walk the registered testable variants and return a `{variant-id →
-  hex-hash}` map of snapshot-identity content hashes. The hash captures
-  the variant's `:play-script` / `:events` / `:loaders` / `:decorators` /
-  `:tags` slots plus the parent story's slice, the view's registered
-  schema-digest, AND the variant's resolved effective args (which fold
-  in the user's live `:cell-overrides`). See `re-frame.story.identity`
-  §What's in the hash + /spec/007-Stories.md §Variant snapshot identity.
-
-  HOT PATH (rf2-zrswb): registrar-driven cache short-circuits when
-  neither the side-table nor the relevant shell-state slots
-  (`:active-modes` / `:substrate` / `:cell-overrides`) have drifted
-  since the last tick."
-  []
-  (let [shell      (state/get-state)
-        modes      (:active-modes shell)
-        subs       (:substrate shell)
-        overrides  (:cell-overrides shell)
-        tick       (registrar/current-mutation-tick)
-        key        [tick modes subs overrides]
-        cached     @testable-hash-cache]
-    (if (= key (:key cached))
-      (:hashes cached)
-      (let [testable (state/testable-variant-ids
-                       (:variants (state/registry-snapshot)))
-            hashes   (into {}
-                           (map (fn [vid]
-                                  (let [opts {:active-modes   modes
-                                              :substrate      subs
-                                              :cell-overrides (get overrides vid)}]
-                                    [vid (:content-hash
-                                           (identity/snapshot-identity vid opts))])))
-                           testable)]
-        (reset! testable-hash-cache {:key key :hashes hashes})
-        hashes))))
+;; The compute + its hot-path cache live in `re-frame.story.ui.watch` — a
+;; leaf that requires neither `shell` nor `sidebar`, so the toggle seed
+;; (`sidebar/set-watch-mode!`, rf2-asp2op) can share the SAME compute
+;; without a `sidebar → shell` load cycle. See that ns for the cache-key
+;; rationale (incl. the rf2-3y7l7u view-schema-digest signal).
 
 (defn detect-watch-drift!
   "When watch mode is on, compute the current testable-variant content
@@ -246,7 +189,7 @@
   interval."
   []
   (when (and config/enabled? (state/test-watch-mode? (state/get-state)))
-    (let [current (compute-testable-content-hashes)
+    (let [current (watch/compute-testable-content-hashes)
           shell   (state/get-state)
           prev    (get-in shell [:tests :content-hashes])
           drifted (state/watch-mode-drift prev current)]
