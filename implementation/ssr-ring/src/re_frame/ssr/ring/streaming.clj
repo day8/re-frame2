@@ -898,9 +898,14 @@
   ;; way via the shared `lifecycle/resolve-on-error`: caller's
   ;; `:on-error` wins, else the locked `default-on-error` (rf2-kzvwq
   ;; topology-leak contract).
-  (let [opts        (-> (merge {:emit-hash?   true
-                                :content-type "text/html; charset=utf-8"}
-                               raw-opts)
+  ;; rf2-nncni3 — `:content-type` carries NO default here (mirrors
+  ;; `ssr-ring/handler-defaults`): the opt is a genuine override that
+  ;; force-replaces the streamed head's Content-Type when supplied. A
+  ;; non-nil default would clobber an app's own `:rf.server/set-header
+  ;; "content-type"`; an absent (nil) opt leaves the runtime's
+  ;; default-seeded `text/html; charset=utf-8` — or the app's Content-Type
+  ;; — in control (the on-the-wire default is unchanged).
+  (let [opts        (-> (merge {:emit-hash? true} raw-opts)
                         (assoc :on-error (lifecycle/resolve-on-error raw-opts)))
         {:keys [on-error content-type]} opts]
     (fn ring-handler [request]

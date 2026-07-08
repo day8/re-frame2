@@ -187,14 +187,22 @@
 
 (def handler-defaults
   "Default `ssr-handler` opts merged under caller-supplied opts at
-  construction time (`:emit-hash?`, `:html-shell`, `:content-type`).
-  A DATA var, not a fn — exposed so callers can read or extend the
-  baseline. `:on-error` is deliberately NOT here (it is resolved
-  separately via `lifecycle/resolve-on-error` so the defaults stay
-  orthogonal to on-error precedence)."
-  {:emit-hash?   true
-   :html-shell   shell/default-html-shell
-   :content-type "text/html; charset=utf-8"})
+  construction time (`:emit-hash?`, `:html-shell`). A DATA var, not a
+  fn — exposed so callers can read or extend the baseline. `:on-error`
+  is deliberately NOT here (it is resolved separately via
+  `lifecycle/resolve-on-error` so the defaults stay orthogonal to
+  on-error precedence).
+
+  `:content-type` carries NO default (rf2-nncni3): the opt is a genuine
+  override that force-replaces the response Content-Type when supplied.
+  A default of `text/html; charset=utf-8` here would force-replace an
+  app's own `:rf.server/set-header \"content-type\"` on every request; an
+  absent (nil) opt instead leaves the runtime's default-seeded
+  `text/html; charset=utf-8` (Spec 011 §Status defaults) — or the app's
+  explicit Content-Type — in control. So the on-the-wire default is
+  unchanged; only its source moves from this map to the runtime seed."
+  {:emit-hash? true
+   :html-shell shell/default-html-shell})
 
 ;; ---- ssr-handler ----------------------------------------------------------
 
@@ -265,9 +273,16 @@
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.
-    :content-type   — Content-Type header for HTML responses. Default
-                      \"text/html; charset=utf-8\" (matches the SSR
-                      runtime's default in the response accumulator).
+    :content-type   — Content-Type OVERRIDE for the successfully-rendered
+                      response body (rf2-nncni3). When supplied, it
+                      force-replaces the response Content-Type (any casing)
+                      — the surface for serving a non-HTML SSR body (XML
+                      feed / sitemap, `application/xhtml+xml`, …). OMIT it
+                      (the default) to leave the runtime's default-seeded
+                      \"text/html; charset=utf-8\" — or an app's own
+                      `:rf.server/set-header \"content-type\"` — in control.
+                      The override applies to the rendered body only; a
+                      projected error page keeps the HTML default.
 
   ---- :on-error vs :error-view — the error-handling division (rf2-s2ndr) ----
 

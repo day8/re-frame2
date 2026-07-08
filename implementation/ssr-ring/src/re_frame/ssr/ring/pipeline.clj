@@ -87,11 +87,15 @@
   responses). `:redirect` short-circuits per Spec 011 §Redirect
   precedence — status + Location header, no body.
 
-  The optional 3-arg form (rf2-uj9z8) accepts a `default-content-type`
-  that's stamped onto the Ring header map if (and only if) the response
-  pairs don't already carry a Content-Type (case-insensitive). The
-  defaulting happens INSIDE the single header-fold pass
-  (`headers->ring-map+default-content-type`).
+  The optional 3-arg form accepts a `content-type` OVERRIDE (rf2-nncni3):
+  when non-nil it force-replaces any Content-Type on the accumulator (any
+  casing) with a single canonical `Content-Type` header. A nil
+  `content-type` leaves the accumulator's Content-Type (the runtime seed or
+  an app `:rf.server/set-header`) untouched. The override happens inside the
+  header fold (`headers->ring-map+content-type-override`). The earlier
+  default-when-absent form (rf2-uj9z8) was a silent no-op for the ssr-ring
+  runtime — `default-response` always seeds a Content-Type, so the passed
+  opt could never be applied (rf2-nncni3).
 
   Host-serialisability fail-closed (rf2-v0qbng): this materialiser is the
   LAST line between the runtime accumulator and the wire, and the
@@ -128,7 +132,7 @@
                                       "redirect; the browser has no target)")
                        :recovery :warned-and-emitted-statusonly}))
        {:status  (fail-closed-status (or redirect-status status) 302)
-        :headers (-> (headers/headers->ring-map+default-content-type
+        :headers (-> (headers/headers->ring-map+content-type-override
                        headers default-content-type)
                      (headers/append-set-cookies cookies)
                      ;; The Location value must be a string — a non-string
@@ -139,7 +143,7 @@
                                                         (str target)))))
         :body    ""})
      {:status  (fail-closed-status status 200)
-      :headers (-> (headers/headers->ring-map+default-content-type
+      :headers (-> (headers/headers->ring-map+content-type-override
                      headers default-content-type)
                    (headers/append-set-cookies cookies))
       :body    (or body "")})))
@@ -470,12 +474,14 @@
         ;; merge :status) so any header / cookie the render walk
         ;; accumulated also rides the wire.
         post-render-resp (ssr/flush-response! frame-id)]
-    ;; Content-Type defaulting (rf2-uj9z8): the 3-arg form folds the
-    ;; header pairs into the Ring map AND defaults Content-Type in one
-    ;; walk. The SSR runtime defaults [:rf/response :headers] to include
-    ;; content-type so the default is usually a no-op, but we still pass
-    ;; `content-type` through so an opts override and absence-of-default
-    ;; both work.
+    ;; Content-Type override (rf2-nncni3): the 3-arg form force-replaces
+    ;; the accumulator's Content-Type with the handler's `:content-type`
+    ;; opt when it is non-nil. The SSR runtime always seeds a Content-Type
+    ;; on [:rf/response :headers], so the earlier default-when-absent form
+    ;; could NEVER apply the opt — a caller `:content-type` was silently
+    ;; dropped. With the opt now defaulting to nil (removed from
+    ;; `handler-defaults`), a nil `content-type` leaves the runtime seed /
+    ;; app-`set-header` value in control; a non-nil opt overrides it.
     (ssr-response->ring-response post-render-resp html content-type)))
 
 (defn project-render-throw->ring-response
@@ -520,9 +526,17 @@
                             {:status 500 :code :internal-error
                              :message "Something went wrong"
                              :retryable? false})
-          body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
-          content-type  (:content-type opts)]
-      (ssr-response->ring-response resp* body-html content-type))))
+          body-html     (resolve-error-body frame-id (:error-view opts) public-error*)]
+      ;; rf2-nncni3 — do NOT apply the handler's `:content-type` override on
+      ;; the error path. That opt labels the SUCCESSFUL rendered body (an XML
+      ;; feed / bespoke type); the projected error body is always an HTML
+      ;; fallback, so it keeps the runtime's `text/html; charset=utf-8` seed
+      ;; (Spec 011 §Status defaults) — labelling an HTML error page as, say,
+      ;; `application/xml` would be a wire-content mismatch. An app that set a
+      ;; custom Content-Type via `:rf.server/set-header` before the throw
+      ;; still has it on `resp*` (unchanged behaviour); we only decline to
+      ;; force the construction-time opt here.
+      (ssr-response->ring-response resp* body-html))))
 
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the
