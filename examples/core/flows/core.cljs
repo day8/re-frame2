@@ -300,6 +300,21 @@
 ;; seed here. The id is `:rf/default`, the very same one `run` uses below.
 (def app-frame :rf/default)
 
+;; `mount!` is browser setup: create the root lazily, then render the view tree
+;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; each reload so your edited views re-render into the same root and — since the
+;; ENSURE-shape provider reuses the frame `run` already created — the same frame.
+;; This is the canonical mount/boot shape, spelled the same in the counter and
+;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    (rdc/render @react-root
+                [rf/frame-provider {:id app-frame}
+                 [cart-app]])))
+
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through —
   ;; here, Reagent. It has to come before any frame is constructed: a
@@ -307,16 +322,11 @@
   ;; would raise :rf.error/no-adapter-installed without this first.
   (rf/init! reagent-adapter/adapter)
   ;; Create the frame explicitly, here, rather than leaving it to
-  ;; `frame-provider` below. `reg-flow` (inside `install-flows!`) needs a
+  ;; `frame-provider` in `mount!`. `reg-flow` (inside `install-flows!`) needs a
   ;; LIVE frame to register against, and the render tree — where
   ;; `frame-provider` would otherwise create one — doesn't exist yet at this
   ;; point in `run`.
   (rf/reg-frame app-frame {:doc "Cart-with-flows demo frame."})
   (install-flows!)
   (rf/with-frame app-frame (rf/dispatch-sync [:cart/initialise]))
-  (when (exists? js/document)
-    (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-    (rdc/render @react-root
-                [rf/frame-provider {:id app-frame}
-                 [cart-app]])))
+  (mount!))

@@ -363,8 +363,8 @@
 (defonce react-root (atom nil))
 
 ;; re-frame2 won't conjure a frame for you — an app stands up its own. We
-;; do it in exactly one place: the `frame-provider {:id app-frame}` in the
-;; render call below. First mount creates the frame and fires
+;; do it in exactly one place: the `frame-provider {:id app-frame}` in
+;; `mount!` below. First mount creates the frame and fires
 ;; `:initial-events` once to seed app-db before anything paints; a hot
 ;; reload finds the frame already there and skips the seed. From then on
 ;; every `dispatch` and `subscribe` in the tree resolves to it. The name
@@ -373,14 +373,23 @@
 ;; docs/core/frames.md.
 (def app-frame :rf/default)
 
-(defn run []
-  ;; One job each: `init!` tells the runtime to render through Reagent. It
-  ;; does not make a frame — the `frame-provider` below does that.
-  (rf/init! reagent-adapter/adapter)
-  (when (exists? js/document)
+;; `mount!` is browser setup: create the root lazily, then render the view tree
+;; inside the frame-provider. `^:dev/after-load` is shadow's cue to re-run it on
+;; each reload so your edited views re-render into the same root and same frame.
+;; This is the canonical mount/boot shape, spelled the same in the counter and
+;; todomvc examples. See `docs/core/how-to/boot-and-mount-an-app.md`.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+      (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
                                     :initial-events [[:notebook/initialise]]}
                  [notebook]])))
+
+(defn run []
+  ;; One job each: `init!` tells the runtime to render through Reagent. It
+  ;; does not make a frame — the `frame-provider` in `mount!` does that.
+  (rf/init! reagent-adapter/adapter)
+  (mount!))
