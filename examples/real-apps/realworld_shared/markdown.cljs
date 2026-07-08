@@ -53,25 +53,48 @@
   "Schemes a markdown link/image is allowed to navigate to / load."
   #{"http" "https" "mailto"})
 
+(defn- url-scheme
+  "The lower-cased URL scheme of `u` if it has one, else nil for a relative
+   reference. A scheme is the run of characters before the first ':' WHEN that
+   colon precedes the first '/', '?', or '#' — i.e. it delimits a scheme rather
+   than sitting inside a path/query/fragment. This mirrors how browsers (RFC
+   3986) parse a scheme: a colon in the first path segment IS a scheme, even
+   without a well-formed scheme name — which is exactly what a de-obfuscated
+   `javascript:` collapses back to. `u` is expected to be control-char-stripped
+   already (see `safe-url?`)."
+  [u]
+  (when-let [colon (str/index-of u ":")]
+    (let [seps (keep #(str/index-of u %) ["/" "?" "#"])
+          sep  (if (seq seps) (apply min seps) (count u))]
+      (when (< colon sep)
+        (str/lower-case (subs u 0 colon))))))
+
 (defn safe-url?
   "True when `url` is safe to place in an :href / :src. Allows the
    allowlisted absolute schemes (http/https/mailto) and scheme-relative
-   navigation (a relative path, an in-page #fragment, or `./`/`../`).
-   Rejects everything else — notably `javascript:`, `data:`, and
-   `vbscript:` URLs, the classic anchor/img XSS vectors."
+   navigation (a relative path, an in-page #fragment, `./`/`../`, or a
+   protocol-relative `//host`). Rejects everything else — notably
+   `javascript:`, `data:`, and `vbscript:` URLs, the classic anchor/img XSS
+   vectors, INCLUDING control-char-obfuscated variants (e.g. an ASCII TAB
+   spliced into `javascript:`) that a browser would collapse back into a live
+   scheme before it resolves the link."
   [url]
-  (let [u (str/trim (or url ""))]
-    (cond
-      (str/blank? u) false
-      ;; A leading scheme `foo:` — allow only the allowlisted set. The regex
-      ;; anchors at the start and refuses leading control/whitespace tricks
-      ;; (e.g. "java\tscript:") because those are not a valid scheme char run.
-      (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*:" u)
-      (let [scheme (str/lower-case (re-find #"^[a-zA-Z][a-zA-Z0-9+.-]*" u))]
-        (contains? safe-url-schemes scheme))
-      ;; No scheme → relative path / #fragment / `./`/`../` / protocol-
-      ;; relative. None can smuggle a script scheme, so it is safe navigation.
-      :else true)))
+  ;; Browsers strip ASCII tab/newline/CR (and ignore the other C0 control
+  ;; chars) from a URL before resolving its scheme, so a payload like
+  ;; "java<TAB>script:alert(1)" fires as javascript: on click. Detect the
+  ;; scheme against a copy with every ASCII control + space char removed, then
+  ;; run it through the allowlist — an unknown or obfuscated scheme is
+  ;; default-DENIED, never waved through the `:else` branch as if it were a
+  ;; relative URL (the bug the old `:else true` had: a non-matching scheme run
+  ;; fell through and was KEPT, contradicting this fn's own contract).
+  (let [u (str/replace (or url "") #"[\x00-\x20\x7f]" "")]
+    (if (str/blank? u)
+      false
+      (if-let [scheme (url-scheme u)]
+        (contains? safe-url-schemes scheme)
+        ;; No scheme → relative path / #fragment / `./`/`../` / protocol-
+        ;; relative. None can smuggle a script scheme, so it is safe navigation.
+        true))))
 
 (defn- scrub-attrs
   "Given a hiccup attribute map, drop any :href / :src whose URL is not
