@@ -3,7 +3,7 @@
   macrostep and re-broadcasts to ALL regions against the full evolving
   snapshot. It is NOT region-local.
 
-  XState v5 / SCXML gold standard: `raise` enqueues on the machine's ONE
+  XState v5 / SCXML: `raise` enqueues on the machine's ONE
   internal event queue; the macrostep pops the front and broadcasts the
   internal event to every active region (every parallel state in SCXML),
   FIFO, until the queue drains, then commits once. So a region's raise

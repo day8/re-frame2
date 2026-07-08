@@ -24,8 +24,9 @@
   `*_cljs_test.cljc` convention (discovered by both `npm run test:cljs` and
   `clojure -M:test`).
 
-  XState v5 (xstate@5.32.0, the recorded gold standard) is the reference for
-  every behaviour; the W3C SCXML IRP semantic-core is the canonical corpus.
+  The XState v6 direction is the parity reference for every behaviour
+  (the semantic core here is v5→v6 stable and was recorded against
+  xstate@5.32.0); the W3C SCXML IRP semantic-core is the canonical corpus.
   Where re-frame2 deliberately diverges from the raw SCXML shape
   (substrate-constrained, or behavioural parity via different expression),
   the case asserts the RE-FRAME2 behaviour and CITES the documented
@@ -484,7 +485,7 @@
             apart and proves the root-vs-embedded distinction: on the same
             embedded-final config `final-on-leaf?` is TRUE (the active leaf is
             final) while `top-level-final?` is FALSE (the path is length 2, not
-            a direct child of the root). xstate v5 / SCXML §3.7 gold standard
+            a direct child of the root). xstate v5 / SCXML §3.7
             (rf2-bnjb3 / rf2-zlmz7). Spec 005 §Final states §Top-level vs
             embedded."
     (let [m {:initial :work :data {}
@@ -519,7 +520,7 @@
             drain FIFO — an action raising [:b] then [:c], where :b's action
             raises [:d], processes :b, :c, :d (the nested :d goes to the BACK,
             behind the still-pending sibling :c), NOT depth-first. xstate v5
-            / SCXML gold standard (rf2-nr434). Spec 005 §`:raise` FIFO."
+            / SCXML (rf2-nr434). Spec 005 §`:raise` FIFO."
     (let [log (atom [])
           la  (fn [label & raises]
                 (fn [{:keys [data]}]

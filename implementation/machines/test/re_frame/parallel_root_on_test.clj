@@ -1,6 +1,6 @@
 (ns re-frame.parallel-root-on-test
-  "Per Spec 005 §Transition broadcast §Root parallel `:on` (XState v5 / SCXML
-  gold standard). The parallel ROOT's own `:on` is the ANCESTOR FALLBACK for
+  "Per Spec 005 §Transition broadcast §Root parallel `:on` (XState v5 / SCXML).
+  The parallel ROOT's own `:on` is the ANCESTOR FALLBACK for
   its regions: deepest-wins with parent fallthrough, the parallel analog of
   the flat / compound machine-root `:on` fallback.
 
@@ -313,7 +313,7 @@
 
 ;; ---- 13. ROOT-LEVEL :after on a parallel root -----------------------------
 ;;
-;; XState v5 gold standard: `after` may be declared at any level, including a
+;; XState v5 / SCXML: `after` may be declared at any level, including a
 ;; <parallel> node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled at
 ;; machine birth, alive for the whole machine, stale-gated by the root's OWN
 ;; per-path epoch (NOT bound to any region's lifecycle). It is the timer-driven

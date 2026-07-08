@@ -13,7 +13,7 @@
     - a keyword `actor-id` — the IMPERATIVE form: an action emits
       `[:rf.machine/destroy actor-id]` directly with the actor id it
       holds. This is first-class current API — re-frame2's spelling of
-      XState v5 `stopChild(actorId)` (the gold-standard imperative
+      XState v5 `stopChild(actorId)` (the imperative
       teardown that sits alongside automatic exit-cascade teardown), OR
     - a map `{:rf/parent-id ... :rf/invoke-id ...}` — the declarative-
       `:spawn` exit-cascade form, where the runtime resolves the actor

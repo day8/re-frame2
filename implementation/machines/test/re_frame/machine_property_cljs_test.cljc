@@ -11,7 +11,7 @@
 
   Spec 005 itself flags a 'model-based testing harness' as planned, and
   XState v5 ships `@xstate/test` model-based testing — the analogous
-  gold-standard. This is the additive property tier, NOT a replacement for
+  reference. This is the additive property tier, NOT a replacement for
   the example + conformance suites.
 
   ## Properties asserted (over deterministic draws)
