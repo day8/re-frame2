@@ -1710,6 +1710,58 @@ it('the build-output main.js is never resolved on disk', () => {
   );
 });
 
+// ---- rf2-cnu7qy: og:image content-BEFORE-property order -------------------
+//
+// HTML attribute order is insignificant, so a `content`-first og:image meta is
+// valid. The old ordered regex only saw property-first metas, so a content-first
+// SVG/remote card was INVISIBLE to the raster contract, disk resolution, and the
+// network policy.
+
+it('rf2-cnu7qy: extractOgImageRefs sees a content-BEFORE-property og:image', () => {
+  assert.deepStrictEqual(
+    extractOgImageRefs('<meta content="_shared/img/og.png" property="og:image">'),
+    ['_shared/img/og.png'],
+  );
+});
+
+it('rf2-cnu7qy: extractHtmlRefs + extractAssetRefs see a content-first og:image', () => {
+  const html = '<meta content="https://og.example.com/card.png" property="og:image">';
+  assert.ok(extractHtmlRefs(html).includes('https://og.example.com/card.png'));
+  const tagged = extractAssetRefs(html);
+  assert.strictEqual(
+    Object.fromEntries(tagged.map((t) => [t.ref, t.source]))[
+      'https://og.example.com/card.png'
+    ],
+    'og:image',
+  );
+});
+
+it('TEETH rf2-cnu7qy: a content-first REMOTE og:image is REJECTED (was invisible)', () => {
+  const html = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta property="og:image" content="_shared/img/og.png">\n' +
+      '<meta content="https://og.example.com/card.png" property="og:image">',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('og:image') && e.includes('og.example.com')),
+    `expected the content-first remote og:image to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH rf2-cnu7qy: a content-first SVG og:image trips the raster contract', () => {
+  const html = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta content="_shared/img/og.svg" property="og:image">',
+  );
+  const io = fullIo({ [PAGE]: html, [OG_SVG]: '<svg/>' });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('og:image') && e.includes('not a raster')),
+    `expected a non-raster og:image error, got: ${errors.join(' | ')}`,
+  );
+});
+
 // ---- contract constant sanity -------------------------------------------
 
 it('REQUIRED_SHARED_ASSETS names favicon, the og.png raster, and style.css', () => {
