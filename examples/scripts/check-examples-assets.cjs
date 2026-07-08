@@ -380,6 +380,17 @@ function parseSrcset(value) {
   return urls;
 }
 
+// Read a single attribute's value off a tag string, ORDER-INDEPENDENTLY. HTML
+// attribute order is insignificant, so a value must be read positionally by
+// name rather than assuming a fixed attribute order (rf2-cnu7qy). Returns null
+// when the attribute is absent.
+function attr(tag, name) {
+  const m = tag.match(
+    new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
+  );
+  return m ? (m[2] != null ? m[2] : m[3]) : null;
+}
+
 // Extract every ASSET-BEARING reference from an index.html's source, TAGGED
 // with the element/attribute it came from, so the direct-HTML network policy
 // (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
@@ -410,12 +421,6 @@ function extractAssetRefs(html) {
     if (seen.has(key)) return;
     seen.add(key);
     out.push({ ref: clean, source });
-  };
-  const attr = (tag, name) => {
-    const m = tag.match(
-      new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
-    );
-    return m ? (m[2] != null ? m[2] : m[3]) : null;
   };
 
   // <script src=...> — always an asset fetch.
@@ -499,11 +504,15 @@ function extractHtmlRefs(html) {
   )) {
     push(m[2] != null ? m[2] : m[3]);
   }
-  // <meta property="og:image" content="...">
-  for (const m of html.matchAll(
-    /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*("([^"]*)"|'([^']*)')[^>]*>/gi,
-  )) {
-    push(m[2] != null ? m[2] : m[3]);
+  // <meta property="og:image" content="..."> — ORDER-INDEPENDENT. HTML
+  // attribute order is insignificant, so a `content`-before-`property` meta is
+  // equally valid and must be seen (rf2-cnu7qy). Scan each <meta> tag and read
+  // its attributes positionally via the shared order-independent attr helper,
+  // rather than a single regex that hard-codes property-before-content.
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
+    push(attr(tag, 'content'));
   }
   return refs;
 }
@@ -513,10 +522,15 @@ function extractHtmlRefs(html) {
 // contract (an SVG og:image renders no preview card). Query/hash stripped.
 function extractOgImageRefs(html) {
   const out = [];
-  for (const m of html.matchAll(
-    /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*("([^"]*)"|'([^']*)')[^>]*>/gi,
-  )) {
-    const raw = m[2] != null ? m[2] : m[3];
+  // ORDER-INDEPENDENT: HTML attribute order is insignificant, so a
+  // `content`-before-`property` og:image meta is valid and MUST be visible to
+  // the raster contract + the network policy (rf2-cnu7qy). Scan each <meta> tag
+  // and read `property`/`content` positionally via the shared attr helper
+  // instead of a single regex that requires property-before-content.
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
+    const raw = attr(tag, 'content');
     if (!raw) continue;
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !out.includes(clean)) out.push(clean);
