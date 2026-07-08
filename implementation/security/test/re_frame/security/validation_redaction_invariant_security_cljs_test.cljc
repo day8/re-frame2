@@ -690,7 +690,7 @@
     (fn [rng]
       [[[:string {:sensitive? true}] [sentinel]] rng])
     (fn [rng]
-      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :tuple
+      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :map-of-key :tuple
                                            :set :and :or :multi :orn])
             [[inner-schema inner-val] rng2] ((gen-shape (dec depth)) rng1)]
         (case wrap
@@ -699,6 +699,12 @@
           :vector     [[[:vector inner-schema] [inner-val]] rng2]
           :sequential [[[:sequential inner-schema] [inner-val]] rng2]
           :map-of     [[[:map-of :string inner-schema] {"k" inner-val}] rng2]
+          ;; rf2-gocef0 / rf2-6ijdgh — sensitive :map-of KEY: the sentinel is
+          ;; planted AS the key under a `:sensitive?` key schema; the walker's
+          ;; :map-of key-scrub branch must scrub it from :path / :reason across
+          ;; every callable validation kind. Both key and value carry the
+          ;; sentinel; both must redact.
+          :map-of-key [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-val}] rng2]
           :tuple      [[[:tuple :int inner-schema] [0 inner-val]] rng2]
           :set        (let [[k rng3] (gen-key rng2)]
                         [[[:set [:map [k inner-schema]]] #{{k inner-val}}] rng3])
