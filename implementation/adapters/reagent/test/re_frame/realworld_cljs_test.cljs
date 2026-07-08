@@ -1537,3 +1537,42 @@
     (profile-follow-test))
   (testing "home-context flattens the two home routes into {:tag :feed :page} (rf2-rq65wv)"
     (home-context-test)))
+
+;; ============================================================================
+;; http — failure->message multi-branch projection (rf2-xm57ne)
+;; ============================================================================
+;;
+;; The failure projector was untested in BOTH realworld apps. This pins the
+;; realworld_http side (the realworld_resources sibling is pinned in
+;; realworld_resources_cljs_test.cljs): the {:errors {:body [...]}} extraction,
+;; the {:errors {field [...]}} projection, a raw string body, and every
+;; category fallback keyed off the closed :rf.http/* taxonomy.
+
+(defn- http-failure->message-test []
+  (is (= "email or password is invalid"
+         (rh/failure->message {:kind :rf.http/http-4xx :status 422
+                               :body {:errors {:body ["email or password is invalid"]}}}))
+      "{:errors {:body [...]}} surfaces the server's first body message")
+  (is (= "email: is taken"
+         (rh/failure->message {:kind :rf.http/http-4xx :status 422
+                               :body {:errors {:email ["is taken"]}}}))
+      "a keyed {:errors {field [...]}} projects as \"field: message\"")
+  (is (= "raw upstream text"
+         (rh/failure->message {:kind :rf.http/http-5xx :status 502 :body "raw upstream text"}))
+      "a string body is surfaced verbatim")
+  (is (= "Network error — please try again." (rh/failure->message {:kind :rf.http/transport})))
+  (is (= "Request timed out." (rh/failure->message {:kind :rf.http/timeout})))
+  (is (= "Request rejected (status 404)." (rh/failure->message {:kind :rf.http/http-4xx :status 404})))
+  (is (= "Server error (status 503)." (rh/failure->message {:kind :rf.http/http-5xx :status 503})))
+  (is (= "Couldn't parse server response." (rh/failure->message {:kind :rf.http/decode-failure})))
+  (is (= "custom detail" (rh/failure->message {:kind :rf.http/accept-failure :detail {:message "custom detail"}})))
+  (is (= "Unexpected response shape." (rh/failure->message {:kind :rf.http/accept-failure})))
+  (is (= "Request cancelled." (rh/failure->message {:kind :rf.http/aborted})))
+  (is (= "spelled-out message" (rh/failure->message {:kind :some/unknown :message "spelled-out message"}))
+      "an unknown kind falls back to the failure's own :message")
+  (is (= "Request failed." (rh/failure->message {}))
+      "a shapeless failure falls back to the final catch-all"))
+
+(deftest realworld-http-failure-projection
+  (testing "failure->message multi-branch projection (rf2-xm57ne)"
+    (http-failure->message-test)))
