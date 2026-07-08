@@ -27,6 +27,7 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.describe-image :as di]))
 
@@ -187,14 +188,66 @@
 (deftest ambiguous-frame-rides-through-as-error
   (async done
     ;; The runtime returns the :ambiguous-frame refusal (a map with :ok?
-    ;; false); the tool surfaces it. wire/ok-text wraps maps; an :ok? false
-    ;; map still rides as the structured envelope.
+    ;; false); the tool MUST surface it as an :isError result (rf2-01jwrq).
+    ;; Before the fix the `:ok? false` map took the (map? v) → ok-text
+    ;; branch and shipped WITHOUT isError — a SUCCESS-shaped tools/call
+    ;; carrying a `:ok? false` payload. Now `map-envelope-result` routes it
+    ;; through wire/err-text per the universal `:ok? false` contract.
     (stub-eval! nil {:ok? false :reason :ambiguous-frame :operation :describe-image})
     (-> (di/describe-image-tool (fresh-conn) (args-js {}))
         (.then (fn [r]
+                 (is (err? r)
+                     "an :ok? false ambiguous-frame refusal rides isError:true")
                  (let [edn (read-result-text r)]
                    (is (false? (:ok? edn)))
                    (is (= :ambiguous-frame (:reason edn))))
+                 (done))))))
+
+(deftest ambiguous-frame-iserror-matches-ok?
+  ;; Adversarial cross-check (rf2-01jwrq, mirrors the port_to_build_test
+  ;; rf2-bcayt7 pattern): the isError:true flag (text slot) and the
+  ;; payload's :ok? false (structured slot) MUST agree. A regression back
+  ;; to ok-text would ship :ok? false WITHOUT isError, decoupling the two
+  ;; slots. A DISTINCT :ok? false reason (not the :ambiguous-frame the
+  ;; primary test uses) proves the behaviour is the universal rule, not
+  ;; one-reason-specific.
+  (async done
+    (stub-eval! nil {:ok? false :reason :some-other-runtime-refusal
+                     :operation :describe-image})
+    (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main"}))
+        (.then (fn [r]
+                 (let [edn (read-result-text r)]
+                   ;; isError:true ⟺ :ok? false
+                   (is (true? (err? r)))
+                   (is (false? (:ok? edn)))
+                   (is (= :some-other-runtime-refusal (:reason edn))))
+                 (done))))))
+
+(deftest ambiguous-frame-error-is-not-cache-eligible
+  ;; SECONDARY concern (rf2-01jwrq): describe-image is `:cacheable? true`
+  ;; (registry), and apply-cache bypasses ONLY isError results. Now that a
+  ;; `:ok? false` ambiguous-frame refusal rides as err-text (isError:true),
+  ;; apply-cache passes it through untouched and NEVER stores it — so a
+  ;; transient ambiguous-frame can't be cached and mask a later valid read.
+  ;; A regression to ok-text (isError:false) would make the error
+  ;; cache-eligible, defeating "errors are never cached".
+  (async done
+    (cache/clear!)
+    (stub-eval! nil {:ok? false :reason :ambiguous-frame :operation :describe-image})
+    (-> (di/describe-image-tool (fresh-conn) (args-js {}))
+        (.then (fn [r]
+                 (is (err? r) "precondition: the refusal is isError")
+                 (let [opts {:tool "describe-image" :args (args-js {})
+                             :enabled? true :build :app}
+                       out1 (cache/apply-cache r opts)
+                       out2 (cache/apply-cache r opts)]
+                   (is (identical? r out1)
+                       "isError describe-image result passes through apply-cache untouched")
+                   (is (zero? (cache/size))
+                       "the error left no cache entry")
+                   (is (not (contains? (read-result-text out2) :rf.mcp/cache-hit))
+                       "a repeated identical error never manufactures a :rf.mcp/cache-hit"))
+                 (cache/clear!)
                  (done))))))
 
 (deftest non-map-return-degrades-to-error

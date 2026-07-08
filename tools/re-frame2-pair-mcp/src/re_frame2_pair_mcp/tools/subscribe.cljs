@@ -689,13 +689,22 @@
                       (js/setTimeout poll (* 2 poll-ms))))))))]
     {:state state :terminate terminate :poll poll}))
 
-(defn- run-acquired
+(defn run-acquired
   "Drive the subscription lifecycle once the resource-controls
   stream slot is reserved. Returns a Promise resolving to
   the MCP tool result; on any pre-controller exit path the slot is
   released here — the stream-controller's `terminate` only fires
   AFTER `make-stream-controller` wires up, so failures before that
-  point need explicit release."
+  point need explicit release.
+
+  Public (not `defn-`) so `subscribe_resource_controls_test` can drive
+  the `:ok? false` failure branch directly — that branch is defensive /
+  client-side-unreachable through `subscribe-tool` (the topic is guarded
+  before the slot is acquired), so a direct call is the only way to
+  exercise it. A `#'` var-quote on this async, Promise-returning fn does
+  NOT invoke identically to a direct call under shadow-cljs `:node-test`
+  (it desynchronises the test's nREPL `set!` seam and strands a real
+  socket op), so the fn is public rather than reached via `#'`."
   [{:keys [conn raw-args topic build-id filter-map max-buf-events
            max-buf-bytes poll-ms max-ms max-events
            incl? elision? dedup? cap signal send-note progress-tk]}]
@@ -715,8 +724,16 @@
         (.then
           (fn [subscribe-resp]
             (if-not (:ok? subscribe-resp)
+              ;; The runtime `subscribe!` refused (`:ok? false`, e.g.
+              ;; `:unknown-topic`, or a future resource-cap / frame-
+              ;; resolution reason). This IS a failure — we release the
+              ;; reserved stream slot — so it MUST ride `wire/err-text`
+              ;; (isError:true) per the universal `:ok? false` contract,
+              ;; not `ok-text`. Shipping it as a success would decouple the
+              ;; isError flag from the `:ok? false` payload the code just
+              ;; branched on as a fault.
               (do (resource/release-stream!)
-                  (wire/ok-text subscribe-resp))
+                  (wire/err-text subscribe-resp))
               (let [sub-id (:sub-id subscribe-resp)]
                 (js/Promise.
                   (fn [resolve _reject]
