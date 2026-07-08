@@ -594,6 +594,36 @@
       (is (nil? (frame/frame :child))
           "the just-created child container was torn back down — no half-registered frame"))))
 
+(deftest reg-frame-construction-failure-leaves-no-registrar-or-trace-residue
+  (testing "rf2-hhlzky — a reg-frame whose frame CONSTRUCTION fails (no adapter
+            installed: reg-frame before rf/init!) leaves NO registrar row and NO
+            trace-disabled residue. `new-frame-record` (which calls
+            make-state-container) is built BEFORE the registrar / trace-
+            suppression writes, so a construction throw escapes before any
+            process-global metadata is written — nothing to roll back."
+    (let [fid :test/no-adapter-frame]
+      ;; Cold-start the adapter lifecycle to the never-installed state so
+      ;; make-state-container raises :rf.error/no-adapter-installed — the exact
+      ;; "reg-frame before rf/init!" scenario the bead names. The test frame
+      ;; carries :rf.trace/frame-no-emit? true, whose set-frame-no-emit! write
+      ;; is the trace residue we assert never lands.
+      (adapter/reset-lifecycle-state-for-tests!)
+      (let [thrown-id (try (rf/reg-frame fid {:rf.trace/frame-no-emit? true})
+                           nil
+                           (catch clojure.lang.ExceptionInfo e
+                             (:rf.error/id (ex-data e))))]
+        (is (= :rf.error/no-adapter-installed thrown-id)
+            "construction fails loud with the no-adapter throw (frame never built)"))
+      ;; No half-registered process-global state survives the failed build:
+      (is (nil? (registrar/lookup :frame fid))
+          "no :frame registrar row was written for the frame that failed to build")
+      (is (nil? (frame/frame fid))
+          "no frame record landed in the frames atom")
+      (is (false? (trace/frame-trace-disabled? fid))
+          "no trace-disabled residue — set-frame-no-emit! never ran for the failed frame")
+      ;; Restore a working adapter so the fixture teardown / next test are clean.
+      (rf/init! plain-atom/adapter))))
+
 (deftest top-level-reg-frame-initial-events-runs-synchronously
   (testing "Top-level reg-frame (NOT inside a handler) runs :initial-events
             synchronously — the fast path is preserved (EP-0027 §Construction)"

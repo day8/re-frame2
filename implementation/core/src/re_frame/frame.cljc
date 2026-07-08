@@ -1784,7 +1784,22 @@
         ;; `:sensitive` and `:large` frame keys now fail loud.)
         _              (when-let [validate (late-bind/get-fn
                                             :frame-classification/validate!)]
-                         (validate id config))]
+                         (validate id config))
+        existing       (get @frames id)
+        ;; rf2-hhlzky: construct the frame record BEFORE any process-global
+        ;; write (the registrar row + the trace-suppression flags below).
+        ;; `new-frame-record` calls `adapter/make-state-container`, which THROWS
+        ;; (`:rf.error/no-adapter-installed` / `:rf.error/adapter-disposed`) when
+        ;; no adapter is installed — a `reg-frame` issued before `rf/init!` or
+        ;; after `destroy-adapter!`. Building the record here means such a
+        ;; construction failure escapes this `let` BEFORE `registrar/register!`
+        ;; and `trace/set-frame-no-emit!` run, so a frame that never came into
+        ;; existence leaves NO registrar row and NO trace-disabled residue (which
+        ;; would otherwise persist with no destroy path to clear it). This is the
+        ;; DEFER form of the rollback the bead calls for — there is nothing to
+        ;; unwind because nothing was written. Re-registration is a surgical
+        ;; update (no container is built), so `new-record` is nil there.
+        new-record     (when (nil? existing) (new-frame-record id config))]
     (registrar/register! :frame id config)
     ;; Frame-level trace-emission gate: a frame registered
     ;; with `:rf.trace/frame-no-emit? true` is a tool / inspector frame
@@ -1807,11 +1822,11 @@
       (when-let [set-retained! (late-bind/get-fn-cached
                                 :trace.tooling/set-frame-events-retained!)]
         (set-retained! id (:rf.trace/events-retained config))))
-    (let [existing (get @frames id)]
-      (cond
-        ;; First registration: create everything.
+    (cond
+        ;; First registration: install the record built above (rf2-hhlzky —
+        ;; construction already succeeded, so the writes above are safe).
         (nil? existing)
-        (let [f (new-frame-record id config)]
+        (let [f new-record]
           (swap! frames assoc id f)
           ;; EP-0025: there is no durable app-db classification install here
           ;; anymore — the frame `:sensitive` / `:large {:app-db …}` annotation
@@ -1923,7 +1938,7 @@
           (trace/emit! :rf.frame :rf.frame/re-registered
                        {:frame id :config stored-config})
           (fire-frame-registered-hook! id)
-          id)))))
+          id))))
 
 (defn make-anon-frame-record!
   "INTERNAL anonymous-instance creation (EP-0024): generate a
