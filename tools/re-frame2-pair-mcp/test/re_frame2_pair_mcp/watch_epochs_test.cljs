@@ -152,3 +152,62 @@
                                (is (= 1 (:count edn)))
                                (is (not (contains? edn :advisory)))
                                (done))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Cursor-failure paths driven through the REAL watch-epochs-tool
+;; (rf2-j9i3vh).
+;;
+;; The cursor-stale branches — a MALFORMED :cursor (watch_epochs.cljs L73)
+;; and an AGED-OUT ring id (L136-141) — were previously exercised ONLY
+;; against a HAND-REIMPLEMENTED copy of the server-side slice logic in
+;; cursor_pagination_test (`runtime-form-output`). A divergence in the REAL
+;; tool's emitted envelope / branch condition would stay green. These feed
+;; a garbage :cursor and a canned {:id-aged-out? true} runtime response
+;; through the actual `watch-epochs-tool` and assert the
+;; :rf.mcp/cursor-stale envelope it returns.
+;; ---------------------------------------------------------------------------
+
+(deftest malformed-cursor-returns-cursor-stale
+  (testing "a garbage :cursor short-circuits to the :rf.mcp/cursor-stale envelope BEFORE any runtime eval"
+    (async done
+      ;; No eval stub installed on purpose: the malformed-cursor branch
+      ;; returns before probe/eval-after-runtime!, so it must NOT touch the
+      ;; socket. If the branch regressed and fell through to the eval, the
+      ;; unstubbed nrepl call would reject and the assertions would fail.
+      (-> (we/watch-epochs-tool nil (tu/args->js {:cursor "not-a-valid-cursor!!!"}))
+          (.then (fn [result]
+                   (is (true? (tu/error? result)) "a malformed cursor rides isError")
+                   (let [edn (tu/extract-edn result)]
+                     (is (false? (:ok? edn)))
+                     (is (= :rf.mcp/cursor-stale (:reason edn))
+                         "a malformed cursor maps to the same stale reason as an age-out")
+                     (is (= "watch-epochs" (:tool edn)))
+                     (is (string? (:hint edn))))
+                   (done)))))))
+
+(deftest aged-out-ring-returns-cursor-stale
+  (testing "an :id-aged-out? true runtime response with a live :since-id trips the cursor-stale envelope"
+    (async done
+      (let [script [["__re_frame2_pair_runtime" true]
+                    [:default                    {:matches       []
+                                                  :id-aged-out?  true
+                                                  :requested-id  :epoch-99
+                                                  :head-id       :epoch-149
+                                                  :next-id       nil
+                                                  :history-count 50
+                                                  :since-count   0
+                                                  :remaining     0}]]]
+        (-> (with-substr-eval! script
+              (fn []
+                (-> (we/watch-epochs-tool nil (tu/args->js {:since-id ":epoch-99"}))
+                    (.then (fn [result]
+                             (is (true? (tu/error? result)) "an aged-out ring id rides isError")
+                             (let [edn (tu/extract-edn result)]
+                               (is (false? (:ok? edn)))
+                               (is (= :rf.mcp/cursor-stale (:reason edn)))
+                               (is (= "watch-epochs" (:tool edn)))
+                               (is (= :epoch-99 (:requested-id edn))
+                                   "the requested id rides back so the agent sees what aged out")
+                               (is (= :epoch-149 (:head-id edn))
+                                   "the current head rides back for a rewind")
+                               (done))))))))))))
