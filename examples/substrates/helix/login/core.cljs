@@ -43,10 +43,12 @@
 ;; ============================================================================
 ;;
 ;; Everything from here down to the SUBSTRATE BOUNDARY divider — the schemas,
-;; the HTTP stub, the `:auth.login/flow` machine, the named subs — is identical
-;; across the Reagent, UIx, and Helix login examples. Same ids, same machine,
-;; same schemas, same stub, character for character. That's the point: the
-;; logic of a login flow doesn't care which view library draws it.
+;; the HTTP stub, the `:auth.login/flow` machine, the named subs — is the same
+;; across the Reagent, UIx, and Helix login examples: same ids, same machine,
+;; same schemas, same stub — identical registrations. (Not literally character
+;; for character: the surrounding comments and the machine map's key order
+;; differ file to file.) That's the point: the logic of a login flow doesn't
+;; care which view library draws it.
 ;;
 ;; You might expect this shared half to live in one file the three examples
 ;; require. It deliberately doesn't. Each example is its own self-contained

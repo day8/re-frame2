@@ -4,8 +4,11 @@
    to change to move between them.
 
    Everything below the views — the state machine, the schemas, the
-   managed-HTTP effect — is substrate-agnostic and byte-for-byte the same as
-   examples/core/login. Only the views differ. Here a view is a UIx `defui`
+   managed-HTTP effect — is substrate-agnostic: the same ids, machine, schemas,
+   and stub as examples/core/login (identical registrations, deliberately
+   duplicated rather than shared — not a byte-for-byte copy: the surrounding
+   comments and the machine's key order differ file to file). Only the views
+   differ. Here a view is a UIx `defui`
    that reads subscriptions through the `use-subscribe` hook; the Reagent twin
    reaches for `reg-view`. Same data, different doorway.
 
