@@ -52,6 +52,7 @@ const {
   scanAll,
   listExampleIndexHtml,
   EXAMPLES_ROOT,
+  PNG_SIGNATURE,
   validatePng,
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
@@ -1413,6 +1414,32 @@ it('TEETH: a wrong-dimension PNG fails validatePng', () => {
   assert.strictEqual(v.height, OG_PNG_HEIGHT);
 });
 
+it('TEETH: a valid signature + >=24 bytes but a non-IHDR first chunk fails validatePng (rf2-bdamni)', () => {
+  // Signature (8) + chunk-length (4) + a first chunk type of 'IDAT' (4) + pad to
+  // >=24 bytes. The signature and length gates pass, so this exercises the
+  // non-IHDR branch (bytes 12..16 !== 'IHDR') that valid / bad-signature /
+  // too-short / wrong-dimension cases never reached.
+  const notIhdr = Buffer.concat([
+    PNG_SIGNATURE, // bytes 0..8 — a valid PNG signature
+    Buffer.from([0, 0, 0, 13]), // bytes 8..12 — chunk length
+    Buffer.from('IDAT', 'latin1'), // bytes 12..16 — first chunk type (NOT IHDR)
+    Buffer.alloc(8), // pad so buf.length >= 24
+  ]).toString('latin1');
+  const v = validatePng(notIhdr);
+  assert.ok(!v.ok, 'a non-IHDR first chunk must fail');
+  assert.ok(/IHDR/.test(v.reason), `expected a non-IHDR failure, got: ${v.reason}`);
+});
+
+it('TEETH: >=24 bytes with the wrong signature fails validatePng at the signature gate (rf2-bdamni)', () => {
+  // The existing 'PNGDATA' case is only 7 bytes, so it trips the too-short gate
+  // and never reaches the signature check. A 24-byte non-PNG buffer exercises
+  // the signature branch itself.
+  const notPng = Buffer.alloc(24, 0x20).toString('latin1'); // 24 spaces
+  const v = validatePng(notPng);
+  assert.ok(!v.ok, '24 bytes of non-PNG data must fail');
+  assert.ok(/signature/.test(v.reason), `expected a signature failure, got: ${v.reason}`);
+});
+
 it('TEETH: checkSharedTree rejects non-PNG bytes at og.png', () => {
   const io = sharedCssIo(
     '.send-form input[type="text"] { min-width: 240px; }\n' +
@@ -1984,6 +2011,22 @@ it('rf2-nrieg0: colorToHex normalises #hex / rgb() / hsl(), null for var()', () 
   assert.strictEqual(colorToHex('hsl(120,100%,50%)'), '#00ff00');
   assert.strictEqual(colorToHex('var(--ex-accent)'), null);
   assert.strictEqual(colorToHex('rebeccapurple'), null);
+});
+
+it('rf2-bdamni: colorToHex handles percentage rgb(), 4/8-digit alpha hex, and out-of-range', () => {
+  // Percentage rgb form — the docstring explicitly promises support. 50% of 255
+  // is 127.5, which rounds to 128 (0x80). If percent parsing broke, the token
+  // would silently drop and its WCAG contrast check would be disabled.
+  assert.strictEqual(colorToHex('rgb(50%,50%,50%)'), '#808080');
+  // 4-digit (#rgba) and 8-digit (#rrggbbaa) hex: the alpha pair is dropped, so
+  // both normalise to the opaque #rrggbb the contrast gate operates on.
+  assert.strictEqual(colorToHex('#abcd'), '#aabbcc'); // #rgba -> expand each nibble -> drop alpha
+  assert.strictEqual(colorToHex('#aabbccdd'), '#aabbcc'); // #rrggbbaa -> drop the trailing alpha pair
+  // An out-of-range channel (>255 or <0) is not a computable opaque colour.
+  assert.strictEqual(colorToHex('rgb(300,0,0)'), null);
+  assert.strictEqual(colorToHex('rgb(-5,0,0)'), null);
+  // A stray 5-digit hex form is not a valid colour either.
+  assert.strictEqual(colorToHex('#abcde'), null);
 });
 
 it('rf2-nrieg0: parseExTokens now captures rgb()/hsl() tokens (was hex-only)', () => {
