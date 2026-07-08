@@ -187,6 +187,25 @@
             with the base is returned unchanged rather than mis-sliced"
     (is (= "/other/path" (strategy/strip-base-path "/realworld" "/other/path")))))
 
+(deftest with-base-path-strips-only-on-segment-boundary
+  (testing "ADVERSARIAL (rf2-vuv84a): strip-base-path treats a URL as under the
+            base ONLY at a path-SEGMENT boundary — the mount root (url = base)
+            or `base/…`. A prefix-SHARING sibling that merely string-prefixes
+            the base is returned UNCHANGED, not mis-sliced."
+    ;; siblings that share the base as a bare STRING prefix must NOT be stripped
+    ;; (the pre-fix defect: `/app` string-prefixed `/application` -> `/lication`).
+    (is (= "/application/x" (strategy/strip-base-path "/app" "/application/x"))
+        "/app must NOT strip /application (segment boundary, not string prefix)")
+    (is (= "/apple" (strategy/strip-base-path "/app" "/apple")))
+    (is (= "/app-admin" (strategy/strip-base-path "/app" "/app-admin")))
+    (is (= "/realworld-demo" (strategy/strip-base-path "/realworld" "/realworld-demo"))
+        "the motivating case: /realworld must not mangle /realworld-demo")
+    ;; genuine under-base URLs still strip correctly.
+    (is (= "/x" (strategy/strip-base-path "/app" "/app/x")))
+    (is (= "/x/y" (strategy/strip-base-path "/app" "/app/x/y")))
+    (is (= "/" (strategy/strip-base-path "/app" "/app"))
+        "the bare mount root (url = base) strips to the app root `/`")))
+
 (deftest with-base-path-blank-base-is-a-no-op
   (testing "a blank/nil base returns the wrapped strategy UNCHANGED — no
             wrapping cost for the common no-sub-path app"
