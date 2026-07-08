@@ -654,6 +654,46 @@
                        (first (get-in @*history-state* [:listeners "popstate"])))
           "the duplicate's registration did not tear down + reinstall the incumbent's listener"))))
 
+;; ---- rf2-9vgyp7: first-load / deep-link route hydration at frame create ----
+;;
+;; The URL-owning frame's LIFECYCLE (rf2-g8pbwg) drives the initial URL sync: a
+;; `:url-bound? true` frame's (re-)registration installs its strategy listener
+;; and immediately syncs the CURRENT browser URL into the route slice — and it
+;; does so SYNCHRONOUSLY during frame creation. `frame-provider` runs that
+;; creation in RENDER PHASE, BEFORE any child renders
+;; (`re-frame.views.owned-frame/ensure-frame-fc`), so a `root-view` reading
+;; `:rf/route` / `:rf.route/id` on its FIRST render sees the matched route, never
+;; a nil slice — even for a deep link or a hard refresh. (This is the correct
+;; ordering the retired imperative `install-url-listener!`-at-boot pattern could
+;; get wrong: install-before-frame-exists skipped the sync. The fold makes the
+;; frame lifecycle own the ordering.) This pins the guarantee: register the URL
+;; owner while the browser already sits at a deep link and assert the slice is
+;; hydrated the instant the frame exists — no dispatch, no render, no popstate.
+
+(deftest first-load-deep-link-hydrates-slice-at-create-cljs-rf2-9vgyp7
+  (testing "a :url-bound? true frame created while the browser sits at a deep
+            link hydrates its route slice SYNCHRONOUSLY at create time, so the
+            first read sees the matched route (not nil)"
+    ;; Routes exist first (so the create-time sync can match), but the URL
+    ;; owner is not yet bound.
+    (rf/reg-route :hist/home    {} "/")
+    (rf/reg-route :hist/article {:params [:map [:id :string]]} "/articles/:id")
+    ;; Move the browser to a deep link BEFORE the URL owner is bound — the exact
+    ;; first-load / hard-refresh condition (window.location is now /articles/42).
+    (.pushState (.-history js/globalThis.window) nil "" "/articles/42")
+    ;; Bind the URL owner (the fixture pre-created :rf/default WITHOUT the slot;
+    ;; opting it in is a re-registration whose lifecycle hook runs the initial
+    ;; sync synchronously during reg-frame).
+    (rf/reg-frame :rf/default {:url-bound? true})
+    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                        [:rf.runtime/routing :current])]
+      (is (some? slice)
+          "the route slice is populated the instant the url-bound frame exists")
+      (is (= :hist/article (:route-id slice))
+          "the deep-link URL matched its route at create time (not nil / not-found)")
+      (is (= {:id "42"} (:params slice))
+          "the deep-link path param hydrated into the slice — a first render sees it"))))
+
 ;; ---- rf2-ede1h.3: blocked popstate restores the browser URL -------------
 ;;
 ;; Per Spec 012 §Navigation blocking §Default flow step 4c — "the URL
