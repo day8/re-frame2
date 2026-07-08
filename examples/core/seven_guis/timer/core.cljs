@@ -54,7 +54,7 @@
 ;; whose commits it's meant to validate. If you want the why and the how of
 ;; schemas, that's docs/core/how-to/validate-with-schemas.md.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:timer] {:schema TimerState}))
+  (rf/reg-app-schema [:timer] TimerState))
 
 ;; ============================================================================
 ;; EVENTS

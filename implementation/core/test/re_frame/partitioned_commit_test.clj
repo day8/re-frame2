@@ -383,7 +383,7 @@
       ;; app schema (root path) demanding :n be a non-negative int — scoped to
       ;; the frame via with-frame (reg-app-schema is current-frame-scoped).
       (rf/with-frame :pc/rb
-        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+        (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       (reg-fw-runtime-handler! :pc/bad
         (fn [_ _]
           {:db {:n -5}                                   ;; violates the schema
@@ -442,7 +442,7 @@
       ;; app schema demanding :n stay a non-negative int — the bad handler
       ;; violates it, forcing the post-commit rollback.
       (rf/with-frame :pc/rb-srcaware
-        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+        (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; The rejected handler returns BOTH an invalid :db AND an in-band
       ;; commit-plane :sensitive classification effect (`:source :effect`). The
       ;; schema rejects :db → the whole transition rolls back; the in-band
@@ -482,7 +482,7 @@
       (is (= {} (elision/sensitive-declarations :pc/rb-subsys))
           "precondition: no subsystem mark before dispatch")
       (rf/with-frame :pc/rb-subsys
-        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+        (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; An :after interceptor models a subsystem (machine actor spawn / route
       ;; activation) lowering a declaration into the LIVE registry DURING the
       ;; event — out-of-band (`:source :machine`), after `runtime-before` was
@@ -526,7 +526,7 @@
                   [:old :creds :secret]))
           "precondition: the OLD-path :source :flow mark is installed")
       (rf/with-frame :pc/rb-move
-        (rf/reg-app-schema [] {:schema [:map [:n [:int {:min 0}]]]}))
+        (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
       ;; An :after interceptor MOVES the flow's output-path mid-cascade (a
       ;; reentrant reg-flow), so the LIVE registry drops the OLD-path mark and
       ;; installs a NEW-path one — BEFORE the post-commit schema rejection.
@@ -597,9 +597,9 @@
       ;; path :after splices that back into the FULL db, so the schema (which
       ;; validates the full committed app-db) rejects it → post-commit rollback.
       (rf/with-frame :pc/rb-path
-        (rf/reg-app-schema [] {:schema [:map
-                                        [:keep  :keyword]
-                                        [:slice [:map [:n [:int {:min 0}]]]]]}))
+        (rf/reg-app-schema [] [:map
+                               [:keep  :keyword]
+                               [:slice [:map [:n [:int {:min 0}]]]]]))
       ;; A PATH-FOCUSED handler: it sees ONLY `{:n 0}` (the [:slice] slice) and
       ;; returns `{:n -5}`. This is the idiomatic interceptor that triggers the
       ;; corruption — its `:before` overwrites [:coeffects :db] with the slice.

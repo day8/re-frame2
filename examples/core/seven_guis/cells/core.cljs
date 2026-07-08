@@ -122,7 +122,7 @@
 ;; needed: we can register the schema here at load time, before the frame
 ;; actually exists, and it snaps into place once the frame is created.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:cells] {:schema CellsState}))
+  (rf/reg-app-schema [:cells] CellsState))
 
 ;; ============================================================================
 ;; PARSER + EVALUATOR

@@ -313,8 +313,8 @@
   (testing "app-schemas returns {path schema} for every reg-app-schema declaration"
     (is (= {} (schemas/app-schemas))
         "fresh registry: no schemas registered")
-    (rf/reg-app-schema [:user]  {:schema [:map [:id :uuid]]})
-    (rf/reg-app-schema [:todos] {:schema [:vector :string]})
+    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
+    (rf/reg-app-schema [:todos] [:vector :string])
     (let [m (schemas/app-schemas)]
       (is (= 2 (count m)))
       (is (= [:map [:id :uuid]]   (get m [:user])))
@@ -976,7 +976,7 @@
     ;; schemas goes through `schemas/app-schemas` /
     ;; `schemas/app-schema-meta-at`, asserted in the schemas artefact's
     ;; own tests.
-    (rf/reg-app-schema [:rf2-o1bp/path] {:schema :any})
+    (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
     ;; ---- (1) the id set per kind — the (set (keys (registrations kind)))
     ;;          projection that replaced the removed rf/handler-ids (rf2-i4hk4b)

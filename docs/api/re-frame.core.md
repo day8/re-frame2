@@ -1386,10 +1386,10 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-app-schema path {:schema schema})
-  (reg-app-schema path {:schema schema :frame frame})
+  (reg-app-schema path schema)
+  (reg-app-schema path metadata schema)
   ```
-- Attach this Malli schema to this `app-db` path. **Path is the registration id** — the only `reg-*` that is path-keyed rather than id-keyed. Full contract in [re-frame.schemas.md](re-frame.schemas.md).
+- Attach this Malli schema to this `app-db` path. The schema is the positional value slot; the optional middle metadata map carries the `:frame` target (rf2-qm7k83 Part A). **Path is the registration id** — the only `reg-*` that is path-keyed rather than id-keyed. Full contract in [re-frame.schemas.md](re-frame.schemas.md).
 
 #### `reg-app-schemas`
 

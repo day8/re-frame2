@@ -127,7 +127,7 @@
   (testing "rf2-lo28u — a plain reg-event :schema violation fires
             :where :event AND lands in the triggering epoch's
             :trace-events (parity with :where :app-db)"
-    (rf/reg-app-schema [:auth] {:schema [:map [:token :string]]})
+    (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
       (rf/reg-event :lo28u/bad-event-args
         {:schema [:cat [:= :lo28u/bad-event-args] pos-int?]}

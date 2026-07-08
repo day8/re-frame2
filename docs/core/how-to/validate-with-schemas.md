@@ -25,7 +25,7 @@ Start with the most common case — pin the shape of one slice of app-db. `reg-a
    [:token [:maybe :string]]])
 
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:auth] {:schema AuthSlice}))
+  (rf/reg-app-schema [:auth] AuthSlice))
 ```
 
 Two pieces of that snippet are new. Both recur on every example below, so let's name them now.

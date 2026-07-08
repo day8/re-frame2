@@ -526,13 +526,16 @@
 
      (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
-       per Spec 010). Per rf2-wvh95f F2 the schema rides under `:schema`
-       in the metadata map: `(reg-app-schema [:user] {:schema UserSchema})`
-       / `(reg-app-schema [:user] {:schema UserSchema :frame :session})`.
-       Captures source-coords (Spec 001) at this call site. Implementation
-       ships in `day8/re-frame2-schemas` (rf2-p7va). See
-       `re-frame.core-schemas/reg-app-schema` for the full signature."
-       {:arglists '([path metadata])})
+       per Spec 010). Per rf2-qm7k83 Part A `reg-app-schema` is an ordinary
+       member of the `reg-*` family — the schema is the POSITIONAL value
+       slot: `(reg-app-schema [:user] UserSchema)` (2-slot) /
+       `(reg-app-schema [:user] {:frame :session} UserSchema)` (3-slot, the
+       optional middle metadata map carries the `:frame` target). The path
+       is the registration id. Captures source-coords (Spec 001) at this
+       call site. Implementation ships in `day8/re-frame2-schemas`
+       (rf2-p7va). See `re-frame.core-schemas/reg-app-schema` for the full
+       signature."
+       {:arglists '([path schema] [path metadata schema])})
 
      (rm/defreg-macro reg-app-schemas rf-schemas/reg-app-schemas
        "Bulk-register a `{path -> schema}` map against the active frame

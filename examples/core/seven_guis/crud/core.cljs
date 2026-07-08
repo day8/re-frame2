@@ -66,7 +66,7 @@
 ;; the machinery needs to hang the schema on.
 ;; See docs/core/how-to/validate-with-schemas.md.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:crud] {:schema CrudState}))
+  (rf/reg-app-schema [:crud] CrudState))
 
 ;; ============================================================================
 ;; EVENTS

@@ -139,7 +139,7 @@
 ;; Frame identity is carried, not magically found; see the frames glossary:
 ;; ../../../docs/core/glossary.md#frame-identity-is-carried-not-found
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:new-todo] {:schema NewTodoSlice}))
+  (rf/reg-app-schema [:new-todo] NewTodoSlice))
 
 ;; ============================================================================
 ;; RECORDABLE COEFFECTS

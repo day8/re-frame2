@@ -532,7 +532,7 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
 > **Owner:** [010-Schemas §The four normative claims](010-Schemas.md#the-four-normative-claims)
 > **Status:** v1-required
 
-The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). The schema is `:schema`-in-metadata: user code passes `(rf/reg-app-schema path {:schema S :frame F})` — the `path` is the 1st positional (the registration id), and `:schema` / `:frame` / `:doc` ride the metadata map. The stamped `:path` field is the registration path (1st positional arg); `:schema` / `:frame` are read from the metadata map.
+The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). The schema is the **positional value slot** (rf2-qm7k83 Part A): user code passes `(rf/reg-app-schema path schema)` or `(rf/reg-app-schema path {:frame F} schema)` — the `path` is the 1st positional (the registration id), the `schema` is the last positional value slot, and the optional middle metadata map carries `:frame` / `:doc` / open `:my/*` keys. The stamped `:path` field is the registration path (1st positional); `:schema` is the positional schema arg; `:frame` is the resolved frame. (The stored side-table entry still keys the schema under `:schema` — the read surfaces `app-schema-at` / `app-schema-meta-at` are unchanged; only the *registration call* grammar moved the schema to a positional slot.)
 
 ```clojure
 (def AppSchemaMeta
@@ -540,8 +540,8 @@ The metadata stamped on the schemas artefact's per-frame side-table entry by `re
    RegistrationMetadata
    [:map
     [:path         [:vector :any]]                                           ;; runtime-stamped from the 1st positional arg; the app-db path the schema validates
-    [:schema       :any]                                                     ;; from the metadata map's :schema key (rf2-wvh95f F2); the Malli (or equivalent) schema value
-    [:frame        :keyword]                                                 ;; from the metadata map's :frame key (or the carried scope frame)
+    [:schema       :any]                                                     ;; runtime-stamped from the positional schema arg (rf2-qm7k83 Part A); the Malli (or equivalent) schema value
+    [:frame        :keyword]                                                 ;; from the (optional) metadata map's :frame key (or the carried scope frame)
     ]])
 ```
 

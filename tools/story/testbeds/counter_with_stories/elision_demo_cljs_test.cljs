@@ -67,8 +67,7 @@
   ;; pass the target frame explicitly (the *override*) rather than relying on
   ;; an ambient default.
   (rf/reg-app-schema [:user/avatar-pdf]
-                     {:schema [:maybe :string]
-                      :frame :rf/default})
+                     {:frame :rf/default} [:maybe :string])
   ;; EP-0025: durable app-db egress classification rides the commit-plane
   ;; classification effects. Classify the `[:user/avatar-pdf]` large path
   ;; (index-free :rf/path) onto :rf/default's elision registry via

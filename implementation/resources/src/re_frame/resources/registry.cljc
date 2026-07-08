@@ -455,7 +455,7 @@
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") instead of the public `:rf.error/resource-bad-spec`. Mirrors
   ;; reg-route's `route-bad-metadata` non-map guard + reg-app-schema's
-  ;; `extract-app-schema-from-metadata` map gate. The catalogue row already
+  ;; `normalize-app-schema-metadata` middle-slot map gate. The catalogue row already
   ;; documents "or the spec was not a map" with a `:value` slot.
   (when-not (map? metadata)
     (throw (registration-error

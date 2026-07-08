@@ -316,7 +316,7 @@
        :output-path [:derived]
        :doc         "Derived = 2 × :base. Recomputes on the post-handler flows pass."}
       (fn [base] (* 2 (or base 0))))
-    (rf/reg-app-schema [:auth] {:schema AuthSlice})))
+    (rf/reg-app-schema [:auth] AuthSlice)))
 
 ;; ============================================================================
 ;; EVENTS — the button ladder

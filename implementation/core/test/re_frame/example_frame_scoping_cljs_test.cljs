@@ -148,7 +148,7 @@
     (is (nil? (frame/current-frame))
         "precondition: no ambient frame (the pin is removed)")
     (let [ex (try
-               (rf/reg-app-schema [:regression/bare] {:schema [:map]})
+               (rf/reg-app-schema [:regression/bare] [:map])
                nil
                (catch :default e e))]
       (is (some? ex)

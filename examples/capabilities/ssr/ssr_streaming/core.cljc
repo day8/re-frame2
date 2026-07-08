@@ -156,7 +156,7 @@
            ;; `:initial-events` pipeline run — and therefore `:rf/server-init` and
            ;; its `:cards` commit — synchronously, so the contract has to be
            ;; in place by then or the commit validates against nothing.
-           _   (rf/reg-app-schema [:cards] {:schema CardsSchema :frame fid})
+           _   (rf/reg-app-schema [:cards] {:frame fid} CardsSchema)
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
                                   :platform :server
                                   :initial-events [[:rf/server-init]]})
@@ -297,7 +297,7 @@
      ;; same schema, this frame. With it in place, the `:cards` commits on the
      ;; client — both the streamed deltas and the final hydrate — validate
      ;; against the same contract the server used.
-     (rf/reg-app-schema [:cards] {:schema CardsSchema :frame app-frame})
+     (rf/reg-app-schema [:cards] {:frame app-frame} CardsSchema)
      ;; Turn on the streaming runtime BEFORE the first render, so it catches
      ;; resolved-subtree chunks as they arrive (and sweeps up any that already
      ;; landed). For each one it swaps the fallback for the real subtree and

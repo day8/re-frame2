@@ -36,7 +36,7 @@
             [re-frame.schemas]
             [re-frame.schemas.malli]
             ;; Schema registrations — loaded for the
-            ;; `(reg-app-schema [] {:schema CounterDb})` side-effect that
+            ;; `(reg-app-schema [] CounterDb)` side-effect that
             ;; wires the root app-db validator before any handler commits.
             [{{namespace}}.schema]))
 

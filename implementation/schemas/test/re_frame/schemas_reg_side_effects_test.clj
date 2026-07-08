@@ -71,7 +71,7 @@
             the five spec'd tags"
     ;; Register the original schema, then plant a live value that the
     ;; new schema will reject.
-    (rf/reg-app-schema [:count] {:schema :int})
+    (rf/reg-app-schema [:count] :int)
     (set-app-db! {:count "not-an-int"})
     (let [violations (capture :rf.schema/violation
                        (fn []
@@ -80,7 +80,7 @@
                          ;; also failed under the old schema) — but the
                          ;; trigger is the schema CHANGE + current-value
                          ;; mismatch against the NEW schema.
-                         (rf/reg-app-schema [:count] {:schema [:int {:min 0}]})))]
+                         (rf/reg-app-schema [:count] [:int {:min 0}])))]
       (is (= 1 (count violations)) "exactly one violation trace")
       (let [{:keys [op-type recovery tags] :as ev} (first violations)]
         (is (= :warning op-type) "op-type is :warning per Spec 009 catalogue")
@@ -97,10 +97,10 @@
 (deftest violation-suppressed-when-schema-unchanged
   (testing "rf2-ee38b.6 — a no-op re-eval (identical schema) does NOT
             emit a violation, even if the live value fails the schema"
-    (rf/reg-app-schema [:count] {:schema :int})
+    (rf/reg-app-schema [:count] :int)
     (set-app-db! {:count "not-an-int"})
     (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] {:schema :int})))]
+                       (fn [] (rf/reg-app-schema [:count] :int)))]
       (is (empty? violations)
           "identical schema re-eval is a silent swap! — nothing to flag"))))
 
@@ -110,28 +110,28 @@
             even when the live value already fails"
     (set-app-db! {:count "not-an-int"})
     (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] {:schema :int})))]
+                       (fn [] (rf/reg-app-schema [:count] :int)))]
       (is (empty? violations) "first registration has no prior schema"))))
 
 (deftest violation-suppressed-when-live-value-validates
   (testing "rf2-ee38b.6 — when the schema changes but the live value
             still satisfies the NEW schema, no violation fires"
-    (rf/reg-app-schema [:count] {:schema :int})
+    (rf/reg-app-schema [:count] :int)
     (set-app-db! {:count 5})
     (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] {:schema [:int {:min 0}]})))]
+                       (fn [] (rf/reg-app-schema [:count] [:int {:min 0}])))]
       (is (empty? violations) "live value 5 satisfies [:int {:min 0}]"))))
 
 (deftest violation-redacts-mismatching-value-when-new-schema-sensitive
   (testing "rf2-ee38b.6 — when the NEW schema declares the slot
             sensitive, :mismatching-value is redacted to :rf/redacted so
             the hot-reload trace does not re-leak a credential"
-    (rf/reg-app-schema [:token] {:schema :int})
+    (rf/reg-app-schema [:token] :int)
     (set-app-db! {:token "super-secret"})
     (let [violations (capture :rf.schema/violation
                        (fn []
                          (rf/reg-app-schema [:token]
-                                            {:schema [:string {:sensitive? true :min 32}]})))]
+                                            [:string {:sensitive? true :min 32}])))]
       (is (= 1 (count violations)))
       (let [{:keys [sensitive? tags]} (first violations)]
         (is (= :rf/redacted (:mismatching-value tags))
@@ -156,13 +156,13 @@
       ;; fires), (b) the live value fails (so a violation fires), and (c)
       ;; declares its slot {:sensitive? true} — a flag Malli honours for
       ;; validation but the walker cannot introspect through the opaque value.
-      (rf/reg-app-schema [:token] {:schema :int})
+      (rf/reg-app-schema [:token] :int)
       (set-app-db! {:token secret})
       (let [violations (capture :rf.schema/violation
                          (fn []
                            (rf/reg-app-schema
                              [:token]
-                             {:schema (m/schema [:int {:sensitive? true}])})))]
+                             (m/schema [:int {:sensitive? true}]))))]
         (is (= 1 (count violations)) "exactly one violation trace")
         (let [{:keys [sensitive? tags] :as ev} (first violations)]
           ;; FAIL CLOSED: the opaque schema cannot be walked, so the path must
@@ -193,15 +193,15 @@
             `violation-redacts-mismatching-value-when-new-schema-opaque-and-sensitive`
             already pins for the FULLY opaque shape."
     (let [secret "NESTED-OPAQUE-HOTRELOAD-SECRET-hi0tf8"]
-      (rf/reg-app-schema [:token] {:schema :int})
+      (rf/reg-app-schema [:token] :int)
       (set-app-db! {:token {:secret secret}})
       (let [violations (capture :rf.schema/violation
                          (fn []
                            (rf/reg-app-schema
                              [:token]
-                             {:schema [:map
-                                       [:secret
-                                        (m/schema [:string {:sensitive? true :min 999}])]]})))]
+                             [:map
+                              [:secret
+                               (m/schema [:string {:sensitive? true :min 999}])]])))]
         (is (= 1 (count violations)) "exactly one violation trace")
         (let [{:keys [sensitive? tags] :as ev} (first violations)]
           (is (= :rf/redacted (:mismatching-value tags))
@@ -215,11 +215,10 @@
   (testing "rf2-ee38b.6 — the violation check reads the live app-db of
             the registration's frame, not :rf/default"
     (rf/reg-frame :tenant/a {})
-    (rf/reg-app-schema [:count] {:schema :int :frame :tenant/a})
+    (rf/reg-app-schema [:count] {:frame :tenant/a} :int)
     (set-app-db! :tenant/a {:count "bad"})
     (let [violations (capture :rf.schema/violation
                        (fn []
-                         (rf/reg-app-schema [:count] {:schema [:int {:min 0}]
-                                                      :frame :tenant/a})))]
+                         (rf/reg-app-schema [:count] {:frame :tenant/a} [:int {:min 0}])))]
       (is (= 1 (count violations)))
       (is (= :tenant/a (-> violations first :tags :frame))))))

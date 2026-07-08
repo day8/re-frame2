@@ -68,7 +68,7 @@
 ;; We just say which one out loud with `with-frame`. The `:rf/default` here is
 ;; the same frame the render root's `frame-provider` names below.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:drawer] {:schema DrawerState}))
+  (rf/reg-app-schema [:drawer] DrawerState))
 
 ;; ============================================================================
 ;; UNDO INTERCEPTOR

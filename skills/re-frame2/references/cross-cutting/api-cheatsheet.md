@@ -13,7 +13,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
 | `rf/reg-frame` | `(id metadata-map)` |
-| `rf/reg-app-schema` | `(path {:schema schema :frame frame?})` — schema rides `:schema`, optional frame target rides `:frame`; boundary validation; needs `day8/re-frame2-schemas` |
+| `rf/reg-app-schema` | `(path schema)` / `(path {:frame frame} schema)` — schema is the positional value slot, optional middle metadata map carries `:frame`; boundary validation; needs `day8/re-frame2-schemas` |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
 | `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / `:schema` / `:frame`. A `:derive` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`). Needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map path)` — path is the third positional arg; needs `day8/re-frame2-routing` |

@@ -136,11 +136,14 @@
   the CLJS `def`-alias both route here, so the late-bind logic and the
   missing-artefact error message live in one place.
 
-  Per rf2-wvh95f F2 the grammar is `(reg-app-schema path metadata)` where the
-  schema rides under `:schema` in the metadata map (:schema-in-metadata)."
+  Per rf2-qm7k83 Part A `reg-app-schema` is an ordinary member of the
+  `reg-*` family — the schema is the POSITIONAL value slot:
+  `(reg-app-schema path schema)` (2-slot) / `(reg-app-schema path metadata
+  schema)` (3-slot, `metadata` carries the optional `:frame` target)."
   {:hook :schemas/reg-app-schema :artefact schemas-artefact :on-absent :throw
    :ex-data {:path path}}
-  ([path metadata] :delegate))
+  ([path schema]          :delegate)
+  ([path metadata schema] :delegate))
 
 (defwrapper reg-app-schemas
   "Bulk-register `{path -> schema}` against the active frame (or the

@@ -635,7 +635,7 @@ A feature ships these artefacts as a coherent bundle:
 
 | Artefact | Required | Convention |
 |---|---|---|
-| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] {:schema FeatureSchema})` |
+| **Schema** for the feature's `app-db` slice | yes | `(rf/reg-app-schema [:feature] FeatureSchema)` |
 | **`:initial-events` init event** | yes | `:feature/initialise` — sets the slice to its initial value |
 | **State events** (the feature's instruction set) | yes | `:feature/verb-noun`, `:feature.subarea/verb-noun` |
 | **Subscriptions** | yes | `:feature/property` reading from `[:feature ...]` |
@@ -909,10 +909,10 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
    [:loading?  :boolean]
    [:checkout-state [:enum :idle :submitting :error]]])
 
-(rf/reg-app-schema [:cart] {:schema CartState})
+(rf/reg-app-schema [:cart] CartState)
 
 ;; Whole-app-db root schema (path = [])
-(rf/reg-app-schema [] {:schema AppDbRoot})
+(rf/reg-app-schema [] AppDbRoot)
 
 ;; Fx args schema
 (rf/reg-fx :http

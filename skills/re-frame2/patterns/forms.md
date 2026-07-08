@@ -91,8 +91,8 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/r
 (def LoginForm
   [:map [:email [:re #".+@.+"]] [:password [:string {:min 8}]]])
 
-(rf/reg-app-schema [:auth :login] {:schema FormSlice})
-(rf/reg-app-schema [:auth :login :draft] {:schema LoginForm})
+(rf/reg-app-schema [:auth :login] FormSlice)
+(rf/reg-app-schema [:auth :login :draft] LoginForm)
 
 (rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]

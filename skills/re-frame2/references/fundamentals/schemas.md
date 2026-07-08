@@ -13,8 +13,8 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re-frame.core` façade (`rf/`). The **query + validator-install helpers** live on the owning `re-frame.schemas` namespace — `(:require [re-frame.schemas :as schemas])` — they are not on the `re-frame.core` façade.
 
 ```clojure
-(rf/reg-app-schema path {:schema schema})
-(rf/reg-app-schema path {:schema schema :frame :rf/default})   ;; frame target rides :frame
+(rf/reg-app-schema path schema)                              ;; schema is the positional value slot
+(rf/reg-app-schema path {:frame :rf/default} schema)          ;; 3-slot — frame target rides the middle metadata map
 
 (schemas/app-schema-at      path)                  ;; -> schema or nil
 (schemas/app-schemas)                              ;; -> {path schema ...}
@@ -81,7 +81,7 @@ From `examples/core/seven_guis/flight_booker/core.cljs`:
    [:start-text  :string]
    [:return-text :string]])
 
-(rf/reg-app-schema [:flight] {:schema FlightState})
+(rf/reg-app-schema [:flight] FlightState)
 
 (rf/reg-event :flight/set-trip-type
   {:doc    "User changed the trip-type combo."

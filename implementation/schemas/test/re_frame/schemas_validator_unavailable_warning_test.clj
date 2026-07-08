@@ -72,7 +72,7 @@
     (let [recorded (record-traces! ::unbound+default)]
       (with-unbound-malli-validate
         (fn []
-          (rf/reg-app-schema [:user] {:schema [:map [:id :int]]})))
+          (rf/reg-app-schema [:user] [:map [:id :int]])))
       (let [warns (warnings-of recorded
                                :rf.warning/schema-validator-unavailable)]
         (is (= 1 (count warns))
@@ -84,9 +84,9 @@
     (let [recorded (record-traces! ::dedup-rereg)]
       (with-unbound-malli-validate
         (fn []
-          (rf/reg-app-schema [:user]    {:schema [:map [:id :int]]})
-          (rf/reg-app-schema [:cart]    {:schema [:vector :any]})
-          (rf/reg-app-schema [:session] {:schema [:map [:tok :string]]})))
+          (rf/reg-app-schema [:user]    [:map [:id :int]])
+          (rf/reg-app-schema [:cart]    [:vector :any])
+          (rf/reg-app-schema [:session] [:map [:tok :string]])))
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-validator-unavailable)))
           "three registrations -> exactly one warning"))))
@@ -109,7 +109,7 @@
             (require the Malli adapter ns OR install a custom validator)"
     (let [recorded (record-traces! ::reason)]
       (with-unbound-malli-validate
-        (fn [] (rf/reg-app-schema [:user] {:schema [:map]})))
+        (fn [] (rf/reg-app-schema [:user] [:map])))
       (let [warns (warnings-of recorded
                                :rf.warning/schema-validator-unavailable)
             tags  (-> warns first :tags)]
@@ -128,7 +128,7 @@
       (with-unbound-malli-validate
         (fn []
           (schemas/set-schema-validator! (fn [_schema _value] true))
-          (rf/reg-app-schema [:user] {:schema [:map [:id :int]]})))
+          (rf/reg-app-schema [:user] [:map [:id :int]])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))
           "explicit non-default validator suppresses the warning"))))
@@ -141,7 +141,7 @@
       (with-unbound-malli-validate
         (fn []
           (schemas/set-schema-fns! {:validate (fn [_ _] true)})
-          (rf/reg-app-schema [:user] {:schema [:map]})))
+          (rf/reg-app-schema [:user] [:map])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))))))
 
@@ -154,7 +154,7 @@
           prior    (late-bind/get-fn :schemas/malli-validate)]
       (late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
       (try
-        (rf/reg-app-schema [:user] {:schema [:map]})
+        (rf/reg-app-schema [:user] [:map])
         (finally
           ;; Restore the slot for sibling tests — the fixture restores the
           ;; validator-fn but NOT the process-global late-bind hook table.
@@ -176,11 +176,11 @@
     (let [recorded (record-traces! ::clear-cache)]
       (with-unbound-malli-validate
         (fn []
-          (rf/reg-app-schema [:first] {:schema [:map]})
+          (rf/reg-app-schema [:first] [:map])
           (is (= 1 (count (warnings-of recorded
                                        :rf.warning/schema-validator-unavailable))))
           (schemas/clear-validator-unavailable-warned!)
-          (rf/reg-app-schema [:second] {:schema [:map]})
+          (rf/reg-app-schema [:second] [:map])
           (is (= 2 (count (warnings-of recorded
                                        :rf.warning/schema-validator-unavailable)))
               "after cache clear the warning fires again"))))))

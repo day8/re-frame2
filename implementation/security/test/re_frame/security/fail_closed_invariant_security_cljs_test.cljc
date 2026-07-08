@@ -175,7 +175,7 @@
             (returns false → the router rolls back) for a malformed
             registered app-schema, and emits :rf.error/malformed-schema."
     (doseq [schema malformed-schemas]
-      (rf/reg-app-schema [:root] {:schema schema})
+      (rf/reg-app-schema [:root] schema)
       (let [traces (capture
                      #(is (false? (schemas/validate-app-schema! {:root {:anything 1}} :root/bad))
                           (str "app-db / " (pr-str schema) " → false (rollback)")))]

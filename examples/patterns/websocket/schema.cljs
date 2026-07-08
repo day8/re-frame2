@@ -106,4 +106,4 @@
 ;; This example lives in the :rf/default frame, so we name that frame
 ;; explicitly. See docs/core/glossary.md#capture-frame.
 (rf/with-frame :rf/default
-  (rf/reg-app-schema [:messages]                   {:schema MessagesSlice}))
+  (rf/reg-app-schema [:messages]                   MessagesSlice))
