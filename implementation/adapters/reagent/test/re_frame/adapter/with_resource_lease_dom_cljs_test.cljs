@@ -277,3 +277,73 @@
               (is (not= provider-frame (ev-frame (nth @dispatches 0)))
                   "the surrounding provider's frame did NOT win")
               (act-fn (fn [] (rdc/unmount root))))))))))
+
+;; ---- adversarial: no frame resolvable → :rf.error/no-frame-context ---------
+;;
+;; rf2-za008k. with-resource-lease resolves its lease frame at RENDER time via
+;; `resolve-lease-frame`, whose `(or explicit-frame (frame/require-current-frame!
+;; …))` fallback RAISES `:rf.error/no-frame-context` when NOTHING resolves a
+;; frame — no `:frame` opt, no `*current-frame*` binding, and no enclosing
+;; `frame-provider` (the class `:context-type` reads the createContext
+;; no-provider sentinel). The raise is pinned at the reg-view level
+;; (frame_provider_context_dom_cljs_test Scenario 2) because it is a delegated
+;; one-liner, but there was NO with-resource-lease-SPECIFIC pin — so a future
+;; refactor swallowing the fallback (defaulting to `:rf/default`, or moving
+;; resolution to a commit-phase method where `*current-frame*` is already
+;; unwound) would ship green through this component. This mounts
+;; with-resource-lease with the fallback firing against a nil frame and asserts
+;; the loud error.
+
+(defn- capturing-error-boundary
+  "A Reagent error-boundary class that captures a render-time throw from its
+  single child into `captured` (an atom) instead of letting it propagate. A
+  class defining `componentDidCatch` IS an error boundary (React docs), and
+  React passes the ORIGINAL thrown value — here the cljs ExceptionInfo, its
+  ex-data intact — as the first arg, so `(ex-data @captured)` yields the
+  raised `:rf.error/*` data. Flips a ratom on catch so it renders a fallback
+  (not the throwing child) rather than retry."
+  [captured]
+  (let [errored? (r/atom false)]
+    (r/create-class
+      {:display-name "rf2-za008k/lease-error-boundary"
+       :component-did-catch (fn [_this err _info]
+                              (reset! captured err)
+                              (reset! errored? true))
+       :reagent-render (fn [child]
+                         (if @errored? [:div "boundary-fallback"] child))})))
+
+(deftest with-resource-lease-raises-when-no-frame-resolvable
+  (testing "Reagent — with NO :frame opt, NO *current-frame* binding, and NO
+            frame-provider, `resolve-lease-frame`'s fallback to
+            `frame/require-current-frame!` RAISES :rf.error/no-frame-context at
+            render time (rf2-za008k). Pins the with-resource-lease-specific
+            loud path its docstring promises — the reg-view-level raise
+            (frame_provider Scenario 2) does not cover THIS delegated call
+            site against a future refactor swallowing the fallback."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [act-fn (get-act)]
+        (if (nil? act-fn)
+          (is true "act() not reachable from this runner; skipping")
+          (let [render-error (atom nil)
+                boundary     (capturing-error-boundary render-error)
+                mount-node   (.createElement js/document "div")
+                root         (rdc/create-root mount-node)]
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+            ;; *current-frame* nil + no provider + no :frame opt ⇒ nothing
+            ;; resolves the lease frame. The error boundary captures the raise
+            ;; with-resource-lease's render surfaces.
+            (binding [frame/*current-frame* nil]
+              (act-fn
+                (fn []
+                  (rdc/render root
+                    [boundary
+                     [reagent-adapter/with-resource-lease
+                      descriptor
+                      (fn [] [:div "should-not-render"])]]))))
+            (is (some? @render-error)
+                "no frame resolvable → with-resource-lease's render raised")
+            (is (= :rf.error/no-frame-context
+                   (:rf.error/id (ex-data @render-error)))
+                "the raised error is :rf.error/no-frame-context")
+            (try (act-fn (fn [] (rdc/unmount root))) (catch :default _ nil))))))))
