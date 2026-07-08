@@ -2578,7 +2578,9 @@ malformed `stop` is rejected up front rather than silently collapsing to
 the default wall-clock window — the same honest-error posture
 `subscribe`'s `:invalid-filter-edn` adopts. `:reason :ambiguous-frame`
 when an `:app-db` / `:sub` signal needs a frame but none resolves
-(multi-frame session, no selection).
+(multi-frame session, no selection) — this runtime refusal rides
+`isError: true` too (rf2-5m2oi1), per the universal `:ok? false` rule,
+not a success-shaped envelope.
 
 ## read-recording
 
@@ -2609,8 +2611,14 @@ read-and-close in one round-trip), `build` (string).
 
 Each entry is one **change** — the moment signal `:i` took a new value.
 Two signals that changed on the same paint share a `:frame`.
-`:reason :missing-recording-id` if omitted/blank; `:reason
-:no-such-recording` for an unknown id.
+
+**Error envelopes** (all `isError: true`, per the §"Every `:ok? false`
+response is `isError: true`" rule — rf2-5m2oi1): `:reason
+:missing-recording-id` if omitted/blank (client-side short-circuit,
+before the socket); `:reason :no-such-recording` for an unknown/expired
+recording-id (the runtime refusal — so the host can route recovery
+through the error channel). A legitimate empty read is `{:ok? true …}`
+(a real map), so a normal empty drain is never mislabelled an error.
 
 ## watch-until
 
