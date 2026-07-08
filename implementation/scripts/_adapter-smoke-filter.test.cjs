@@ -36,6 +36,9 @@ const {
   parseFilterPatterns,
   normalizeForFilter,
   entryIdentities,
+  isSpecFile,
+  listSpecFiles,
+  reconcile,
 } = require('../adapters/scripts/adapter-smoke-filter.cjs');
 
 let failed = 0;
@@ -267,41 +270,50 @@ it('normalizeForFilter collapses _, \\ and / to a single -', () => {
 });
 
 // ---- manifest vs on-disk reconciliation ---------------------------------
-// Mirror the runner's reconciliation guard so drift is caught at the fast
-// JS-harness tier too (not only at Playwright-run time).
+// Exercise the REAL discovery + reconciliation the runner uses. isSpecFile,
+// listSpecFiles, and reconcile are imported from adapter-smoke-filter.cjs
+// (the module that owns the manifest) — the SAME functions
+// run-adapter-smokes.cjs calls before a Playwright run. Previously this
+// suite re-implemented copies of the walker and asserted on THOSE, so a bug
+// in the runner's own walk/partition was caught only at Playwright-run time
+// and the two copies could silently drift (rf2-qf45gu).
 
-function isSpecFile(name) {
-  return name === 'spec.cjs' || name.endsWith('.spec.cjs');
-}
-function listSpecFiles(roots) {
-  const out = [];
-  for (const root of roots) {
-    if (!fs.existsSync(root)) continue;
-    const stack = [root];
-    while (stack.length > 0) {
-      const dir = stack.pop();
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (entry.name === 'node_modules') continue;
-          stack.push(full);
-        } else if (entry.isFile() && isSpecFile(entry.name)) {
-          out.push(path.resolve(full));
-        }
-      }
-    }
-  }
-  return out.sort();
-}
+it('isSpecFile accepts spec.cjs and *.spec.cjs and rejects everything else (rf2-qf45gu)', () => {
+  assert.ok(isSpecFile('spec.cjs'), 'bare spec.cjs is a spec file');
+  assert.ok(isSpecFile('reagent.spec.cjs'), 'suffixed *.spec.cjs is a spec file');
+  assert.ok(!isSpecFile('spec.js'), 'wrong extension is not a spec file');
+  assert.ok(!isSpecFile('index.cjs'), 'a plain .cjs is not a spec file');
+  assert.ok(!isSpecFile('specXcjs'), 'no dot before cjs is not a spec file');
+});
 
-it('declared manifest spec set == spec.cjs files on disk under ADAPTER_SMOKE_SPEC_ROOTS', () => {
-  const declared = ADAPTER_SMOKES.map((e) => path.resolve(e.specPath)).sort();
+it('reconcile partitions declared-vs-discovered into missing + undeclared (rf2-qf45gu)', () => {
+  const a = path.resolve(REPO_ROOT, 'x', 'a.spec.cjs');
+  const b = path.resolve(REPO_ROOT, 'x', 'b.spec.cjs');
+  const c = path.resolve(REPO_ROOT, 'x', 'c.spec.cjs');
+  // declared has {a,b}; on disk has {b,c} → a is missing, c is undeclared.
+  const { missing, undeclared } = reconcile([a, b], [b, c]);
+  assert.deepStrictEqual(missing, [a], 'declared-but-absent lands in missing');
+  assert.deepStrictEqual(undeclared, [c], 'on-disk-but-undeclared lands in undeclared');
+  // Set-equal inputs (any order, mixed abs/rel) reconcile clean — reconcile
+  // resolves both sides before diffing.
+  const rel = path.relative(process.cwd(), a);
+  const clean = reconcile([a, b], [b, rel]);
+  assert.deepStrictEqual(clean.missing, [], 'no drift → empty missing');
+  assert.deepStrictEqual(clean.undeclared, [], 'no drift → empty undeclared');
+});
+
+it('the real listSpecFiles + reconcile agree with the manifest on the live repo (rf2-qf45gu)', () => {
+  const declared = ADAPTER_SMOKES.map((e) => e.specPath);
   const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
+  // listSpecFiles returns resolved, sorted absolute paths.
   assert.deepStrictEqual(
     discovered,
-    declared,
-    `manifest/disk drift.\n  on disk:  ${discovered.join('\n            ')}\n  declared: ${declared.join('\n            ')}`,
+    ADAPTER_SMOKES.map((e) => path.resolve(e.specPath)).sort(),
+    `manifest/disk drift.\n  on disk:  ${discovered.join('\n            ')}`,
   );
+  const { missing, undeclared } = reconcile(declared, discovered);
+  assert.deepStrictEqual(missing, [], `manifest references spec(s) not on disk: ${missing.join(', ')}`);
+  assert.deepStrictEqual(undeclared, [], `spec(s) on disk not in the manifest: ${undeclared.join(', ')}`);
 });
 
 it('ADAPTER_SMOKE_SPEC_ROOTS resolve under the repo root', () => {

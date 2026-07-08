@@ -51,12 +51,13 @@
  */
 
 const path = require('path');
-const fs = require('fs');
 const {
   ADAPTER_SMOKES,
   ADAPTER_SMOKE_SPEC_ROOTS,
   parseFilterPatterns,
   selectEntries,
+  listSpecFiles,
+  reconcile,
 } = require('./adapter-smoke-filter.cjs');
 
 // playwright is a devDependency of implementation/package.json — there
@@ -111,36 +112,13 @@ const { isVerboseTests } = require(path.join(
 ));
 const VERBOSE_TESTS = isVerboseTests();
 
-// Specs live alongside the adapter testbed they exercise: each adapter
-// (Reagent / UIx / Helix) ships `implementation/adapters/<name>/testbed/
-// spec.cjs` (the unprefixed-`spec.cjs` convention).
-// The walker also accepts `*.spec.cjs`, though `examples/` is test-free.
-function isSpecFile(name) {
-  return name === 'spec.cjs' || name.endsWith('.spec.cjs');
-}
-
-function listSpecFiles(roots) {
-  const out = [];
-  for (const root of roots) {
-    if (!fs.existsSync(root)) continue;
-    const stack = [root];
-    while (stack.length > 0) {
-      const dir = stack.pop();
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          // Skip node_modules dirs that may sit under tools/ in the
-          // future (none today, but the walker should be defensive).
-          if (entry.name === 'node_modules') continue;
-          stack.push(full);
-        } else if (entry.isFile() && isSpecFile(entry.name)) {
-          out.push(full);
-        }
-      }
-    }
-  }
-  return out.sort();
-}
+// Spec discovery (isSpecFile/listSpecFiles) and the manifest-vs-disk
+// reconciliation (reconcile) live in the shared adapter-smoke-filter.cjs
+// module — the one that already owns the ADAPTER_SMOKES manifest — so this
+// runner and the fast-tier _adapter-smoke-filter.test.cjs exercise the SAME
+// real code instead of two copies that could drift (rf2-qf45gu). Specs live
+// alongside the adapter testbed they exercise: each adapter (Reagent / UIx /
+// Helix) ships `implementation/adapters/<name>/testbed/spec.cjs`.
 
 function withTimeout(promise, ms, label) {
   let timer;
@@ -160,10 +138,9 @@ function withTimeout(promise, ms, label) {
   // manifest, or a new spec.cjs added under implementation/adapters/
   // without a matching manifest entry — instead of silently exercising the
   // wrong set.
-  const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS).map((p) => path.resolve(p));
-  const declared = ADAPTER_SMOKES.map((e) => path.resolve(e.specPath));
-  const missing = declared.filter((p) => !discovered.includes(p));
-  const undeclared = discovered.filter((p) => !declared.includes(p));
+  const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
+  const declared = ADAPTER_SMOKES.map((e) => e.specPath);
+  const { missing, undeclared } = reconcile(declared, discovered);
   if (missing.length > 0) {
     console.error(
       `ADAPTER_SMOKES manifest references spec(s) not on disk:\n  ${missing.join('\n  ')}\n` +
