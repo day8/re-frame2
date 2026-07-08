@@ -1,11 +1,16 @@
 (ns re-frame.machines.lifecycle-fx.resource-release
   "Machine→resource lease release on actor destroy.
 
-  Per Spec 016 §Release authority is per owner kind (016:290):
+  Per Spec 016 §Release authority is per owner kind (016:291):
 
-    | Machine | [:machine machine-id instance-id] | Actor destroy — when the
-    owning machine instance is stopped/destroyed (005-StateMachines), its
-    resource leases are released. |
+    | Machine | [:machine actor-id] | Actor destroy — when the owning machine
+    instance is stopped/destroyed (005-StateMachines), its resource leases are
+    released. |
+
+  (A three-part `[:machine machine-id instance-id]` owner that folds a domain
+  instance-id into the key is an APP-authoritative lease the framework does NOT
+  auto-release; the framework auto-releases the runtime-owned `[:machine
+  actor-id]` key only. Spec 016:291.)
 
   The owner key the machine runtime owns is `[:machine actor-id]` — the
   runtime-derivable machine-owner key the derivation algebra names (Spec
