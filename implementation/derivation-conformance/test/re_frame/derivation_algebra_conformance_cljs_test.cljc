@@ -571,11 +571,20 @@
       (is (= :runtime-db (:storage slice)))
       (is (= :on-route   (:evaluation slice)))
       (is (= :frame      (:lifecycle slice)))
-      ;; the live OWNER is [:route route-id nav-token] when a nav-token has
-      ;; been allocated (Derivations §Lifecycle and owner).
-      (when-let [owner (:owner slice)]
-        (is (= [:route :route/article (:nav-token slice)] owner)
-            "the live route OWNER is [:route route-id nav-token]")))))
+      ;; the live OWNER is [:route route-id nav-token] (Derivations §Lifecycle
+      ;; and owner). Under the plain-atom dispatch-sync navigation this suite
+      ;; drives, routing/tooling.cljc:340-341 deterministically assoc's :owner
+      ;; (present whenever route-id AND nav-token are non-nil), so this is a
+      ;; FAILING PRECONDITION (rf2-djofbh/rf2-onazhx), not a vacuity-risk skip:
+      ;; a regression dropping :owner (broken nav-token allocation) MUST fail
+      ;; here, not silently skip. The earlier `(when-let [owner (:owner slice)]
+      ;; …)` masked exactly that — the same when-guard anti-pattern the
+      ;; rf2-djofbh hardening pass converted to failing preconditions elsewhere
+      ;; in this file (lines 530-537, 836-843, 880-882).
+      (is (some? (:owner slice))
+          "the navigation MUST allocate a route owner — its absence is a failure, not a skip")
+      (is (= [:route :route/article (:nav-token slice)] (:owner slice))
+          "the live route OWNER is [:route route-id nav-token]"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c+) The live graph's NON-route realized composition (rf2-k0meap.3 point-1).
