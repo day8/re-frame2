@@ -3719,3 +3719,50 @@
       (is (some? ev))
       (is (nil? (:guardRequires (:data ev))))
       (is (nil? (:actionRequires (:data ev)))))))
+
+;; ---- lifecycle requires are region-aware (rf2-6l01c8) ------------------
+;;
+;; Two parallel regions can share the SAME in-region state path. The
+;; raw-node lookup that recovers a node's `:entry`/`:exit` refs (to surface
+;; the declared `:rf.cofx/requires`) must key off the node's OWN `:region`,
+;; not the first region whose in-region path matches. Pre-fix it scanned
+;; regions and returned the FIRST hit, so region B's node was decorated with
+;; region A's `:entryRequires`/`:exitRequires` — a lifecycle cofx displayed
+;; against the wrong parallel region.
+
+(def cofx-parallel-dup-machine
+  "A `:type :parallel` machine whose regions `:a` and `:b` each own a state
+  named `:active` (identical in-region path `[:active]`) with DISTINCT entry
+  / exit actions declaring DISTINCT `:rf.cofx/requires`. The fix must resolve
+  each `:active` node's lifecycle refs within its OWN region."
+  {:type    :parallel
+   :actions {:a-enter {:rf.cofx/requires [:region-a/enter-fact] :fn (fn [_] nil)}
+             :a-exit  {:rf.cofx/requires [:region-a/exit-fact]  :fn (fn [_] nil)}
+             :b-enter {:rf.cofx/requires [:region-b/enter-fact] :fn (fn [_] nil)}
+             :b-exit  {:rf.cofx/requires [:region-b/exit-fact]  :fn (fn [_] nil)}}
+   :regions {:a {:initial :active
+                 :states  {:active {:entry :a-enter :exit :a-exit}}}
+             :b {:initial :active
+                 :states  {:active {:entry :b-enter :exit :b-exit}}}}})
+
+(deftest lifecycle-requires-resolve-per-parallel-region
+  (testing "rf2-6l01c8 — duplicate-named parallel-region states carry their
+            OWN region's :entryRequires / :exitRequires on the xyflow node
+            :data, never a sibling region's"
+    (let [parsed  (layout/project-definition cofx-parallel-dup-machine)
+          graph   (projection/xyflow-graph parsed {} {})
+          a-active (node-by-id graph (layout/region-scoped-id :a [:active]))
+          b-active (node-by-id graph (layout/region-scoped-id :b [:active]))]
+      (is (some? a-active) "region :a's :active node projects")
+      (is (some? b-active) "region :b's :active node projects")
+      ;; region :a's node carries ONLY region :a's lifecycle requires
+      (is (= ["region-a/enter-fact"] (:entryRequires (:data a-active)))
+          "region :a entry requires resolve within region :a")
+      (is (= ["region-a/exit-fact"]  (:exitRequires (:data a-active)))
+          "region :a exit requires resolve within region :a")
+      ;; region :b's node carries ONLY region :b's lifecycle requires — the
+      ;; pre-fix cross-region scan would have shown region :a's here
+      (is (= ["region-b/enter-fact"] (:entryRequires (:data b-active)))
+          "region :b entry requires resolve within region :b, not region :a's")
+      (is (= ["region-b/exit-fact"]  (:exitRequires (:data b-active)))
+          "region :b exit requires resolve within region :b, not region :a's"))))

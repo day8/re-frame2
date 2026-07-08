@@ -150,21 +150,33 @@
       :else      (recur (get-in node [:states (first p)]) (next p)))))
 
 (defn raw-node-at
-  "Return the RAW (pre-projection) state-node map for `path` within machine
-  `definition`, or nil. For a flat / compound machine the path resolves
-  within `(:states definition)`. For a parallel machine a node `:path` is
-  IN-REGION (region-relative — the region-id is NOT part of the path, per
-  `project-parallel`'s in-region `:path` preservation), so we try every
-  region's `:states` body and return the first hit. A synthetic node (the
-  machine-root / region-container — empty or single-id path with no raw
-  match) resolves to nil. Used to recover a node's ORIGINAL `:entry` /
+  "Return the RAW (pre-projection) state-node map for the projected `node`
+  within machine `definition`, or nil. Resolution is REGION-AWARE
+  (rf2-6l01c8): a projected node carrying an explicit `:region` resolves
+  STRICTLY within that region's `[:regions <region> :states]` body using its
+  IN-REGION `:path` (region-relative — the region-id is NOT part of the path,
+  per `project-parallel`'s in-region `:path` preservation). Two parallel
+  regions can share the SAME in-region state path, so a cross-region scan
+  would return the WRONG region's raw node and mis-attribute its `:entry` /
+  `:exit` refs — and thus the surfaced `:rf.cofx/requires` — onto another
+  region's node. A NON-region node (flat / compound machine, or a parallel
+  root) resolves within `(:states definition)`, with the legacy region-scan
+  fallback preserved ONLY for the no-`:region` shape. A synthetic node (the
+  machine-root / region-container — empty path, or an in-region path with no
+  raw match) resolves to nil. Used to recover a node's ORIGINAL `:entry` /
   `:exit` keyword refs (the projection rewrote them to `name-of` strings)."
-  [definition path]
+  [definition {:keys [path region]}]
   (when (seq path)
-    (or (node-at-in-states (:states definition) path)
-        (some (fn [[_region region-def]]
-                (node-at-in-states (:states region-def) path))
-              (:regions definition)))))
+    (if region
+      ;; region-aware: pin the node to its OWN region's states — never a
+      ;; sibling region that happens to share the in-region path.
+      (node-at-in-states (:states (get-in definition [:regions region])) path)
+      ;; non-region node: top-level states, with the legacy region-scan
+      ;; fallback kept for the no-`:region` shape.
+      (or (node-at-in-states (:states definition) path)
+          (some (fn [[_region region-def]]
+                  (node-at-in-states (:states region-def) path))
+                (:regions definition))))))
 
 (defn requirement-label
   "Render one `:rf.cofx/requires` entry (Spec 002 §`parse-requires` grammar:
@@ -245,7 +257,8 @@
 
   Nodes need the ORIGINAL `:entry` / `:exit` keyword ref, which `collect-
   nodes` already rewrote to a `name-of` STRING; we re-resolve it against
-  the raw definition by node `:path` via `raw-node-at`."
+  the raw definition via `raw-node-at`, passing the whole node so the lookup
+  is region-aware (its `:region` + in-region `:path`, rf2-6l01c8)."
   [definition graph]
   (let [guards  (:guards definition)
         actions (:actions definition)]
@@ -259,7 +272,7 @@
                   (fn [nodes]
                     (mapv (fn [n]
                             (attach-node-requires
-                              actions (raw-node-at definition (:path n)) n))
+                              actions (raw-node-at definition n) n))
                           nodes)))))))
 
 (defn- resolve-target-path
