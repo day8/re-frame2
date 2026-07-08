@@ -102,7 +102,7 @@ Signals:
 
 Typical improvements:
 - recipe that names the listener for each question shape
-- default to `register-epoch-listener!` for cascade-shaped questions; reach for `register-listener!` only for per-emit detail
+- default to the `:epoch` stream for cascade-shaped questions; reach for the `:trace` stream only for per-emit detail
 - short prose in SKILL.md naming the two streams and when each wins
 
 ### Time-travel restore failures
