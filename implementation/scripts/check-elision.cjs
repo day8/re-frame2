@@ -343,6 +343,22 @@ const DEV_ONLY_SENTINELS = [
   // Production absence of the summary DATA is therefore pinned by the same
   // whole-emit elision that drops the run-start trace body, not by a
   // standalone bundle-grep sentinel.
+  //
+  // rf2-yigokd — the SAME `:rf.event/run-start` emit call also carries the
+  // envelope's per-call `:fx-overrides` / `:interceptor-overrides` under
+  // `:rf.event/fx-overrides` / `:rf.event/interceptor-overrides` (Spec-Schemas
+  // §`:rf/epoch-record`, Tool-Pair §Replay), each behind its OWN `(when
+  // interop/debug-enabled? ...)` binding (`override-fx` / `override-icpt` in
+  // `re-frame.router/run-handler-pipeline!`) — same idiom as `run-cofx` /
+  // `override-summary` above. NO keyword sentinel for the two TAG names
+  // themselves, same reasoning as `:rf.interceptor/override-summary`: they
+  // would legitimately survive via the marks chokepoint's pass-through (no
+  // `project-trace-event` branch redacts an unrecognised `:tags` key), and
+  // their id-keyword VALUES are the caller's OWN dispatch-opts literals,
+  // already present in source. The ONE genuinely new literal is the
+  // `:rf/fn-override` sentinel below.
+  { source: 're-frame.router/serializable-fx-overrides (:rf/fn-override sentinel)',
+    sentinel: 'rf/fn-override' },
   // re-frame.views — :rf.view/unmounted teardown op (rf2-9hoos). Emitted
   // by `emit-view-unmounted!` (via the per-render-instance reaction
   // dispose installed by `install-unmount-hook!`) when a registered view

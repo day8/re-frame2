@@ -252,6 +252,17 @@
         ;; dispatch proceeds unchanged regardless (warn-only).
         _                  (when-let [unknown (diag/unknown-dispatch-opts opts)]
                              (diag/emit-unknown-dispatch-opts-warning! unknown event))
+        ;; Per rf2-70h9wn (Conventions §Event payloads SHOULD be
+        ;; serialisable data): a dev-only advisory walk of the dispatched
+        ;; event's payload for a host handle (fn / Promise / AbortController
+        ;; / DOM node / Date / RegExp) — the same closed set the reply-map /
+        ;; reply-target data-only invariant polices. WARNING, not a throw:
+        ;; this is a SHOULD, not the `:rf.cofx` structural-EDN MUST. Dev-only
+        ;; — `interop/debug-enabled?` gates BOTH the walk and the emit, so
+        ;; production DCEs the whole surface.
+        _                  (when interop/debug-enabled?
+                             (when-let [bad-path (diag/find-non-serialisable-payload-path event)]
+                               (diag/emit-non-serialisable-event-payload-warning! event bad-path)))
         ;; EP-0002 §Dispatch And Router — the carried-invariant envelope
         ;; frame. Resolution order:
         ;;   1. explicit `{:frame …}` opt WINS (override). A caller who
@@ -576,6 +587,48 @@
                        (override-replacement k (get overrides k))
                        entry))))
            (filterv some?)))))
+
+;; ---- rf2-yigokd: envelope override capture for strict replay ---------------
+;;
+;; Per Spec-Schemas §`:rf/epoch-record` + Tool-Pair §Replay: the epoch record
+;; carries the envelope's SERIALIZABLE `:fx-overrides` / `:interceptor-
+;; overrides` beside `:rf.cofx`, so a strict replay can re-supply the exact
+;; per-call + lexical overrides the original run had active — the same class
+;; of fold-changing fact `:rf.cofx` already threads through the run-start
+;; trace tag. Scope is PINNED to the envelope-carried keys — per-call +
+;; lexical `:fx-overrides` (as merged at `build-envelope` above) and per-call
+;; `:interceptor-overrides` — never the per-frame tier (`apply-overrides`'s
+;; frame ⋈ call merge), which stays in the replay target's live frame config.
+
+(def ^:private fn-override-sentinel
+  "The opaque marker `:rf/fn-override` recorded in place of a CLJS-only
+  fn-valued `:fx-overrides` entry (Spec 002 §Per-frame and per-call overrides
+  — function values are a CLJS reference convenience, never a pattern-level,
+  wire-portable contract). A fn is never EDN, so it never rides the epoch
+  record or the trace stream; a Tool-Pair strict replay that finds this
+  sentinel on a recorded override FAILS LOUD — the same shape as
+  `:rf.error/missing-required-cofx` — rather than silently re-running the
+  event without the fn-valued override the original run had active."
+  :rf/fn-override)
+
+(defn- serializable-fx-overrides
+  "Return the envelope's per-call + lexical `:fx-overrides` map with every
+  fn-valued entry replaced by `fn-override-sentinel` — never let a fn ride
+  the epoch record / trace stream. Keyword-id and `nil` entries (both already
+  EDN — id-valued redirect / explicit no-override) pass through unchanged.
+  Marker-izes AT THE EMISSION SITE (the run-start trace tag construction
+  below), per rf2-yigokd's ruling — the sharp write-side class
+  (`:interceptor-overrides`, which edits the pre-commit chain) is EDN by
+  construction (EP-0022 retired value-valued replacements), so only
+  `:fx-overrides` needs this walk.
+
+  Returns nil for an empty/nil map so callers can omit the slot entirely
+  (matching the `:rf.event/cofx` `(some? …)`-conditional shape below)."
+  [overrides]
+  (when (seq overrides)
+    (reduce-kv (fn [m k v] (assoc m k (if (fn? v) fn-override-sentinel v)))
+               {}
+               overrides)))
 
 (defn- override-summary
   "Build the dev-only `:rf.interceptor/override-summary` trace tag (Spec 009
@@ -2379,6 +2432,20 @@
             ;; `:sensitive` / `:large` slots before any off-box egress.
             run-cofx  (when interop/debug-enabled?
                         (get-in initial-ctx [:coeffects :rf.cofx]))
+            ;; rf2-yigokd — the envelope's OWN per-call + lexical
+            ;; `:fx-overrides` / per-call `:interceptor-overrides` (NOT the
+            ;; frame-merged `fx-overrides` local above — the per-frame tier is
+            ;; deliberately excluded; it stays in the replay target's live
+            ;; frame config, per the ruling's pinned scope). Fn-valued
+            ;; `:fx-overrides` entries are marker-ized here, at the emission
+            ;; site, so a fn NEVER reaches the trace stream / epoch record.
+            ;; `:interceptor-overrides` is EDN by construction (EP-0022) and
+            ;; rides verbatim. Both nil when empty so the override-free hot
+            ;; path omits the slots entirely, same shape as `run-cofx`.
+            override-fx   (when interop/debug-enabled?
+                            (serializable-fx-overrides (:fx-overrides envelope)))
+            override-icpt (when interop/debug-enabled?
+                            (not-empty (:interceptor-overrides envelope)))
             _         (trace/emit! :rf.event :rf.event/run-start
                                    ;; rf2-9vx0jk — `:rf.interceptor/override-
                                    ;; summary` rides the run-start TRACE tag
@@ -2409,7 +2476,18 @@
                                      ;; whose envelope carried no cofx map
                                      ;; omits the slot).
                                      (some? run-cofx)
-                                     (assoc :rf.event/cofx run-cofx)))
+                                     (assoc :rf.event/cofx run-cofx)
+                                     ;; rf2-yigokd — the envelope's serializable
+                                     ;; override keys, surfaced here so
+                                     ;; `find-trigger-event` can pin them as
+                                     ;; first-class `:fx-overrides` /
+                                     ;; `:interceptor-overrides` epoch-record
+                                     ;; slots and a strict replay can re-supply
+                                     ;; them beside `:rf.cofx`.
+                                     (some? override-fx)
+                                     (assoc :rf.event/fx-overrides override-fx)
+                                     (some? override-icpt)
+                                     (assoc :rf.event/interceptor-overrides override-icpt)))
             event-ok? (validate-event! event-id event handler-meta frame)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
             ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor

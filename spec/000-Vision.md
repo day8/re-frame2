@@ -484,12 +484,14 @@ The foundation hooks ship in 002; the two ergonomic libraries below both landed 
 | **Forms** | v1 — pattern doc ([Pattern-Forms.md](Pattern-Forms.md)) | One-page convention; schemas + machines do the heavy lifting. |
 | **Persistence / offline** | post-v1 | IndexedDB, hydration of persisted state, write-through, service workers. Framework primitives suffice for hand-rolling. |
 | **Authentication / sessions** | post-v1 | Application code; framework primitives suffice. |
+| **Local-first / sync** | **deferred, post-v1**, possibly a separate artefact (`day8/re-frame2-sync`-shaped) — no committed design | The client kernel already owns most of the primitives such a story would need — EP-0017 recordable cofx, O(1) frame-state restore, id-valued fx suppression under replay — but no production frame-state install path, no durable app mutation log, no conflict/retention/auth/multi-writer story exist today, and `restore-epoch!` does not reverse fired effects. The seam is the **deterministic event journal** — the mutation-intent events + their `:rf.cofx` envelopes ([Pattern-AsyncEffect §The seam a sync engine would attach to](Pattern-AsyncEffect.md#the-seam-a-sync-engine-would-attach-to)); a rebase is "restore canonical frame-state + strict replay with id-valued fx suppression" ([Tool-Pair §Replay](Tool-Pair.md#replay-mint-policy)). CRDTs / multiplayer / conflict resolution are OUT OF SCOPE — this disposition names the seam, it does not solve sync. This is why event vectors carry a SHOULD toward serialisable data ([Conventions §Event payloads SHOULD be serialisable data](Conventions.md#event-payloads-should-be-serialisable-data)): the journal is only replayable if every event in it is a value. |
 
 ### Out of Scope for v1
 
 - **Multiple different apps on one page** (different handler sets sharing a single page). Out of scope, full stop — iframes serve this case. Multi-frame in re-frame2 is "multiple instances of the *same* app's handlers" (devcards, widgets, story variants, test fixtures).
 - **Persistence / offline** — see Goal #10 dispositions above.
 - **Authentication / sessions library** — see Goal #10 dispositions above.
+- **CRDTs / multiplayer / conflict resolution** — see the Local-first / sync disposition above. The runtime carries only the causal/value discipline + restoration shape a later solution could build on, not a sync solution itself.
 
 ### The three-layer AI-amenable surface
 

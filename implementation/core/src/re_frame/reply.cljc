@@ -363,7 +363,7 @@
 ;; data-only contract.
 ;; ---------------------------------------------------------------------------
 
-(defn- host-handle?
+(defn host-handle?
   "Detector for a host resource that MUST NOT appear in a data-only reply map
   or a durable reply target (Managed-Effects §The reply map / §The reply
   target: the data-only invariant). The CLOSED host-handle set is:
@@ -397,7 +397,7 @@
                    (instance? java.util.Date v)
                    (instance? java.util.regex.Pattern v)))))
 
-(defn- walk-find-host-handle
+(defn walk-find-host-handle
   "Walk `v` (maps / vectors / sets) and return the path to the first host
   handle found, or nil. Bounded by the reply-map shape (replies are small
   data); guards against cyclic refs are unnecessary for EDN data."
@@ -409,6 +409,38 @@
      (vector? v)      (first (keep-indexed (fn [i vv] (walk-find-host-handle vv (conj path i))) v))
      (set? v)         (some #(walk-find-host-handle % (conj path '*)) v)
      :else            nil)))
+
+(defn walk-find-host-handle-bounded
+  "Budget-bounded sibling of `walk-find-host-handle`: the SAME host-handle
+  detection and the same map/vector/set walk, but stops after visiting
+  `max-nodes` nodes and returns nil (no handle reported) rather than
+  continuing an unbounded traversal.
+
+  Per rf2-70h9wn (Conventions §Event payloads SHOULD be serialisable data):
+  the dev-only event-payload lint reuses this walker to bound a pathological
+  deeply-nested or huge payload so the lint itself cannot become a
+  performance footgun on the hot dispatch path. A budget-exhausted walk is a
+  false NEGATIVE (give up, report clean) rather than a false positive — the
+  correct fail-safe direction for an ADVISORY surface.
+
+  `durable-target` / `validate-reply` keep the unbounded `walk-find-host-
+  handle` unchanged: their contract is a hard MUST (a durable reply target /
+  reply map must never smuggle a host handle past a budget cutoff), so they
+  do not use this bounded sibling."
+  [v max-nodes]
+  (let [remaining (volatile! (long max-nodes))]
+    (letfn [(walk [v path]
+              (if-not (pos? @remaining)
+                nil
+                (do
+                  (vswap! remaining dec)
+                  (cond
+                    (host-handle? v) path
+                    (map? v)         (some (fn [[k vv]] (walk vv (conj path k))) v)
+                    (vector? v)      (first (keep-indexed (fn [i vv] (walk vv (conj path i))) v))
+                    (set? v)         (some #(walk % (conj path '*)) v)
+                    :else            nil))))]
+      (walk v []))))
 
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —

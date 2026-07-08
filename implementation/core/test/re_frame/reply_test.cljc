@@ -610,3 +610,31 @@
         "the message carries the [:rf.error/<id>] greppability token (rule 4)")
     (is (string? (:reason (ex-data e)))
         ":reason is the required human sentence")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-70h9wn — `walk-find-host-handle-bounded`, the budget-bounded sibling
+;; the dev-only event-payload serialisability lint reuses. Same detection +
+;; walk as `walk-find-host-handle`, but stops early (returns nil — a false
+;; negative, the safe direction for an advisory surface) once the node budget
+;; is exhausted.
+;; ---------------------------------------------------------------------------
+
+(deftest bounded-walk-finds-a-host-handle-within-budget
+  (testing "a fn nested a couple of levels deep is found well within a
+   generous budget"
+    (is (= [:a :b]
+           (reply/walk-find-host-handle-bounded
+             {:a {:b (fn [] nil)}} 500)))))
+
+(deftest bounded-walk-clean-payload-returns-nil
+  (testing "an all-EDN payload never reports a handle, regardless of budget"
+    (is (nil? (reply/walk-find-host-handle-bounded
+                {:a [1 2 {:b #{:x :y}}]} 500)))))
+
+(deftest bounded-walk-gives-up-once-budget-exhausted
+  (testing "a budget too small to reach the handle returns nil (false
+   negative — the fail-safe direction for an ADVISORY lint) rather than
+   throwing or over-running"
+    (is (nil? (reply/walk-find-host-handle-bounded
+                {:a {:b {:c (fn [] nil)}}} 1))
+        "the handle is 3 levels deep; a 1-node budget gives up first")))

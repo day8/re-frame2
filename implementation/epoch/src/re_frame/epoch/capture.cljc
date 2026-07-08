@@ -649,8 +649,16 @@
 
 (defn find-trigger-event
   "Walk the buffered events to find the first :event/run-start trace.
-  That carries the `:event`, `:event-id`, `:dispatch-id` AND the
-  post-generation `:rf.cofx` replay token for the cascade.
+  That carries the `:event`, `:event-id`, `:dispatch-id`, the
+  post-generation `:rf.cofx` replay token, AND (rf2-yigokd) the envelope's
+  serializable `:fx-overrides` / `:interceptor-overrides` for the cascade.
+
+  Per rf2-yigokd: `:fx-overrides` (already marker-ized for fn-valued entries
+  at the router's emission site) and `:interceptor-overrides` are the
+  envelope's OWN per-call + lexical override maps (never the per-frame tier)
+  — surfaced here so `build-record` can pin them as first-class epoch-record
+  slots beside `:rf.cofx`, letting a Tool-Pair strict replay re-supply the
+  exact overrides the original run had active.
 
   Per rf2-1xdotm: the run-start's `:rf.event/cofx` tag is the POST-
   GENERATION flat `:rf.cofx` map (the causal cofx as it was after the
@@ -748,11 +756,27 @@
                 ;; post-generation `:rf.cofx` replay token rides the run-start
                 ;; under `:rf.event/cofx` (dev-only at source) and is surfaced
                 ;; here so `build-record` pins it as a first-class slot.
+                ;;
+                ;; Per rf2-yigokd: the envelope's serializable
+                ;; `:fx-overrides` / `:interceptor-overrides` ride the SAME
+                ;; run-start emit under `:rf.event/fx-overrides` /
+                ;; `:rf.event/interceptor-overrides` (dev-only at source,
+                ;; already marker-ized for fn-valued fx entries at the
+                ;; router's emission site) — surfaced here under the BARE
+                ;; record-layer spelling (matching the dispatch-opts key
+                ;; names, so `build-record` can pin them as first-class
+                ;; slots a Tool-Pair strict replay splats straight back into
+                ;; dispatch opts beside `:rf.cofx`). Static per cascade (the
+                ;; envelope is fixed at build-envelope time) — unlike
+                ;; `:rf.cofx` there is no mid-drain augmentation to merge.
                 (and (= :rf.event/run-start op) (nil? (:run-start acc)))
-                (assoc acc :run-start {:event-id    (:rf.trace/event-id tags)
-                                       :event       (:rf.event/v tags)
-                                       :dispatch-id (:rf.trace/dispatch-id tags)
-                                       :rf.cofx     (:rf.event/cofx tags)})
+                (assoc acc :run-start {:event-id      (:rf.trace/event-id tags)
+                                       :event         (:rf.event/v tags)
+                                       :dispatch-id   (:rf.trace/dispatch-id tags)
+                                       :rf.cofx       (:rf.event/cofx tags)
+                                       :fx-overrides  (:rf.event/fx-overrides tags)
+                                       :interceptor-overrides
+                                       (:rf.event/interceptor-overrides tags)})
 
                 ;; rf2-cheez6.1 / rf2-08br0v — accumulate every generator-
                 ;; minted recordable fact in cascade order. `:rf.cofx/value`

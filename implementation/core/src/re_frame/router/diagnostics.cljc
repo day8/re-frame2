@@ -22,6 +22,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.reply :as reply]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -386,3 +387,71 @@
                   :event        event
                   :reason       reason
                   :recovery     :no-recovery})))
+
+;; ---- rf2-70h9wn: event-payload serialisability lint -----------------------
+;;
+;; Per Conventions §Event payloads SHOULD be serialisable data: event vectors
+;; SHOULD contain recordable, serialisable data (the same causal-tokens-are-
+;; values discipline `:rf.cofx` already enforces ALWAYS-ON for coeffects).
+;; Unlike the `:rf.cofx` structural-EDN floor — a hard, always-on MUST because
+;; a bad cofx value corrupts the durable causal record — event payloads are a
+;; SHOULD: permissive `:any` payloads and ad-hoc CLJS test payloads still rely
+;; on carrying a live fn/object occasionally, so this is a dev-only WARNING,
+;; never a throw.
+
+(def ^:const payload-lint-node-budget
+  "Node-visit budget for `find-non-serialisable-payload-path`'s bounded walk
+  — bounds a pathological deeply-nested / huge event payload so the lint
+  cannot itself become a performance footgun on the hot dispatch path. A
+  budget-exhausted walk returns nil (no warning) rather than continuing
+  unbounded — a false negative is the correct fail-safe direction for an
+  ADVISORY surface (see `re-frame.reply/walk-find-host-handle-bounded`)."
+  500)
+
+(defn find-non-serialisable-payload-path
+  "Dev-only. Walk `event` (the full dispatched event vector) for a host
+  handle — fn / Promise / AbortController / DOM node / Date / RegExp, the
+  SAME closed set `re-frame.reply/host-handle?` detects for the reply-map /
+  reply-target data-only invariant — via the budget-bounded walker
+  `re-frame.reply/walk-find-host-handle-bounded`. Returns the path to the
+  first offending value, or nil when the payload is clean (or the walk
+  budget was exhausted first — a false negative, the safe direction for an
+  advisory lint). The leading event-id keyword never matches (`host-handle?`
+  is false for a keyword), so walking the whole vector rather than just its
+  args is harmless.
+
+  The sole caller (`re-frame.router/build-envelope`) gates this call on
+  `interop/debug-enabled?`, so production never walks the payload."
+  [event]
+  (reply/walk-find-host-handle-bounded event payload-lint-node-budget))
+
+(defn emit-non-serialisable-event-payload-warning!
+  "Emit `:rf.warning/non-serialisable-event-payload` (Conventions §Event
+  payloads SHOULD be serialisable data) when `find-non-serialisable-payload-
+  path` found a host handle in `event`'s payload at `path`. Advisory only —
+  the dispatch proceeds unchanged (`:recovery :no-recovery`): replay, SSR
+  hydration, and epoch history all assume a value-shaped event, but this is
+  a SHOULD, not a MUST, so the runtime warns rather than rejects.
+
+  Dev-only — `interop/debug-enabled?`-gated wholesale (mirrors
+  `emit-unknown-dispatch-opts-warning!`): the whole surface DCEs under
+  `:advanced` + `goog.DEBUG=false`."
+  [event path]
+  (when interop/debug-enabled?
+    (let [event-id (first event)
+          reason   (str "Dispatch of `" event-id "` carries a non-"
+                        "serialisable value (fn / Promise / AbortController / "
+                        "DOM node / Date / RegExp) in its payload at "
+                        (pr-str path) ". Event vectors SHOULD contain "
+                        "recordable, serialisable data (Conventions §Event "
+                        "payloads SHOULD be serialisable data) — replay, SSR "
+                        "hydration, and epoch history all assume a value-"
+                        "shaped event. Replace the handle with its data "
+                        "projection (an id, a snapshot, a plain value).")]
+      (trace/emit! :warning
+                   :rf.warning/non-serialisable-event-payload
+                   {:event    event
+                    :event-id event-id
+                    :path     path
+                    :reason   reason
+                    :recovery :no-recovery}))))
