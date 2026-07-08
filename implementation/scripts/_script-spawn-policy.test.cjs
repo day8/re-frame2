@@ -247,14 +247,24 @@ for (const [base, dir] of GATE_LAUNCHERS) {
 // window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
 // (the JS-regex `[^]`-any-char gotcha).
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
+// [base, dir] pairs — most launchers live under implementation/scripts/, but
+// the adapter-smoke orchestrator moved to implementation/adapters/scripts/.
+// It is the very exemplar every failure message here points authors to
+// ("Match serve-and-run-adapter-smokes.cjs") yet it was itself UNGUARDED
+// (rf2-vwydab): it serves the compiled adapter bundle on loopback only
+// (readiness probe + headless browser both hit 127.0.0.1), so a future edit
+// dropping its explicit `-a 127.0.0.1` would silently re-expose the bundle
+// on 0.0.0.0 and trip no test. Guard it alongside the others, reading from
+// ADAPTERS_SCRIPTS_DIR.
 const IMPL_LOOPBACK_LAUNCHERS = [
-  'serve-and-run-browser-tests.cjs',
-  'check-story-static.cjs',
-  'serve-and-run-xray-feature-gate.cjs',
+  ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
+  ['check-story-static.cjs', SCRIPTS_DIR],
+  ['serve-and-run-xray-feature-gate.cjs', SCRIPTS_DIR],
+  ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
 ];
-for (const base of IMPL_LOOPBACK_LAUNCHERS) {
+for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
   test(`${base}: http-server is bound to 127.0.0.1 explicitly (rf2-utvst)`, () => {
-    const src = fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8');
+    const src = fs.readFileSync(path.join(dir, base), 'utf8');
     assert.match(
       src,
       LOOPBACK_BIND_RE,
