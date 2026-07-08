@@ -75,7 +75,8 @@
      (interop/make-reaction
        (fn [] (apply compute-fn (map deref source-containers))))
      :cljs
-     (let [on-dispose-fns (atom [])]
+     (let [on-dispose-fns (atom [])
+           disposed?      (volatile! false)]
        (reify
          IDeref
          (-deref [_] (apply compute-fn (map deref source-containers)))
@@ -83,8 +84,16 @@
          (-add-on-dispose [_ f]
            (swap! on-dispose-fns conj f))
          (-dispose [_]
-           (doseq [f @on-dispose-fns] (f))
-           (reset! on-dispose-fns []))))))
+           ;; Idempotent + re-entrant safe (rf2-1bzlai), mirroring the spine
+           ;; (spine.cljs). Flip the guard FIRST so a re-entrant `-dispose`
+           ;; from inside an on-dispose callback (or a plain second call)
+           ;; short-circuits before any teardown re-runs; snapshot-and-clear
+           ;; the callbacks before firing so each runs exactly once.
+           (when-not @disposed?
+             (vreset! disposed? true)
+             (let [fns @on-dispose-fns]
+               (reset! on-dispose-fns [])
+               (doseq [f fns] (f)))))))))
 
 (defn- render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the JVM is
