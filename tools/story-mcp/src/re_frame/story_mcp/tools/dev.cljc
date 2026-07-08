@@ -130,51 +130,52 @@
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
-      (let [opts       (targs/read-run-opts vk arguments)
-            base-url   (or (:base-url arguments) "")
-            share-url  (story/variant-share-url vk base-url opts)
-            outcome    (try
-                         (async/deref-blocking (story/run-variant vk opts)
-                                               ;; Shared lifecycle ceiling:
-                                               ;; tunable `:timeout-ms`
-                                               ;; (default 10s, clamped to 30s),
-                                               ;; the SAME knob `run-variant` uses
-                                               ;; so the two cannot drift.
-                                               (targs/resolve-timeout-ms arguments))
-                         (catch Throwable e
-                           ;; A throw never produced a unified result; mint the
-                           ;; :error verdict directly so preview speaks the SAME
-                           ;; unified shape a settled run emits.
-                           {:status     :error
-                            :lifecycle  :error
-                            :assertions [(story/assertion-record
-                                           {:assertion :rf.error/run-failed
-                                            :passed?   false
-                                            :error     true
-                                            :reason    (ex-message e)})]
-                            :checks     []}))
-            incl?      (targs/include-sensitive? arguments)
-            raw-db     (:app-db outcome)
-            [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
-            payload    {:variant-id   vk
-                        :share-url    share-url
-                        :status       (:status outcome)
-                        :lifecycle    (:lifecycle outcome)
-                        :elapsed-ms   (:elapsed-ms outcome)
-                        :app-db       (egress/elide-app-db raw-db vk incl?)
-                        :assertions   assertions
-                        :checks       (vec (:checks outcome))
-                        ;; Derived trees are PATH-projected through scrub-rendered:
-                        ;; a value AT a classified path redacts, a re-keyed copy
-                        ;; ships raw (EP-0025 fail-open).
-                        :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
-                        :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
-                        :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
-        ;; Surface the MUST-level egress indicator counts:
-        ;; how many sensitive assertion records were dropped + how many
-        ;; over-threshold leaves were elided across the payload. Omitted
-        ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
-        (egress/result-with-indicators payload dropped)))))
+      (or (targs/run-opts-shape-error arguments)
+          (let [opts       (targs/read-run-opts vk arguments)
+                base-url   (or (:base-url arguments) "")
+                share-url  (story/variant-share-url vk base-url opts)
+                outcome    (try
+                             (async/deref-blocking (story/run-variant vk opts)
+                                                   ;; Shared lifecycle ceiling:
+                                                   ;; tunable `:timeout-ms`
+                                                   ;; (default 10s, clamped to 30s),
+                                                   ;; the SAME knob `run-variant` uses
+                                                   ;; so the two cannot drift.
+                                                   (targs/resolve-timeout-ms arguments))
+                             (catch Throwable e
+                               ;; A throw never produced a unified result; mint the
+                               ;; :error verdict directly so preview speaks the SAME
+                               ;; unified shape a settled run emits.
+                               {:status     :error
+                                :lifecycle  :error
+                                :assertions [(story/assertion-record
+                                               {:assertion :rf.error/run-failed
+                                                :passed?   false
+                                                :error     true
+                                                :reason    (ex-message e)})]
+                                :checks     []}))
+                incl?      (targs/include-sensitive? arguments)
+                raw-db     (:app-db outcome)
+                [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
+                payload    {:variant-id   vk
+                            :share-url    share-url
+                            :status       (:status outcome)
+                            :lifecycle    (:lifecycle outcome)
+                            :elapsed-ms   (:elapsed-ms outcome)
+                            :app-db       (egress/elide-app-db raw-db vk incl?)
+                            :assertions   assertions
+                            :checks       (vec (:checks outcome))
+                            ;; Derived trees are PATH-projected through scrub-rendered:
+                            ;; a value AT a classified path redacts, a re-keyed copy
+                            ;; ships raw (EP-0025 fail-open).
+                            :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                            :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
+                            :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
+            ;; Surface the MUST-level egress indicator counts:
+            ;; how many sensitive assertion records were dropped + how many
+            ;; over-threshold leaves were elided across the payload. Omitted
+            ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
+            (egress/result-with-indicators payload dropped))))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
