@@ -288,7 +288,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Read.** [`spec/008-Testing.md`](https://day8.github.io/re-frame2/spec/008-Testing/).
 
-**Contract.** `with-frame`, `dispatch-sync`, `compute-sub`, epoch surface (`epoch/restore-epoch!` + `epoch/replace-frame-state!`) for snapshot/restore, `:fx-overrides`, `:interceptor-overrides`, framework adapter (cljs.test → vitest/pytest/etc.). JVM-runnable for the pure-function surface.
+**Contract.** `with-frame`, `dispatch-sync`, `compute-sub`, epoch surface (`epoch/restore-epoch!` + `epoch/replace-frame-state!`) for snapshot/restore, `:fx-overrides`, `:interceptor-overrides`, framework adapter (cljs.test → vitest/jest/etc.). JVM-runnable for the pure-function surface.
 
 ### EP 005 — State machines (if D3 Q1 = yes)
 
