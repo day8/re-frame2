@@ -192,7 +192,7 @@
     (rf/reg-frame :test/main {})
     (let [seen (atom nil)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))}})
-      (rf/register-epoch-listener! ::watch (fn [r] (reset! seen r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (reset! seen r)))
       (rf/reg-event :login
                        (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
@@ -211,7 +211,7 @@
     (rf/reg-frame :test/main {})
     (let [invocations (atom 0)]
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (swap! invocations inc) r)}})
-      (rf/register-epoch-listener! ::watch (fn [_] nil))
+      (rf/register-listener! :epoch ::watch (fn [_] nil))
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -450,7 +450,7 @@
             the override applies only on projection."
     (rf/reg-frame :test/main {})
     (let [synthetic (atom nil)]
-      (rf/register-epoch-listener! ::watch (fn [r] (reset! synthetic r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (reset! synthetic r)))
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
       (rf/replace-frame-state! :test/main {:rf.db/app {:injected :state}})
       (is (not (contains? @synthetic :rf/test-tag))
@@ -472,7 +472,7 @@
             that exactly one :halted-destroy record reached the listener."
     (rf/reg-frame :test/main {})
     (let [halted-records (atom [])]
-      (rf/register-epoch-listener! ::watch
+      (rf/register-listener! :epoch ::watch
                              (fn [r]
                                (when (= :halted-destroy (:outcome r))
                                  (swap! halted-records conj r))))
@@ -554,7 +554,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (let [settle-fanouts (count @seen)]
@@ -625,7 +625,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (emit-sub-run! :test/main :counter 0 42)

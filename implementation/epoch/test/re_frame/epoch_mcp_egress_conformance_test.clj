@@ -178,7 +178,7 @@
           ship!   (fn [record]
                     ;; Tool-side forwarder body — project at egress.
                     (swap! shipped conj (epoch/projected-record record)))]
-      (rf/register-epoch-listener! ::forwarder ship!)
+      (rf/register-listener! :epoch ::forwarder ship!)
       (drive-mixed-ring! :test/mcp)
       (is (pos? (count @shipped))
           "the forwarder saw at least one cascade")
@@ -197,7 +197,7 @@
     (rf/reg-frame :test/mcp {})
     (install-mcp-style-schemas! :test/mcp)
     (let [shipped (atom [])]
-      (rf/register-epoch-listener! ::forwarder
+      (rf/register-listener! :epoch ::forwarder
                              (fn [record]
                                (swap! shipped conj (epoch/projected-record record))))
       (drive-mixed-ring! :test/mcp)
@@ -681,7 +681,7 @@
     (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
                            {:db (assoc-in db [:auth :password] pw)}))
     (let [shipped (atom [])]
-      (rf/register-epoch-listener! ::forwarder
+      (rf/register-listener! :epoch ::forwarder
                                    (fn [r] (swap! shipped conj (epoch/projected-record r))))
       (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
       (is (pos? (count @shipped)) "the forwarder saw the cascade")

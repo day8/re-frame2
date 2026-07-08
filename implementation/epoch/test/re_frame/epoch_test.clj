@@ -618,7 +618,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -631,7 +631,7 @@
       (is (every? #(contains? % :renders) @seen))
       (is (every? #(contains? % :effects) @seen))
 
-      (rf/unregister-epoch-listener! ::watcher))))
+      (rf/unregister-listener! :epoch ::watcher))))
 
 (deftest listener-same-key-replaces
   (testing "register-epoch-listener! under the same key replaces the prior listener"
@@ -640,11 +640,11 @@
 
     (let [a (atom 0)
           b (atom 0)]
-      (rf/register-epoch-listener! ::w (fn [_] (swap! a inc)))
+      (rf/register-listener! :epoch ::w (fn [_] (swap! a inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (is (= 1 @a))
 
-      (rf/register-epoch-listener! ::w (fn [_] (swap! b inc)))
+      (rf/register-listener! :epoch ::w (fn [_] (swap! b inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (is (= 1 @a) "the original listener no longer fires after re-register under the same key")
@@ -680,8 +680,8 @@
           b        (atom 0)
           c        (atom 0)]
       ;; Two listeners under independent ids, both observe :test/main.
-      (rf/register-epoch-listener! ::w1 (fn [_] (swap! a inc)))
-      (rf/register-epoch-listener! ::w2 (fn [_] (swap! b inc)))
+      (rf/register-listener! :epoch ::w1 (fn [_] (swap! a inc)))
+      (rf/register-listener! :epoch ::w2 (fn [_] (swap! b inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (is (= 1 @a) "::w1 fired on the cascade")
@@ -698,7 +698,7 @@
       ;; Re-register ::w1 under a different fn — the listener swap is
       ;; well-tested by listener-same-key-replaces. Pin the OTHER half:
       ;; the observed-frames dissoc.
-      (rf/register-epoch-listener! ::w1 (fn [_] (swap! c inc)))
+      (rf/register-listener! :epoch ::w1 (fn [_] (swap! c inc)))
       (is (nil? (get @observed ::w1))
           "re-register dissocs the prior observed-frames entry — new
            cb starts with an empty observed-frames set")
@@ -719,9 +719,9 @@
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (let [count-a (atom 0)]
-      (rf/register-epoch-listener! ::w (fn [_] (swap! count-a inc)))
+      (rf/register-listener! :epoch ::w (fn [_] (swap! count-a inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/unregister-epoch-listener! ::w)
+      (rf/unregister-listener! :epoch ::w)
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (is (= 1 @count-a) "after removal, the listener does not accumulate"))))
@@ -733,9 +733,9 @@
 
     (let [survivor (atom 0)
           throws   (atom 0)]
-      (rf/register-epoch-listener! ::throwing
+      (rf/register-listener! :epoch ::throwing
         (fn [_] (swap! throws inc) (throw (ex-info "tool blew" {}))))
-      (rf/register-epoch-listener! ::survivor
+      (rf/register-listener! :epoch ::survivor
         (fn [_] (swap! survivor inc)))
 
       (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -756,9 +756,9 @@
 
     (let [recorded (record-trace!)
           survivor (atom 0)]
-      (rf/register-epoch-listener! ::throwing
+      (rf/register-listener! :epoch ::throwing
         (fn [_] (throw (ex-info "tool blew" {:why :test}))))
-      (rf/register-epoch-listener! ::survivor
+      (rf/register-listener! :epoch ::survivor
         (fn [_] (swap! survivor inc)))
 
       (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1803,7 +1803,7 @@
       (fn [_ _] {:fx [[:dispatch [:loop]]]}))
 
     (let [received (atom [])]
-      (rf/register-epoch-listener! ::watcher
+      (rf/register-listener! :epoch ::watcher
                              (fn [record] (swap! received conj record)))
       (rf/dispatch-sync [:loop] {:frame :test/main})
 
@@ -1962,7 +1962,7 @@
     (let [token-time 1781078400123
           clock-time 7777777777777
           halted     (atom [])]
-      (rf/register-epoch-listener! ::watch-committed-at
+      (rf/register-listener! :epoch ::watch-committed-at
                                    (fn [r]
                                      (when (= :halted-destroy (:outcome r))
                                        (swap! halted conj r))))
@@ -2217,7 +2217,7 @@
           history-before (rf/epoch-history :test/main)]
       (is (= 1 (count history-before))
           "the real cascade committed exactly one record")
-      (rf/register-epoch-listener! ::probe (fn [r] (swap! fired conj r)))
+      (rf/register-listener! :epoch ::probe (fn [r] (swap! fired conj r)))
       ;; Dispatch an event with NO registered handler on the LIVE frame.
       ;; Recovers (`:replaced-with-default`) — no throw — but emits the
       ;; frame-stamped, dispatch-id-bearing no-such-handler error trace.
@@ -2233,7 +2233,7 @@
              no-such-handler record with a fallback :event-id")
         (is (empty? @fired)
             "no epoch listener fired for the rejected dispatch"))
-      (rf/unregister-epoch-listener! ::probe))
+      (rf/unregister-listener! :epoch ::probe))
     ;; A subsequent real dispatch STILL commits — proving the suppression is
     ;; scoped to the rejected dispatch, not a frame-wide disable.
     (rf/dispatch-sync [:real] {:frame :test/main})
@@ -2832,7 +2832,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [received (atom [])]
-      (rf/register-epoch-listener! ::reset-listener
+      (rf/register-listener! :epoch ::reset-listener
                             (fn [r] (swap! received conj r)))
       (try
         (rf/replace-frame-state! :test/main {:rf.db/app {:n 42}})
@@ -2843,7 +2843,7 @@
           (is (= {:n 42} (:db-after r)))
           (is (= {:n 0}  (:db-before r))))
         (finally
-          (rf/unregister-epoch-listener! ::reset-listener))))))
+          (rf/unregister-listener! :epoch ::reset-listener))))))
 
 (deftest replace-frame-state-app-only-failure-unknown-frame
   (testing "replace-app-db! on an unknown frame returns false and emits
@@ -3660,7 +3660,7 @@
 
     (let [received (atom [])
           recorded (record-trace!)]
-      (rf/register-epoch-listener! ::watcher
+      (rf/register-listener! :epoch ::watcher
                             (fn [r] (swap! received conj r)))
       ;; Drive a cascade so the cb observes the frame.
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
@@ -3707,7 +3707,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [recorded (record-trace!)]
-      (rf/register-epoch-listener! ::watcher (fn [_] nil))
+      (rf/register-listener! :epoch ::watcher (fn [_] nil))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
       (rf/destroy-frame! :test/short-lived)
 
@@ -3734,7 +3734,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [recorded (record-trace!)]
-      (rf/register-epoch-listener! ::watcher (fn [_] nil))
+      (rf/register-listener! :epoch ::watcher (fn [_] nil))
       ;; cb observes :test/observed but NOT :test/never-seen-by-cb
       (rf/dispatch-sync [:seed] {:frame :test/observed})
 
@@ -3974,7 +3974,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :live true}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [records (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
       ;; A handler that destroys its own frame mid-cascade. It writes no
       ;; committed db before destroying, so destroy-time db == pre-cascade
       ;; db here (the {:n 7 :live true} the :seed cascade settled) — both
@@ -4043,7 +4043,7 @@
             parent event's already-committed write (rf2-9neiq)"
     (rf/reg-frame :test/main {})
     (let [records (atom [])]
-      (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
+      (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
       ;; Child: destroys the frame. Its pre-cascade db-before is whatever
       ;; the container held when it was dequeued — i.e. AFTER the parent's
       ;; {:phase :parent-done} write committed (per-event epoch boundary).
@@ -4306,7 +4306,7 @@
         ;; First cascade — the cb observes :test/main for the first time;
         ;; the membership is added. One swap is expected here (the new
         ;; observation lands on the atom).
-        (rf/register-epoch-listener! ::watcher (fn [_] nil))
+        (rf/register-listener! :epoch ::watcher (fn [_] nil))
         (rf/dispatch-sync [:seed] {:frame :test/main})
         (is (contains? (get @observed-atom ::watcher) :test/main)
             "after the first cascade, the cb has :test/main in its set")
@@ -4473,7 +4473,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
 
@@ -4518,7 +4518,7 @@
 
     (let [history-before (rf/epoch-history :test/main)
           seen           (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
           "restore rejected")
 
@@ -4538,7 +4538,7 @@
     (let [history-before (rf/epoch-history :test/main)
           seen           (atom [])
           attempt        (atom nil)]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       ;; A handler that calls replace-app-db! synchronously during a
       ;; drain — the during-drain precondition fails. The reset itself
       ;; must not fan out, but the surrounding drain still settles
@@ -4811,7 +4811,7 @@
       ;; A listener that records every fanned record — it must NOT see a
       ;; record for the destroyed frame.
       (let [fanned   (atom [])]
-        (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+        (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
         ;; Let the listener observe the live frame once so it has an
         ;; observation entry (mirrors a real tool); reset the ledger after.
         (rf/dispatch-sync [:seed] {:frame :test/short-lived})
@@ -5057,7 +5057,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
-      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
       (reset! fanned [])
 
@@ -5095,7 +5095,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
-      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
       (reset! fanned [])
 
@@ -5133,7 +5133,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
-      (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/short-lived})
       (reset! fanned [])
 
@@ -5212,8 +5212,8 @@
             id.)"
     (rf/reg-frame :test/main {})
     ;; Register then unregister a cb — it is GONE from the listener registry.
-    (rf/register-epoch-listener! ::ghost (fn [_] nil))
-    (rf/unregister-epoch-listener! ::ghost)
+    (rf/register-listener! :epoch ::ghost (fn [_] nil))
+    (rf/unregister-listener! :epoch ::ghost)
     (is (not (contains? (state/listeners-snapshot) ::ghost))
         "::ghost is no longer a registered listener")
 
@@ -5245,14 +5245,14 @@
       ;; ::victim is a freshly-registered listener that has NOT yet observed
       ;; any frame (put-listener! clears its observation ledger). It is live
       ;; in the registry when the fan-out snapshot is taken.
-      (rf/register-epoch-listener! ::victim (fn [_] nil))
+      (rf/register-listener! :epoch ::victim (fn [_] nil))
       (let [;; (1) notify-listeners! takes the snapshot (includes ::victim).
             snapshot (state/listeners-snapshot)]
         (is (contains? snapshot ::victim)
             "::victim is in the fan-out snapshot")
 
         ;; (2) ::victim is unregistered AFTER the snapshot — the exact race.
-        (rf/unregister-epoch-listener! ::victim)
+        (rf/unregister-listener! :epoch ::victim)
 
         ;; (3) notify-listeners! reaches the snapshot's ::victim entry and
         ;; calls record-observation! for it (the loop iterates the stale

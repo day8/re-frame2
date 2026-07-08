@@ -252,10 +252,10 @@
   ;; Clear so subsequent probe sites (replace-app-db! below,
   ;; on-frame-destroyed!) are not perturbed by the throwing fn.
   (rf/configure! {:epoch-history {:redact-fn nil}})
-  (rf/register-epoch-listener! ::probe-epoch (fn [_record] nil))
+  (rf/register-listener! :epoch ::probe-epoch (fn [_record] nil))
   (let [_history (rf/epoch-history :rf/default)]
     nil)
-  (rf/unregister-epoch-listener! ::probe-epoch)
+  (rf/unregister-listener! :epoch ::probe-epoch)
   ;; Drive a restore failure-mode emit site so the unknown-epoch
   ;; sentinel has a path through a documented entry point. The
   ;; remaining failure ops survive via their literal occurrence in

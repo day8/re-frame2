@@ -82,7 +82,7 @@
             prod. The settle! body's notify-listeners! call does not
             run (it sits inside the same gate as the record build)."
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::prod-epoch-listener
+      (rf/register-listener! :epoch ::prod-epoch-listener
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod-epoch/ping
                        (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
@@ -91,7 +91,7 @@
       (is (empty? @seen)
           "no records delivered to the listener under
            :advanced + goog.DEBUG=false")
-      (rf/unregister-epoch-listener! ::prod-epoch-listener))))
+      (rf/unregister-listener! :epoch ::prod-epoch-listener))))
 
 ;; ---- restore-epoch! is a no-op returning false under prod -----------------
 
@@ -140,10 +140,10 @@
             `clear-epoch-listeners!` return nil. Apps that boot with these
             calls do not crash under :advanced."
     (is (= ::prod-survives
-           (rf/register-epoch-listener! ::prod-survives (fn [_] nil)))
-        "register-epoch-listener! returns the id under prod")
-    (is (nil? (rf/unregister-epoch-listener! ::prod-survives))
-        "unregister-epoch-listener! returns nil under prod")
+           (rf/register-listener! :epoch ::prod-survives (fn [_] nil)))
+        "register-listener! :epoch returns the id under prod")
+    (is (nil? (rf/unregister-listener! :epoch ::prod-survives))
+        "unregister-listener! :epoch returns nil under prod")
     (is (vector? (rf/epoch-history :rf/default))
         "epoch-history returns a vector (empty) under prod")
     (is (nil? (epoch/clear-history!))

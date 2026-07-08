@@ -313,7 +313,7 @@
             materialises, no listener fan-out, no throw."
     (rf/reg-frame :test/main {})
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-sub-run! :test/main :orphan-sub nil :computed)
       (is (= [] (rf/epoch-history :test/main))
           "no record materialised from an orphan sub-run")
@@ -484,7 +484,7 @@
             no throw."
     (rf/reg-frame :test/main {})
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-render! :test/main :orphan-view)
       (is (= [] (rf/epoch-history :test/main))
           "no record materialised from an orphan render")
@@ -739,7 +739,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (let [settle-fanouts (count @seen)]
@@ -765,7 +765,7 @@
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (rf/dispatch-sync [:inc]  {:frame :test/main})
       (let [settle-fanouts (count @seen)]
@@ -1638,7 +1638,7 @@
             record materialises, no listener fan-out, no throw."
     (rf/reg-frame :test/main {})
     (let [seen (atom [])]
-      (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
+      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
       (emit-unmount! :test/main :orphan-view)
       (is (= [] (rf/epoch-history :test/main))
           "no record materialised from an orphan unmount")

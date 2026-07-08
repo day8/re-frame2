@@ -2092,10 +2092,9 @@
   ;; `:recovery`, and bypassed the builder. A consumer reading
   ;; `(:where (ex-data e))` got nil only here. `verb` is already the
   ;; user-facing `'rf/<surface>` symbol at every call site
-  ;; (`'rf/register-listener!` / `'rf/unregister-listener!` /
-  ;; `'rf/clear-listeners!`), so it lands directly in the canonical
-  ;; `:where` slot. The surface-specific `:stream` / `:valid` slots ride
-  ;; in `:extra`.
+  ;; (`'rf/register-listener!` / `'rf/unregister-listener!`), so it lands
+  ;; directly in the canonical `:where` slot. The surface-specific
+  ;; `:stream` / `:valid` slots ride in `:extra`.
   (error/throw-error!
     :rf.error/unknown-listener-stream
     verb
@@ -2157,20 +2156,16 @@
     :epoch  (rf-epoch/unregister-epoch-listener! id)
     (unknown-listener-stream! 'rf/unregister-listener! stream)))
 
-(defn clear-listeners!
-  "Drop every registered listener on `stream` (`:trace` / `:events` /
-  `:errors` / `:epoch`). Test-isolation only — production code should
-  never call this. Returns nil. No-op on the `:epoch` stream when the
-  `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws
-  `:rf.error/unknown-listener-stream`. Per Spec 009 §Observation
-  listeners."
-  [stream]
-  (case stream
-    :trace  (trace/clear-listeners!)
-    :events (event-emit/clear-event-listeners!)
-    :errors (error-emit/clear-error-listeners!)
-    :epoch  (rf-epoch/clear-epoch-listeners!)
-    (unknown-listener-stream! 'rf/clear-listeners! stream)))
+;; There is deliberately NO façade `clear-listeners!` verb (retired
+;; rf2-9flalp — API-shrink #4). Dropping every listener on a stream is a
+;; test-isolation concern that belongs in the fixture layer, not the public
+;; facade: `re-frame.test-support`'s reset already clears the registries
+;; through the lower-level sinks directly
+;; (`re-frame.trace.tooling/clear-listeners!`,
+;; `re-frame.event-emit/clear-event-listeners!`,
+;; `re-frame.error-emit/clear-error-listeners!`, and the
+;; `:epoch/clear-epoch-listeners!` reset hook). Those lower-level clears are
+;; KEPT; only the stream-parameterized public verb was removed.
 
 #?(:clj
    (do
@@ -2203,9 +2198,13 @@
 
 ;; The always-on event-emit / error-emit listener registries are NO LONGER
 ;; facade exports. They are reached through the stream-parameterized
-;; `register-listener!` / `unregister-listener!` / `clear-listeners!` verb
-;; above with the `:events` / `:errors` stream (rf2-ikjmkm, decision
-;; rf2-dbo0c9 Option C). The registries themselves stay reachable via the
+;; `register-listener!` / `unregister-listener!` verb above with the
+;; `:events` / `:errors` stream (rf2-ikjmkm, decision rf2-dbo0c9 Option C).
+;; Between-scenario test isolation clears the registries via the lower-level
+;; `re-frame.event-emit/clear-event-listeners!` /
+;; `re-frame.error-emit/clear-error-listeners!` sinks directly (the former
+;; `rf/clear-listeners!` façade verb was retired, rf2-9flalp). The registries
+;; themselves stay reachable via the
 ;; `re-frame.event-emit` / `re-frame.error-emit` namespaces + the
 ;; `:error-emit/register-error-listener!` late-bind hooks for the internal
 ;; consumers that already address them that way (router fan-out, the routing
@@ -2338,17 +2337,17 @@
   §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
   restore-epoch!     rf-epoch/restore-epoch!)
 
-(def ^{:doc "Register a callback fired once per drain-settle with the
-  assembled `:rf/epoch-record`. Same-id replaces; listener exceptions
-  are isolated. Returns the `id`, or `nil` when the epoch artefact is
-  absent. Per Spec 009 §`register-epoch-listener!`. Late-bound via
-  `:epoch/register-epoch-listener!`."}
-  register-epoch-listener! rf-epoch/register-epoch-listener!)
-
-(def ^{:doc "Remove the epoch listener registered under `id`. No-op when
-  the epoch artefact is absent. Late-bound via
-  `:epoch/unregister-epoch-listener!`."}
-  unregister-epoch-listener!   rf-epoch/unregister-epoch-listener!)
+;; There are deliberately NO façade `register-epoch-listener!` /
+;; `unregister-epoch-listener!` exports (retired rf2-9flalp — API-shrink #4).
+;; The epoch drain-settle stream is one of the four pure observation streams,
+;; so it is registered through the single stream-parameterized verb —
+;; `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch
+;; id)` — exactly like `:trace` / `:events` / `:errors`. Those verbs delegate
+;; to the same optional-artefact wrappers (`re-frame.core-epoch/register-
+;; epoch-listener!`, late-bound via `:epoch/register-epoch-listener!`), which
+;; remain the implementation and degrade to nil when the `day8/re-frame2-epoch`
+;; artefact is absent. A dedicated per-channel pair here was the exact shape
+;; the stream-parameterized verb (decision rf2-dbo0c9 Option C) abolished.
 
 ;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;

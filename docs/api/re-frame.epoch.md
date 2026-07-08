@@ -6,7 +6,7 @@
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `clear-epoch-listeners!`, `configure!`). See [Observability](../core/observability.md) for how epochs fit the broader trace model.
+Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch drain-settle **listener** is NOT a per-channel facade re-export — its app-facing route is the `:epoch` stream of the one listener verb, `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)` (the `epoch/register-epoch-listener!` native form below is the same underlying registry). See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 
@@ -110,15 +110,20 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (register-epoch-listener! id callback-fn) → id
   ```
-- **Description**: Registers a process-global assembled-epoch listener. Returns the `id`.
+- **Description**: Registers a process-global assembled-epoch listener. Returns the `id`. The app-facing route is `(rf/register-listener! :epoch id callback-fn)` — the `:epoch` stream of the one stream-parameterized listener verb; `epoch/register-epoch-listener!` is the direct epoch-namespace form of the same registry (there is no `rf/register-epoch-listener!` facade re-export — retired in API-shrink #4).
   - `callback-fn` is invoked once per committed record with the fully-assembled raw `:rf/epoch-record`, after it lands in the frame's ring buffer. Listeners receive every record regardless of `:outcome`.
   - `id` may be any comparable value; registering the same `id` twice replaces.
   - Listener exceptions are caught and isolated (emitting `:rf.epoch.cb/listener-exception`) — one broken listener cannot block others.
   - When a frame a callback has observed is destroyed, a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace is emitted for that callback.
 
 ```clojure
-;; Observe each assembled epoch as frames settle.
-(rf/register-epoch-listener! :my-app/epoch-watch
+;; Observe each assembled epoch as frames settle (app-facing route).
+(rf/register-listener! :epoch :my-app/epoch-watch
+  (fn [record]
+    (js/console.log (:frame record) (:epoch-id record))))
+
+;; Equivalent direct epoch-namespace form.
+(epoch/register-epoch-listener! :my-app/epoch-watch
   (fn [record]
     (js/console.log (:frame record) (:epoch-id record))))
 ```
@@ -130,8 +135,8 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (unregister-epoch-listener! id) → nil
   ```
-- **Description**: The inverse.
-- **Example**: `(rf/unregister-epoch-listener! :my-app/epoch-watch)`
+- **Description**: The inverse. App-facing route: `(rf/unregister-listener! :epoch id)`.
+- **Example**: `(epoch/unregister-epoch-listener! :my-app/epoch-watch)`
 
 ### `clear-epoch-listeners!`
 

@@ -306,11 +306,11 @@
     ;;     would mean siblings stop firing after the first throw).
     (let [throw-count (atom 0)
           seen-count  (atom 0)]
-      (rf/register-epoch-listener! ::throwing
+      (rf/register-listener! :epoch ::throwing
                              (fn [_]
                                (swap! throw-count inc)
                                (throw (ex-info "intentional" {}))))
-      (rf/register-epoch-listener! ::counter
+      (rf/register-listener! :epoch ::counter
                              (fn [_] (swap! seen-count inc)))
 
       (let [;; One churner per thread. Each churner-id is per-thread so
@@ -329,8 +329,8 @@
                     (.await latch)
                     (loop []
                       (when-not @churn-stop
-                        (rf/register-epoch-listener! cb-id (fn [_] nil))
-                        (rf/unregister-epoch-listener! cb-id)
+                        (rf/register-listener! :epoch cb-id (fn [_] nil))
+                        (rf/unregister-listener! :epoch cb-id)
                         (recur)))))))
             driver
             (future
@@ -359,7 +359,7 @@
         ;;     was paused between register and remove when the flag
         ;;     flipped (pre-alpha posture: explicit cleanup).
         (dotimes [i n-churners]
-          (rf/unregister-epoch-listener! (keyword "rd7a7.fanout"
+          (rf/unregister-listener! :epoch (keyword "rd7a7.fanout"
                                         (str "churner-" i))))
         (let [live (deref @#'state/listeners)
               churner-keys (filter (fn [k]

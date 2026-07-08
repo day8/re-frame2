@@ -440,8 +440,8 @@ reference:
 
 | Surface | Spec | What Xray reads |
 |---|---|---|
-| `(rf/register-listener! key callback)` | Spec 009 | The trace bus (every operation). |
-| `(rf/register-epoch-listener! key callback)` | Tool-Pair | The per-cascade epoch records. |
+| `(rf/register-listener! :trace key callback)` | Spec 009 | The trace bus (every operation). |
+| `(rf/register-listener! :epoch key callback)` | Tool-Pair | The per-cascade epoch records (the `:epoch` stream of the one listener verb). |
 | `(rf/trace-buffer)` / `(rf/trace-buffer filter)` | Spec 009 | The bounded trace buffer (default 200). |
 | `(rf/epoch-history frame-id)` | Tool-Pair | The per-frame epoch ring buffer (default 50). |
 | `(rf/restore-epoch! frame-id epoch-id)` | Tool-Pair | Used for confirmed rewinds. |

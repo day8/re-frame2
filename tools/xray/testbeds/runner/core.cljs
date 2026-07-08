@@ -77,7 +77,7 @@
 
   A Step press should leave the embedded Xray surface SHOWING the
   result of the step's real event. The runner restores that with a
-  per-host-frame **epoch listener** (`rf/register-epoch-listener!`,
+  per-host-frame **epoch listener** (`(rf/register-listener! :epoch …)`,
   registered once at `reg-runner!` load time — NOT a Reagent atom and
   NOT a timer): each time `host-frame` settles a CHILD epoch (the
   step's real event, NOT the `[:run-step n]` parent epoch whose only
@@ -161,12 +161,12 @@
   app-db delta is the `:step` write) by matching the record's
   `:trigger-event` id against the deck's run-step `id` — so focus lands
   on the real step event's CHILD epoch, which settles AFTER the parent
-  via the run-step handler's async `:dispatch` fx. `register-epoch-
-  listener!` returns nil when the epoch artefact is absent, in which
+  via the run-step handler's async `:dispatch` fx. `(rf/register-listener!
+  :epoch …)` returns nil when the epoch artefact is absent, in which
   case focus-pinning silently degrades to a no-op (no epoch ring to
   focus against) — the testbed still steps."
   [id host-frame]
-  (rf/register-epoch-listener!
+  (rf/register-listener! :epoch
     [::focus host-frame id]
     (fn focus-listener [record]
       (when (and (= host-frame (:frame record))
