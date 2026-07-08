@@ -188,6 +188,16 @@
   [username page]
   (state/scoped-resource-key [:rf.scope/session {:username username}] :realworld/feed {:page page}))
 
+(defn- profile-key
+  "The global-scope :realworld/profile banner key for a username."
+  [username]
+  (state/scoped-resource-key :rf.scope/global :realworld/profile {:username username}))
+
+(defn- comments-key
+  "The global-scope :realworld/comments key for a slug."
+  [slug]
+  (state/scoped-resource-key :rf.scope/global :realworld/comments {:slug slug}))
+
 (defn- reply-success!
   "Replay the captured `:on-success` with the transport's success result
    appended as the LAST arg — the exact shape the live managed-HTTP transport
@@ -687,3 +697,213 @@
       (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
       (is (= :realworld/home (route-id f))
           "interactive login bounces home via :store-session → :auth/post-login-redirect"))))
+
+;; ============================================================================
+;; 11. NON-FAVORITE MUTATIONS + failure->message (rf2-xm57ne)
+;; ============================================================================
+;;
+;; Section 3 above (favorite-populates-…) pins the FAVORITE mutation only. These
+;; pin the rest of the write surface: the unfavorite zero-clamp adversarial edge,
+;; the follow/unfollow :populates seed, the post/delete-comment :invalidates
+;; refetch, the update-settings mutation + its :settings/replied continuation, and
+;; the two detail-page mutation continuations (:ui/follow-author-replied re-stale,
+;; :ui/article-deleted navigate-home). Plus the shared failure->message projector.
+
+(deftest unfavorite-optimistic-patch-clamps-count-at-zero
+  (testing "examples/real-apps/realworld_resources — :realworld/unfavorite's optimistic
+            patch (toggle-article-fav) clamps :favoritesCount at zero, so an
+            over-eager unfavorite of an already-zero article can't go negative
+            (mutations.cljs zero-clamp adversarial edge)"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; Seed the article detail with favorited=true, favoritesCount=0 (the edge:
+      ;; a zero count that an unfavorite would otherwise push to -1).
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/article :scope :rf.scope/global
+                          :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
+                        {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "hello-conduit" :title "Hello, Conduit"
+                                 :favorited true :favoritesCount 0}}
+                      f)
+      (is (= 0 (-> (entry f (article-key "hello-conduit")) :data :article :favoritesCount))
+          "seeded at a zero favorites count")
+      (reset! last-managed-args nil)
+      ;; Unfavorite → the :optimistic-tags apply runs immediately (before the
+      ;; request), patching every [:article slug] entry via toggle-article-fav.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :realworld/unfavorite
+                          :params   {:slug "hello-conduit" :username "alice"}
+                          :instance [:favorite "hello-conduit"]
+                          :cause    [:test :unfav]}]
+                        {:frame f})
+      (let [art (-> (entry f (article-key "hello-conduit")) :data :article)]
+        (is (false? (:favorited art)) "the optimistic apply flips favorited off")
+        (is (= 0 (:favoritesCount art))
+            "the count clamps at zero — an over-eager unfavorite can't go negative")))))
+
+(deftest follow-and-unfollow-populate-the-profile-banner-from-the-reply
+  (testing "examples/real-apps/realworld_resources — :realworld/follow / :realworld/unfollow
+            seed the [:profile username] banner from their reply (:populates), so the
+            banner's :following flips immediately without waiting on the refetch"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; own + load the profile banner (following=false) so :populates has an entry.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/profile :scope :rf.scope/global
+                          :params {:username "eve"} :owner [:lease :test/profile]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:profile {:username "eve" :bio "" :image "" :following false}} f)
+      (is (false? (-> (entry f (profile-key "eve")) :data :profile :following))
+          "the banner starts unfollowed")
+      (reset! last-managed-args nil)
+      ;; FOLLOW → reply following=true → :populates seeds the banner.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :realworld/follow :params {:username "eve"}
+                          :instance [:follow "eve"] :cause [:test :follow]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:profile {:username "eve" :bio "" :image "" :following true}} f)
+      (is (true? (-> (entry f (profile-key "eve")) :data :profile :following))
+          ":realworld/follow :populates the banner to :following true from its reply")
+      (reset! last-managed-args nil)
+      ;; UNFOLLOW → reply following=false → :populates seeds it back.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :realworld/unfollow :params {:username "eve"}
+                          :instance [:follow "eve"] :cause [:test :unfollow]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:profile {:username "eve" :bio "" :image "" :following false}} f)
+      (is (false? (-> (entry f (profile-key "eve")) :data :profile :following))
+          ":realworld/unfollow :populates the banner back to :following false"))))
+
+(deftest post-and-delete-comment-invalidate-the-comments-read
+  (testing "examples/real-apps/realworld_resources — :realworld/post-comment and
+            :realworld/delete-comment invalidate [:comments slug], so the mounted
+            article page's owned comments read refetches to truth"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; own + load the comments read so the invalidation has a live owner to refetch.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/comments :scope :rf.scope/global
+                          :params {:slug "hello-conduit"} :owner [:lease :test/comments]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:comments [{:id 1 :body "hi" :author {:username "eve"}}]} f)
+      (is (= :loaded (:status (entry f (comments-key "hello-conduit")))))
+      (reset! last-managed-args nil)
+      ;; POST comment → invalidates [:comments slug] → the owned read refetches.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :realworld/post-comment
+                          :params   {:slug "hello-conduit" :body "great read"}
+                          :instance [:post-comment "hello-conduit"] :cause [:test :post]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:comment {:id 2 :body "great read" :author {:username "alice"}}} f)
+      (let [ce (entry f (comments-key "hello-conduit"))]
+        (is (or (contains? #{:loading :fetching} (:status ce)) (some? (:invalidated-at ce)))
+            ":realworld/post-comment reached the comments read (invalidate → refetch)"))
+      (reset! last-managed-args nil)
+      ;; DELETE comment → invalidates [:comments slug] → refetch again.
+      (rf/dispatch-sync [:rf.mutation/execute
+                         {:mutation :realworld/delete-comment
+                          :params   {:slug "hello-conduit" :id 2}
+                          :instance [:delete-comment "hello-conduit" 2] :cause [:test :del]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {} f)
+      (let [ce (entry f (comments-key "hello-conduit"))]
+        (is (or (contains? #{:loading :fetching} (:status ce)) (some? (:invalidated-at ce)))
+            ":realworld/delete-comment reached the comments read (invalidate → refetch)")))))
+
+(deftest update-settings-mutation-folds-user-into-auth-and-navigates
+  (testing "examples/real-apps/realworld_resources — :settings/submit fires the
+            :realworld/update-settings mutation; the :reply-to [:settings/replied]
+            continuation folds the saved User into the auth slice and navigates to
+            the profile on :ok"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op
+                                                      :realworld-resources.session/persist :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt"
+                                              :bio nil :image nil}] {:frame f})
+      ;; Seed the draft from the user, then edit the bio.
+      (rf/dispatch-sync [:settings/load] {:frame f})
+      (rf/dispatch-sync [:settings/edit-field :bio "A brand new bio"] {:frame f})
+      (rf/dispatch-sync [:settings/submit] {:frame f})
+      (is (some? @last-managed-args) "the settings PUT lowered a write")
+      ;; Reply with the saved User → :settings/replied folds it into auth + navigates.
+      (reply-success! @last-managed-args
+                      {:user {:username "alice" :email "a@b.c" :token "jwt2"
+                              :bio "A brand new bio" :image nil}}
+                      f)
+      (is (= "A brand new bio" (get-in (rf/app-db-value f) [:auth :user :bio]))
+          ":settings/replied folded the saved User into the auth slice")
+      (is (= :realworld.profile/show (route-id f))
+          ":settings/replied navigates to the user's profile on :ok")
+      (is (= "alice" (:username (route-params f)))
+          "the profile route carries the saved username"))))
+
+(deftest follow-author-continuation-restales-the-detail-article
+  (testing "examples/real-apps/realworld_resources — :ui/follow-author fires the follow
+            mutation with :reply-to [:ui/follow-author-replied slug]; on settle the
+            continuation re-stales [:article slug] so the detail page's embedded
+            author flag refetches (the follow mutation itself only invalidates
+            [:profile username])"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; own + load the article detail so the re-stale has a live owner to refetch.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/article :scope :rf.scope/global
+                          :params {:slug "hello-conduit"} :owner [:lease :test/detail]}]
+                        {:frame f})
+      (reply-success! @last-managed-args
+                      {:article {:slug "hello-conduit" :title "Hello"
+                                 :author {:username "eve" :following false}}}
+                      f)
+      (is (= :loaded (:status (entry f (article-key "hello-conduit")))))
+      (reset! last-managed-args nil)
+      ;; Follow the author from the detail page.
+      (rf/dispatch-sync [:ui/follow-author "hello-conduit" "eve" false] {:frame f})
+      (reply-success! @last-managed-args {:profile {:username "eve" :following true}} f)
+      (let [ae (entry f (article-key "hello-conduit"))]
+        (is (or (contains? #{:loading :fetching} (:status ae)) (some? (:invalidated-at ae)))
+            ":ui/follow-author-replied re-staled [:article slug] → the detail refetches")))))
+
+(deftest delete-article-continuation-navigates-home
+  (testing "examples/real-apps/realworld_resources — :ui/delete-article fires the
+            :realworld/delete-article mutation with :reply-to [:ui/article-deleted];
+            the continuation clears the instance and navigates home on :ok"
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; Land somewhere other than home so the navigate-home is observable.
+      (rf/dispatch-sync [:rf.route/navigate :realworld.auth/register] {:frame f})
+      (is (= :realworld.auth/register (route-id f)))
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:ui/delete-article "hello-conduit"] {:frame f})
+      (is (some? @last-managed-args) "the delete mutation lowered a write")
+      (reply-success! @last-managed-args {} f)
+      (is (= :realworld/home (route-id f))
+          ":ui/article-deleted navigates home on a successful delete"))))
+
+(deftest failure->message-projects-every-taxonomy-branch
+  (testing "examples/real-apps/realworld_resources — rh/failure->message prefers the
+            server's {:errors {:body [...]}} / {:errors {field [...]}} words, then a
+            raw string body, then a category message per the closed :rf.http/* taxonomy"
+    (is (= "email or password is invalid"
+           (rrh/failure->message {:kind :rf.http/http-4xx :status 422
+                                  :body {:errors {:body ["email or password is invalid"]}}})))
+    (is (= "username: has already been taken"
+           (rrh/failure->message {:kind :rf.http/http-4xx :status 422
+                                  :body {:errors {:username ["has already been taken"]}}})))
+    (is (= "upstream said no"
+           (rrh/failure->message {:kind :rf.http/http-5xx :status 502 :body "upstream said no"})))
+    (is (= "Network error — please try again." (rrh/failure->message {:kind :rf.http/transport})))
+    (is (= "Request timed out." (rrh/failure->message {:kind :rf.http/timeout})))
+    (is (= "Request rejected (status 404)." (rrh/failure->message {:kind :rf.http/http-4xx :status 404})))
+    (is (= "Server error (status 500)." (rrh/failure->message {:kind :rf.http/http-5xx :status 500})))
+    (is (= "Couldn't parse server response." (rrh/failure->message {:kind :rf.http/decode-failure})))
+    (is (= "shape detail" (rrh/failure->message {:kind :rf.http/accept-failure :detail {:message "shape detail"}})))
+    (is (= "Unexpected response shape." (rrh/failure->message {:kind :rf.http/accept-failure})))
+    (is (= "Request cancelled." (rrh/failure->message {:kind :rf.http/aborted})))
+    (is (= "own message" (rrh/failure->message {:kind :some/unknown :message "own message"})))
+    (is (= "Request failed." (rrh/failure->message {})))))
