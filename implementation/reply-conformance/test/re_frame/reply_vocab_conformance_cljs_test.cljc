@@ -163,7 +163,7 @@
 
 (defn- after-stale-reply []
   (m-reply/after-stale-reply
-    {:machine-id      :a/multi
+    {:actor-id        :a/multi
      :state           :loading
      :delay           30000
      :decl-path       [:loading]
@@ -182,7 +182,7 @@
 ;; the one success-producing family the completion-time tier never exercised).
 (defn- after-fired-reply []
   (m-reply/after-fired-reply
-    {:machine-id :a/multi
+    {:actor-id   :a/multi
      :state      :loading
      :delay      30000
      :decl-path  [:loading]
@@ -191,7 +191,7 @@
 
 (defn- after-fired-reply-with-time []
   (m-reply/after-fired-reply
-    {:machine-id   :a/multi
+    {:actor-id     :a/multi
      :state        :loading
      :delay        30000
      :decl-path    [:loading]
@@ -384,6 +384,43 @@
                ", expected " work-head))
       (is (= wid (edn-roundtrip wid))
           (str family " " situation " :work/id is not EDN-round-trippable / =-comparable")))))
+
+(deftest timer-family-work-ids-share-the-actor-bearing-logical-id
+  ;; rf2-unucf7 — the machine `:after` timer's FIRED / STALE / CANCEL
+  ;; completions are ONE actor-owned timer instance, so their `:work/id`s MUST
+  ;; share the SAME actor-bearing logical-id `[:a/multi :loading]`
+  ;; (`re-frame.machines.reply/timer-work-id`, L386-392: `(and (some? actor-id)
+  ;; (some? decl-path)) -> (into [actor-id] (vec decl-path))`). The three
+  ;; fixtures feed `:actor-id :a/multi` + `:decl-path [:loading]` (matching the
+  ;; `:cancel` builder), so each work-id is `[:rf.work/timer [:a/multi :loading]
+  ;; epoch]`. `every-work-id-…-edn-tuple` above pins only the HEAD + EDN-round-
+  ;; trip; this pins the LOGICAL-ID actor-prepend the cross-family tier
+  ;; otherwise never cross-checks. So a regression that drops or mis-orders the
+  ;; actor in timer-work-id's logical-id — the actor-LESS `[:loading]` branch
+  ;; the old `:machine-id` dead-key fixtures silently took — goes RED here.
+  (let [fired  (:work/id (after-fired-reply))
+        stale  (:work/id (after-stale-reply))
+        cancel (:work/id (m-reply/cancelled-timer-reply
+                           {:actor-id  :a/multi
+                            :state     :loading
+                            :delay     30000
+                            :decl-path [:loading]
+                            :epoch     1
+                            :frame     :app/main
+                            :reason    :on-exit}))]
+    (testing "all three timer completions carry the :rf.work/timer head"
+      (doseq [[situation wid] [[:fired fired] [:stale stale] [:cancel cancel]]]
+        (is (= :rf.work/timer (first wid))
+            (str situation " timer :work/id head is not :rf.work/timer"))))
+    (testing "each timer :work/id logical-id is the ACTOR-bearing [:a/multi :loading]
+              — the actor-owned timer identity, NOT the actor-less [:loading]"
+      (doseq [[situation wid] [[:fired fired] [:stale stale] [:cancel cancel]]]
+        (is (= [:a/multi :loading] (second wid))
+            (str situation " timer logical-id must be actor-prefixed [:a/multi :loading], not "
+                 (pr-str (second wid))))))
+    (testing "so the whole timer family shares ONE logical-id across situations"
+      (is (= (second fired) (second stale) (second cancel))
+          "fired / stale / cancel timer work-ids share one actor-bearing logical-id"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (a) SUCCESS — every family that produces a success reply produces the
