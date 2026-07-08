@@ -295,12 +295,19 @@
          events)))
 
 (defn- has-machine-op?
-  "True when any event in `events` is a `:rf.machine/*` trace —
-  state-machine transition / spawn / despawn."
+  "True when any event in `events` is a `:rf.machine*` trace —
+  state-machine transition / spawn / despawn. Match by NAMESPACE PREFIX:
+  most non-transition machine activity is emitted under sub-namespaces
+  (`:rf.machine.spawn/*`, `:rf.machine.lifecycle/destroyed`,
+  `:rf.machine.timer/*`, `:rf.machine.microstep/transition`), so an exact
+  `= \"rf.machine\"` match would under-report spawn/despawn/timer-only
+  epochs — contradicting the docstring. Mirrors the prefix-matchers in
+  `trace_helpers/area` and `managed_fx_helpers/classify-fx-id`."
   [events]
   (boolean
    (some (fn [ev]
-           (= "rf.machine" (op-namespace (:operation ev))))
+           (when-let [ns (op-namespace (:operation ev))]
+             (str/starts-with? ns "rf.machine")))
          events)))
 
 (defn- has-http-op?
