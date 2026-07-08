@@ -53,7 +53,7 @@ Interactions are grouped by the Specs that meet, in roughly the order an impleme
 - **Specs:** [005-StateMachines §Spawning](005-StateMachines.md#spawning--dynamic-actors), [006-ReactiveSubstrate §Adapter selection](006-ReactiveSubstrate.md#adapter-selection-at-boot).
 - **Scenario:** A `(rf/reg-frame :app {:initial-events [[:boot]]})` fires `:boot` which spawns a machine — but boot order means the substrate adapter has not been installed yet.
 - **Behaviour:** `:initial-events` are queued on the frame's router but the drain does not start until the adapter is installed. Once `(rf/install-adapter! ...)` completes, the queue drains. Spawned machines therefore always run against an installed adapter.
-- **Reason:** A machine action that calls `(rf/subscribe-once ...)` must reach a working sub-cache, which requires the adapter. Deferring drain until adapter-ready is the simplest invariant.
+- **Reason:** A spawned machine's reactive surfaces — the `[:rf/machine <id>]` snapshot subs external observers read, and any sub-valued recordable coeffect (`{:rf/sub …}`) a named entry declares, both of which evaluate through the sub-cache — must reach a working cache, which requires the adapter. (A machine callback never reads a sub imperatively; the prohibition is in [005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017).) Deferring drain until adapter-ready is the simplest invariant.
 - **Status:** `Provisional` — fixture pending: `boot-order-adapter-ready.edn`.
 
 ## Machines × SSR

@@ -47,22 +47,44 @@
        `:data`). Both are recommendations (Spec 005 §Consumer attachment /
        EP-0017 §9), emitted at registration and DCE'd in production.
 
+  ## Sub-valued recordable source (EP-0017 Option A rider, rf2-h6ggnt)
+
+  A machine named entry may declare the map form `{:rf/sub query-v :as
+  fact-id}` in its `:rf.cofx/requires` — a sub-valued RECORDABLE coeffect
+  source, accepted machines-only (the `allow-sub?` arity of
+  `re-frame.cofx/parse-requires`). It is a RECORDED TOKEN FACT, not
+  permission for a callback to read the sub cache: `query-v` is evaluated
+  ONCE against the committed pre-cascade frame-state and the value recorded
+  on the token under the mandatory owner-qualified `fact-id`; strict replay
+  re-presents it verbatim. The delivery lives in core cofx
+  (`deliver-declared-cofx`), which reaches the sub via the machines-owned
+  `:cofx/eval-recordable-sub` late-bind hook this ns publishes (core cofx
+  cannot static-require subs / frame). It is a rung-3 tool of the minting
+  ladder (derive-from-state ▸ payload threading ▸ recorded coeffect), NOT the
+  new default (Spec 005 §Causal host facts).
+
   ## Why a separate namespace
 
   The derivation + ensure machinery + lint are a cohesive slice-B.9 unit
   with their own require on `re-frame.cofx` (the core delivery surface).
   Keeping them out of `lifecycle-fx.validation` / `lifecycle-fx.registration`
   keeps those files focused and lets the engine require this leaf without a
-  cycle (it requires only `grammar`, `path-walk`, `cofx`, `trace`, `interop`).
+  cycle (it requires `grammar`, `cofx`, `trace`, `interop`, `registrar`,
+  `error`, plus — for the sub-valued source evaluator hook — `subs` /
+  `frame` / `late-bind`; none of subs / frame require the machines engine, so
+  no cycle).
 
   XState offers NO parity guidance here — it has no replay contract; this
   surface is re-frame2's own (EP-0017 §Rationale — Why consumer attachment
   for machines)."
   (:require [re-frame.cofx :as cofx]
             [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.machines.grammar :as grammar]
             [re-frame.registrar :as registrar]
+            [re-frame.subs :as subs]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -165,7 +187,10 @@
   deliver to). A well-formed entry's requires is parsed via the SAME
   `re-frame.cofx/parse-requires` the event-handler path uses, so a malformed
   declaration raises `:rf.error/cofx-request-invalid` / a duplicate id
-  `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler.
+  `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler — but
+  with `allow-sub?` TRUE, so a machine named entry may additionally declare
+  the sub-valued recordable source `{:rf/sub query-v :as fact-id}` (EP-0017
+  Option A rider, rf2-h6ggnt), which a `reg-event` handler cannot.
   `failing-id` is the `[machine-id-placeholder slot id]`-style label for the
   error payload. Returns `[]` for an entry with no requires."
   [slot entry-id v]
@@ -177,7 +202,7 @@
       (not (entry-map? v))
       (requires-inline-error (str slot " " entry-id) {:offending v})
       :else
-      (cofx/parse-requires [slot entry-id] raw))))
+      (cofx/parse-requires [slot entry-id] raw true))))
 
 ;; ---- machine walkers (mirror validation's coverage) -----------------------
 ;;
@@ -909,3 +934,25 @@
                                    (not (contains? declared t))
                                    (some? (registrar/lookup :cofx t)))]
                   (emit-consume-undeclared! machine-id slot entry-id t))))))))))
+
+;; ---- sub-valued recordable source evaluator (EP-0017 Option A rider) -------
+;;    (rf2-h6ggnt)
+;;
+;; Core `re-frame.cofx/deliver-declared-cofx` delivers a machine sub-valued
+;; recordable source (`{:rf/sub query-v :as fact-id}`) by reaching this
+;; machines-owned evaluator through the `:cofx/eval-recordable-sub` late-bind
+;; hook — core cofx cannot static-require `subs` / `frame`, and publishing the
+;; hook from the machines artefact keeps the capability machines-scoped (a sub
+;; source can only be PARSED from a machine named entry). The query is computed
+;; ONCE against the committed PRE-CASCADE frame-state via the pure
+;; `compute-sub` path (which reads the full `{:rf.db/app … :rf.db/runtime …}`
+;; frame-state value — so an app-db sub and a runtime-db sub, e.g. `:rf/machine`,
+;; compute coherently). At ensure-time — before transition selection / the
+;; end-of-macrostep commit — the frame's stored state IS the pre-cascade
+;; snapshot (the CSI §2 processing-start grain). Core writes the resolved value
+;; back onto the token under `fact-id`; a same-macrostep `:raise` re-ensure
+;; then finds it present and re-presents it (no re-evaluation).
+
+(late-bind/set-fn! :cofx/eval-recordable-sub
+  (fn eval-recordable-sub [query-v frame-id]
+    (subs/compute-sub query-v (frame/frame-state-value frame-id))))

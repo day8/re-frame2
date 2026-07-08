@@ -759,7 +759,7 @@ The `on-dispose` hook lets the adapter release substrate-specific resources (a R
 
 The **one-shot, non-reactive read** of a subscription's current value. `subscribe-once` is the canonical end-user surface for "give me the current value of this sub *right now*, and don't retain a reference on my behalf." It is the right call from event handlers, REPL sessions, SSR builders, and any non-reactive consumer; views and tools that want to track future changes use `subscribe` instead.
 
-> **Not from inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition than the original run — breaking 005's token-grain replay contract ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)) and the pure-fn conformance mode. A machine callback receives external facts by **payload threading** (the triggering event carries them) or via a **declared recordable coeffect** on the machine's `:rf.cofx` record.
+> **Not from inside a machine callback.** A machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once` (nor read app-db any other ambient way): an in-callback ambient read is unrecorded, so replay can select a *different* transition than the original run — breaking 005's token-grain replay contract ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)) and the pure-fn conformance mode. A machine callback receives external facts by **payload threading** (the triggering event carries them) or via a **declared recordable coeffect** on the machine's `:rf.cofx` record — including, machines-only, the sub-valued source `{:rf/sub query-v :as fact-id}`, which records the value of `query-v` (evaluated **once** against the committed pre-cascade frame-state) on the token under `fact-id`, so replay re-presents it verbatim ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)).
 
 ```clojure
 (subscribe-once query-v)                              ;; → value (uses the resolved current frame)
@@ -792,7 +792,7 @@ subscribe-once(frame-id, query-v):
 
 ### `(unsubscribe query-v) → nil` / `(unsubscribe frame-id query-v) → nil`
 
-The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the cache entry's ref-count by 1; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, tools, and machine actions that subscribed imperatively are the call sites that need it.
+The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the cache entry's ref-count by 1; on the 1 → 0 transition, the cache slot is disposed **synchronously** (per [§Reference counting and disposal](#reference-counting-and-disposal)). Reagent views auto-dispose via the reaction lifecycle and do not need to call `unsubscribe` explicitly; tests, REPL sessions, and tools that subscribed imperatively are the call sites that need it. (Machine callbacks do NOT subscribe imperatively — a `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once`; they take host facts as recorded coeffects, so there is no imperative subscription for them to release. See the callback note under [`subscribe-once`](#subscribe-once-query-v--value--subscribe-once-query-v-frame-f--value).)
 
 ```clojure
 (unsubscribe query-v)                                  ;; → nil (uses the resolved current frame)
@@ -811,7 +811,7 @@ The **explicit teardown** of a `subscribe` call. `unsubscribe` decrements the ca
 
 **Composability with `subscribe-once`.** `subscribe-once` internally invokes `subscribe` then `unsubscribe` — the teardown is synchronous on the 1 → 0 transition (per the unified disposal contract above). The user does NOT call `unsubscribe` for a `subscribe-once` call — the pairing is internal. Users only call `unsubscribe` for the `subscribe` calls they made themselves.
 
-**Why explicit teardown exists alongside auto-disposal.** The reactive lifecycle handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains in-tick. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, machine actions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. Both paths funnel into the same ref-count decrement and the same synchronous-on-zero dispose — one disposal algorithm, two arrival surfaces.
+**Why explicit teardown exists alongside auto-disposal.** The reactive lifecycle handles the *automatic* case: a view unmounts, the reaction disposes, the underlying `unsubscribe` fires from the reaction's on-dispose hook, the slot drains in-tick. Explicit `unsubscribe` is the imperative-callers' equivalent: tools, REPL sessions, and tests that took out a subscription without an enclosing reaction lifecycle to manage it. Both paths funnel into the same ref-count decrement and the same synchronous-on-zero dispose — one disposal algorithm, two arrival surfaces.
 
 ### Lifetime contract — frame disposal
 

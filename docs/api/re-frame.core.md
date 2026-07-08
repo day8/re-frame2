@@ -281,7 +281,7 @@ These are the two verbs that drive the pipeline.
   (subscribe-once query-v) → value
   (subscribe-once query-v opts) → value
   ```
-- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Returns the *current* value with no reactive handle retained. For handler bodies, machine actions, and the REPL — not views. Target a non-ambient frame via `(subscribe-once query-v {:frame f})`, mirroring `subscribe`.
+- **Description**: One-shot read: subscribe, deref, immediately unsubscribe. Returns the *current* value with no reactive handle retained. For handler bodies and the REPL — not views, and **not** machine callbacks (a machine `:guard` / `:action` / `:entry` / `:exit` MUST NOT call `subscribe-once`; it takes host facts as recorded coeffects, incl. the machines-only `{:rf/sub …}` source — see [re-frame.machines](re-frame.machines.md)). Target a non-ambient frame via `(subscribe-once query-v {:frame f})`, mirroring `subscribe`.
 - **Example**:
   ```clojure
   ;; One-shot read of the current value — no reactive handle retained.
