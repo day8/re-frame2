@@ -199,6 +199,74 @@
                           {:redirect {:location "/x"}} nil)))
         "absent redirect status still defaults to 302")))
 
+;; ===========================================================================
+;; fail-closed-status — the :warning trace on a non-integer status (rf2-njkw94)
+;;
+;; `non-integer-status-fails-closed-to-500` above pins the 500 OUTCOME, but the
+;; `:rf.ssr/ssr-non-integer-status` :warning trace the fail-closed arm emits
+;; (pipeline.clj:70) was never asserted — an inconsistency in an otherwise
+;; trace-pinned slice (the sibling `ssr-non-string-header-value` warning HAS a
+;; trace test above; `redirect-no-target` is pinned end-to-end). Mirror the
+;; `collect-non-string-header-warnings` listener pattern so the operator-facing
+;; diagnostic is contract-pinned, not merely emitted.
+;; ===========================================================================
+
+(defn- collect-non-integer-status-warnings
+  "Run `thunk` while listening for `:rf.ssr/ssr-non-integer-status` warning
+  traces; return the collected events."
+  [thunk]
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::non-integer-status-watch
+      (fn [ev] (when (= :rf.ssr/ssr-non-integer-status (:operation ev))
+                 (swap! traces conj ev))))
+    (try
+      (thunk)
+      (finally
+        (rf/unregister-listener! :trace ::non-integer-status-watch)))
+    @traces))
+
+(deftest non-integer-status-emits-exactly-one-fail-closed-warning
+  (testing "rf2-njkw94: a non-integer :status reaching the materialiser emits
+            exactly one :warning trace naming the offending value-type + the
+            fail-closed-to-500 recovery; the response still fails closed to 500"
+    (let [warnings (collect-non-integer-status-warnings
+                     (fn []
+                       (let [ring (pipeline/ssr-response->ring-response
+                                    {:status "404"
+                                     :headers [["Content-Type" "text/html"]]}
+                                    "<p>x</p>")]
+                         (is (= 500 (:status ring))
+                             "the non-int status still fails closed to 500"))))]
+      (is (= 1 (count warnings))
+          "exactly one non-integer-status warning for one non-int status")
+      (let [ev   (first warnings)
+            tags (:tags ev)]
+        (is (= :rf.ssr/ssr-non-integer-status (:operation ev)))
+        (is (= :warning (:op-type ev)) "emitted at :warning severity")
+        (is (= :ssr-ring/ssr-response->ring-response (:where tags))
+            "the warning names the materialiser call site")
+        (is (= "404" (:status tags))
+            "the warning carries the offending status value")
+        (is (= "java.lang.String" (:status-type tags))
+            "the warning names the value's concrete type")
+        ;; `:recovery` is hoisted from :tags to a top-level event slot per
+        ;; Spec 009 §Core-field hoist (trace.cljc dissocs it from :tags).
+        (is (= :failed-closed-to-500 (:recovery ev))
+            "the warning carries the fail-closed recovery disposition")))))
+
+(deftest integer-status-emits-no-fail-closed-warning
+  (testing "rf2-njkw94: a genuine integer status (the contract-compliant path)
+            emits NO ssr-non-integer-status warning — the trace is a
+            defect-only diagnostic, not a per-request emission"
+    (let [warnings (collect-non-integer-status-warnings
+                     (fn []
+                       (pipeline/ssr-response->ring-response
+                         {:status 200 :headers []} "x")
+                       (pipeline/ssr-response->ring-response
+                         {:headers []} "x")))]  ;; absent status → 200 default
+      (is (= [] warnings)
+          "no warning for a valid integer status or an absent (defaulted) one"))))
+
 (deftest non-string-header-value-coerced-in-materialiser
   (testing "rf2-v0qbng: a non-string header value on the accumulator (what a
             soft-passed `:rf.server/set-header {:name \"X-Count\" :value 5}`
