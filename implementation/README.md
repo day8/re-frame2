@@ -379,12 +379,13 @@ disambiguate names that look interchangeable at a glance.
   (canonical naming per rf2-0imy; not "substrate adapter" or
   "renderer"). *Artefact* is a Maven coordinate the adapter ships
   as (e.g. `day8/re-frame2-reagent`, `day8/reagent-slim`).
-- **`story/ids` vs `rf/handler-ids`** — both return registered id
-  sets for a kind. `story/ids` is Story's re-export of
+- **`story/ids` vs `rf/registrations`** — both enumerate registered
+  ids for a kind. `story/ids` is Story's re-export of
   `registrar/ids` colocated with the Story facade so test-driver
-  code does not pull `re-frame.core`; `rf/handler-ids` is the
-  public surface for application code. They return the same data
-  for the same kind.
+  code does not pull `re-frame.core`; `(-> (rf/registrations kind)
+  keys set)` is the public route for application code (the dedicated
+  `rf/handler-ids` projection was removed — rf2-i4hk4b). They return
+  the same id set for the same kind.
 - **projected epoch record vs raw `:db-after`** — `epoch/projected-
   record` returns the elision-safe view of an epoch (the structured
   `:sub-runs` / `:renders` / `:effects` projections) and is safe

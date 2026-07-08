@@ -59,7 +59,7 @@ While re-frame2 is in alpha, use the `:local/root` route into the same local pin
 >
 > **Simpler alternative — put Xray in top-level `:deps`.** Moving the Xray coord out of the `:dev` alias and into the project's top-level `:deps` (always on the classpath) sidesteps the alias-invocation coupling entirely, so a bare `npx shadow-cljs watch app` mounts Xray with no `-A :dev` to remember. This stays production-safe because Xray is dev-only **by construction**: its preload lives only in the dev build's `:devtools/preloads` (release builds never run it), and the framework instrumentation Xray hooks elides every byte under `goog.DEBUG false` via the universal `re-frame.interop/debug-enabled?` gate (an alias of `goog.DEBUG` — see §2a), with the CI bundle-isolation gate as the backstop. A coord merely on the classpath never reaches the production bundle on its own.
 
-`day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-listener!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
+`day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `(rf/register-listener! :epoch …)`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
 
 ### 2a. Add the npm peer-deps Xray pulls at compile time (`@xyflow/react`, `elkjs`)
 
@@ -86,7 +86,7 @@ Xray is **dev-only by construction** — production builds elide every byte of i
 {:builds {:app {:devtools {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's listeners under `register-listener!` and `register-epoch-listener!`, attaches the global keydown listener (`Ctrl+Shift+C` and the rest — see [Keybindings](#keybindings-whats-actually-wired)), and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
+The preload registers Xray's listeners under `register-listener!` (across the streams it needs, including `:epoch`), attaches the global keydown listener (`Ctrl+Shift+C` and the rest — see [Keybindings](#keybindings-whats-actually-wired)), and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
 
 ### 4. Set your editor for clickable jump-to-source
 
