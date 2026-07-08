@@ -196,18 +196,26 @@
 
 (defn ^:private build-file-spec
   "Build the `<abs-path>[:<line>][:<column>]` argv token `launch-editor`
-  parses itself. `line` and `column` are appended INDEPENDENTLY of one
-  another — a request carrying `column` with no `line` still appends the
-  column, consistent with the client (`open-endpoint/build-url` sends
-  `&line=`/`&column=` via independent `cond->` clauses) and the
-  `editor://` URI composer (`editor-uri.cljc` defaults each of
-  `coord-line`/`coord-column` independently). Nesting `column` inside
-  `(when line ...)` (the prior shape here) silently dropped a
-  column-without-line request."
+  parses itself.
+
+  A request carrying `column` with NO `line` is normalized to line 1
+  first. `launch-editor`'s `file:line:column` grammar takes the FIRST
+  number as the line, so a bare `path:<column>` would be misread as a line
+  jump and the column intent lost. Emitting `path:1:<column>` preserves
+  the column and aligns with the `editor://` URI fallback, which likewise
+  defaults a missing line to 1 whenever a column is present
+  (`editor-uri/coord-line` — `(or (:line coord) 1)`).
+
+  With a `line` present the column is appended after it (`path:line:col`),
+  and with neither the token stays a bare path. This keeps the client
+  contract (`open-endpoint/build-url` sends `&line=`/`&column=` via
+  independent `cond->` clauses) while never handing `launch-editor` a
+  column masquerading as a line."
   [abs-path line column]
-  (cond-> abs-path
-    line   (str ":" line)
-    column (str ":" column)))
+  (let [line (if (and column (nil? line)) 1 line)]
+    (cond-> abs-path
+      line   (str ":" line)
+      column (str ":" column))))
 
 (defn launch!
   "Shell out to node + launch-editor for `abs-path` at `line`/`column`,

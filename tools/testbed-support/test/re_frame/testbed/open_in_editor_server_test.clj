@@ -398,25 +398,30 @@
     (is (= "\"plain/path.cljs\""
            (str "\"" (#'oies/escape-json-string "plain/path.cljs") "\"")))))
 
-;; ---- launch!: column-without-line (rf2-2loouf finding 6) -----------------
+;; ---- build-file-spec: column-only normalization (rf2-bj02en) --------------
 ;;
-;; `column` used to be nested inside `(when line ...)`, so a request
-;; carrying `column` with no `line` silently dropped the column instead of
-;; appending it — inconsistent with the client (`open-endpoint/build-url`
-;; appends `line`/`column` via independent `cond->` clauses) and the
-;; `editor://` URI composer (`editor-uri.cljc` defaults each independently).
-;; `build-file-spec` is the extracted unit under test — the pure argv-token
-;; builder `launch!` delegates to before shelling out to `node`.
+;; `build-file-spec` is the pure argv-token builder `launch!` delegates to
+;; before shelling out to `node`. History: `column` was once nested inside
+;; `(when line ...)`, which silently dropped a column-without-line request
+;; (rf2-2loouf finding 6). The independent `cond->` fix stopped the drop but
+;; encoded a column-only request as `path:<column>` — and `launch-editor`'s
+;; `file:line:column` grammar reads that lone number as the LINE, so the
+;; column was misread as a line jump (rf2-bj02en). `build-file-spec` now
+;; NORMALIZES a column-only request to line 1, emitting `path:1:<column>` —
+;; matching the `editor://` URI fallback (`editor-uri/coord-line` defaults a
+;; missing line to 1) so both open paths land on the same file:line:column.
 
-(deftest build-file-spec-appends-column-without-line
-  (testing "column with no line is still appended (not silently dropped)"
-    (is (= "/abs/core.cljs:7" (#'oies/build-file-spec "/abs/core.cljs" nil 7))
-        "the prior `(when line ...)` nesting dropped column here"))
-  (testing "line with no column is unaffected (baseline)"
+(deftest build-file-spec-normalizes-column-only-to-line-1
+  (testing "column with no line is normalized to line 1, NOT encoded as a
+            bare `path:<column>` that launch-editor would misread as a line
+            (the rf2-bj02en regression)"
+    (is (= "/abs/core.cljs:1:7" (#'oies/build-file-spec "/abs/core.cljs" nil 7))
+        "column-only → line 1 + column, matching the editor:// URI fallback"))
+  (testing "line with no column is unaffected (baseline — no phantom column)"
     (is (= "/abs/core.cljs:3" (#'oies/build-file-spec "/abs/core.cljs" 3 nil))))
   (testing "both line and column present"
     (is (= "/abs/core.cljs:3:7" (#'oies/build-file-spec "/abs/core.cljs" 3 7))))
-  (testing "neither present: bare path"
+  (testing "neither present: bare path (no spurious `:1`)"
     (is (= "/abs/core.cljs" (#'oies/build-file-spec "/abs/core.cljs" nil nil)))))
 
 (deftest launch-passes-column-without-line-through-to-file-spec
@@ -424,7 +429,8 @@
             `line` reaches `launch!` with `line` nil / `column` 7 — parsing
             never drops it — and folding those exact values through
             `build-file-spec` (the function `launch!` delegates to) yields
-            the column-bearing spec, not a bare path"
+            the NORMALIZED `path:1:<column>` spec, not a bare `path:<column>`
+            launch-editor would misread as a line jump"
     (let [calls (atom [])]
       (with-redefs [oies/launch! (fn [& args] (swap! calls conj (vec args))
                                    {:ok true})]
@@ -438,6 +444,6 @@
           (let [[abs-path line column _cmd] (first @calls)]
             (is (nil? line) "no line param was sent")
             (is (= 7 column) "column parsed through, not dropped upstream")
-            (is (= (str abs-path ":7") (#'oies/build-file-spec abs-path line column))
-                "build-file-spec appends the column even with line nil —
-                 the finding-6 regression, now fixed")))))))
+            (is (= (str abs-path ":1:7") (#'oies/build-file-spec abs-path line column))
+                "build-file-spec normalizes column-only to line 1 —
+                 the rf2-bj02en regression, now fixed")))))))
