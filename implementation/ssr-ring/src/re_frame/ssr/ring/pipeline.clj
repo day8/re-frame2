@@ -465,7 +465,7 @@
                            :head-hash   (when emit-hash? head-hash))
         html        (html-shell body-html payload-edn shell-opts)
         ;; rf2-c0bq1 — RE-FLUSH after the render walk. The `resp` arg was
-        ;; read at `ring.clj:343` (the single `get-response`) BEFORE the
+        ;; read by the single `get-response` in `ssr-handler` BEFORE the
         ;; render ran, so it carries the pre-render status. A reactive
         ;; sub that THROWS during `render-to-string` under production
         ;; hardening (`interop/debug-enabled? = false`) recovers to nil —

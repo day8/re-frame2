@@ -12,8 +12,8 @@
   core/accumulator layer — but it did NOT reach the wire through the
   reference Ring adapter:
 
-    1. `ssr-handler` reads `(ssr/get-response frame-id)` ONCE at
-       `ring.clj:343` — BEFORE the render walk. The render has not run,
+    1. `ssr-handler` reads `(ssr/get-response frame-id)` ONCE,
+       BEFORE the render walk. The render has not run,
        so the buffer is empty and `:status` is the default 200.
     2. `build-full-response*` (`pipeline.clj`) runs the render walk inside
        `with-frame`. The reactive sub throws HERE. Under

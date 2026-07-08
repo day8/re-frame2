@@ -2502,9 +2502,9 @@
 ;; because only the `<head>` metadata is missing — the body still renders.
 ;;
 ;; Pre-rf2-lia3i the degraded-200 outcome was SAFE BY TIMING ONLY:
-;; `ssr-handler` reads `get-response` (ring.clj:343 — drains + reads the
+;; `ssr-handler` reads `get-response` (the single post-shell read — drains + reads the
 ;; status) BEFORE `build-full-response` → `resolve-head` fires the head
-;; trace (pipeline.clj:286), so the buffered head trace was never
+;; trace (the `resolve-head` call in `build-full-response*`), so the buffered head trace was never
 ;; projected onto the already-captured status. A reorder (head resolution
 ;; before `get-response`, a second flush after the render, or a re-read of
 ;; `get-response`) would have let the default projector map the head trace
