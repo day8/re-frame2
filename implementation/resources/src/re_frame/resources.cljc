@@ -153,8 +153,10 @@
 ;; revalidation; the listeners dispatch `:rf.resource/window-focused` /
 ;; `:rf.resource/network-reconnected` at that frame and are cancelled on
 ;; frame destroy via the single `:resources/on-frame-destroyed!` hook.
-;; CLJS-only host listeners; the JVM arm is a no-op (mirrors routing's
-;; install-history-listener!).
+;; CLJS-only host listeners; the JVM arm is a no-op (the CLJS-only /
+;; JVM-no-op shape re-frame.routing.history's install-url-listener! also
+;; carries — though that seam is now driven automatically by the
+;; :url-bound? frame lifecycle rather than an app-facing import, rf2-g8pbwg).
 (def install-revalidation-listeners! revalidate-listeners/install-revalidation-listeners!)
 (def remove-revalidation-listeners!  revalidate-listeners/remove-revalidation-listeners!)
 
@@ -641,8 +643,7 @@
    :resources/resources      resources
    ;; rf2-vtblcq: the focus/reconnect revalidation host-listener install
    ;; surface (CLJS-only host listeners; JVM no-op). Published so re-frame.core
-   ;; can reach it without a static :require, mirroring routing's
-   ;; :routing/install-history-listener!.
+   ;; can reach it without a static :require.
    :resources/install-revalidation-listeners! install-revalidation-listeners!
    :resources/remove-revalidation-listeners!  remove-revalidation-listeners!
    ;; rf2-dwme29 (EP-0003 §Mutations, first public-beta gate): the mutation

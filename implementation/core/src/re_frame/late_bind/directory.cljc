@@ -507,24 +507,18 @@
    {:key         :routing/current-url
     :producer-ns 're-frame.routing
     :description "Read the current browser URL as pathname+search+hash (CLJS) / \"/\" (JVM)."}
-   {:key         :routing/install-url-listener!
+   {:key         :routing/on-frame-registered!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-aerrz5"
-    :description "Wire the URL-owner frame's browser URL-change listener (popstate or hashchange per its :url-strategy). CLJS-only."}
-   {:key         :routing/remove-url-listener!
+    :design-bead "rf2-g8pbwg"
+    :description "Fired by frame/reg-frame AFTER the frame container exists (first registration: after :initial-events ran; re-registration: after the surgical config update) — the registrar's OWN :frame registration hook fires too early (before the container exists) for an install. When the just-(re)registered frame is the resolved URL owner, (re)installs its :url-strategy browser listener (popstate or hashchange); a losing duplicate :url-bound? true registration is a no-op (never installs). Folds the retired install-url-listener! / install-history-listener! imperative exports into the :url-bound? frame lifecycle. CLJS-only."}
+   {:key         :routing/reset-url-listener!
     :producer-ns 're-frame.routing
-    :design-bead "rf2-aerrz5"
-    :description "Tear down the URL-change listener installed by install-url-listener!. CLJS-only."}
-   {:key         :routing/install-history-listener!
-    :producer-ns 're-frame.routing
-    :description "Alias for install-url-listener! (rf2-aerrz5). Wire a listener that drives the URL-owner frame on Back/Forward (rf2-6qgbs.4). CLJS-only."}
-   {:key         :routing/remove-history-listener!
-    :producer-ns 're-frame.routing
-    :description "Alias for remove-url-listener! (rf2-aerrz5). Tear down the listener installed by install-history-listener!. CLJS-only."}
+    :design-bead "rf2-g8pbwg"
+    :description "Test-isolation hook: unconditionally tear down the installed browser URL-change listener (re-frame.routing.history/history-listener-atom). Wired into the shared make-reset-runtime-fixture reset-hooks table — a raw frame/frames reset does not run destroy-frame!'s teardown chain, so without this a listener installed during one test would survive into the next. CLJS-only."}
    {:key         :routing/on-frame-destroyed!
     :producer-ns 're-frame.routing
     :design-bead "rf2-1hncp2"
-    :description "Release the destroyed frame's host-side transient routing caches — the scroll-position cache (re-frame.routing.scroll/scroll-positions-cache, rf2-1hncp2) AND the nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache, rf2-oosjmh). Neither is runtime-db state — they live in module-level atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the counters host-side specifically so an epoch restore cannot rewind + recycle a token), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
+    :description "Release the destroyed frame's host-side transient routing caches — the scroll-position cache (re-frame.routing.scroll/scroll-positions-cache, rf2-1hncp2) AND the nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache, rf2-oosjmh) — tear down its browser URL-change listener when it held the URL (rf2-g8pbwg), AND drop any URL-ownership claim it held. Neither cache is runtime-db state — they live in module-level atoms (host-derived, ephemeral, off the epoch/SSR egress wire; the counters host-side specifically so an epoch restore cannot rewind + recycle a token), so they need explicit per-frame teardown like the other transient caches. Invoked by frame/destroy-frame! symmetric with the ssr / machines / flows / schemas teardown hooks; no-op when re-frame.routing is absent (the artefact is optional)."}
 
    ;; ---- re-frame.resources (EP-0003 slice 2) -------------------------------
    ;; The optional Resources artefact (Spec 016) publishes its public-API

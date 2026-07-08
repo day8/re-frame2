@@ -1484,7 +1484,9 @@ URL ownership is symmetric across the app↔browser boundary, and resolves to th
 - **Outbound (app → browser).** `:rf.nav/push-url` / `:rf.nav/replace-url` consult `url-owner-frame-id` (public) and only the owner mutates browser history. A non-owner's navigation updates its own `:rf/route` slice but no-ops the history push.
 - **Inbound (browser → app).** A `popstate` listener fires `[:rf.route/handle-url-change url] {:frame (url-owner-frame-id)}` — targeted at the **current** owner resolved at pop time. `url-owner-frame-id` returns the explicitly-declared owner, or `nil` when none is declared; the listener skips the dispatch (no frameless write) when there is no owner. So Back/Forward restores the owner frame's `:rf/route` slice (and the body rendered off it) whenever a frame has declared `:url-bound? true`.
 
-The routing artefact ships `install-url-listener!` (CLJS) — re-exported as `rf/install-url-listener!`, with `install-history-listener!` retained as an alias — which wires this `popstate` listener and does the initial URL → owner-slice sync. Apps boot it once after registering frames. It is idempotent (re-install replaces the listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate; `rf/remove-history-listener!` tears it down. Targeting `url-owner-frame-id` at pop time means the listener tracks whichever frame declared `:url-bound? true` — a popstate dispatched at a stale owner after ownership transferred would update a frozen slice and leave Back/Forward broken. The listener also skips entirely when no owner is declared, rather than synthesising `:rf/default`.
+This `popstate` listener is wired by the **`:url-bound?` frame LIFECYCLE**, automatically (rf2-g8pbwg): a `:url-bound? true` frame's creation (or re-registration, when it resolves as the URL owner) installs it — and does the initial URL → owner-slice sync in the same step; the frame's destroy removes it. There is no imperative install/remove pair for an app to call — the earlier `install-url-listener!` / `install-history-listener!` / `remove-url-listener!` / `remove-history-listener!` exports are retired (pre-alpha, no back-compat shim). The install is idempotent (a re-registration replaces the prior listener, hot-reload safe) and is the inbound counterpart of the `:rf.nav/push-url` gate. Targeting `url-owner-frame-id` at pop time means the listener tracks whichever frame declared `:url-bound? true` — a popstate dispatched at a stale owner after ownership transferred would update a frozen slice and leave Back/Forward broken. The listener also skips entirely when no owner is declared, rather than synthesising `:rf/default`. A losing duplicate `:url-bound? true` registration (per [§Multi-frame routing](#multi-frame-routing) point 4) never installs its own listener — only the resolved owner's registration reaches the install step, so the existing owner's listener is never torn down and replaced by a loser's.
+
+The install runs from a **POST-CREATE** lifecycle hook — fired *after* the frame container exists (and, on first registration, after `:initial-events` has run) — deliberately **not** the same `:frame` registration hook the duplicate-binding check above consults. That hook fires from *inside* `reg-frame`'s registrar write, before the frame container exists; an install from there would dispatch the initial URL → owner-slice sync at a not-yet-live frame.
 
 The story / devcard / SSR cases all benefit:
 
@@ -1529,9 +1531,9 @@ The strategy is consulted **only** here; everything else — `route-url`, `match
 1. **`:rf.nav/push-url`** — encodes the path-form URL and drives `window.history` via the owner's `:push!`.
 2. **`:rf.nav/replace-url`** — same, via the owner's `:replace!`.
 3. **`route-link` href render** — the rendered `:href` is `(encode path-url)` (so copy-link / open-in-new-tab land on the right address); the click still dispatches the path-form `:rf/url-requested`.
-4. **`install-url-listener!`** — installs the owner strategy's browser listener and decodes each change to path-form before dispatching `:rf.route/handle-url-change`.
+4. **The automatically-installed browser listener** — installs the owner strategy's browser listener and decodes each change to path-form before dispatching `:rf.route/handle-url-change`.
 
-The strategy is resolved from the **URL-owning frame's** `:url-strategy` (default `history-url-strategy`), so a non-owner frame never consults it. `install-url-listener!` resolves the strategy once at install (which browser event to wire); it has a 1-arity that takes an explicit strategy map for apps whose URL-owning frame is created asynchronously (e.g. a `frame-provider` React effect), so the listener kind does not depend on registration timing. Its established alias `install-history-listener!` is retained (history is the default).
+The strategy is resolved from the **URL-owning frame's** `:url-strategy` (default `history-url-strategy`), so a non-owner frame never consults it. The `:url-bound?` frame lifecycle (previous section) resolves the strategy once at install (which browser event to wire) — the OWNER (dispatch target) is re-resolved at every fire, so Back/Forward keeps tracking ownership even if it changes after install.
 
 ### Two strategies ship — the line holds at two
 
@@ -1539,6 +1541,19 @@ The strategy is resolved from the **URL-owning frame's** `:url-strategy` (defaul
 - **`hash-url-strategy`** — `#`-prefixed (`#/active`), for no-server-rewrite static hosting and secretary-era v1 migrations.
 
 **Memory URLs need no third strategy.** A frame that does not declare `:url-bound? true` is already URL-free ([§Multi-frame routing](#multi-frame-routing)) — the non-url-bound frame *is* the "memory" case, spec-free. Stories, devcards, and per-test fixtures already ride that path; adding a memory strategy would duplicate it.
+
+### `with-base-path` — the base-path combinator
+
+A third orthogonal concern — a deployment **sub-path** (a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`) — is NOT a third strategy either. `with-base-path` (rf2-g8pbwg) is a **combinator** over an existing strategy: `(with-base-path strategy base)` wraps `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` so `base` is stripped off every inbound URL and re-added to every outbound one, underneath whichever address-bar form the wrapped strategy already provides:
+
+```clojure
+(rf/reg-frame :app {:url-bound?   true
+                    :url-strategy (routing/with-base-path
+                                    routing/history-url-strategy
+                                    "/realworld")})
+```
+
+`route-url` / `match-url` and the rest of the navigation cascade stay path-form and base-agnostic — only the four consult points ever see the base path. A blank/nil `base` returns `strategy` unchanged, so the common no-sub-path app pays no wrapping cost. This closes the gap a base-path-deployed app previously had to fill with a hand-rolled popstate listener (the framework's install assumed the app owned the root path).
 
 ### SSR ignores strategies
 

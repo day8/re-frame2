@@ -259,37 +259,41 @@
   ;; to be wired up before `:auth/initialise` runs at frame creation (below).
   (rf/reg-http-interceptor :realworld/bearer-auth
                            {:before bearer-auth-interceptor})
-  ;; The dev orchestrator serves this example under /realworld-resources/. Strip
-  ;; that prefix before the matcher sees the URL, so :realworld/home (path "/")
-  ;; still matches. Has to happen before install-router!'s first URL→route sync.
-  (routing/set-base-path! "/realworld-resources")
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
     ;; Create + configure + seed the app frame, all in one place (see the block
     ;; above). The frame is created synchronously during render, so by the time
     ;; this call returns it's live and seeded.
+    ;;
+    ;; `:url-strategy routing/url-strategy` is what makes this work under the
+    ;; dev orchestrator's `/realworld-resources/` mount point: it wraps the
+    ;; default history strategy with `with-base-path` (rf2-g8pbwg) so that
+    ;; prefix is stripped before the matcher ever sees the URL, and re-added on
+    ;; the way out. `:url-bound? true` frame creation then automatically
+    ;; installs the base-path-aware popstate listener AND does the first
+    ;; URL→route sync itself, AFTER `:initial-events` below has run — which
+    ;; fires the route's `:resources` ensures, the heart of the trick:
+    ;; server-state loads because the route became active, not because a view
+    ;; went looking for it. The session token seeded by `:auth/initialise` is
+    ;; already in app-db by then, so the bearer-auth interceptor decorates
+    ;; those reads on the way out.
     (rdc/render @react-root
                 [rf/frame-provider {:id              app-frame
                                     :doc             "RealWorld-on-resources demo frame."
                                     :url-bound?      true
+                                    :url-strategy    routing/url-strategy
                                     :interceptors    [:realworld-resources.routing/auth-guard]
                                     :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
                                     :initial-events  [[:auth/classify-token]
                                                       [:auth/initialise]
                                                       [:app/initialise]]}
                  [root-view]])
-    ;; The frame is now live and session-seeded. The next three calls install
-    ;; ongoing listeners, each doing an initial sync against that frame — so they
-    ;; have to run AFTER the render that created it, never before.
+    ;; The frame is now live and session-seeded (and, per the note above, has
+    ;; already synced its first route). The next two calls install ongoing
+    ;; listeners, each doing an initial sync against that frame — so they have
+    ;; to run AFTER the render that created it, never before.
     ;;
-    ;; install-router! wires up the popstate handler and does the first URL→route
-    ;; sync (under the URL-owning frame). That sync fires the route's `:resources`
-    ;; ensures, which is the heart of the trick: server-state loads because the
-    ;; route became active, not because a view went looking for it. The session
-    ;; token seeded above is already in app-db, so the bearer-auth interceptor
-    ;; decorates those reads on the way out.
-    (routing/install-router!)
     ;; Focus/reconnect revalidation: when the tab comes back or the network
     ;; reconnects, refetch the reads that are both active and stale. Idempotent,
     ;; and you never dispatch the host signals by hand.

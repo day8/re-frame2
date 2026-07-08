@@ -14,13 +14,17 @@
    - `:rf.route/handle-url-change`
    - `:rf.route/continue` / `:rf.route/cancel`
    - `:rf.route/id` / `:rf.route/params` / `:rf.route/query`
-   - `:rf/url-requested`"
-  (:require [clojure.string]
-            [re-frame.core :as rf]
+   - `:rf/url-requested`
+   - `with-base-path` — this example is served from a sub-path, so its
+     `:url-strategy` wraps the default history strategy (see ROUTER WIRING
+     below)"
+  (:require [re-frame.core :as rf]
             ;; Routing lives in its own artefact. Requiring it registers the
             ;; hooks and subs that make the `rf/reg-route` calls below resolve.
-            ;; This one IS aliased — the popstate handler needs to call
-            ;; `routing/url-owner-frame-id` directly. See the routing guide:
+            ;; This one IS aliased — `:rf.route/entry-blocked` below calls
+            ;; `routing/match-url` directly, and ROUTER WIRING builds
+            ;; `url-strategy` off `routing/with-base-path` +
+            ;; `routing/history-url-strategy`. See the routing guide:
             ;; ../../../docs/routing/index.md
             [re-frame.routing :as routing]))
 
@@ -175,47 +179,17 @@
 ;; ============================================================================
 
 ;; This example might be served from a sub-path — a host staging lots of demos
-;; side by side could mount it at /realworld/ — even though on its own it'd live
-;; at /. `*base-path*` is the little lever that strips that prefix off before
-;; the route matcher ever sees the URL. Set it via `set-base-path!` in `run`.
-(def ^:dynamic *base-path* "")
-
-(defn set-base-path! [s]
-  (set! *base-path* (or s "")))
-
-(defn- strip-base [s]
-  (if (and (seq *base-path*)
-           (clojure.string/starts-with? s *base-path*))
-    (let [stripped (subs s (count *base-path*))]
-      (if (clojure.string/starts-with? stripped "/") stripped (str "/" stripped)))
-    s))
-
-(defn current-url []
-  (-> (.. js/window -location -pathname)
-      strip-base
-      (str (.. js/window -location -search)
-           (.. js/window -location -hash))))
-
-;; A NAMED handler, on purpose, so installing the listener is idempotent. Call
-;; `install-router!` twice — a hot reload, or a co-required test host running
-;; `run` again — and because it's the same Var, the remove-then-add is a no-op
-;; and duplicate popstate listeners never pile up. Same trick as the
-;; `when-not @react-root` mount guard.
-;;
-;; The URL-change dispatch is aimed at the frame that OWNS the URL, looked up
-;; at call time via `routing/url-owner-frame-id` — the `:url-bound? true` demo
-;; frame from core.cljs. Aiming matters: a bare `(rf/dispatch …)` with no frame
-;; would raise `:rf.error/no-frame-context`. (And the reason this rolls its own
-;; listener instead of the framework's `rf/install-history-listener!` is the
-;; `/realworld/` sub-path — the framework's version reads the unstripped
-;; browser URL. The owner-targeting contract is identical either way.)
-(defn- on-popstate [_]
-  (when-let [owner (routing/url-owner-frame-id)]
-    (rf/dispatch [:rf.route/handle-url-change (current-url)] {:frame owner})))
-
-(defn install-router! []
-  (.removeEventListener js/window "popstate" on-popstate)
-  (.addEventListener js/window "popstate" on-popstate)
-  (when-let [owner (routing/url-owner-frame-id)]
-    (rf/dispatch-sync [:rf.route/handle-url-change (current-url)] {:frame owner})))
+;; side by side could mount it at /realworld/ — even though on its own it'd
+;; live at /. `with-base-path` (rf2-g8pbwg) is a STRATEGY COMBINATOR: it wraps
+;; the default history strategy so the base path is stripped off every
+;; inbound URL and re-added to every outbound one, at the framework's four
+;; egress/ingress consult points (Spec 012 §URL strategies) — so the whole
+;; route table above, and the rest of the cascade, are written as if this app
+;; owned `/`. Declared as this app's `:url-strategy` on the URL-owning frame
+;; in core.cljs; the frame's `:url-bound? true` creation installs the
+;; base-path-aware popstate listener AND does the first-load URL→state sync
+;; automatically — there is no hand-rolled listener or explicit install call
+;; here any more.
+(def url-strategy
+  (routing/with-base-path routing/history-url-strategy "/realworld"))
 

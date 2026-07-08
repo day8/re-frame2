@@ -14,8 +14,9 @@
      :initial-events.
    - Defines the root-view that switches on :rf.route/id to pick the page.
    - Mounts the React root. One `frame-provider {:id …}` at the render root
-     creates and seeds the app frame in a single place.
-   - Installs the URL listener for Back/Forward.
+     creates and seeds the app frame in a single place — its `:url-bound?
+     true` + base-path-aware `:url-strategy` automatically install the URL
+     listener for Back/Forward.
 
    The per-feature work lives in:
      auth.cljs             — login / register / session-restore
@@ -541,20 +542,6 @@
   ;; duty when session-restore fires its first authenticated request.
   (rf/reg-http-interceptor :realworld/bearer-auth
                            {:before bearer-auth-interceptor})
-  ;; The orchestrator serves this example under /realworld/, but the routes
-  ;; are written as if it owned `/`. Strip that prefix so :realworld/home
-  ;; (path "/") still matches. Set it before the provider renders, so the
-  ;; first URL→slice sync and the popstate listener both see the stripped URL.
-  (routing/set-base-path! "/realworld")
-  ;; Wire up Back/Forward. This example rolls its own base-path-aware popstate
-  ;; listener rather than the framework's `rf/install-history-listener!`,
-  ;; which assumes the app owns the root path — and ours doesn't, it's tucked
-  ;; under `/realworld/`. The listener figures out the URL's owning frame at
-  ;; pop time and is safe to call again on hot-reload. The very first
-  ;; URL→slice sync isn't done here though; the frame's `:initial-events`
-  ;; handle it (`:rf.route/handle-url-change` below), so a deep link lands on
-  ;; the right route on the first paint.
-  (routing/install-router!)
   ;; Hang the conformance accessor on the window for the external RealWorld
   ;; suite. Test seam, not a pattern — see install-conduit-debug! above.
   (install-conduit-debug! :rf/default)
@@ -565,6 +552,15 @@
     ;; the render root creates, configures, and seeds the app frame all in one
     ;; place. The first mount conjures `:rf/default` and applies its config:
     ;;   - `:url-bound? true` — this frame owns the browser URL.
+    ;;   - `:url-strategy routing/url-strategy` — the orchestrator serves this
+    ;;     example under `/realworld/`, but the routes (routing.cljs) are
+    ;;     written as if it owned `/`. `routing/url-strategy` wraps the
+    ;;     default history strategy with `with-base-path` so that prefix is
+    ;;     stripped/re-added automatically — no hand-rolled popstate listener,
+    ;;     no explicit install call. Frame creation installs the
+    ;;     base-path-aware listener AND does the first URL→slice sync itself,
+    ;;     AFTER every `:initial-events` step below has run (see the ordering
+    ;;     note at the bottom).
     ;;   - The auth gate is NOT a frame interceptor — it's the `:can-enter`
     ;;     guard on the `:requires-auth` routes themselves (routing.cljs). Try to
     ;;     navigate to one while logged out and the runtime's ONE navigation gate
@@ -590,19 +586,20 @@
     ;;     `:app/initialise` so the token is sitting in app-db before the
     ;;     bearer-auth interceptor needs to send anything authenticated.
     ;;   - `:app/initialise` — fans out to all the per-feature initialisers.
-    ;;   - `:rf.route/handle-url-change` — the first URL→slice sync, off the
-    ;;     base-path-stripped current URL. Last on purpose: by now the session
-    ;;     is restored, so when a deep link to a `:requires-auth` route runs its
-    ;;     `:can-enter` gate, it's judging a logged-in user correctly rather than
-    ;;     bouncing them by mistake.
+    ;; There is no explicit `:rf.route/handle-url-change` step any more — the
+    ;; `:url-bound? true` frame lifecycle (rf2-g8pbwg) does the first
+    ;; URL→slice sync itself, automatically, AFTER every `:initial-events`
+    ;; step above has run — which is exactly the ordering this app needs: by
+    ;; then the session is restored, so when a deep link to a
+    ;; `:requires-auth` route runs its `:can-enter` gate, it's judging a
+    ;; logged-in user correctly rather than bouncing them by mistake.
     (rdc/render @react-root
                 [rf/frame-provider {:id              :rf/default
                                     :doc             "Realworld demo frame."
                                     :url-bound?      true
+                                    :url-strategy    routing/url-strategy
                                     :initial-events  [[:auth/classify-token]
                                                       [:auth/initialise]
-                                                      [:app/initialise]
-                                                      [:rf.route/handle-url-change
-                                                       (routing/current-url)]]
+                                                      [:app/initialise]]
                                     :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
                  [root-view]])))

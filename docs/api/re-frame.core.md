@@ -1407,29 +1407,7 @@ Routes are data; the current route lives in runtime-db (read via the `:rf/route`
 - **Signature**: `[rf/route-link {:to :route-id :params {...} :query {...} :fragment "..."} & children]`
 - A registered view at `:route/link` — renders an `<a href=...>` from a route id and intercepts plain primary-button clicks to dispatch `:rf/url-requested` (modifier-key / middle clicks and `:target`/`:download` anchors defer to the browser). Full contract in [re-frame.routing.md](re-frame.routing.md).
 
-#### `install-url-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**: `(install-url-listener!)`
-- Install the URL-owning frame's browser URL-change listener — `popstate` for a history-strategy app, `hashchange` for a hash-strategy app, per the owner's `:url-strategy` (default history). Each browser-driven change is decoded to a path-form URL and dispatched as `:rf.route/handle-url-change` to the URL-owning frame (resolved at fire time) — the inbound (browser → app) counterpart of the outbound `:rf.nav/push-url` gate. Also syncs the initial URL on install. Idempotent (hot-reload safe). Full contract in [re-frame.routing.md](re-frame.routing.md).
-
-#### `remove-url-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**: `(remove-url-listener!)`
-- Tear down the browser URL-change listener installed by `install-url-listener!` (whichever kind the strategy wired). No-op when none is installed. Full contract in [re-frame.routing.md](re-frame.routing.md).
-
-#### `install-history-listener!`
-
-- **Kind**: function (CLJS-only; alias)
-- **Signature**: `(install-history-listener!)`
-- Alias for `install-url-listener!` — retained as the established boot-seam name for history-strategy apps; behaves identically for a path-form app. New code should prefer `install-url-listener!`. Full contract in [re-frame.routing.md](re-frame.routing.md).
-
-#### `remove-history-listener!`
-
-- **Kind**: function (CLJS-only; alias)
-- **Signature**: `(remove-history-listener!)`
-- Alias for `remove-url-listener!`. Tear down the listener installed by `install-history-listener!` / `install-url-listener!`. No-op when none is installed. Full contract in [re-frame.routing.md](re-frame.routing.md).
+There is no `install-url-listener!` / `remove-url-listener!` (or `install-history-listener!` / `remove-history-listener!`) on this facade — the browser URL-change listener is wired automatically by the `:url-bound?` frame lifecycle (creation installs, destroy removes). See [re-frame.routing.md § Browser URL listener](re-frame.routing.md).
 
 ### Flows → [re-frame.flows.md](re-frame.flows.md)
 

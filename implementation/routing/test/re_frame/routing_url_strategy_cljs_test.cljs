@@ -8,9 +8,10 @@
   1. `:rf.nav/push-url` / `:rf.nav/replace-url` through a HASH-strategy frame
      push/replace the `#`-prefixed href (history entries carry `#/active`).
   2. `route-link` renders a `#`-prefixed `:href` for a hash frame.
-  3. `install-url-listener!` wires a `hashchange` listener for a hash frame
-     (a `popstate` listener for a history frame) and decodes each change to
-     path-form before dispatching `:rf.route/handle-url-change`.
+  3. The `:url-bound?` frame LIFECYCLE (rf2-g8pbwg) automatically wires a
+     `hashchange` listener for a hash frame (a `popstate` listener for a
+     history frame) and decodes each change to path-form before dispatching
+     `:rf.route/handle-url-change` — no imperative install call.
   4. The encode/decode ROUND-TRIP holds against the live (stubbed) window.
 
   Plus an ADVERSARIAL negative: a malformed `#`-URL fails closed to a
@@ -166,17 +167,17 @@
           "the current entry was overwritten with the `#`-prefixed completed href"))))
 
 ;; ==========================================================================
-;; 2. install-url-listener! wires hashchange for a hash frame + round-trips
+;; 2. the :url-bound? lifecycle auto-wires the listener + round-trips
 ;; ==========================================================================
 
 (deftest hash-frame-install-listener-wires-hashchange-cljs
-  (testing "install-url-listener! wires a `hashchange` listener for a hash
-            frame, decodes location.hash to path-form, and dispatches
-            handle-url-change to the owner — the browser→app leg of the seam"
+  (testing "rf2-g8pbwg: registering a :url-bound? true hash-strategy frame
+            automatically wires a `hashchange` listener, decodes
+            location.hash to path-form, and dispatches handle-url-change to
+            the owner — the browser→app leg of the seam, zero install call"
     (rf/reg-frame :rf/default {:url-bound?   true
                                :url-strategy strategy/hash-url-strategy})
     (register-routes!)
-    (rf/install-url-listener!)
     ;; Push two hash routes (forward nav via the owner).
     (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/completed"}])
@@ -184,7 +185,8 @@
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "slice on /completed before Back")
     ;; Browser Back moves the hash to #/active; a hashchange fires. The
-    ;; installed listener decodes #/active → /active and drives the owner.
+    ;; automatically-installed listener decodes #/active → /active and
+    ;; drives the owner.
     (.back (.-history js/globalThis.window))
     (is (= "#/active" (current-url *history-state*))
         "back() moved the address bar to the #/active entry")
@@ -192,42 +194,25 @@
     (is (= :s/active
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the hashchange listener decoded #/active → /active and restored the slice")
-    (rf/remove-url-listener!)
-    ;; After teardown a further hashchange is a no-op.
-    (.forward (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-    (is (= :s/active
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "after remove-url-listener! a hashchange no longer drives the slice")))
+    ;; destroy-frame! removes the listener (rf2-g8pbwg — install/remove is the
+    ;; :url-bound? frame lifecycle, not an imperative pair of calls).
+    (rf/destroy-frame! :rf/default)
+    (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
+        "destroy-frame! tore down the browser hashchange listener")))
 
 (deftest history-frame-install-listener-wires-popstate-cljs
-  (testing "install-url-listener! wires a `popstate` listener for a history
-            (default) frame — the seam preserves the existing history behaviour"
+  (testing "rf2-g8pbwg: registering a :url-bound? true history (default)
+            frame automatically wires a `popstate` listener — the seam
+            preserves the existing history behaviour, zero install call"
     (rf/reg-frame :rf/default {:url-bound? true})
     (register-routes!)
-    (rf/install-url-listener!)
     (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/completed"}])
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :s/active
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "the popstate listener restored the slice to /active for the history frame")
-    (rf/remove-url-listener!)))
-
-(deftest install-history-listener-alias-still-works-cljs
-  (testing "install-history-listener! is retained as an alias for
-            install-url-listener! (back-compat) and drives a hash frame too"
-    (rf/reg-frame :rf/default {:url-bound?   true
-                               :url-strategy strategy/hash-url-strategy})
-    (register-routes!)
-    (rf/install-history-listener!)          ;; the alias
-    (rf/dispatch-sync [:rf/url-requested {:url "/active"}])
-    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-    (is (= :s/active
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "the alias wired the hash listener (owner strategy decides the kind)")
-    (rf/remove-history-listener!)))
+        "the popstate listener restored the slice to /active for the history frame")))
 
 ;; ==========================================================================
 ;; 3. encode/decode round-trip against the live (stubbed) window

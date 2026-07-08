@@ -17,9 +17,9 @@
    - `:rf.route/id` / `:rf.route/params` — read the active route as subs
    - `route-link` — renders links that drive navigation
    - `:rf/url-requested` — the event a user clicking an anchor fires
-   - `install-history-listener!` — wires up Back/Forward (popstate) and the
-     first-load URL→state sync, so the address bar and your app-db stay in
-     agreement"
+   - `:url-bound? true` — declared on the frame; its creation automatically
+     wires up Back/Forward (popstate) and the first-load URL→state sync, so
+     the address bar and your app-db stay in agreement"
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Routing lives in its own artefact (day8/re-frame2-routing), so
@@ -182,13 +182,6 @@
   ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports
   ;; an `adapter` var; hand it straight to `init!` and you're done.
   (rf/init! reagent-adapter/adapter)
-  ;; Teach the app to listen to the browser's own navigation (the popstate
-  ;; event). This does two jobs: right now, it syncs the current URL into state
-  ;; (so a deep link or a refresh lands on the right page), and from here on,
-  ;; every Back/Forward resolves whichever frame owns the URL at pop time and
-  ;; updates its `:rf/route` slice. Idempotent, so hot reload can call it again
-  ;; without complaint.
-  (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
@@ -199,6 +192,14 @@
     ;; reload: it finds the frame already there and quietly skips the seed, so
     ;; your edits don't reset the page out from under you. From then on every
     ;; `dispatch` and `subscribe` inside `root-view` is wired to this frame.
+    ;;
+    ;; `:url-bound? true` is the whole story for the browser's own navigation
+    ;; too: creating the frame installs its popstate listener automatically.
+    ;; That does two jobs: right now, it syncs the current URL into state (so
+    ;; a deep link or a refresh lands on the right page), and from here on,
+    ;; every Back/Forward resolves whichever frame owns the URL at pop time
+    ;; and updates its `:rf/route` slice. Idempotent, so hot reload never
+    ;; stacks up duplicate listeners.
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
                                     :doc "Routing demo frame."

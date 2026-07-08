@@ -37,7 +37,7 @@
   - `re-frame.routing.url-change`     — :rf.route/transitioned + :rf.route/handle-url-change
   - `re-frame.routing.nav-fx`         — :rf.nav/push-url + :rf.nav/replace-url + url-owner-frame-id
   - `re-frame.routing.url-bound`      — :url-bound? exclusivity registration hook
-  - `re-frame.routing.history`        — popstate listener install/remove + current-url
+  - `re-frame.routing.history`        — popstate listener install/remove (driven automatically by the :url-bound? frame lifecycle, rf2-g8pbwg) + current-url
   - `re-frame.routing.subs`           — framework-shipped subs over the slice
   - `re-frame.routing.link`           — :route/link registered view"
   (:require [re-frame.cofx :as cofx]
@@ -153,23 +153,31 @@
 
 ;; URL strategies (rf2-aerrz5). The two shipped frame-level `:url-strategy`
 ;; maps — `history-url-strategy` (default, path-form) + `hash-url-strategy`
-;; (`#`-prefixed). Declared on the URL-owning frame:
-;;   (rf/reg-frame :app {:url-bound? true :url-strategy rf/hash-url-strategy})
+;; (`#`-prefixed) — plus the `with-base-path` combinator (rf2-g8pbwg) that
+;; wraps either one for an app deployed under a sub-path. Declared on the
+;; URL-owning frame:
+;;   (rf/reg-frame :app {:url-bound? true :url-strategy routing/hash-url-strategy})
+;;   (rf/reg-frame :app {:url-bound? true
+;;                       :url-strategy (routing/with-base-path
+;;                                       routing/history-url-strategy "/realworld")})
 ;; Routing-façade home (NOT re-frame.core) so a non-routing app's production
 ;; bundle carries no strategy code — the routing bundle-isolation invariant.
 ;; Per Spec 012 §URL strategies.
 (def history-url-strategy       strategy/history-url-strategy)
 (def hash-url-strategy          strategy/hash-url-strategy)
+(def with-base-path             strategy/with-base-path)
 
-;; Browser URL-change listener (CLJS-only; `:require`-able from .cljc boot).
-;; rf2-aerrz5: `install-url-listener!` is the strategy-aware boot seam (wires
-;; `popstate` or `hashchange` per the owner's `:url-strategy`);
-;; `install-history-listener!` is retained as its alias (history default).
+;; Browser URL-change listener. rf2-g8pbwg: the imperative
+;; `install-url-listener!` / `remove-url-listener!` exports (and their
+;; retired `install-history-listener!` / `remove-history-listener!` aliases)
+;; are GONE — a `:url-bound? true` frame installs its strategy listener on
+;; create and removes it on destroy, automatically (see
+;; `re-frame.routing.history`'s ns docstring THE FOLD note and the
+;; `:routing/on-frame-registered!` / `:routing/on-frame-destroyed!` wiring
+;; below). `current-url` remains the one query-shaped export — reading the
+;; current browser URL is a legitimate direct call, not a coupled step of
+;; the URL-binding declaration.
 (def current-url                history/current-url)
-#?(:cljs (def install-url-listener!     history/install-url-listener!))
-#?(:cljs (def remove-url-listener!      history/remove-url-listener!))
-#?(:cljs (def install-history-listener! history/install-history-listener!))
-#?(:cljs (def remove-history-listener!  history/remove-history-listener!))
 
 ;; Route-link render fns
 #?(:cljs (def route-link-render link/route-link-render))
@@ -521,28 +529,54 @@
 ;; addition to this teardown.
 (defn- release-routing-host-caches!
   "Release ALL of the destroyed frame's host-side transient routing caches
-  (scroll positions + nav-counter high-water marks) AND drop any URL-ownership
-  claim it held (rf2-3l7xxz — a destroyed owner relinquishes the URL, so
-  ownership re-resolves to the next live claimant). The
+  (scroll positions + nav-counter high-water marks), tear down its browser
+  URL-change listener (rf2-g8pbwg, when it held the URL), AND drop any
+  URL-ownership claim it held (rf2-3l7xxz — a destroyed owner relinquishes
+  the URL, so ownership re-resolves to the next live claimant). The
   `:routing/on-frame-destroyed!` teardown body."
   [frame-id]
   (scroll/release-frame! frame-id)
   (nav-counters/release-frame! frame-id)
+  ;; rf2-g8pbwg: tear down the browser URL-change listener BEFORE dropping
+  ;; the claim below — the equality check needs `url-owner-frame-id` to still
+  ;; resolve `frame-id` as the (about-to-be-former) owner; once the claim
+  ;; drops, ownership may already have moved to the next claimant. A
+  ;; non-owner frame's destroy is a no-op here (its `:url-bound? true`, if
+  ;; any, was a losing duplicate that never installed a listener). CLJS-only
+  ;; (the JVM build never installs a listener to remove).
+  #?(:cljs
+     (when (= frame-id (nav-fx/url-owner-frame-id))
+       (history/remove-url-listener!)))
   (nav-fx/drop-url-claim! frame-id)
   nil)
 
 (late-bind/set-fn! :routing/on-frame-destroyed! release-routing-host-caches!)
 
 ;; Browser URL-change wiring (popstate / hashchange → url-owner frame),
-;; strategy-aware (rf2-aerrz5). CLJS-only; the JVM build has no `window` so
-;; the install/remove fns are not defined there (SSR feeds the request URL
-;; via `:rf.route/handle-url-change`). Both the strategy-aware name and the
-;; retained history-alias name are published so a late-bind consumer can reach
-;; either.
-#?(:cljs (late-bind/set-fn! :routing/install-url-listener!     install-url-listener!))
-#?(:cljs (late-bind/set-fn! :routing/remove-url-listener!      remove-url-listener!))
-#?(:cljs (late-bind/set-fn! :routing/install-history-listener! install-history-listener!))
-#?(:cljs (late-bind/set-fn! :routing/remove-history-listener!  remove-history-listener!))
+;; strategy-aware (rf2-aerrz5), driven automatically by the `:url-bound?`
+;; frame LIFECYCLE (rf2-g8pbwg) — there is no imperative
+;; install-url-listener! / install-history-listener! / remove-url-listener! /
+;; remove-history-listener! export; see `re-frame.routing.history`'s ns
+;; docstring THE FOLD note. CLJS-only; the JVM build has no `window` so
+;; `on-frame-registered!` is not defined there (SSR feeds the request URL via
+;; `:rf.route/handle-url-change`).
+;;
+;; `:routing/on-frame-registered!` — invoked by `re-frame.frame/reg-frame`
+;; AFTER the frame container exists (first registration: after
+;; `:initial-events` ran; re-registration: after the surgical config update)
+;; — (re)installs the listener when the just-(re)registered frame is the
+;; resolved URL owner. A losing duplicate `:url-bound? true` registration
+;; never installs (Codex correction: fail loud via the existing
+;; `:rf.error/duplicate-url-binding`, never install the losing strategy).
+;;
+;; `:routing/reset-url-listener!` — test-isolation hook consumed by the
+;; shared `make-reset-runtime-fixture` reset-hook table: a raw `frame/frames`
+;; reset does not run `destroy-frame!`'s teardown chain, so without this a
+;; leftover installed listener would survive into the next test. Reuses
+;; `remove-url-listener!` — unconditional teardown is exactly what a full
+;; reset needs.
+#?(:cljs (late-bind/set-fn! :routing/on-frame-registered! history/on-frame-registered!))
+#?(:cljs (late-bind/set-fn! :routing/reset-url-listener!  history/remove-url-listener!))
 
 ;; route-link is exposed on both platforms so .cljc render trees
 ;; resolve identically server- and client-side.

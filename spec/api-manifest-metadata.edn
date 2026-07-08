@@ -547,8 +547,7 @@
   ["re-frame.core" "clear-resource-scope"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "resolve-resource-scope"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Focus/reconnect revalidation listener seam (spec/016 §Stale and GC
-  ;; scheduling); lifecycle install/remove fns mirroring routing's
-  ;; install-history-listener! / remove-history-listener!.
+  ;; scheduling); CLJS-only host-listener install/remove fns.
   ["re-frame.core" "install-revalidation-listeners!"] {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "remove-revalidation-listeners!"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ;; Clearing registrations (spec/API.md §Clearing registrations).
@@ -803,19 +802,14 @@
   ;; `clear-route` are no longer façade exports — reach them through
   ;; `re-frame.routing` (already classified below). The `reg-route`
   ;; REGISTRATION MACRO stays on the façade (above). `route-link` (the view)
-  ;; + the `install-history-listener!` / `remove-history-listener!` boot seams
-  ;; stay on the façade (no classified owned-ns peer — the routing-ns forms
-  ;; are CLJS-only and unrowed).
+  ;; stays on the façade (no classified owned-ns peer — the routing-ns form
+  ;; is CLJS-only and unrowed).
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
-  ;; rf2-aerrz5: the strategy-aware URL-change listener boot seam
-  ;; (`install-url-listener!` / `remove-url-listener!`) — wires popstate or
-  ;; hashchange per the URL owner's `:url-strategy`. `install-history-listener!`
-  ;; / `remove-history-listener!` are retained as aliases (history is the
-  ;; default strategy). Same tier/owner as the history-listener boot seams.
-  ["re-frame.core" "install-url-listener!"] {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "remove-url-listener!"]  {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
+  ;; rf2-g8pbwg: the imperative `install-url-listener!` / `remove-url-listener!`
+  ;; / `install-history-listener!` / `remove-history-listener!` façade exports
+  ;; are RETIRED — a `:url-bound? true` frame installs its strategy listener on
+  ;; create and removes it on destroy, automatically. No compatibility shim
+  ;; (pre-alpha) — these rows are gone, not aliased.
   ;; HTTP test-support façade surface (canonical home: re-frame.http.test-support).
   ;; Only the ergonomic `with-managed-request-stubs` macro + its `*` plumbing
   ;; stay on the façade; the raw install/uninstall pair is reached through the
@@ -1063,6 +1057,12 @@
   ;; frame-config / read surfaces.
   ["re-frame.routing" "history-url-strategy"]   {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "hash-url-strategy"]      {:tier :advanced :owner "012" :status "v1"}
+  ;; rf2-g8pbwg: STRATEGY COMBINATOR (not a third shipped strategy) — wraps
+  ;; either shipped strategy so a deployment sub-path (an app served from
+  ;; `/realworld/` on a host that mounts several demos side by side) is
+  ;; stripped/re-added at the same four egress/ingress consult points. Same
+  ;; routing-façade home + tier as the two shipped strategies.
+  ["re-frame.routing" "with-base-path"]         {:tier :advanced :owner "012" :status "v1"}
   ;; The `sub-route` / `sub-pending-navigation` reactive-read sugar fns were
   ;; REMOVED (rf2-il99l3, reversing rf2-2cmcas): the route and pending-nav
   ;; reads are the `[:rf/route]` / `[:rf/pending-navigation]` subscription

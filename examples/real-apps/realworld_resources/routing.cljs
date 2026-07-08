@@ -31,12 +31,11 @@
    One wiring note: loading both `re-frame.resources` and `re-frame.routing` is
    what gets the `:resources` route-metadata key accepted, since resources
    late-binds it into routing."
-  (:require [clojure.string]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; The routing runtime. Loading it triggers its hook + reg-sub
             ;; registrations; without it the reg-route calls have nothing to hook
-            ;; into. Aliased so the popstate handler can resolve the URL owner via
-            ;; `routing/url-owner-frame-id`.
+            ;; into. Aliased so ROUTER WIRING below can build `url-strategy` off
+            ;; `routing/with-base-path` + `routing/history-url-strategy`.
             [re-frame.routing :as routing]
             ;; Loading resources is what makes `:resources` route-metadata
             ;; accepted — it's the late-bound routing extension.
@@ -254,27 +253,16 @@
 ;; ============================================================================
 ;; ROUTER WIRING  (base-path-aware)
 ;; ============================================================================
-
-(def ^:dynamic *base-path* "")
-(defn set-base-path! [s] (set! *base-path* (or s "")))
-
-(defn- strip-base [s]
-  (if (and (seq *base-path*) (clojure.string/starts-with? s *base-path*))
-    (let [stripped (subs s (count *base-path*))]
-      (if (clojure.string/starts-with? stripped "/") stripped (str "/" stripped)))
-    s))
-
-(defn current-url []
-  (-> (.. js/window -location -pathname)
-      strip-base
-      (str (.. js/window -location -search) (.. js/window -location -hash))))
-
-(defn- on-popstate [_]
-  (when-let [owner (routing/url-owner-frame-id)]
-    (rf/dispatch [:rf.route/handle-url-change (current-url)] {:frame owner})))
-
-(defn install-router! []
-  (.removeEventListener js/window "popstate" on-popstate)
-  (.addEventListener js/window "popstate" on-popstate)
-  (when-let [owner (routing/url-owner-frame-id)]
-    (rf/dispatch-sync [:rf.route/handle-url-change (current-url)] {:frame owner})))
+;;
+;; The dev orchestrator serves this example under `/realworld-resources/`, but
+;; the routes above are written as if it owned `/`. `with-base-path`
+;; (rf2-g8pbwg) wraps the default history strategy so that prefix is
+;; stripped/re-added automatically at the framework's four egress/ingress
+;; consult points (Spec 012 §URL strategies). Declared as this app's
+;; `:url-strategy` on the URL-owning frame in core.cljs; the frame's
+;; `:url-bound? true` creation installs the base-path-aware popstate listener
+;; AND does the first URL→route sync itself — which is the trick that fires
+;; the route's `:resources` ensures on entry, with zero hand-rolled listener
+;; or explicit install call.
+(def url-strategy
+  (routing/with-base-path routing/history-url-strategy "/realworld-resources"))

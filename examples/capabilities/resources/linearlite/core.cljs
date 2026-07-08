@@ -602,8 +602,8 @@
 ;;
 ;; Notice there are no `:initial-events`. The board isn't seeded at boot — it's
 ;; seeded by entering the route. The `:linearlite.app/board` route's `:resources`
-;; metadata ensures it, kicked off by the first URL sync that
-;; `rf/install-history-listener!` performs.
+;; metadata ensures it, kicked off by the first URL sync `:url-bound? true`
+;; performs automatically when the frame is created.
 
 (defonce react-root (atom nil))
 
@@ -611,7 +611,6 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

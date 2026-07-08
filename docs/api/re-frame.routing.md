@@ -399,51 +399,30 @@ A `:url-strategy` is a frame-level config map declared on the URL-owning frame �
                       :url-strategy routing/hash-url-strategy})
   ```
 
+### `with-base-path`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (with-base-path strategy base) → strategy-map
+  ```
+- **Description**: STRATEGY COMBINATOR (not a third shipped strategy) for an app deployed under a sub-path — a host mounting several demos side by side, so an app that would otherwise own `/` instead lives at `/realworld/`. Wraps `strategy` (either shipped strategy, or a custom one) so `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` all account for `base`: it is stripped off every inbound URL and re-added to every outbound one, underneath whichever address-bar form `strategy` already provides. `route-url` / `match-url` and the rest of the cascade stay path-form and base-agnostic. A blank/nil `base` returns `strategy` unchanged.
+- **Example**:
+  ```clojure
+  (rf/reg-frame :app {:url-bound?   true
+                      :url-strategy (routing/with-base-path
+                                      routing/history-url-strategy
+                                      "/realworld")})
+  ```
+
 ## Browser URL listener
 
-The CLJS-only boot seam that replaces hand-rolled `popstate` / `hashchange` wiring. On the JVM these vars are not defined — SSR feeds the request URL via `:rf.route/handle-url-change`.
+There is no imperative boot seam to call — the browser `popstate` / `hashchange` listener is wired by the **`:url-bound?` frame LIFECYCLE**, automatically (rf2-g8pbwg): a `:url-bound? true` frame's creation (or re-registration, when it resolves as the URL owner) installs the listener AND syncs the current URL into the owner's route slice in the same step; the frame's destroy removes it. The retired `install-url-listener!` / `remove-url-listener!` / `install-history-listener!` / `remove-history-listener!` exports are GONE (pre-alpha, no back-compat shim) — there is nothing to call.
 
-### `install-url-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**:
-  ```clojure
-  (install-url-listener!) → nil
-  (install-url-listener! strategy) → nil
-  ```
-- **Description**: Install the URL-owning frame's browser URL-change listener (`popstate` for the history strategy, `hashchange` for the hash strategy), then sync the current URL into the owner's route slice.
-
-  - Each browser-driven change is decoded to a path-form URL by the strategy's `:decode` and dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)` resolved at fire time; when no frame declares `:url-bound? true` the dispatch is skipped.
-  - The 0-arity resolves the strategy from the current URL owner's `:url-strategy`; the 1-arity pins an explicit strategy map (for URL-owning frames registered asynchronously).
-  - Idempotent — re-installing tears down the prior listener.
-
-### `remove-url-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**:
-  ```clojure
-  (remove-url-listener!) → nil
-  ```
-- **Description**: Tear down the browser URL-change listener installed by `install-url-listener!` (whichever kind the strategy wired), via the teardown thunk it returned. No-op when none is installed.
-
-### `install-history-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**:
-  ```clojure
-  (install-history-listener!) → nil
-  (install-history-listener! strategy) → nil
-  ```
-- **Description**: Alias of [`install-url-listener!`](#install-url-listener), retained as the established boot-seam name for history-strategy apps. Behaviour is identical — the owner's `:url-strategy` decides the listener kind. New code should prefer `install-url-listener!`.
-
-### `remove-history-listener!`
-
-- **Kind**: function (CLJS-only)
-- **Signature**:
-  ```clojure
-  (remove-history-listener!) → nil
-  ```
-- **Description**: Alias of [`remove-url-listener!`](#remove-url-listener), retained as the established teardown-seam name.
+- Each browser-driven change is decoded to a path-form URL by the strategy's `:decode` and dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)` resolved at fire time; when no frame declares `:url-bound? true` the dispatch is skipped.
+- The listener kind (`popstate` vs `hashchange`) is resolved from the URL-owning frame's `:url-strategy` at install time; the owner (dispatch target) is re-resolved at every fire.
+- Idempotent — a re-registration that resolves as the owner tears down the prior listener before reinstalling. A losing duplicate `:url-bound? true` registration never installs.
+- CLJS-only — on the JVM there is nothing to install (SSR feeds the request URL via `:rf.route/handle-url-change`).
 
 ## Route links
 
@@ -550,7 +529,7 @@ Declared on a handler via `:rf.cofx/requires`; each value is delivered flat unde
 
 ## See also
 
-- [re-frame.core.md](re-frame.core.md) — the `re-frame.core` facade: the `reg-route` macro's brief row, the `route-link` view, and the history-listener boot-seam aliases.
+- [re-frame.core.md](re-frame.core.md) — the `re-frame.core` facade: the `reg-route` macro's brief row and the `route-link` view. The browser URL-change listener is NOT on the facade — it is wired automatically by the `:url-bound?` frame lifecycle (see Browser URL listener above).
 - [re-frame.ssr.md](re-frame.ssr.md) — routes participate in SSR; the active route's `:head` registration is what `render-head` looks up.
 - [Routing guide](../routing/index.md) — the narrative side: a [tutorial](../routing/tutorial.md), [concepts](../routing/concepts.md) (nav-token semantics, `:can-leave` flows, query strings, multi-frame routing), and how-to recipes.
 - [Routing glossary](../routing/glossary.md) — the surface vocabulary (navigate, route, loader, route guard, not-found, url-bound?).
