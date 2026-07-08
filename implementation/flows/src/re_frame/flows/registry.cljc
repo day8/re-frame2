@@ -160,11 +160,10 @@
   `frame/require-current-frame!`. Called under no scope and no explicit
   `:frame`, it raises `:rf.error/no-frame-context` rather than defaulting to
   `:rf/default`. The override is a frame TARGET (keyword id or frame value),
-  normalized to its frame-id via `frame/frame-target->id`. NOTE: the READ
-  path (this fn, `flow-meta-at`) normalizes and so accepts a frame VALUE;
-  the `reg-flow` / `clear-flow` `:frame` opt is used RAW (no
-  `frame-target->id`), so those writes expect a frame-id keyword — a frame
-  value would not resolve there."
+  normalized to its frame-id via `frame/frame-target->id`. Per rf2-8mxnnk the
+  `reg-flow` / `clear-flow` WRITE paths normalize their explicit `:frame`
+  override the same way, so a frame VALUE keys / reads the same flow uniformly
+  across register, clear, and `flow-meta-at`."
   [opts]
   (let [override (:frame opts)]
     (if (some? override)
@@ -933,7 +932,16 @@
   ([flow-id metadata derive-fn]
    (let [[flow frame] (reconstruct-flow flow-id metadata derive-fn)]
    (validate-flow flow)
-   (let [frame-id (or frame
+   (let [;; rf2-8mxnnk: normalize an EXPLICIT `:frame` target — a frame VALUE
+         ;; (make-frame's return token) or a frame-id keyword — to its frame-id
+         ;; BEFORE the liveness check / registry keying, mirroring the READ path
+         ;; (`resolve-read-frame` / `flow-meta-at`). Without this a frame VALUE
+         ;; keys `@flows` (and the `frame/frame` liveness probe) by the raw map,
+         ;; so a LIVE frame reads as not-live (`:rf.error/flow-frame-not-live`)
+         ;; and a later `flow-meta-at` — which normalizes — misses the flow. The
+         ;; scope-derived id is already a keyword, so only the explicit override
+         ;; is normalized (idempotent on a keyword).
+         frame-id (or (some-> frame frame/frame-target->id)
                       (frame/require-current-frame!
                         :reg-flow
                         {:where    'rf/reg-flow
@@ -1334,7 +1342,14 @@
   (cross-ref `dissoc-in-safe`)."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
-   (let [frame-id (or frame
+   (let [;; rf2-8mxnnk: normalize an EXPLICIT `:frame` target (frame VALUE or
+         ;; frame-id keyword) to its frame-id BEFORE the registry lookup /
+         ;; vacate — mirroring the READ path. Without this a frame VALUE keys
+         ;; the `@flows` lookup by the raw map, so the clear silently MISSES the
+         ;; flow (registered / read under the frame-id) and leaves it live. The
+         ;; scope-derived id is already a keyword; only the explicit override is
+         ;; normalized.
+         frame-id (or (some-> frame frame/frame-target->id)
                       (frame/require-current-frame!
                         :clear-flow
                         {:where    'rf/clear-flow

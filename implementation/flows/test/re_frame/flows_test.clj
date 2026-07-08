@@ -1198,6 +1198,62 @@
         "the :flow registrar slot stays empty — single-store, nothing to unregister (rf2-en00bk)")))
 
 ;; ---------------------------------------------------------------------------
+;; 7b. rf2-8mxnnk — reg-flow / clear-flow normalize a FRAME-VALUE `:frame`
+;;
+;; The public frame-target contract (EP-0024) admits a frame VALUE
+;; (make-frame's return token) EVERYWHERE a frame-id keyword is accepted; the
+;; internal normalization seam (`frame/frame-target->id`) funnels a value to
+;; its id. The flows READ path (`flow-meta-at`) already normalized; the WRITE
+;; paths (`reg-flow` / `clear-flow`) did NOT, so an explicit `{:frame <value>}`
+;; keyed the per-frame store by the raw map — a live frame read as not-live at
+;; registration, and a clear silently missed the flow. This pins that both
+;; write paths normalize, so register-by-value + read-by-id + read-by-value +
+;; clear-by-value all observe the SAME flow.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-and-clear-flow-normalize-frame-value-target
+  (testing "reg-flow with an explicit FRAME-VALUE `:frame` registers the flow
+            (does NOT report the live frame as not-live), and flow-meta-at
+            observes the SAME flow whether keyed by id or by value"
+    (let [frame-val (rf/make-frame {:id :fv/host})]
+      (is (frame/frame-value? frame-val)
+          "make-frame returns a frame VALUE, not a bare keyword")
+      ;; Pre-fix this THREW :rf.error/flow-frame-not-live because the raw
+      ;; value keyed the `frame/frame` liveness probe (which keys `@frames`
+      ;; by the bare id) and missed the live frame.
+      (is (= :area
+             (rf/reg-flow :area
+                          {:frame       frame-val
+                           :inputs      [[:w] [:h]]
+                           :output-path [:rect :area]}
+                          (fn [w h] (* (or w 0) (or h 0)))))
+          "reg-flow against a frame VALUE succeeds (frame normalized to its id)")
+      ;; Read by id AND by value resolve the same registered flow.
+      (is (some? (flows/flow-meta-at :area {:frame :fv/host}))
+          "flow-meta-at by frame-id finds the flow registered via the value")
+      (is (some? (flows/flow-meta-at :area {:frame frame-val}))
+          "flow-meta-at by frame VALUE finds the same flow")
+      (is (= (flows/flow-meta-at :area {:frame :fv/host})
+             (flows/flow-meta-at :area {:frame frame-val}))
+          "by-id and by-value observe the IDENTICAL flow meta")
+      ;; The store is keyed by the normalized id, not the raw value map.
+      (is (contains? (get (flows/flows-snapshot) :fv/host) :area)
+          "the per-frame store is keyed by the normalized frame-id")
+      (is (not (contains? (flows/flows-snapshot) frame-val))
+          "the store is NOT keyed by the raw frame-value map"))
+
+    (testing "clear-flow with an explicit FRAME-VALUE `:frame` clears the flow
+              registered under the frame-id (does not silently miss it)"
+      (let [frame-val (rf/make-frame {:id :fv/host})]  ; idempotent re-make; same id
+        (flows/clear-flow :area {:frame frame-val})
+        (is (nil? (flows/flow-meta-at :area {:frame :fv/host}))
+            "clear-by-value removed the flow observed by id")
+        (is (nil? (flows/flow-meta-at :area {:frame frame-val}))
+            "clear-by-value removed the flow observed by value")
+        (is (not (contains? (get (flows/flows-snapshot) :fv/host) :area))
+            "the per-frame store slot is gone after the value-keyed clear")))))
+
+;; ---------------------------------------------------------------------------
 ;; 8. `_hot-reload-hook` defonce-idempotency on namespace reload
 ;;
 ;; The flows registry installs a registrar replacement-hook
