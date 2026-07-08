@@ -544,6 +544,57 @@
     (is (not-any? #(= [:sub :article/page] (:to %)) (:edges g))
         "no static :input edge points at the parametric sub (don't-execute rule)")))
 
+(deftest c-named-resolver-scope-input-appears-statically-through-the-composer
+  ;; Derivations §Conformance / §Static graph (spec/Derivations.md:840):
+  ;; "static inspection reports only registration-known edges, marks parametric
+  ;; edge sets :parametric, and NEVER executes param/scope functions (the
+  ;; don't-execute rule); named-resolver inputs appear statically." The single
+  ;; resource `register-one-of-each!` registers (:article/by-slug) carries a
+  ;; LITERAL :rf.scope/global scope, so the named-resolver subclause of this
+  ;; bullet — a resource whose scope is a {:from-db <id>} REFERENCE reporting
+  ;; the reference shape [:scope {:from-db <id>}] PLUS the resolver's declared
+  ;; [:db <rf-path>] inputs via the :scope-resolver enrichment — is never
+  ;; composed THROUGH graph/derivation-graph alongside the other four families
+  ;; (rf2-kg9dtc). The per-family resource-algebra-view suite pins the
+  ;; enrichment in ISOLATION (resources/…/resource_algebra_view_cljs_test:
+  ;; from-db-scope-carries-named-resolver-enrichment); this arm proves the
+  ;; CROSS-FAMILY composer preserves the named-resolver static input verbatim
+  ;; when the {:from-db} resource is stitched in beside subs / flows / routes /
+  ;; machines — the umbrella-tier property (a composer regression that dropped
+  ;; :scope-resolver or rewrote the [:scope …] input would slip past the
+  ;; per-family suite that only ever reads resource-algebra-view directly).
+  ;;
+  ;; ADVERSARIAL on the don't-execute rule: the resolver body THROWS. Reaching
+  ;; it during static composition would blow up the graph assembly — so its
+  ;; absence of a throw proves the composer reads the resolver's DECLARED
+  ;; metadata (a static fact) and never RUNS the resolver fn.
+  (register-one-of-each!)
+  (rf/reg-resource-scope :conf/tenant
+                         {:inputs {:tenant-id [:db [:session :tenant-id]]}}
+                         (fn [_inputs _ctx]
+                           (throw (ex-info "a named-resolver fn must NOT run during static graph inspection" {}))))
+  (rf/reg-resource :tenant/feed
+                   {:scope         {:from-db :conf/tenant}
+                    :params-schema [:map [:page :int]]}
+                   (fn [{:keys [page]} _ctx]
+                     {:request {:method :get :url "/api/feed" :params {:page page}}}))
+  (let [nodes (:nodes (graph/derivation-graph all-contributors))
+        res   (node-by-family nodes :resources :tenant/feed)]
+    (is (some? res) "the {:from-db} resource composed into the umbrella cross-family graph")
+    (testing "the named-resolver REFERENCE surfaces as a STATIC scope input,
+              reported verbatim beside the generic params input — the composer
+              preserves the [:scope {:from-db <id>}] shape"
+      (is (= [[:param :rf.params] [:scope {:from-db :conf/tenant}]]
+             (:inputs res))
+          "the {:from-db <id>} reference rides the composed node's :inputs verbatim — a static fact"))
+    (testing "the :scope-resolver enrichment (the resolver id + its declared
+              [:db <rf-path>] inputs) rides through the composer verbatim — the
+              resolver's inputs are DECLARED static facts, not executed"
+      (is (= :conf/tenant (get-in res [:scope-resolver :id]))
+          "the composed node names the referenced resolver id")
+      (is (= [[:db [:session :tenant-id]]] (get-in res [:scope-resolver :inputs]))
+          "the resolver's declared [:db <rf-path>] inputs surface statically through the composer"))))
+
 (deftest c-live-graph-has-the-mode-frame-shape-and-realizes-the-route-slice
   ;; The static / live split (Derivations §Static and live graphs): the live
   ;; graph carries `:mode :live` + `:frame`, and reports REALIZED nodes (the
