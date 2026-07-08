@@ -20,6 +20,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.template :as template]
             [reagent2.impl.component :as component]
+            [goog.object :as gobj]
             ["react" :as react]))
 
 ;; ---------------------------------------------------------------------------
@@ -475,6 +476,52 @@
     (let [my-view (fn [_n] [:div])
           ^js el (template/as-element [my-view 1])]
       (is (component/reagent-class? (.-type el))))))
+
+;; ---------------------------------------------------------------------------
+;; Source-coord stamping is gated on a native DOM-tag head (rf2-33lo7r)
+;;
+;; native-element is the emit path for BOTH real DOM tags AND :> interop
+;; elements. The *source-coord* merge must fire ONLY for a string DOM tag —
+;; never as a foreign prop on a :> component (React drops the unknown prop,
+;; leaving the real DOM root unannotated), mirroring the React-hook spine's
+;; dom-element? string-type gate.
+;; ---------------------------------------------------------------------------
+
+(def ^:private src-coord "my.ns:my-view:12:4")
+
+(defn- source-coord-prop [^js el]
+  (gobj/get (.-props el) "data-rf2-source-coord"))
+
+(deftest source-coord-stamps-dom-root
+  (testing "a native DOM-tag root consumes *source-coord* and IS stamped"
+    (binding [template/*source-coord* src-coord]
+      (let [^js el (template/as-element [:div "x"])]
+        (is (= "div" (.-type el)))
+        (is (= src-coord (source-coord-prop el))
+            "the DOM root carries data-rf2-source-coord")))))
+
+(deftest source-coord-skips-interop-root
+  (testing "a :> interop root does NOT get source-coord as a foreign prop"
+    (let [Comp (fn FakeComp [_props] nil)]
+      (binding [template/*source-coord* src-coord]
+        (let [^js el (template/as-element [:> Comp {:foo "bar"}])]
+          (is (= Comp (.-type el)) "root is the foreign component")
+          (is (= "bar" (gobj/get (.-props el) "foo")) "user prop preserved")
+          (is (nil? (source-coord-prop el))
+              "no data-rf2-source-coord stamped onto the :> component"))))))
+
+(deftest source-coord-flows-past-interop-root-to-first-dom-child
+  (testing "with a :> root the binding is left UNCONSUMED so the first real
+            DOM element downstream gets stamped (§5.4 'first DOM-tag head')"
+    (let [Comp (fn FakeComp [_props] nil)]
+      (binding [template/*source-coord* src-coord]
+        (let [^js el    (template/as-element [:> Comp [:div "child"]])
+              ^js child (gobj/get (.-props el) "children")]
+          (is (= Comp (.-type el)))
+          (is (nil? (source-coord-prop el)) "interop root itself is unstamped")
+          (is (= "div" (.-type child)) "the child is the real DOM element")
+          (is (= src-coord (source-coord-prop child))
+              "the first DOM element downstream carries data-rf2-source-coord"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-ygknv finding 1: target-aware keyword/symbol DOM-attr stringification
