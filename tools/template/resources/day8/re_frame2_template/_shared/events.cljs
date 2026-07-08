@@ -29,12 +29,15 @@
             ;;      gate." That is why the `register-listener!` form
             ;;      below sits inside `(when ^boolean goog.DEBUG ...)`.
             [re-frame.trace.tooling :as trace-tooling]
-            ;; Schema artefact — required as a side-effecting load so
-            ;; the late-bind hooks publish before {{namespace}}.schema
-            ;; runs its `reg-app-schema` registrations. Pulls in Malli
-            ;; via the schemas artefact's deps.
+            ;; Schema artefact — required as a side-effecting load so the
+            ;; late-bind hooks publish before {{namespace}}.schema runs its
+            ;; `reg-app-schema` registrations. Requiring `re-frame.schemas`
+            ;; makes the default Malli validator LIVE: the artefact
+            ;; `:require`s `re-frame.schemas.malli` itself at ns-load, so a
+            ;; registered schema validates rather than soft-passing —
+            ;; "schema implies validation" (rf2-v96fh). No separate Malli
+            ;; require is needed.
             [re-frame.schemas]
-            [re-frame.schemas.malli]
             ;; Schema registrations — loaded for the
             ;; `(reg-app-schema [] CounterDb)` side-effect that
             ;; wires the root app-db validator before any handler commits.

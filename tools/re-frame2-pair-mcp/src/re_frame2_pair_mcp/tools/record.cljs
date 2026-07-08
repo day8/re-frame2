@@ -322,7 +322,13 @@
         ;; so this uses the `-signalled!` sibling.
         (probe/eval-after-runtime-signalled!
           conn build-id form :record-failed
-          (fn [envelope] (wire/ok-text envelope)))))))
+          ;; `start-recording!` returns `{:ok? false :reason
+          ;; :ambiguous-frame}` when an `:app-db`/`:sub` signal needs a
+          ;; frame and none resolves in a multi-frame session. Route the
+          ;; refusal (and a blank/non-map degraded eval) through
+          ;; `wire/err-text` (isError:true) per the universal `:ok? false`
+          ;; contract rather than shipping it as a success envelope.
+          probe/map-envelope-result)))))
 
 ;; ---------------------------------------------------------------------------
 ;; read-recording — read back the change-log.
@@ -351,4 +357,10 @@
                                {:drain drain? :stop stop?}))]
         (probe/eval-after-runtime!
           conn build-id form :read-recording-failed
-          (fn [envelope] (wire/ok-text envelope)))))))
+          ;; `read-recording` returns `{:ok? false :reason
+          ;; :no-such-recording …}` for an unknown/expired recording-id.
+          ;; Route that refusal (and a blank/non-map degraded eval) through
+          ;; `wire/err-text` (isError:true) per the universal `:ok? false`
+          ;; contract. A legitimate empty drain is `{:ok? true …}` (a real
+          ;; map), so a normal empty read is never mislabelled an error.
+          probe/map-envelope-result)))))

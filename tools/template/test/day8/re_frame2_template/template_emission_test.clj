@@ -46,19 +46,22 @@
 
 ;; --- Static-parse machinery ----------------------------------------------
 
-(defn- read-cljs-forms
-  "Read every top-level form from a .cljs file. Each form is returned in
-  source order. Uses `clojure.tools.reader` (not `clojure.edn`) because
-  the emitted views.cljs contains `#(...)` function literals and the
-  framework cljc files use reader conditionals. We bind `*read-eval*`
-  off and treat unknown tags as identity so any future `#js` etc. in
-  the scaffold doesn't trip us."
-  [^java.io.File f]
+(defn- read-source-forms
+  "Read every top-level form from a Clojure/ClojureScript source file,
+  resolving reader conditionals under `features` (`#{:cljs}` for the
+  browser branch of a `.cljc`; `#{:clj}` for the JVM branch / a plain
+  `.clj` host like the SSR `server.clj`). Each form is returned in source
+  order. Uses `clojure.tools.reader` (not `clojure.edn`) because the
+  emitted views.cljs contains `#(...)` function literals and the framework
+  cljc files use reader conditionals. We bind `*read-eval*` off and treat
+  unknown tags as identity so any future `#js` etc. in the scaffold
+  doesn't trip us."
+  [^java.io.File f features]
   (let [eof    (Object.)
         reader (rt/source-logging-push-back-reader (slurp f))
         ;; tools.reader respects *data-readers*; supply a permissive
         ;; default-data-reader so unknown tags don't throw.
-        opts   {:eof eof :read-cond :allow :features #{:cljs}
+        opts   {:eof eof :read-cond :allow :features features
                 :default (fn [_tag value] value)}]
     (binding [tr/*read-eval* false
               tr/*default-data-reader-fn* (fn [_tag value] value)]
@@ -67,6 +70,13 @@
           (if (identical? form eof)
             acc
             (recur (conj acc form))))))))
+
+(defn- read-cljs-forms
+  "Read a source file under the `:cljs` reader-conditional view (the
+  browser branch of a `.cljc`). The common case — see `read-source-forms`
+  for the general form (the SSR audit reads `server.clj` under `:clj`)."
+  [^java.io.File f]
+  (read-source-forms f #{:cljs}))
 
 (defn- parse-ns-requires
   "Given a `(ns ns-sym ...)` form, return a map
@@ -166,7 +176,16 @@
        sub-namespaces) — Story ships as its own downstream tool coord
        (`day8/re-frame2-story`) under `tools/story/`. The template's
        with-stories core requires `re-frame.story`; the audit needs
-       to find it where it actually lives."
+       to find it where it actually lives.
+
+    4. `implementation/ssr/src/re_frame/ssr.cljc` (+ `re-frame.ssr.*`)
+       and `implementation/ssr-ring/src/re_frame/ssr/ring.clj` — the SSR
+       runtime (`day8/re-frame2-ssr`) and its Ring host adapter
+       (`day8/re-frame2-ssr-ring`) ship as their own downstream coords.
+       The `:include-ssr?` scaffold's `core.cljc` requires `re-frame.ssr`
+       and its `server.clj` requires `re-frame.ssr.ring`; the audit needs
+       to resolve both. `re-frame.ssr.ring` is JVM-only, so a `.clj`
+       candidate is included (rf2-e0xspa)."
   [root ns-sym]
   (let [name- (name ns-sym)]
     (cond
@@ -188,7 +207,13 @@
                                 (io/file root "implementation/core/src/re_frame" (str rel ".cljs"))
                                 ;; tools/story/ — re-frame.story + re-frame.story.* live here.
                                 (io/file root "tools/story/src/re_frame" (str rel ".cljc"))
-                                (io/file root "tools/story/src/re_frame" (str rel ".cljs"))]
+                                (io/file root "tools/story/src/re_frame" (str rel ".cljs"))
+                                ;; implementation/ssr/ — re-frame.ssr + re-frame.ssr.*.
+                                (io/file root "implementation/ssr/src/re_frame" (str rel ".cljc"))
+                                (io/file root "implementation/ssr/src/re_frame" (str rel ".cljs"))
+                                ;; implementation/ssr-ring/ — re-frame.ssr.ring (JVM-only .clj).
+                                (io/file root "implementation/ssr-ring/src/re_frame" (str rel ".clj"))
+                                (io/file root "implementation/ssr-ring/src/re_frame" (str rel ".cljc"))]
                          adapter-flavour
                          (conj (io/file root "implementation/adapters"
                                         adapter-flavour
@@ -413,50 +438,57 @@
        `reg-view` would ship the Reagent scaffold broken-but-green.
     2. Bare, `:refer`-ed framework symbols whose source ns
        is `re-frame.*` (none in the current scaffolds, but the audit
-       still covers the shape so a future `:refer` stays honest)."
-  [substrate ^java.io.File file root]
-  (when (.isFile file)
-    (let [forms      (read-cljs-forms file)
-          ns-form    (first forms)
-          requires   (parse-ns-requires ns-form)
-          body-forms (rest forms)
-          ;; (1) A vector of [referenced-symbol resolved-ns] pairs for
-          ;; every qualified symbol whose alias resolves to a re-frame.*
-          ;; ns.
-          qual-refs  (->> (collect-qualified-symbols body-forms)
-                          (keep (fn [qsym]
-                                  (let [alias-sym (symbol (namespace qsym))
-                                        target-ns (get requires alias-sym)]
-                                    (when (and target-ns
-                                               (string/starts-with?
-                                                 (name target-ns)
-                                                 "re-frame."))
-                                      [qsym target-ns]))))
-                          ;; Dedup by (target-ns + symbol-name) — the same
-                          ;; reference often appears many times in a file
-                          ;; (e.g. rf/dispatch in views).
-                          (group-by (fn [[qsym target-ns]]
-                                      [target-ns (symbol (name qsym))]))
-                          keys)
-          ;; (2) Bare, `:refer`-ed framework symbols that actually appear
-          ;; in the body. We intersect the ns form's `:refer` set with the
-          ;; bare symbols the body uses, so an unused `:refer` (dead, but
-          ;; harmless) isn't flagged — only symbols the scaffold relies on.
-          referred   (::referred requires)
-          bare-used  (collect-bare-symbols body-forms)
-          bare-refs  (->> referred
-                          (keep (fn [[sym target-ns]]
-                                  (when (and (contains? bare-used sym)
-                                             (string/starts-with?
-                                               (name target-ns)
-                                               "re-frame."))
-                                    [sym target-ns]))))]
-      (doseq [[target-ns sym] qual-refs]
-        (audit-framework-symbol! substrate file root target-ns sym
-                                 "references"))
-      (doseq [[sym target-ns] bare-refs]
-        (audit-framework-symbol! substrate file root target-ns sym
-                                 "refers (bare)")))))
+       still covers the shape so a future `:refer` stays honest).
+
+  `features` selects the reader-conditional view: the 3-arg arity reads
+  under `:cljs` (the browser branch of a `.cljc` / a `.cljs` file); the
+  SSR host audit passes `#{:clj}` to read `server.clj` under the JVM
+  branch (rf2-e0xspa)."
+  ([substrate ^java.io.File file root]
+   (audit-framework-surface! substrate file root #{:cljs}))
+  ([substrate ^java.io.File file root features]
+   (when (.isFile file)
+     (let [forms      (read-source-forms file features)
+           ns-form    (first forms)
+           requires   (parse-ns-requires ns-form)
+           body-forms (rest forms)
+           ;; (1) A vector of [referenced-symbol resolved-ns] pairs for
+           ;; every qualified symbol whose alias resolves to a re-frame.*
+           ;; ns.
+           qual-refs  (->> (collect-qualified-symbols body-forms)
+                           (keep (fn [qsym]
+                                   (let [alias-sym (symbol (namespace qsym))
+                                         target-ns (get requires alias-sym)]
+                                     (when (and target-ns
+                                                (string/starts-with?
+                                                  (name target-ns)
+                                                  "re-frame."))
+                                       [qsym target-ns]))))
+                           ;; Dedup by (target-ns + symbol-name) — the same
+                           ;; reference often appears many times in a file
+                           ;; (e.g. rf/dispatch in views).
+                           (group-by (fn [[qsym target-ns]]
+                                       [target-ns (symbol (name qsym))]))
+                           keys)
+           ;; (2) Bare, `:refer`-ed framework symbols that actually appear
+           ;; in the body. We intersect the ns form's `:refer` set with the
+           ;; bare symbols the body uses, so an unused `:refer` (dead, but
+           ;; harmless) isn't flagged — only symbols the scaffold relies on.
+           referred   (::referred requires)
+           bare-used  (collect-bare-symbols body-forms)
+           bare-refs  (->> referred
+                           (keep (fn [[sym target-ns]]
+                                   (when (and (contains? bare-used sym)
+                                              (string/starts-with?
+                                                (name target-ns)
+                                                "re-frame."))
+                                     [sym target-ns]))))]
+       (doseq [[target-ns sym] qual-refs]
+         (audit-framework-symbol! substrate file root target-ns sym
+                                  "references"))
+       (doseq [[sym target-ns] bare-refs]
+         (audit-framework-symbol! substrate file root target-ns sym
+                                  "refers (bare)"))))))
 
 ;; --- scratch.cljs with-frame shape audit -----------------------------------
 ;;
@@ -936,6 +968,58 @@
           (doseq [rel ["src/acme/my_app/core.cljs"
                        "src/acme/my_app/stories.cljs"]]
             (audit-framework-surface! :reagent (io/file proj rel) root)))
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- :include-ssr? -------------------------------------------------------
+;;
+;; The SSR scaffold is the template's LEAST-covered variant (rf2-e0xspa):
+;; its emitted-run tier (`emitted_test_run_test.clj`) executes only
+;; `clojure -M:test`, which loads `core.cljc`'s `:clj` branch (via
+;; `ssr_test.clj`'s `[…core :as app]` require) and — since rf2-e0xspa —
+;; `server.clj` (via `ssr_test.clj`'s new `[…server :as server]` require).
+;; But NO gate compiles `core.cljc`'s `:cljs` CLIENT branch (the hydration
+;; path: `ssr/hydrate!`, `rf/view`, `rf/frame-provider`, the reagent
+;; adapter, `reagent.dom.client`), and that emitted-run tier is opt-in
+;; (`RF2_TEMPLATE_RUN_EMITTED_TESTS`). So a framework rename on the SSR
+;; client/host surface used to ship broken-but-green.
+;;
+;; This audit closes that gap CHEAPLY on every PR (no node, no shadow, no
+;; env gate): it reads the emitted `core.cljc` under the `:cljs`
+;; reader-conditional view — the exact CLIENT branch no compile touches —
+;; and `server.clj` under the `:clj` view, and asserts every referenced
+;; `re-frame.*` / `re-frame.ssr(.ring)` symbol is actually defined in the
+;; framework source. A rename (e.g. `ssr/hydrate!` → `ssr/hydrate`,
+;; `ssr-ring/ssr-handler` → `…/handler`, `rf/frame-provider` → `…/provider`)
+;; trips this JVM check. `framework-ns-file` above resolves the SSR coords
+;; (implementation/ssr/ + implementation/ssr-ring/).
+
+(deftest reagent-ssr-emission-static-parse-test
+  (testing ":include-ssr? true emits a core.cljc whose :cljs CLIENT branch
+            + a server.clj Ring host that reference only defined re-frame.*
+            + re-frame.ssr(.ring) symbols (rf2-e0xspa)"
+    (let [tmp  (tmp-dir "rf2-emission-ssr-")
+          root (repo-root)]
+      (try
+        (let [proj (run-template-opts! tmp "acme/my-app"
+                                       {:substrate :reagent :include-ssr? true})]
+          ;; The CLIENT (:cljs) branch of the shared core.cljc — compiled
+          ;; by no gate. Read under `:features #{:cljs}` so the audit sees
+          ;; exactly the browser-side requires (`reagent.dom.client`, the
+          ;; reagent adapter) + hydration calls (`ssr/hydrate!`, `rf/view`,
+          ;; `rf/frame-provider`).
+          (audit-framework-surface! :reagent
+                                    (io/file proj "src/acme/my_app/core.cljc")
+                                    root #{:cljs})
+          ;; The Ring host — a JVM-only `.clj`. Read under `:features
+          ;; #{:clj}`. Its framework surface (`ssr-ring/ssr-handler`,
+          ;; `ssr/adapter`, `rf/init!`) is now ALSO compiled for real by the
+          ;; emitted `ssr_test.clj`'s `[…server :as server]` require under
+          ;; `clojure -M:test`; this ungated static check is the fast-loop
+          ;; net that catches a rename without the opt-in emitted-run tier.
+          (audit-framework-surface! :reagent
+                                    (io/file proj "src/acme/my_app/server.clj")
+                                    root #{:clj}))
         (finally
           (delete-recursively tmp))))))
 

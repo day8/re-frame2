@@ -2578,7 +2578,9 @@ malformed `stop` is rejected up front rather than silently collapsing to
 the default wall-clock window — the same honest-error posture
 `subscribe`'s `:invalid-filter-edn` adopts. `:reason :ambiguous-frame`
 when an `:app-db` / `:sub` signal needs a frame but none resolves
-(multi-frame session, no selection).
+(multi-frame session, no selection) — this runtime refusal rides
+`isError: true` too (rf2-5m2oi1), per the universal `:ok? false` rule,
+not a success-shaped envelope.
 
 ## read-recording
 
@@ -2609,8 +2611,14 @@ read-and-close in one round-trip), `build` (string).
 
 Each entry is one **change** — the moment signal `:i` took a new value.
 Two signals that changed on the same paint share a `:frame`.
-`:reason :missing-recording-id` if omitted/blank; `:reason
-:no-such-recording` for an unknown id.
+
+**Error envelopes** (all `isError: true`, per the §"Every `:ok? false`
+response is `isError: true`" rule — rf2-5m2oi1): `:reason
+:missing-recording-id` if omitted/blank (client-side short-circuit,
+before the socket); `:reason :no-such-recording` for an unknown/expired
+recording-id (the runtime refusal — so the host can route recovery
+through the error channel). A legitimate empty read is `{:ok? true …}`
+(a real map), so a normal empty drain is never mislabelled an error.
 
 ## watch-until
 
@@ -3002,6 +3010,11 @@ connection, e.g. shadow-cljs restarted onto a new port mid-session).
   nonsense filter that would silently match nothing.
 - `:reason :runtime-not-preloaded` if the preload hasn't run.
 - `:reason :subscribe-failed` on any other failure during subscribe.
+- A runtime `subscribe!` that returns `{:ok? false …}` AFTER the stream
+  slot is reserved (e.g. `:unknown-topic`, or a future resource-cap /
+  frame-resolution refusal) releases the reserved slot and rides back with
+  `isError: true` — the failure is never shipped as a success-shaped
+  envelope (rf2-yeuqhr), per the universal `:ok? false` rule.
 - `:reason :rf.error/concurrent-stream-limit` if the session already
   has `max-concurrent-streams` open subscriptions. Surfaced as
   `isError: true` WITHOUT touching the nREPL socket. The error
@@ -3095,8 +3108,16 @@ unmounted, no other subscribers) no longer shows up here.
 ```
 
 `:subs` is an empty vector when nothing is subscribed in the frame —
-never `:ok? false` for the empty case. The query-vectors are sorted
-(by `pr-str`) so the listing is stable across calls.
+never `:ok? false` for the empty case. Genuine emptiness is the runtime's
+OWN `{:ok? true … :subs []}` MAP (a real answer). The query-vectors are
+sorted (by `pr-str`) so the listing is stable across calls.
+
+A **blank / non-map** eval is NOT emptiness (rf2-21vvfs): it means the
+runtime did not answer (the browser tab closed / navigated in the narrow
+race between the liveness re-check and the sub-cache drain). That degraded
+read surfaces as `{:ok? false :reason :unexpected-shape :value …}` with
+`isError: true` — never a fabricated `{:ok? true :subs []}` masking a dead
+read as "no subscriptions".
 
 `list-subscriptions` opts INTO the per-session response cache (it reads
 the live reactive sub-cache, a pure function of frame state, just like
@@ -3109,8 +3130,10 @@ gate applies to verbatim values surfaced off-box).
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :ambiguous-frame` in a multi-frame session with no selected
-frame; `:reason :list-subscriptions-failed` (with `:message`) on any
-other failure.
+frame; `:reason :unexpected-shape` on a blank/non-map degraded eval (see
+above); `:reason :list-subscriptions-failed` (with `:message`) on any
+other failure. All ride `isError: true` per the universal `:ok? false`
+rule (rf2-21vvfs).
 
 [1]: #universal-size-elision-on-app-db-slots
 [2]: ../../../spec/Tool-Pair.md#how-ai-tools-attach
@@ -3174,7 +3197,13 @@ returns the sub only if it matches on both axes.
 ```
 
 `:subs` is an empty vector when no streams are open (or when the
-filters match nothing) — never `:ok? false` for the empty case. A
+filters match nothing) — never `:ok? false` for the empty case. Genuine
+emptiness is the runtime's OWN `{:ok? true :subs []}` MAP. A **blank /
+non-map** eval is NOT emptiness (rf2-21vvfs): on the very tool that
+diagnoses a dead / quiet stream, a degraded read (the browser tab closed
+mid-race) surfaces as `{:ok? false :reason :unexpected-shape :value …}`
+with `isError: true` — never a fabricated `{:ok? true :subs []}` reporting
+a false-clean "zero streams". A
 non-nil `:overflow-reason` is the load-bearing signal: the queue has
 been evicting older events under the byte or event budget configured
 on its `subscribe` call. Tune `max-buffered-events` /
@@ -3191,8 +3220,10 @@ that applies. `list-streams` does NOT carry sensitive event
 bodies; only registration metadata crosses the wire.
 
 `:reason :runtime-not-preloaded` if the preload hasn't run;
+`:reason :unexpected-shape` on a blank/non-map degraded eval (see above);
 `:reason :list-streams-failed` (with `:message`) on any other
-failure.
+failure. All ride `isError: true` per the universal `:ok? false` rule
+(rf2-21vvfs).
 
 ## get-stream-controls
 
@@ -3525,10 +3556,17 @@ see what each frame actually resolves. (EP-0026 retired image-declared host
 capabilities, so there is no longer a missing-**capability** discriminator on
 this read.)
 
-**Error envelopes**:
+**Error envelopes** (all `isError: true`, per the §"Every `:ok? false`
+response is `isError: true`" rule — rf2-01jwrq):
 
 - `{:ok? false :reason :ambiguous-frame …}` — multi-frame session, no `frame` and no session pin.
 - `{:ok? false :reason :describe-image-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation` when an explicit `frame` names no live frame carrying a generation).
+- `{:ok? false :reason :unexpected-shape :value …}` — the runtime eval came back blank/non-map (a degraded read — dropped WebSocket / navigated tab).
+
+Because `describe-image` is `:cacheable?` and the response cache bypasses
+`isError` results, keeping the `:ambiguous-frame` refusal `isError: true`
+also keeps it OUT of the cache — a transient ambiguous-frame can never be
+cached and mask a later valid read.
 
 **Drill-down**: `describe-image` is the per-frame overview; drill a specific
 `(kind, id)` with `handler-meta {:frame … :kind … :id …}` for the full

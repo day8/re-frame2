@@ -318,7 +318,11 @@
             continuation re-seeds a clean draft and navigates to the saved article"
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
-      ;; create-mode entry registers the :editor/can-submit? flow against this frame
+      ;; Boot registers the :editor/can-submit? flow ONCE against the frame
+      ;; (`:app/initialise` -> `:editor/register-flow`, rf2-xugvye); the create-route
+      ;; `:on-match` (`:editor/initialise`) then only resets the slice. Mirror that
+      ;; boot ordering here so the flow materialises `[:editor :can-submit?]`.
+      (rf/dispatch-sync [:editor/register-flow] {:frame f})
       (rf/dispatch-sync [:editor/initialise] {:frame f})
       ;; blank draft → the flow output is false (invalid + clean)
       (is (false? (rf/compute-sub [:editor/can-submit?] (state-value f)))
