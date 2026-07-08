@@ -508,6 +508,48 @@
            (server/render-to-static-markup [:div {:onyx "x"}]))
         "`:onyx` (lowercase letter after `on`) is preserved")))
 
+;; ---------------------------------------------------------------------------
+;; rf2-ut3mod: lowercase inline HTML event attributes must strip too
+;;
+;; `event-handler-prop?`'s structural check (`on-` kebab / `on[A-Z]`
+;; camel) misses lowercase inline HTML event attributes — `:onclick`,
+;; string `"onclick"`, `:onchange` — because there is no `-` and no
+;; upper-case letter after `on`. Those are exactly the canonical names a
+;; browser fires on, so a string-valued `:onclick "alert(1)"` rode
+;; through to the wire as `onclick="alert(1)"`, an XSS vector of the
+;; same class rf2-dwds9 closed for the structural (kebab/camel) forms.
+;; ---------------------------------------------------------------------------
+
+(deftest lowercase-onclick-keyword-stripped-rf2-ut3mod
+  (testing "rf2-ut3mod: :onclick (all-lowercase keyword) with string
+            value does NOT emit an onclick attribute (XSS vector closed)"
+    (is (= "<div></div>"
+           (server/render-to-static-markup [:div {:onclick "alert(1)"}])))
+    (is (= "<button>x</button>"
+           (server/render-to-static-markup
+            [:button {:onclick "javascript:evil()"} "x"]))
+        "no leaked onclick attribute on the rendered button")))
+
+(deftest lowercase-onclick-string-key-stripped-rf2-ut3mod
+  (testing "rf2-ut3mod: string key \"onclick\" with string value does
+            NOT emit an onclick attribute"
+    (is (= "<div></div>"
+           (server/render-to-static-markup [:div {"onclick" "alert(1)"}])))))
+
+(deftest lowercase-onchange-stripped-rf2-ut3mod
+  (testing "rf2-ut3mod: :onchange (all-lowercase keyword) is stripped —
+            another canonical lowercase event name, not just :onclick"
+    (is (= "<input>"
+           (server/render-to-static-markup [:input {:onchange "evil()"}])))))
+
+(deftest lowercase-non-event-on-prefix-still-passes-through-rf2-ut3mod
+  (testing "rf2-ut3mod: the new lowercase-event allowlist must not
+            regress :once / :onyx — non-events keep passing through"
+    (is (= "<div once=\"true\"></div>"
+           (server/render-to-static-markup [:div {:once "true"}])))
+    (is (= "<div onyx=\"x\"></div>"
+           (server/render-to-static-markup [:div {:onyx "x"}])))))
+
 (deftest key-and-ref-still-stripped
   (testing "regression: :key and :ref drops still work after the new
             event-prop filter was added"
