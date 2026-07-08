@@ -1236,25 +1236,49 @@
 
    ;; ---------- list-subscriptions (reactive sub-cache) -------------------
    {:fixture/id    :list-subscriptions/empty
-    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. The runtime sentinel is present (only the sub-cache query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
+    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP (a real answer), not a blank eval — so it rides isError:false. (rf2-21vvfs: a blank/non-map eval is a DEGRADED read, not emptiness — see the /degraded-blank sibling.)"
+    :fixture/tool  "list-subscriptions"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:ok? true :frame :rf/default :count 0 :subs []}]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :subs []}}}
+
+   {:fixture/id    :list-subscriptions/degraded-blank
+    :fixture/doc   "rf2-21vvfs: a BLANK/non-map eval (the runtime sentinel is present, but the browser tab closed/navigated in the race between the liveness re-check and the sub-cache drain) is a DEGRADED read — NOT an empty listing. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` masking a dead read."
     :fixture/tool  "list-subscriptions"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    nil]]
     :fixture/expect
-    {:isError? false}}
+    {:isError? true
+     :reason  :unexpected-shape}}
 
    ;; ---------- list-streams (streaming-tap diagnostic) -------------------
    {:fixture/id    :list-streams/empty
-    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope. The runtime sentinel is present (only the subscription-info query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
+    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope. GENUINE emptiness is the runtime's OWN `{:ok? true :subs []}` MAP, not a blank eval — so it rides isError:false. (rf2-21vvfs: a blank/non-map eval is a DEGRADED read — see the /degraded-blank sibling.)"
+    :fixture/tool  "list-streams"
+    :fixture/args  {}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:ok? true :subs []}]]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :subs []}}}
+
+   {:fixture/id    :list-streams/degraded-blank
+    :fixture/doc   "rf2-21vvfs: a BLANK/non-map eval on the very tool that diagnoses a dead/quiet stream is a DEGRADED read, not 'zero streams'. It surfaces as :unexpected-shape (isError:true), never a fabricated `{:ok? true :subs []}` reporting a false-clean state."
     :fixture/tool  "list-streams"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    nil]]
     :fixture/expect
-    {:isError? false}}
+    {:isError? true
+     :reason  :unexpected-shape}}
 
    ;; ---------- operating-frame trio --------------------------------------
    ;; The three Tool-Pair §Tool-surface-obligations ops. The runtime

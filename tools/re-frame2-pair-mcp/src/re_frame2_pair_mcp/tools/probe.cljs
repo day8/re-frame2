@@ -907,3 +907,42 @@
                  :build  build-id
                  :hint   blank-hint}
                 error-extras))))))
+
+(defn map-envelope-result
+  "The universal `on-value` projection for a tool whose runtime fn returns
+  a SELF-DESCRIBING `{:ok? bool …}` envelope with NO per-tool `:build`
+  stamp / blank-hint decoration — the lighter sibling of
+  `map-result-or-blank`.
+
+  A ready 1-arity callback (pass it DIRECTLY as `eval-after-runtime!`'s
+  `on-value`, unlike `map-result-or-blank`, which is a BUILDER closing
+  over the per-tool `:build` / blank reason+hint). Routes the universal
+  `:ok? false` ↔ `isError:true` contract three ways:
+
+    - a `:ok? false` MAP ⇒ `(wire/err-text envelope)` — the runtime's own
+      structured refusal (e.g. `:ambiguous-frame`, `:no-such-recording`)
+      forwarded verbatim with `isError:true`, per spec/003-Tool-Catalogue
+      §\"Every `:ok? false` response is `isError: true`\".
+    - a NON-MAP / blank ⇒ `(wire/err-text {:ok? false :reason
+      :unexpected-shape :value v})` — a blank `cljs-eval` result (dropped
+      WebSocket / navigated tab between the liveness re-check and the
+      drain eval) is an honest degraded read, NOT a fabricated
+      empty-success. This is the sibling convention read-dom / read-ui
+      already surface via `map-result-or-blank`.
+    - any other MAP ⇒ `(wire/ok-text v)` — the legitimate answer
+      (including a genuinely-empty `{:ok? true :subs []}`, which is a
+      real MAP so real emptiness is never mislabelled).
+
+  Keeping every failure `isError` is also what keeps it out of the
+  response cache (cache eligibility bypasses `isError` results), so a
+  transient failure on a `:cacheable?` tool (describe-image) can never be
+  cached and mask a later successful read.
+
+  Used by describe-image / record / read-recording / list-streams /
+  list-subscriptions — tools whose runtime fn already speaks the
+  `{:ok? …}` envelope and needs no per-call decoration."
+  [v]
+  (cond
+    (not (map? v))    (wire/err-text {:ok? false :reason :unexpected-shape :value v})
+    (false? (:ok? v)) (wire/err-text v)
+    :else             (wire/ok-text v)))

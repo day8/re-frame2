@@ -408,6 +408,13 @@
 ;; ============================================================================
 
 (rf/reg-event :work/initialise
-  {:doc "Park the parent machine in :idle, ready to go."}
+  {:doc "Bring the :work/flow machine to life in its :idle start state, via
+         the `:rf.machine/start` creation marker — the same eager kick the
+         boot and websocket examples use. :idle is the initial state and has
+         no entry work, so start materialises it cleanly, with an :explicit
+         start-cause. Booting via an ordinary event (e.g. [:reset]) instead
+         lazily first-touches the machine, which flags the :lazy start-cause
+         the Xray [START] badge surfaces — an ordering smell, and out of step
+         with the sibling machine examples."}
   (fn handler-work-initialise [_ _]
-    {:fx [[:dispatch [:work/flow [:reset]]]]}))
+    {:fx [[:dispatch [:work/flow [:rf.machine/start]]]]}))
