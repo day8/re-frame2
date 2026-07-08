@@ -238,6 +238,44 @@ test('fixture path handed to bash is relative + drive-letter-free, and resolves 
   }
 });
 
+// rf2-83jsbh — the publication ns-rename rewrites ONLY the leading `(ns …)`
+// token (by design, to protect docstrings/requires from over-rewrite). So a
+// docstring `(require '[re-frame.adapter.reagent-slim …])` usage example would
+// survive the ns-only rename into the published jar, where that namespace does
+// NOT exist (the slim jar ships its adapter at the canonical
+// `re-frame.adapter.reagent`). CLJS ships source in the jar, so such a stale
+// example is user-visible and a copy-paste hits namespace-not-found. Lock the
+// source rename-safe: NO require form may reference the `-slim` ns — every
+// usage example must require the published `re-frame.adapter.reagent` instead.
+//
+// Scoped to the require-VECTOR form (`[re-frame.adapter.reagent-slim …]`), NOT
+// every `re-frame.adapter.reagent-slim` substring: the `(ns …)` declaration
+// (which the transform rewrites) and any bare qualified-symbol reference such
+// as a diagnostic `'re-frame.adapter.reagent-slim/foo` marker are legitimately
+// distinct concerns and must not trip this rf2-83jsbh gate.
+test('real adapter source is rename-safe: no require form references the -slim ns (rf2-83jsbh)', () => {
+  const realSrc = path.join(
+    IMPL_ROOT, 'adapters', 'reagent-slim', 'src', 're_frame', 'adapter', 'reagent_slim.cljs',
+  );
+  const body = fs.readFileSync(realSrc, 'utf8');
+  // Sanity: the in-tree source declares the slim ns (the transform's anchor).
+  const nsForms = (body.match(/\(ns\s+re-frame\.adapter\.reagent-slim\b/g) || []).length;
+  assert.equal(nsForms, 1, 'the in-tree source must carry exactly one (ns re-frame.adapter.reagent-slim …) declaration');
+  // The defect: a require VECTOR aliasing the slim ns (a docstring usage
+  // example). The adapter never requires ITSELF, so any such form is an
+  // example that would go stale post-publish.
+  const requireVectors = (body.match(/\[\s*re-frame\.adapter\.reagent-slim\b/g) || []).length;
+  assert.equal(
+    requireVectors,
+    0,
+    'no `(require [re-frame.adapter.reagent-slim …])` form may appear in the adapter '
+      + 'source — the ns-only publication rename leaves it pointing at a namespace '
+      + 'that does not exist in the published jar (which ships at '
+      + 're-frame.adapter.reagent); usage examples must require the published ns '
+      + '(rf2-83jsbh)',
+  );
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {
