@@ -872,6 +872,60 @@
       (is (= :internal-error (:code public)))
       (is (some #(= :rf.error/sanitised-on-projection (:operation %)) @traces)))))
 
+(deftest ssr-error-projector-configured-but-unregistered-surfaces-diagnostic
+  (testing "rf2-mlodrn — a frame that configures :ssr {:public-error-id …}
+            naming an UNREGISTERED projector is a recognised-but-unhonourable
+            config: project-error SURFACES a :rf.error/sanitised-on-projection
+            diagnostic (:projection-failure-reason :missing-projector) instead
+            of silently downgrading the projector's intended mapping to the
+            generic 500. Pre-rf2-mlodrn this fell back with NO dev trace and
+            NO always-on record."
+    (let [project-error ssr/project-error
+          ;; A :public-error-id that was NEVER reg-error-projector'd.
+          f             (frame/make-anon-frame-record!
+                          {:platform :server
+                           :ssr {:public-error-id   :myapp/never-registered
+                                 :dev-error-detail? false}})
+          traces        (atom [])
+          _             (rf/register-listener! :trace ::mp (fn [ev] (swap! traces conj ev)))
+          ;; :no-such-handler would have projected to a 404 under a real
+          ;; projector — the misconfiguration silently made it a 500.
+          public        (project-error f {:operation :rf.error/no-such-handler :tags {}})]
+      (rf/unregister-listener! :trace ::mp)
+      ;; The boundary still holds — the fallback is the safe wire shape.
+      (is (= 500 (:status public))
+          "the locked generic-500 fallback still applies (boundary can't be bypassed)")
+      (is (= :internal-error (:code public)))
+      ;; …but the misconfiguration is now OBSERVABLE.
+      (let [diag (some #(when (= :rf.error/sanitised-on-projection (:operation %)) %)
+                       @traces)]
+        (is (some? diag)
+            ":rf.error/sanitised-on-projection fired — the missing configured
+             projector is surfaced, not swallowed")
+        (is (= :missing-projector (get-in diag [:tags :projection-failure-reason]))
+            "the diagnostic carries :projection-failure-reason :missing-projector")
+        (is (= :myapp/never-registered (get-in diag [:tags :projector-id]))
+            "the diagnostic names the unregistered configured id"))))
+
+  (testing "rf2-mlodrn — the plain default-fallback path (NO :public-error-id
+            configured) stays SILENT: with no :ssr config the frame resolves
+            to the built-in default projector, which honours the mapping — so
+            there is no missing-projector diagnostic (the change is surgical
+            to the CONFIGURED-but-unregistered case, not noisy on the default
+            path)."
+    (let [project-error ssr/project-error
+          f             (frame/make-anon-frame-record! {:platform :server})
+          traces        (atom [])
+          _             (rf/register-listener! :trace ::mp2 (fn [ev] (swap! traces conj ev)))
+          public        (project-error f {:operation :rf.error/no-such-handler :tags {}})]
+      (rf/unregister-listener! :trace ::mp2)
+      (is (= 404 (:status public))
+          "the built-in default projector maps :no-such-handler → 404
+           (honoured, not fallen-back)")
+      (is (not-any? #(= :rf.error/sanitised-on-projection (:operation %)) @traces)
+          "no sanitised-on-projection diagnostic on the default path — the
+           default projector is registered, so it is not a missing-projector"))))
+
 ;; ===========================================================================
 ;; rf2-ynjts.13 — default-error-projector-fn pure-unit case-arm coverage.
 ;; The end-to-end tests above drive :no-such-handler → 404 and
