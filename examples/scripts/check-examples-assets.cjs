@@ -380,15 +380,18 @@ function parseSrcset(value) {
   return urls;
 }
 
-// Read a single attribute's value off a tag string, ORDER-INDEPENDENTLY. HTML
-// attribute order is insignificant, so a value must be read positionally by
-// name rather than assuming a fixed attribute order (rf2-cnu7qy). Returns null
-// when the attribute is absent.
+// Read a single attribute's value off a tag string, ORDER-INDEPENDENTLY and
+// regardless of the value's quoting. HTML attribute order is insignificant
+// (rf2-cnu7qy) and HTML5 permits unquoted values (`<script src=main.js>`), so
+// the value form is one of: "double" | 'single' | bare-unquoted. The unquoted
+// form ends at the first whitespace / `>` / quote / `=` (rf2-3dzb6h). Returns
+// null when the attribute is absent.
 function attr(tag, name) {
   const m = tag.match(
-    new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
+    new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>"'=]+))`, 'i'),
   );
-  return m ? (m[2] != null ? m[2] : m[3]) : null;
+  if (!m) return null;
+  return m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : null;
 }
 
 // Extract every ASSET-BEARING reference from an index.html's source, TAGGED
@@ -484,10 +487,14 @@ function extractHtmlRefs(html) {
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !refs.includes(clean)) refs.push(clean);
   };
-  // href="..." / href='...' on <link> (and any element — anchors are
-  // in-page or external and get filtered by isExternalRef downstream).
-  for (const m of html.matchAll(/\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)')/gi)) {
-    push(m[2] != null ? m[2] : m[3]);
+  // href=... / src=... on <link> (and any element — anchors are in-page or
+  // external and get filtered by isExternalRef downstream). Double-quoted,
+  // single-quoted, AND bare unquoted values (`<script src=main.js>`), since
+  // HTML5 permits the unquoted form (rf2-3dzb6h).
+  for (const m of html.matchAll(
+    /\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
+  )) {
+    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
   }
   // srcset / imagesrcset candidate lists (<img>/<source> + preload <link>) —
   // each candidate URL must resolve on disk like a plain src (rf2-arkvq8). The
@@ -498,11 +505,12 @@ function extractHtmlRefs(html) {
     for (const u of parseSrcset(m[2] != null ? m[2] : m[3])) push(u);
   }
   // <video poster="..."> — the poster still resolves on disk like a src
-  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute.
+  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute; the
+  // unquoted alternative mirrors href/src (rf2-3dzb6h).
   for (const m of html.matchAll(
-    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)')/gi,
+    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
   )) {
-    push(m[2] != null ? m[2] : m[3]);
+    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
   }
   // <meta property="og:image" content="..."> — ORDER-INDEPENDENT. HTML
   // attribute order is insignificant, so a `content`-before-`property` meta is
