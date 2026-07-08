@@ -2188,6 +2188,87 @@
           "the committed record is the real cascade, not the suppressed
            empty-buffer boundary"))))
 
+;; ---- no-handler dispatch commits no fake ok epoch (rf2-erczwd) -------------
+;;
+;; A dispatch to an UNREGISTERED event on a LIVE frame early-exits via
+;; `diag/handle-no-handler!` — it never fires `:event/run-start`, but it DOES
+;; emit a `:rf.error/no-such-handler` trace that is frame-stamped AND carries
+;; the cascade scope's `:dispatch-id` (bound by `process-event!`). That trace
+;; buffers into epoch capture, so the buffer is NON-EMPTY at the settle seam.
+;; The prior no-run-start harvest returned the whole buffer, and `settle!`
+;; committed any non-empty harvest — synthesising a misleading `:ok` epoch
+;; (with a fallback `:event-id` derived from the error trace) for a dispatch
+;; that never ran, contradicting the no-run-start / no-epoch invariant. The fix
+;; threads the settling envelope's `:dispatch-id` into the scoped harvest so
+;; the rejection's own trace is DROPPED (not returned), the empty-buffer skip
+;; fires, and no epoch / listener advances.
+
+(deftest no-handler-dispatch-commits-no-epoch
+  (testing "rf2-erczwd — dispatching an UNREGISTERED event on an existing frame
+            records NO epoch and fires NO epoch listener, even though the
+            no-such-handler error trace buffers into epoch capture. The
+            no-run-start / no-epoch invariant holds through the real router."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :real (fn [{:keys [db]} _] {:db {:n 1}}))
+    ;; A real cascade first, so history is non-empty — we then prove the
+    ;; no-handler dispatch does NOT advance it (and does not overwrite it).
+    (rf/dispatch-sync [:real] {:frame :test/main})
+    (let [fired          (atom [])
+          history-before (rf/epoch-history :test/main)]
+      (is (= 1 (count history-before))
+          "the real cascade committed exactly one record")
+      (rf/register-epoch-listener! ::probe (fn [r] (swap! fired conj r)))
+      ;; Dispatch an event with NO registered handler on the LIVE frame.
+      ;; Recovers (`:replaced-with-default`) — no throw — but emits the
+      ;; frame-stamped, dispatch-id-bearing no-such-handler error trace.
+      (rf/dispatch-sync [:no/such-handler 42] {:frame :test/main})
+      (let [history-after (rf/epoch-history :test/main)]
+        (is (= history-before history-after)
+            "epoch history did NOT advance for the no-handler dispatch —
+             no fake :ok epoch committed")
+        (is (= 1 (count history-after))
+            "still exactly one record (the real cascade)")
+        (is (= :real (:event-id (last history-after)))
+            "the last record is still the real cascade, not a synthesised
+             no-such-handler record with a fallback :event-id")
+        (is (empty? @fired)
+            "no epoch listener fired for the rejected dispatch"))
+      (rf/unregister-epoch-listener! ::probe))
+    ;; A subsequent real dispatch STILL commits — proving the suppression is
+    ;; scoped to the rejected dispatch, not a frame-wide disable.
+    (rf/dispatch-sync [:real] {:frame :test/main})
+    (is (= 2 (count (rf/epoch-history :test/main)))
+        "a real cascade after the rejected dispatch commits normally")))
+
+(deftest no-run-start-harvest-scopes-drop-to-settling-dispatch
+  (testing "rf2-erczwd (unit) — harvest-buffer-for-event! given a settling
+            dispatch-id, on a NO-RUN-START buffer, DROPS the settling
+            dispatch's own traces (its error trace) + orphans and RETAINS an
+            unrelated child marker, returning [] so settle! commits nothing."
+    (let [frame   :test/scoped-harvest
+          ;; The rejected dispatch's OWN error trace — carries the settling id,
+          ;; no run-start.
+          own-err {:op-type :error :operation :rf.error/no-such-handler
+                   :tags {:rf.trace/dispatch-id :S :rf.trace/event-id :no/such}}
+          ;; An unrelated child's queue-time marker buffered during an earlier
+          ;; parent's do-fx — carries a DIFFERENT id; must survive for its
+          ;; own settle.
+          child   {:op-type :rf.event :operation :rf.event/dispatched
+                   :tags {:rf.trace/dispatch-id :C :rf.trace/event-id :child}}
+          ;; An orphan (nil dispatch-id) — must be dropped (self-cleaning).
+          orphan  {:op-type :rf.frame :operation :rf.frame/created
+                   :tags {:frame frame}}]
+      (state/buffer-event! frame own-err)
+      (state/buffer-event! frame child)
+      (state/buffer-event! frame orphan)
+      (let [returned (state/harvest-buffer-for-event! frame :S)]
+        (is (= [] returned)
+            "no cascade ran — nothing returned, so settle! commits no fake epoch")
+        (is (= [child] (state/buffer-for frame))
+            "the unrelated child marker is RETAINED; the settling dispatch's own
+             error trace + the orphan are dropped"))
+      (state/drop-frame-buffer! frame))))
+
 ;; ---- recording is gated on debug-enabled? ---------------------------------
 
 (deftest configure-roundtrip
