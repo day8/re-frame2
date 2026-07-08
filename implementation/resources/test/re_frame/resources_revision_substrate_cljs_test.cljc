@@ -300,3 +300,112 @@
         "recorded nil ~ 0 vs current 0 — no conflict")
     (is (true? (state/revision-conflict? {:revision 1} nil))
         "recorded nil ~ 0 vs current 1 — conflict")))
+
+;; ---- owner-liveness writes: the NO-OP GATE (rf2-k49jec / rf2-cxwuhl) --------
+;;
+;; THE GATE (state.cljc §attach-owner/detach-owner): an owner attach/release is
+;; an authoritative durable entry write a later optimistic rollback could
+;; clobber (`restore-before` overwrites `:active-owners` wholesale), so it bumps
+;; `:revision` — BUT ONLY when the `:active-owners` set ACTUALLY changes. A
+;; re-attach of an already-present owner, or a release of an absent owner, is a
+;; no-op: no write, nothing a rollback could clobber, so NO bump. The other
+;; bump sites (entry-succeeded / patch / populate / failure settles) are all
+;; unit-tested above; attach-owner/detach-owner had ZERO direct coverage and
+;; optimistic_settle §6 exercises only the POSITIVE path (a real mid-flight
+;; owner change → conflict caught). These tests pin the NEGATIVE gate directly.
+;;
+;; WHY THE GATE MATTERS: without it, every re-ensure that re-attaches a still-
+;; present owner would spuriously bump `:revision`, so any in-flight optimistic
+;; mutation would see a PHANTOM conflict at settle → an unnecessary
+;; `:invalidate`/refetch on every unrelated re-ensure. A regression removing the
+;; gate (an unconditional bump) is SILENT — every other test still passes. These
+;; assertions are the tripwire.
+
+(deftest attach-owner-bumps-revision-only-when-a-new-owner-lands
+  (testing "attaching a NEW owner adds it to :active-owners AND bumps :revision
+            (an authoritative durable write a rollback could clobber)"
+    (let [e0 (state/empty-entry :conduit/article)]
+      (is (= 0 (:revision e0)))
+      (let [e1 (state/attach-owner e0 :owner/a)]
+        (is (contains? (:active-owners e1) :owner/a) "the new owner is in the set")
+        (is (= 1 (:revision e1)) "a new owner bumps :revision 0 -> 1")
+        (testing "attaching a SECOND distinct owner also lands + bumps"
+          (let [e2 (state/attach-owner e1 :owner/b)]
+            (is (= #{:owner/a :owner/b} (:active-owners e2)) "set gains the 2nd owner")
+            (is (= 2 (:revision e2)) "the 2nd distinct owner bumps 1 -> 2"))))))
+  (testing "RE-ATTACHING an already-present owner is a NO-OP — the set is
+            unchanged and :revision is UNMOVED (the load-bearing gate: no
+            phantom conflict on every unrelated re-ensure)"
+    (let [e1 (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          e2 (state/attach-owner e1 :owner/a)]
+      (is (= (:active-owners e1) (:active-owners e2)) ":active-owners unchanged")
+      (is (= 1 (:revision e2))
+          ":revision is NOT bumped by a re-attach of a present owner")
+      (is (identical? (:active-owners e1) (:active-owners e2))
+          "the re-attach returns the SAME set identity — genuinely no write")))
+  (testing "a nil owner is a no-op — no write, no bump (the (some? owner) gate)"
+    (let [e1 (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          e2 (state/attach-owner e1 nil)]
+      (is (= e1 e2) "nil owner returns the entry unchanged")
+      (is (= 1 (:revision e2)) ":revision is UNMOVED by a nil-owner attach"))))
+
+(deftest detach-owner-bumps-revision-only-when-the-owner-was-present
+  (testing "detaching a PRESENT owner drops it from :active-owners AND bumps
+            :revision (release is an authoritative durable write)"
+    (let [e1 (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          e2 (state/detach-owner e1 :owner/a)]
+      (is (not (contains? (:active-owners e2) :owner/a)) "the owner is gone")
+      (is (= 2 (:revision e2)) "the release bumps :revision 1 -> 2")))
+  (testing "detaching an ABSENT owner is a NO-OP — the set is unchanged and
+            :revision is UNMOVED (the release-side gate)"
+    (let [e1 (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          e2 (state/detach-owner e1 :owner/absent)]
+      (is (= (:active-owners e1) (:active-owners e2)) ":active-owners unchanged")
+      (is (= 1 (:revision e2))
+          ":revision is NOT bumped by a release of an owner that was never present")))
+  (testing "detaching from an entry with NO :active-owners key is a no-op"
+    (let [e0 (state/empty-entry :conduit/article)]
+      (is (not (contains? (:active-owners e0) :owner/a)) "no owner set yet")
+      (let [e1 (state/detach-owner e0 :owner/a)]
+        (is (= 0 (:revision e1)) "the release of an absent owner makes no write, no bump"))))
+  (testing "a nil entry is returned unchanged (the (and entry …) gate)"
+    (is (nil? (state/detach-owner nil :owner/a))
+        "detach-owner of nil returns nil")))
+
+(deftest owner-gate-drives-the-optimistic-conflict-check-correctly
+  (testing "THE WHY (rf2-k49jec): a re-attach of a present owner leaves
+            :revision UNMOVED, so a snapshot recorded before it sees NO conflict
+            at settle — no PHANTOM optimistic-rollback conflict / spurious
+            invalidate on an unrelated re-ensure"
+    (let [attached (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          recorded (state/entry-revision attached)      ;; snapshot the apply revision
+          re-ens   (state/attach-owner attached :owner/a)]   ;; a re-ensure re-attaches
+      (is (= recorded (state/entry-revision re-ens))
+          "the no-op re-attach did not move the write identity")
+      (is (false? (state/revision-conflict? re-ens recorded))
+          "so the settle conflict check sees NO conflict — the gate prevents the
+           phantom conflict that an unconditional bump would manufacture")))
+  (testing "conversely a GENUINE mid-flight owner change DOES bump, so it is
+            visible to the conflict check (the gate does not suppress real
+            writes — the departed/arrived lease is protected)"
+    (let [attached (state/attach-owner (state/empty-entry :conduit/article) :owner/a)
+          recorded (state/entry-revision attached)
+          ;; a real mid-flight change: a NEW owner arrives while the mutation
+          ;; is in flight — an authoritative write a rollback would clobber.
+          changed  (state/attach-owner attached :owner/b)]
+      (is (= (inc recorded) (state/entry-revision changed))
+          "the genuine new-owner attach bumped past the snapshot")
+      (is (true? (state/revision-conflict? changed recorded))
+          "so the settle detects the conflict and :invalidates rather than
+           blindly restoring the stale :before (which would DROP the new lease)"))
+    (testing "and the RELEASE side is symmetric — a present-owner release bumps
+              and is detected"
+      (let [with-two (-> (state/empty-entry :conduit/article)
+                         (state/attach-owner :owner/a)
+                         (state/attach-owner :owner/b))
+            recorded (state/entry-revision with-two)
+            released (state/detach-owner with-two :owner/a)]
+        (is (= (inc recorded) (state/entry-revision released))
+            "the present-owner release bumped past the snapshot")
+        (is (true? (state/revision-conflict? released recorded))
+            "so a rollback will NOT resurrect the departed owner")))))
