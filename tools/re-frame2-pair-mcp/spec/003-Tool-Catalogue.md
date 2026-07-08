@@ -3525,10 +3525,17 @@ see what each frame actually resolves. (EP-0026 retired image-declared host
 capabilities, so there is no longer a missing-**capability** discriminator on
 this read.)
 
-**Error envelopes**:
+**Error envelopes** (all `isError: true`, per the §"Every `:ok? false`
+response is `isError: true`" rule — rf2-01jwrq):
 
 - `{:ok? false :reason :ambiguous-frame …}` — multi-frame session, no `frame` and no session pin.
 - `{:ok? false :reason :describe-image-failed :message "..."}` — runtime threw (including `:rf.error/frame-no-generation` when an explicit `frame` names no live frame carrying a generation).
+- `{:ok? false :reason :unexpected-shape :value …}` — the runtime eval came back blank/non-map (a degraded read — dropped WebSocket / navigated tab).
+
+Because `describe-image` is `:cacheable?` and the response cache bypasses
+`isError` results, keeping the `:ambiguous-frame` refusal `isError: true`
+also keeps it OUT of the cache — a transient ambiguous-frame can never be
+cached and mask a later valid read.
 
 **Drill-down**: `describe-image` is the per-frame overview; drill a specific
 `(kind, id)` with `handler-meta {:frame … :kind … :id …}` for the full
