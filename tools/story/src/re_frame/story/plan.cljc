@@ -121,6 +121,7 @@
             [re-frame.story.registrar    :as registrar]
             [re-frame.story.requirements :as requirements]
             [re-frame.story.malli-schema :as msu]
+            [re-frame.story.tags         :as tags]
             [re-frame.story.play.runner  :as runner]
             [re-frame.registrar          :as framework-registrar]))
 
@@ -259,10 +260,13 @@
     (args/deep-merge parent child)
     (if (some? child) child parent)))
 
-(defn- merge-tags
-  "Tags are additive through `:extends` (§Merge rules — append/union)."
-  [parent child]
-  (into (set parent) (set child)))
+;; Tags are additive through `:extends` (§Merge rules — append/union), then
+;; resolved through the SHARED `re-frame.story.tags` resolver (`:!x` removal
+;; markers stripped + their base subtracted, story fallback when the chain
+;; declares none). `compile-body` unions `:tags` across the resolved `bodies`
+;; and hands the union to `tags/resolve-markers` so the plan's `:tags` is the
+;; EFFECTIVE set — identical to what `variants-with-tags`, docs chips, and the
+;; sidebar filter compute through the same resolver.
 
 ;; ============================================================================
 ;; Script normalization
@@ -1098,6 +1102,15 @@
   [story-id]
   (:decorators (registrar/handler-meta :story story-id)))
 
+(defn- default-story-lookup
+  "Default parent-story-body lookup — reads the Story side-table `:story`
+  kind. Feeds the shared tag resolver's story-fallback layer (a variant that
+  declares no tags on its `:extends` chain inherits the parent story's
+  `:tags`). Production bundles elide the side-table (nil → no story tags);
+  pure tests thread an explicit `:story-lookup`."
+  [story-id]
+  (registrar/handler-meta :story story-id))
+
 (defn expand-checks
   "Expand a plan's `:expect :checks` ids into the
   `{check-id [assertion-atom …]}` map the unified run-result groups its
@@ -1151,11 +1164,16 @@
   - `:story-decorators` — a 1-arg fn `(story-id) → decorators-vec` OR a
     `{story-id → decorators-vec}` map resolving the parent story's
     `:decorators` slot (folded between globals and the variant chain).
-    Defaults to the Story side-table `:story` kind."
+    Defaults to the Story side-table `:story` kind.
+  - `:story-lookup` — a 1-arg fn `(story-id) → story-body` OR a
+    `{story-id → story-body}` map resolving the parent story body, whose
+    `:tags` feed the shared tag resolver's story-fallback layer (used only
+    when the `:extends` chain declares no tags). Defaults to the Story
+    side-table `:story` kind."
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup
-                           global-decorators story-decorators
+                           global-decorators story-decorators story-lookup
                            run-args] :as _opts}]
   (let [view-lookup  (coerce-kind-lookup :view-lookup view-lookup default-view-lookup)
         sub-lookup   (coerce-kind-lookup :sub-lookup sub-lookup default-sub-lookup)
@@ -1163,6 +1181,8 @@
                                          default-fragment-lookup)
         chk-lookup   (coerce-kind-lookup :check-lookup check-lookup
                                          default-check-lookup)
+        story-lookup (coerce-kind-lookup :story-lookup story-lookup
+                                         default-story-lookup)
         ;; ---- ambient decorator layers ----
         ;; The full decorator stack folded into `[:world :decorators]` is
         ;; `(concat globals story variant-chain)` — the SAME set
@@ -1530,6 +1550,19 @@
                                   story-decos
                                   frag-decorators
                                   (or (:decorators ctx) [])))
+        ;; ---- effective tags (shared resolver) ----
+        ;; Union `:tags` across the resolved `:extends` chain (`bodies` is
+        ;; root→child and includes an inline body correctly, unlike a re-walk
+        ;; via `lookup`), fall back to the parent story's `:tags` when the
+        ;; chain declares none, then resolve `:!x` removal markers through the
+        ;; shared `re-frame.story.tags` resolver. So the plan's `:tags` is the
+        ;; EFFECTIVE set — a `:!dev` cancels an inherited `:dev` and never
+        ;; leaks itself, matching what every other tag consumer computes.
+        chain-tags   (reduce (fn [acc b] (into acc (:tags b))) #{} bodies)
+        eff-tags     (tags/resolve-markers
+                       (if (seq chain-tags)
+                         chain-tags
+                         (set (:tags (when sid (story-lookup sid))))))
         world        (cond-> {:setup          setup
                               :args           arg-map
                               :argtypes       argtypes
@@ -1670,8 +1703,7 @@
                       :assertions   assertions
                       :required-runner required
                       :platforms    platforms
-                      :tags         (reduce (fn [acc layer] (merge-tags acc (:tags layer)))
-                                            #{} bodies)
+                      :tags         eff-tags
                       :source       source}]
     (cond-> {:variant/id      id
              :source-chain    (mapv :variant/id chain)
@@ -1679,8 +1711,7 @@
              :script          script*
              :expect          (normalize-expect checks assertions)
              :required-runner required
-             :tags            (reduce (fn [acc layer] (merge-tags acc (:tags layer)))
-                                      #{} bodies)
+             :tags            eff-tags
              :explain         explain}
       source (assoc :source source)
       ;; The parent story id (rf2-xk8oz4). `plan-hash-input-keys` includes
@@ -1769,7 +1800,7 @@
          compile-opts (select-keys opts [:view-lookup :validator-fns :sub-lookup
                                          :fragment-lookup :check-lookup
                                          :global-decorators :story-decorators
-                                         :run-args])]
+                                         :story-lookup :run-args])]
      (cond
        (keyword? target)
        (if-let [body (lookup-fn target)]

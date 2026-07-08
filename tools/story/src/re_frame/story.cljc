@@ -546,8 +546,11 @@
   (query/variants-by-story))
 
 (defn variants-with-tags
-  "Per `002-Runtime.md` §Programmatic API — return the set of variant ids whose `:tags`
-  intersects `query-tags`. The assertions/play surface leans on this;
+  "Per `002-Runtime.md` §Programmatic API — return the set of variant ids
+  whose EFFECTIVE `:tags` intersect `query-tags`. Effective tags apply
+  `:extends`/parent-story inheritance and `:!x` removal-marker resolution
+  (the shared `re-frame.story.tags` resolver), so an inherited tag matches
+  and a removed one does not. The assertions/play surface leans on this;
   the render shell leans on this to compose the sidebar tree."
   [query-tags]
   (query/variants-with-tags query-tags))

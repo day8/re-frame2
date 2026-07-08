@@ -100,8 +100,12 @@
   callers that don't have an axis-index handy (tests, downstream tools)
   work; the 3-arity is the facet-aware form the sidebar uses.
 
-  The `:!`-prefix removal syntax is resolved at registration time in
-  `re-frame.story.registrar` via `validate-tag-membership!`, not here."
+  This predicate matches on the variant body's `:tags` VERBATIM — the
+  `:extends`/story inheritance + `:!`-prefix removal-marker resolution is
+  applied UPSTREAM by the shared `re-frame.story.tags` resolver (the sidebar
+  reads `registry-snapshot`, which projects effective tags onto every
+  variant body), so the filter never sees a `:!x` marker and inherited tags
+  match here as expected."
   ([variant-body tag-filter]
    (or (empty? tag-filter)
        (let [tset (or (:tags variant-body) #{})]

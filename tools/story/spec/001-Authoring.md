@@ -1004,6 +1004,30 @@ Query the default-excluded set via:
 tag set when included in a child variant's `:tags`. Per Phase 1 §2.1
 Storybook-borrowed ergonomic.
 
+#### Effective tags — the shared resolver
+
+Every tag consumer (plan compilation, `variants-with-tags`, the docs /
+sidebar tag chips, the sidebar tag filter, and testable-variant selection)
+reads a variant's **effective** tag set, computed by the single resolver in
+`re-frame.story.tags`. It applies three steps, in order:
+
+1. **Inheritance.** A variant's tags are the UNION of `:tags` across its
+   `:extends` chain (root→child, additive). When neither the variant nor any
+   `:extends` ancestor declares `:tags`, they FALL BACK to the parent story's
+   `:tags` (story tags are a default, not an addition — a variant that
+   declares its own tags does not union with the story).
+2. **Marker removal.** A `:!x` removal marker is dropped from the output — it
+   is authoring syntax, never a visible or queryable tag.
+3. **Base subtraction.** Each `:!x` marker subtracts its base `:x`, so an
+   inherited or unioned `:dev` is cancelled by `:!dev`.
+
+So a child that `:extends` a parent tagged `#{:dev}` and declares `#{:!dev}`
+has an effective set of `#{}`: it does not surface a `:dev` chip, is excluded
+from `(variants-with-tags #{:dev})`, and never shows `:!dev` as a chip or a
+filter facet. The resolver is the single authority — the raw authored `:tags`
+(with markers and unresolved inheritance) live only in the registration
+side-table; every downstream surface reads the effective set.
+
 ### `(reg-mode id metadata)`
 
 ```clojure

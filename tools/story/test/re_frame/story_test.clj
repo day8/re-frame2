@@ -668,6 +668,26 @@
     (is (= #{:story.tag/a :story.tag/c} (story/variants-with-tags #{:test})))
     (is (= #{:story.tag/a :story.tag/b} (story/variants-with-tags #{:docs :dev})))))
 
+(deftest variants-with-tags-excludes-marker-removed-inherited-tag
+  (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
+            declares :!dev is EXCLUDED from the #{:dev} query (the inherited
+            :dev was cancelled), while a sibling that keeps :dev is returned"
+    (story/reg-variant :story.rm/base  {:events [] :tags #{:dev}})
+    (story/reg-variant :story.rm/child {:events [] :extends :story.rm/base :tags #{:!dev}})
+    (story/reg-variant :story.rm/keeps {:events [] :tags #{:dev}})
+    (let [hits (story/variants-with-tags #{:dev})]
+      (is (contains? hits :story.rm/base))
+      (is (contains? hits :story.rm/keeps))
+      (is (not (contains? hits :story.rm/child))
+          ":!dev removed the inherited :dev, so the child is not a #{:dev} hit"))))
+
+(deftest variants-with-tags-matches-inherited-story-tag
+  (testing "rf2-n0vmq2 — a variant that declares no tags inherits its parent
+            story's :tags and is returned for a query on the inherited tag"
+    (story/reg-story   :story.inh {:tags #{:dev}})
+    (story/reg-variant :story.inh/v {:events []})
+    (is (contains? (story/variants-with-tags #{:dev}) :story.inh/v))))
+
 (deftest all-kinds-with-counts-reflects-state
   (testing "all-kinds-with-counts mirrors the side-table"
     (story/reg-story   :story.x   {:doc "x"})

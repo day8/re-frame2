@@ -699,6 +699,14 @@
     (story/reg-variant :story.t2/a {:events []})
     (is (= [:dev :docs] (docs/variant-tags :story.t2/a)))))
 
+(deftest docs-variant-tags-resolves-removal-marker
+  (testing "rf2-n0vmq2 — a child that :extends a :dev-tagged parent and
+            declares :!dev shows NO :dev and NO :!dev chip (effective set)"
+    (story/reg-variant :story.tm/base  {:tags #{:dev :test} :events []})
+    (story/reg-variant :story.tm/child {:extends :story.tm/base :tags #{:!dev} :events []})
+    (is (= [:test] (docs/variant-tags :story.tm/child)))
+    (is (not (some #{:dev :!dev} (docs/variant-tags :story.tm/child))))))
+
 (deftest docs-args-rows-pulls-doc-from-argtypes
   (testing "args-rows surfaces :doc from the variant's :argtypes entry"
     (story/reg-variant :story.a/x

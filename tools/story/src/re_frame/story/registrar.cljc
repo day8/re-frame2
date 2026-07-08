@@ -70,7 +70,8 @@
   (:require [clojure.string           :as str]
             [malli.core               :as m]
             [re-frame.story.late-bind :as late-bind]
-            [re-frame.story.schemas   :as schemas]))
+            [re-frame.story.schemas   :as schemas]
+            [re-frame.story.tags      :as tags]))
 
 ;; ---- source-coord plumbing ------------------------------------------------
 ;;
@@ -626,16 +627,27 @@
   (atom {:tick -1 :by-query {}}))
 
 (defn- compute-variants-with-tags [qs]
-  (->> (registrations :variant)
-       (filter (fn [[_ body]]
-                 (let [tset (:tags body #{})]
-                   (some #(contains? tset %) qs))))
-       (map first)
-       set))
+  ;; Match against each variant's EFFECTIVE tag set (the shared
+  ;; `re-frame.story.tags` resolver — story/extends inheritance + `:!x`
+  ;; marker resolution), NOT the raw child `:tags`. So a variant matches a
+  ;; tag it inherits, and a `:!x` marker that cancels an inherited tag
+  ;; excludes it (a child that removed `:dev` with `:!dev` is NOT returned
+  ;; for the `#{:dev}` query, and `:!dev` is never itself a queryable tag).
+  (let [variants (registrations :variant)
+        lookups  {:variant variants :story (registrations :story)}]
+    (->> variants
+         (filter (fn [[vid _body]]
+                   (let [tset (tags/effective-tags vid lookups)]
+                     (some #(contains? tset %) qs))))
+         (map first)
+         set)))
 
 (defn variants-with-tags
-  "Return the variant ids whose `:tags` set intersects `query-tags`. Per
-  `002-Runtime.md` §Programmatic API — the public `variants-with-tags` wraps this.
+  "Return the variant ids whose EFFECTIVE tag set intersects `query-tags`.
+  Per `002-Runtime.md` §Programmatic API — the public `variants-with-tags`
+  wraps this. The effective set is resolved through the shared
+  `re-frame.story.tags` resolver (story/extends inheritance + `:!x` removal
+  markers), so an inherited tag matches and a removed one does not.
 
   Memoised on the registrar mutation-tick: repeated calls
   with the same query between two registrar writes return the same
