@@ -48,7 +48,7 @@
        unmatched URL emits a drain-time `:rf.error/no-such-handler`
        (`:kind :route`), buffered by the always-on
        `error-emit-projection-listener`, projected to 404 by
-       `ssr/get-response` (the read at `ring.clj:343`). Asserted on the
+       `ssr/get-response` (the single `get-response` read in `ssr-handler`). Asserted on the
        wire (Jetty + `java.net.http`) AND via a direct in-process
        handler call — the 404 is the DISCRIMINATING status that proves
        the routing projector arm rode the wire, not the generic 500
@@ -155,7 +155,7 @@
 ;; `:rf.error/no-such-handler` (`:kind :route`) tagged with that frame —
 ;; one of the exact emit sites rf2-7d30s audited. The always-on
 ;; `error-emit-projection-listener` buffers it; `ssr/get-response` (the
-;; read at ring.clj:343, BEFORE render) flushes the buffer through the
+;; read in `ssr-handler`, BEFORE render) flushes the buffer through the
 ;; default projector, which maps `:no-such-handler` → 404, and stamps it
 ;; onto the response accumulator. `build-full-response` then materialises
 ;; that 404 onto the Ring response status. 404 (not the generic 500) is
