@@ -24,10 +24,10 @@
  *    (run-adapter-smokes.cjs).
  * 5. Always tears the server down.
  *
- * Build list, mount paths, and HTML sources are declared in
- * ADAPTER_SMOKES below. Adding a new smoke: append an entry here ONLY
- * when a matching spec.cjs exists under ADAPTER_SMOKE_SPEC_ROOTS; never
- * stage a surface that nothing tests.
+ * Build list, mount paths, and HTML sources come from the ADAPTER_SMOKES
+ * set declared in adapter-smoke-filter.cjs (imported above). Adding a new
+ * smoke: add the adapter name there ONLY when a matching spec.cjs exists
+ * under ADAPTER_SMOKE_SPEC_ROOTS; never stage a surface that nothing tests.
  *
  * Cross-platform: compile shadow-cljs shell-free by resolving its JS
  * entry-point and spawning it under THIS node binary (process.execPath),
