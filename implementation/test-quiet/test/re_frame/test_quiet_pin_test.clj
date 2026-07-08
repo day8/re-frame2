@@ -18,10 +18,16 @@
   immediately fails this pin with the captured stdout in the
   assertion message so triage is one-glance.
 
-  Loaded by every artefact's `:test` alias via the
-  `day8/re-frame2-test-quiet` `:local/root` extra-dep, so the pin
-  runs once per artefact-test invocation and surfaces creep
-  artefact-by-artefact rather than at end-of-build."
+  Runs ONLY under test-quiet's OWN `:test` alias — NOT once per
+  dependent artefact.  A `:local/root` dep exposes only the
+  dependency's top-level `:paths` (here `[src]`); these pin namespaces
+  live under `test/` (the `:test` alias's `:extra-paths`), which a
+  `:local/root` never transitively exposes, so a dependent artefact's
+  `:test` classpath carries `.../test-quiet/src` but never
+  `.../test-quiet/test` — cognitect's test-runner cannot discover this
+  ns from another artefact's suite.  The alias is wired into the JVM
+  gate by `scripts/test-jvm-implementation.sh` and the `jvm-test-quiet`
+  CI job (`.github/workflows/test.yml`, added by rf2-jg1ag2)."
   (:require [clojure.test :refer [deftest is testing run-tests]]
             [clojure.string :as str]
             [re-frame.test-quiet]
