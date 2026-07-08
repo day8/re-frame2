@@ -516,6 +516,86 @@
           (is (false? (machine-has-tag? f :websocket/failed)))
           (is (nil? (socket-id-of s))))))))
 
+;; ----------------------------------------------------------------------------
+;; ADVERSARIAL / NEGATIVE — WebSocket lifecycle guards + in-flight/queued
+;; correlation (rf2-3cgvt7 / rf2-r1rkvb / rf2-ryt25d)
+;; ----------------------------------------------------------------------------
+
+(defn- stale-lifecycle-events-dropped-test []
+  ;; rf2-3cgvt7 — the `:current-socket?` epoch guard now covers the LIFECYCLE
+  ;; transitions too (:ws/opened / :ws/auth-ok / :ws/auth-failed / :ws/closed),
+  ;; not just :ws/received. The most dangerous straggler is a stale :ws/closed:
+  ;; unguarded, a late close from a socket we've already replaced would tear
+  ;; the LIVE connection down. Prove it's dropped, and that a genuine close
+  ;; still passes.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        (rf/dispatch-sync [:ws/connection
+                           [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                          {:frame f})
+        (is (true? (machine-has-tag? f :websocket/connected)))
+        (let [s0       (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+              live-id  (socket-id-of s0)
+              stale-id (str "stale-" (random-uuid))
+              retries0 (get-in s0 [:data :retries])]
+          (is (not= stale-id live-id))
+          ;; A stale :ws/closed must NOT drop us to :reconnecting.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/closed {:source-socket-id stale-id :code 1006}]]
+                            {:frame f})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (true? (machine-has-tag? f :websocket/connected))
+                "stale :ws/closed dropped by :current-socket? — still connected")
+            (is (= live-id (socket-id-of s))
+                "the live socket survived the stale close")
+            (is (= retries0 (get-in s [:data :retries]))
+                "no retry bump from a stale close"))
+          ;; The LIVE :ws/closed (correct source) still passes the guard.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/closed {:source-socket-id live-id :code 1006}]]
+                            {:frame f})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (= :reconnecting (:state s))
+                "live :ws/closed passed the guard and dropped to :reconnecting")
+            (is (= (inc retries0) (get-in s [:data :retries]))
+                "the retry counter bumped on the real drop")))))))
+
+(defn- stale-auth-events-guarded-test []
+  ;; rf2-3cgvt7 — sync-mode delivery races through :authenticating inside a
+  ;; single dispatch, so the auth-outcome guards can't be pinned by parking
+  ;; the machine there (and an async park would strand a real `setTimeout` —
+  ;; the documented flake this file avoids). Verify them deterministically:
+  ;;   (1) the guard fn — the SAME `:current-socket?` the close test exercises
+  ;;       end-to-end — rejects a stale-sourced auth event and admits a live
+  ;;       one, and
+  ;;   (2) the auth (and opened/closed) transitions actually CARRY that guard.
+  (let [guard (get-in ws.connection/connection-machine [:guards :current-socket?])
+        live  "socket-live"
+        data  {:rf/spawned {[:active] live}}]
+    (is (true?  (boolean (guard {:data  data
+                                 :event [:ws/auth-ok {:source-socket-id live}]})))
+        "live-sourced :ws/auth-ok is admitted")
+    (is (false? (boolean (guard {:data  data
+                                 :event [:ws/auth-failed {:source-socket-id "socket-old"}]})))
+        "stale-sourced :ws/auth-failed is rejected")
+    (is (false? (boolean (guard {:data  {}    ;; socket torn down: no :rf/spawned
+                                 :event [:ws/auth-ok {:source-socket-id live}]})))
+        "with no live socket, even a matching id is rejected (nil epoch)"))
+  (let [m ws.connection/connection-machine]
+    (is (= :current-socket?
+           (get-in m [:states :active :states :connecting :on :ws/opened :guard]))
+        ":ws/opened is epoch-guarded")
+    (is (= :current-socket?
+           (get-in m [:states :active :states :authenticating :on :ws/auth-ok :guard]))
+        ":ws/auth-ok is epoch-guarded")
+    (is (= :current-socket?
+           (get-in m [:states :active :states :authenticating :on :ws/auth-failed :guard]))
+        ":ws/auth-failed is epoch-guarded")
+    (is (= :current-socket?
+           (get-in m [:states :active :on :ws/closed :guard]))
+        ":ws/closed is epoch-guarded")))
+
 ;; ============================================================================
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS
 ;; ============================================================================
@@ -718,6 +798,17 @@
 (deftest websocket-disconnect-cleanly
   (testing "clean :ws/disconnect — :connected → :disconnected, socket-id cleared"
     (disconnect-cleanly-test)))
+
+(deftest websocket-stale-lifecycle-events-dropped
+  (testing "rf2-3cgvt7 — a stale :ws/closed from a replaced socket is dropped
+            by :current-socket? (live connection survives); the real close passes"
+    (stale-lifecycle-events-dropped-test)))
+
+(deftest websocket-stale-auth-events-guarded
+  (testing "rf2-3cgvt7 — the :current-socket? guard rejects stale-sourced auth
+            events, and :ws/opened / :ws/auth-ok / :ws/auth-failed / :ws/closed
+            all carry it"
+    (stale-auth-events-guarded-test)))
 
 (deftest websocket-request-reply-correlation
   (testing "request-reply correlation — :in-flight slot fills then clears on reply"
