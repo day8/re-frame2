@@ -341,7 +341,7 @@
     (testing "a region's event-nodes are folded in under that region"
       ;; audio has muted--unmute-->playing + playing--mute-->muted = 2 events
       (let [audio-rid (layout/region-node-id :audio)
-            ev-ids (filter #(str/starts-with? % "event__")
+            ev-ids (filter #(str/starts-with? % "__rf2_event_")
                            (get desc audio-rid))]
         (is (= 2 (count ev-ids)))))))
 
@@ -382,7 +382,7 @@
     (testing "intra-region children TRANSPOSE (a vertical stack becomes a row)"
       ;; original audio children: same x (20), increasing y → a column.
       ;; after transpose: same y, increasing x → a row.
-      (let [audio-child-ids (filter #(not (str/starts-with? % "event__"))
+      (let [audio-child-ids (filter #(not (str/starts-with? % "__rf2_event_"))
                                     (get desc audio-rid))
             child-positions (map #(get np %) audio-child-ids)
             xs (map :x child-positions)
@@ -456,10 +456,10 @@
         ;; consecutive states (the +0.5 inter-rank events-as-nodes shape). The
         ;; vertical pitch (108px) is sized for the heights the bug inherits.
         state-ids  (fn [rid] (->> (get desc rid)
-                                  (remove #(str/starts-with? % "event__"))
+                                  (remove #(str/starts-with? % "__rf2_event_"))
                                   sort))
         event-ids  (fn [rid] (->> (get desc rid)
-                                  (filter #(str/starts-with? % "event__"))
+                                  (filter #(str/starts-with? % "__rf2_event_"))
                                   sort))
         region-cols
         (fn [rid x0]

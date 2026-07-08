@@ -1054,7 +1054,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (let [start-id (canonical-edge-id idle-loading-done [:idle] [:loading] :start)
-            fired-ev-id (str "event__" start-id)]
+            fired-ev-id (projection/event-node-id {:id start-id})]
         (with-mounted-chart
           {:machine-id     :test/flow
            :definition     idle-loading-done
@@ -1124,7 +1124,7 @@
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (let [close-id (canonical-edge-id guarded-door-machine [:open] [:closed] :door/close)
-            blocked-ev-id (str "event__" close-id)]
+            blocked-ev-id (projection/event-node-id {:id close-id})]
         (with-mounted-chart
           {:machine-id     :test/door
            :definition     guarded-door-machine
