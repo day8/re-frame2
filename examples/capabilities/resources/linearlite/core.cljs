@@ -355,9 +355,13 @@
           url       (str (:url req))
           body      (:body req)
           write?    (not= method :get)
-          ;; The fx context carries the envelope frame as `:frame`. Read the
-          ;; fail-next-write flag off that frame's runtime db.
-          db        (:rf.db/runtime (rf/frame-state-value (:frame frame-ctx)))
+          ;; The fx context carries the envelope frame as `:frame`. The
+          ;; `:fail-next-write?` toggle is an ordinary app-db slice (written by
+          ;; `:linearlite/set-fail-next-write`, a plain db-in/db-out handler), so
+          ;; read it off the frame's APP-db partition (`:rf.db/app`). Reading
+          ;; `:rf.db/runtime` here — where the flag never lives — is why the
+          ;; simulated rollback never fired.
+          db        (:rf.db/app (rf/frame-state-value (:frame frame-ctx)))
           fail?     (and write? (boolean (:fail-next-write? db)))]
       (if fail?
         ;; Armed: answer the WRITE with a 503 so the optimistic apply rolls back.
