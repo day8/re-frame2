@@ -252,16 +252,29 @@
 (defn wrap-element-fns
   "Production-branch co-location: rewrite the `slot-key` map's
   `{<id> <fn-or-ref>}` entries to `{<id> {:fn <fn-or-ref>}}`, dropping
-  every debug slot. A keyword-reference value (`{<id> :other-id}`) is
-  preserved verbatim — `:fn` would be a misnomer for an indirection, and
-  the transition engine's `chase-ref` follows the bare keyword. No-op
-  when the slot is absent or not a map. Returns the updated spec.
+  every debug slot. Three value shapes (per `re-frame.machines.cofx-attach`
+  §entry-map shape helpers — bare fn / named-entry map / keyword ref):
+
+    - a bare fn → wrapped as `{:fn <fn>}`;
+    - an already-shaped named-entry MAP (`{:rf.cofx/requires [...]
+      :fn (fn …)}` — the named-cofx form a user authors directly) →
+      preserved VERBATIM, NOT re-wrapped under a fresh `:fn`. Re-wrapping
+      would nest `:rf.cofx/requires` one level down, emptying the
+      cofx-ensure index and resolving the guard/action `:fn` to a map
+      rather than the fn (rf2-ful212). A user-authored entry-map carries
+      no debug slots in production (those are added only by the dev arm's
+      [[collocate-element-source]]), so there is nothing to drop;
+    - a keyword-reference value (`{<id> :other-id}`) → preserved verbatim
+      (`:fn` would be a misnomer for an indirection, and the transition
+      engine's `chase-ref` follows the bare keyword).
+
+  No-op when the slot is absent or not a map. Returns the updated spec.
 
   This is the `(else)` arm of the reg-machine macro's
   `(if interop/debug-enabled? <collocate> <wrap>)` gate — it references
   NO source literals, so under `:advanced` + `goog.DEBUG=false` the
   whole dev arm (with its coord maps + `pr-str` source strings) DCEs and
-  only `{:fn <fn>}` entries ship."
+  only `{:fn <fn>}` / verbatim entry-map entries ship."
   [spec slot-key]
   (let [m (get spec slot-key)]
     (if-not (map? m)
@@ -269,7 +282,10 @@
       (assoc spec slot-key
              (reduce-kv
                (fn [acc id v]
-                 (assoc acc id (if (keyword? v) v {:fn v})))
+                 (assoc acc id (cond
+                                 (keyword? v) v
+                                 (map? v)     v
+                                 :else        {:fn v})))
                {} m)))))
 
 (defn collocate-element-source
@@ -277,11 +293,26 @@
   entries to `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`,
   merging the per-id `source-data` (a `{<id> {:source-coords {...}
   :source-code \"...\"}}` map the reg-machine macro stamped at expansion
-  time). Entries with no matching `source-data` (e.g. a let-bound symbol
-  the walker couldn't `pr-str` meaningfully) still get a `{:fn <fn>}`
-  wrapper. Keyword-reference values are preserved verbatim (no `:fn`
-  wrapper — `chase-ref` follows the bare keyword). Returns the updated
-  spec.
+  time). Three value shapes (per `re-frame.machines.cofx-attach` §entry-map
+  shape helpers — bare fn / named-entry map / keyword ref):
+
+    - a bare fn → wrapped as `{:fn <fn>}` with the source-data merged on;
+    - an already-shaped named-entry MAP (`{:rf.cofx/requires [...]
+      :fn (fn …)}` — the named-cofx form authored inline in `reg-machine`
+      or via `defmachine`) → the source-data is merged ONTO the entry, so
+      `:fn` / `:rf.cofx/requires` stay at the top level. It is NOT
+      re-wrapped under a fresh `:fn`: doing so nested `:rf.cofx/requires`
+      one level down, which emptied the cofx-ensure index and resolved the
+      guard/action `:fn` to a map rather than the fn — so the guard/action
+      silently never ran (rf2-ful212). This matches the shape the
+      `def`/let-bound-symbol registration path yields (there the macro walker
+      sees only a symbol and leaves the user's entry-map verbatim);
+    - a keyword-reference value → preserved verbatim (no `:fn` wrapper —
+      `chase-ref` follows the bare keyword).
+
+  Entries with no matching `source-data` (e.g. a let-bound symbol the walker
+  couldn't `pr-str` meaningfully) still get their bare-fn `{:fn <fn>}`
+  wrapper / verbatim entry-map. Returns the updated spec.
 
   This is the dev arm of the reg-machine macro's `(if interop/debug-
   enabled? <collocate> <wrap>)` gate. The `source-data` literal is
@@ -295,9 +326,10 @@
              (reduce-kv
                (fn [acc id v]
                  (assoc acc id
-                        (if (keyword? v)
-                          v
-                          (merge {:fn v} (get source-data id)))))
+                        (cond
+                          (keyword? v) v
+                          (map? v)     (merge v (get source-data id))
+                          :else        (merge {:fn v} (get source-data id)))))
                {} m)))))
 
 (defn collocate-state-source

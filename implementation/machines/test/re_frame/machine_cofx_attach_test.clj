@@ -29,6 +29,7 @@
   routed-around green)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.machines :as machines]
             [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.test-support :as mtest]
@@ -654,3 +655,98 @@
       (is (contains? (set (map :id es)) :test/region-token)
           "the region-qualified :after timer's guard requires is ensured — the
            decl-path region head was stripped to resolve within region-a"))))
+
+;; ===========================================================================
+;; rf2-ful212: INLINE-LITERAL / defmachine named-cofx entry-maps resolve
+;; ===========================================================================
+;;
+;; Every ensure-set test above registers via a `def`/let-bound SYMBOL (`m`),
+;; which the reg-machine macro's compile-time literal-walk cannot see into — so
+;; `source-coords/collocate-element-source` never runs and the user's entry-map
+;; reaches the engine verbatim. That path ESCAPES the bug, which is why the
+;; suite was silently green.
+;;
+;; When the SAME named-cofx `:guards`/`:actions` entry (`{:rf.cofx/requires
+;; [...] :fn (fn …)}`) is registered as an INLINE LITERAL in `reg-machine` (or
+;; via `defmachine`), the macro's dev arm walked the literal and — pre-fix —
+;; DOUBLE-WRAPPED the entry (the WHOLE entry-map landed under a fresh `:fn`),
+;; nesting `:rf.cofx/requires` one level down. That EMPTIED the cofx-ensure
+;; index (`entry-requires` read nil → no cofx ensured) AND resolved the
+;; guard/action `:fn` to a MAP (not a fn) → the guard silently never fired
+;; (state stayed :idle). The prod arm (`wrap-element-fns`) double-wrapped
+;; identically, and the ensure-index is NOT dev-gated, so the break shipped to
+;; production too. These pin the inline-literal + defmachine paths in BOTH arms.
+
+(rf/defmachine ful212-defmachine
+  {:initial :idle
+   :data    {}
+   :guards  {:rolled-six?
+             {:rf.cofx/requires [:test/roll]
+              :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll cofx)))}}
+   :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
+             :done {}}})
+
+(deftest inline-literal-named-cofx-guard-fires-dev-arm
+  (testing "rf2-ful212 (dev arm): a named-cofx GUARD registered as an INLINE
+            LITERAL in reg-machine (macro dev arm → collocate-element-source)
+            resolves its generator-backed cofx and FIRES. Pre-fix the entry was
+            double-wrapped: the ensure-index was empty and the guard :fn was a
+            map, so the guard silently never fired (seen ::unset, state :idle)."
+    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
+    (let [seen (atom ::unset)]
+      ;; INLINE LITERAL — the reg-machine macro walks this map, so
+      ;; collocate-element-source runs on the named-cofx entry.
+      (rf/reg-machine :ful212/inline-dev
+        {:initial :idle
+         :data    {}
+         :guards  {:rolled-six?
+                   {:rf.cofx/requires [:test/roll]
+                    :fn (fn [{cofx :rf.cofx}]
+                          (reset! seen (:test/roll cofx))
+                          (= 6 (:test/roll cofx)))}}
+         :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
+                   :done {}}})
+      (rf/dispatch-sync [:ful212/inline-dev [:go]]
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+      (is (= 6 @seen)
+          "the inline-literal guard read the ENSURED generated fact (not nil) —
+           the ensure-index saw :rf.cofx/requires at the entry top level")
+      (is (= :done (mtest/machine-state :ful212/inline-dev))
+          "the guard :fn resolved to the fn (not the double-wrapped map) and
+           fired the transition"))))
+
+(deftest inline-literal-named-cofx-guard-fires-prod-arm
+  (testing "rf2-ful212 (prod arm): the SAME inline-literal named-cofx guard,
+            registered under `interop/debug-enabled? false` (macro prod arm →
+            wrap-element-fns), also resolves + fires — wrap-element-fns
+            preserves the entry-map verbatim rather than double-wrapping it. The
+            ensure-index is NOT dev-gated, so the fix must hold in prod too."
+    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
+    (with-redefs [interop/debug-enabled? false]
+      (rf/reg-machine :ful212/inline-prod
+        {:initial :idle
+         :data    {}
+         :guards  {:rolled-six?
+                   {:rf.cofx/requires [:test/roll]
+                    :fn (fn [{cofx :rf.cofx}] (= 6 (:test/roll cofx)))}}
+         :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
+                   :done {}}}))
+    (rf/dispatch-sync [:ful212/inline-prod [:go]]
+                      {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+    (is (= :done (mtest/machine-state :ful212/inline-prod))
+        "the prod-arm (wrap-element-fns) entry-map is preserved verbatim, so the
+         guard resolves + fires on the ensured generated value")))
+
+(deftest defmachine-named-cofx-guard-fires
+  (testing "rf2-ful212 (defmachine): a value-registered machine defined with
+            `defmachine` (which walks + stamps the literal at the def site)
+            whose :guards entry is a named-cofx form resolves its cofx and FIRES
+            when later passed to reg-machine — the stamped value carried the
+            (previously double-wrapped) entry through registration."
+    (rf/reg-cofx :test/roll {:recordable? true} (fn [] 6))
+    (rf/reg-machine :ful212/defmachine ful212-defmachine)
+    (rf/dispatch-sync [:ful212/defmachine [:go]]
+                      {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+    (is (= :done (mtest/machine-state :ful212/defmachine))
+        "the defmachine-stamped named-cofx guard resolved its cofx and fired —
+         the entry-map was collocated without double-wrapping")))
