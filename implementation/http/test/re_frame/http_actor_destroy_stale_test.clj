@@ -219,3 +219,79 @@
         (finally
           (trace/unregister-listener! ::yrrpe2-2)
           (stop-server! srv))))))
+
+;; ---- (3) rf2-4teurt — the abort-precedence RECLASSIFICATION path -----------
+;; ----     (JVM completion-wins-the-CAS race) must apply the SAME obsolete- --
+;; ----     target stale suppression as the direct dispatch-aborted! path -----
+
+(deftest completion-wins-cas-obsolete-target-suppresses-stale-on-destroy
+  (testing "rf2-4teurt — the rf2-yrrpe2 obsolete-target suppression was enforced ONLY in dispatch-aborted! (the direct abort-fn path). The rf2-wez75 abort-precedence RECLASSIFICATION is a SECOND path to an :rf.http/aborted reply: when abort-on-actor-destroy flips :aborted? but LOSES the once-only :finalised? CAS to the completion (whenComplete) thread, finalise-success!/finalise-failure! sees the flipped cell, reclassifies to :actor-destroyed, and routes through emit-and-dispatch-failure!. Before the fix that tail's ONLY suppression gate was #{:request-id-superseded :epoch-restored}, so an :actor-destroyed reclassification with an obsolete (self-addressing) target delivered a LIVE :cancelled reply to the destroyed actor. The fix applies actor-destroy-target-obsolete? + emit-actor-destroy-stale-trace! inside emit-and-dispatch-failure! too."
+    (let [latch  (CountDownLatch. 1)
+          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
+          dispatched (atom [])
+          traces  (atom [])]
+      (try
+        (trace/register-listener! ::teurt-3
+          (fn [ev]
+            (swap! traces conj ev)
+            (when (= :rf.event/dispatched (:operation ev))
+              (swap! dispatched conj (first (:rf.event/v (:tags ev)))))))
+        (rf/reg-machine :worker/proc
+          {:initial :idle
+           :data    {:port port}
+           :actions {:fire-request
+                     (fn [{data :data}]
+                       {:fx [[:rf.http/managed
+                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
+                                            :method :get}
+                               :decode     :json
+                               :request-id [:worker/proc :slow]
+                               ;; reply addressed to the actor itself → obsolete
+                               ;; once the actor is under teardown
+                               :on-failure [:worker/proc#1 [:self/failed]]}]]})}
+           :states  {:idle    {:on {:start :running}}
+                     :running {:entry :fire-request}}})
+        (rf/reg-machine :sup/flow
+          {:initial :idle
+           :states
+           {:idle    {:on {:start :working}}
+            :working {:spawn {:machine-id :worker/proc
+                               :start      [:start]}
+                      :on    {:cancel :idle}}}})
+        (rf/dispatch-sync [:sup/flow [:start]])
+        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
+        (is (contains? (http-managed/actor-in-flight-snapshot) :worker/proc#1))
+        (let [self-dispatches-before (count (filter #{:worker/proc#1} @dispatched))
+              ;; Reach the LIVE in-flight handle and reproduce Path B
+              ;; DETERMINISTICALLY: flip its abort-precedence cell EXACTLY as
+              ;; abort-on-actor-destroy does (:reason :actor-destroyed + the
+              ;; actor's own id) but WITHOUT firing the abort-fn — so the
+              ;; once-only :finalised? CAS stays open and the completion thread
+              ;; (released next) WINS it, driving the reclassification through
+              ;; finalise-* → emit-and-dispatch-failure! rather than through
+              ;; dispatch-aborted!. This isolates the exact reclassification
+              ;; path from the inherently-flaky real thread race.
+              handle (first (get (http-managed/actor-in-flight-snapshot) :worker/proc#1))]
+          (is (some? handle) "the actor-bound in-flight handle is reachable")
+          (is (some? (:aborted? handle)) "the handle carries the abort-precedence cell")
+          (reset! (:aborted? handle) {:reason :actor-destroyed :actor-id :worker/proc#1})
+          ;; Release the server: the completion thread runs finalise-* with the
+          ;; flipped cell and the CAS still open → the reclassification path.
+          (.countDown latch)
+          ;; The canonical stale-suppression trace must land — proof the
+          ;; obsolete suppression fired on THIS path (not a live delivery).
+          (await-condition! #(seq (stale-traces @traces)))
+          (let [tags (:tags (first (stale-traces @traces)))]
+            (is (= :stale (:rf.reply/status tags))
+                "the reclassified obsolete completion lowers to :status :stale")
+            (is (= :suppressed (:rf.reply/work-status tags)))
+            (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason tags))))
+          ;; Quiescence: the obsolete self-addressed reply MUST NOT be
+          ;; dispatched. Before the fix, emit-and-dispatch-failure! delivered a
+          ;; live :cancelled reply to :worker/proc#1 here.
+          (Thread/sleep 150)
+          (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
+              "the abort-precedence reclassification MUST NOT deliver a live :cancelled reply to the destroyed actor's self-addressed target"))
+        (finally
+          (trace/unregister-listener! ::teurt-3)
+          (stop-server! srv))))))

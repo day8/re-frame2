@@ -626,10 +626,36 @@
                            (contains? failure :body-text))
                        (assoc :rf.http/off-box-body :omit))]
       (trace/emit-error! (:kind failure) redacted)))
-  (let [suppress? (and (= :rf.http/aborted (:kind failure))
-                       (reply-suppressing-abort-reason? (:reason failure)))]
-    (when-not suppress?
-      (dispatch-failure! ctx failure)))))
+  (cond
+    ;; rf2-lxd3 / rf2-u5kmf8 — supersede / epoch-restore reasons suppress the
+    ;; reply outright; the canonical stale trace for those is emitted at
+    ;; supersede / restore time, not here.
+    (and (= :rf.http/aborted (:kind failure))
+         (reply-suppressing-abort-reason? (:reason failure)))
+    nil
+
+    ;; rf2-4teurt — the rf2-yrrpe2 actor-destroy obsolete-target suppression
+    ;; must ALSO gate this abort-precedence reclassification path (the
+    ;; finalise-failure! + finalise-success! sample-2 routes into this shared
+    ;; tail), not only the direct `dispatch-aborted!` path. An `:actor-destroyed`
+    ;; reclassification whose reply target addresses the destroyed actor ITSELF
+    ;; must NOT deliver a live `:status :cancelled` reply to the dead actor — a
+    ;; JVM completion-wins-the-CAS race reaches here (the abort-fn flips
+    ;; `:aborted?` then loses the once-only CAS to the whenComplete thread, which
+    ;; reclassifies via `aborted-snapshot`). It lowers to the canonical
+    ;; `:status :stale` / `:work/status :suppressed` outcome, matching
+    ;; `dispatch-aborted!`. The `:rf.http/aborted` error trace already fired
+    ;; above; only the app delivery is replaced by the stale-suppressed trace.
+    ;; `(:actor-id failure)` is the destroyed actor's id carried from the abort
+    ;; snapshot (`aborted-failure`), falling back to the ctx's actor-id.
+    (and (= :rf.http/aborted (:kind failure))
+         (= :actor-destroyed (:reason failure))
+         (http-reply/actor-destroy-target-obsolete?
+           (reply-target-id ctx) (:actor-id failure)))
+    (emit-actor-destroy-stale-trace! (reply-ctx ctx))
+
+    :else
+    (dispatch-failure! ctx failure))))
 
 (defn- finalise-success! [ctx accepted]
   ;; rf2-wez75 — abort-precedence check. Two sampling points:
