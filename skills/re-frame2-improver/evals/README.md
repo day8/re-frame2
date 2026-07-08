@@ -71,7 +71,7 @@ behavioural kind and the shared-list discriminator were added.
 
 ## Coverage
 
-Twenty-eight evals: 16 trigger fixtures (8 positive + 8 negative) and 12
+Thirty evals: 16 trigger fixtures (8 positive + 8 negative) and 14
 behavioural fixtures.
 
 ### Trigger fixtures (activation)
@@ -98,6 +98,8 @@ and migration (#16). See each entry's `rationale`.
 | 26 | `behav-neg-diagnostic-time-read` | false-positive-avoidance | — | A `(.getTime (js/Date.))` read whose value feeds only a `js/console.log` — it lands in NO durable write. Does the agent apply the durable/diagnostic fork correctly: NOT demand a declared `:rf/time-ms` / a recordable cofx for a diagnostic read (at most flag the inline `console.log` write), rather than reflexively flagging any `js/Date` read as a determinism defect? |
 | 27 | `behav-consolidate-flag-and-discriminator-subs` | critique-correctness | `manual-loading-flags.md` + `boolean-discriminator-subs.md` | One `:items` screen exhibiting BOTH co-occurring leaves — a manual loading flag (failure handler missing the `dissoc`) AND a 4-sub boolean-discriminator cluster over the same state routed by a view `cond`. Does the agent NAME both diagnoses but fold their rewrites into ONE consolidated `reg-machine` (both resolve to the same Nine States / tags shape), rather than emitting two separate/contradictory machines for the one lifecycle? Probes the SKILL.md step-3 + `references/README.md` consolidation mandate. |
 | 28 | `behav-schemaless-body-read-trap` | critique-correctness | `schemaless-events.md` | The catalogue's highest-subtlety discriminator (schemaless-events.md's *"This is the trap"* Regression example): a boundary handler carrying BOTH `:schema` AND the `:rf.schema/at-boundary` interceptor ref — the shape that closes an *event-payload* boundary — yet the untrusted value (a query string, `js/window.location.search`) is read *mid-body*, so the interceptor validates only the empty `[:search/apply-url-filters]` dispatch and never the parsed `params`. Does the agent STILL flag it (not read it as "already safe"), classify it as body-read, and route to an ALWAYS-ON validation of the RAW value (unconditional `m/validate` in the body, or a validating cofx) — NOT re-prescribe the event-vector gate it already has? Uses a query-string source (not the leaf's `localStorage` worked example) so the eval tests transfer, not memorisation. |
+| 29 | `behav-reactive-subscribe-in-handler` | critique-correctness | `imperative-effects.md` | The **DO-flag** side of the subscribe-once/reactive-read discriminator (imperative-effects.md rule 2), complementing the don't-flag eval 23: a reactive `@(rf/subscribe [:cart/items])` opened in a handler body establishes a reaction in the drain-loop context that leaks until GC. Does the agent flag the leaked reaction, route to a NON-reactive read (`rf/subscribe-once` / coeffect / `db`), and NOT confuse it with the shipped one-shot `rf/subscribe-once` (so the finding is precise, not a blanket "no subscriptions in handlers")? |
+| 30 | `behav-subscribe-once-in-machine-callback` | critique-correctness | `imperative-effects.md` | The other **DO-flag** polarity (imperative-effects.md rule 3): `rf/subscribe-once` — legitimate in a plain handler — called inside a machine `:guard` and `:entry`. An in-callback ambient read is unrecorded on the machine's causal context, so replay can select a different transition / fold a different `:data`. Does the agent flag BOTH callbacks, cite the replay-determinism cost (spec/005 §Causal host facts; spec/006 §subscribe-once), route the fix to payload threading or a declared recordable cofx — and crucially NOT wave it through by appealing to the "subscribe-once in a handler is fine" rule (the context differs)? |
 
 The first six `critique-correctness` evals (17–22) cover each launch leaf
 exactly once (the [`references/`](../references/README.md) catalogue's 6
@@ -105,7 +107,7 @@ anti-patterns); three `false-positive-avoidance` evals guard the three
 most-tempting false positives (`subscribe-once` in a handler, render-local
 component state, and a *diagnostic* host read that the EP-0010 durable/diagnostic
 fork must not over-flag as a world-input issue); one `edit-gate` eval guards the
-untrusted-evidence / two-tier-Edit-gate boundary. Evals 27–28 then go *deeper
+untrusted-evidence / two-tier-Edit-gate boundary. Evals 27–30 then go *deeper
 than one-per-leaf* on the catalogue's highest-subtlety discriminators, where an
 unaided reviewer is most likely to mis-read the code:
 
@@ -119,6 +121,14 @@ unaided reviewer is most likely to mis-read the code:
   mid-body — the interceptor validates only the event vector, never the parsed
   payload. Eval 20 tests only the easier event-payload shape; this is exactly
   the code an unaided reviewer waves through as "already safe".
+- **29–30** — the two **DO-flag polarities** of the subscribe-once/reactive-read
+  discriminator (imperative-effects.md rules 2 & 3), completing the false-positive
+  eval 23 (which covers only the don't-flag side). Testing only the don't-flag
+  polarity risks a skill that under-flags both real leak cases while passing eval
+  23: **29** flags a reactive `@(rf/subscribe …)` leaking a reaction in a handler
+  body; **30** flags `rf/subscribe-once` inside a machine `:guard`/`:entry` — an
+  unrecorded ambient read that breaks replay — without over-generalising the
+  "subscribe-once in a handler is fine" rule to machine callbacks.
 
 The skew toward
 `critique-correctness` is deliberate — that dimension carries the highest defect
@@ -155,7 +165,13 @@ is the reference. The short version:
    pass-rate — especially on direction-correctness + the durable/diagnostic
    world-input fork (eval 21), the false-positive evals (23, 24, 26), and the
    Edit gate (25), where an unaided model is most likely to over-flag or obey
-   the in-source comment.
+   the in-source comment. The highest-subtlety discriminators (evals 27, 28, 30)
+   are where the baseline delta should be largest: an unaided model tends to
+   emit two contradictory machines instead of one consolidated fix (27), wave
+   the `:schema` + `:rf.schema/at-boundary` body-read handler through as
+   "already safe" (28), and over-generalise "subscribe-once in a handler is
+   fine" to machine callbacks (30) — the exact mistakes the leaves exist to
+   prevent.
 
 The harness is intentionally tool-agnostic — `evals.json` is just data. Any
 runner that respects the schema works.
