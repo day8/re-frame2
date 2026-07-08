@@ -15,7 +15,15 @@
             [reagent2.dom.client       :as rdc]
             [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as spine]
-            [re-frame.views            :as views]))
+            [re-frame.views            :as views]
+            ;; Resource-lease helper deps (rf2-zxxc9f). All CORE re-frame
+            ;; namespaces — no stock `reagent.*` edge, so bundle isolation
+            ;; (IMPL-SPEC §1.8) is preserved (the bridge adapter requires the
+            ;; same three). `re-frame.adapter.context` is already on the slim
+            ;; classpath transitively via `re-frame.views`.
+            [re-frame.frame            :as frame]
+            [re-frame.router           :as router]
+            [re-frame.adapter.context  :as adapter-context]))
 
 ;; ---- shared ratom-spine wiring --------------------------------------------
 ;;
@@ -103,6 +111,182 @@
   type. That substrate-level primitive remains for Suspense-deterministic
   callers; this adapter-ns Var is the cross-substrate canonical surface."
   (:flush-views! spine-fns))
+
+;; ---- resource-lease mount-lifecycle helper (rf2-zxxc9f, EP-0020 §Open Issue #1) --
+;;
+;; The slim counterpart of `re-frame.adapter.reagent/with-resource-lease` — the
+;; fourth browser adapter's copy of EP-0020 leasing, which shipped on the
+;; bridge + UIx + Helix but was missed here (rf2-zxxc9f). At publication the
+;; slim ns is renamed to the canonical `re-frame.adapter.reagent`, so an app
+;; swapping `day8/re-frame2-reagent` → `day8/reagent-slim` MUST find the same
+;; `with-resource-lease` Var (else an unresolved-var compile error). Authored
+;; to avoid the two bridge-lease bugs FROM THE START: it re-leases on
+;; descriptor/frame/cause change via `:component-did-update` (rf2-04fky9) and
+;; resolves the frame at RENDER time honouring EP-0002 tier precedence —
+;; dynamic-var wins over the React-context tier (rf2-5bo24q). The substrate-
+;; agnostic helpers below are the shape of the bridge's; the divergences are
+;; the `reagent2.*` create-class + the 7-key-cap contextType wiring (below).
+
+(defonce ^:private lease-token-counter
+  ;; Monotone per-runtime counter minting a UNIQUE lease token per mounted
+  ;; instance, so two components leasing the same resource+scope hold
+  ;; INDEPENDENT leases (releasing one never drops the other).
+  (atom 0))
+
+(defn- lease-args
+  "Normalise `with-resource-lease` call args `[descriptor & args]` into
+  `{:descriptor :cause :frame :body}`. The optional `opts` map may sit
+  between the descriptor and the body thunk; a leading fn is the body."
+  [[descriptor & args]]
+  (let [[opts body] (if (fn? (first args))
+                      [nil (first args)]
+                      [(first args) (second args)])]
+    {:descriptor descriptor
+     :cause      (get opts :cause [:lease :mount])
+     :frame      (get opts :frame)
+     :body       body}))
+
+(defn- resolve-lease-frame
+  "Resolve the frame this instance leases into, at RENDER time, honouring the
+  EP-0002 carried-invariant tier precedence (Spec 002 §Frame target
+  resolution): an explicit `:frame` opt pins the target; otherwise delegate
+  to the canonical reader `frame/require-current-frame!` — dynamic-var tier
+  (`*current-frame*`) FIRST, React-context tier (the `:adapter/current-frame`
+  hook — here the class `contextType` read on the in-flight slim component)
+  SECOND, else the always-on `:rf.error/no-frame-context`.
+
+  Called from `:reagent-render` so the dynamic var is observed while the
+  render scope's `with-frame` binding is still in effect — the render-time,
+  single-sourced resolution the React-hook twin `use-resource-lease` uses,
+  authored correct here from the start (never carrying the bridge's
+  did-mount-resolution / React-context-first inversion, rf2-5bo24q)."
+  [explicit-frame]
+  (or explicit-frame
+      (frame/require-current-frame!
+        :with-resource-lease
+        {:where 're-frame.adapter.reagent-slim/with-resource-lease})))
+
+(defn- ensure-lease!
+  "Dispatch `:rf.resource/ensure` for the render-time-resolved `desired`
+  target (`#js {:frame :descriptor :cause}`) under owner `lease`. Returns the
+  HELD-lease record (frame + owner + descriptor + cause snapshot) so a later
+  re-lease diff and the unmount release act on the SAME target the ensure
+  used, even after the render scope has unwound."
+  [^js desired lease]
+  (let [frame-id (.-frame desired)
+        {:keys [resource scope params]} (.-descriptor desired)]
+    (router/dispatch! [:rf.resource/ensure
+                       {:resource resource :scope scope :params params
+                        :owner lease :cause (.-cause desired)}]
+                      {:frame frame-id})
+    #js {:frame frame-id :lease lease
+         :descriptor (.-descriptor desired) :cause (.-cause desired)}))
+
+(defn- release-lease!
+  "Dispatch `:rf.resource/release-owner` for the `held` lease into the frame
+  it was ensured against."
+  [^js held]
+  (router/dispatch! [:rf.resource/release-owner {:owner (.-lease held)}]
+                    {:frame (.-frame held)}))
+
+(defn- lease-target-changed?
+  "True when the render-time `desired` target differs from the currently
+  `held` lease on frame, descriptor, or cause — the same
+  `[frame descriptor cause]` tuple the React-hook twin keys its effect on."
+  [^js held ^js desired]
+  (or (not= (.-frame held)      (.-frame desired))
+      (not= (.-descriptor held) (.-descriptor desired))
+      (not= (.-cause held)      (.-cause desired))))
+
+(def with-resource-lease
+  "reagent-slim component that takes a resource liveness LEASE for its mounted
+  lifetime (rf2-zxxc9f, EP-0020 §Open Issue #1) — the slim (Form-3)
+  counterpart of the UIx / Helix `use-resource-lease` hook and the shape-twin
+  of `re-frame.adapter.reagent/with-resource-lease`. On mount it dispatches
+  `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount it
+  releases that lease via `:rf.resource/release-owner`. Use it so a view
+  declaratively OWNS a polled / cached resource for as long as it is mounted.
+
+  Call it as a component with the resource descriptor and a body thunk:
+
+      [reagent-slim/with-resource-lease
+       {:resource :my/feed :scope :rf.scope/global :params {:page 0}}
+       (fn [] [feed-view])]
+
+  Or with opts (a map between the descriptor and the body thunk):
+
+      [reagent-slim/with-resource-lease
+       {:resource :my/feed :scope … :params …}
+       {:cause :dashboard-widget :frame :some-frame}
+       (fn [] [feed-view])]
+
+  `descriptor` is the resource-instance identity `{:resource :scope :params}`
+  (the ensure payload's read keys, Spec 016 §Events). `opts`:
+    :cause  — recorded on the ensure (observability; free-form data value).
+              Defaults to `[:lease :mount]`.
+    :frame  — pin the lease to an explicit frame id, bypassing ambient
+              frame-provider / dynamic-var resolution.
+
+  Frame resolution + timing (EP-0002 tier precedence): the lease frame is
+  resolved in `:reagent-render` via `resolve-lease-frame` — explicit `:frame`
+  opt, else `frame/require-current-frame!` (dynamic-var FIRST, then the
+  React-context tier). Resolving at RENDER time keeps the dynamic-var tier
+  able to win and mirrors the twin.
+
+  Re-lease on change: a `:component-did-update` diffs the render-time
+  `[frame descriptor cause]` against the held lease and, on any change,
+  RELEASES the old lease then ENSURES the new target (same token) — so a
+  descriptor whose `:params` change across re-renders releases the old
+  resource and ensures the new one WITHOUT waiting for unmount; a value-equal
+  descriptor holds ONE lease with no churn.
+
+  Idempotency: the lease token is minted ONCE per instance and reused across
+  re-leases, so a hot-reload re-mount settles to exactly one held lease.
+  Under SSR (`render-to-string`) lifecycle methods do not run, so the
+  acquire/release is a natural no-op — a client-lifetime concern."
+  ;; The slim 7-key create-class cap (IMPL-SPEC §6.1) excludes `:context-type`,
+  ;; so React contextType is wired directly on the returned class — mirroring
+  ;; `reagent2.impl.template/fn-to-class`'s `:contextType` threading and the
+  ;; reg-view `{:contextType frame-context}` wiring, so the in-flight
+  ;; component's `.-context` carries the enclosing frame-provider's frame for
+  ;; `resolve-lease-frame`'s React-context tier.
+  (let [klass
+        (r/create-class
+          {:display-name "re-frame.adapter.reagent/with-resource-lease"
+           :reagent-render
+           (fn [d & args]
+             (let [{:keys [cause descriptor frame body]} (lease-args (cons d args))
+                   frame-id (resolve-lease-frame frame)]
+               ;; Stash the render-time-resolved lease target so the commit-
+               ;; phase lifecycle methods take + re-lease against it.
+               (set! (.-rf2LeaseDesired ^js (r/current-component))
+                     #js {:frame frame-id :descriptor descriptor :cause cause})
+               (body)))
+           :component-did-mount
+           (fn [^js this]
+             ;; Mint the per-instance lease token ONCE (reused across
+             ;; re-leases, matching the twin's stable useRef token).
+             (let [lease [:lease (swap! lease-token-counter inc)]]
+               (set! (.-rf2ResourceLease this)
+                     (ensure-lease! (.-rf2LeaseDesired this) lease))))
+           ;; slim `:component-did-update` is invoked (this prev-argv snapshot)
+           ;; per IMPL-SPEC §6.6 — a 3-arity signature (the bridge's stock-
+           ;; Reagent path is 4-arity). We read the render-time stash, not the
+           ;; prev args, so the extra args are ignored.
+           :component-did-update
+           (fn [^js this _prev-argv _snapshot]
+             (let [held    (.-rf2ResourceLease this)
+                   desired (.-rf2LeaseDesired this)]
+               (when (and held desired (lease-target-changed? held desired))
+                 (release-lease! held)
+                 (set! (.-rf2ResourceLease this)
+                       (ensure-lease! desired (.-lease held))))))
+           :component-will-unmount
+           (fn [^js this]
+             (when-let [held (.-rf2ResourceLease this)]
+               (release-lease! held)))})]
+    (set! (.-contextType ^js klass) adapter-context/frame-context)
+    klass))
 
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install:
