@@ -850,9 +850,13 @@
           "the cyclic replacement of :b throws :rf.error/flow-cycle")
 
       ;; 4. THE KEY ASSERTION: the prior :b is STILL in the registry —
-      ;;    not silently deleted. The bug today (flows.cljc:149) dissocs
-      ;;    by id on rollback, vacating the prior registration along
-      ;;    with the just-written one.
+      ;;    not silently deleted. A naive rollback that wrote the new
+      ;;    registration first and then dissoc'd it by id on rejection
+      ;;    WOULD have vacated the prior registration along with the
+      ;;    just-written one. The atomic prospective-map swap prevents
+      ;;    this: cycle/overlap detection runs on the prospective map
+      ;;    inside the swap! update fn and never commits on rejection,
+      ;;    so the prior registration is left untouched.
       (is (contains? (get (flows/flows-snapshot) :rf/default) :b)
           "after a failed cyclic replacement, the prior :b registration is preserved")
       (let [b-after (get-in (flows/flows-snapshot) [:rf/default :b])]
