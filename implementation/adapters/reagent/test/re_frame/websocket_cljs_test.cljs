@@ -322,8 +322,12 @@
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
           (is (= :disconnected (:state s)))
           (is (= 2 (count (get-in s [:data :queue]))))
-          (is (= [{:type :note :body "A"}
-                  {:type :note :body "B"}]
+          ;; The queue now buffers the WHOLE inbound event (so a queued
+          ;; :ws/request can rejoin :register-request on flush — see
+          ;; websocket-queued-request-*), not the bare body — so each entry
+          ;; is a `[:ws/send …]` vector.
+          (is (= [[:ws/send {:type :note :body "A"}]
+                  [:ws/send {:type :note :body "B"}]]
                  (get-in s [:data :queue]))))
         ;; Connect — sync-mode mock means the cascade runs to
         ;; :connected inside this dispatch, and the :always
@@ -560,7 +564,7 @@
             (is (= :reconnecting (:state s))
                 "live :ws/closed passed the guard and dropped to :reconnecting")
             (is (= (inc retries0) (get-in s [:data :retries]))
-                "the retry counter bumped on the real drop")))))))
+                ":on-socket-lost bumped the retry counter on the real drop")))))))
 
 (defn- stale-auth-events-guarded-test []
   ;; rf2-3cgvt7 — sync-mode delivery races through :authenticating inside a
@@ -635,6 +639,56 @@
               (is (= :ws/connection-lost (:error reply)))
               (is (= rid (:request-id reply))
                   "the failure names the dropped request"))))))))
+
+(defn- queued-request-registers-and-replies-on-connect-test []
+  ;; rf2-ryt25d — a :ws/request issued OFF-connection must be buffered as its
+  ;; event and, on connect, rejoin :register-request so it registers, sends
+  ;; the body (not the envelope) and correlates its reply. Covers the offline
+  ;; (disconnected) window end-to-end, then the reconnect window's enqueue.
+  (with-sync-mock!
+    (fn []
+      (with-new-frame [f (new-frame)]
+        ;; --- offline window: request while :disconnected --------------------
+        (let [rid (random-uuid)]
+          (rf/dispatch-sync [:ws.app/request "queued-hello"]
+                            {:frame f :rf.cofx {:ws.app/request-id rid}})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (= :disconnected (:state s)))
+            (is (= 1 (count (get-in s [:data :queue]))))
+            (is (= :ws/request (ffirst (get-in s [:data :queue])))
+                "buffered as the WHOLE :ws/request event, not a bare body"))
+          ;; Connect — the :connected entry flushes the queued request through
+          ;; :register-request; the mock echoes and the reply correlates, all
+          ;; inside this sync dispatch.
+          (rf/dispatch-sync [:ws/connection
+                             [:ws/connect {:url "ws://mock" :auth-token "demo"}]]
+                            {:frame f})
+          (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
+                db (rf/app-db-value f)]
+            (is (true? (machine-has-tag? f :websocket/connected)))
+            (is (= [] (get-in s [:data :queue])) "queue drained on connect")
+            (is (= {} (get-in s [:data :in-flight]))
+                "queued request registered AND its reply cleared the slot")
+            (let [reply (get-in db [:messages :last-reply])]
+              (is (some? reply) "the queued request got a correlated reply")
+              (is (= rid (:request-id reply))
+                  "correlation id round-tripped from the queued envelope")
+              (is (true? (:ok reply)))
+              (is (= {:type :request :body "queued-hello"} (:echo reply))
+                  "the request BODY (not the queue envelope) went on the wire"))))
+        ;; --- reconnect window: request while :reconnecting -----------------
+        ;; Drop to :reconnecting, then a request there is buffered the same way
+        ;; (the reconnect window uses the identical :enqueue-message path).
+        (messages/simulate-disconnect! (rf/capture-frame f))
+        (is (true? (machine-has-tag? f :websocket/reconnecting)))
+        (let [rid2 (random-uuid)]
+          (rf/dispatch-sync [:ws.app/request "reconnect-hello"]
+                            {:frame f :rf.cofx {:ws.app/request-id rid2}})
+          (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
+            (is (= 1 (count (get-in s [:data :queue])))
+                "a request issued while :reconnecting is buffered")
+            (is (= :ws/request (ffirst (get-in s [:data :queue])))
+                "buffered as the whole :ws/request event for a later flush")))))))
 
 ;; ============================================================================
 ;; REQUEST/REPLY + SERVER PUSH + SUBSCRIPTIONS
@@ -854,6 +908,11 @@
   (testing "rf2-r1rkvb — a socket drop fails + clears every in-flight request
             (no leak); the waiting reply-event gets a connection-lost body"
     (drop-fails-in-flight-request-test)))
+
+(deftest websocket-queued-request-registers-and-replies-on-connect
+  (testing "rf2-ryt25d — a :ws/request buffered off-connection registers and
+            correlates its reply on connect; the reconnect window buffers alike"
+    (queued-request-registers-and-replies-on-connect-test)))
 
 (deftest websocket-request-reply-correlation
   (testing "request-reply correlation — :in-flight slot fills then clears on reply"

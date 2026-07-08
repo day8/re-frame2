@@ -93,9 +93,12 @@ Everything below builds on those three. The rest is ordinary machine grammar —
   re-reads the URL and token from `:data` — so a `:ws/refresh-token` arriving
   *between* reconnects flows into the next socket with no extra wiring.
 
-- **An offline queue and a surviving subscription set.** A `:ws/send` while
-  disconnected enqueues into `:data :queue`; the `:connected` entry's `:always`
-  cascade flushes it. A `:ws/subscribe` records its topic in `:data :subscriptions`
+- **An offline queue and a surviving subscription set.** A `:ws/send` *or*
+  `:ws/request` issued while off-connection buffers its whole event into
+  `:data :queue`; the `:connected` entry's `:always` cascade re-dispatches each
+  one, so a queued send reaches the wire and a queued request rejoins the
+  register-and-correlate path — it is answered after connect, not silently
+  dropped. A `:ws/subscribe` records its topic in `:data :subscriptions`
   (a set), and every `:connected` entry re-issues the subscribe messages — so
   subscriptions ride straight through a reconnect.
 
