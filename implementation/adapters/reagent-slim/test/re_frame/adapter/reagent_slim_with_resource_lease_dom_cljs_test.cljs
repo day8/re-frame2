@@ -185,3 +185,49 @@
                 "the surrounding provider's frame did NOT win")
             (finally
               (try (.unmount root) (catch :default _ nil)))))))))
+
+;; ---- opts-map arm: explicit :frame pin + custom :cause (rf2-pdjy4g) --------
+;;
+;; The three tests above all call `[with-resource-lease descriptor (fn [] …)]`
+;; — a body thunk directly after the descriptor — which always takes
+;; `lease-args`' `(fn? (first args))` → `[nil body]` arm, so the opts-map arm
+;; `[(first args) (second args)]` and `resolve-lease-frame`'s
+;; `(or explicit-frame …)` truthy branch are NEVER exercised. This mounts with
+;; an opts MAP between the descriptor and the body thunk, pinning `:frame`
+;; explicitly and overriding `:cause`, then asserts both flow through.
+
+(deftest slim-with-resource-lease-explicit-frame-and-cause-opts
+  (testing "reagent-slim — an opts map {:frame :cause} between descriptor and
+            body pins the lease to the EXPLICIT :frame (bypassing the
+            surrounding provider / ambient resolution) and records the custom
+            :cause on the ensure"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (let [provider-frame :rf.reagent-slim-lease-opts/provider
+            explicit-frame :rf.reagent-slim-lease-opts/explicit
+            custom-cause   :dashboard-widget
+            dispatches     (atom [])
+            mount-node     (.createElement js/document "div")
+            root           (rdc/create-root mount-node)]
+        (rf/reg-frame provider-frame {:doc "surrounding provider (should be bypassed)"})
+        (rf/reg-frame explicit-frame {:doc "explicitly pinned lease frame"})
+        (with-redefs [router/dispatch! (capturing-dispatch! dispatches)]
+          (try
+            (render-sync! root
+              [rf/frame-provider {:frame provider-frame}
+               [reagent-slim-adapter/with-resource-lease
+                descriptor-p0
+                {:frame explicit-frame :cause custom-cause}
+                (fn [] [:div "leased"])]])
+            (is (= 1 (count @dispatches)) "one ensure on mount")
+            (is (= :rf.resource/ensure (ev-id (nth @dispatches 0))))
+            (is (= explicit-frame (ev-frame (nth @dispatches 0)))
+                "ensure targeted the EXPLICIT :frame opt, not the surrounding provider")
+            (is (not= provider-frame (ev-frame (nth @dispatches 0)))
+                "the surrounding provider frame did NOT win over the explicit :frame")
+            (is (= custom-cause (:cause (ev-payload (nth @dispatches 0))))
+                "ensure carried the custom :cause opt (not the default [:lease :mount])")
+            (is (= (:resource descriptor-p0) (:resource (ev-payload (nth @dispatches 0))))
+                "the descriptor still flowed through alongside the opts map")
+            (finally
+              (try (.unmount root) (catch :default _ nil)))))))))
