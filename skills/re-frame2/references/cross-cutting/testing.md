@@ -360,7 +360,7 @@ Pick the tightest match and name it for the author. A green slice on the changed
 - A `:each` `make-reset-runtime-fixture` is installed with the right `:adapter`.
 - Event drive is `dispatch-sync` (not `dispatch`) or `ts/dispatch-sequence`.
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
-- Machine assertions use `(subscribe [:rf/machine id])` / `machine-has-tag?` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
+- Machine assertions use `(subscribe [:rf/machine id])` / `(subscribe [:rf.machine/has-tag? id tag])` or `(get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
 - **Gate named for the author** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) is named concretely so the author can run it; the skill writes the test, the author runs the suite.
 
