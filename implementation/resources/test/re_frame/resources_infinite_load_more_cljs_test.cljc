@@ -50,10 +50,18 @@
 
 (def ^:private last-managed-args (atom nil))
 
+;; rf2-s54uzc — captures the `:rf.resource/schedule-timers` fx (real host
+;; timer scheduling is tested elsewhere) so the page-0 abort/failure timer-
+;; arming fix can be asserted deterministically, without a wall clock —
+;; mirrors `resources-invalidation-gc-cljs-test`'s capturing pattern.
+(def ^:private scheduled-timers (atom []))
+
 (defn- capturing-transport-fixture
   [f]
   (reset! last-managed-args nil)
+  (reset! scheduled-timers [])
   (rf/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
@@ -84,6 +92,16 @@
   ([failure] (reply-failure! @last-managed-args failure))
   ([args failure]
    (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure}))))
+
+(defn- reply-aborted!
+  "Feed the captured `:on-failure` reply an `:rf.http/aborted` envelope (an
+  intentional cancellation, not a failure — rf2-z70ujl) — `page-failed-
+  handler` branches this into the ABORT / cancellation settle."
+  ([] (reply-aborted! @last-managed-args))
+  ([args] (reply-failure! args {:kind :rf.http/aborted :reason :user})))
+
+(defn- last-schedule-for [scoped-key]
+  (last (filter #(= scoped-key (:resource/key %)) @scheduled-timers)))
 
 (def ^:private next-cursor
   "Read the next cursor off a page's `:page-info` envelope; nil ⇒ terminal."
@@ -471,6 +489,120 @@
       (is (nil? @last-managed-args) "fresh loaded feed served from cache, no refetch")
       (is (= gen0 (:generation (entry k))) "no new generation")
       (is (= 1 (state/page-count (entry k))) "feed untouched"))))
+
+;; ===========================================================================
+;; 8b. rf2-s54uzc — page-0 abort/failure uses FIRST-LOAD cleanup, not the
+;;     load-more / kept-feed cleanup — an infinite feed's first page never
+;;     landed, so there is no feed to keep.
+;; ===========================================================================
+;;
+;; BEFORE this fix, an ABORTED page-0 fetch (no accumulated pages) settled
+;; through the SAME branch as a load-more abort — unconditionally `:status
+;; :loaded` — even though the feed had ZERO pages. A `:loaded` empty feed is
+;; indistinguishable from a genuinely loaded feed to the fresh-skip check
+;; (`ensure-infinite-fresh-skip-serves-cache`, above), so a later
+;; `:rf.resource/ensure` served the (permanently empty) "cache" forever — the
+;; reported infinite-feed hang. The fix settles a first-load (page-0, no
+;; accumulated pages) abort to `:idle` (mirrors the scalar `entry-abort-
+;; settled` first-load branch), so a later ensure re-fetches. The non-abort
+;; first-load `:error` settle ALSO gained GC/stale timer arming (it silently
+;; omitted this, unlike the scalar first-load failure path).
+
+(deftest page-0-abort-settles-idle-not-loaded
+  (testing "rf2-s54uzc — an ABORTED page-0 fetch with NO accumulated pages
+            settles :idle (first-load cleanup), NEVER :loaded (the load-more
+            cleanup) — the pre-fix bug settled :loaded on an empty feed"
+    (rf/reg-resource :ab0/feed (feed-spec) feed-spec-request)
+    (ensure! :ab0/feed)
+    (let [k   (feed-key :ab0/feed)
+          wid (:current-work (entry k))]
+      (reply-aborted!)
+      (let [e (entry k)]
+        (is (= :idle (:status e)) "first-load abort settles :idle, not :loaded")
+        (is (= [] (:data e)) "no pages accumulated")
+        (is (nil? (:current-work e)) "no in-flight work after the abort settle")
+        (is (nil? (:error e)) "an abort is not an :error settle"))
+      (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid)))
+          "the work row settles terminal :cancelled"))))
+
+(deftest page-0-abort-does-not-fresh-skip-future-ensure
+  (testing "rf2-s54uzc — RED against the pre-fix behaviour: because the abort
+            settles :idle (not :loaded), a later ensure of the SAME feed
+            re-fetches page 0 rather than fresh-skipping a permanently-empty
+            'cache' (the reported infinite-feed hang)"
+    (rf/reg-resource :ab1/feed (feed-spec) feed-spec-request)
+    (ensure! :ab1/feed)
+    (reply-aborted!)
+    (reset! last-managed-args nil)
+    (ensure! :ab1/feed)
+    (is (some? @last-managed-args)
+        "a second ensure after a page-0 abort issues a NEW page-0 fetch — it
+         must NOT fresh-skip the empty, never-loaded feed")
+    (is (= 0 (get-in @last-managed-args [:request :params :page-index]))
+        "the re-issued fetch is page-0")
+    (is (= :loading (:status (entry (feed-key :ab1/feed))))
+        "the re-issued first load is :loading")))
+
+(deftest page-0-abort-arms-gc-and-stale-timers
+  (testing "rf2-s54uzc — a page-0 ABORT (first-load cleanup) arms the GC (+
+            stale) timer exactly like the scalar first-load abort (rf2-
+            kz5op1) — before this fix the infinite page-0 abort branch never
+            emitted :rf.resource/schedule-timers, leaking an owner-free empty
+            feed"
+    (rf/reg-resource :ab2/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
+                     feed-spec-request)
+    (ensure! :ab2/feed)
+    (let [k (feed-key :ab2/feed)]
+      (reset! scheduled-timers [])
+      (reply-aborted!)
+      (let [args (last-schedule-for k)]
+        (is (some? args) "schedule-timers emitted on the page-0 abort settle")
+        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
+        (is (= 1000 (:stale-delay-ms args)) "stale timer armed at :stale-after-ms")
+        (is (nil? (:poll-delay-ms args)) "no poll timer for an aborted entry")))))
+
+(deftest page-0-failure-arms-gc-and-stale-timers
+  (testing "rf2-s54uzc — a page-0 FAILURE (non-abort) with no accumulated
+            pages also arms the GC (+ stale) timer, mirroring the scalar
+            first-load :error arming (rf2-ar9pcx) — before this fix the
+            infinite first-load failure branch omitted timer scheduling
+            entirely"
+    (rf/reg-resource :fl0/feed (feed-spec {:gc-after-ms 5000 :stale-after-ms 1000})
+                     feed-spec-request)
+    (ensure! :fl0/feed)
+    (let [k (feed-key :fl0/feed)]
+      (reset! scheduled-timers [])
+      (reply-failure! {:kind :rf.http/server :status 503})
+      (let [e (entry k)]
+        (is (= :error (:status e)) "first-load failure settles :error")
+        (is (nil? (:current-work e)) "no in-flight work after the error settle"))
+      (let [args (last-schedule-for k)]
+        (is (some? args) "schedule-timers emitted on the page-0 :error settle")
+        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
+        (is (= 1000 (:stale-delay-ms args)) "stale timer armed at :stale-after-ms")
+        (is (nil? (:poll-delay-ms args)) "no poll timer for an errored entry")))))
+
+(deftest load-more-abort-keeps-loaded-no-rearm
+  (testing "rf2-s54uzc guard — an ABORTED load-more (page N>0, feed already
+            has pages) is NOT a first load: it keeps its pages, stays
+            :loaded, and re-arms NO timer (already armed on the prior page-0
+            success) — confirms the first-load split didn't change this
+            sibling path"
+    (rf/reg-resource :lma/feed (feed-spec {:gc-after-ms 5000}) feed-spec-request)
+    (ensure! :lma/feed)
+    (reply-success! (page [:a] "c1"))
+    (let [k (feed-key :lma/feed)]
+      (is (some? (last-schedule-for k)) "the page-0 success armed the GC timer")
+      (reset! scheduled-timers [])
+      (load-more! :lma/feed)
+      (reply-aborted!)
+      (let [e (entry k)]
+        (is (= :loaded (:status e)) "load-more abort keeps :loaded")
+        (is (= 1 (state/page-count e)) "page-0 kept")
+        (is (nil? (:page-error e)) "an abort is not a page-error"))
+      (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
+          "no timer re-armed by the load-more abort (already armed on the
+           prior page-0 success)"))))
 
 ;; ===========================================================================
 ;; 9. rf2-bi8vg1 — a load-more given a MISTAKEN (non-route) owner is
