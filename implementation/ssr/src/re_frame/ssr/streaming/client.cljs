@@ -420,7 +420,17 @@
           ;; later in this same sweep has a mount to swap into (finding 4).
           (materialise-fallbacks! root))
         (cond
-          failed?
+          ;; rf2-8ymnem — the failed-boundary trace is gated on swap SUCCESS.
+          ;; The failed content (the author's fallback HTML) only lands when
+          ;; `replace-mount-content!` finds a live mount, so emitting exactly
+          ;; when the swap happens is both correct and exactly-once: `seen` is
+          ;; conj'd only on a successful swap and the swapped-in <template> is
+          ;; removed, so a re-fire cannot re-process it. Previously the failed
+          ;; arm fired regardless of `swapped?`, so a resolved-failed
+          ;; <template> swept before its mount existed (a nested-boundary race
+          ;; / out-of-order stream) stayed un-`seen` and RE-EMITTED the trace
+          ;; on every MutationObserver re-sweep — multi-emit.
+          (and failed? swapped?)
           (trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id id-str)
                               :frame     frame-id
