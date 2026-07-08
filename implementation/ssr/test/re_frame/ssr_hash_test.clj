@@ -191,3 +191,68 @@
       (is (str/starts-with? html "<!DOCTYPE html>"))
       (is (not (str/includes? html "data-rf-render-hash"))
           "no hash attribute when :emit-hash? false"))))
+
+;; ---- rf2-jsa2ml: raw-fn hiccup heads hash identity-free -------------------
+
+(deftest render-tree-hash-drops-raw-fn-identity
+  (testing "rf2-jsa2ml — a raw-fn hiccup head (`[my-component props]`, the
+            deref'd defn VALUE idiomatic to Reagent/UIx/Helix SSR) has NO
+            cross-runtime-stable identity: (.toString fn) is class +
+            identity-hashcode on the JVM but the JS source on CLJS. The server
+            hashes the raw render tree and the client re-hashes the SAME tree,
+            so a fn `.toString` in the canonical EDN made byte-identical HTML
+            hash differently — a spurious :rf.ssr/hydration-mismatch that
+            CRASHES under :on-mismatch :hard-error. The fix serialises every
+            raw fn head to the fixed identity-free token `#fn[]`."
+    (let [f1 (fn [_] [:span "a"])
+          f2 (fn [_] [:span "a"])]
+      (is (= "#fn[]" (hash/canonical-edn f1))
+          "a raw fn serialises to the identity-free token, not #fn[<toString>]")
+      ;; The decisive property: two DISTINCT fn objects standing for the same
+      ;; logical view (server's deref'd defn vs client's) hash identically.
+      ;; Before the fix f1/f2 had different identity-hashcodes in their
+      ;; toString → different canonical EDN → different hashes → false mismatch.
+      (is (not= (.toString f1) (.toString f2))
+          "sanity: the two fn objects DO have divergent toStrings (the trap)")
+      (is (= (hash/render-tree-hash [:div [f1 {:x 1}]])
+             (hash/render-tree-hash [:div [f2 {:x 1}]]))
+          "distinct fn objects for the same tree hash identically — no spurious mismatch")
+      ;; The fn's props still discriminate: a different prop → a different hash.
+      (is (not= (hash/render-tree-hash [:div [f1 {:x 1}]])
+                (hash/render-tree-hash [:div [f1 {:x 2}]]))
+          "the head is identity-free but the props are still hashed")))
+  (testing "a Var head stays identity-stable — a Var is NOT fn? on the JVM, so
+            `[#'ns/view …]` falls to :else → pr-str → #'ns/name (identical
+            both runtimes)"
+    (is (= "#'clojure.core/identity"
+           (hash/canonical-edn #'clojure.core/identity))
+        "a Var reference keeps its stable #'ns/name print form")))
+
+;; ---- rf2-0ypnnk: whole-valued doubles canonicalise cross-runtime ----------
+
+(deftest whole-valued-doubles-canonicalise-hash-and-html-consistently
+  (testing "rf2-0ypnnk — a whole-valued double is serialised WITHOUT the
+            trailing .0 in BOTH the render-tree hash AND the emitted HTML, so
+            the JVM `9.0`/`0.0` match the CLJS `9`/`0` (CLJS unifies 1.0→1).
+            The two surfaces MUST agree — child AND attribute position — or
+            the hash passes while the server/client DOM diverges (and, under
+            :on-mismatch :hard-error, hydration crashes)."
+    ;; hash side — canonical EDN drops the .0 for a child AND an attr value.
+    (is (= "[:span 9]" (hash/canonical-edn [:span 9.0]))
+        "whole-double child → `9` in the canonical EDN")
+    (is (= "[:progress {:max 1,:value 0}]"
+           (hash/canonical-edn [:progress {:value 0.0 :max 1.0}]))
+        "whole-double attr values → `0`/`1` in the canonical EDN")
+    ;; HTML side — the emitter applies the SAME normalisation, child + attr.
+    (is (= "<span>9</span>" (emit/render-to-string [:span 9.0] {}))
+        "whole-valued double CHILD renders `9`, not the JVM `9.0`")
+    (let [html (emit/render-to-string [:progress {:value 0.0 :max 1.0}] {})]
+      (is (str/includes? html "value=\"0\"") "whole-double attr renders value=\"0\"")
+      (is (str/includes? html "max=\"1\"")   "whole-double attr renders max=\"1\"")
+      (is (not (str/includes? html ".0"))    "no trailing .0 leaks into the HTML"))
+    ;; integers, non-whole doubles, and ratios behave as documented.
+    (is (= "42"   (hash/canonical-number 42))   "an integer is unchanged")
+    (is (= "3.14" (hash/canonical-number 3.14)) "a non-whole double is unchanged")
+    (is (= "0.5"  (hash/canonical-number 1/2))  "a ratio coerces to its IEEE-double form")
+    (is (= "<span>3.14</span>" (emit/render-to-string [:span 3.14] {}))
+        "a non-whole double child is unchanged")))
