@@ -159,13 +159,28 @@
    `#` belongs to the path/query/fragment, so the link counts as
    scheme-less and is allowed."
   [href]
-  (let [h (str/trim (or href ""))
+  ;; Browsers strip ASCII tab/newline/CR — and ignore the other C0 control
+  ;; chars — from a URL *before* they resolve its scheme, so a payload like
+  ;; `java<TAB>script:alert(1)` fires as `javascript:` the moment it is
+  ;; clicked. We must therefore detect the scheme against a copy with every
+  ;; ASCII control + space char removed; otherwise a control-char-broken
+  ;; scheme fails the anchored regex, is misclassified as scheme-LESS, and is
+  ;; waved through as a live `<a href>` — the allowlist bypass rf2-9tllom.
+  ;; Stripping [\x00-\x20\x7f] is a *superset* of what the browser drops, so
+  ;; we can never under-detect a scheme the browser would go on to resolve;
+  ;; the anchored regex + `:else nil` then default-DENY anything not
+  ;; allowlisted. (`str/trim` handled only leading/trailing whitespace, which
+  ;; is why casing/whitespace variants were already rejected but internal /
+  ;; leading control chars slipped past.)
+  (let [h      (str/replace (or href "") #"[\x00-\x20\x7f]" "")
         ;; Match a scheme — ALPHA then ALPHA/DIGIT/+/-/. — anchored to the
         ;; start. Anchoring is the whole point: a `:` further in isn't a
         ;; scheme delimiter and won't match here.
         m      (re-find #"(?i)^([a-z][a-z0-9+.-]*):" h)
         scheme (some-> m second str/lower-case)]
     (cond
+      ;; Nothing left once stripped → nothing safe to link to.
+      (str/blank? h) nil
       ;; No leading scheme → relative path or fragment → safe.
       (nil? scheme) href
       ;; A scheme we trust → safe.
