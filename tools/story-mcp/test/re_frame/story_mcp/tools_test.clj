@@ -677,6 +677,27 @@
       (is (= [:story.button] (mapv :id (:stories s))))
       (is (not (contains? s :ignored-tags))))))
 
+(deftest list-stories-scalar-tags-rejected
+  ;; rf2-ldfrp0: `:tags` advertises an array argument
+  ;; (`{:type "array" :items s/kw-or-string}`). A malformed client that
+  ;; sends a bare scalar string instead of `["docs"]` must NOT be silently
+  ;; walked character-by-character (`(seq "docs")` => `(\d \o \c \s)`,
+  ;; every single-char probe missing the registered-tag allowlist and
+  ;; landing in `:ignored-tags`) — that is a successful-looking WRONG
+  ;; result, not a protocol-level rejection. It must surface a clean
+  ;; `isError` result instead.
+  (doseq [[label bad-tags] [["a bare string" "docs"]
+                            ["a number" 42]
+                            ["a boolean" true]]]
+    (testing (str "a scalar :tags (" label ") is rejected, not iterated")
+      (let [r (invoke "list-stories" {:tags bad-tags})]
+        (is (error? r) (str bad-tags " must surface an isError result"))
+        (is (re-find #"(?i):tags must be an array" (-> r :content first :text))
+            "the error names the offending arg + expected shape")
+        (is (= :rf.error/scalar-for-collection-arg
+               (-> r :structuredContent :rf.error))
+            "a stable :rf.error id rides the structuredContent")))))
+
 (deftest get-story-happy
   (let [r (invoke "get-story" {:story-id "story.button"})]
     (is (success? r))
@@ -1076,6 +1097,45 @@
 (deftest snapshot-identity-unknown
   (let [r (invoke "snapshot-identity" {:variant-id "story.nope/missing"})]
     (is (error? r))))
+
+(deftest run-opts-scalar-active-modes-rejected
+  ;; rf2-ldfrp0: `:active-modes` advertises an array argument
+  ;; (`{:type "array" :items s/kw-or-string}`) on all three
+  ;; `read-run-opts` callers. A malformed client that sends a bare scalar
+  ;; string instead of `["mode-id"]` must NOT be silently walked
+  ;; character-by-character by `read-run-opts`'s `into`/`keep` (each
+  ;; character probed against the mode allowlist and dropped, producing a
+  ;; confusing empty `:active-modes []` instead of a rejection) — that is
+  ;; a successful-looking WRONG result, not a protocol-level error. It
+  ;; must surface a clean `isError` result instead.
+  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " rejects a scalar :active-modes")
+      (let [r (invoke tool-name {:variant-id   "story.button/primary"
+                                  :active-modes "Mode.theme/dark"})]
+        (is (error? r) (str tool-name " must reject a scalar :active-modes, not coerce/crash"))
+        (is (re-find #"(?i):active-modes must be an array" (-> r :content first :text))
+            "the error names the offending arg + expected shape")
+        (is (= :rf.error/scalar-for-collection-arg
+               (-> r :structuredContent :rf.error))
+            "a stable :rf.error id rides the structuredContent")))))
+
+(deftest run-opts-non-map-cell-overrides-rejected
+  ;; rf2-ldfrp0: `:cell-overrides` advertises an object argument. A
+  ;; malformed client that sends a bare scalar instead of a map must NOT
+  ;; be silently DROPPED by `safe-cell-overrides`'s
+  ;; `(when (map? overrides) ...)` guard (no overrides applied, no error
+  ;; surfaced, the call silently succeeds as if the override was never
+  ;; sent) — it must surface a clean `isError` result instead.
+  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " rejects a non-map :cell-overrides")
+      (let [r (invoke tool-name {:variant-id      "story.button/primary"
+                                  :cell-overrides  "not-a-map"})]
+        (is (error? r) (str tool-name " must reject a scalar :cell-overrides, not silently drop it"))
+        (is (re-find #"(?i):cell-overrides must be an object" (-> r :content first :text))
+            "the error names the offending arg + expected shape")
+        (is (= :rf.error/non-map-arg
+               (-> r :structuredContent :rf.error))
+            "a stable :rf.error id rides the structuredContent")))))
 
 ;; `snapshot-identity` forwards `:cell-overrides`
 ;; into `story/snapshot-identity`, where it perturbs the `:content-hash`

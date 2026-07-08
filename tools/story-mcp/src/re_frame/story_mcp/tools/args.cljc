@@ -20,6 +20,12 @@
     `:cell-overrides` reader for `run-variant` / `preview-variant` /
     `snapshot-identity`, with each kw-typed slot routed through
     `safe-keyword` against its live bounded set.
+  - `require-collection` / `require-map` / `run-opts-shape-error` —
+    reject a SCALAR sent for a collection-typed arg (`:tags`,
+    `:active-modes`) or a non-map sent for `:cell-overrides` with a
+    clean `isError` result, BEFORE any downstream reader gets a chance
+    to silently walk a scalar as a sequence (a string iterates
+    character-by-character) or drop it.
 
   ## Bounded-allowlist keyword resolution
 
@@ -137,12 +143,85 @@
       (transient {})
       overrides))))
 
+(defn require-collection
+  "Guard a collection-shaped MCP arg against a caller-supplied SCALAR.
+  MCP JSON arrays wire-decode to Clojure vectors; a malformed client
+  that sends a bare scalar (a JSON string / number / boolean) for an
+  array-typed slot would otherwise be silently walked as a sequence by
+  `into` / `keep` / `seq` downstream — a string in particular iterates
+  CHARACTER BY CHARACTER (`(seq \"abc\")` => `(\\a \\b \\c)`), producing
+  a wrong-but-successful result instead of a clean rejection.
+
+  Returns nil when `k` is absent from `arguments` or its value is
+  already a collection (`coll?` — vector, list, or set all pass);
+  otherwise an `isError` result naming the offending arg with a stable
+  `:rf.error/scalar-for-collection-arg` id.
+
+  Shared by every array-typed MCP arg (`list-stories`'s `:tags`,
+  `run-opts-shape-error`'s `:active-modes`) so a scalar is rejected
+  identically everywhere."
+  [arguments k]
+  (let [v (get arguments k)]
+    (when (and (some? v) (not (coll? v)))
+      (result/error-result
+        (str ":" (name k) " must be an array; got a scalar "
+             (some-> v class .getName) " (" (pr-str v) ").")
+        {:rf.error :rf.error/scalar-for-collection-arg
+         :arg      (keyword k)}))))
+
+(defn require-map
+  "Guard a map-shaped MCP arg (`:cell-overrides`) against a
+  caller-supplied non-map — a scalar OR a sequential/set collection.
+  Same rationale as `require-collection`: without this gate a non-map
+  `:cell-overrides` is silently DROPPED by `safe-cell-overrides`'s
+  `(when (map? overrides) ...)` guard (no overrides applied, no error
+  surfaced) rather than rejected.
+
+  Returns nil when `k` is absent from `arguments` or its value is
+  already a map; otherwise an `isError` result naming the offending
+  arg with a stable `:rf.error/non-map-arg` id."
+  [arguments k]
+  (let [v (get arguments k)]
+    (when (and (some? v) (not (map? v)))
+      (result/error-result
+        (str ":" (name k) " must be an object; got "
+             (some-> v class .getName) " (" (pr-str v) ").")
+        {:rf.error :rf.error/non-map-arg
+         :arg      (keyword k)}))))
+
+(defn run-opts-shape-error
+  "Validate the run-opts-bearing slots (`:active-modes` array-shaped,
+  `:cell-overrides` map-shaped) BEFORE `read-run-opts` reads them.
+  Shared by every `read-run-opts` call site (`preview-variant`,
+  `run-variant`, `snapshot-identity`) so a scalar sent for either slot
+  is rejected identically everywhere: without this gate, a scalar
+  `:active-modes` string is walked character-by-character by
+  `read-run-opts`'s `into`/`keep` (each character probed against the
+  mode allowlist and silently dropped, producing a confusing empty
+  `:active-modes []` instead of an error), and a scalar
+  `:cell-overrides` is silently dropped by `safe-cell-overrides`.
+
+  Returns nil when both slots are well-shaped (or absent); otherwise
+  the first offending arg's `isError` result. Callers short-circuit on
+  a non-nil return the same way they already short-circuit on
+  `with-variant` / `required-arg` errors."
+  [arguments]
+  (or (require-collection arguments :active-modes)
+      (require-map arguments :cell-overrides)))
+
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
   arg slots (`:substrate`, `:active-modes`, `:cell-overrides`) for the
   resolved variant `vk`. Each slot lands only when present, so the
   resulting map is the minimal shape `run-variant` / `snapshot-identity`
   / `variant-share-url` expect.
+
+  SHAPE VALIDATION is NOT this function's job — call
+  `run-opts-shape-error` first and short-circuit on a non-nil result.
+  This function assumes `:active-modes` (when present) is already a
+  collection and `:cell-overrides` (when present) is already a map;
+  fed a scalar, `:active-modes` silently degrades (a string iterates
+  character-by-character) rather than erroring.
 
   Shared by `tool-preview-variant`, `tool-run-variant`,
   `tool-snapshot-identity`, and `tool-variant-share-url` — all four

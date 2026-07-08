@@ -56,45 +56,52 @@
   Pagination via `cursor/page`. The stable-sort key is the
   story id (string projection). Small registries return the bare
   `{:stories [...]}` payload; once entries exceed `:limit` the
-  response adds `:total :limit :has-more? :next-cursor`."
+  response adds `:total :limit :has-more? :next-cursor`.
+
+  A caller-supplied `:tags` that is a SCALAR (not an array) is
+  rejected up front via `targs/require-collection` — an `isError`
+  result, not a silent character-by-character walk of the string
+  (`(seq \"docs\")` => `(\\d \\o \\c \\s)`, each single-char probe
+  missing the tag-id allowlist and landing in `:ignored-tags`)."
   [args]
-  (let [stories      (story/registrations :story)
-        tag-set      (story/list-tags)
-        supplied     (:tags args)
-        supplied?    (some? supplied)
-        ;; Resolve each supplied entry against the registered-tag set
-        ;; WITHOUT interning unknowns. Partition by whether
-        ;; it resolved so the unknown names can ride the `:ignored-tags`
-        ;; diagnostic as their raw string forms.
-        tags         (into #{} (keep #(args/safe-keyword % tag-set)) (or supplied []))
-        ignored      (when supplied?
-                       (into [] (remove #(args/safe-keyword % tag-set)) supplied))
-        ;; A SUPPLIED filter always filters — even when nothing resolved
-        ;; (unknown-only ⇒ empty intersection ⇒ empty result), so a typo
-        ;; never widens to the whole catalogue. Only the
-        ;; no-`:tags` call returns the unfiltered registry.
-        filtered     (if supplied?
-                       (into {}
-                             (filter (fn [[_id body]]
-                                       (seq (set/intersection tags (set (:tags body))))))
-                             stories)
-                       stories)
-        index        (story/variants-by-story)
-        ;; Build the full sorted entry vec FIRST; pagination slices it.
-        ;; The sort is on string projection of the id for stable cross-
-        ;; page ordering — the fingerprint depends on it.
-        sorted       (sort-by (comp str key) filtered)
-        all-ids      (keys filtered)
-        entries      (mapv (fn [[sid body]]
-                             {:id   sid
-                              :doc  (:doc body)
-                              :tags (vec (:tags body))
-                              :variants (sort (get index sid #{}))})
-                           sorted)]
-    (cursor/paged-result entries all-ids args "list-stories"
-                         (fn [page]
-                           (cond-> {:stories page}
-                             (seq ignored) (assoc :ignored-tags ignored))))))
+  (or (targs/require-collection args :tags)
+      (let [stories      (story/registrations :story)
+            tag-set      (story/list-tags)
+            supplied     (:tags args)
+            supplied?    (some? supplied)
+            ;; Resolve each supplied entry against the registered-tag set
+            ;; WITHOUT interning unknowns. Partition by whether
+            ;; it resolved so the unknown names can ride the `:ignored-tags`
+            ;; diagnostic as their raw string forms.
+            tags         (into #{} (keep #(args/safe-keyword % tag-set)) (or supplied []))
+            ignored      (when supplied?
+                           (into [] (remove #(args/safe-keyword % tag-set)) supplied))
+            ;; A SUPPLIED filter always filters — even when nothing resolved
+            ;; (unknown-only ⇒ empty intersection ⇒ empty result), so a typo
+            ;; never widens to the whole catalogue. Only the
+            ;; no-`:tags` call returns the unfiltered registry.
+            filtered     (if supplied?
+                           (into {}
+                                 (filter (fn [[_id body]]
+                                           (seq (set/intersection tags (set (:tags body))))))
+                                 stories)
+                           stories)
+            index        (story/variants-by-story)
+            ;; Build the full sorted entry vec FIRST; pagination slices it.
+            ;; The sort is on string projection of the id for stable cross-
+            ;; page ordering — the fingerprint depends on it.
+            sorted       (sort-by (comp str key) filtered)
+            all-ids      (keys filtered)
+            entries      (mapv (fn [[sid body]]
+                                 {:id   sid
+                                  :doc  (:doc body)
+                                  :tags (vec (:tags body))
+                                  :variants (sort (get index sid #{}))})
+                               sorted)]
+        (cursor/paged-result entries all-ids args "list-stories"
+                             (fn [page]
+                               (cond-> {:stories page}
+                                 (seq ignored) (assoc :ignored-tags ignored)))))))
 
 (defn tool-get-story
   "Docs: one story's full body.
