@@ -65,6 +65,8 @@ Audience: `[impl]` (primary), `[app]` (deep-dive lookups). Read EPs in numeric o
 - **EP — Vision (000)** → https://day8.github.io/re-frame2/spec/000-Vision/ `[impl]`
 - **EP — Registration (001)** → https://day8.github.io/re-frame2/spec/001-Registration/ `[impl]`
 - **EP — Frames (002)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
+- **EP — Image-loaded frames (023)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
+- **EP — Image spec (026)** → https://day8.github.io/re-frame2/spec/002-Frames/ `[app]` `[impl]`
 - **EP — Views (004)** → https://day8.github.io/re-frame2/spec/004-Views/ `[impl]`
 - **EP — State machines (005)** → https://day8.github.io/re-frame2/spec/005-StateMachines/ `[app]` `[impl]`
 - **EP — Reactive substrate (006)** → https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/ `[app]` `[pair]` `[impl]`
