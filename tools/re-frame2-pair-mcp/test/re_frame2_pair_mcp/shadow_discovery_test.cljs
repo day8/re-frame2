@@ -1,15 +1,24 @@
 (ns re-frame2-pair-mcp.shadow-discovery-test
   "Unit tests for the shadow-cljs HTTP probe.
 
-  Two surfaces under test:
+  Three surfaces under test, none of which opens a real socket:
 
     - `extract-project-home` — pure transit-json string → string|nil.
       Driven directly from synthetic JSON bodies; no HTTP.
-    - `discover-project-home` — wraps `fetch-project-info`. We swap the
-      module-level `fetch-project-info` for a stub via the
-      `with-redefs` macro so the cascade observes the three outcomes
-      (success / non-200 / connection refused / parse failure) without
-      a real socket.
+    - `fetch-project-info` — the HTTP-edge fn. Its 3-arity takes an
+      injected request-fn (a `(opts callback) -> ClientRequest`, mirroring
+      Node's `http.request`), so a FAKE ClientRequest drives the
+      below-the-socket branches directly: 200 single- and multi-chunk body
+      assembly, a non-200 reject, a request `error`, the bounded-timeout
+      `destroy` + reject, the response `error`, and the settle-once
+      double-settle guard.
+    - `discover-project-home*` — the fetch+parse composition. Here the
+      whole `fetch-project-info` step is stubbed AWAY via the injected
+      fetch-fn seam (it just returns a resolved/rejected Promise), so
+      these tests pin the compose-and-nil-on-error contract only — NOT
+      fetch-project-info's own edge handling (non-200 / connection
+      refused / timeout are simulated by the stub, not exercised). That
+      handling is covered by the `fetch-project-info` tests above.
 
   No test in this file talks to a live shadow server — the live probe
   is exercised by hand against `http://localhost:9630/api/project-info`
@@ -76,6 +85,189 @@
     (is (nil? (sd/extract-project-home "")))
     (is (nil? (sd/extract-project-home "[\"^ \", \"~:project-home\""))
         "truncated array")))
+
+;; ===========================================================================
+;; fetch-project-info — the HTTP edge, driven through an injected request-fn.
+;;
+;; `fetch-project-info`'s 3-arity takes a request-fn matching Node's
+;; `http.request` shape — `(opts callback) -> ClientRequest`, where `callback`
+;; receives the IncomingMessage. `make-fake-transport` returns such a fn plus a
+;; `state` atom the test drives: it records the response callback and the
+;; ClientRequest's `on` / `setTimeout` / `destroy` / `end` calls, so the test
+;; can fire a fake response (and its data/end/error events), a request error,
+;; or the timeout, and assert how `fetch-project-info` settles. No socket.
+;; ===========================================================================
+
+(defn- fake-res
+  "Minimal stand-in for Node's http IncomingMessage. `.statusCode` is fixed;
+  `.on` records event handlers into `handlers`; `.setEncoding` / `.resume` are
+  inert. The test fires the recorded data/end/error handlers to drive the body
+  assembly."
+  [status handlers]
+  #js {:statusCode  status
+       :setEncoding (fn [_enc] nil)
+       :resume      (fn [] nil)
+       :on          (fn [event cb] (swap! handlers assoc event cb) nil)})
+
+(defn- make-fake-transport
+  "Returns `[request-fn state]`. `request-fn` matches the seam
+  `fetch-project-info` expects — `(opts callback) -> ClientRequest` — recording
+  the response `callback` under `:res-cb` and returning a fake ClientRequest
+  whose `on` / `setTimeout` / `destroy` / `end` calls land in `state`. Drive
+  settlement by invoking `(:res-cb @state)` with a `fake-res`, then that res's
+  recorded data/end/error handlers; or the recorded req `error` handler; or
+  `(:timeout-cb @state)`."
+  []
+  (let [state (atom {:req-handlers {} :res-cb nil :timeout-cb nil
+                     :destroyed nil :ended false :opts nil})
+        req   #js {:on         (fn [event cb]
+                                 (swap! state assoc-in [:req-handlers event] cb) nil)
+                   :setTimeout (fn [_ms cb] (swap! state assoc :timeout-cb cb) nil)
+                   :destroy    (fn [err] (swap! state assoc :destroyed err) nil)
+                   :end        (fn [] (swap! state assoc :ended true) nil)}
+        request-fn (fn [opts cb]
+                     (swap! state assoc :opts opts :res-cb cb)
+                     req)]
+    [request-fn state]))
+
+;; The `done`-calling `.then` chain is the LAST form of every `async` body
+;; below (matching the convention the discover-project-home* tests use):
+;; drive the fake req/res settlement FIRST, then attach `.then`. Attaching
+;; `.then` and only THEN settling synchronously in the same body trips
+;; cljs.test's run-block into a spurious "done called more than one time".
+
+(deftest fetch-project-info-threads-opts-and-ends-the-request
+  (testing "host + port reach the request opts and the request is .end()ed"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "10.0.0.5" 9700 request-fn)]
+        ((:res-cb @state) (fake-res 200 res-handlers))
+        ((get @res-handlers "data") "{ok}")
+        ((get @res-handlers "end"))
+        (-> p
+            (.then (fn [_]
+                     (let [opts (:opts @state)]
+                       (is (= "10.0.0.5" (.-host opts)))
+                       (is (= 9700 (.-port opts)))
+                       (is (= "/api/project-info" (.-path opts)))
+                       (is (true? (:ended @state))
+                           "req.end() fires the request"))
+                     (done))))))))
+
+(deftest fetch-project-info-200-single-chunk-resolves-body
+  (testing "a 200 with one chunk resolves the body verbatim"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:res-cb @state) (fake-res 200 res-handlers))
+        ((get @res-handlers "data") "{body}")
+        ((get @res-handlers "end"))
+        (-> p
+            (.then (fn [body]
+                     (is (= "{body}" body))
+                     (done))))))))
+
+(deftest fetch-project-info-200-multi-chunk-assembles-body
+  (testing "a chunked 200 body is concatenated in arrival order"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:res-cb @state) (fake-res 200 res-handlers))
+        ((get @res-handlers "data") "ab")
+        ((get @res-handlers "data") "cd")
+        ((get @res-handlers "data") "ef")
+        ((get @res-handlers "end"))
+        (-> p
+            (.then (fn [body]
+                     (is (= "abcdef" body)
+                         "the data-event accumulator joins all chunks")
+                     (done))))))))
+
+(deftest fetch-project-info-non-200-rejects-with-status
+  (testing "a non-200 response rejects, carrying the status code"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:res-cb @state) (fake-res 404 res-handlers))
+        (-> p
+            (.then (fn [_]
+                     (is false "a non-200 must reject, not resolve")
+                     (done))
+                   (fn [err]
+                     (is (re-find #"HTTP 404" (.-message err))
+                         "reject message names the status code")
+                     (done))))))))
+
+(deftest fetch-project-info-request-error-rejects
+  (testing "a ClientRequest 'error' (e.g. connection refused) rejects"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((get-in @state [:req-handlers "error"]) (js/Error. "ECONNREFUSED"))
+        (-> p
+            (.then (fn [_]
+                     (is false "a request error must reject")
+                     (done))
+                   (fn [err]
+                     (is (= "ECONNREFUSED" (.-message err)))
+                     (done))))))))
+
+(deftest fetch-project-info-timeout-destroys-and-rejects
+  (testing "the bounded-probe timeout destroys the request and rejects"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:timeout-cb @state))
+        (-> p
+            (.then (fn [_]
+                     (is false "a timed-out probe must reject")
+                     (done))
+                   (fn [err]
+                     (is (re-find #"timed out" (.-message err)))
+                     (is (some? (:destroyed @state))
+                         "req.destroy tears the socket down before rejecting")
+                     (done))))))))
+
+(deftest fetch-project-info-response-error-rejects
+  (testing "a mid-body response 'error' event rejects the probe"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:res-cb @state) (fake-res 200 res-handlers))
+        ((get @res-handlers "data") "partial")
+        ((get @res-handlers "error") (js/Error. "socket hang up"))
+        (-> p
+            (.then (fn [_]
+                     (is false "a response error must reject")
+                     (done))
+                   (fn [err]
+                     (is (= "socket hang up" (.-message err)))
+                     (done))))))))
+
+(deftest fetch-project-info-double-settle-guard-holds
+  (testing "once end has resolved, a late timeout is swallowed (settle-once)"
+    (async done
+      (let [[request-fn state] (make-fake-transport)
+            res-handlers (atom {})
+            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
+        ((:res-cb @state) (fake-res 200 res-handlers))
+        ((get @res-handlers "data") "done-body")
+        ((get @res-handlers "end"))
+        ;; A late timeout fires AFTER the resolve — compare-and-set! swallows it.
+        ((:timeout-cb @state))
+        (-> p
+            (.then (fn [body]
+                     (is (= "done-body" body)
+                         "the FIRST settlement (resolve on end) wins")
+                     (done))
+                   (fn [_]
+                     (is false "a resolved probe must not later reject")
+                     (done))))))))
 
 ;; ===========================================================================
 ;; discover-project-home* — fetch + parse composition.

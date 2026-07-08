@@ -93,6 +93,14 @@
             :else (recur (+ i 2))))))
     (catch :default _ nil)))
 
+(defn default-request
+  "Production HTTP-request seam: Node's `http.request`. Wrapped in a plain
+  fn (rather than passing `http/request` bare) so the injected fake in
+  `fetch-project-info`'s 3-arity is a drop-in — same `(opts callback) ->
+  ClientRequest` contract, no `this`-binding surprises."
+  [opts callback]
+  (http/request opts callback))
+
 (defn fetch-project-info
   "Issue `GET http://<host>:<http-port>/api/project-info` against shadow's
   web server. Returns a Promise resolving to the response body (string)
@@ -101,8 +109,16 @@
   `.catch` and translate failures to nil — see `discover-project-home`.
 
   Kept separate from the parsing step so tests can stub one or the
-  other in isolation."
-  [host http-port]
+  other in isolation.
+
+  The 3-arity injects the HTTP-request seam (`request-fn`, a
+  `(opts callback) -> ClientRequest`) so the below-the-socket branches —
+  non-200 reject, multi-chunk body assembly, the bounded-timeout
+  destroy+reject, and the settle-once double-settle guard — are unit-
+  testable with a fake ClientRequest, no live socket. The 2-arity threads
+  the production `default-request`."
+  ([host http-port] (fetch-project-info host http-port default-request))
+  ([host http-port request-fn]
   (js/Promise.
     (fn [resolve reject]
       (let [opts        #js {:host host
@@ -113,7 +129,7 @@
             settle-once (fn [f v]
                           (when (compare-and-set! settled? false true)
                             (f v)))
-            ^js req     (http/request
+            ^js req     (request-fn
                           opts
                           (fn [^js res]
                             (let [status (.-statusCode res)]
@@ -137,7 +153,7 @@
                   (try (.destroy req (js/Error. "shadow HTTP probe timed out"))
                        (catch :default _ nil))
                   (settle-once reject (js/Error. "shadow HTTP probe timed out"))))
-        (.end req)))))
+        (.end req))))))
 
 (defn discover-project-home*
   "Like [[discover-project-home]] but takes the HTTP-fetch fn as an
