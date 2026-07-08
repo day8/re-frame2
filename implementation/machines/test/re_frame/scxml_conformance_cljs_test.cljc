@@ -106,7 +106,8 @@
 
   ## Divergences from the SCXML core
 
-  re-frame2 follows XState v5 (the gold standard) for self-transition
+  re-frame2 follows the XState v6 direction (which retains v5's
+  internal-by-default self-transition rule) for self-transition
   defaults, which FLIPS SCXML's default: a targeted self/ancestor
   transition is INTERNAL by default; the external restart is the opt-in
   `:reenter? true`. SCXML's `type=\"external\"` default is therefore a
@@ -1019,7 +1020,8 @@
 ;; ===========================================================================
 ;; §10. Self-transitions (internal default vs external opt-in)
 ;;
-;; XState v5 is the gold standard. THREE cases the engine must distinguish:
+;; The XState v6 direction is the parity reference (this self-transition
+;; semantic is unchanged since v5). THREE cases the engine must distinguish:
 ;;
 ;;   (1) TARGETLESS — the action fires; NO onexit/onentry; the active
 ;;       configuration (including active descendants) is PRESERVED unchanged.
@@ -1301,7 +1303,7 @@
 ;; ===========================================================================
 ;; §10c. Explicit targets on the active path RE-RESOLVE DESCENDANTS
 ;;       (the middle case; and parent-declared reenter
-;;       to a specific descendant). XState v5 gold standard.
+;;       to a specific descendant). XState v5 rule.
 ;;
 ;; The defining XState v5 rule (stately.ai/docs/transitions):
 ;;   "A common mistake is using target: 'process' on a parent state

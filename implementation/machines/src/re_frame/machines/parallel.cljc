@@ -26,8 +26,7 @@
   (single vs parallel) so the transition engine doesn't need to know
   the parallel layer exists.
 
-  `:raise` semantics (XState v5 / SCXML gold
-  standard). A flat / compound machine drains its own `:raise` queue FIFO
+  `:raise` semantics (XState v5 / SCXML). A flat / compound machine drains its own `:raise` queue FIFO
   inside `re-frame.machines.transition`. A PARALLEL machine owns the
   macrostep's single internal-event queue HERE: each region DEFERS its
   raises (its `machine-transition-single` settles `:always` locally but
@@ -645,7 +644,7 @@
 
 ;; ---- parallel macrostep internal-event queue ------------------------------
 ;;
-;; XState v5 / SCXML gold standard: `raise` enqueues on the machine's ONE
+;; XState v5 / SCXML: `raise` enqueues on the machine's ONE
 ;; internal event queue; the macrostep pops the front and broadcasts that
 ;; internal event to every active region, FIFO, until the queue drains —
 ;; then commits once. A parallel-region `:raise` is therefore NOT
@@ -695,7 +694,7 @@
 
 ;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
-;; XState v5 / SCXML gold standard: a transition declared on a `<parallel>`
+;; XState v5 / SCXML: a transition declared on a `<parallel>`
 ;; node is the ANCESTOR FALLBACK for its regions — deepest-wins with parent
 ;; fallthrough, the parallel analog of the machine-root `:on` fallback every
 ;; flat / compound machine already has (`transition/pick-transition` steps
@@ -1325,7 +1324,7 @@
 
 ;; ---- birth-time `:always` + raise settle ----------------------------------
 ;;
-;; XState v5 / SCXML gold standard: the INITIAL macrostep is initial-entry
+;; XState v5 / SCXML: the INITIAL macrostep is initial-entry
 ;; + the eventless (`always`) drain. `createActor(m).start()` evaluates
 ;; `always` on the entered initial state(s); if an `always` guard already
 ;; holds, the actor settles PAST the initial leaf with NO external event —

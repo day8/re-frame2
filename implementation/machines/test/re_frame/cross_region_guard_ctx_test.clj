@@ -1,7 +1,7 @@
 (ns re-frame.cross-region-guard-ctx-test
   "Per Spec 005 §Cross-region coordination — tags as `stateIn`.
 
-  XState v5 / SCXML gold standard: a parallel region's guard can
+  XState v5 / SCXML: a parallel region's guard can
   predicate on a SIBLING region's active state via `stateIn(stateValue)`
   (XState v5 `xstate/guards`) / the `In(stateID)` predicate (W3C SCXML
   B.1) — the canonical orthogonal-region coordination primitive.

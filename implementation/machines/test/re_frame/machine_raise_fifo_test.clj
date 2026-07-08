@@ -2,7 +2,7 @@
   "`:raise` drains FIFO (XState v5 / SCXML internal-event queue), NOT
   depth-first.
 
-  XState v5 / SCXML gold standard: `raise` / `<raise>` enqueues on the
+  XState v5 / SCXML: `raise` / `<raise>` enqueues on the
   machine's ONE internal event queue, drained breadth-first within the
   macrostep. A transition that raises `[B]` then `[C]`, where B's handler
   itself raises `[D]`, processes them `B, C, D` — D goes to the BACK of the

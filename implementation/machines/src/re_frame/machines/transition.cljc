@@ -250,7 +250,7 @@
 ;;
 ;; ---- cross-region guard/action context ------------------------------------
 ;;
-;; XState v5 / SCXML gold standard: a parallel region's guard can predicate
+;; XState v5 / SCXML: a parallel region's guard can predicate
 ;; on a SIBLING region's active state via `stateIn(stateValue)` (XState v5
 ;; `xstate/guards`) / the `In(stateID)` predicate (W3C SCXML B.1). This is
 ;; the canonical orthogonal-region coordination primitive — region A's
@@ -350,7 +350,7 @@
 
 ;; ---- guard-throw signal (XState v5 alignment) -----------------------------
 ;;
-;; Per Spec 005 §`:rf.machine/guard-evaluated` (gold-standard alignment,
+;; Per Spec 005 §`:rf.machine/guard-evaluated` (XState v5 alignment,
 ;; rf2-18mox0): XState v5 does NOT swallow a guard exception. A throwing
 ;; guard SURFACES the error and ABORTS transition selection — it is never
 ;; silently demoted to a lower-priority candidate, a wildcard tier, or an
@@ -1674,7 +1674,7 @@
   (`(count src-path) > (count C-path)`) AND `C` itself is being exited
   (`lca-len < (count C-path)`, so `C`'s node — at index `(count C-path) - 1`
   along `src-path` — sits strictly below the surviving LCA boundary and is
-  torn down). This aligns with the XState v5 / W3C SCXML gold standard
+  torn down). This aligns with the XState v5 / W3C SCXML rule
   (Appendix D writes the history value while iterating `statesToExit`):
   history captures \"where this compound was when WE LEFT IT\", so the
   compound must actually be left. A transition that merely moves between
@@ -2127,7 +2127,7 @@
 
 ;; ---- root-level `:after` for parallel machines ----------------------------
 ;;
-;; XState v5 gold standard: `after` may be declared at ANY level, including a
+;; XState v5 / SCXML: `after` may be declared at ANY level, including a
 ;; `<parallel>` node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled when
 ;; the parallel root is entered (machine birth), alive for the WHOLE machine,
 ;; and cancelled only when the machine itself is torn down. It is NOT bound to
