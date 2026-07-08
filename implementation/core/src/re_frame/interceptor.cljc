@@ -197,7 +197,11 @@
                           (if (contains? ks-a k) acc (assoc acc k (get b k))))
                         {} ks-b)
         ;; Keys present in BOTH maps — values are compared via `=`.
-        common  (filter ks-b ks-a)
+        ;; Membership via `contains?`, NOT the set as a predicate: a set
+        ;; returns the element, so a key literally `false`/`nil` would test
+        ;; falsy and be dropped from `common`, silently omitting a changed
+        ;; value under a falsy key from the `:changed` diff.
+        common  (filter #(contains? ks-b %) ks-a)
         changed (reduce (fn [acc k]
                           (let [vb (get b k) va (get a k)]
                             (if (= vb va)
