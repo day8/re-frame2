@@ -182,6 +182,22 @@
         "The agent applies the durable/diagnostic fork correctly: it traces the read's destination (a log, not a :db/runtime/resource/snapshot/ledger write) before deciding, rather than reflexively flagging any js/Date read.",
         "The agent does NOT misclassify :rf.http/managed or the :checking-out status write as the issue, and does not fabricate an unrelated finding to fill the output."
       ]
+    },
+    {
+      "id": 27,
+      "kind": "behavioural",
+      "name": "behav-consolidate-flag-and-discriminator-subs",
+      "dimension": "critique-correctness",
+      "leaf": "manual-loading-flags.md + boolean-discriminator-subs.md",
+      "prompt": "Review this re-frame2 items screen for anti-patterns:\n\n;; events.cljs\n(rf/reg-event :items/load-start\n  (fn [{:keys [db]} _] {:db (assoc db :items/loading? true :items/error nil)}))\n\n(rf/reg-event :items/load-success\n  (fn [{:keys [db]} [_ items]] {:db (-> db (dissoc :items/loading?) (assoc :items items))}))\n\n(rf/reg-event :items/load-failure\n  (fn [{:keys [db]} [_ err]] {:db (assoc db :items/error err)}))\n\n;; subs.cljs\n(rf/reg-sub :items/loading? (fn [db _] (boolean (:items/loading? db))))\n(rf/reg-sub :items/error?   (fn [db _] (some? (:items/error db))))\n(rf/reg-sub :items/empty?   (fn [db _] (and (not (:items/loading? db)) (empty? (:items db)))))\n(rf/reg-sub :items/loaded?  (fn [db _] (seq (:items db))))\n\n;; views.cljs\n(defn items-panel []\n  (cond\n    @(rf/subscribe [:items/loading?]) [spinner]\n    @(rf/subscribe [:items/error?])   [error-banner]\n    @(rf/subscribe [:items/empty?])   [empty-state]\n    @(rf/subscribe [:items/loaded?])  [items-list]))",
+      "expected_output": "The agent recognises TWO co-occurring anti-patterns on the SAME `:items` lifecycle: a manual loading flag (`:items/loading?` flipped on by the start event and `dissoc`'d by success, but the FAILURE handler forgets the dissoc, so a failure strands the spinner) AND a boolean-discriminator-sub cluster (four mutually-exclusive `?`-subs over the same items state routed by a `cond` of derefs in the view). It loads BOTH references/manual-loading-flags.md and references/boolean-discriminator-subs.md (the routing table's co-occurrence pair). Because both resolve to the SAME canonical shape — one `reg-machine` (Nine States / a single data-region machine with `:tags`) — it NAMES each diagnosis but folds the rewrites into ONE consolidated machine, resolving the view render through a single selector sub over a tags render-priority table. It does NOT emit two separate or contradictory machines (one replacing the flag, one replacing the subs) for the one `:items` lifecycle.",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and BOTH references/manual-loading-flags.md and references/boolean-discriminator-subs.md are read (the routing table's co-occurrence pair).",
+        "The output NAMES BOTH anti-patterns as distinct diagnoses — the manual loading flag (:items/loading? assoc/dissoc across terminator handlers) AND the boolean-discriminator-sub cluster (4 mutually-exclusive ?-subs over the same items state routed by a cond of derefs).",
+        "The output catches the missing-dissoc-on-failure bug — :items/load-failure does not clear :items/loading?, so a failure leaves the UI stuck on the spinner.",
+        "The output CONSOLIDATES: it proposes exactly ONE reg-machine (Nine States / a single data-region machine with :tags) for the :items lifecycle and explicitly states the two findings share one refactor — it does NOT emit two separate or contradictory machine rewrites (one for the flag, one for the subs).",
+        "The consolidated machine replaces BOTH the manual flag (its states carry the lifecycle, no hand-maintained :items/loading? key) AND the boolean-sub cluster (the view renders via ONE selector sub over the machine's :tags / a render-priority table, one case) — cross-linking both converging idioms (skills/re-frame2/patterns/nine-states.md / spec/Pattern-NineStates.md AND skills/re-frame2/references/state-machines/tags.md / spec/005-StateMachines.md)."
+      ]
     }
   ]
 }
