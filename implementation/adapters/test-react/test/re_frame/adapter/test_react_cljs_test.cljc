@@ -16,7 +16,7 @@
           the current panel's child root; on a chip-row 'switch panel'
           re-render, the parent's render body synchronously unmounts the
           PREVIOUS panel's root. The guard fires ORGANICALLY — no
-          hand-fabricated :currently-rendering? — because the unmount happens
+          hand-fabricated in-flight render state — because the unmount happens
           while React (the global render depth) is rendering somewhere.
 
        2. Unbalanced subscribe/dispose (mount/unmount ref-count). A faulty
@@ -345,8 +345,8 @@
 ;; rendering." The original fix deferred the unmount to a microtask.
 ;;
 ;; Here the bug is reproduced ORGANICALLY: the host's render body issues the
-;; unmount while the global render depth is non-zero — no test sets
-;; :currently-rendering? by hand. That converts the headline capability from
+;; unmount while the global render depth is non-zero — no test fabricates
+;; in-flight render state by hand. That converts the headline capability from
 ;; "guard logic verified" to "bug condition reproduced."
 
 (deftest organic-sync-unmount-during-render-rf2-4l7t2
