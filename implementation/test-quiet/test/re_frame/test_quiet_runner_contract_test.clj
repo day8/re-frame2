@@ -1081,3 +1081,124 @@
                   "the child must be force-killed on the timeout, not left alive"))
             ;; Cleanup belt: ensure the child is gone regardless.
             (.destroyForcibly proc)))))))
+
+;; ----------------------------------------------------------------------
+;; Stderr ring is BOUNDED — front-trim keeps the newest cap — rf2-hd3t77.
+;;
+;; `stderr-buffer-cap` is 256 KB and `buffering-stderr-writer` front-trims
+;; (`(.delete sb 0 (- n cap))`) so the ring retains the NEWEST `cap`
+;; characters and drops older ones (runner.clj `stderr-buffer-cap` +
+;; `buffering-stderr-writer`).  The CLJS analogue is rigorously pinned
+;; (`warn-buffer-is-bounded-and-materialised` drives 4x cap); the JVM ring
+;; had NO equivalent — the green/red stderr pins write tiny payloads, so a
+;; broken trim (wrong end, off-by-one, dropped) was uncaught and could OOM
+;; a chatty red suite.  This drives a RED run that floods `*err*` with
+;; ~600 KB (well past the 256 KB cap), then asserts the newest tail marker
+;; is REPLAYED, the oldest head marker is DROPPED, and the replayed volume
+;; is bounded to ~cap — proving the ring capped rather than merely that a
+;; marker happened to be absent.
+
+(deftest stderr-ring-front-trims-to-newest-cap-on-red
+  (testing "an *err* flood past the 256 KB cap keeps the NEWEST cap chars, drops the oldest (rf2-hd3t77)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; ~600 KB of filler (2000 lines x ~300 chars) brackets a HEAD
+        ;; marker (written FIRST → oldest → must be front-trimmed away) and
+        ;; a TAIL marker (written LAST → newest → must survive), all to
+        ;; *err* on a run that then FAILS so the ring is replayed.
+        (write-fixture! dir "ringcap_fixture_test" "ringcap-fixture-test"
+                        (str "(deftest a-huge-warning-and-failing-test"
+                             " (binding [*out* *err*]"
+                             "   (println \"HEAD-MARKER-OLDEST-MUST-BE-DROPPED\")"
+                             "   (dotimes [_ 2000] (println (apply str (repeat 300 \"F\"))))"
+                             "   (println \"TAIL-MARKER-NEWEST-MUST-SURVIVE\"))"
+                             " (is (= :exp :act)))"))
+        (let [{:keys [exit out err]} (run-runner dir)
+              cap (* 256 1024)]
+          (is (= 1 exit)
+              (str "the flooding-and-failing suite is red; must exit 1; got "
+                   exit "\n--- stdout ---\n" out
+                   "\n--- stderr head ---\n" (subs err 0 (min 300 (count err)))))
+          (is (str/includes? err "buffered stderr replayed because the run was RED")
+              (str "the red replay label must be present; got stderr head:\n"
+                   (subs err 0 (min 300 (count err)))))
+          ;; NEWEST retained: the tail marker written last survives the ring.
+          (is (str/includes? err "TAIL-MARKER-NEWEST-MUST-SURVIVE")
+              (str "the NEWEST bytes must be retained by the front-trim ring"
+                   " (rf2-hd3t77); tail marker missing. stderr length="
+                   (count err)))
+          ;; OLDEST dropped: the head marker written first is trimmed away.
+          (is (not (str/includes? err "HEAD-MARKER-OLDEST-MUST-BE-DROPPED"))
+              (str "the OLDEST bytes must be front-trimmed once past the "
+                   cap "-char cap (rf2-hd3t77); the head marker leaked, so"
+                   " the ring either did not trim or trimmed the WRONG end."
+                   " stderr length=" (count err)))
+          ;; BOUNDED: the replay is ~cap + the fixed label, NOT the full
+          ;; ~600 KB stream — proving the ring actually capped. Without the
+          ;; front-trim, (count err) would be ~600 KB.
+          (is (< (count err) (+ cap 4096))
+              (str "the replayed stderr must be bounded to ~" cap " chars +"
+                   " the replay label (rf2-hd3t77); an unbounded ring would"
+                   " replay the whole ~600 KB flood. got " (count err)
+                   " chars")))))))
+
+;; ----------------------------------------------------------------------
+;; Raw `System.err` bridge is buffered too — rf2-hd3t77.
+;;
+;; `-main` swaps `System/setErr` for a `PrintStream` over an
+;; `OutputStream` proxy that routes raw `System.err` bytes into the SAME
+;; ring as `*err*` (runner.clj sys-bridge), with a documented restore in
+;; the `finally`.  Both existing stderr pins write via
+;; `(binding [*out* *err*] (println ...))` — i.e. through the `*err*`
+;; `PrintWriter`, NEVER raw `System/err` — so the bridge OutputStream and
+;; its `write(byte[],off,len)` decoding arity were entirely unexercised
+;; and the docstring claim "a library that writes System.err directly is
+;; buffered too" was unbacked.  These two pins write via
+;; `(.println System/err ...)` (the bridge's multi-byte arity) and assert
+;; the raw-`System.err` payload is buffered+dropped on green / replayed on
+;; red — exactly the `*err*`-path contract, now proven for the raw path.
+
+(deftest raw-system-err-buffered-and-dropped-on-green
+  (testing "a GREEN run that writes RAW System.err stays quiet — the bridge buffers + drops it (rf2-hd3t77)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "raw_syserr_green_fixture_test" "raw-syserr-green-fixture-test"
+                        (str "(deftest a-raw-syserr-but-passing-test"
+                             " (.println System/err \"RAW-SYSERR-MARKER-GREEN\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the raw-System.err-but-passing suite is green; must exit 0; got "
+                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE green pin: a RAW System.err write is routed through the
+          ;; setErr bridge into the ring, so on green it is dropped — absent
+          ;; from BOTH streams (proving the bridge, not just the *err* path).
+          (is (not (str/includes? (str out err) "RAW-SYSERR-MARKER-GREEN"))
+              (str "a raw System.err write on a GREEN run must be buffered by"
+                   " the setErr bridge and dropped — not leaked (rf2-hd3t77);"
+                   " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
+
+(deftest raw-system-err-replayed-on-red
+  (testing "a RED run replays RAW System.err context via the setErr bridge (rf2-hd3t77)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "raw_syserr_red_fixture_test" "raw-syserr-red-fixture-test"
+                        (str "(deftest a-raw-syserr-and-failing-test"
+                             " (.println System/err \"RAW-SYSERR-MARKER-RED diagnostic context\")"
+                             " (is (= :exp :act)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (= 1 exit)
+              (str "the raw-System.err-and-failing suite is red; must exit 1; got "
+                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "FAIL in (a-raw-syserr-and-failing-test)")
+              (str "the FAIL block must still reach stdout; got:\n" out))
+          ;; The CORE red pin: the RAW System.err payload, routed through the
+          ;; bridge into the ring, is REPLAYED to real stderr on red.
+          (is (str/includes? err "RAW-SYSERR-MARKER-RED")
+              (str "a raw System.err write must be buffered by the setErr"
+                   " bridge and REPLAYED on a RED run (rf2-hd3t77); got"
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? err "buffered stderr replayed because the run was RED")
+              (str "the replay must be labelled; got stderr:\n" err)))))))
