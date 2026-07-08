@@ -88,7 +88,7 @@ The classifier is the **source of truth for "which jobs run when"** on a PR: the
 
 | Output | Fires when … | Gates |
 |---|---|---|
-| `implementation_jvm` | any JVM artefact under `implementation/` changes | the per-artefact JVM suites + src-less conformance tiers + `jvm-security` |
+| `implementation_jvm` | any JVM artefact under `implementation/` changes | the per-artefact JVM suites + src-less conformance tiers + `jvm-security` + `jvm-test-quiet` (the quiet-runner adversarial contract suite) |
 | `adapter_diagnostic` | an adapter artefact changes | the skip-ok classpath probes |
 | `cljs_node_test` | anything compiled into `:node-test` changes (core, adapters, feature artefacts, conformance fixtures, build config + scripts, story/xray src+test CLJS, machines-viz) | the consolidated `cljs` job |
 | `cljs_browser` | a `:browser-test`-covered surface changes (incl. machines-viz DOM suites) | the Playwright `cljs-browser` job |

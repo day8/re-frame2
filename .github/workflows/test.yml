@@ -1250,6 +1250,73 @@ jobs:
       - name: Run JVM tests (event-conformance tier)
         run: clojure -M:test
 
+  jvm-test-quiet:
+    name: JVM test-quiet (clojure -M:test)
+    # rf2-jg1ag2 — closes a dark-landing hole. implementation/test-quiet
+    # is the test-runtime quiet-reporter artefact (day8/re-frame2-test-quiet,
+    # rf2-try1x): its JVM runner (re-frame.test-quiet.runner) is the
+    # `:main-opts` of EVERY per-artefact `:test` alias. Its OWN `:test`
+    # tree is the ADVERSARIAL CONTRACT suite for that runner —
+    # test_quiet_runner_contract_test.clj (~24 subprocess deftests that
+    # relaunch a fresh JVM against throwaway fixtures) plus the
+    # stdout-line-count pins (test_quiet_pin_test.clj /
+    # ..._pin_passing_test.clj). It pins the JVM RED/ERROR/exit-code paths,
+    # the discovery-banner overdrop guards (rf2-pjlx6.1/.2, rf2-14nojy.2,
+    # rf2-m8dbb9, rf2-6nrk8x, rf2-khecvs), nested-run banner+tally
+    # (rf2-8n97n.1/.2/.3), the test-ns-hook fallback (rf2-g92dsm), the
+    # central stderr buffer + red-replay (rf2-nrk066), exit-code integrity
+    # for counter-escaping failures (rf2-jmrdhn), and subprocess
+    # deadlock/timeout (rf2-spzkgo, rf2-8dfq5j.3).
+    #
+    # Before this job the suite ran in NO automated gate: no workflow job
+    # had `working-directory: implementation/test-quiet`;
+    # scripts/test-jvm-implementation.sh omitted it; and the classifier's
+    # implementation_jvm=true (already armed for test-quiet/** by
+    # report-changed-surfaces.sh, rf2-am7grp) only ran OTHER artefacts'
+    # suites THROUGH the quiet runner (green happy-path) — it never ran the
+    # contract-test namespace. So the ONLY pins for the JVM red/error/
+    # banner/stderr behaviour were dark and a regression shipped green.
+    # Gated on implementation_jvm, mirroring every sibling per-feature
+    # jvm-* job. The suite relaunches ~24 fresh JVMs, so a modest
+    # timeout guards against a wedged child (the harness has its own
+    # per-child drain timeouts, rf2-8dfq5j.3).
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: implementation/test-quiet
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-test-quiet-${{ hashFiles('implementation/test-quiet/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-test-quiet-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (test-quiet contract suite)
+        run: clojure -M:test
+
   cljs:
     name: CLJS (shadow-cljs :node-test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
@@ -3227,6 +3294,7 @@ jobs:
       - jvm-reply-conformance
       - jvm-derivation-conformance
       - jvm-event-conformance
+      - jvm-test-quiet
       - cljs
       - js-harness-self-tests
       - cljs-browser
