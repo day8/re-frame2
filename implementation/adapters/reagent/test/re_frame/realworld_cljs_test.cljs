@@ -47,6 +47,9 @@
             ;; editor-pure-helpers-test (rf2-54eebb). Example source stays
             ;; test-free; assertions live here.
             [realworld-http.article-editor :as editor]
+            ;; The `home-context` pure flattener (tags.cljs) exercised directly by
+            ;; home-context-test (rf2-rq65wv).
+            [realworld-http.tags :as tags]
             [realworld-http.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -1328,3 +1331,209 @@
     (editor-delete-test))
   (testing "a client-invalid submit fills per-field errors and fires no request (rf2-54eebb)"
     (editor-invalid-submit-test)))
+
+;; ============================================================================
+;; favorites / comments / feed / profile — optimistic-success + follow-author +
+;; article-delete + blank-comment + feed-load + profile-follow (rf2-rq65wv)
+;; ============================================================================
+;;
+;; favorite-toggle-test above covers the FAILURE rollback only; several
+;; demonstrated handlers had no coverage. These pin the success-sync re-seed, the
+;; detail-page follow-author + article-delete flows, the comment-form client
+;; validation, the user-feed load lifecycle, the profile follow/unfollow/rollback,
+;; and the pure home-context flattener.
+
+(defn- favorite-synced-success-test []
+  ;; :article/favorite-synced re-seeds the article from the server's authoritative
+  ;; reply (via select-keys), overwriting the optimistic guess.
+  (reg-canned-success! :realworld.test/favorite-ok
+    {:article {:slug "hello" :title "Hello" :description "Short" :body "Body" :tagList []
+               :createdAt "x" :updatedAt "x"
+               :favorited true :favoritesCount 42
+               :author {:username "alice" :bio nil :image nil :following false}}})
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/favorite-ok}})]
+    (rf/dispatch-sync [:articles/initialise] {:frame f})
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
+    (rf/dispatch-sync [:articles/loaded
+                       {:kind :success
+                        :value {:articles [{:slug "hello" :title "Hello" :description "Short"
+                                            :body "Body" :tagList [] :createdAt "x" :updatedAt "x"
+                                            :favorited false :favoritesCount 0
+                                            :author {:username "alice" :bio nil :image nil :following false}}]}}]
+                      {:frame f})
+    (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+    (let [art (first (rf/compute-sub [:articles/data] (rf/frame-state-value f)))]
+      (is (true? (:favorited art)) "the article is favorited after the synced reply")
+      ;; The count is the SERVER's 42, not the optimistic guess of 1 — proving the
+      ;; success handler re-seeded from the reply rather than trusting the optimism.
+      (is (= 42 (:favoritesCount art))
+          ":article/favorite-synced re-seeds the count from the server reply (select-keys)"))))
+
+(defn- article-follow-author-test []
+  ;; :article/toggle-follow-author — optimistic flip, then :article/author-follow-synced
+  ;; re-seeds the author from the returned profile; the -rollback handler restores
+  ;; the prior flag (driven directly, as comment-delete-rollback-stale-index-test
+  ;; drives its rollback).
+  (reg-canned-success-by-url! :realworld.test/follow-author
+    (fn [url]
+      (cond
+        (str/includes? url "/follow")    {:profile {:username "eve" :bio "Writer" :image nil :following true}}
+        (str/ends-with? url "/comments") {:comments []}
+        :else {:article {:slug "hello" :title "Hello" :description "d" :body "b"
+                         :tagList [] :createdAt "x" :updatedAt "x"
+                         :favorited false :favoritesCount 0
+                         :author {:username "eve" :bio nil :image nil :following false}}})))
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/follow-author}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
+    (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
+        "eve starts unfollowed")
+    (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
+    (let [author (rf/compute-sub [:article/author] (rf/frame-state-value f))]
+      (is (true? (:following author)) "the author is followed after the synced reply")
+      (is (= "Writer" (:bio author))
+          ":article/author-follow-synced re-seeds the author from the returned profile"))
+    ;; Rollback handler (driven directly): restores the captured prior flag.
+    (rf/dispatch-sync [:article/author-follow-rollback false {:kind :rf.http/http-4xx}] {:frame f})
+    (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
+        ":article/author-follow-rollback restores the captured prior following flag")))
+
+(defn- article-detail-delete-test []
+  ;; :article/delete (detail page) → :article/delete-success → navigate home; and
+  ;; :article/delete-failed surfaces a readable error.
+  (reg-canned-success-by-url! :realworld.test/detail-delete
+    (fn [url]
+      (if (str/ends-with? url "/comments")
+        {:comments []}
+        {:article {:slug "hello" :title "Hello" :description "d" :body "b" :tagList []
+                   :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
+                   :author {:username "alice" :bio nil :image nil :following false}}})))
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/detail-delete}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
+    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
+    (rf/dispatch-sync [:article/delete] {:frame f})
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
+        "a successful detail-page delete navigates home")
+    ;; The failure branch (driven directly): a readable error lands on the slice.
+    (rf/dispatch-sync [:article/delete-failed {:error {:kind :rf.http/http-5xx :status 500}}] {:frame f})
+    (is (some? (rf/compute-sub [:article/error] (rf/frame-state-value f)))
+        ":article/delete-failed surfaces a readable error message")))
+
+(defn- comment-blank-body-test []
+  ;; :comment-form/submit with a blank body → client-side validation, no round trip.
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    ;; A whitespace-only body is still blank after trim.
+    (rf/dispatch-sync [:comment-form/edit-field :body "   "] {:frame f})
+    (rf/dispatch-sync [:comment-form/submit] {:frame f})
+    (is (= "Comment body is required."
+           (rf/compute-sub [:comment-form/field-error :body] (rf/frame-state-value f)))
+        "a blank comment body fails on the client with a per-field :body error")
+    (is (nil? (rf/compute-sub [:comment-form/submit-error] (rf/frame-state-value f)))
+        "the client-validation branch leaves :submit-error alone (that's the transport door)")))
+
+(defn- feed-load-test []
+  ;; :feed/load → :feed/loaded populates the user-feed slice + grand count.
+  (reg-canned-success! :realworld.test/feed-ok
+    {:articles [{:slug "f1" :title "Feed one" :description "d" :body "b" :tagList []
+                 :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
+                 :author {:username "bob" :bio nil :image nil :following true}}]
+     :articlesCount 7})
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/feed-ok}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    (rf/dispatch-sync [:feed/load] {:frame f})
+    (is (= 1 (count (rf/compute-sub [:feed/data] (rf/frame-state-value f))))
+        ":feed/loaded populates the user-feed slice")
+    (is (= 7 (rf/compute-sub [:feed/count] (rf/frame-state-value f)))
+        "the grand articles-count is stored for pagination")
+    (is (not (rf/compute-sub [:feed/loading?] (rf/frame-state-value f)))
+        "a settled feed load is no longer loading")))
+
+(defn- feed-load-failure-test []
+  (reg-canned-failure! :realworld.test/feed-fail :rf.http/http-5xx {:status 500 :body "boom"})
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/feed-fail}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    (rf/dispatch-sync [:feed/load] {:frame f})
+    (is (some? (rf/compute-sub [:feed/error] (rf/frame-state-value f)))
+        ":feed/load-failed surfaces a readable error on the feed slice")))
+
+(defn- profile-follow-test []
+  ;; :profile/follow + :profile/followed (re-seed from reply) + :profile/unfollow +
+  ;; :profile/follow-rollback, plus the favorites-tab load path.
+  (reg-canned-success-by-url! :realworld.test/profile-follow
+    (fn [method url]
+      (cond
+        (str/includes? url "/follow")
+        {:profile {:username "eve" :bio "Bio" :image nil :following (= :post method)}}
+        (str/includes? url "/profiles/")
+        {:profile {:username "eve" :bio "Bio" :image nil :following false}}
+        ;; article list reads (favorited / authored tabs)
+        :else {:articles [{:slug "a1" :title "A1" :description "d" :body "b" :tagList []
+                           :createdAt "x" :updatedAt "x" :favorited true :favoritesCount 3
+                           :author {:username "eve" :bio nil :image nil :following false}}]
+               :articlesCount 3})))
+  (with-new-frame [f (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides {:rf.http/managed :realworld.test/profile-follow}})]
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+    ;; Land on the favorites tab so :profile.favorites/load runs too.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve/favorites"] {:frame f})
+    (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
+        "the profile banner loads")
+    (is (= 1 (count (rf/compute-sub [:profile.favorites/data] (rf/frame-state-value f))))
+        "the favorites tab list loads (:profile.favorites/load)")
+    (is (false? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
+        "eve starts unfollowed")
+    ;; Follow → optimistic true → :profile/followed re-seeds from the reply.
+    (rf/dispatch-sync [:profile/follow] {:frame f})
+    (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
+        ":profile/followed re-seeds :following true from the returned profile")
+    ;; Unfollow → :profile/unfollowed re-seeds false.
+    (rf/dispatch-sync [:profile/unfollow] {:frame f})
+    (is (false? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
+        ":profile/unfollowed re-seeds :following false")
+    ;; Rollback handler (driven directly): restores the captured prior flag.
+    (rf/dispatch-sync [:profile/follow-rollback true {:kind :rf.http/http-4xx}] {:frame f})
+    (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
+        ":profile/follow-rollback restores the captured prior following flag")))
+
+(defn- home-context-test []
+  ;; tags/home-context flattens the two home routes into one {:tag :feed :page}.
+  (let [rt {:rf.runtime/routing {:current {:params {:tag "clojure"}
+                                           :query  {:feed "following" :page 2}}}}]
+    (is (= {:tag "clojure" :feed "following" :page 2} (tags/home-context rt))
+        "the tag (path param) + feed/page (query) flatten into one context map"))
+  (let [rt {:rf.runtime/routing {:current {}}}]
+    (is (= {:tag nil :feed nil :page nil} (tags/home-context rt))
+        "an empty route yields an all-nil context (no NPE)")))
+
+(deftest realworld-favorites-follow-feed
+  (testing ":article/favorite-synced re-seeds the count from the server reply (rf2-rq65wv)"
+    (favorite-synced-success-test))
+  (testing ":article/toggle-follow-author optimistic + synced + rollback (rf2-rq65wv)"
+    (article-follow-author-test))
+  (testing ":article/delete navigates home; :article/delete-failed surfaces an error (rf2-rq65wv)"
+    (article-detail-delete-test))
+  (testing ":comment-form/submit blank body fails on the client, no round trip (rf2-rq65wv)"
+    (comment-blank-body-test))
+  (testing "user feed :feed/load / :feed/loaded populate the slice (rf2-rq65wv)"
+    (feed-load-test))
+  (testing "user feed :feed/load-failed surfaces an error (rf2-rq65wv)"
+    (feed-load-failure-test))
+  (testing "profile follow / unfollow / rollback + favorites-tab load (rf2-rq65wv)"
+    (profile-follow-test))
+  (testing "home-context flattens the two home routes into {:tag :feed :page} (rf2-rq65wv)"
+    (home-context-test)))
