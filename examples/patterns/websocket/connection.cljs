@@ -229,19 +229,28 @@
                      (:subscriptions data))})
 
       :flush-queue
-      ;; The `:always` step on `:connected`: if anything piled up in the
-      ;; queue while we were offline, drain it onto the wire now and clear
-      ;; it. Everything the user typed during the outage finally goes out.
+      ;; The `:always` step on `:connected`: replay everything buffered while
+      ;; we were off-connection. Each queued item is the ORIGINAL inbound
+      ;; event, so re-dispatch it INTO the connection machine — which is now
+      ;; `:connected`, so a `:ws/send` takes `:send-now` and a `:ws/request`
+      ;; takes `:register-request` (in-flight slot + correlation + timeout),
+      ;; exactly as if it had been issued while connected. Clearing `:queue`
+      ;; first stops the replay from re-enqueuing.
       (fn action-flush-queue [{data :data}]
         (let [q (:queue data)]
           {:data (assoc data :queue [])
-           :fx   (mapv (fn [msg]
-                         [:dispatch [(socket-id data) [:send msg]]])
-                       q)}))
+           :fx   (mapv (fn [event] [:dispatch [:ws/connection event]]) q)}))
 
       :enqueue-message
-      (fn action-enqueue-message [{data :data [_ msg] :event}]
-        {:data (update data :queue conj msg)})
+      ;; Off-connection there's no socket to send on, so buffer the WHOLE
+      ;; inbound event (`[:ws/send …]` or `[:ws/request …]`), not just its
+      ;; body. `:flush-queue` (above) re-dispatches each verbatim on the next
+      ;; `:connected` entry, so a queued request rejoins `:register-request`
+      ;; and gets correlated. (Buffering a bare body instead put a request's
+      ;; whole envelope onto the wire as if it were the payload —
+      ;; uncorrelated, never answered.)
+      (fn action-enqueue-message [{data :data event :event}]
+        {:data (update data :queue conj event)})
 
       :send-now
       ;; While `:connected`, sending is easy: straight to the wire, no
