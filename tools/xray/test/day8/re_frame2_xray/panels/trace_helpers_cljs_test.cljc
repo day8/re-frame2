@@ -358,10 +358,27 @@
   (testing "inert — cache-hit / unchanged / skipped"
     (is (= :inert (h/outcome-tier {:operation :rf.sub/skip})))
     (is (= :inert (h/outcome-tier {:operation :rf.view/skip}))))
-  (testing "gone — disposed / unmounted / cleared / cancelled"
+  (testing "gone — disposed / unmounted / cleared"
     (is (= :gone (h/outcome-tier {:operation :rf.sub/dispose})))
     (is (= :gone (h/outcome-tier {:operation :rf.view/unmounted})))
     (is (= :gone (h/outcome-tier {:operation :rf.flow/cleared}))))
+  (testing "gone — the remaining synonyms (cancelled / stale / released / destroyed)"
+    ;; rf2-1bk96k: these four terminals sit in the same :gone regex branch
+    ;; (trace_helpers.cljc §outcome-tier) but were never pinned; a regex
+    ;; edit that dropped one would tint :active instead.
+    (is (= :gone (h/outcome-tier {:operation :rf.machine.timer/cancelled})))
+    (is (= :gone (h/outcome-tier {:operation :rf.sub/stale})))
+    (is (= :gone (h/outcome-tier {:operation :rf.resource/released})))
+    (is (= :gone (h/outcome-tier {:operation :rf.machine/destroyed}))))
+  (testing "pending — queued / scheduled / pending / later"
+    ;; rf2-1bk96k: the entire :pending tier was unasserted. A real
+    ;; :rf.machine.timer/scheduled op (whose verb IS tested elsewhere)
+    ;; must tint :pending, NOT :active — a silent regex regression here
+    ;; would collapse pending into the active tier.
+    (is (= :pending (h/outcome-tier {:operation :rf.machine.timer/scheduled})))
+    (is (= :pending (h/outcome-tier {:operation :rf.event/queued})))
+    (is (= :pending (h/outcome-tier {:operation :rf.fx/later})))
+    (is (= :pending (h/outcome-tier {:operation :rf.resource/pending}))))
   (testing "error / warning keep their semantic tier"
     (is (= :error (h/outcome-tier {:op-type :error :operation :rf.error/x})))
     (is (= :warning (h/outcome-tier {:op-type :warning :operation :rf.warning/x})))))
@@ -419,6 +436,13 @@
          (h/outcome-colour {:operation :rf.sub/skip})))
   (is (= (:dim tokens/tokens)
          (h/outcome-colour {:operation :rf.sub/dispose})))
+  ;; rf2-1bk96k: pending rides the cool info blue; warning keeps its
+  ;; semantic yellow. Both `outcome-tier->token` rows were unpinned, so a
+  ;; token-map edit could silently retint them.
+  (is (= (:info tokens/tokens)
+         (h/outcome-colour {:operation :rf.machine.timer/scheduled})))
+  (is (= (:yellow tokens/tokens)
+         (h/outcome-colour {:op-type :warning :operation :rf.warning/x})))
   (is (= (:red tokens/tokens)
          (h/outcome-colour {:op-type :error :operation :rf.error/x}))))
 
