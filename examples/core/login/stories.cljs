@@ -121,6 +121,18 @@
    them."
   {:email "ada@example.com" :password "correct-horse"})
 
+(defn- failure-reply
+  "The canonical managed-HTTP failure envelope the machine's `:record-error`
+   action reads: `{:status :error :error <classified-failure-map>}`, the message
+   riding under `:error`. This is exactly what `:rf.http/managed-canned-failure`
+   delivers on a real 4xx, so driving `:auth.login/failure` with it is faithful
+   to the live cascade. A bare `{:failure …}` map — the retired shape — leaves
+   `:record-error` reading a nil `:error`, so the flow falls back to its generic
+   \"Login failed.\" message instead of the server's."
+  [status message]
+  {:status :error
+   :error  {:kind :rf.http/http-4xx :status status :message message}})
+
 (defn register-all!
   "Register all of the login example's Story artefacts. Safe to call twice —
    it's idempotent, and the canonical vocabulary installs itself on the first
@@ -231,8 +243,7 @@
                  the error."
      :setup      [[:auth.login/flow [:auth.login/submit good-creds]]
                   [:auth.login/flow [:auth.login/failure
-                                     {:failure {:status  401
-                                                :message "Invalid credentials."}}]]]
+                                     (failure-reply 401 "Invalid credentials.")]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
@@ -251,16 +262,16 @@
                  retries."
      :setup      [[:auth.login/flow [:auth.login/submit good-creds]]
                   [:auth.login/flow [:auth.login/failure
-                                     {:failure {:status 401 :message "Invalid credentials."}}]]
+                                     (failure-reply 401 "Invalid credentials.")]]
                   [:auth.login/flow [:auth.login/submit good-creds]]
                   [:auth.login/flow [:auth.login/failure
-                                     {:failure {:status 401 :message "Invalid credentials."}}]]
+                                     (failure-reply 401 "Invalid credentials.")]]
                   [:auth.login/flow [:auth.login/submit good-creds]]
                   [:auth.login/flow [:auth.login/failure
-                                     {:failure {:status 401 :message "Invalid credentials."}}]]
+                                     (failure-reply 401 "Invalid credentials.")]]
                   [:auth.login/flow [:auth.login/submit good-creds]]
                   [:auth.login/flow [:auth.login/failure
-                                     {:failure {:status 423 :message "Account locked."}}]]]
+                                     (failure-reply 423 "Account locked.")]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
