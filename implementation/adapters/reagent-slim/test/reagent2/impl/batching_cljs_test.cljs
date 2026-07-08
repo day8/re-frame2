@@ -209,6 +209,45 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-p27yih: per-callback throw isolation
+;;
+;; flush-after-render previously invoked each callback with no
+;; per-callback exception isolation: an earlier callback that threw
+;; propagated straight out of the drain, permanently dropping every
+;; callback still queued behind it (the vector had already been
+;; atomically swapped to nil, so those callbacks were gone for good —
+;; not merely deferred). Wrap each invocation in try/catch, matching
+;; `re-frame.substrate.spine/drain-after-render-queue!`'s identical
+;; per-callback guard on the shared React-adapter-spine flush path.
+;; ---------------------------------------------------------------------------
+
+(deftest after-render-throw-does-not-strand-later-callbacks
+  (testing "an after-render callback that throws does not prevent
+            later-registered callbacks from running (rf2-p27yih)"
+    (async done
+      (let [order (atom [])]
+        (batching/do-after-render (fn [] (swap! order conj :a)))
+        (batching/do-after-render (fn [] (throw (js/Error. "boom"))))
+        (batching/do-after-render (fn [] (swap! order conj :c)))
+        (-> (next-microtask)
+            (.then (fn [_]
+                     (is (= [:a :c] @order)
+                         "callback :c still ran after the middle callback threw")
+                     (done))))))))
+
+(deftest after-render-throw-isolated-under-synchronous-flush
+  (testing "flush! isolates an after-render throw too (rf2-p27yih) —
+            the synchronous test-flush primitive shares flush-after-render
+            with the microtask path"
+    (let [order (atom [])]
+      (batching/do-after-render (fn [] (swap! order conj :a)))
+      (batching/do-after-render (fn [] (throw (js/Error. "boom"))))
+      (batching/do-after-render (fn [] (swap! order conj :c)))
+      (batching/flush!)
+      (is (= [:a :c] @order)
+          "synchronous flush! isolated the throw; :c still ran"))))
+
+;; ---------------------------------------------------------------------------
 ;; rea-schedule wiring (Stage 4-A hook → Stage 4-B implementation)
 ;;
 ;; Per the rea-schedule contract: when ratom's rea-queue gets its
