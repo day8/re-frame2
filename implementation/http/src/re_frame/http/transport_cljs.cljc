@@ -421,6 +421,15 @@
           :url     url}
 
          :else
+         ;; rf2-6pcz0d — `:cause` is the rejection CLASS NAME string, not the
+         ;; raw js/Error. A raw Error is not EDN-serializable, so it broke
+         ;; off-box capture / Tool-Pair / Xray serialization of both the reply
+         ;; (reply.cljc's EDN-serializable contract) and the `:rf.http/transport`
+         ;; trace, AND slipped past the privacy `:cause` redactor's `(string?
+         ;; …)` guard (privacy.cljc:364). `(.-name err)` matches BOTH sibling
+         ;; paths: the JVM `classify-jvm-error` (`:cause cls`, transport_jvm.cljc)
+         ;; and the CLJS `prepare-body!` (`:cause (some-> (.-name err))`,
+         ;; transport.cljc). `:message` still carries the human message.
          {:kind    :rf.http/transport
           :message (or (.-message err) (str err))
-          :cause   err}))))
+          :cause   (some-> err .-name)}))))
