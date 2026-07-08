@@ -319,11 +319,26 @@
       (if (some? body-binary) body-binary body-text)
 
       ;; Malli schema (or anything keyword-like that isn't recognised above).
-      ;; rf2-wu1n5 — re-raise a `:rf.error/malformed-json` ex-info
-      ;; (truncated escape, too-many-keys) rather than treating the
-      ;; body as plain text. Only NON-tagged throws fall through to the
-      ;; text path, which preserves the existing tolerant-of-non-JSON
-      ;; semantics for legacy callers.
+      ;; rf2-wu1n5 / rf2-5a5qwp — re-raise EVERY `json-parse` throw, tagged
+      ;; or not. Per Spec 014 §Decoding the schema branch must JSON-parse
+      ;; first and classify a malformed 2xx payload as a decode failure;
+      ;; there is no "tolerant of non-JSON" text fallback here (that
+      ;; concern is already handled up-front by the `json-content-type?`
+      ;; guard below, which rejects a DECLARED non-JSON Content-Type before
+      ;; parsing is ever attempted). A prior revision caught the parse
+      ;; exception and fell back to the raw `body-text` for any throw NOT
+      ;; tagged `:rf.error/malformed-json` — but only the keyword-cap
+      ;; overflow (rf2-wu1n5) is tagged; an ordinary JSON syntax error is
+      ;; an untagged host exception (Cheshire `JsonParseException` / CLJS
+      ;; `SyntaxError`), so THAT was the common case hitting the fallback.
+      ;; The raw text then rode into `malli-decode`, so malformed JSON
+      ;; could spuriously VALIDATE under a string-like schema, or surface
+      ;; as a misleading `:schema-validation-failure?` under a map schema
+      ;; instead of a plain decode failure. Removing the catch restores
+      ;; symmetry with the plain `:json` branch above (which never caught
+      ;; parse exceptions either) — any throw here propagates untouched to
+      ;; the transport's decode try/catch, which classifies it as
+      ;; `:rf.http/decode-failure`.
       (some? resolved)
       ;; rf2-upexd.2 — the schema decode path is JSON-ONLY: the only
       ;; Malli transformer the decoder wires is the `json-transformer`,
@@ -359,12 +374,7 @@
         ;; host-symmetric outcome, not a per-host parse divergence.
         (let [parsed (if (empty-2xx-json-body? body-text)
                        nil
-                       (try (util-json/json-parse body-text parse-opts)
-                            (catch #?(:clj Throwable :cljs :default) e
-                              (let [d (ex-data e)]
-                                (if (= :rf.error/malformed-json (:rf.error/id d))
-                                  (throw e)
-                                  body-text)))))]
+                       (util-json/json-parse body-text parse-opts))]
           (malli-decode resolved parsed)))
 
       :else
