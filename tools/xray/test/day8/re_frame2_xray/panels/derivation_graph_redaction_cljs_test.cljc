@@ -474,3 +474,112 @@
           "the projected work-ledger :resource/key is stable under re-projection")
       (is (= (:edges once) (:edges twice))
           "the projected edge endpoints are stable under re-projection"))))
+
+;; ===========================================================================
+;; 6. THE WORK-ID / HOST-TRANSIENT IDENTITY ARM (rf2-qo1l8w).
+;;
+;; §5's `live-resource-node` fixture uses a BARE INT (99) as its work-id,
+;; which never exercises the actual secret-bearing SHAPE a resource work-id
+;; takes: `[:rf.work/resource <scoped-key> <generation>]` (per
+;; `re-frame.resources.tooling/project-work-id`, rf2-0t0l3w). This gap is
+;; currently NOT exploitable in production because
+;; `re-frame.resources.tooling/live-node-for` already projects the work-id
+;; BEFORE the composer or Xray's redaction ever sees the node — but
+;; `redact-graph-for-egress` is documented as the wire-boundary
+;; defense-in-depth layer, and would silently leak the raw scope/params
+;; embedded in a canonical work-id if that upstream projection ever
+;; regressed. This fixture plants the REAL resource-shaped work-id directly
+;; (bypassing the upstream pre-projection) to prove the redaction layer
+;; closes the gap on its own — mirroring the derivation-conformance egress
+;; mirror's adversarial fixture (rf2-tmyfkn/rf2-uh2clr, PR #5291) that found
+;; this same gap already fixed there but latent in the real call site here.
+;; ===========================================================================
+
+(def ^:private work-id-scoped-key
+  ;; a DIFFERENT resource-id than §5's `live-scoped-key` — this fixture
+  ;; targets the work-id / host-transient identity positions specifically,
+  ;; reusing the §5 `secret-token`/`secret-scope`/`secret-params` fixture so
+  ;; the shared `contains-secret?` helper applies unchanged.
+  [secret-scope :article/checkout secret-params])
+
+(def ^:private resource-work-id
+  ;; the REAL resource-family work-id shape — embeds the scoped key
+  ;; directly, NOT pre-projected (rf2-0t0l3w's `project-work-id` runs
+  ;; upstream in production; this fixture bypasses it to test the
+  ;; defense-in-depth layer in isolation).
+  [:rf.work/resource work-id-scoped-key 3])
+
+(def ^:private work-id-resource-node
+  {:id             :article/checkout
+   :kind           :process
+   :refinement     :resource-process
+   :rf/family      :resources
+   :storage        :runtime-db
+   :authority      {:kind :remote :system :server}
+   :evaluation     #{:on-route}
+   :lifecycle      {:kind :static}
+   :status         :loading
+   :work-ledger    {:work/id resource-work-id
+                     :record {:work/id   resource-work-id
+                              :work/kind :rf.http/managed
+                              :status    :pending}}
+   :host-transient [[:rf.http/in-flight resource-work-id]]})
+
+(def ^:private work-id-resource-graph
+  {:mode  :live
+   :frame secure-frame
+   :nodes {[:resource :article/checkout] work-id-resource-node}
+   :edges []})
+
+(deftest live-resource-work-id-identity-is-redacted-at-egress
+  ;; rf2-qo1l8w: the SAME identity-projection gap the derivation-conformance
+  ;; mirror closed (rf2-tmyfkn/rf2-uh2clr, PR #5291) for `:work-ledger
+  ;; :work/id` / `:work-ledger :record :work/id` / `:host-transient` must
+  ;; ALSO close in the REAL `redact-graph-for-egress` — not just its test
+  ;; mirror. RED against the pre-fix `redact-resource-node-identity` (which
+  ;; only projected `:id` / `:output` / `:inputs` / `:work-ledger :record
+  ;; :resource/key`).
+  (let [redacted (h/redact-graph-for-egress work-id-resource-graph secure-frame)
+        node     (-> redacted :nodes vals first)]
+
+    (testing "(a) NO raw secret survives ANYWHERE in the egressed graph — not
+              in :work-ledger :work/id, :work-ledger :record :work/id, or
+              :host-transient"
+      (is (contains-secret? work-id-resource-graph)
+          "sanity: the raw graph DOES carry the secret inside the work-id")
+      (is (not (contains-secret? redacted))
+          "the secret must not survive in the work-id / host-transient
+           identity positions"))
+
+    (testing "(b) :work-ledger :work/id keeps the resource work-id SHAPE —
+              `[:rf.work/resource <projected-scoped-key> <generation>]`"
+      (let [wid (get-in node [:work-ledger :work/id])]
+        (is (= :rf.work/resource (first wid)) "the work-id family head survives")
+        (is (= 3 (nth wid 2)) "the generation (non-secret) rides through")
+        (is (projected-scoped-key? (nth wid 1))
+            "the embedded scoped key is projected to opaque-handle shape")
+        (is (= :article/checkout (nth (nth wid 1) 1))
+            "the registration resource-id inside the work-id is preserved")))
+
+    (testing "(c) :work-ledger :record :work/id is projected the SAME way"
+      (let [wid (get-in node [:work-ledger :record :work/id])]
+        (is (= :rf.work/resource (first wid)))
+        (is (projected-scoped-key? (nth wid 1)))))
+
+    (testing "(d) :host-transient's in-flight handle embeds the SAME work-id
+              — its scoped key is projected too"
+      (let [[tag wid] (first (:host-transient node))]
+        (is (= :rf.http/in-flight tag))
+        (is (= :rf.work/resource (first wid)))
+        (is (projected-scoped-key? (nth wid 1))
+            "the host-transient handle's embedded work-id scoped key is opaqued")))
+
+    (testing "(e) the SAME projected scoped key appears in :work-ledger
+              :work/id, :work-ledger :record :work/id, AND :host-transient —
+              consistent identity across all three positions"
+      (let [ledger-key    (nth (get-in node [:work-ledger :work/id]) 1)
+            record-key    (nth (get-in node [:work-ledger :record :work/id]) 1)
+            transient-key (nth (second (first (:host-transient node))) 1)]
+        (is (= ledger-key record-key transient-key)
+            "the same work-id scoped key projects to the identical opaque
+             handle everywhere it appears")))))

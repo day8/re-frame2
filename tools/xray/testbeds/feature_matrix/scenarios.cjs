@@ -2661,8 +2661,10 @@ async function runRoutesEpochs(page, state) {
   // until the slot fills. The probe reads the canonical location: per
   // EP-0001 the pending-nav slot is durable routing RUNTIME-DB state at
   // `[:rf.runtime/routing :pending-navigation]` — read via the public
-  // `re-frame.core/runtime-db-value` seam, NOT app-db. The deck strip
-  // (`:rf/pending-navigation` runtime-sub) is the secondary cross-check.
+  // `re-frame.core/frame-state-value` seam's `:rf.db/runtime` partition
+  // (rf2-t3lftq, API-shrink #3, retired the dedicated `runtime-db-value`
+  // reader), NOT app-db. The deck strip (`:rf/pending-navigation`
+  // runtime-sub) is the secondary cross-check.
   const pendingProbe = await waitForValue(
     () => page.evaluate(() => {
       const el = document.querySelector('[data-testid="routes-epochs-current-strip"]');
@@ -2671,7 +2673,7 @@ async function runRoutesEpochs(page, state) {
       try {
         const cljs = window.cljs && window.cljs.core;
         const rf = window.re_frame && window.re_frame.core;
-        if (cljs && rf && typeof rf.runtime_db_value === 'function') {
+        if (cljs && rf && typeof rf.frame_state_value === 'function') {
           const kw = (s) => {
             const t = String(s).replace(/^:/, '');
             const p = t.split('/');
@@ -2679,7 +2681,8 @@ async function runRoutesEpochs(page, state) {
               ? (cljs.keyword.call ? cljs.keyword.call(null, p[0], p[1]) : cljs.keyword(p[0], p[1]))
               : (cljs.keyword.call ? cljs.keyword.call(null, t) : cljs.keyword(t));
           };
-          const rdb = rf.runtime_db_value(kw('rf/default'));
+          const frameState = rf.frame_state_value(kw('rf/default'));
+          const rdb = frameState ? cljs.get(frameState, kw('rf.db/runtime')) : null;
           const path = cljs.PersistentVector.fromArray(
             [kw('rf.runtime/routing'), kw('pending-navigation')], true);
           const pn = rdb ? cljs.get_in(rdb, path) : null;
@@ -2734,8 +2737,10 @@ async function runRoutesEpochs(page, state) {
 // parallel-region broadcast · ignored event · microstep · timer · spawn ·
 // deep-compound LCA · history) is genuinely exercised and is observable in
 // THAT track's frame machine snapshot, read directly via the public
-// `re-frame.core/runtime-db-value` accessor (`readTrackSnapshots`, scoped to
-// `:machine/<track>`). We assert those per-frame snapshot facts — they are
+// `re-frame.core/frame-state-value` accessor's `:rf.db/runtime` partition
+// (`readTrackSnapshots`, scoped to `:machine/<track>`; rf2-t3lftq,
+// API-shrink #3, retired the dedicated `runtime-db-value` reader). We
+// assert those per-frame snapshot facts — they are
 // the robust, non-flaky proof each machine feature fired in its own frame.
 //
 // We additionally open the Machines tab and confirm `rf-xray-machine-
@@ -2790,8 +2795,9 @@ async function restartMachineTrack(page) {
 // Machine snapshots are durable framework RUNTIME-DB state per EP-0001
 // (re-frame.machines.paths/snapshot-path): they live at
 // `[:rf.runtime/machines :snapshots <machine-id>]` in the runtime-db
-// PARTITION, read via the public `re-frame.core/runtime-db-value` seam — NOT
-// in app-db.
+// PARTITION, read via the public `re-frame.core/frame-state-value` seam's
+// `:rf.db/runtime` key (rf2-t3lftq, API-shrink #3, retired the dedicated
+// `runtime-db-value` reader) — NOT in app-db.
 //
 // `trackId` is the track name (e.g. 'door', 'media'); the frame id is
 // `:machine/<trackId>`. `machineIds` is the set of machine-ids the track
@@ -2800,8 +2806,8 @@ async function readTrackSnapshots(page, trackId, machineIds) {
   return page.evaluate(({ trackId, machineIds }) => {
     const cljs = window.cljs && window.cljs.core;
     const rf = window.re_frame && window.re_frame.core;
-    if (!cljs || !rf || typeof rf.runtime_db_value !== 'function') {
-      return { mounted: false, reason: 'cljs.core / re_frame.core.runtime_db_value unavailable' };
+    if (!cljs || !rf || typeof rf.frame_state_value !== 'function') {
+      return { mounted: false, reason: 'cljs.core / re_frame.core.frame_state_value unavailable' };
     }
     function keyword(s) {
       const trimmed = String(s).replace(/^:/, '');
@@ -2815,7 +2821,8 @@ async function readTrackSnapshots(page, trackId, machineIds) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
-    const db = rf.runtime_db_value(keyword(`:machine/${trackId}`));
+    const frameState = rf.frame_state_value(keyword(`:machine/${trackId}`));
+    const db = frameState ? cljs.get(frameState, keyword('rf.db/runtime')) : null;
     if (db == null) return { mounted: false, reason: `no :machine/${trackId} runtime-db` };
     function snapshot(machineId) {
       const path = cljs.PersistentVector.fromArray([

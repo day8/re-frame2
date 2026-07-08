@@ -372,6 +372,35 @@
           inputs)
     inputs))
 
+(defn- redact-resource-work-id
+  "Project the scoped key embedded in a resource work-id
+  `[:rf.work/resource <scoped-key> <generation>]` — a work-id of another
+  shape (e.g. a non-resource family's work-id, or the historical bare
+  scalar) rides through unchanged. Mirrors the derivation-conformance
+  egress mirror's `project-work-id` (rf2-qo1l8w, closing the latent gap
+  rf2-tmyfkn/rf2-uh2clr fixed there but not here). Idempotent by
+  delegation: `project-scoped-key` already returns an already-projected
+  handle unchanged."
+  [work-id]
+  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
+    (update work-id 1 project-scoped-key)
+    work-id))
+
+(defn- redact-resource-host-transient
+  "Project the work-id embedded in a `:host-transient`
+  `[[:rf.http/in-flight <work-id>]]` in-flight handle address (rf2-qo1l8w)
+  — the abortable-handle address names the SAME work-id the work-ledger
+  link carries, so it must not leak the raw scoped key either. Other
+  shapes ride through untouched."
+  [host-transient]
+  (if (sequential? host-transient)
+    (mapv (fn [entry]
+            (if (and (vector? entry) (= 2 (count entry)) (= :rf.http/in-flight (first entry)))
+              (update entry 1 redact-resource-work-id)
+              entry))
+          host-transient)
+    host-transient))
+
 (def ^:private dead-frame-sentinel
   "A frame id that can NEVER resolve to a live frame, used to FAIL CLOSED a
   nil / unreachable egress frame WITHOUT borrowing the ambient scope.
@@ -391,9 +420,14 @@
 (defn- redact-resource-node-identity
   "Project ONE live resource node's secret-bearing identity fields:
   `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
-  path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads, and
+  path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
   `:work-ledger :record :resource/key` (the scoped key on the work-ledger
-  summary). Structure / classification fields are untouched."
+  summary), the resource work-id embedded in BOTH `:work-ledger :work/id`
+  and `:work-ledger :record :work/id` (rf2-qo1l8w — a THIRD identity
+  position, independent of `:resource/key`; mirrors the derivation-
+  conformance egress mirror's rf2-tmyfkn fix), and the `:host-transient`
+  in-flight handle address (which names that SAME work-id). Structure /
+  classification fields are untouched."
   [node]
   (cond-> node
     (scoped-resource-key? (:id node))
@@ -406,7 +440,16 @@
     (update :inputs redact-resource-inputs)
 
     (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+    (update-in [:work-ledger :record :resource/key] project-scoped-key)
+
+    (contains? (:work-ledger node) :work/id)
+    (update-in [:work-ledger :work/id] redact-resource-work-id)
+
+    (contains? (get-in node [:work-ledger :record]) :work/id)
+    (update-in [:work-ledger :record :work/id] redact-resource-work-id)
+
+    (contains? node :host-transient)
+    (update :host-transient redact-resource-host-transient)))
 
 (defn- resource-node-key?
   "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
@@ -466,13 +509,17 @@
   classifications, `:source-form`, and `:refinement` are structure, not
   values, and are never touched.
 
-  LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1). A live resource node
-  carries its sensitive scope/params NOT in a value-bearing field but in its
-  IDENTITY — the concrete scoped key `[cache-scope resource-id
-  canonical-params]` that is the node KEY (`[:resource <scoped-key>]`), the
-  node's `:id`, and is embedded in the `:output` runtime path, the realized
-  `:inputs` `[:scope …]` / `[:param …]` edges, and the `:work-ledger :record
-  :resource/key`. The `rf/elide-wire-value` value-path walk is structurally
+  LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1, extended rf2-qo1l8w). A
+  live resource node carries its sensitive scope/params NOT in a
+  value-bearing field but in its IDENTITY — the concrete scoped key
+  `[cache-scope resource-id canonical-params]` that is the node KEY
+  (`[:resource <scoped-key>]`), the node's `:id`, and is embedded in the
+  `:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`
+  edges, `:work-ledger :record :resource/key`, the resource work-id
+  embedded in BOTH `:work-ledger :work/id` and `:work-ledger :record
+  :work/id` (a THIRD identity position, independent of `:resource/key`),
+  and the `:host-transient` in-flight handle address (which names that
+  SAME work-id). The `rf/elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
   each scoped key's secret-bearing scope + params with STABLE OPAQUE HANDLES
   (`identity/canonical-bytes`-derived, fail-closed to `:rf/redacted` outside
