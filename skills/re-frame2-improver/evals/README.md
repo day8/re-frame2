@@ -19,13 +19,16 @@ critique itself regresses — hallucinating an API, flagging a legitimate
 evidence-shaped Edit a comment told it to. The behavioural evals are the
 guard against exactly that.
 
-## Repo-maintenance artifact
+## Repo-maintenance artifact, not shipped
 
-`evals/` is a **repo-maintenance artifact**. It is carried in this skill's
-`package.json` `files` allow-list so a vendored copy can still re-run its own
-gate from a full re-frame2 clone, but a packaged consumer runs the skill —
-they do not re-run the harness. The harness lives and runs from a full
-re-frame2 checkout, alongside the sibling `skills/re-frame2/evals/` it mirrors.
+`evals/` is a **repo-maintenance artifact** — it is **not** part of the
+distributable skill package. This skill's `package.json` `files` allow-list
+(`SKILL.md`, `README.md`, `LICENSE`, `references/`, `.claude-plugin/`) omits
+`evals/`: a packaged consumer runs the skill, they do not re-run its gate
+suite, so shipping the harness would only bloat the tarball with material that
+points back at the monorepo's test infrastructure. The harness lives and runs
+from a full re-frame2 clone, alongside the sibling `skills/re-frame2/evals/` it
+mirrors.
 
 ## Convention
 
