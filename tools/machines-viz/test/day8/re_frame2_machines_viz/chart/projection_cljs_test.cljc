@@ -1060,16 +1060,35 @@
 
 (deftest xyflow-graph-region-data-carries-region-id-and-index
   (testing "a region container's `:data` carries `:regionId` +
-            `:regionIndex`; a plain state's does not"
+            `:regionIndex`; a plain state's does not.
+
+            rf2-rzum09 — the `muted` leaf MUST be bound via
+            `region-scoped-id` (a parallel region state is region-scoped —
+            `region__audio__muted`), NOT `(node-id [:muted])` = \"muted\"
+            which matches NO node. Pre-fix `muted` resolved to nil, so
+            `(contains? (:data muted) :regionId)` was `(contains? nil …)` =
+            false and the `does-not-carry-regionId` claim passed VACUOUSLY
+            on nil rather than on a real region-leaf node. The `some?`
+            guard below makes the binding load-bearing so a future
+            projection change that drops the region leaf can't silently
+            re-vacuate this assertion."
     (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           audio  (node-by-id graph (layout/region-node-id :audio))
           video  (node-by-id graph (layout/region-node-id :video))
-          muted  (node-by-id graph (layout/node-id [:muted]))]
+          ;; the REAL region-scoped audio `:muted` leaf (region__audio__muted).
+          muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
       (is (= :audio (:regionId (:data audio))))
       (is (= 0 (:regionIndex (:data audio))))
       (is (= 1 (:regionIndex (:data video))))
-      (is (not (contains? (:data muted) :regionId))))))
+      (is (some? muted)
+          "the region-scoped leaf node exists — the assertion below is NOT
+           vacuous on nil (rf2-rzum09)")
+      (is (map? (:data muted))
+          "a real region leaf carries a `:data` map to inspect")
+      (is (not (contains? (:data muted) :regionId))
+          "a region LEAF (not the container) does not carry the
+           container-only `:regionId` key"))))
 
 ;; ---- :density → threaded visual-constants (rf2-k647w) ------------------
 ;;
