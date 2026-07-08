@@ -66,7 +66,7 @@
   auto-detects the running editor (and honours `$LAUNCH_EDITOR`)."
   (:require [clojure.string :as str]
             [re-frame.source-coords.editor-uri :as editor-uri])
-  (:import [java.net URI URL URLDecoder]
+  (:import [java.net URI URL]
            [java.io File]))
 
 (set! *warn-on-reflection* true)
@@ -281,9 +281,34 @@
 
 ;; ---- query parsing -------------------------------------------------------
 
+(defn ^:private decode-component
+  "Percent-decode one query key/value with `decodeURIComponent` semantics:
+  `%XX` escapes decode as UTF-8, a literal `+` is preserved as `+`.
+
+  Decodes via `java.net.URI` (the fragment component) rather than
+  `URLDecoder/decode`. `URLDecoder` is an `application/x-www-form-urlencoded`
+  decoder that maps a literal `+` to a SPACE — which would silently corrupt a
+  checkout path carrying a literal `+` (`C:/code/re-frame2+wip` →
+  `re-frame2 wip`), re-introducing exactly the bug `file-url->path` avoids for
+  `file:` URLs (via `URI.getPath`) and the client's `js/decodeURIComponent`
+  avoids in `config.cljs` (rf2-62hu6k). Routing the component through `URI`'s
+  fragment decode leaves a literal `+` intact while still decoding `%20`/`%2B`,
+  matching that grammar.
+
+  A malformed percent-escape (a lone `%`, or `%` not followed by two hex
+  digits) makes `URI/create` throw `IllegalArgumentException`, which the
+  endpoint catches as the same clean 400 malformed-query response
+  `URLDecoder/decode` already triggered."
+  [^String s]
+  (if (.isEmpty s)
+    s
+    (.getFragment (URI/create (str "#" s)))))
+
 (defn ^:private parse-query
   "Parse a URL query string into a `{name value}` map (last value wins).
-  Values are URL-decoded. Returns `{}` for nil/blank."
+  Keys/values are percent-decoded via `decode-component` (decodeURIComponent
+  semantics — a literal `+` is PRESERVED, never mapped to a space). Returns
+  `{}` for nil/blank."
   [qs]
   (if (str/blank? qs)
     {}
@@ -295,8 +320,8 @@
           (if (str/blank? k)
             acc
             (assoc acc
-                   (URLDecoder/decode ^String k "UTF-8")
-                   (URLDecoder/decode ^String v "UTF-8")))))
+                   (decode-component k)
+                   (decode-component v)))))
       {}
       (str/split qs #"&"))))
 
@@ -486,9 +511,10 @@
     400 `{\"ok\":false,\"error\":\"missing-file\"}` — no `file` param.
     400 `{\"ok\":false,\"error\":\"malformed-query\"}` — undecodable percent-escape
         in the query string (e.g. a lone `%` or `%` not followed by two hex
-        digits — `URLDecoder/decode` throws `IllegalArgumentException` on
-        these; caught here so a malformed query answers cleanly instead of
-        throwing into the shadow-cljs `:dev-http` Ring plumbing).
+        digits — `decode-component`'s `URI/create` throws
+        `IllegalArgumentException` on these; caught here so a malformed query
+        answers cleanly instead of throwing into the shadow-cljs `:dev-http`
+        Ring plumbing).
     403 `{\"ok\":false,\"error\":\"forbidden\"}`    — non-loopback / cross-origin.
     405 `{\"ok\":false,\"error\":\"method-not-allowed\"}` — not POST.
     422 `{\"ok\":false,\"error\":\"file-not-found\"}` — the resolved `:file`
@@ -520,12 +546,13 @@
         (json-resp 405 ao {:ok false :error "method-not-allowed"})
 
         :else
-        ;; `parse-query` URL-decodes every key/value; a malformed percent-escape
-        ;; (a lone `%`, or `%` not followed by two hex digits) makes
-        ;; `URLDecoder/decode` throw `IllegalArgumentException`. Every other
-        ;; error path on this endpoint answers a clean JSON response — this
-        ;; one must too, so the decode is caught here rather than left to
-        ;; propagate uncaught into the Ring boundary.
+        ;; `parse-query` percent-decodes every key/value (via `decode-component`,
+        ;; preserving a literal `+`); a malformed percent-escape (a lone `%`, or
+        ;; `%` not followed by two hex digits) makes its `URI/create` throw
+        ;; `IllegalArgumentException`. Every other error path on this endpoint
+        ;; answers a clean JSON response — this one must too, so the decode is
+        ;; caught here rather than left to propagate uncaught into the Ring
+        ;; boundary.
         (try
           (let [q      (parse-query query-string)
                 file   (get q "file")

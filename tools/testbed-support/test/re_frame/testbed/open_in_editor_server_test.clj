@@ -275,6 +275,50 @@
           (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
           (is (zero? (count @calls))))))))
 
+;; ---- parse-query: literal `+` survives (rf2-62hu6k) ----------------------
+;;
+;; `parse-query` decodes with decodeURIComponent semantics (via
+;; `decode-component`'s `URI` fragment decode), NOT `URLDecoder/decode`'s
+;; application/x-www-form-urlencoded semantics that map a literal `+` to a
+;; space. This is the SAME contract `file-url->path` upholds for `file:` URLs
+;; and `config.cljs`'s `js/decodeURIComponent` upholds on the client — so a
+;; checkout path carrying a literal `+` (`C:/code/re-frame2+wip`) survives
+;; verbatim through the query rather than being corrupted to `re-frame2 wip`.
+
+(deftest parse-query-preserves-literal-plus
+  (testing "a literal `+` in a value is preserved, NOT form-decoded to a space
+            (the URLDecoder bug — rf2-62hu6k)"
+    (is (= "C:/code/re-frame2+wip/core.cljs"
+           (get (#'oies/parse-query
+                 "file=C:/code/re-frame2+wip/core.cljs&line=10")
+                "file"))
+        "a literal + in the query value survives verbatim"))
+  (testing "percent-escapes still decode with decodeURIComponent semantics"
+    (let [q (#'oies/parse-query "file=re-frame2%2Bwip%2Fa%20b.cljs")]
+      (is (= "re-frame2+wip/a b.cljs" (get q "file"))
+          "%2B decodes to a literal +, %2F to /, %20 to a space")))
+  (testing "keys and multiple params round-trip; last value wins"
+    (let [q (#'oies/parse-query "file=a+b&line=10&file=c+d")]
+      (is (= "c+d" (get q "file")) "last value wins, + preserved")
+      (is (= "10" (get q "line"))))))
+
+(deftest endpoint-preserves-literal-plus-through-to-launch
+  (testing "a POST whose `file` carries a literal `+` hands launch! the path
+            with the `+` intact (never corrupted to a space — rf2-62hu6k)"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=deep/re-frame2+wip/core.cljs&line=7"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 200 (:status resp)) "the launch path is reached")
+          (is (= 1 (count @calls)) "launch! invoked once")
+          (is (str/includes? (first (first @calls)) "re-frame2+wip")
+              "the literal + survived parse-query into the abs-path launch! got")
+          (is (not (str/includes? (first (first @calls)) "re-frame2 wip"))
+              "the + was NOT form-decoded to a space"))))))
+
 ;; ---- header / origin parsing helpers -------------------------------------
 
 (deftest loopback-host?-classifies-correctly
