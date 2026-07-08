@@ -176,11 +176,19 @@
                   ;; Anything else: shrug. The example doesn't bother with
                   ;; fire-and-forget sends beyond the cases above.
                   nil)))
+     ;; Close the host-side socket, the way a real `WebSocket`'s `.close()`
+     ;; would: mark it shut and drop its `mock-server-state` entry so nothing
+     ;; keeps trying to reach it. This is the seam the actor's `:exit`
+     ;; reaches for on teardown. It deliberately does NOT re-echo a `:closed`
+     ;; back to the actor — the actor is on its way out when this runs, so
+     ;; dispatching an event into a dying machine would fire mid-teardown
+     ;; (in sync mode, `later` runs it right now). The one place that WANTS a
+     ;; `:closed` delivered — an unexpected drop — is `simulate-disconnect!`,
+     ;; which dispatches it itself. Swap in a real socket and this line
+     ;; becomes `(.close socket)`.
      :close (fn mock-close []
               (reset! open? false)
-              (swap! mock-server-state update :sockets dissoc id)
-              (later
-                #(deliver-to-actor! dispatch actor-id :closed {:code 1000})))}))
+              (swap! mock-server-state update :sockets dissoc id))}))
 
 ;; The seams below let the views (and tests) poke the mock server from
 ;; outside, without pretending to be the actor.
@@ -230,8 +238,13 @@
 ;;
 ;; A small machine with a simple life. `:opening` opens the host-side
 ;; socket on entry, then immediately steps to `:open`, where it spends the
-;; rest of its days. Cleanup isn't its problem: leaving `:active` upstairs
-;; destroys this actor, and that's that.
+;; rest of its days. The one thing it MUST do on the way out is close that
+;; host socket — an `:exit :close-socket` on `:open` does exactly that. The
+;; runtime clears the `:rf/spawned` id the parent tracks all on its own, but
+;; the JS `WebSocket` (or our mock stand-in) is a live handle the runtime
+;; knows nothing about, so a clean Disconnect / `:ws/fatal` / `:ws/auth-failed`
+;; that destroys the actor would leak it. The actor's `:exit` is the one bit
+;; of teardown that IS its problem.
 ;;
 ;; Two ids do the talking. The runtime stamps `:rf/self-id` and
 ;; `:rf/parent-id` into a spawned actor's `:data`; the actor tags its own
@@ -261,6 +274,21 @@
           ;; frame at all and raise `:rf.error/no-frame-context`. Effects,
           ;; not side effects.
           {:fx [[:dispatch [parent-id [:ws/opened {:source-socket-id self-id}]]]]}))
+
+      :close-socket
+      ;; On exit from `:open`: close the host-side socket the actor opened.
+      ;; Letting go of the `:rf/spawned` id (which the runtime does for us on
+      ;; teardown) frees the ACTOR, not the socket — so without this the JS
+      ;; `WebSocket` leaks. `((:close socket))` marks the mock shut and prunes
+      ;; its `mock-server-state` entry (a real socket would take a `.close()`
+      ;; there); `clear-socket!` drops our host-store reference. No `:closed`
+      ;; is re-dispatched — the actor is already on its way out.
+      (fn action-close-socket [{data :data}]
+        (let [self-id (:rf/self-id data)]
+          (when-let [socket (get-socket self-id)]
+            ((:close socket)))
+          (clear-socket! self-id))
+        nil)
 
       :send-via-socket
       ;; The parent sends us `[<actor-id> [:send body]]` for each outbound
@@ -292,10 +320,15 @@
           {:fx [[:dispatch [parent-id ev]]]}))
 
       :forward-closed
+      ;; A `:closed` event reached us — an unexpected drop that
+      ;; `simulate-disconnect!` delivered, or (with a real socket) its
+      ;; `onclose`. Forward it up to the parent, stamped with our socket id so
+      ;; `:current-socket?` can vet it. Host-socket cleanup is NOT done here:
+      ;; walking to `:closed` exits `:open`, and `:open`'s `:exit :close-socket`
+      ;; has already shut the host socket down. This action is pure messaging.
       (fn action-forward-closed [{data :data [_ {:keys [code reason]}] :event}]
         (let [self-id   (:rf/self-id data)
               parent-id (:rf/parent-id data)]
-          (clear-socket! self-id)
           {:fx [[:dispatch [parent-id
                             [:ws/closed {:source-socket-id self-id
                                          :code             code
@@ -320,15 +353,24 @@
                             :action :forward-closed}}}
 
       :open
-      {:on {:send     {:action :send-via-socket}
-            :received {:action :forward-received}
-            :closed   {:target :closed
-                       :action :forward-closed}}}
+      ;; Where the actor spends its life — and where `:exit :close-socket`
+      ;; lives, NOT on `:opening`: `:opening` `:always`-steps straight to
+      ;; `:open`, so an exit there would slam shut the socket we just opened.
+      ;; `:open` is the only state the actor rests in, so its exit is the
+      ;; reliable teardown seam. It fires on BOTH doors out: destroy (the
+      ;; parent leaving `:active` tears the actor down) and the `:open` ->
+      ;; `:closed` walk a `:closed` event triggers.
+      {:exit :close-socket
+       :on   {:send     {:action :send-via-socket}
+              :received {:action :forward-received}
+              :closed   {:target :closed
+                         :action :forward-closed}}}
 
       :closed
-      ;; The end of the line. The parent's exit-from-:active is about to
-      ;; destroy this actor anyway; until it does, this state just quietly
-      ;; soaks up any stragglers.
+      ;; The end of the line. Reaching here means we exited `:open`, so
+      ;; `:close-socket` has already shut the host socket down; the parent's
+      ;; exit-from-`:active` will destroy this actor shortly. Until it does,
+      ;; this state just quietly soaks up any stragglers.
       {}}})
 
 ;; ============================================================================
