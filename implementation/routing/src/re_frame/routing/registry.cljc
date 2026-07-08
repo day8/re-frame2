@@ -216,6 +216,88 @@
                 :keys     bad
                 :reserved accepted})))))
 
+;; ---- decimal-route rejection (rf2-5s7l6d) --------------------------------
+;; A `:double` / decimal-typed `:params` or `:query` slot is REJECTED at the
+;; authoring boundary. Under the current CEDN rules a floating-point value has
+;; no canonical-EDN identity (`re-frame.identity/bad-number?` rejects
+;; floats / ratios / arbitrary-precision decimals / NaN / infinities), which
+;; means a `:double` route breaks the route prism (EP-0012 §Route Prism Laws):
+;; `match-url` would coerce a URL segment to a FLOAT (`parse-double`), but
+;; `route-url` REFUSES to emit that same float — `assert-url-value!` routes it
+;; through `identity/canonical-bytes`, which throws `:rf.error/non-edn-identity`
+;; (the `[:float 1.5]` case pinned in routing_url_non_edn_cljs_test). So
+;; `route-url(match-url(url))` throws instead of returning `url` — a URL-driven
+;; vs programmatic-navigation split. It also diverges across hosts (a JVM
+;; `Double` vs a CLJS number; an integer-valued `2.0` is even admitted by CEDN
+;; on CLJS but rejected on the JVM) — the Spec 011 hydration-mismatch class the
+;; `:int` strictness rule already guards. Rather than silently produce
+;; un-round-trippable float route data, fail LOUD at `reg-route` — consistent
+;; with the fail-loud authoring-boundary posture (`validate-route-metadata!`).
+;; Decimal URL routing is out of scope: encode a decimal as a string (parse it
+;; in a handler) or use an `:int`-typed key. (If finite-decimal URL routing is
+;; ever wanted it needs a decimal URL-identity policy defined in canonical
+;; identity + route-url first — deliberately NOT smuggled in via lossy `:double`
+;; coercion.)
+
+(defn- decimal-type-form?
+  "True when a Malli param/query slot type-form `tf` denotes a floating-point
+  (`:double`) value in any of the shapes the coercion vocabulary supports:
+  bare `:double`, an optioned `[:double {…}]`, or either wrapped in
+  `[:maybe …]`. rf2-5s7l6d."
+  [tf]
+  (boolean
+    (cond
+      (= :double tf) true
+      (vector? tf)
+      (let [head (first tf)]
+        (cond
+          (= :double head) true
+          (= :maybe head)  (decimal-type-form? (second tf))
+          :else            false))
+      :else false)))
+
+(defn- reject-decimal-route-schema!
+  "Authoring-boundary guardrail (rf2-5s7l6d): throw
+  `:rf.error/route-decimal-unsupported` (canonical thrown-error shape, per
+  Spec 009) when `metadata` declares a `:double` / decimal-typed key in its
+  `:params` or `:query` `[:map …]` schema. Decimal routing is unsupported —
+  a float has no canonical-EDN identity, so it cannot round-trip through the
+  match-url/route-url prism and diverges across hosts (see the section
+  comment). The thrown error names the offending slot + key so the author sees
+  exactly what to fix. Fails in dev AND prod (a caller bug, not user input).
+  Runs only on the routing-owned `:params` / `:query` slots — namespaced /
+  cross-feature schema keys are not scanned."
+  [route-id metadata]
+  (doseq [slot [:params :query]]
+    (let [schema (get metadata slot)]
+      (when (vector? schema)
+        (doseq [entry (rest schema)]      ;; skip the leading `:map` head
+          (when (and (vector? entry) (keyword? (first entry)))
+            (let [k  (first entry)
+                  tf (cond
+                       (= 2 (count entry)) (second entry)   ;; [k type]
+                       (= 3 (count entry)) (last entry)      ;; [k {opts} type]
+                       :else               nil)]
+              (when (decimal-type-form? tf)
+                (throw (route-error
+                         :rf.error/route-decimal-unsupported
+                         'rf/reg-route
+                         (str "route " route-id " declares a :double / decimal-typed "
+                              (name slot) " key " k " — decimal routing is not "
+                              "supported: a floating-point value has no canonical "
+                              "EDN identity (Conventions §Canonical EDN identity), so "
+                              "it cannot round-trip through match-url / route-url "
+                              "(the EP-0012 route prism — route-url rejects a float as "
+                              ":rf.error/route-url-non-edn-value) and it diverges "
+                              "across the JVM/CLJS hosts (the Spec 011 "
+                              "hydration-mismatch class). Encode the value as a string "
+                              "(parse it in a handler) or use an :int-typed key.")
+                         {:route-id  route-id
+                          :slot      slot
+                          :param     k
+                          :type-form tf})))))))))
+  nil)
+
 ;; ---- registration --------------------------------------------------------
 
 (defn reg-route
@@ -289,6 +371,13 @@
         ;; classification/lower-for-route`), keeping the stored meta a pure
         ;; reflection map. Runs only when the route declares a classification key.
         _            (classification/validate+extract id metadata)
+        ;; rf2-5s7l6d: reject a :double / decimal-typed :params or :query key
+        ;; at the authoring boundary. A float has no canonical-EDN identity, so
+        ;; a decimal route breaks the match-url/route-url prism (match-url would
+        ;; coerce to a float route-url then refuses to emit) and diverges across
+        ;; hosts. Fail loud here rather than produce un-round-trippable route
+        ;; data — see `reject-decimal-route-schema!`.
+        _            (reject-decimal-route-schema! id metadata)
         pattern      (match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
@@ -319,7 +408,7 @@
                                      (:query-retain metadata))))
         ;; rf2-cylse.5: compile the `:params` schema into a path-coerce
         ;; table the SAME way as the query side, so PATH captures coerce
-        ;; against their declared type (`:int`/`:uuid`/`:double`/enum)
+        ;; against their declared type (`:int`/`:uuid`/enum)
         ;; before validation — without it a non-`:string` path-param type
         ;; makes every valid URL fail :params validation → 404.
         params-coerce (compile-schema-coercions (:params metadata))
@@ -407,22 +496,28 @@
   to coerce a URL string into. `:keyword` is handled separately (it
   rewrites to `:rf.route/keyword-unbounded`); `:string` is a deliberate
   passthrough. Used to recognise the *optioned* form `[:int {…}]` as the
-  same coercion as the bare `:int` (rf2-fwz29i)."
-  #{:int :double :uuid :boolean})
+  same coercion as the bare `:int` (rf2-fwz29i).
+
+  `:double` is DELIBERATELY absent (rf2-5s7l6d): a floating-point value has
+  no canonical-EDN identity (`re-frame.identity/bad-number?` rejects
+  floats/ratios/NaN/∞), so a `:double`-typed route is rejected fail-loud at
+  `reg-route` (`reject-decimal-route-schema!`) and never reaches coercion. See
+  that guard for the full route-prism / hydration-mismatch rationale."
+  #{:int :uuid :boolean})
 
 (defn- normalize-type-form
   "Reduce a per-slot Malli type-form to the canonical coercion token
   `coerce-by-type-form` understands. Pure; no interning. rf2-fwz29i.
 
   Handled shapes:
-  - bare scalar `:int` / `:double` / `:uuid` / `:boolean` → itself.
+  - bare scalar `:int` / `:uuid` / `:boolean` → itself.
   - bare `:keyword` → `:rf.route/keyword-unbounded` (no enum allowlist;
     stays a string at coerce time — the rf2-3k3o7 unbounded-intern guard).
   - `[:enum :a :b …]` / `[:enum {…opts} :a :b …]` with all-keyword
     choices → `[:rf.route/enum-keyword #{choice-names…}]` (rf2-3k3o7
     bounded allowlist).
-  - **optioned scalar** `[:int {…}]` / `[:double {…}]` / `[:uuid {…}]` /
-    `[:boolean {…}]` → the bare scalar token; **optioned** `[:keyword {…}]`
+  - **optioned scalar** `[:int {…}]` / `[:uuid {…}]` / `[:boolean {…}]` →
+    the bare scalar token; **optioned** `[:keyword {…}]`
     → `:rf.route/keyword-unbounded`. Ordinary Malli properties on an
     otherwise-supported scalar no longer silently disable URL-string
     coercion (the rf2-fwz29i bug: `[:int {:min 1}]` validated `\"2\"`
@@ -595,9 +690,6 @@
     `\" 12\"`, `\"abc\"`, a >2^53 literal) stays a string on BOTH hosts;
     the route's `:query`/`:params` schema then flags the type mismatch via
     the layered validator.
-  - `:double` — coerced to a number via the host-symmetric, total
-    `parse-double` (returns nil → string passthrough on bad input; never
-    throws). rf2-cylse.5.
   - `:uuid` — coerced to a UUID object via the host-symmetric, total
     `parse-uuid` (returns nil → string passthrough on a non-UUID; never
     throws). This is what makes the canonical Spec 012 `:uuid` PATH route
@@ -618,11 +710,11 @@
     (= :int type-form)
     (parse-int-strict v)
 
-    (= :double type-form)
-    ;; rf2-cylse.5: host-symmetric + total. `parse-double` returns nil on
-    ;; a non-double string (both hosts) → leave the raw string so the
-    ;; layered :params/:query validator flags it.
-    (if (string? v) (or (parse-double v) v) v)
+    ;; rf2-5s7l6d: NO `:double` branch — a `:double`-typed route is rejected at
+    ;; `reg-route` (`reject-decimal-route-schema!`), so a `:double` type-form
+    ;; never reaches coercion. A float has no canonical-EDN identity and cannot
+    ;; round-trip the route prism; a stray `:double` here would fall through to
+    ;; the `:else` string passthrough rather than fabricate float route data.
 
     (= :uuid type-form)
     ;; rf2-cylse.5: host-symmetric + total. `parse-uuid` returns nil on a
@@ -802,7 +894,7 @@
   "Coerce a `{keyword-key string-value}` PATH-capture map against the
   precompiled `params-coerce` table (`{:keyword-key type-form}`, from the
   route's `:params` schema). Each captured key whose type-form is a known
-  coercion vocabulary entry (`:int` / `:uuid` / `:double` / `:boolean` /
+  coercion vocabulary entry (`:int` / `:uuid` / `:boolean` /
   `[:enum ...]` keyword allowlist) is coerced; every other key (incl.
   `:string` and any undeclared capture) passes through unchanged.
   rf2-cylse.5.
@@ -984,7 +1076,7 @@
                       ;; route's `:params` schema (precompiled to
                       ;; `:rf.route/params-coerce`) BEFORE validation —
                       ;; mirrors the query side. Without this a typed path
-                      ;; param (`:int`/`:uuid`/`:double`/enum) is a raw
+                      ;; param (`:int`/`:uuid`/enum) is a raw
                       ;; string fed to a typed Malli schema → validation
                       ;; FAILS → the canonical Spec 012 `:uuid` route 404s
                       ;; for every valid URL. `params` (coerced) is what
@@ -1144,7 +1236,7 @@
 ;;       (`#inst "..."` on CLJ vs an ISO string on CLJS vs `Thu Jun 12 ...`
 ;;       for a `java.util.Date`) and which `match-url` has no instant
 ;;       coercion vocabulary to read back (it coerces only
-;;       `:int :double :uuid :boolean :keyword`), so it cannot round-trip.
+;;       `:int :uuid :boolean :keyword`), so it cannot round-trip.
 ;;
 ;; EP-0012 forbids exactly this: "If a route param value cannot be represented
 ;; as canonical EDN after schema coercion, route matching or URL printing MUST
