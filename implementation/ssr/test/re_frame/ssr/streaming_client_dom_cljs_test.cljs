@@ -636,17 +636,18 @@
               [["card-revenue" string? "string id"]
                [:card/revenue  keyword? "keyword id"]]]
         (let [fid      (make-client-frame!)
-              host     (.createElement js/document "div")
+              host     (make-root! [id])
               captured (atom [])
               k        (str (gensym "stream-idtype-cb"))]
-          (set! (.-innerHTML host) "<div id=\"app\"><main></main></div>")
-          (.appendChild (.-body js/document) host)
           (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
           (try
             ;; A failed-boundary chunk → process-resolved-template! emits
             ;; :rf.ssr/suspense-boundary-failed with :id (read-boundary-id …).
-            ;; No prior fallback mount is needed: the failed branch still
-            ;; emits the trace even when the swap finds no mount.
+            ;; `make-root!` seeds a fallback <template> for `id`, so the
+            ;; initial sweep materialises its live mount BEFORE the failed
+            ;; chunk is processed and the fallback swap SUCCEEDS — the failed
+            ;; trace is gated on swap success (rf2-8ymnem; the shipped FIFO
+            ;; shape always materialises a mount first).
             (append-chunk!
               host
               (failed-chunk-html id "<div class=\"card card-failed\">unavailable</div>"))
@@ -702,3 +703,68 @@
               (remove-root! host)
               (done))
             0))))))
+
+(deftest failed-boundary-trace-emits-exactly-once-when-mount-arrives-late
+  (testing "rf2-8ymnem — the failed-boundary trace is gated on a SUCCESSFUL
+            fallback swap. A resolved-failed <template> whose live mount does
+            not exist yet (the nested-boundary race / out-of-order-stream
+            shape) emits NOTHING — it stays un-`seen` and retryable — and
+            emits EXACTLY ONCE when a later sweep materialises the mount and
+            the swap lands. Before the fix the failed arm fired on every sweep
+            regardless of swap success, so a no-mount failed chunk re-emitted
+            :rf.ssr/suspense-boundary-failed on each MutationObserver
+            re-sweep (multi-emit). The shipped FIFO emitter never hits this
+            (a fallback template always materialises a mount first), so the
+            bug is latent — this drives the non-FIFO shape directly."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (async
+        done
+        (let [fid          (make-client-frame!)
+              id           :card.racey
+              host         (.createElement js/document "div")
+              captured     (atom [])
+              k            (str (gensym "stream-exactly-once-cb"))
+              failed-count #(count (filter (fn [ev]
+                                             (= :rf.ssr/suspense-boundary-failed
+                                                (:operation ev)))
+                                           @captured))]
+          ;; NO fallback <template> for `id` yet — the failed chunk arrives
+          ;; before any live mount exists.
+          (set! (.-innerHTML host) "<div id=\"app\"><main></main></div>")
+          (.appendChild (.-body js/document) host)
+          (trace-tooling/register-listener! k (fn [ev] (swap! captured conj ev)))
+          (append-chunk!
+            host
+            (failed-chunk-html id "<div class=\"card card-failed\">unavailable</div>"))
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            ;; Sweep 1 (synchronous initial sweep): no mount → swapped? false
+            ;; → the failed arm is gated → NO trace, and the failed <template>
+            ;; stays retryable.
+            (is (zero? (failed-count))
+                "no failed trace while the failed chunk has no live mount to swap into")
+            ;; Force a SECOND sweep with the mount STILL absent (an unrelated
+            ;; DOM mutation drives the observer). The OLD code re-emitted here.
+            (append-chunk! host "<div class=\"noise\"></div>")
+            (js/setTimeout
+              (fn []
+                (is (zero? (failed-count))
+                    "a re-sweep with the mount still absent still emits nothing (no multi-emit)")
+                ;; Now the fallback <template> for `id` streams in. The next
+                ;; sweep materialises its mount, then re-processes the still-
+                ;; retryable failed chunk → swap succeeds → EXACTLY ONE trace.
+                (append-chunk!
+                  host
+                  (ssr/streaming-fallback-template
+                    id "<div class=\"card skeleton\">loading</div>"))
+                (js/setTimeout
+                  (fn []
+                    (is (= 1 (card-count host "card-failed"))
+                        "the failed fallback HTML swapped into the now-materialised mount")
+                    (is (= 1 (failed-count))
+                        "the failed-boundary trace fired EXACTLY once — on the successful swap")
+                    (stop!)
+                    (remove-root! host)
+                    (done))
+                  0))
+              0)))))))
