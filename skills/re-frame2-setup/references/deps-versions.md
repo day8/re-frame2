@@ -44,6 +44,8 @@ grep -oE 'day8/re-frame2[a-z-]* *\{:git/url[^}]*:git/sha "[^"]+"' deps.edn
 
 These eleven are the **publishable** lockstep set. (Two niche local roots — `reagent-slim`, `re-frame2-ssr-ring` — ride the same version but aren't greenfield.) `day8/re-frame2-xray` is tooling, not one of the eleven, but is a **day-one** dep (below).
 
+**One more per-feature artefact, tagged (post-v1).** `day8/re-frame2-resources` (Spec [016](../../../spec/016-Resources.md) / EP-0003 — the richest per-feature artefact) is a **settled contract at a fixed coordinate** that ships *after* v1, so it sits outside the eleven; [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md) enumerates it inline as **(post-v1)**. Its runtime has landed and it is already wired into `implementation/deps.edn` as `day8/re-frame2-resources {:local/root "resources"}`, so on the pre-publish `:local/root` dev route you can add it today — add it when you call `reg-resource`. The count stays **eleven** for the v1 publishable set.
+
 **Greenfield day-one shape.** Matching the [generator template](../README.md#relationship-to-the-generator-template), the day-one set is **four** re-frame2 coords — `day8/re-frame2` (core) + `day8/re-frame2-reagent` (adapter) + `day8/re-frame2-schemas` (the starter app attaches a whole-app-db schema — see the table row for the `:rf.error/schemas-artefact-missing` contract) + `day8/re-frame2-xray` (in-app devtools via `:devtools/preloads`) — plus an explicit `reagent/reagent` pin.
 
 The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) stay pay-as-you-go — add them only when the author writes code that uses them (§When to add, below), so apps that don't use them don't pay the classpath cost.
