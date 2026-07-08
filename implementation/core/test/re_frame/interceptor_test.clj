@@ -918,3 +918,28 @@
       (is (= 1 (count ix)) "exactly one interceptor-exception")
       (is (nil? (get-in (first ix) [:tags :source-coord]))
           "no :source-coord tag — the fn path captured none"))))
+
+;; ---- ctx-delta falsy-key correctness (rf2-tq8l9m) -------------------------
+
+(deftest compute-ctx-delta-keeps-changed-values-under-falsy-keys
+  ;; rf2-tq8l9m — `segment-delta` computed the both-maps `common` key set via
+  ;; `(filter ks-b ks-a)`, using the key SET as the filter predicate. A set
+  ;; returns the ELEMENT (not a boolean), so a key literally `false` / `nil`
+  ;; tested falsy and was DROPPED from `common` — silently omitting a
+  ;; changed-in-place value under that key from the `:changed` diff. Fixed by
+  ;; an explicit `(contains? ks-b %)` membership test that keeps falsy keys.
+  ;; `compute-ctx-delta` is private (a dev-only trace projection); reach it via
+  ;; its var. Pure fn — no runtime needed.
+  (let [compute (deref #'interceptor/compute-ctx-delta)]
+    (testing "a changed value under a false / nil coeffect key lands in :changed"
+      (let [delta (compute {:coeffects {false :old, nil :n-old, :ok 1}}
+                           {:coeffects {false :new, nil :n-new, :ok 1}})]
+        (is (= {false {:before :old :after :new}
+                nil   {:before :n-old :after :n-new}}
+               (get-in delta [:coeffects :changed]))
+            "both the false-keyed and nil-keyed changes are entered into :changed")
+        (is (nil? (:added (:coeffects delta))) "no spurious :added")
+        (is (nil? (:removed (:coeffects delta))) "no spurious :removed")))
+    (testing "an unchanged value under a falsy key is NOT reported as changed"
+      (is (nil? (compute {:effects {false :same}} {:effects {false :same}}))
+          "identical falsy-keyed segments produce no delta"))))
