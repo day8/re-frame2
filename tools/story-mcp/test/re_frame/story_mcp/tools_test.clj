@@ -731,6 +731,14 @@
     (is (= [] (:parent-chain e)))
     (is (contains? e :merge) "the per-field merge rules are surfaced")
     (is (contains? e :effective-args) "arg resolution is surfaced")
+    ;; rf2-7k5mce: on this no-run path the frame is non-live; the value slots
+    ;; must ship the REAL resolved author data, not :rf/redacted (which the
+    ;; old fail-closed egress boundary produced while KEEPING the key, so a
+    ;; bare contains? check passed on garbage).
+    (is (map? (:effective-args e))
+        "rf2-7k5mce: :effective-args is the real resolved args map, not :rf/redacted")
+    (is (not= :rf/redacted (:effective-args e))
+        "rf2-7k5mce: :effective-args is not over-redacted on the no-run frame")
     (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
 
 (deftest explain-variant-unknown
@@ -3364,24 +3372,6 @@
                       steps)
               "the write-back body re-registers the RAW cofx on-box (--allow-writes registration, not a wire egress)"))))))
 
-(deftest scrub-explain-values-large-value-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: explain value slots ship a re-keyed :large value RAW"
-    (with-clean-frame [vid :story.button/primary]
-      (let [blob    (vec (range 5000))
-            db      {:public "ok" :blob blob}
-            explain {:effective-args {:rows blob}     ; runtime value slot, re-keyed
-                     :source-chain   [:a :b]}]        ; plan-STRUCTURE slot (public)
-        (seed-app-db! vid db)
-        (declare-large! vid [:blob])
-        (let [scrub-explain-values (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-explain-values)
-              out                  (scrub-explain-values explain vid [:effective-args] false)]
-          (is (tree-contains? (:effective-args out) blob)
-              "fail-open: the re-keyed large blob ships raw in the explain value slot")
-          (is (not (tree-contains-marker? (:effective-args out)))
-              "no large-elided marker — the explain slot is not at the declared app-db path")
-          (is (= [:a :b] (:source-chain out))
-              "plan-STRUCTURE slots are untouched (intentionally public)"))))))
-
 (deftest scrub-rendered-include?-true-forwards-raw-large
   (testing "include? true forwards the raw large value (trusted-local opt-out)"
     (with-clean-frame [vid :story.button/primary]
@@ -3650,114 +3640,65 @@
         (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
 
 ;; ---------------------------------------------------------------------------
-;; Non-live wire-egress privacy posture.
+;; explain-variant ships AUTHOR DATA raw (rf2-7k5mce, ruled by Mike 2026-07-08).
 ;;
-;; The wire-elision contract in tools/story/spec/006-MCP-Surface.md
-;; promises EVERY Story-MCP payload crosses elided (registry reads +
-;; recorder output included). This covers the NON-live tools alongside the
-;; three live-state ones (`preview-variant` / `run-variant` /
-;; `read-failures`): `explain-variant`'s plan-resolved value slots and
-;; `record-as-variant`'s captured event vectors + the snippet derived from
-;; them all route their value-bearing slots through the egress scrubbers.
+;; `explain-variant` is a NO-RUN tool over the registry side-table (the agent
+;; mirror of the human Explain panel), so its ENTIRE `:explain` map — the
+;; plan-STRUCTURE slots AND the plan-RESOLVED value slots (`:effective-args` /
+;; `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` /
+;; `:setup-order` / `:script-order`) — is static author data resolved from the
+;; variant's own registration, not observed user runtime. It ships RAW exactly
+;; like `get-variant` / `variant->edn`; it is NOT routed through any egress
+;; boundary and carries no `:include-sensitive` knob.
 ;;
-;; These tests plant a DISTINCTIVE sensitive literal in those non-live
-;; payloads and assert the MCP wire response does NOT include it by
-;; default, while the documented `:include-sensitive` opt-in (gated by
-;; --allow-sensitive-reads) reveals it.
-;;
-;; Each test's secret value reaches the wire slot directly from a captured
-;; event / plan-resolved arg, so without the value-redaction step it would
-;; appear verbatim in `:captured` / `:play-snippet` / the explain value
-;; slots — which is what the redaction prevents.
+;; Previously the value slots were PATH-projected through the fail-closed
+;; live-frame boundary. On the documented no-run inspection path
+;; (list-stories -> get-variant -> explain-variant, frame never allocated) the
+;; frame is NON-LIVE, so that boundary FAILED CLOSED and redacted EVERY value
+;; slot to `:rf/redacted` — destroying the tool's most useful output even
+;; though nothing is runtime-sensitive. These tests pin that the author data
+;; now crosses RAW under both a classified live path and a non-live frame.
 ;; ---------------------------------------------------------------------------
 
-(deftest explain-variant-re-keyed-effective-args-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a declared-sensitive value RE-SURFACED into the explain :effective-args / :network ships RAW — value-match removed"
+(deftest explain-variant-ships-value-slots-raw-even-with-classified-path
+  (testing "rf2-7k5mce: explain-variant ships its author value slots RAW even when the frame classifies the matching app-db path — the egress boundary is retired for this no-run tool"
     (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path; the
-      ;; explain projection re-surfaces the same VALUE into runtime-resolved
-      ;; value slots at NON-app-db positions (`[:effective-args :api-key]`,
-      ;; `[:network ... :reply :token]`). EP-0025 removed value-match, so the
-      ;; re-keyed copies ship raw.
+      ;; A live frame classifying [:auth :token], plus a :db-seed slot that
+      ;; mirrors that path: under the OLD behaviour the :db-seed value redacted
+      ;; by path. explain-variant is author data now, so every slot ships raw.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (with-redefs [story/explain
                     (fn [_vk & _]
-                      {:source-chain   [:story.button/primary]   ; structure — public
-                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"} ; re-keyed — fail-open
-                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}})]
+                      {:source-chain   [:story.button/primary]
+                       :db-seed        {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}}
+                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}
+                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}
+                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]]})]
         (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE slots are author-published discovery metadata — intentionally public, untouched")
+              "plan-STRUCTURE ships raw, as it always did")
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :db-seed :auth :token]))
+              "author data: even the :db-seed slot AT the classified [:auth :token] path ships RAW — no longer redacted")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
-              "fail-open: the re-keyed :effective-args value ships RAW — classify the app-db PATH to redact")
+              "author data: the :effective-args value ships RAW")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
-              "fail-open: the re-keyed :network reply value ships RAW"))))))
+              "author data: the :network reply value ships RAW")
+          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]] (get-in s [:explain :setup-order]))
+              "author data: the :setup-order step payload ships RAW")
+          (is (not (tree-contains? (:explain s) :rf/redacted))
+              "nothing in the :explain map is redacted"))))))
 
-(deftest explain-variant-includes-sensitive-when-opted-in
-  (testing ":include-sensitive true forwards the raw explain value slots (gate open)"
-    (config/set-allow-sensitive-reads! true)
+(deftest explain-variant-ships-sub-overrides-and-step-order-raw
+  (testing "rf2-7k5mce: :sub-overrides / :setup-order / :script-order are author data — they ship RAW with their public step structure intact"
     (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
-                                           :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
-              "the documented opt-in surfaces the raw value"))))))
-
-(deftest explain-variant-gate-closed-re-keyed-slot-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a RE-KEYED explain value slot ships RAW regardless of gate state — value-match removed, so the gate no longer governs re-keyed copies"
-    (is (false? (config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
-                                           :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
-              "fail-open: the re-keyed value ships raw whether the gate is open or closed (path is the only redaction route)"))))))
-
-;; ---------------------------------------------------------------------------
-;; explain-variant value-bearing slot composition coverage.
-;;
-;; Beyond [:effective-args :args :substitutions :network :db-seed], the SAME
-;; `substitute-args` that feeds `:substitutions` also resolves arg values
-;; into `:sub-overrides` override values (plan.cljc:1297) and the
-;; `:setup-order` / `:script-order` step sequences (plan.cljc:1263/1269). A
-;; declared-sensitive arg substituted into any of those would cross the
-;; AI/MCP boundary RAW if those slots went unscrubbed — leaving
-;; `:setup-order`/`:script-order` unscrubbed would be a clean BYPASS of the
-;; `:substitutions` scrub (the secret rides the unscrubbed sibling). So all
-;; of these slots are in `explain-value-bearing-slots`.
-;;
-;; These tests plant a DISTINCTIVE secret in each of those scrubbed slots
-;; and assert it is redacted on the wire by default.
-;; ---------------------------------------------------------------------------
-
-(deftest explain-variant-re-keyed-sub-overrides-and-step-order-ship-raw-fail-open
-  (testing "EP-0025 fail-open: a declared-sensitive value RE-SURFACED into :sub-overrides / :setup-order / :script-order ships RAW — value-match removed (rf2-q8ebq.1)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The frame app-db carries the secret at a declared-sensitive path; the
-      ;; plan re-surfaces the SAME VALUE into plan-RESOLVED value slots at
-      ;; NON-app-db positions. EP-0025 removed value-match, so these re-keyed
-      ;; copies ship raw — the public step STRUCTURE is preserved verbatim
-      ;; (it always was) and the embedded value is no longer scrubbed.
       (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
       (declare-sensitive! vid [:auth :token])
       (with-redefs [story/explain
                     (fn [_vk & _]
-                      {:source-chain  [:story.button/primary]      ; structure — public
+                      {:source-chain  [:story.button/primary]
                        :sub-overrides {:overrides  {[:current-user] {:token "DISTINCTIVE-SUBOVR-SECRET"}}
                                        :validation {:status :ok :violations []}}
                        :setup-order   [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]]
@@ -3766,132 +3707,62 @@
               s (:structuredContent r)]
           (is (success? r))
           (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
-              "fail-open: the re-keyed :sub-overrides value ships RAW")
+              "author data: the :sub-overrides value ships RAW")
           (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :setup-order]))
-              "fail-open: :setup-order ships the embedded value raw — the step STRUCTURE is intact (it always was)")
+              "author data: :setup-order ships its step payload raw")
           (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :script-order]))
-              "fail-open: :script-order ships the embedded value raw")
+              "author data: :script-order ships its step payload raw")
           (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE slots remain author-published discovery metadata — untouched")
+              "plan-STRUCTURE slots are unchanged")
           (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
               "the non-value :validation structure inside :sub-overrides is preserved"))))))
 
-(deftest explain-variant-includes-sensitive-sub-overrides-when-opted-in
-  (testing ":include-sensitive true forwards the raw :sub-overrides / step-order value slots (gate open, rf2-q8ebq.1)"
-    (config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:sub-overrides {:overrides {[:current-user] {:token "DISTINCTIVE-SUBOVR-SECRET"}}}
-                       :setup-order   [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]]})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
-                                           :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
-              "the documented opt-in surfaces the raw override value")
-          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :setup-order 0 1 1 :token]))
-              "and the raw setup-step value crosses too"))))))
-
 ;; ---------------------------------------------------------------------------
-;; explain-variant PRE-FRAME egress — EP-0025 PATH-based / fail-open.
+;; explain-variant NO-RUN egress — the rf2-7k5mce regression pin.
 ;;
-;; `explain-variant` is a documented NO-RUN path (spec/API.md §explain-variant:
-;; "Plan-derived data — no run, no live :app-db slice"): a caller can read it
-;; BEFORE any run-variant / preview-variant allocates the variant frame.
-;;
-;; EP-0025 removed value-match (and the pre-frame `:db-seed` candidate-union it
-;; relied on). The explain value slots are PATH-walked at the frame's
-;; declared-sensitive paths — durable frame state, live from `reg-frame` time
-;; (EP-0015 §8), so the paths exist pre-run. A slot whose shape mirrors the
-;; app-db (the `:db-seed` itself) redacts at its matching path; a value
-;; RE-KEYED elsewhere (a stubbed `:network` reply, a resolved `:effective-args`
-;; / step payload at a non-matching position) ships RAW. These tests declare a
-;; sensitive path PRE-RUN, then assert the PATH-matching slot redacts while the
-;; re-keyed slots ship raw (fail-open).
+;; `explain-variant` is a documented NO-RUN tool (spec/API.md §explain-variant:
+;; "Plan-derived data — no run, no live :app-db slice"): the documented
+;; static-inspection flow (list-stories -> get-variant -> explain-variant) hits
+;; it BEFORE any run-variant / preview-variant allocates the variant frame, so
+;; the frame is NON-LIVE. Under the old behaviour the value slots were
+;; projected through the framework egress boundary, which FAILS CLOSED on a
+;; non-live frame and redacted EVERY value slot to `:rf/redacted` — destroying
+;; the resolved args, final setup/script order, and network stubs even though
+;; nothing is runtime-sensitive. explain-variant now ships the author data raw.
 ;; ---------------------------------------------------------------------------
 
-(defn- declare-sensitive-prerun!
-  "Classify a `:sensitive` `:app-db` path for a slot on the named variant's
-  frame PRE-RUN — the no-run posture `explain-variant` must defend.
-  Classification lives in the frame's durable elision registry (its
-  runtime-db partition), so the frame container must exist; we
-  `ensure-variant-frame!` (allocate at reg-frame time) then write the
-  classification via the EP-0025 commit-plane `:sensitive` effect
-  (`elision/apply-classification-effects`, `:source :effect`). No run-variant
-  / preview-variant has executed, so the LIVE app-db is still empty — the
-  explain slots are PATH-walked at these declared paths; EP-0025 ships
-  re-keyed copies raw (fail-open)."
-  [variant-id path]
-  (ensure-variant-frame! variant-id)
-  (frame/swap-runtime-db! variant-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [(vec path)]}))))
-
-(deftest explain-variant-preframe-db-seed-path-redacts-others-fail-open
-  (testing "EP-0025: PRE-RUN, the plan :db-seed redacts BY PATH (its shape mirrors app-db, so [:auth :token] is reached), but values RE-KEYED into :effective-args / :network / a step ship RAW — value-match removed (rf2-tag30h superseded)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; No RUN has executed — the live app-db carries no :auth content. The
-      ;; :db-seed slot mirrors the app-db shape, so the path-walk reaches
-      ;; [:auth :token] within it and redacts — PATH-based redaction, not
-      ;; value-match. The other slots re-key the value to positions the
-      ;; [:auth :token] path cannot reach, so they ship raw (fail-open).
-      (declare-sensitive-prerun! vid [:auth :token])
-      (is (nil? (get-in (rf/app-db-value vid) [:auth :token]))
-          "precondition: no run has seeded the live app-db with the secret")
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:source-chain   [:story.button/primary]                    ; structure — public
-                       :db-seed        {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}
-                       :effective-args {:api-key "DISTINCTIVE-PREFRAME-SECRET"}
-                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-PREFRAME-SECRET"}}}
-                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-PREFRAME-SECRET"}]]]})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
-              "PATH still works: :db-seed mirrors app-db shape, so [:auth :token] redacts")
-          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :effective-args :api-key]))
-              "fail-open: :effective-args re-keys to [:api-key] (off the classified path) ⇒ ships RAW")
-          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
-              "fail-open: the re-keyed :network reply value ships RAW")
-          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-PREFRAME-SECRET"}]]] (get-in s [:explain :setup-order]))
-              "fail-open: :setup-order's map lacks :auth, so [:auth :token] cannot reach it ⇒ ships raw")
-          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE slots remain author-published discovery metadata — untouched"))))))
-
-(deftest explain-variant-preframe-includes-sensitive-when-opted-in
-  (testing "PRE-RUN: :include-sensitive true forwards the raw plan value slots (gate open, rf2-tag30h)"
-    (config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive-prerun! vid [:auth :token])
-      (is (empty? (rf/app-db-value vid)))
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
-                                           :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= "DISTINCTIVE-PREFRAME-SECRET" (get-in s [:explain :db-seed :auth :token]))
-              "the documented opt-in surfaces the raw seed value pre-frame too"))))))
-
-(deftest explain-variant-preframe-gate-closed-db-seed-redacts-by-path
-  (testing "EP-0025: PRE-RUN gate closed: :include-sensitive true is ignored, so the path-walk runs and the :db-seed (which mirrors app-db shape) redacts [:auth :token] BY PATH — the kept guarantee (rf2-tag30h)"
-    (is (false? (config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive-prerun! vid [:auth :token])
-      (is (nil? (get-in (rf/app-db-value vid) [:auth :token])))
-      (with-redefs [story/explain
-                    (fn [_vk & _]
-                      {:db-seed {:auth {:token "DISTINCTIVE-PREFRAME-SECRET"}}})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
-                                           :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :rf/redacted (get-in s [:explain :db-seed :auth :token]))
-              "gate closed: the opt-in is ignored, the path-walk runs, and :db-seed redacts [:auth :token] BY PATH (its shape mirrors app-db)"))))))
+(deftest explain-variant-no-run-non-live-frame-ships-value-slots-raw
+  (testing "explain-variant on a NON-LIVE frame (no run) ships the real author values, NOT :rf/redacted (rf2-7k5mce)"
+    ;; Guarantee the non-live-frame scenario the defect required — the frame is
+    ;; never allocated on the documented no-run inspection path. (A prior test
+    ;; could otherwise leave the frame live and mask the regression.)
+    (destroy-variant-frame! :story.button/primary)
+    (is (nil? (frame-container :story.button/primary))
+        "precondition: the variant frame is non-live (no run has allocated it)")
+    (with-redefs [story/explain
+                  (fn [_vk & _]
+                    {:source-chain   [:story.button/primary]
+                     :effective-args {:api-key "DISTINCTIVE-NORUN-VALUE"}
+                     :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-NORUN-VALUE"}}}
+                     :db-seed        {:auth {:token "DISTINCTIVE-NORUN-VALUE"}}
+                     :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]]
+                     :script-order   [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]]})]
+      (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
+            s (:structuredContent r)]
+        (is (success? r))
+        (doseq [path [[:explain :effective-args :api-key]
+                      [:explain :network [:get "/api/me"] :reply :token]
+                      [:explain :db-seed :auth :token]]]
+          (is (= "DISTINCTIVE-NORUN-VALUE" (get-in s path))
+              (str path " ships the real author value RAW on the non-live frame"))
+          (is (not= :rf/redacted (get-in s path))
+              (str path " is NOT over-redacted to :rf/redacted (the rf2-7k5mce defect)")))
+        (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :setup-order]))
+            ":setup-order ships its step payload raw")
+        (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :script-order]))
+            ":script-order ships its step payload raw")
+        (is (not (tree-contains? (:explain s) :rf/redacted))
+            "no slot of the :explain map is redacted on the non-live frame")))))
 
 ;; ---------------------------------------------------------------------------
 ;; read-a11y-violations egress scrub. axe-core violation nodes (incl. node
@@ -4135,16 +4006,17 @@
     (is (= 0 (egress/count-elided {:a 1 :b [2 3]})))
     (is (= 1 (egress/count-elided {:a {:rf.size/large-elided {:path [:a] :bytes 99}}})))))
 
-;; The full set of tools that surface a value-bearing slot (live `:app-db`
-;; / assertions OR a non-live runtime/captured value) and so must accept
-;; the `:include-sensitive` opt-in. The live three (`preview-variant` /
-;; `run-variant` / `read-failures`) plus the non-live two
-;; (`explain-variant`'s plan-resolved value slots, `record-as-variant`'s
-;; captured events), plus `read-a11y-violations`'s runtime DOM
-;; `:violations`.
+;; The full set of tools that surface an OBSERVED-RUNTIME value-bearing slot
+;; (live `:app-db` / assertions OR a non-live captured runtime value) and so
+;; must accept the `:include-sensitive` opt-in. The live three
+;; (`preview-variant` / `run-variant` / `read-failures`) plus the non-live
+;; runtime pair (`record-as-variant`'s captured events,
+;; `read-a11y-violations`'s runtime DOM `:violations`). `explain-variant` is
+;; NOT here (rf2-7k5mce): it is a no-run projection over the registry, so it
+;; ships author data raw like `get-variant` and carries no gate knob.
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
-   "explain-variant" "record-as-variant" "read-a11y-violations"])
+   "record-as-variant" "read-a11y-violations"])
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"
@@ -4156,7 +4028,7 @@
         (is (= "boolean" (-> props :include-sensitive :type))
             (str tname " :include-sensitive slot is not boolean-typed")))))
   ;; Pin the EXACT include-sensitive tool set against the
-  ;; registry so the spec's affected-tools prose (six) and the descriptor
+  ;; registry so the spec's affected-tools prose (five) and the descriptor
   ;; strip can't silently drift apart. The set is precisely the
   ;; descriptors that carry the slot — no more, no less.
   (testing "the include-sensitive set is EXACTLY the descriptors carrying the slot (no drift)"
@@ -4166,8 +4038,10 @@
                         set)]
       (is (= (set include-sensitive-tools) carriers)
           "every descriptor carrying :include-sensitive must be in the pinned set, and vice versa")
-      (is (= 6 (count carriers))
-          "the affected set is six tools (spec/002 §sensitive-read gate) — not three"))))
+      (is (= 5 (count carriers))
+          "the affected set is five tools (spec/002 §sensitive-read gate) — explain-variant ships author data raw (rf2-7k5mce)")
+      (is (not (contains? carriers "explain-variant"))
+          "explain-variant no longer carries :include-sensitive — it is author data, shipped raw like get-variant (rf2-7k5mce)"))))
 
 (def ^:private api-md
   "The consolidated public-API page, read relative to the `tools/story-mcp/`
@@ -4224,10 +4098,11 @@
 ;; (`--allow-sensitive-reads`). When the gate is closed:
 ;;
 ;;   1. `tools/list` omits `:include-sensitive` from the input schemas of
-;;      every affected tool — the six that surface live/plan-resolved
+;;      every affected tool — the five that surface live observed
 ;;      VALUES (preview-variant / run-variant / read-failures / read-a11y-violations /
-;;      explain-variant / record-as-variant), i.e. every descriptor that
-;;      carries the slot (caller UX — no ghost knob).
+;;      record-as-variant), i.e. every descriptor that
+;;      carries the slot (caller UX — no ghost knob). (explain-variant ships
+;;      author data raw and is not among them, rf2-7k5mce.)
 ;;   2. `:include-sensitive true` on a tool call is silently ignored at
 ;;      the egress helpers (defence-in-depth — even a caller who learned
 ;;      about the slot some other way can't exfiltrate raw values).

@@ -257,8 +257,7 @@ byte-stable source of truth for round-tripping.
 
 ### `explain-variant` (rf2-ba86n.17)
 
-**Input.** `{:variant-id keyword (required)
-                :include-sensitive boolean (optional, gated — see `preview-variant`)}`.
+**Input.** `{:variant-id keyword (required)}`.
 
 **Output.** `{:variant-id keyword :explain map}` — the variant-plan
 `:explain` projection (spec/017 §Explain API), a thin mirror over the
@@ -270,36 +269,28 @@ Explain panel). `:explain` carries `:source-chain` / `:parent-chain`,
 `:setup-order` / `:script-order`, `:checks` / `:assertions`,
 `:required-runner`, `:platforms`, `:tags`.
 
-Plan-derived data — no run, no live `:app-db` slice — but the plan
-RESOLVES author args into runtime VALUES, so the value-bearing slots
-(`:effective-args` / `:args` / `:substitutions` / `:network` route
-replies / `:db-seed` / `:sub-overrides` override values / `:setup-order`
-+ `:script-order` step payloads) are PATH-projected against the variant
-frame's classification at egress (rf2-12f2q, rf2-q8ebq.1; EP-0025 fail-open)
-via the shared `egress/scrub-explain-values` step — on BOTH egress axes
-(EP-0015 peer axes). EP-0025 removed value-match: a value AT a classified
-path WITHIN a slot redacts (a `:db-seed` mirroring app-db reaches its path),
-but a value RE-KEYED to a non-matching position ships RAW (fail-open) —
-classify the app-db PATH to redact a value before it is re-surfaced. The
-SAME PATH-based projection the live tools apply. The remaining plan-STRUCTURE slots
-(`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
-`:strict-conflicts` / `:tags` / …) are author-published discovery
-metadata and pass through unredacted. Pass `:include-sensitive true`
-to opt out (gated by `--allow-sensitive-reads`, same posture as
-`preview-variant`). See [`002-Tool-Registry.md`](002-Tool-Registry.md)
-§`explain-variant` for the full value-vs-structure split.
-
-**Pre-frame egress (rf2-tag30h; EP-0025 fail-open).** `explain-variant`
-is a no-run path: a caller can read it BEFORE any `run-variant` /
-`preview-variant` allocates the variant frame. The classification PATHS are
-durable frame state, live from `reg-frame` time, so the explain slots are
-PATH-walked pre-run. EP-0025 removed the value-match candidate-union that
-used to derive secrets from the plan's own `:db-seed`: a slot is now
-redacted only where a value sits AT a classified path WITHIN it. A
-`:db-seed` that mirrors the app-db shape redacts at its matching path even
-pre-frame; a secret RE-KEYED into `:effective-args` / `:network` / a step
-payload at a non-matching position ships RAW (fail-open). Classify the
-app-db PATH to redact a value before it is re-surfaced.
+AUTHOR DATA — the WHOLE `:explain` map ships RAW, exactly like
+`get-variant` / `variant->edn` (rf2-7k5mce, Mike 2026-07-08).
+`explain-variant` is a NO-RUN tool: `re-frame.story/explain` is a pure
+projection over the registry side-table and allocates no frame, so every
+slot it returns — INCLUDING the plan-RESOLVED value slots (`:effective-args`
+/ `:args` / `:substitutions` / `:network` route replies / `:db-seed` /
+`:sub-overrides` override values / `:setup-order` + `:script-order` step
+payloads) — is static author data resolved from the variant's own
+registration, not observed user runtime. The threat model
+([`../../../spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md))
+scopes the `:sensitive` / `:large` marks to the OBSERVED runtime, not
+authored registration data, so there is nothing runtime-sensitive to redact
+and no live user frame to leak. This matches (a) `get-variant` /
+`variant->edn`, which ship the SAME author data raw, and (b) the human
+Explain panel, which renders every slot raw — and `explain-variant` is the
+agent mirror of that panel. Routing the value slots through the fail-closed
+live-frame egress boundary over-redacted the tool's most useful output
+(resolved args, final setup/script order, network stubs) to `:rf/redacted`
+on the common no-run inspection path; that boundary is retired for
+`explain-variant`. There is no `:include-sensitive` knob — like
+`get-variant`, there is no sensitive value slot to gate. See
+[`002-Tool-Registry.md`](002-Tool-Registry.md) §`explain-variant`.
 
 **Errors.** `isError: true` when `:variant-id` is not registered.
 
@@ -411,9 +402,10 @@ process) the nodes ship raw under the documented carve-out — path-scrub is a
 no-op even live, so fail-closing would destroy the tool with zero
 leak-delta. `:include-sensitive true` opts out, following the
 same `--allow-sensitive-reads` boot gate as `preview-variant`
-(rf2-g9fje) — one of the six value-surfacing tools that carry the
+(rf2-g9fje) — one of the five value-surfacing tools that carry the
 opt-in (the others: `preview-variant`, `run-variant`, `read-failures`,
-`explain-variant`, `record-as-variant`).
+`record-as-variant`; `explain-variant` is NOT among them — it ships author
+data raw, rf2-7k5mce).
 
 **Output.** `{:variant-id keyword :violations [map] :note string|nil}`.
 The shared-process (CLJS co-hosted) deploy returns the accumulated
