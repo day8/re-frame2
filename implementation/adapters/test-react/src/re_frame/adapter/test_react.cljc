@@ -99,12 +99,9 @@
 ;;
 ;;   :id              — gensym tag (for log readability)
 ;;   :render-tree     — atom holding the currently-rendered tree
-;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms} entries;
-;;                      the test driver inspects this to assert ordering.
-;;   :currently-rendering? — atom<boolean>; true while THIS mount's render is
-;;                      in flight. Distinct from the global render-depth (see
-;;                      below): this cell marks the self-render case, the
-;;                      global cell marks "React is rendering somewhere."
+;;   :lifecycle-log   — atom holding a vector of {:phase ... :seq n} entries;
+;;                      the test driver inspects this to assert ordering (`:seq`
+;;                      is the monotonic order-key — see `phase-seq`).
 ;;   :mounted?        — atom<boolean>; false after unmount. The simulator
 ;;                      THROWS on trigger-update! / unmount! after teardown.
 ;;   :children        — atom<vector<MountedComponent>>; child roots this mount
@@ -115,7 +112,7 @@
 ;;   :unmount-fn      — the unmount thunk for this mount; `unmount!` calls it.
 
 (defrecord ^:no-doc MountedComponent
-  [id render-tree lifecycle-log currently-rendering? mounted? children unmount-fn])
+  [id render-tree lifecycle-log mounted? children unmount-fn])
 
 ;; All live mounts; `dispose-adapter!` walks this to drain.
 (defonce ^:private active-mounts (atom #{}))
@@ -126,9 +123,9 @@
 ;; is exactly this cross-root case: a parent re-renders and, from inside that
 ;; render body, synchronously unmounts a SEPARATELY-tracked sibling/child root
 ;; (the senbl panel-host unmounting the previous panel's root on a chip-row
-;; switch). The per-mount :currently-rendering? cell cannot see that — it is
-;; false on the sibling being torn down — so the guard keys off this global
-;; counter. A counter (not a boolean) so nested child renders restore the flag
+;; switch). A per-mount "am I rendering?" boolean could not see that — it would
+;; be false on the sibling being torn down — so the guard keys off this global
+;; counter. A counter (not a boolean) so nested child renders restore it
 ;; correctly on unwind.
 (defonce ^:private render-depth (atom 0))
 
@@ -145,13 +142,21 @@
   []
   (pos? @render-depth))
 
-(defn- now-ms []
-  #?(:clj (System/currentTimeMillis)
-     :cljs (.now js/Date)))
+;; A process-global monotonic order-key stamped on every logged phase. A
+;; wall-clock timestamp is the wrong tool for teardown-ORDER assertions here:
+;; a whole cascade completes sub-millisecond, so `now-ms`-style timestamps
+;; collapse to the SAME integer and a `<=`-on-ms ORDER check is vacuous — it
+;; stays green even on a reversed (root-downward) teardown, the exact bug the
+;; check exists to catch. This counter increments once per logged phase, so a
+;; strict `<` over two phases' `:seq` values discriminates their REAL firing
+;; order and fails deterministically on a reversal. `dispose-adapter!` resets
+;; it per test (only relative order within a cascade matters, so the reset is
+;; hygiene — keeping the numbers small + deterministic across the suite).
+(defonce ^:private phase-seq (atom 0))
 
 (defn- log-phase! [mount phase & {:as extras}]
   (swap! (:lifecycle-log mount)
-         conj (merge {:phase phase :at (now-ms)} extras)))
+         conj (merge {:phase phase :seq (swap! phase-seq inc)} extras)))
 
 ;; Declared so `run-render!` (which invokes a render body that may mount
 ;; children) can call the mount seam defined below it.
@@ -169,16 +174,14 @@
 
 (defn- run-render!
   "Run one render of `mount` with `tree` as its output. Increments the global
-  render depth and sets the per-mount :currently-rendering? flag for the
-  duration, records a :render phase entry, stores the tree, and — if the tree
-  declares an imperative render body (`:rf/component`) — invokes that body with
-  `mount` bound as `*rendering-mount*` so it can mount children or issue a
-  (guard-tripping) re-entrant unmount. Throws from the render body are NOT
-  caught — they propagate to the caller (React 18+ unmounts the root); the
-  flags/depth are restored on unwind via `finally`."
+  render depth for the duration, records a :render phase entry, stores the
+  tree, and — if the tree declares an imperative render body (`:rf/component`)
+  — invokes that body with `mount` bound as `*rendering-mount*` so it can mount
+  children or issue a (guard-tripping) re-entrant unmount. Throws from the
+  render body are NOT caught — they propagate to the caller (React 18+ unmounts
+  the root); the render depth is restored on unwind via `finally`."
   [mount tree]
   (swap! render-depth inc)
-  (reset! (:currently-rendering? mount) true)
   (try
     (reset! (:render-tree mount) tree)
     (log-phase! mount :render)
@@ -186,7 +189,6 @@
       (binding [*rendering-mount* mount]
         (body mount)))
     (finally
-      (reset! (:currently-rendering? mount) false)
       (swap! render-depth dec))))
 
 (defn- unmount-thunk
@@ -248,7 +250,6 @@
                    (gensym "test-react-mount-")
                    (atom nil)   ; render-tree
                    (atom [])    ; lifecycle-log
-                   (atom false) ; currently-rendering?
                    (atom true)  ; mounted?
                    (atom [])    ; children
                    nil)         ; unmount-fn — filled in below
@@ -333,9 +334,9 @@
 (defn- dispose-adapter! []
   ;; Drain any still-mounted components so a test fixture that forgets to
   ;; unmount doesn't leak across cases. Per the rf2-4l7t2 lesson the drain
-  ;; MUST tolerate the currently-rendering? guard — we set mounted? false
+  ;; MUST tolerate the sync-unmount-during-render guard — we set mounted? false
   ;; WITHOUT routing through the public `unmount!` (which would throw on a
-  ;; stuck currently-rendering? cell) and log a :forced-teardown phase so the
+  ;; non-zero render-depth) and log a :forced-teardown phase so the
   ;; test surface can spot drift.
   ;;
   ;; The hiccup-emitter is deliberately NOT cleared: it holds no host
@@ -368,7 +369,7 @@
   ;; active-mounts (mount-tree! adds every mount, parent or child), so a flat
   ;; walk drains the whole forest without recursing through :children. We do
   ;; NOT route through the public unmount thunk (it would throw on the
-  ;; currently-rendering? / render-depth guard) — forced teardown is the
+  ;; render-depth guard) — forced teardown is the
   ;; escape hatch the guard deliberately cannot block.
   ;;
   ;; rf2-ghfkkk — dispose every live frame's sub-cache (the reactive-
@@ -386,6 +387,11 @@
   ;; that bypassed run-render! by hand cannot leak a stuck "rendering" state
   ;; into the next case.
   (reset! render-depth 0)
+  ;; Reset the monotonic phase order-key so each test's lifecycle log starts
+  ;; from a small, deterministic sequence. Only relative order within a single
+  ;; cascade is load-bearing, so this is hygiene, not correctness — it mirrors
+  ;; the render-depth reset above.
+  (reset! phase-seq 0)
   nil)
 
 (def adapter
@@ -399,7 +405,7 @@
   2-of-3 optional (no `flush-render!`) + 1 lifecycle fn. The
   reactive-container half is shared with plain-atom; the
   render half is the novel surface (class-3 lifecycle simulation with the
-  `:currently-rendering?` invariant). See `mount!` / `trigger-update!` /
+  global-render-depth sync-unmount-during-render invariant). See `mount!` / `trigger-update!` /
   `unmount!` for the test driver helpers."
   {:kind                      :rf.adapter/test-react
    :make-state-container      atom-container/make-state-container
@@ -483,9 +489,12 @@
   nil)
 
 (defn lifecycle-log
-  "Return the lifecycle log for `mount` — a vector of `{:phase ... :at ms}`
-  entries, in the order they fired. Test assertions typically map over
-  `:phase` and compare to a canonical sequence."
+  "Return the lifecycle log for `mount` — a vector of `{:phase ... :seq n}`
+  entries, in the order they fired. `:seq` is a process-global monotonic
+  order-key (see `phase-seq`), the discriminating key for teardown-ORDER
+  assertions — a strict `<` over two phases' seqs reflects their real firing
+  order. Test assertions typically map over `:phase` and compare to a canonical
+  sequence, and read `:seq` to assert cross-mount teardown order."
   [mount]
   @(:lifecycle-log mount))
 

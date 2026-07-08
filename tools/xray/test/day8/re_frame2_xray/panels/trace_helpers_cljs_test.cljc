@@ -157,9 +157,32 @@
   (testing "namespace fallback when :op-type isn't stamped"
     (is (= :epoch (h/area {:operation :rf.epoch/outcome})))
     (is (= :routing (h/area {:operation :rf.route/deactivated})))
+    (is (= :routing (h/area {:operation :rf.route.nav-token/allocated})))
     (is (= :machine (h/area {:operation :rf.machine.timer/scheduled}))))
   (testing "unknown ops fall back to :event-adjacent neutral"
     (is (= :event (h/area {:op-type :totally-made-up})))))
+
+(deftest nav-token-allocated-is-routing-not-a-bare-event
+  ;; rf2-409jka — every navigation emits `:rf.route.nav-token/allocated`
+  ;; at op-type :rf.event under the `rf.route.nav-token` SUB-namespace
+  ;; (implementation/routing/.../events.cljc). The prior exact
+  ;; `= "rf.route"` match let it fall through to the generic :rf.event
+  ;; branch: badged EVENT (not ROUTING), staged HANDLER (not
+  ;; SIDE-EFFECTS → wrong left-edge colour), and `target-detail` took the
+  ;; :event branch (rendering the absent `:rf.event/v` → em-dash instead
+  ;; of the route-id). Prefix-matching the `rf.route*` family fixes all
+  ;; three symptoms at once.
+  (let [row (ev {:id 1 :op-type :rf.event
+                 :operation :rf.route.nav-token/allocated
+                 :tags {:route-id :dashboard :nav-token 7}})]
+    (testing "classifies as ROUTING (not the bare EVENT it fell through to)"
+      (is (= :routing (h/area row)))
+      (is (= "ROUTING" (h/area-badge row))))
+    (testing "stages effect-side — SIDE-EFFECTS + :effects phase"
+      (is (= :SIDE-EFFECTS (h/stage row)))
+      (is (= :effects (h/phase row))))
+    (testing "target-detail renders the route-id (not an em-dash)"
+      (is (= ":dashboard" (h/target-detail row))))))
 
 (deftest area-badge-renders-uppercase-text
   (is (= "EVENT" (h/area-badge {:op-type :rf.event :operation :rf.event/dispatched})))

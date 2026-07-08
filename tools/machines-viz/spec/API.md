@@ -453,9 +453,17 @@ guard-blocked transition is a no-op that never reached the target, so the
 highlight STOPS at the guard event-node and the onward arrow stays resting),
 `:crossHierarchy`, and elk-routed `:points`. Edge
 ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
-`event__<spec-edge-id>` via `chart.projection/event-node-id`. The
-`:eventLabel` slot on these edges is empty (the event-node holds the
-visible text).
+`__rf2_event_<spec-edge-id>__` via `chart.projection/event-node-id`
+(rf2-4gtvln — a RESERVED leading + trailing `__` scheme, mirroring
+`chart.layout/machine-root-id` / `root-container-id`; a real `node-id`
+hex-escapes every non-alphanumeric segment char and joins segments with
+`__`, so it can never START with `__`, keeping the synthetic id INJECTIVE
+against every real node-id — the earlier `event__<spec-edge-id>` prefix
+collided byte-for-byte with a real `[:event <src> <tgt> <evt>]` state path).
+Initial-marker ids follow the same scheme via
+`chart.projection/initial-marker-id` (`__rf2_initial_<state-node-id>__`),
+with the entry edge sourced from that id. The `:eventLabel` slot on these
+edges is empty (the event-node holds the visible text).
 
 > **Edge-half `:guardBlocked` is projection/rendering data, NOT a DOM pin
 > (rf2-bdwolc).** The per-half `:guardBlocked` flag drives the half's

@@ -380,6 +380,28 @@ function parseSrcset(value) {
   return urls;
 }
 
+// Read a single attribute's value off a tag string, ORDER-INDEPENDENTLY and
+// regardless of the value's quoting. HTML attribute order is insignificant
+// (rf2-cnu7qy) and HTML5 permits unquoted values (`<script src=main.js>`), so
+// the value form is one of: "double" | 'single' | bare-unquoted. The unquoted
+// form ends at the first whitespace / `>` / quote / `=` (rf2-3dzb6h). Returns
+// null when the attribute is absent.
+function attr(tag, name) {
+  const m = tag.match(
+    new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>"'=]+))`, 'i'),
+  );
+  if (!m) return null;
+  return m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : null;
+}
+
+// Strip CSS block comments `/* … */` from a source before scanning it for live
+// declarations. Commented-out CSS is inert, so an `@import`/`url()` inside a
+// comment must not be read as a live network fetch or an on-disk ref
+// (rf2-lvw3z9). Mirrors the og.svg comment strip used for the source-art check.
+function stripCssComments(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
 // Extract every ASSET-BEARING reference from an index.html's source, TAGGED
 // with the element/attribute it came from, so the direct-HTML network policy
 // (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
@@ -410,12 +432,6 @@ function extractAssetRefs(html) {
     if (seen.has(key)) return;
     seen.add(key);
     out.push({ ref: clean, source });
-  };
-  const attr = (tag, name) => {
-    const m = tag.match(
-      new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
-    );
-    return m ? (m[2] != null ? m[2] : m[3]) : null;
   };
 
   // <script src=...> — always an asset fetch.
@@ -479,10 +495,14 @@ function extractHtmlRefs(html) {
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !refs.includes(clean)) refs.push(clean);
   };
-  // href="..." / href='...' on <link> (and any element — anchors are
-  // in-page or external and get filtered by isExternalRef downstream).
-  for (const m of html.matchAll(/\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)')/gi)) {
-    push(m[2] != null ? m[2] : m[3]);
+  // href=... / src=... on <link> (and any element — anchors are in-page or
+  // external and get filtered by isExternalRef downstream). Double-quoted,
+  // single-quoted, AND bare unquoted values (`<script src=main.js>`), since
+  // HTML5 permits the unquoted form (rf2-3dzb6h).
+  for (const m of html.matchAll(
+    /\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
+  )) {
+    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
   }
   // srcset / imagesrcset candidate lists (<img>/<source> + preload <link>) —
   // each candidate URL must resolve on disk like a plain src (rf2-arkvq8). The
@@ -493,17 +513,22 @@ function extractHtmlRefs(html) {
     for (const u of parseSrcset(m[2] != null ? m[2] : m[3])) push(u);
   }
   // <video poster="..."> — the poster still resolves on disk like a src
-  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute.
+  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute; the
+  // unquoted alternative mirrors href/src (rf2-3dzb6h).
   for (const m of html.matchAll(
-    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)')/gi,
+    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
   )) {
-    push(m[2] != null ? m[2] : m[3]);
+    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
   }
-  // <meta property="og:image" content="...">
-  for (const m of html.matchAll(
-    /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*("([^"]*)"|'([^']*)')[^>]*>/gi,
-  )) {
-    push(m[2] != null ? m[2] : m[3]);
+  // <meta property="og:image" content="..."> — ORDER-INDEPENDENT. HTML
+  // attribute order is insignificant, so a `content`-before-`property` meta is
+  // equally valid and must be seen (rf2-cnu7qy). Scan each <meta> tag and read
+  // its attributes positionally via the shared order-independent attr helper,
+  // rather than a single regex that hard-codes property-before-content.
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
+    push(attr(tag, 'content'));
   }
   return refs;
 }
@@ -513,10 +538,15 @@ function extractHtmlRefs(html) {
 // contract (an SVG og:image renders no preview card). Query/hash stripped.
 function extractOgImageRefs(html) {
   const out = [];
-  for (const m of html.matchAll(
-    /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*("([^"]*)"|'([^']*)')[^>]*>/gi,
-  )) {
-    const raw = m[2] != null ? m[2] : m[3];
+  // ORDER-INDEPENDENT: HTML attribute order is insignificant, so a
+  // `content`-before-`property` og:image meta is valid and MUST be visible to
+  // the raster contract + the network policy (rf2-cnu7qy). Scan each <meta> tag
+  // and read `property`/`content` positionally via the shared attr helper
+  // instead of a single regex that requires property-before-content.
+  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
+    const raw = attr(tag, 'content');
     if (!raw) continue;
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !out.includes(clean)) out.push(clean);
@@ -535,7 +565,9 @@ function extractCssImports(css) {
     const clean = raw.split(/[?#]/)[0].trim();
     if (clean && !out.includes(clean)) out.push(clean);
   };
-  for (const m of css.matchAll(
+  // Strip block comments first: a commented-out `@import` is inert and must
+  // not be read as a live network dep / on-disk ref (rf2-lvw3z9).
+  for (const m of stripCssComments(css).matchAll(
     /@import\s+(?:url\(\s*("([^"]*)"|'([^']*)'|([^)'"]*))\s*\)|("([^"]*)"|'([^']*)'))/gi,
   )) {
     push(m[2] || m[3] || m[4] || m[6] || m[7]);
@@ -557,9 +589,11 @@ function extractCssImports(css) {
 function extractCssUrls(css) {
   const out = [];
   const seen = new Set();
-  // Blank out `@import url(...)` occurrences first so they are not re-collected
-  // here (extractCssImports already owns the @import contract).
-  const body = css.replace(
+  // Strip block comments first (rf2-lvw3z9) — a commented-out `url(...)` is
+  // inert and must not be read as a live fetch — then blank out `@import
+  // url(...)` occurrences so they are not re-collected here (extractCssImports
+  // already owns the @import contract).
+  const body = stripCssComments(css).replace(
     /@import\s+url\(\s*(?:"[^"]*"|'[^']*'|[^)'"]*)\s*\)/gi,
     '',
   );
@@ -695,13 +729,100 @@ function contrastRatio(fgHex, bgHex) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-// Parse the `--ex-*: #hex;` custom-property declarations out of a style.css
-// source into a { tokenName: '#hex' } map. Only solid hex values are read
-// (the contrast checks operate on opaque token pairs).
+// Convert an opaque HSL colour to #rrggbb (WCAG contrast operates on opaque
+// pairs, so alpha is intentionally dropped upstream).
+function hslToHex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const mm = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const to = (v) =>
+    Math.round((v + mm) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+// Normalise a CSS colour literal to opaque #rrggbb, or null when the form is
+// not a computable opaque colour (var(), color-mix(), a named colour, …). Used
+// so the WCAG contrast gate can verify a palette expressed in ANY of the common
+// notations — not just #hex — and can tell a genuinely-opaque token from one it
+// cannot evaluate (rf2-nrieg0). Handles #rgb/#rgba/#rrggbb/#rrggbbaa (alpha
+// dropped), rgb()/rgba() (0-255 or %), and hsl()/hsla().
+function colorToHex(value) {
+  const v = String(value).trim();
+  let m = v.match(/^#([0-9a-fA-F]{3,8})$/);
+  if (m) {
+    let h = m[1];
+    if (h.length === 3 || h.length === 4) {
+      h = h
+        .split('')
+        .map((ch) => ch + ch)
+        .join('');
+    }
+    if (h.length < 6) return null; // e.g. a stray 5-digit form
+    return `#${h.slice(0, 6)}`; // drop any alpha pair
+  }
+  m = v.match(/^rgba?\(\s*([^)]*)\)$/i);
+  if (m) {
+    const parts = m[1].split(/[,/\s]+/).filter(Boolean).slice(0, 3);
+    if (parts.length < 3) return null;
+    const ch = parts.map((p) =>
+      p.endsWith('%')
+        ? Math.round((parseFloat(p) / 100) * 255)
+        : Math.round(parseFloat(p)),
+    );
+    if (ch.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null;
+    return `#${ch.map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+  }
+  m = v.match(/^hsla?\(\s*([^)]*)\)$/i);
+  if (m) {
+    const parts = m[1].split(/[,/\s]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const hh = parseFloat(parts[0]);
+    const ss = parseFloat(parts[1]) / 100;
+    const ll = parseFloat(parts[2]) / 100;
+    if ([hh, ss, ll].some((n) => Number.isNaN(n))) return null;
+    return hslToHex(hh, ss, ll);
+  }
+  return null;
+}
+
+// Every `--ex-*: value;` custom-property declaration as a { tokenName: rawValue }
+// map (value un-normalised, comments stripped). parseExTokens normalises each
+// value to hex; the contrast gate consults the raw map to distinguish a token
+// that is ABSENT/renamed (skip) from one that is DECLARED but not a computable
+// opaque colour (fail-loud) — rf2-nrieg0.
+function extractExTokenDecls(css) {
+  const decls = {};
+  for (const m of stripCssComments(css).matchAll(
+    /(--ex-[a-z0-9-]+)\s*:\s*([^;{}]+?)\s*(?=[;}])/gi,
+  )) {
+    decls[m[1]] = m[2].trim();
+  }
+  return decls;
+}
+
+// Parse the `--ex-*` custom-property declarations out of a style.css source
+// into a { tokenName: '#rrggbb' } map. Values in #hex / rgb() / hsl() notation
+// are all normalised to opaque hex (rf2-nrieg0); a token whose value is not a
+// computable opaque colour is omitted (and surfaced fail-loud by the contrast
+// gate when a contract row references it) — the contrast checks operate on
+// opaque token pairs.
 function parseExTokens(css) {
   const tokens = {};
-  for (const m of css.matchAll(/(--ex-[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,8})\b/g)) {
-    tokens[m[1]] = m[2];
+  for (const [name, raw] of Object.entries(extractExTokenDecls(css))) {
+    const hex = colorToHex(raw);
+    if (hex) tokens[name] = hex;
   }
   return tokens;
 }
@@ -1177,14 +1298,46 @@ function checkSharedTree(io, opts = {}) {
     //     parsed --ex-* tokens so a palette edit that drops a pair below the
     //     floor turns the gate RED.
     const tokens = parseExTokens(style);
+    const decls = extractExTokenDecls(style);
     const resolve = (name) =>
       name.startsWith('--ex-') ? tokens[name] : name; // literal hex passthrough
+    // A contract token can be missing from `tokens` for two reasons: it was
+    // renamed/removed (skip — not this check's job) OR it is declared in the CSS
+    // but as a value the contrast gate cannot evaluate to an opaque colour
+    // (var()/color-mix()/named). The latter must FAIL LOUD, otherwise a palette
+    // refactor to an unparseable form silently disables the contrast gate
+    // (rf2-nrieg0). rgb()/hsl() are parsed, so they never reach this path.
+    const unverifiable = (name) =>
+      name.startsWith('--ex-') &&
+      Object.prototype.hasOwnProperty.call(decls, name) &&
+      !tokens[name];
     for (const row of sharedContrastContract(tokens)) {
       const fgHex = resolve(row.fg);
-      if (!fgHex) continue; // token not declared (renamed) — not this check's job
+      if (!fgHex) {
+        if (unverifiable(row.fg)) {
+          errors.push(
+            `examples/_shared/css/style.css: the ${row.role} contrast token ` +
+              `${row.fg} is declared as '${decls[row.fg]}', which the WCAG ` +
+              `contrast gate cannot evaluate as an opaque colour. Express it as ` +
+              `#hex / rgb() / hsl() so its contrast can be verified — a token ` +
+              `the gate cannot read silently disables the check (rf2-nrieg0).`,
+          );
+        }
+        continue; // token not declared (renamed) — not this check's job
+      }
       for (const bg of row.bgs) {
         const bgHex = resolve(bg);
-        if (!bgHex) continue;
+        if (!bgHex) {
+          if (unverifiable(bg)) {
+            errors.push(
+              `examples/_shared/css/style.css: the ${row.role} background token ` +
+                `${bg} is declared as '${decls[bg]}', which the WCAG contrast ` +
+                `gate cannot evaluate as an opaque colour. Express it as #hex / ` +
+                `rgb() / hsl() so its contrast can be verified (rf2-nrieg0).`,
+            );
+          }
+          continue;
+        }
         const ratio = contrastRatio(fgHex, bgHex);
         if (ratio < row.min) {
           const pair = row.invert
@@ -1280,6 +1433,8 @@ module.exports = {
   WCAG_NON_TEXT,
   contrastRatio,
   relativeLuminance,
+  colorToHex,
+  extractExTokenDecls,
   parseExTokens,
   sharedContrastContract,
   // OG source-art palette + responsive Xray-host shell contracts (rf2-y82dk9)

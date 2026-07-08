@@ -374,6 +374,24 @@
         (is (= :resource-process (:refinement res)))
         (is (= :route-fact       (:refinement route)))
         (is (= :machine-process  (:refinement mach)))))
+    (testing "the machine-selector SUB node carries the :machine-selector
+              refinement — the NODE-LABEL half of the 'Selector refinement'
+              conformance clause (spec/Derivations.md §Conformance line 842).
+              The :selector EDGE half is pinned by c-static-edges; this pins the
+              node-label half, stamped by mark-machine-selectors
+              (core .../derivation/graph.cljc:667-690) INDEPENDENTLY of the
+              :selector-edge emitter (machine-edges). A regression breaking
+              mark-machine-selectors while machine-edges still emits the edge
+              would drop the label and slip past BOTH the edge assertion and the
+              a- validate-if-present refinement loop — so this REQUIRES the
+              label. The refinement RIDES :derivation, never replaces it
+              (rf2-tp6wwb)."
+      (let [sel (node-by-family nodes :subs :upload/progress)]
+        (is (some? sel) "the machine-selector sub node is present")
+        (is (= :machine-selector (:refinement sel))
+            "the :upload/progress selector sub is enriched with :refinement :machine-selector")
+        (is (= :derivation (:kind sel))
+            "the machine-selector refinement rides the :derivation superkind, never replaces it")))
     (testing "the route fact's id is the ONE consumer-facing slice name :rf/route
               (one-name-per-fact), with the per-route id under :source-form"
       (let [route (node-by-family nodes :routes :route/article)]
@@ -427,9 +445,19 @@
     (testing "machine — runtime-db / on-transition (+scheduled for :after) / machine-instance"
       (is (= :runtime-db        (:storage mach)))
       (is (= :machine-instance  (:lifecycle mach)))
-      (is (contains? (:evaluation mach) :on-transition) "always evaluates :on-transition")
-      (is (contains? (:evaluation mach) :scheduled)
-          "an :after timer adds :scheduled to the policy set")
+      ;; EXACT set-equality (rf2-b366vj), matching the resource sibling at
+      ;; line 417. :upload/main has an :after timer and NO spawn, so it
+      ;; classifies to EXACTLY #{:on-transition :scheduled}
+      ;; (machines/tooling.cljc:198-200: cond-> #{:on-transition},
+      ;; declares-after?->conj :scheduled, declares-spawn?->conj :on-reply).
+      ;; The prior loose `contains?` pair asserted only presence, so a
+      ;; declares-spawn? false-positive (or any bug adding a spurious
+      ;; :on-reply / :manual to a non-spawning machine) stayed GREEN — the
+      ;; closed-vocabulary arm (b-every-classification-…) also passes because
+      ;; :on-reply is a member of the policy set. Exact-set-equality catches
+      ;; the over-classification.
+      (is (= #{:on-transition :scheduled} (:evaluation mach))
+          "a non-spawning machine with an :after timer classifies to EXACTLY on-transition + scheduled — no spurious member")
       (is (true? (:materialized? mach))))))
 
 (deftest b-every-classification-is-in-its-closed-vocabulary
@@ -543,11 +571,20 @@
       (is (= :runtime-db (:storage slice)))
       (is (= :on-route   (:evaluation slice)))
       (is (= :frame      (:lifecycle slice)))
-      ;; the live OWNER is [:route route-id nav-token] when a nav-token has
-      ;; been allocated (Derivations §Lifecycle and owner).
-      (when-let [owner (:owner slice)]
-        (is (= [:route :route/article (:nav-token slice)] owner)
-            "the live route OWNER is [:route route-id nav-token]")))))
+      ;; the live OWNER is [:route route-id nav-token] (Derivations §Lifecycle
+      ;; and owner). Under the plain-atom dispatch-sync navigation this suite
+      ;; drives, routing/tooling.cljc:340-341 deterministically assoc's :owner
+      ;; (present whenever route-id AND nav-token are non-nil), so this is a
+      ;; FAILING PRECONDITION (rf2-djofbh/rf2-onazhx), not a vacuity-risk skip:
+      ;; a regression dropping :owner (broken nav-token allocation) MUST fail
+      ;; here, not silently skip. The earlier `(when-let [owner (:owner slice)]
+      ;; …)` masked exactly that — the same when-guard anti-pattern the
+      ;; rf2-djofbh hardening pass converted to failing preconditions elsewhere
+      ;; in this file (lines 530-537, 836-843, 880-882).
+      (is (some? (:owner slice))
+          "the navigation MUST allocate a route owner — its absence is a failure, not a skip")
+      (is (= [:route :route/article (:nav-token slice)] (:owner slice))
+          "the live route OWNER is [:route route-id nav-token]"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c+) The live graph's NON-route realized composition (rf2-k0meap.3 point-1).

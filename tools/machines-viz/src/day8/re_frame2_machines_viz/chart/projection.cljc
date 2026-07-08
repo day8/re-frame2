@@ -228,14 +228,47 @@
     :else            :on))
 
 (defn event-node-id
-  "Stable string id for an event-node. The xyflow node inserted between
+  "Stable string id for an event-node — the xyflow node inserted between
   the source state and the (optional) target state in the events-as-nodes
   paradigm. Derived from the canonical edge-id (`chart.layout/edge-id`) so
   two transitions sharing source/target/event/guard/action keep distinct
   event-node ids — the same collision-tiebreak `chart.layout/project-flat`
-  applies."
+  applies.
+
+  rf2-4gtvln — minted through a RESERVED leading + trailing `__` scheme
+  (mirroring `chart.layout/machine-root-id` / `root-container-id`), NOT the
+  naive `event__<edge-id>` prefix. A real `node-id` hex-escapes every
+  non-alphanumeric segment char (`grammar/escape-id-segment`; a literal `_`
+  → `_5f`) and joins path segments with `__`, so it can never START with
+  `__` — the boundary here is unreachable from escaped segment content. The
+  old prefix collided byte-for-byte with a real state path
+  `[:event <src> <tgt> <evt>]` (whose `node-id` is
+  `event__<src>__<tgt>__<evt>`), so xyflow — which keys nodes by `:id` and
+  silently drops a duplicate — could lose the real state box or the
+  event-node."
   [edge]
-  (str "event__" (:id edge)))
+  (str "__rf2_event_" (:id edge) "__"))
+
+(defn initial-marker-id
+  "Stable string id for an initial-state marker node — the small filled dot
+  wired into each `:initial?` state via an unlabelled entry edge.
+  `state-id` is the target state's `node-id`.
+
+  rf2-4gtvln — minted through the SAME reserved leading + trailing `__`
+  scheme as `event-node-id` / `chart.layout/machine-root-id`, NOT the naive
+  `initial__<state-id>` prefix. A real `node-id` hex-escapes every
+  non-alphanumeric segment char and joins segments with `__`, so it can
+  never START with `__` — the boundary here is unreachable from escaped
+  segment content. The old prefix collided byte-for-byte with a real
+  two-segment state path `[:initial <X>]` (whose `node-id` is
+  `initial__<X>`) whenever a machine has a top-level compound state
+  literally named `:initial`, so xyflow (keys nodes by `:id`, drops a
+  duplicate) silently lost either the real `[:initial <X>]` state box or the
+  marker for `<X>`, and the entry edge mis-wired its glyph onto the
+  survivor. The single source of truth for BOTH the marker node's `:id` and
+  the entry edge's `:source`, so they can never drift."
+  [state-id]
+  (str "__rf2_initial_" state-id "__"))
 
 ;; ---- guarded-fork branch-order -----------------------------------------
 ;;
@@ -1917,7 +1950,7 @@
         (mapv (fn [n]
                 (let [sid (:id n)
                       pos (get positions sid {:x 0 :y 0})]
-                  (cond-> {:id        (str "initial__" sid)
+                  (cond-> {:id        (initial-marker-id sid)
                            :type      "initial-marker"
                            :position  {:x (- (:x pos) initial-marker-x-offset)
                                        :y (+ (:y pos) initial-marker-y-offset)}
@@ -1949,8 +1982,8 @@
               initial-nodes)
         entry-edges
         (mapv (fn [n]
-                {:id          (str "initial__" (:id n) "__entry")
-                 :source      (str "initial__" (:id n))
+                {:id          (str (initial-marker-id (:id n)) "entry")
+                 :source      (initial-marker-id (:id n))
                  :target      (:id n)
                  :targetHandle "left"
                  :type        "transition"

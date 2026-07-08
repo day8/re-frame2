@@ -55,6 +55,7 @@ const {
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
   contrastRatio,
+  colorToHex,
   parseExTokens,
   sharedContrastContract,
   WCAG_AA_NORMAL_TEXT,
@@ -1707,6 +1708,203 @@ it('the build-output main.js is never resolved on disk', () => {
   assert.ok(
     !errors.some((e) => e.includes('main.js')),
     'main.js (build output) must never be flagged as a missing source file',
+  );
+});
+
+// ---- rf2-cnu7qy: og:image content-BEFORE-property order -------------------
+//
+// HTML attribute order is insignificant, so a `content`-first og:image meta is
+// valid. The old ordered regex only saw property-first metas, so a content-first
+// SVG/remote card was INVISIBLE to the raster contract, disk resolution, and the
+// network policy.
+
+it('rf2-cnu7qy: extractOgImageRefs sees a content-BEFORE-property og:image', () => {
+  assert.deepStrictEqual(
+    extractOgImageRefs('<meta content="_shared/img/og.png" property="og:image">'),
+    ['_shared/img/og.png'],
+  );
+});
+
+it('rf2-cnu7qy: extractHtmlRefs + extractAssetRefs see a content-first og:image', () => {
+  const html = '<meta content="https://og.example.com/card.png" property="og:image">';
+  assert.ok(extractHtmlRefs(html).includes('https://og.example.com/card.png'));
+  const tagged = extractAssetRefs(html);
+  assert.strictEqual(
+    Object.fromEntries(tagged.map((t) => [t.ref, t.source]))[
+      'https://og.example.com/card.png'
+    ],
+    'og:image',
+  );
+});
+
+it('TEETH rf2-cnu7qy: a content-first REMOTE og:image is REJECTED (was invisible)', () => {
+  const html = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta property="og:image" content="_shared/img/og.png">\n' +
+      '<meta content="https://og.example.com/card.png" property="og:image">',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('og:image') && e.includes('og.example.com')),
+    `expected the content-first remote og:image to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH rf2-cnu7qy: a content-first SVG og:image trips the raster contract', () => {
+  const html = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta content="_shared/img/og.svg" property="og:image">',
+  );
+  const io = fullIo({ [PAGE]: html, [OG_SVG]: '<svg/>' });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some((e) => e.includes('og:image') && e.includes('not a raster')),
+    `expected a non-raster og:image error, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- rf2-3dzb6h: unquoted HTML attribute values ---------------------------
+//
+// HTML5 permits unquoted attribute values. The old quoted-only regexes missed
+// `<script src=main.js>` / `<link href=//cdn…>`, so an unquoted forbidden remote
+// dep shipped green and an unquoted broken local ref was never resolved on disk.
+
+it('rf2-3dzb6h: extractHtmlRefs reads an unquoted src/href', () => {
+  const refs = extractHtmlRefs('<script src=main.js></script><link href=base.css>');
+  assert.ok(refs.includes('main.js'));
+  assert.ok(refs.includes('base.css'));
+});
+
+it('rf2-3dzb6h: extractAssetRefs tags an unquoted remote script src + link href', () => {
+  const tagged = extractAssetRefs(
+    '<script src=https://cdn.evil/x.js></script>\n' +
+      '<link rel=stylesheet href=//cdn.evil/x.css>',
+  );
+  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
+  assert.ok(byRef['https://cdn.evil/x.js'] && byRef['https://cdn.evil/x.js'].includes('script'));
+  assert.ok(byRef['//cdn.evil/x.css'] && byRef['//cdn.evil/x.css'].includes('link'));
+});
+
+it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible)', () => {
+  const html = goodHtml().replace(
+    '<script src="main.js"></script>',
+    '<script src=https://cdn.example.com/sdk.js></script>\n<script src="main.js"></script>',
+  );
+  const { errors } = scanPage(fullIo({ [PAGE]: html }), PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('<script src>') && e.includes('cdn.example.com') && e.includes('rf2-bf4vdy'),
+    ),
+    `expected the unquoted external script to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- rf2-lvw3z9: CSS block comments stripped before extraction ------------
+//
+// Commented-out CSS is inert. The extractors used to read a commented @import /
+// url() as live, turning the gate RED on a maintainer's debug comment — and
+// inconsistently with the og.svg check in the same file, which strips comments.
+
+// A checkSharedTree fixture whose style.css is under test; the rest of the tree
+// is valid so the ONLY thing that can turn it RED is the style.css itself.
+// Shared by the CSS-comment (rf2-lvw3z9) and contrast-token (rf2-nrieg0) teeth.
+const paletteIo = (styleCss) =>
+  makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: styleCss,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]: CASCADE_BASELINE + '\n' + RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+
+it('rf2-lvw3z9: extractCssImports ignores a commented-out @import', () => {
+  const imports = extractCssImports(
+    '/* @import url(https://fonts.googleapis.com/css2); */\n@import url("structure.css");',
+  );
+  assert.deepStrictEqual(imports, ['structure.css']);
+});
+
+it('rf2-lvw3z9: extractCssUrls ignores a commented-out url()', () => {
+  const urls = extractCssUrls(
+    '/* background: url(https://cdn.evil/x.png); */\n.a { background: url("real.png"); }',
+  );
+  assert.ok(urls.includes('real.png'));
+  assert.ok(!urls.includes('https://cdn.evil/x.png'), 'a commented url() must not be read as live');
+});
+
+it('TEETH rf2-lvw3z9: a commented-out remote @import does NOT false-fail the gate', () => {
+  const styleCss = '/* @import url(https://fonts.googleapis.com/css2?family=Inter); */\n' + GOOD_SHARED_STYLE;
+  const errors = checkSharedTree(paletteIo(styleCss), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an inert commented-out remote @import must not fail the gate, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- rf2-nrieg0: WCAG contrast on non-hex --ex-* tokens -------------------
+//
+// parseExTokens only read #hex, and the contrast loop silently `continue`d on a
+// non-hex token, disabling the WCAG gate under an rgb()/hsl() palette refactor.
+// Now rgb()/hsl() are parsed (and checked); a genuinely-opaque form (var()) is
+// fail-loud rather than silently skipped.
+
+it('rf2-nrieg0: colorToHex normalises #hex / rgb() / hsl(), null for var()', () => {
+  assert.strictEqual(colorToHex('#C8741A'), '#C8741A');
+  assert.strictEqual(colorToHex('#abc'), '#aabbcc');
+  assert.strictEqual(colorToHex('rgb(200,116,26)'), '#c8741a');
+  assert.strictEqual(colorToHex('rgba(200, 116, 26, 0.5)'), '#c8741a'); // alpha dropped
+  assert.strictEqual(colorToHex('hsl(120,100%,50%)'), '#00ff00');
+  assert.strictEqual(colorToHex('var(--ex-accent)'), null);
+  assert.strictEqual(colorToHex('rebeccapurple'), null);
+});
+
+it('rf2-nrieg0: parseExTokens now captures rgb()/hsl() tokens (was hex-only)', () => {
+  const tokens = parseExTokens(
+    ':root{--ex-bg:#F7F3EC; --ex-accent-deep: rgb(156,79,14); --ex-warn: hsl(43,79%,43%);}',
+  );
+  assert.strictEqual(tokens['--ex-bg'], '#F7F3EC');
+  assert.strictEqual(tokens['--ex-accent-deep'], '#9c4f0e'); // was DROPPED before
+  assert.ok(tokens['--ex-warn'], 'an hsl() token must be captured, not dropped');
+});
+
+it('TEETH rf2-nrieg0: a sub-AA rgb() accent foreground now FAILS (was skipped)', () => {
+  // The sub-AA amber #C8741A expressed as rgb() — previously invisible to the
+  // gate (silent `continue`), now parsed and caught.
+  const badStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: rgb(200,116,26);',
+  );
+  const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('WCAG AA') && e.includes('rf2-febmqu')),
+    `expected the rgb() sub-AA foreground to fail, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH rf2-nrieg0: a declared-but-unparseable var() contrast token FAILS LOUD', () => {
+  const badStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: var(--ex-accent);',
+  );
+  const errors = checkSharedTree(paletteIo(badStyle), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('rf2-nrieg0') && e.includes('cannot evaluate')),
+    `expected a fail-loud unverifiable-token error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('rf2-nrieg0: an AA-safe rgb() palette scans CLEAN (no false-fail)', () => {
+  // #9C4F0E expressed as rgb() — parsed identically, must NOT false-fail.
+  const rgbStyle = GOOD_SHARED_STYLE.replace(
+    '--ex-accent-deep: #9C4F0E;',
+    '--ex-accent-deep: rgb(156,79,14);',
+  );
+  const errors = checkSharedTree(paletteIo(rgbStyle), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an AA-safe rgb() palette must scan clean, got: ${errors.join(' | ')}`,
   );
 });
 

@@ -16,7 +16,7 @@
           the current panel's child root; on a chip-row 'switch panel'
           re-render, the parent's render body synchronously unmounts the
           PREVIOUS panel's root. The guard fires ORGANICALLY — no
-          hand-fabricated :currently-rendering? — because the unmount happens
+          hand-fabricated in-flight render state — because the unmount happens
           while React (the global render depth) is rendering somewhere.
 
        2. Unbalanced subscribe/dispose (mount/unmount ref-count). A faulty
@@ -61,7 +61,7 @@
 ;; ---- lifecycle-log query helpers -------------------------------------------
 ;; The assertions below repeatedly interrogate a mount's lifecycle log by
 ;; phase — counting how many times a phase fired (render-count contracts) and
-;; reading the first `:at` timestamp for a phase (teardown-ordering checks).
+;; reading the first `:seq` order-key for a phase (teardown-ordering checks).
 ;; These two helpers name those queries so each assertion reads as the
 ;; property under test rather than a `->>`/filter thread.
 
@@ -72,14 +72,18 @@
        (filter (comp #{phase} :phase))
        count))
 
-(defn- phase-first-at
-  "The `:at` timestamp of the first `phase` entry in the mount's lifecycle
-  log, or nil if the phase never fired."
+(defn- phase-first-seq
+  "The monotonic `:seq` order-key of the first `phase` entry in the mount's
+  lifecycle log, or nil if the phase never fired. `:seq` increments once per
+  logged phase across the whole adapter, so a strict `<` over two phases' seqs
+  reflects their REAL firing order — unlike the wall-clock `:at` this replaced,
+  which collapsed to equal integers for a sub-millisecond teardown cascade and
+  made the ORDER check vacuous (it could not fail on a reversed teardown)."
   [mount phase]
   (->> (test-react/lifecycle-log mount)
        (filter (comp #{phase} :phase))
        first
-       :at))
+       :seq))
 
 ;; ----------------------------------------------------------------------------
 ;; A. Demonstration scenarios
@@ -322,10 +326,12 @@
           "parent unmount cascaded to the child — nothing leaks")
       (is (some #{:will-unmount} (mapv :phase (test-react/lifecycle-log @child-ref)))
           "the child saw its own :will-unmount during the cascade")
-      (let [child-unmount-at  (phase-first-at @child-ref :will-unmount)
-            parent-unmount-at (phase-first-at parent :will-unmount)]
-        (is (<= child-unmount-at parent-unmount-at)
-            "children tear down before (or no later than) their parent")))))
+      (let [child-unmount-seq  (phase-first-seq @child-ref :will-unmount)
+            parent-unmount-seq (phase-first-seq parent :will-unmount)]
+        (is (< child-unmount-seq parent-unmount-seq)
+            "child tears down STRICTLY before its parent — monotonic order-key,
+             so a reversed (parent-first) teardown FAILS here (the old <=-on-ms
+             check passed vacuously because sub-ms timestamps collapsed to equal)")))))
 
 ;; ----------------------------------------------------------------------------
 ;; B.1 — Organic sync-unmount-during-render (the rf2-4l7t2 class)
@@ -339,8 +345,8 @@
 ;; rendering." The original fix deferred the unmount to a microtask.
 ;;
 ;; Here the bug is reproduced ORGANICALLY: the host's render body issues the
-;; unmount while the global render depth is non-zero — no test sets
-;; :currently-rendering? by hand. That converts the headline capability from
+;; unmount while the global render depth is non-zero — no test fabricates
+;; in-flight render state by hand. That converts the headline capability from
 ;; "guard logic verified" to "bug condition reproduced."
 
 (deftest organic-sync-unmount-during-render-rf2-4l7t2
@@ -684,10 +690,12 @@
       (test-react/unmount! parent)
       (is (zero? (count (test-react/mounted-roots)))
           "the whole forest drained — no orphaned descendant")
-      (let [gc-at     (phase-first-at @grandchild-ref :will-unmount)
-            child-at  (phase-first-at @child-ref :will-unmount)
-            parent-at (phase-first-at parent :will-unmount)]
-        (is (and gc-at child-at parent-at)
+      (let [gc-seq     (phase-first-seq @grandchild-ref :will-unmount)
+            child-seq  (phase-first-seq @child-ref :will-unmount)
+            parent-seq (phase-first-seq parent :will-unmount)]
+        (is (and gc-seq child-seq parent-seq)
             "every level recorded a :will-unmount during the cascade")
-        (is (<= gc-at child-at parent-at)
-            "teardown order is grandchild ≤ child ≤ parent — leaf-upward unwind")))))
+        (is (< gc-seq child-seq parent-seq)
+            "teardown order is grandchild < child < parent — leaf-upward unwind
+             (strict monotonic seq: a root-downward regression FAILS this, where
+             the old <=-on-ms check stayed green because the cascade ran sub-ms)")))))
