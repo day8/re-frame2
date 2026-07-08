@@ -99,8 +99,9 @@
 ;;
 ;;   :id              — gensym tag (for log readability)
 ;;   :render-tree     — atom holding the currently-rendered tree
-;;   :lifecycle-log   — atom holding a vector of {:phase ... :at ms} entries;
-;;                      the test driver inspects this to assert ordering.
+;;   :lifecycle-log   — atom holding a vector of {:phase ... :seq n} entries;
+;;                      the test driver inspects this to assert ordering (`:seq`
+;;                      is the monotonic order-key — see `phase-seq`).
 ;;   :currently-rendering? — atom<boolean>; true while THIS mount's render is
 ;;                      in flight. Distinct from the global render-depth (see
 ;;                      below): this cell marks the self-render case, the
@@ -145,13 +146,21 @@
   []
   (pos? @render-depth))
 
-(defn- now-ms []
-  #?(:clj (System/currentTimeMillis)
-     :cljs (.now js/Date)))
+;; A process-global monotonic order-key stamped on every logged phase. A
+;; wall-clock timestamp is the wrong tool for teardown-ORDER assertions here:
+;; a whole cascade completes sub-millisecond, so `now-ms`-style timestamps
+;; collapse to the SAME integer and a `<=`-on-ms ORDER check is vacuous — it
+;; stays green even on a reversed (root-downward) teardown, the exact bug the
+;; check exists to catch. This counter increments once per logged phase, so a
+;; strict `<` over two phases' `:seq` values discriminates their REAL firing
+;; order and fails deterministically on a reversal. `dispose-adapter!` resets
+;; it per test (only relative order within a cascade matters, so the reset is
+;; hygiene — keeping the numbers small + deterministic across the suite).
+(defonce ^:private phase-seq (atom 0))
 
 (defn- log-phase! [mount phase & {:as extras}]
   (swap! (:lifecycle-log mount)
-         conj (merge {:phase phase :at (now-ms)} extras)))
+         conj (merge {:phase phase :seq (swap! phase-seq inc)} extras)))
 
 ;; Declared so `run-render!` (which invokes a render body that may mount
 ;; children) can call the mount seam defined below it.
@@ -386,6 +395,11 @@
   ;; that bypassed run-render! by hand cannot leak a stuck "rendering" state
   ;; into the next case.
   (reset! render-depth 0)
+  ;; Reset the monotonic phase order-key so each test's lifecycle log starts
+  ;; from a small, deterministic sequence. Only relative order within a single
+  ;; cascade is load-bearing, so this is hygiene, not correctness — it mirrors
+  ;; the render-depth reset above.
+  (reset! phase-seq 0)
   nil)
 
 (def adapter
@@ -483,9 +497,12 @@
   nil)
 
 (defn lifecycle-log
-  "Return the lifecycle log for `mount` — a vector of `{:phase ... :at ms}`
-  entries, in the order they fired. Test assertions typically map over
-  `:phase` and compare to a canonical sequence."
+  "Return the lifecycle log for `mount` — a vector of `{:phase ... :seq n}`
+  entries, in the order they fired. `:seq` is a process-global monotonic
+  order-key (see `phase-seq`), the discriminating key for teardown-ORDER
+  assertions — a strict `<` over two phases' seqs reflects their real firing
+  order. Test assertions typically map over `:phase` and compare to a canonical
+  sequence, and read `:seq` to assert cross-mount teardown order."
   [mount]
   @(:lifecycle-log mount))
 
