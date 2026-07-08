@@ -11,13 +11,18 @@
   - `:rf.route/transitioned`      event — forward nav (push / link click).
   - `:rf.route/handle-url-change` event — popstate / initial / SSR.
 
-  The runtime does NOT wire `window.addEventListener('popstate', ...)`
-  itself; apps are responsible for translating the browser's lifecycle
-  events into `:rf.route/handle-url-change` dispatches. The tests below
-  exercise both halves of the contract: the OUTBOUND fx (pushState /
-  replaceState actually touch the history object) AND the INBOUND
-  event (popstate-style dispatch updates the slice + fires :on-match
-  + re-emits the nav-token-allocated trace).
+  The runtime wires `window.addEventListener('popstate', ...)` itself,
+  automatically, as part of the `:url-bound?` frame LIFECYCLE (rf2-g8pbwg):
+  a `:url-bound? true` frame's creation (or re-registration, when it
+  resolves as the URL owner) installs the listener; its destroy removes it.
+  Some tests below still drive the browser→app leg by hand-dispatching
+  `:rf.route/handle-url-change` (the shape a hand-rolled/legacy listener, or
+  SSR, uses) to pin the event's own contract independent of the automatic
+  wiring; the dedicated lifecycle tests near the end of this file pin the
+  automatic install/remove contract itself. The tests below exercise both
+  halves: the OUTBOUND fx (pushState / replaceState actually touch the
+  history object) AND the INBOUND event (popstate-style dispatch updates
+  the slice + fires :on-match + re-emits the nav-token-allocated trace).
 
   Mock approach — Node has no `window`/`document` globals, so this
   file installs a minimal jsdom-style stub on `js/globalThis` via a
@@ -67,7 +72,8 @@
                       :hash     ""}
         ;; Keep `location` in sync with the current history entry, the way
         ;; a real browser updates `window.location` on pushState / back /
-        ;; forward. `install-history-listener!`'s popstate handler reads
+        ;; forward. The automatically-installed popstate handler (rf2-g8pbwg
+        ;; — a `:url-bound? true` frame's lifecycle installs it) reads
         ;; the new URL off `window.location` (not the test's state atom),
         ;; so the stub MUST reflect the navigation here for the
         ;; listener-driven Back/Forward tests (rf2-6qgbs.4). Splits the
@@ -499,9 +505,11 @@
 ;; `:frame`, hitting `:rf/default` (now frozen) instead of the owner, so
 ;; Back/Forward left the owner's route — and the rendered body — unchanged.
 ;;
-;; `install-history-listener!` resolves `url-owner-frame-id` at pop time
-;; and targets THAT frame. The test asserts the owner frame's slice
-;; round-trips on back AND forward while `:rf/default` stays put.
+;; rf2-g8pbwg: a `:url-bound? true` frame's REGISTRATION automatically
+;; (re)installs the listener when it resolves as `url-owner-frame-id` — no
+;; imperative install call. The installed listener still resolves the owner
+;; at POP TIME, so the test asserts the owner frame's slice round-trips on
+;; back AND forward while `:rf/default` stays put.
 
 ;; The installed popstate handler dispatches synchronously
 ;; (`dispatch-sync!`) — a real `popstate` fires on the browser macrotask
@@ -509,44 +517,52 @@
 ;; same turn as `dispatchEvent` and the assertions can read it directly.
 
 (deftest popstate-drives-url-owner-non-default-frame-cljs
-  (testing "rf2-6qgbs.4: install-history-listener! drives the non-default URL-owner frame on Back/Forward"
+  (testing "rf2-g8pbwg / rf2-6qgbs.4: the :url-bound? lifecycle automatically
+            drives the non-default URL-owner frame on Back/Forward"
     (register-routes!)
     ;; Single-non-default-owner setup (the step-deck shape): default opts
     ;; OUT, a non-default frame opts IN, so `url-owner-frame-id` resolves
-    ;; to the non-default owner.
+    ;; to the non-default owner — and `:sd/owner`'s reg-frame automatically
+    ;; installs the listener for it (rf2-g8pbwg).
     (rf/reg-frame :rf/default {:url-bound? false})
     (rf/reg-frame :sd/owner   {:url-bound? true})
     (is (= :sd/owner (routing/url-owner-frame-id))
         "the non-default :url-bound? true frame owns the URL after default opts out")
+    ;; :rf/default briefly resolved as the URL owner during register-routes!
+    ;; above (before opting out on the very next line), so its OWN
+    ;; registration already triggered ONE automatic initial-URL sync
+    ;; (rf2-g8pbwg) — a side effect of having briefly BEEN the declared
+    ;; owner, not something popstate does. Capture that value so the
+    ;; assertions below prove POPSTATE itself never touches the non-owner,
+    ;; independent of whatever this shared-registrar test bundle's `match-url
+    ;; "/"` happened to resolve to at that transient moment.
+    (let [default-route-before (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))]
 
-    ;; The framework wiring under test.
-    (rf/install-history-listener!)
+      ;; Forward nav on the owner frame pushes the URL (owner gates push).
+      (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :sd/owner})
+      (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
+      (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
+          "owner-frame forward nav pushed both URLs onto the history stack")
+      (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
+          "owner slice is on /checkout before Back")
 
-    ;; Forward nav on the owner frame pushes the URL (owner gates push).
-    (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :sd/owner})
-    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
-    (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
-        "owner-frame forward nav pushed both URLs onto the history stack")
-    (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
-        "owner slice is on /checkout before Back")
+      ;; --- Back: browser moves the pointer + fires popstate. ---
+      (.back (.-history js/globalThis.window))
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= :hist/cart (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
+          "Back restored the OWNER frame's slice to /cart via the installed listener")
+      (is (= default-route-before
+             (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
+          ":rf/default (the non-owner) was NOT mutated by the popstate")
 
-    ;; --- Back: browser moves the pointer + fires popstate. ---
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
-        "Back restored the OWNER frame's slice to /cart via the installed listener")
-    (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        ":rf/default (the non-owner) was NOT mutated by the popstate")
-
-    ;; --- Forward: pointer moves up, popstate fires again. ---
-    (.forward (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
-        "Forward restored the OWNER frame's slice back to /checkout")
-    (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        ":rf/default still untouched after Forward")
-
-    (rf/remove-history-listener!)))
+      ;; --- Forward: pointer moves up, popstate fires again. ---
+      (.forward (.-history js/globalThis.window))
+      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+      (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :sd/owner)) [:rf.runtime/routing :current])))
+          "Forward restored the OWNER frame's slice back to /checkout")
+      (is (= default-route-before
+             (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
+          ":rf/default still untouched after Forward"))))
 
 (deftest popstate-targets-incumbent-after-earlier-sorting-duplicate-cljs
   (testing "rf2-3l7xxz: after a duplicate :url-bound? true frame that sorts
@@ -554,11 +570,10 @@
             targets the incumbent owner — not the earlier-sorting duplicate.
             The popstate listener resolves url-owner-frame-id at pop time, so a
             stolen-ownership resolution would have driven the WRONG frame."
-    (register-routes!)               ;; :rf/default claims the URL first
-    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default
+    (register-routes!)               ;; :rf/default claims the URL first + auto-installs
+    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs (rf2-g8pbwg)
     (is (= :rf/default (routing/url-owner-frame-id))
         "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
-    (rf/install-history-listener!)
     ;; Incumbent forward-navigates (it owns push), building a history stack.
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
@@ -572,16 +587,16 @@
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "Back restored the INCUMBENT :rf/default slice — popstate targeted the right frame")
     (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :aaa-early)) [:rf.runtime/routing :current])))
-        "the earlier-sorting duplicate :aaa-early was NOT driven by popstate")
-    (rf/remove-history-listener!)))
+        "the earlier-sorting duplicate :aaa-early was NOT driven by popstate")))
 
 (deftest popstate-drives-default-owner-when-default-bound-cljs
-  (testing "rf2-6qgbs.4: install-history-listener! drives :rf/default when it is the owner (no regression)"
+  (testing "rf2-g8pbwg / rf2-6qgbs.4: the automatically-installed listener
+            drives :rf/default when it is the owner (no regression)"
     (register-routes!)
-    ;; Default-owned app: url-owner-frame-id resolves to :rf/default.
+    ;; Default-owned app: url-owner-frame-id resolves to :rf/default, so
+    ;; register-routes!'s reg-frame auto-installed the listener for it.
     (is (= :rf/default (routing/url-owner-frame-id))
         ":rf/default owns the URL by default")
-    (rf/install-history-listener!)
 
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
@@ -591,9 +606,53 @@
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
     (is (= :hist/cart (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "Back restored :rf/default's slice to /cart — default-owned routing unregressed")
+        "Back restored :rf/default's slice to /cart — default-owned routing unregressed")))
 
-    (rf/remove-history-listener!)))
+;; =========================================================================
+;; rf2-g8pbwg: the :url-bound? frame LIFECYCLE installs/removes the listener
+;; =========================================================================
+;;
+;; The full fold this bead makes: `install-url-listener!` /
+;; `install-history-listener!` / `remove-url-listener!` /
+;; `remove-history-listener!` are DELETED from the public facade (no
+;; compatibility shim — pre-alpha). A `:url-bound? true` frame's CREATE
+;; installs the strategy listener; its DESTROY removes it. A losing
+;; duplicate `:url-bound? true` registration never installs at all.
+
+(deftest url-bound-frame-lifecycle-installs-on-create-and-removes-on-destroy-cljs
+  (testing "rf2-g8pbwg: a :url-bound? true frame automatically installs its
+            popstate listener on create and removes it on destroy-frame! —
+            zero imperative install/remove calls anywhere"
+    (register-routes!)   ;; :rf/default {:url-bound? true} — auto-installs on create
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+        "the listener installed automatically when the owner frame was created")
+
+    ;; Back/Forward already works with zero imperative wiring.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (.back (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/home
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
+        "the automatically-installed listener drove Back with no install call")
+
+    ;; Destroy tears the browser listener down.
+    (rf/destroy-frame! :rf/default)
+    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+        "destroy-frame! removed the browser popstate listener")))
+
+(deftest duplicate-url-bound-frame-does-not-reinstall-listener-cljs
+  (testing "rf2-g8pbwg: a losing duplicate :url-bound? true registration does
+            NOT reinstall the popstate listener — the incumbent's listener
+            instance is untouched (Codex correction: a losing duplicate must
+            never install its own / a replacement strategy listener)"
+    (register-routes!)                          ;; :rf/default claims + auto-installs
+    (let [installed-before (first (get-in @*history-state* [:listeners "popstate"]))]
+      (is (some? installed-before)
+          "the incumbent's popstate listener installed automatically on create")
+      (rf/reg-frame :zz/dup-owner {:url-bound? true})   ;; losing duplicate
+      (is (identical? installed-before
+                       (first (get-in @*history-state* [:listeners "popstate"])))
+          "the duplicate's registration did not tear down + reinstall the incumbent's listener"))))
 
 ;; ---- rf2-ede1h.3: blocked popstate restores the browser URL -------------
 ;;

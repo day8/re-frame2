@@ -211,6 +211,102 @@
                    :install-listener! hash-install-listener!}
             :clj  {})))
 
+;; ---- base-path combinator (rf2-g8pbwg) ------------------------------------
+;;
+;; A frame served from a deployment SUB-PATH — a host mounting several demos
+;; side by side, so an app that owns `/` on its own instead lives at
+;; `/realworld/` — needs that prefix STRIPPED off every inbound URL before it
+;; reaches the router (so `route-url` / `match-url` / the whole cascade stay
+;; base-agnostic, app-relative path-form) and RE-ADDED to every outbound
+;; href / history URL (so the address bar and `route-link` hrefs carry the
+;; real mount-point path).
+;;
+;; `with-base-path` is a COMBINATOR over an existing strategy, not a third
+;; shipped strategy: base-path handling is orthogonal to address-bar FORM
+;; (history vs hash). It wraps the four egress/ingress consult points —
+;; `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` —
+;; so the wrapped strategy's own form (identity vs `#`-prefix) is preserved
+;; underneath the base-path prefix/strip.
+
+(defn- normalize-base-path
+  "Normalize a base-path string: nil / blank -> `\"\"` (no base); else
+  ensure a leading `/` and strip a trailing `/`. Pure."
+  [base]
+  (let [b (or base "")]
+    (if (clojure.string/blank? b)
+      ""
+      (let [b (if (clojure.string/starts-with? b "/") b (str "/" b))]
+        (if (and (> (count b) 1) (clojure.string/ends-with? b "/"))
+          (subs b 0 (dec (count b)))
+          b)))))
+
+(defn strip-base-path
+  "Strip `base` off the front of path-form `url`, returning the app-relative
+  `/`-rooted remainder. `url` that does not start with `base` is returned
+  UNCHANGED (defensive — should not happen for a correctly-mounted app; fails
+  safe rather than mis-slicing an unrelated URL). A blank `base` is a no-op.
+  Pure."
+  [base url]
+  (if (and (seq base) (clojure.string/starts-with? url base))
+    (let [remainder (subs url (count base))]
+      (if (clojure.string/starts-with? remainder "/")
+        remainder
+        (str "/" remainder)))
+    url))
+
+(defn with-base-path
+  "Wrap `strategy` (`history-url-strategy` / `hash-url-strategy` / a custom
+  strategy map) so every egress/ingress consult point accounts for a
+  deployment BASE PATH. Per Spec 012 §URL strategies:
+
+    - `:decode`            strips `base` off the wrapped strategy's decoded
+                           path-form URL.
+    - `:encode`            re-adds `base` to the wrapped strategy's encoded
+                           href (the `route-link` / history-fx egress leg).
+    - `:push!` / `:replace!` re-add `base` before driving the wrapped
+                           strategy's history mutation, so the browser
+                           address bar carries the real mount-point URL.
+    - `:install-listener!` strips `base` off each browser-driven change
+                           before calling `on-change`, so the dispatched
+                           `:rf.route/handle-url-change` URL is always
+                           app-relative.
+
+  `route-url` / `match-url` and the rest of the navigation cascade stay
+  PATH-FORM and base-agnostic; only these consult points ever see the base
+  path — exactly like the two shipped strategies' address-bar-form seam.
+
+  `base` is normalized (a leading `/` is added if missing; a trailing `/`
+  is stripped). A blank/nil `base` returns `strategy` UNCHANGED — the common
+  no-sub-path app pays no wrapping cost. The side-effecting keys
+  (`:push!` / `:replace!` / `:install-listener!`) are CLJS-only, mirroring
+  the two shipped strategies (SSR ignores strategies).
+
+  Declare on the URL-owning frame:
+
+      (rf/reg-frame :app {:url-bound?   true
+                          :url-strategy (routing/with-base-path
+                                          routing/history-url-strategy
+                                          \"/realworld\")})"
+  [strategy base]
+  (let [b (normalize-base-path base)]
+    (if (clojure.string/blank? b)
+      strategy
+      (merge strategy
+             {:encode (fn [path] (str b ((:encode strategy) path)))
+              :decode (fn [] (strip-base-path b ((:decode strategy))))}
+             #?(:cljs
+                (cond-> {}
+                  (:push! strategy)
+                  (assoc :push! (fn [href] ((:push! strategy) (str b href))))
+                  (:replace! strategy)
+                  (assoc :replace! (fn [href] ((:replace! strategy) (str b href))))
+                  (:install-listener! strategy)
+                  (assoc :install-listener!
+                         (fn [on-change]
+                           ((:install-listener! strategy)
+                            (fn [decoded] (on-change (strip-base-path b decoded)))))))
+                :clj {})))))
+
 ;; ---- frame-config resolution ---------------------------------------------
 ;; A frame declares its URL strategy in its `reg-frame` config map under
 ;; `:url-strategy`, exactly as it declares `:url-bound?`. The four consult

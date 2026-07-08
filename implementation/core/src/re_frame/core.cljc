@@ -1376,10 +1376,16 @@
 ;; routing-feature reads whose owned namespace is the better public home:
 ;; reach them through `re-frame.routing` (which already publishes them). The
 ;; `reg-route` REGISTRATION MACRO stays on the façade (above; source-coord
-;; capture, no owned-ns macro form). `route-link` (the view) and the
-;; `install-history-listener!` / `remove-history-listener!` boot seams stay
-;; on the façade for now — they have no classified owned-namespace peer
-;; (the routing-ns forms are CLJS-only and unrowed).
+;; capture, no owned-ns macro form). `route-link` (the view) stays on the
+;; façade for now — it has no classified owned-namespace peer (the routing-ns
+;; form is CLJS-only and unrowed).
+;;
+;; rf2-g8pbwg: the `install-url-listener!` / `remove-url-listener!` /
+;; `install-history-listener!` / `remove-history-listener!` boot seams are
+;; GONE from this façade (and from `re-frame.routing`'s) — a `:url-bound?
+;; true` frame installs its strategy listener on create and removes it on
+;; destroy, automatically. Pre-alpha, no back-compat shim; see
+;; `re-frame.routing.history`'s ns docstring THE FOLD note.
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
@@ -1387,43 +1393,6 @@
   Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf-routing/route-link)
-
-(def ^{:doc "Install the URL-owning frame's browser URL-change listener —
-  `popstate` for a HISTORY-strategy app, `hashchange` for a HASH-strategy
-  app, per the owner's `:url-strategy` (default `history-url-strategy`,
-  rf2-aerrz5). Each browser-driven change is decoded to a PATH-FORM URL and
-  dispatched as `:rf.route/handle-url-change` to `(url-owner-frame-id)`
-  (resolved at fire time), so the owner's route slice (at
-  `[:rf.runtime/routing :current]`) and rendered body restore. Also syncs
-  the initial URL on install. Idempotent (hot-reload safe). CLJS-only. The
-  inbound counterpart of the outbound `:rf.nav/push-url` gate. Per Spec 012
-  §URL strategies. Implementation ships in `day8/re-frame2-routing`."}
-  install-url-listener!  rf-routing/install-url-listener!)
-
-(def ^{:doc "Tear down the browser URL-change listener installed by
-  `install-url-listener!` (whichever kind the strategy wired). No-op when
-  none is installed. CLJS-only. Per Spec 012 §URL strategies. Implementation
-  ships in `day8/re-frame2-routing`."}
-  remove-url-listener!  rf-routing/remove-url-listener!)
-
-(def ^{:doc "Alias for `install-url-listener!` (rf2-aerrz5) — retained as
-  the established boot-seam name for HISTORY-strategy apps. Since the default
-  strategy is history, this behaves identically to `install-url-listener!`
-  for a path-form app. Install a browser URL-change listener that dispatches
-  `:rf.route/handle-url-change` to `(url-owner-frame-id)` (resolved at fire
-  time), so the owner's route slice (at `[:rf.runtime/routing :current]`) and
-  rendered body restore — whether the owner is `:rf/default` or a non-default
-  `:url-bound? true` frame (rf2-6qgbs.4). Also syncs the initial URL on
-  install. Idempotent (hot-reload safe). CLJS-only. Per Spec 012 §Multi-frame
-  routing. Implementation ships in `day8/re-frame2-routing`. New code should
-  prefer `install-url-listener!`."}
-  install-history-listener!  rf-routing/install-history-listener!)
-
-(def ^{:doc "Alias for `remove-url-listener!` (rf2-aerrz5). Tear down the
-  browser URL-change listener installed by `install-history-listener!` /
-  `install-url-listener!`. No-op when none is installed. CLJS-only. Per Spec
-  012 §Multi-frame routing. Implementation ships in `day8/re-frame2-routing`."}
-  remove-history-listener!  rf-routing/remove-history-listener!)
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;

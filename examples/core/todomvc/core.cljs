@@ -54,9 +54,11 @@
     (rdc/render @react-root
                 ;; The seed is just `[:todo/initialise]` — it folds the saved
                 ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)
-                ;; into app-db. The initial URL sync is handled by
-                ;; `install-url-listener!` in `boot!`, which reads the current
-                ;; hash and dispatches `:rf.route/handle-url-change` for us.
+                ;; into app-db. The initial URL sync happens automatically:
+                ;; `:url-bound? true` frame creation installs the matching
+                ;; browser listener (`hashchange`, per `:url-strategy`) and
+                ;; dispatches `:rf.route/handle-url-change` for us — see the
+                ;; boot! comment below.
                 [rf/frame-provider {:id             app-frame
                                     :doc            "TodoMVC demo frame."
                                     :url-bound?     true
@@ -66,30 +68,24 @@
 
 ;; ---- Boot ------------------------------------------------------------------
 ;;
-;; `boot!` runs once at shadow's :init-fn, before the first render, and has just
-;; two jobs: install the Reagent adapter, and wire up the URL-change listener.
+;; `boot!` runs once at shadow's :init-fn, before the first render, and has
+;; just one job: install the Reagent adapter.
 ;;
-;; `install-url-listener!` is the framework's boot seam. Given the app's
-;; strategy — here the hash strategy — it installs the matching browser
-;; listener (`hashchange` for a hash app; `popstate` for a history app),
-;; decodes each change to a path, and dispatches `:rf.route/handle-url-change`
-;; to the URL-owning frame; the install also syncs the current URL into the
-;; frame's route slice so a deep link or a refresh lands on the right route.
-;; It's idempotent, so a repeated `run` or a hot reload never stacks up
-;; duplicate listeners. No hand-rolled `hashchange` adapter — the strategy
-;; absorbs it.
-;;
-;; We pass the strategy EXPLICITLY (the 1-arity) rather than let the seam read
-;; it off the frame: the URL-owning frame is created by the `frame-provider`
-;; during render, whose React effect may register it just after `mount!`
-;; returns — so pinning the strategy here keeps the listener kind independent
-;; of that timing.
+;; Wiring up the URL-change listener is NOT a separate step — it's part of
+;; the `:url-bound? true` declaration above. The frame's creation (whenever
+;; the `frame-provider`'s React effect actually runs it, even after `mount!`
+;; returns) installs the matching browser listener (`hashchange` for this
+;; hash app; `popstate` for a history app, per `:url-strategy`), decodes each
+;; change to a path, and dispatches `:rf.route/handle-url-change` to the
+;; URL-owning frame; install also syncs the current URL into the frame's
+;; route slice so a deep link or a refresh lands on the right route. It's
+;; idempotent, so a hot reload never stacks up duplicate listeners. No
+;; hand-rolled `hashchange` adapter — the strategy absorbs it.
 ;; See docs/routing/concepts.md#the-browser-is-just-another-event-source.
 
 (defn- boot! []
   (rf/init! reagent-adapter/adapter)
-  (mount!)
-  (rf/install-url-listener! routing/hash-url-strategy))
+  (mount!))
 
 (defn run []          ; shadow :init-fn — runs once, at page load
   (boot!))

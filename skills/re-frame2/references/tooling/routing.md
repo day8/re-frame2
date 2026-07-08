@@ -96,23 +96,24 @@ Distilled from `examples/capabilities/routing/routing/core.cljs`.
     :rf.route/not-found   [not-found-page]
     [not-found-page]))
 
-;; Boot: install the adapter, wire the framework popstate listener, then
-;; render an ENSURE-shape provider that creates and seeds the URL-owning
-;; frame. `init!` installs the adapter but does NOT create a frame;
-;; `:url-bound? true` declares this frame owns the URL.
+;; Boot: install the adapter, then render an ENSURE-shape provider that
+;; creates and seeds the URL-owning frame. `init!` installs the adapter but
+;; does NOT create a frame; `:url-bound? true` declares this frame owns the
+;; URL — and its creation automatically wires the popstate listener (no
+;; separate install call).
 (def app-frame :rf/default)
 
 (defn run []
   (rf/init! adapter)
-  ;; Framework popstate listener + initial URL→slice sync, targeted at the URL
-  ;; owner. It resolves the URL-owner frame AT POP TIME and dispatches the
-  ;; URL-change to THAT frame, so Back/Forward restores the owner's :rf/route
-  ;; slice. Idempotent (hot-reload safe). A hand-rolled frameless
+  ;; ENSURE shape: first mount creates the frame, flips on :url-bound?, and
+  ;; fires :initial-events once to seed app-db; hot reload reuses it (no
+  ;; reseed). Frame creation ALSO installs the framework popstate listener +
+  ;; initial URL→slice sync, targeted at the URL owner — it resolves the
+  ;; URL-owner frame AT POP TIME and dispatches the URL-change to THAT frame,
+  ;; so Back/Forward restores the owner's :rf/route slice. Idempotent
+  ;; (re-registration-safe). A hand-rolled frameless
   ;; (rf/dispatch [:rf.route/handle-url-change ...]) would raise
   ;; :rf.error/no-frame-context — the no-ambient-frame contract (EP-0002).
-  (rf/install-history-listener!)
-  ;; ENSURE shape: first mount creates the frame, flips on :url-bound?, and
-  ;; fires :initial-events once to seed app-db; hot reload reuses it (no reseed).
   (render [rf/frame-provider {:id app-frame
                               :doc "Routing demo frame."
                               :url-bound? true

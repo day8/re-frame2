@@ -503,8 +503,9 @@
 ;; this frame owns the browser URL, plus the HTTP-stub override. Every dispatch
 ;; and subscribe anywhere in the tree resolves to this one frame, and a hot
 ;; reload reuses it rather than spinning up a fresh one.
-;; `install-history-listener!` is what syncs the initial URL and wires up the
-;; browser back/forward buttons. See the frame glossary entry:
+;; `:url-bound? true` is also what syncs the initial URL and wires up the
+;; browser back/forward buttons — the frame's creation installs the listener
+;; automatically. See the frame glossary entry:
 ;; ../../../docs/core/glossary.md#frame
 
 (defonce react-root (atom nil))
@@ -517,7 +518,6 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

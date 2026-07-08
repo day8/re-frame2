@@ -290,6 +290,17 @@
                                        :url-bound? claim leaks and the
                                        first-claimed-incumbent ownership
                                        resolution drifts across tests.
+    :routing/reset-url-listener!     — tear down the browser URL-change
+                                       listener a `:url-bound? true` frame's
+                                       lifecycle installed (rf2-g8pbwg). The
+                                       listener is module-level host state
+                                       (`re-frame.routing.history/history-
+                                       listener-atom`), NOT torn down by the
+                                       `frame/frames` reset above (a raw atom
+                                       reset does not run `destroy-frame!`'s
+                                       teardown chain) — without this a
+                                       listener installed by one test would
+                                       survive into the next.
     :resources/reset-resources!      — reset the resources artefact's
                                        host-side transient state (Spec 016):
                                        clear the `:resource` + `:mutation`
@@ -339,6 +350,7 @@
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}
    {:hook :routing/reset-url-claims!       :phase :post-dispose}
+   {:hook :routing/reset-url-listener!     :phase :post-dispose}
    {:hook :resources/reset-resources!      :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}

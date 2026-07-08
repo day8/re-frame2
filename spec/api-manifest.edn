@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 474,
+ :var-count 471,
  :tier-vocab
  [:front-porch
   :advanced
@@ -123,9 +123,7 @@
   {:namespace "re-frame.core", :var "init!", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "init-platform", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-adapter!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "install-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "install-url-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-capture-frame", :tier :implementation, :kind :fn, :owner "002", :status "EP-0024 (internal capture-frame constructor)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "make-frame", :tier :advanced, :kind :fn, :owner "002", :status "EP-0024", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "mutation-meta", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -158,9 +156,7 @@
   {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "remove-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "remove-url-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-to-string", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "render-tree-hash", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
@@ -273,6 +269,7 @@
   {:namespace "re-frame.routing", :var "save-scroll-position!", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "scroll-positions-cap", :tier :implementation, :kind :var, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "url-owner-frame-id", :tier :implementation, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.routing", :var "with-base-path", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schema-at", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schema-meta-at", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "app-schemas", :tier :tooling, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}

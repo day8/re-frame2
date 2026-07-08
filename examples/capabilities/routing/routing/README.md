@@ -40,11 +40,11 @@ three-page site. It's the worked companion to
   and no `preventDefault` — that work is the framework's.
 - **One frame owns the address bar** — the app
   [frame](../../../../docs/core/glossary.md#frame) declares `:url-bound? true`,
-  and that one flag makes it the URL owner. `install-history-listener!`
-  then wires Back/Forward (popstate) and the initial URL→state sync to
-  that owner. It's the right surface for the job: a hand-rolled,
-  frameless `:rf.route/handle-url-change` dispatch has no frame to land
-  in and raises `:rf.error/no-frame-context`.
+  and that one flag makes it the URL owner. The frame's creation then
+  automatically wires Back/Forward (popstate) and the initial URL→state sync
+  to that owner — no separate install call. It's the right surface for the
+  job: a hand-rolled, frameless `:rf.route/handle-url-change` dispatch has no
+  frame to land in and raises `:rf.error/no-frame-context`.
 - **The same routing runs on the server** — the routing artefact is
   `.cljc`, so this exact `reg-route` table works on a JVM server too.
   Nothing in the table is browser-only (this demo's file is `.cljs` only

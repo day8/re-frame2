@@ -51,8 +51,8 @@
   no dispatcher bound no-ops harmlessly.
 
   Idempotent: re-installing for a frame replaces (does not stack) its
-  listeners — hot-reload safe (mirrors routing's
-  `install-history-listener!`)."
+  listeners — hot-reload safe (the same teardown-then-reinstall shape
+  `re-frame.routing.history/install-url-listener!` uses)."
   (:require [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -161,7 +161,8 @@
   `:resources/on-frame-destroyed!` hook.
 
   Idempotent: re-installing for a frame REPLACES its prior listeners (does not
-  stack) — hot-reload safe (mirrors routing's `install-history-listener!`).
+  stack) — hot-reload safe (the same teardown-then-reinstall shape
+  `re-frame.routing.history/install-url-listener!` uses).
   CLJS-only; the JVM arm is a no-op (no DOM under SSR / JVM tests), so this is
   `:require`-able from `.cljc` boot code without a reader conditional at the
   call site. Returns nil."

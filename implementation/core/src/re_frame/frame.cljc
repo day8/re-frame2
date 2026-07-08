@@ -1705,6 +1705,32 @@
       {:recovery :use-rf-set-db
        :extra    {:initial-db (:initial-db config)}})))
 
+(defn- fire-frame-registered-hook!
+  "Fire the routing artefact's POST-(RE-)REGISTRATION lifecycle extension
+  hook (rf2-g8pbwg), by key. No-op when `re-frame.routing` is not loaded (the
+  artefact is optional).
+
+  Called at the END of BOTH `reg-frame` branches below — first registration
+  (after `:initial-events` ran and `:rf.frame/created` emitted) and
+  re-registration (after the surgical config update and
+  `:rf.frame/re-registered` emitted) — so the frame container is always
+  guaranteed live by the time the hook fires. This is deliberately NOT the
+  registrar's `:frame` registration hook (`registrar/add-registration-hook!`,
+  which `re-frame.routing.url-bound` also consults): that hook fires INSIDE
+  `registrar/register!` above, BEFORE the frame container exists on first
+  registration, so an install from there would target a not-yet-live frame.
+
+  Currently consumed by routing's `:url-bound?` listener wiring
+  (`:routing/on-frame-registered!` — installs/rewires the URL-change listener
+  when the (re-)registered frame is the resolved URL owner; a losing
+  duplicate `:url-bound? true` registration is a no-op). Not wrapped in
+  `safe-call-hook!` (the teardown-specific accumulator/diagnostic pairing) —
+  an extension hook here runs OUTSIDE any teardown, so a genuine failure
+  propagates loudly rather than being swallowed."
+  [id]
+  (when-let [on-registered! (late-bind/get-fn :routing/on-frame-registered!)]
+    (on-registered! id)))
+
 (defn reg-frame
   "Atomic create-and-register — the ENGINE `re-frame.live-frame/make-frame`
   (the public `rf/make-frame`) delegates to, and the macro spelling `rf/reg-frame`
@@ -1857,6 +1883,7 @@
           (trace/emit! :rf.frame :rf.frame/created
                        {:frame id :config (dissoc config :rf.frame/generation
                                                   :rf.frame/initial-db)})
+          (fire-frame-registered-hook! id)
           id)
 
         ;; Re-registration: surgical update of replaceable slots only.
@@ -1895,6 +1922,7 @@
           ;; effect-/flow-sourced elision registry) is preserved.
           (trace/emit! :rf.frame :rf.frame/re-registered
                        {:frame id :config stored-config})
+          (fire-frame-registered-hook! id)
           id)))))
 
 (defn make-anon-frame-record!

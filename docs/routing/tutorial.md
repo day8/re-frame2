@@ -35,20 +35,19 @@ A route is one row in a table: an **id**, a **metadata map**, and a **path**. Re
     :app/home [:h1 "Home"]
     [:h1 "Nothing here yet"]))   ;; any URL we haven't routed — Step 5 retires this
 
-;; 3. Mount it — the standard mount from the Quickstart, plus two routing
-;;    lines that Step 6 explains properly. (Also requires:
+;; 3. Mount it — the standard mount from the Quickstart, plus one routing
+;;    flag that Step 6 explains properly. (Also requires:
 ;;    [reagent.dom.client :as rdc] [re-frame.adapter.reagent :as reagent-adapter])
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/install-history-listener!)          ;; ← URL ↔ app wiring — Step 6's subject
   (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-provider {:id :rf/default :url-bound? true}  ;; ← and this flag
+              [rf/frame-provider {:id :rf/default :url-bound? true}  ;; ← this flag
                [root-view]]))
 ```
 
 `@(subscribe [:rf.route/id])` reads the id of the route that matches the current URL. The root view is a plain `case` over that id — pick a page, render it. That's the entire "router": no `<Routes>`, no `<Switch>`, no nesting.
 
-The two routing lines in the mount are `install-history-listener!`, which connects the address bar to the app, and `:url-bound? true`, which says this frame is the one that owns it. Take both on faith for now — Step 6 comes back to them when we wire the Back button.
+The routing flag in the mount is `:url-bound? true`, which says this frame is the one that owns the browser address bar. Take it on faith for now — Step 6 comes back to it when we wire the Back button.
 
 **What you see:** at `/`, the page shows **Home**. Any other URL shows the placeholder — for now.
 
@@ -181,12 +180,11 @@ The "Nothing here yet" placeholder arm is gone — and that's the point. Now tha
 
 ## Step 6 — the Back button and deep links
 
-Back in Step 1, the mount had two routing lines you took on faith. Time to cash that in — they're what make the Back button, refreshes, and shared links work:
+Back in Step 1, the mount had one routing flag you took on faith. Time to cash that in — it's what makes the Back button, refreshes, and shared links work:
 
 ```clojure
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/install-history-listener!)                     ;; ← Back/Forward + first-load URL sync
   (rdc/render (rdc/create-root (js/document.getElementById "app"))
               [rf/frame-provider {:id         :rf/default
                                   :url-bound? true}  ;; ← this frame owns the address bar
@@ -195,7 +193,7 @@ Back in Step 1, the mount had two routing lines you took on faith. Time to cash 
 
 `:url-bound? true` says *this* [frame](../core/frames.md) owns the browser URL. When it navigates, the address bar updates; a frame without the flag routes purely in memory, which is exactly what a test frame wants.
 
-`install-history-listener!` does two jobs. At startup, it syncs the current URL into state — so a deep link or a refresh lands on the right page instead of always starting at home. From then on, every Back/Forward press is delivered to the owning frame as an ordinary dispatch. It's idempotent, so hot-reload is safe.
+Declaring it also does two jobs automatically, the moment the frame is created — no separate call to make. At startup, it syncs the current URL into state — so a deep link or a refresh lands on the right page instead of always starting at home. From then on, every Back/Forward press is delivered to the owning frame as an ordinary dispatch. It's idempotent, so hot-reload is safe.
 
 **What you see:** paste `/articles/intro` straight into the address bar and the app boots onto that article. Then navigate Home → Articles → an article and press Back twice — each press steps the page back, because a Back press is now, literally, a dispatch.
 

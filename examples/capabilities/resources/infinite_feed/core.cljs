@@ -352,7 +352,6 @@
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rf/install-history-listener!)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

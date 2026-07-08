@@ -1,8 +1,9 @@
 (ns re-frame.routing-url-strategy-test
   "URL-strategy seam tests (rf2-aerrz5). Locks the pure legs of the two
   shipped strategies — `history-url-strategy` (default, path-form) and
-  `hash-url-strategy` (`#`-prefixed) — plus the frame-config resolution
-  the four egress/ingress consult points share.
+  `hash-url-strategy` (`#`-prefixed) — the `with-base-path` combinator
+  (rf2-g8pbwg, for an app deployed under a sub-path) — plus the frame-config
+  resolution the four egress/ingress consult points share.
 
   The side-effecting `:push!` / `:replace!` / `:install-listener!` keys are
   CLJS-only (a browser `window.history` / listener); the browser round-trip
@@ -155,6 +156,68 @@
     (let [custom {:encode identity :decode (constantly "/")}]
       (is (identical? custom
                       (strategy/url-strategy-from-config {:url-strategy custom}))))))
+
+;; ---- with-base-path combinator (rf2-g8pbwg) -------------------------------
+;;
+;; The side-effecting `:push!` / `:replace!` / `:install-listener!` legs are
+;; CLJS-only (a browser `window.history`); this JVM suite pins the
+;; host-agnostic `:encode` / `:decode` wrapping + the blank-base no-op.
+
+(deftest with-base-path-wraps-encode-and-decode
+  (testing "with-base-path re-adds the base on :encode and strips it on :decode"
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
+      (is (= "/realworld/active" ((:encode wrapped) "/active")))
+      (is (= "/realworld/" ((:encode wrapped) "/")))
+      ;; :decode strips the base off whatever the wrapped strategy decodes —
+      ;; simulate that by composing over a fixed decode via a custom strategy.
+      (let [fake-decode (strategy/with-base-path
+                          {:encode identity :decode (constantly "/realworld/active")}
+                          "/realworld")]
+        (is (= "/active" ((:decode fake-decode))))))))
+
+(deftest with-base-path-normalizes-the-base
+  (testing "a base with no leading slash gets one; a trailing slash is stripped"
+    (let [no-lead  (strategy/with-base-path strategy/history-url-strategy "realworld")
+          trailing (strategy/with-base-path strategy/history-url-strategy "/realworld/")]
+      (is (= "/realworld/active" ((:encode no-lead) "/active")))
+      (is (= "/realworld/active" ((:encode trailing) "/active"))))))
+
+(deftest with-base-path-decode-leaves-unrelated-urls-unchanged
+  (testing "strip-base-path is defensive — a decoded URL that does not start
+            with the base is returned unchanged rather than mis-sliced"
+    (is (= "/other/path" (strategy/strip-base-path "/realworld" "/other/path")))))
+
+(deftest with-base-path-blank-base-is-a-no-op
+  (testing "a blank/nil base returns the wrapped strategy UNCHANGED — no
+            wrapping cost for the common no-sub-path app"
+    (is (identical? strategy/history-url-strategy
+                    (strategy/with-base-path strategy/history-url-strategy nil)))
+    (is (identical? strategy/history-url-strategy
+                    (strategy/with-base-path strategy/history-url-strategy "")))
+    (is (identical? strategy/hash-url-strategy
+                    (strategy/with-base-path strategy/hash-url-strategy "  ")))))
+
+(deftest with-base-path-composes-over-hash-strategy
+  (testing "with-base-path composes over hash-url-strategy too — the base
+            prefixes the pathname portion, the wrapped strategy's own `#`
+            form is preserved underneath"
+    (let [wrapped (strategy/with-base-path strategy/hash-url-strategy "/demos")]
+      (is (= "/demos#/active" ((:encode wrapped) "/active"))
+          "the wrapped hash encode still `#`-prefixes; the base sits in front of it"))))
+
+(deftest with-base-path-jvm-side-omits-side-effecting-keys
+  (testing "the JVM half of a wrapped strategy carries only :encode/:decode,
+            matching the two shipped strategies' own JVM shape"
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
+      (is (fn? (:encode wrapped)))
+      (is (fn? (:decode wrapped)))
+      (is (nil? (:push! wrapped)))
+      (is (nil? (:install-listener! wrapped))))))
+
+(deftest facade-re-exports-with-base-path
+  (testing "the routing façade re-exports with-base-path (public surface)"
+    (is (= ((:encode (strategy/with-base-path strategy/history-url-strategy "/x")) "/a")
+           ((:encode (routing/with-base-path strategy/history-url-strategy "/x")) "/a")))))
 
 (deftest url-strategy-for-frame-id-reads-registry
   (testing "url-strategy-for-frame-id reads the frame's stored config, defaulting
