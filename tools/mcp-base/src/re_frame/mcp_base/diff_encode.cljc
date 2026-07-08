@@ -359,11 +359,25 @@
   (let [after-assocs
         (reduce-kv
           (fn [acc k bv]
-            (let [av (get a k ::absent)
-                  p  (conj path k)]
+            (let [p (conj path k)
+                  ;; Detect a NEW key by KEY PRESENCE, not by a sentinel
+                  ;; VALUE. `find` returns the `[k v]` entry when `k` is
+                  ;; present (even if its value is `nil`) and `nil` only
+                  ;; when `k` is genuinely absent from `a`. The former
+                  ;; `(get a k ::absent)` conflated "key missing" with "key
+                  ;; present and its value equals `::absent`": an app-db leaf
+                  ;; is any runtime value, so a legal key holding the literal
+                  ;; `:re-frame.mcp-base.diff-encode/absent` (or, before this,
+                  ;; any value chosen to equal the marker) was mis-read as
+                  ;; added — emitting a spurious `[p :assoc bv]` for an
+                  ;; UNCHANGED leaf. Replay still reconstructs the value, but
+                  ;; the wire diff falsely reports a change and misleads the
+                  ;; agent. `find` has no in-band sentinel, so no user value
+                  ;; can collide.
+                  e (find a k)]
               (cond
-                ;; Key added.
-                (= av ::absent)
+                ;; Key added — genuinely absent from `a`.
+                (nil? e)
                 (conj acc [p :assoc bv])
                 ;; A changed EXISTING key: delegate to `collect-patches-into`
                 ;; so the dispatch is decided in ONE place — two maps recurse
@@ -372,7 +386,7 @@
                 ;; which short-circuits to a no-op) is a single leaf
                 ;; `[p :assoc bv]` replacement.
                 :else
-                (collect-patches-into acc av bv p))))
+                (collect-patches-into acc (val e) bv p))))
           acc
           b)]
     (reduce-kv

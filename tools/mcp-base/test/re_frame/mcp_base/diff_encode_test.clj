@@ -38,6 +38,71 @@
          (de/collect-patches {:a {:b 1}} {:a [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
+;; collect-patches — added-key detection is by KEY PRESENCE, not a
+;; sentinel VALUE (rf2-znjqja).
+;;
+;; The added-key arm keys off `find` (presence), never a marker value. An
+;; app-db leaf can be ANY runtime value — including the private
+;; :re-frame.mcp-base.diff-encode/absent keyword the old
+;; `(get a k ::absent)` used as its missing-marker. A value-comparison
+;; test mis-read an UNCHANGED key holding that value as `:added`, emitting
+;; a spurious `[path :assoc value]` false patch that misleads the agent
+;; even though replay still reconstructs the value.
+;; ---------------------------------------------------------------------------
+
+;; The exact keyword the old code used as `::absent` in the diff-encode ns.
+(def ^:private old-sentinel :re-frame.mcp-base.diff-encode/absent)
+
+(deftest collect-patches-sentinel-valued-unchanged-key-emits-no-patch
+  ;; db-before and db-after both hold the former sentinel value at :k,
+  ;; UNCHANGED, alongside a real sibling change. Only the sibling must
+  ;; produce a patch. Old `(get a k ::absent)` mis-flagged :k as added and
+  ;; emitted a spurious `[[:k] :assoc <sentinel>]` on top of the real one.
+  (let [a {:k old-sentinel :sibling 1}
+        b {:k old-sentinel :sibling 2}]
+    (is (= [[[:sibling] :assoc 2]]
+           (de/collect-patches a b []))
+        "an unchanged key whose value equals the former sentinel must NOT report as changed")))
+
+(deftest collect-patches-nil-valued-unchanged-key-emits-no-patch
+  ;; `find` must also distinguish a present nil value from an absent key
+  ;; (it returns the entry for a present nil). A present-nil unchanged key
+  ;; emits no patch.
+  (let [a {:k nil :sibling 1}
+        b {:k nil :sibling 2}]
+    (is (= [[[:sibling] :assoc 2]]
+           (de/collect-patches a b []))
+        "a present nil value is not an added key")))
+
+(deftest collect-patches-sentinel-valued-key-genuine-transitions
+  (testing "genuinely ADDED key holding the sentinel value ⇒ one :assoc"
+    (is (= [[[:k] :assoc old-sentinel]]
+           (de/collect-patches {} {:k old-sentinel} []))))
+  (testing "genuinely REMOVED key holding the sentinel value ⇒ one :dissoc"
+    (is (= [[[:k] :dissoc]]
+           (de/collect-patches {:k old-sentinel} {} []))))
+  (testing "key CHANGED from the sentinel value to another value ⇒ one :assoc"
+    (is (= [[[:k] :assoc 99]]
+           (de/collect-patches {:k old-sentinel} {:k 99} []))))
+  (testing "key CHANGED to the sentinel value ⇒ one :assoc"
+    (is (= [[[:k] :assoc old-sentinel]]
+           (de/collect-patches {:k 1} {:k old-sentinel} [])))))
+
+(deftest diff-encode-sentinel-valued-key-round-trips-without-false-patch
+  ;; End-to-end through encoder/decoder. The round-trip alone does NOT
+  ;; catch the bug (replay reconstructs the sentinel value either way);
+  ;; the load-bearing assertion is that ONLY the genuine change reaches
+  ;; the wire — no spurious :k patch.
+  (let [epoch   {:db-before {:k old-sentinel :count 1}
+                 :db-after  {:k old-sentinel :count 2}}
+        encoded (de/diff-encode-db-after epoch)
+        patches (vec (mapcat :patches (get-in encoded [:db-after :sections])))]
+    (is (= [[[:count] :assoc 2]] patches)
+        "only the genuine :count change is on the wire — no false :k patch")
+    (is (= epoch (de/decode-db-after encoded))
+        "and the sentinel-valued stable key round-trips")))
+
+;; ---------------------------------------------------------------------------
 ;; collect-patches — same-length vectors diff structurally.
 ;; ---------------------------------------------------------------------------
 

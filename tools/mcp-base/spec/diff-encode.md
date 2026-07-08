@@ -69,6 +69,8 @@ A vector **length change** (an insert / delete) is emitted as a single whole-vec
 
 `clojure.data/diff`'s parallel-vector sparse form (with `nil` placeholders meaning "common at this position") loses information once you only carry one half plus the original — you can't tell `nil` (the leaf value `nil`) apart from `nil` (the no-change sentinel). Path-keyed patches are unambiguous for any value the runtime can produce: a changed vector element rides under a numeric **index** path (`[[:items 0 :qty] :assoc 2]`), which carries the position explicitly and never relies on a positional `nil` sentinel.
 
+The encoder honours the same **no in-band sentinel** principle for the KEY side: added-key detection keys off key **presence** (`find`), never a marker value (rf2-znjqja). An earlier `(get a k ::absent)` conflated "key missing" with "key present holding a value equal to the marker", so an unchanged key whose app-db leaf happened to equal `:re-frame.mcp-base.diff-encode/absent` was mis-reported as `:added` — a spurious `[path :assoc value]` false patch (replay still reconstructs the value, but the wire diff lies to the agent). `find` returns the `[k v]` entry for any present key (including a present `nil`) and `nil` only for a genuinely absent key, so no runtime value can collide.
+
 ## Self-contained records
 
 The diff is **intra-record** — each epoch's `:db-after` is encoded against the SAME record's `:db-before`. Records remain self-contained and decodable without reference to siblings. The slice can be reordered, paginated, or filtered without breaking decode.
