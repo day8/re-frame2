@@ -9,7 +9,8 @@
 
   Also covers rf2-r40km — the CLJS-only `:rf.http/cors` classification
   branch of `re-frame.http.transport-cljs/classify-cljs-error`."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  (:require [cljs.reader :as edn]
+            [cljs.test :refer-macros [deftest is testing async]]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -179,6 +180,32 @@
           out (classify-cljs-error err "https://other.invalid/x")]
       (is (= :rf.http/transport (:kind out))
           "non-TypeError stays at :rf.http/transport regardless of URL"))))
+
+(deftest classify-transport-cause-is-edn-serializable-string
+  (testing "rf2-6pcz0d — the generic-rejection `:rf.http/transport` branch
+  stores `:cause` as the rejection CLASS-NAME STRING (`(.-name err)`), NOT the
+  raw js/Error object. The failure map rides `:error` on the canonical reply
+  (reply.cljc's EDN-serializable contract) and the `:rf.http/transport` trace;
+  a raw js/Error is NOT EDN-serializable (off-box capture / Tool-Pair / Xray
+  would throw on serialize) and would ALSO slip past the privacy `:cause`
+  redactor's `(string? …)` guard. This matches BOTH sibling paths — the JVM
+  `classify-jvm-error` (`:cause` = class name) and the CLJS `prepare-body!`
+  (`:cause` = `(.-name err)`)."
+    (let [err (js/Error. "connection-reset")
+          out (classify-cljs-error err "/api/items")]
+      (is (= :rf.http/transport (:kind out)))
+      (is (string? (:cause out))
+          ":cause is a STRING (the error class name), not the raw js/Error")
+      (is (= "Error" (:cause out))
+          ":cause is `(.-name err)` — \"Error\" for a plain js/Error")
+      (is (= "connection-reset" (:message out))
+          ":message still carries the human message")
+      ;; Adversarial EDN round-trip: a raw js/Error `:cause` prints as an
+      ;; unreadable `#object[…]` tag, so `read-string` would THROW (or not
+      ;; round-trip) before the fix. A string `:cause` round-trips cleanly,
+      ;; proving the whole failure map is EDN-serializable end to end.
+      (is (= out (edn/read-string (pr-str out)))
+          "the transport failure map round-trips through EDN (pr-str → read-string)"))))
 
 ;; ---- rf2-u5xwa — `cross-origin?` heuristic under a deterministic origin --
 
