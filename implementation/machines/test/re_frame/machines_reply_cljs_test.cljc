@@ -86,10 +86,10 @@
                :completed-at      1781078400888}
               {:user-id "u-42"})]
       (is (= :ok (:status r)))
-      (is (= :machine (:work/kind r)))
+      (is (= :machine (:rf.reply/work-kind r)))
       (is (= :completed (:rf.reply/work-status r)))
       (is (= {:user-id "u-42"} (:value r)))
-      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r)))
+      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:rf.reply/work-id r)))
       (is (= :app/main (:rf.frame/id r)))
       (is (= 1781078400888 (:completed-at r)))
       (is (= {:actor-id :auth/flow#1 :parent-id :auth/main :invoke-id [:authenticating]}
@@ -116,7 +116,7 @@
               {:reason :bad-creds})]
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))
-      (is (= :machine (:work/kind r)))
+      (is (= :machine (:rf.reply/work-kind r)))
       (is (some? (:error r)))
       (is (some? (:kind (:error r))) ":error carries a family :kind")
       (is (reply/valid-reply? r))))
@@ -141,7 +141,7 @@
       (is (= :rf.machine/actor-not-live (:rf.reply/stale-reason r)))
       (is (= :suppressed (:rf.reply/work-status r)))
       (is (not (contains? r :value)) ":stale MUST NOT carry :value (no app mutation)")
-      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r)))
+      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:rf.reply/work-id r)))
       (is (reply/valid-reply? r) "conforms to the shared reply-map contract"))))
 
 ;; ---- :after timer suppression gate ----------------------------------------
@@ -189,10 +189,10 @@
                :current-epoch   2
                :frame           :rf/default})]
       (is (= :stale (:status r)))
-      (is (= :timer (:work/kind r)) "machine :after is a specialized timer instance")
+      (is (= :timer (:rf.reply/work-kind r)) "machine :after is a specialized timer instance")
       ;; the canonical :work/id joins the uniform work/reply rows;
       ;; the SCHEDULED epoch (the timer's attempt identity) keys it.
-      (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
+      (is (= [:rf.work/timer [:a/multi :loading] 1] (:rf.reply/work-id r)))
       (is (= :suppressed (:rf.reply/work-status r)))
       (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason r)))
       (is (not (contains? r :value)))
@@ -210,9 +210,9 @@
                :epoch      2
                :frame      :rf/default})]
       (is (= :ok (:status r)))
-      (is (= :timer (:work/kind r)))
+      (is (= :timer (:rf.reply/work-kind r)))
       (is (= :completed (:rf.reply/work-status r)))
-      (is (= [:rf.work/timer [:a/multi :loading] 2] (:work/id r)))
+      (is (= [:rf.work/timer [:a/multi :loading] 2] (:rf.reply/work-id r)))
       (is (nil? (:value r)) "a timer carries no payload — :value is an explicit nil (completed-with-no-payload)")
       (is (reply/valid-reply? r) (str (reply/validate-reply r))))
     (testing "a guard-suppressed fired timer stays :ok/:completed (NOT stale) — the
@@ -238,9 +238,9 @@
       (is (true? (:cancelled? r)) "cancellation is a positive fact")
       (is (= :on-exit (:rf.reply/cancel-reason r)))
       (is (= :cancelled (:rf.reply/work-status r)))
-      (is (= :timer (:work/kind r)))
+      (is (= :timer (:rf.reply/work-kind r)))
       ;; matches the fired / stale reply's work-id (same scheduling attempt row)
-      (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
+      (is (= [:rf.work/timer [:a/multi :loading] 1] (:rf.reply/work-id r)))
       (is (not (contains? r :value)) "a cancelled timer never fired — no :value")
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
   (testing "every closed cancel reason produces a valid reply"
@@ -278,8 +278,8 @@
       (is (true? (:cancelled? r)))
       (is (= :explicit (:rf.reply/cancel-reason r)))
       (is (= :cancelled (:rf.reply/work-status r)))
-      (is (= :machine (:work/kind r)))
-      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r))
+      (is (= :machine (:rf.reply/work-kind r)))
+      (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:rf.reply/work-id r))
           "reuses the machine work-id so the cancel joins the spawn's row")
       (is (not (contains? r :value)) "the actor never produced an :output-key result")
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))))

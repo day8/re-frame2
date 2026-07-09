@@ -223,14 +223,14 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- base-reply
-  "The correlation / identity facts every timer reply carries: `:work/id`,
-  `:work/kind`, the carried frame stamp, and the causal timestamps. Optional
+  "The correlation / identity facts every timer reply carries: `:rf.reply/work-id`,
+  `:rf.reply/work-kind`, the carried frame stamp, and the causal timestamps. Optional
   facts are omitted when absent (Managed-Effects §The reply map). `started-at`
   / `completed-at` are causal epoch-ms readings the host completion supplies —
   never fresh clock reads."
   [{:keys [frame] :as args} {:keys [started-at completed-at]}]
-  (cond-> {:work/id   (work-id args)
-           :work/kind work-kind}
+  (cond-> {:rf.reply/work-id   (work-id args)
+           :rf.reply/work-kind work-kind}
     (some? frame)        (assoc :rf.frame/id frame)
     (some? started-at)   (assoc :started-at started-at)
     (some? completed-at) (assoc :completed-at completed-at)))
@@ -323,8 +323,8 @@
                    (gate generation)
                    (gate current-gen)
                    (cond-> {:status       :stale
-                            :work/id      (work-id args)
-                            :work/kind    work-kind
+                            :rf.reply/work-id      (work-id args)
+                            :rf.reply/work-kind    work-kind
                             :rf.reply/stale-reason stale-reason}
                      (some? frame)        (assoc :rf.frame/id frame)
                      (some? completed-at) (assoc :completed-at completed-at)))))

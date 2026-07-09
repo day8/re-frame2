@@ -123,8 +123,8 @@
   `re-frame.reply-conformance-fixtures/canonical-ok-reply` (rf2-b2a3a2)."
   (fixtures/canonical-ok-reply
     {:value       {:article {:id 42 :title "Welcome"}}
-     :work/id     (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
-     :work/kind   :route
+     :rf.reply/work-id     (route-reply/work-id {:route-id :route/article :nav-token "nav-1" :loader-id :article/loaded})
+     :rf.reply/work-kind   :route
      :rf.frame/id :app/main}))
 
 (def ^:private spawn-reply
@@ -267,9 +267,9 @@
           ;; the completed event is [:route/parent-relay route-id [loader-event reply]]
           inner     (nth completed 2)
           delivered (peek inner)]
-      (is (= (:work/id route-reply) (:work/id delivered)) "work-id rides unchanged through the relay")
+      (is (= (:rf.reply/work-id route-reply) (:rf.reply/work-id delivered)) "work-id rides unchanged through the relay")
       (is (= :ok (:status delivered)) "status rides unchanged")
-      (is (= :route (:work/kind delivered)))
+      (is (= :route (:rf.reply/work-kind delivered)))
       ;; EP-0017 (rf2-ear61v) — the durable causal completion fact rides
       ;; unchanged through relocation; a relay that dropped or mutated it
       ;; (mis-threading completion time) would surface here.
@@ -281,9 +281,9 @@
           completed (reply/complete (reply/map-completed-event on-done target) spawn-reply)
           inner     (nth completed 2)
           delivered (peek inner)]
-      (is (= (:work/id spawn-reply) (:work/id delivered)) "machine work-id rides unchanged")
+      (is (= (:rf.reply/work-id spawn-reply) (:rf.reply/work-id delivered)) "machine work-id rides unchanged")
       (is (= :ok (:status delivered)))
-      (is (= :machine (:work/kind delivered)))
+      (is (= :machine (:rf.reply/work-kind delivered)))
       (is (= completion-time-ms (:completed-at delivered))
           ":completed-at (the EP-0017 causal completion fact) rides unchanged through the spawn :on-done routing"))))
 

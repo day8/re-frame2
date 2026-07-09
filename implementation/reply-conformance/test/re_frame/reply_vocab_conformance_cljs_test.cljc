@@ -232,8 +232,8 @@
         current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}]
     (:reply (rreply/stale-reply
               {:carried carried :current current
-               :extra   {:work/id      (:work/id carried)
-                         :work/kind    :resource
+               :extra   {:rf.reply/work-id      (:work/id carried)
+                         :rf.reply/work-kind    :resource
                          :rf.frame/id  :app/main
                          :rf.reply/stale-reason :resource/generation-mismatch}}))))
 
@@ -276,8 +276,8 @@
                       current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}]
                   (:reply (rreply/stale-reply
                             {:carried carried :current current
-                             :extra   {:work/id      (:work/id carried)
-                                       :work/kind    :mutation
+                             :extra   {:rf.reply/work-id      (:work/id carried)
+                                       :rf.reply/work-kind    :mutation
                                        :rf.frame/id  :app/main
                                        :rf.reply/stale-reason :mutation/superseded}})))}
 
@@ -371,7 +371,7 @@
           [situation builder] (select-keys f [:success :error :cancel :stale])
           :when (and builder work-head)
           :let [reply (builder)
-                wid   (:work/id reply)]]
+                wid   (:rf.reply/work-id reply)]]
     (testing (str family " / " situation " :work/id correlation")
       (is (some? wid)
           (str family " " situation " reply MUST carry a :work/id — this table is "
@@ -398,9 +398,9 @@
   ;; otherwise never cross-checks. So a regression that drops or mis-orders the
   ;; actor in timer-work-id's logical-id — the actor-LESS `[:loading]` branch
   ;; the old `:machine-id` dead-key fixtures silently took — goes RED here.
-  (let [fired  (:work/id (after-fired-reply))
-        stale  (:work/id (after-stale-reply))
-        cancel (:work/id (m-reply/cancelled-timer-reply
+  (let [fired  (:rf.reply/work-id (after-fired-reply))
+        stale  (:rf.reply/work-id (after-stale-reply))
+        cancel (:rf.reply/work-id (m-reply/cancelled-timer-reply
                            {:actor-id  :a/multi
                             :state     :loading
                             :delay     30000

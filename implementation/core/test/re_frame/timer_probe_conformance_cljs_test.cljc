@@ -153,8 +153,8 @@
       (is (reply/valid-reply? reply) "validates against re-frame.reply/validate-reply")
       (is (= :ok (:status reply)))
       (is (= :completed (:rf.reply/work-status reply)))
-      (is (= :timer (:work/kind reply)))
-      (is (= [:rf.work/timer :debounce/search 1] (:work/id reply)))
+      (is (= :timer (:rf.reply/work-kind reply)))
+      (is (= [:rf.work/timer :debounce/search 1] (:rf.reply/work-id reply)))
       (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")
       (is (= {:fired-at 1781078400456} (:value reply)) "the elapsed payload is :value (EP-0007)")
       (is (not (contains? reply :error)) ":ok carries no :error"))))
@@ -200,13 +200,13 @@
         (is (true? (:stale? reply)))
         (is (= :rf.timer/generation-stale (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply carries NO :value (no app mutation)")
-        (is (= :timer (:work/kind reply)))
-        (is (= [:rf.work/timer :debounce/search 1] (:work/id reply)))
+        (is (= :timer (:rf.reply/work-kind reply)))
+        (is (= [:rf.work/timer :debounce/search 1] (:rf.reply/work-id reply)))
         (is (= :rf/default (:rf.frame/id reply))))
 
       (testing "the suppression trace carries the carried + current gates joined to :work/id"
         (is (true? (:rf.reply/suppressed? trace)))
-        (is (= [:rf.work/timer :debounce/search 1] (:work/id trace)))
+        (is (= [:rf.work/timer :debounce/search 1] (:rf.reply/work-id trace)))
         (is (= {:generation 1} (:rf.reply/carried trace)) "carried gate")
         (is (= {:generation 2} (:rf.reply/current trace)) "current gate")
         (is (= :rf.timer/generation-stale (:rf.reply/stale-reason trace))))))
@@ -332,8 +332,8 @@
       (is (= (reply/trace-summary reply {:frame :rf/default}) summary)
           "delegates to the shared trace-summary — never a family-private elider")
       (is (= :ok (:status summary)) "identity facts ride verbatim")
-      (is (= [:rf.work/timer :debounce/search 1] (:work/id summary)))
-      (is (= :timer (:work/kind summary))))))
+      (is (= [:rf.work/timer :debounce/search 1] (:rf.reply/work-id summary)))
+      (is (= :timer (:rf.reply/work-kind summary))))))
 
 (deftest suppression-emits-data-only-trace
   (testing "property 4 — the suppression trace is DATA ONLY (no host handles): it can

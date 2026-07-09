@@ -56,23 +56,23 @@
 
   Opts:
     :value        — the decoded result (required).
-    :work/id      — the `[:rf.work/* …]` attempt-identity tuple (required).
-    :work/kind    — the family work-kind keyword (required).
+    :rf.reply/work-id      — the `[:rf.work/* …]` attempt-identity tuple (required).
+    :rf.reply/work-kind    — the family work-kind keyword (required).
     :rf.frame/id  — the owning frame (required).
     :rf.reply/work-status  — OPTIONAL; included only when supplied (the egress suite
                     pins `:completed`; the functor suite omits it).
     :completed-at — OPTIONAL; defaults to `completion-time-ms`."
   [{value        :value
-    work-id      :work/id
-    work-kind    :work/kind
+    work-id      :rf.reply/work-id
+    work-kind    :rf.reply/work-kind
     frame-id     :rf.frame/id
     work-status  :rf.reply/work-status
     completed-at :completed-at
     :or          {completed-at completion-time-ms}}]
   (cond-> {:status       :ok
            :value        value
-           :work/id      work-id
-           :work/kind    work-kind
+           :rf.reply/work-id      work-id
+           :rf.reply/work-kind    work-kind
            :rf.frame/id  frame-id
            :completed-at completed-at}
     (some? work-status) (assoc :rf.reply/work-status work-status)))
