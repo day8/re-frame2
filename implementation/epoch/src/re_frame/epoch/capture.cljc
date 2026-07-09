@@ -9,7 +9,7 @@
                           `:sub-runs`, `:renders`, `:effects` slots.
     find-trigger-event -- one walk extracting `:event-id` + `:event`
                           + `:dispatch-id` + `:rf.cofx` from the cascade's
-                          first `:event/run-start`, with a `:event-id`-only
+                          first `:rf.event/run-start`, with a `:event-id`-only
                           fallback.
 
   Per rf2-0wi86 Phase-2 seam B: this namespace owns the cascade-buffer
@@ -104,8 +104,8 @@
 
 ;; ---- sub-run ops (rf2-wi900) ----------------------------------------------
 ;;
-;; The subs sibling of render-ops. A `:sub/run` (reactive recompute) or
-;; `:sub/skip` (memo hit) fires when a reaction is derefed — and reactions
+;; The subs sibling of render-ops. A `:rf.sub/run` (reactive recompute) or
+;; `:rf.sub/skip` (memo hit) fires when a reaction is derefed — and reactions
 ;; deref LAZILY at React render time, which Reagent batches onto a later
 ;; tick AFTER the causing cascade settled. So like a render, a sub-run
 ;; arriving with no in-flight cascade for its frame is a post-settle async
@@ -147,7 +147,7 @@
 
 (defn in-flight-cascade?
   "True when the frame's in-flight capture buffer already holds an
-  `:event/run-start` emit — the canonical signal that a cascade has
+  `:rf.event/run-start` emit — the canonical signal that a cascade has
   begun draining into this buffer. The single home for the
   'is a cascade in flight for this frame?' question; both the
   post-settle back-fill routing below and
@@ -185,7 +185,7 @@
   also skipped, so a snapshotted/restored/db-replaced emit cannot leak
   into the next cascade's harvested record.
 
-  Per rf2-qs6dl: a view-render op (`:view/render` / `:rf.view/rendered`
+  Per rf2-qs6dl: a view-render op (`:rf.view/render` / `:rf.view/rendered`
   / `:rf.view/rendered-cap-reached`) that arrives with no in-flight
   cascade for its frame is a post-settle async re-render — it fired at
   React commit time, AFTER the causing cascade settled. Routing it into
@@ -196,7 +196,7 @@
   that cascade and is buffered as before.
 
   Per rf2-wi900: the identical post-settle timing applies to reactive
-  sub-runs (`:sub/run` / `:rf.sub/skip`) — reactions recompute lazily at
+  sub-runs (`:rf.sub/run` / `:rf.sub/skip`) — reactions recompute lazily at
   React deref time, AFTER the causing cascade settled, so a sub-run with
   no in-flight cascade is back-filled into the causing epoch via the
   `:epoch/record-sub-run!` hook (sibling of `:epoch/record-render!`). An
@@ -220,7 +220,7 @@
           frame-id (or (:frame tags)
                        (:frame event))]
       ;; rf2-vh1k3 — learn which subs each view reads from the
-      ;; `:reader-render-key` stamp the runtime sets on a `:sub/run`
+      ;; `:reader-render-key` stamp the runtime sets on a `:rf.sub/run`
       ;; that recomputes SYNCHRONOUSLY inside a view's render (the mount /
       ;; first-paint deref). A post-settle reactive recompute fires
       ;; outside any render binding and carries no stamp, so this learns
@@ -279,7 +279,7 @@
           ;; Out-of-cascade orphan — drop from the capture buffer (rf2-avvwm).
           ;; An emit with NO cascade context (no in-flight cascade for the
           ;; frame AND no `:dispatch-id` on its tags) belongs to no cascade:
-          ;; a frame-lifecycle emit (`:frame/created` / `:frame/re-registered`)
+          ;; a frame-lifecycle emit (`:rf.frame/created` / `:rf.frame/re-registered`)
           ;; fired between the last settled event and the next dequeue, or a
           ;; registry-time emit. Per Spec 009 §Dispatch correlation it stays
           ;; UNCORRELATED — neither a new epoch nor folded into another
@@ -294,7 +294,7 @@
           ;;
           ;; A `:dispatch-id`-bearing emit is ALWAYS buffered even when no
           ;; cascade is in flight for THIS frame at the instant of the emit:
-          ;; a child's `:event/dispatched` marker fires during the PARENT's
+          ;; a child's `:rf.event/dispatched` marker fires during the PARENT's
           ;; do-fx carrying the child's id, and rides the child's later
           ;; `harvest-buffer-for-event!` settle.
           (and (not (in-flight-cascade? frame-id))
@@ -320,8 +320,8 @@
 ;;
 ;; The walk visits the in-flight buffer for the frame at the moment the
 ;; substrate fires its render. Returns `{:cause-event-id <eid>
-;; :cause-subs <sub-ids vector>}`. The first `:event/run-start` we see
-;; supplies `:cause-event-id`; every `:sub/run` contributes to
+;; :cause-subs <sub-ids vector>}`. The first `:rf.event/run-start` we see
+;; supplies `:cause-event-id`; every `:rf.sub/run` contributes to
 ;; `:cause-subs` (deduped, preserving first-seen order). Empty buffer
 ;; (render outside any run — e.g. fixture-driven direct invocations,
 ;; or React's post-settle async batch) yields `{}` so consumers see the
@@ -337,12 +337,12 @@
 
   Return-map slots:
 
-    :cause-event-id — the event-id of the first :event/run-start seen
+    :cause-event-id — the event-id of the first :rf.event/run-start seen
                       in the run (i.e. the dispatching run's
                       trigger event).
     :cause-subs     — distinct sub-ids that ran in the run so far,
                       in first-seen order, capped at sub-cap.
-    :value-changed-subs — the SUBSET of subs whose :sub/run reported
+    :value-changed-subs — the SUBSET of subs whose :rf.sub/run reported
                       :rf.sub/value-changed? true (rf2-8wrzz.1). A `set`
                       of sub-ids, independently bounded by sub-cap: the
                       walk gates value-changed accumulation on its own
@@ -366,7 +366,7 @@
   ([frame-id sub-cap]
    (when interop/debug-enabled?
      (let [events  (state/buffer-for frame-id)
-           ;; Single reduce: capture first :event/run-start, accumulate
+           ;; Single reduce: capture first :rf.event/run-start, accumulate
            ;; distinct sub-ids in first-seen order up to `sub-cap`, and
            ;; count the existing :rf.view/rendered emits so the views.cljs
            ;; emit site can enforce the per-run view-render cap.
@@ -433,16 +433,16 @@
 ;; `project-all`'s fused reducer (the settle-time projection) and the
 ;; post-settle back-fill in `re-frame.epoch.listeners` (which projects a
 ;; single late-arriving event into the same row shape). Keeping the row
-;; literal in ONE place means a future field added to the `:sub/run` /
-;; `:view/render` projection lands on both surfaces automatically, avoiding
+;; literal in ONE place means a future field added to the `:rf.sub/run` /
+;; `:rf.view/render` projection lands on both surfaces automatically, avoiding
 ;; a lockstep maintenance hazard across two duplicate row literals.
 
 (defn sub-run-row
   "Project a `:rf.sub/run` trace event into its structured `:sub-runs`
-  row, or nil for any non-`:sub/run` op (a `:rf.sub/skip` memo hit
+  row, or nil for any non-`:rf.sub/run` op (a `:rf.sub/skip` memo hit
   projects no `:sub-runs` row — it rides only `:trace-events`).
 
-  Per rf2-l1jz8 the reactive recompute path enriches the `:sub/run` tag
+  Per rf2-l1jz8 the reactive recompute path enriches the `:rf.sub/run` tag
   with value-change + cascade attribution (`:value-changed?` /
   `:prev-value` / `:value` / `:cascade?` / `:cause-sub`); they are
   threaded onto the structured projection so Xray's Reactive panel reads
@@ -569,8 +569,8 @@
   Per-projection contracts preserved verbatim (no schema change):
 
     :sub-runs — Spec-Schemas §`:rf/epoch-record`. One entry per
-      `:sub/run` trace event. Cache-hit subs (rf2-719e fast-path) do
-      NOT emit `:sub/run` and are correctly absent.
+      `:rf.sub/run` trace event. Cache-hit subs (rf2-719e fast-path) do
+      NOT emit `:rf.sub/run` and are correctly absent.
 
     :renders — Spec-Schemas §`:rf/epoch-record` and Spec 004 §Render-tree
       primitives (rf2-t5tx Option C / rf2-piag). One entry per
@@ -607,7 +607,7 @@
                       tags (:tags ev)]
                   (cond
                     ;; Per rf2-l1jz8 — the reactive recompute path enriches
-                    ;; the `:sub/run` tag with value-change + cascade
+                    ;; the `:rf.sub/run` tag with value-change + cascade
                     ;; attribution; `sub-run-row` threads them onto the
                     ;; structured projection (shared with the post-settle
                     ;; back-fill in `listeners`).
@@ -662,7 +662,7 @@
 ;; ---- trigger-event resolution --------------------------------------------
 
 (defn find-trigger-event
-  "Walk the buffered events to find the first :event/run-start trace.
+  "Walk the buffered events to find the first :rf.event/run-start trace.
   That carries the `:event`, `:event-id`, `:dispatch-id`, the
   post-generation `:rf.cofx` replay token, AND (rf2-yigokd) the envelope's
   serializable `:fx-overrides` / `:interceptor-overrides` for the cascade.
@@ -707,7 +707,7 @@
   elided — that would starve the epoch-scoped Views + Trace panels.
 
   Per rf2-txrq9: single-walk reduction over `events`. We accumulate the
-  first `:event/run-start`, the first fallback `:event-id`, AND
+  first `:rf.event/run-start`, the first fallback `:event-id`, AND
   (rf2-cheez6.1, below) the cascade's mid-drain machine-minted generator
   facts in one traversal and prefer the run-start.
 
@@ -812,7 +812,7 @@
                 ;; Per rf2-ee38b (§correctness): the fallback arm does NOT
                 ;; pin `:dispatch-id`. Spec-Schemas §`:rf/epoch-record`
                 ;; documents `:dispatch-id` as "pinned from the
-                ;; `:event/run-start` tag … absent when the cascade carried
+                ;; `:rf.event/run-start` tag … absent when the cascade carried
                 ;; no dispatch-id (rejected dispatch / pre-run-start halt)"
                 ;; — the strictly-spec shape for a no-run-start cascade is
                 ;; ABSENT. Pinning `:dispatch-id` here would surface the id

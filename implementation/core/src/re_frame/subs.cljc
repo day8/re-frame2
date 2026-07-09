@@ -253,7 +253,7 @@
                      :input-kind    input-kind
                      :input-signals (or input-signals []))
         input-fn (assoc :input-fn input-fn)))
-    ;; Per Spec 009 §:op-type vocabulary: :sub/create marks subscription
+    ;; Per Spec 009 §:op-type vocabulary: :rf.sub/create marks subscription
     ;; materialisation — emitted at registration time so tools see when
     ;; the sub becomes available in the registry.
     (trace/emit! :rf.sub :rf.sub/create
@@ -776,7 +776,7 @@
       Layer-2 with a single `:<-` input gets the same fixed-arity-1
       treatment (the dominant layer-2 shape). Layer-2+ with ≥2 inputs
       uses the vec-of-inputs varargs shape.
-    - `validate-and-trace`  — Spec 009 :sub/run trace emit, perf bracket,
+    - `validate-and-trace`  — Spec 009 :rf.sub/run trace emit, perf bracket,
       Spec 010 step 6 validation, error contract
       (`:replaced-with-default` on throw).
 
@@ -1439,12 +1439,12 @@
         ;; reference within the same call is also a single resolution.
         (do (swap! memo assoc query-v nil) nil)
         (do
-          ;; Per Spec 009 §:op-type vocabulary: :sub/run marks a sub recompute.
+          ;; Per Spec 009 §:op-type vocabulary: :rf.sub/run marks a sub recompute.
           ;; The pure compute-sub form fires the same op-type as the reactive
           ;; recompute path so tools can observe both call sites uniformly.
           ;;
           ;; Per rf2-l1jz8 — the reactive recompute path (subs.memo/validate-
-          ;; and-trace) enriches its `:sub/run` tag with value-change +
+          ;; and-trace) enriches its `:rf.sub/run` tag with value-change +
           ;; cascade attribution (`:value-changed?` / `:prev-value` /
           ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
           ;; bypasses the per-frame reactive cache (it's the pure-snapshot
@@ -1452,7 +1452,7 @@
           ;; diff for `:value-changed?` and NO reactive context to attribute a
           ;; cascade against — each DISTINCT `:<-` input is re-resolved fresh
           ;; against the supplied `db`, not observed as a changed upstream
-          ;; signal. It therefore emits the BASE `:sub/run` shape only;
+          ;; signal. It therefore emits the BASE `:rf.sub/run` shape only;
           ;; attribution is a reactive-path concern. Consumers (Xray) read
           ;; attribution off the reactive epoch records, never off
           ;; compute-sub emissions.

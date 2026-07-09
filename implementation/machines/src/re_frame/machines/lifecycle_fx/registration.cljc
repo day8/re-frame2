@@ -484,7 +484,7 @@
      :inner-event      (route-inner-event event)}))
 
 (defn- start-cause
-  "Compute the `:rf.machine.start/cause` enum for a `maybe-boot` that ran
+  "Compute the `:cause` enum (on the `:rf.machine/started` trace) for a `maybe-boot` that ran
   the initial-entry cascade. Three-way:
 
     - `:spawned`  — the handler found a snapshot ALREADY in runtime-db (the

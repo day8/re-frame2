@@ -1205,10 +1205,10 @@
   Per Spec 013 §Drain integration: `(:db effects)` here is the
   FLOW-AUGMENTED app-db value — the OUTERMOST flows-after-interceptor has
   already rewritten the pending `:db` effect by the time the chain returns.
-  So `:event/db-changed` reflects the flow-derived db and fires AFTER
+  So `:rf.event/db-changed` reflects the flow-derived db and fires AFTER
   `:rf.flow/computed` (per Spec 009 §Canonical per-event trace sequence).
 
-  On rollback, a second `:event/db-changed` (+ `frame-state-changed`) trace
+  On rollback, a second `:rf.event/db-changed` (+ `frame-state-changed`) trace
   is emitted for the restored state with `:phase :rollback` so listeners
   (subs, 10x, pair-tools) observe the post-rollback frame-state without
   ambiguity — the trace stream's load-bearing ordering is `:db-changed
@@ -1821,7 +1821,7 @@
   child dispatches. User fxs see it at `(:envelope m)`.
 
   Per rf2-twt7m Change 2: the full effects map is also threaded to
-  `do-fx` (the `:effects` opt) so the terminating `:event/do-fx` trace
+  `do-fx` (the `:effects` opt) so the terminating `:rf.fx/do-fx` trace
   marker can stamp `:fx` (the returned vector) and `:db-present?`
   (whether the handler returned a `:db` slot). The value of `:db`
   is NOT stamped — App-db diff traces already carry slice changes.
@@ -2376,8 +2376,8 @@
   handler opts out. `:call-site` and `:dispatch-id` are inherited from
   the parent scope (bound by `process-event!` outer wrapper) per
   `inherit-scope`. Scope covers the interceptor chain, db commit, flows,
-  and fx walk — covering :event/db-changed, :event/do-fx, :rf.fx/handled
-  (the inner fx scope re-binds), :sub/run (sub recompute re-binds),
+  and fx walk — covering :rf.event/db-changed, :rf.fx/do-fx, :rf.fx/handled
+  (the inner fx scope re-binds), :rf.sub/run (sub recompute re-binds),
   :rf.error/* (every error emit inside the chain).
 
   Per rf2-rirbq: `start-ms` is captured at the very start of cascade
@@ -2807,7 +2807,7 @@
   `:always` microsteps do not allocate a new epoch.
 
   `settle!` itself skips an empty buffer (a rejected/aborted dispatch that
-  never fired `:event/run-start`), so a no-handler / frame-destroyed early
+  never fired `:rf.event/run-start`), so a no-handler / frame-destroyed early
   exit commits no misleading record. rf2-erczwd: a rejected dispatch still
   buffers a frame-stamped, dispatch-id-bearing ERROR trace (`:no-such-handler`
   / `:frame-destroyed`), so the buffer is NOT empty at this seam. Threading the
@@ -3180,7 +3180,7 @@
       (interop/next-tick (fn [] (drain-try! frame-id))))))
 
 (defn- emit-dispatched-trace!
-  "Emit the :event :event/dispatched trace event for this envelope. Per
+  "Emit the :rf.event :rf.event/dispatched trace event for this envelope. Per
   Spec 009 §Dispatch correlation, :dispatch-id and :parent-dispatch-id
   ride on :tags. Per Spec 002 §Dispatch origin tagging, :origin rides
   on :tags too. Per rf2-1ve9h (Mike-approved Option A, 2026-05-28), the
@@ -3195,7 +3195,7 @@
   Per rf2-qsjda: queue-time `:rf.trace/no-emit?` consideration. The
   `*handler-scope*` binding's `:no-emit?` slot doesn't exist yet at
   enqueue time, so we read the flag directly off the target handler's
-  registration meta and short-circuit the `:event/dispatched` emit
+  registration meta and short-circuit the `:rf.event/dispatched` emit
   when set. Without this, a Xray-style bookkeeping handler would
   have its enqueue trace delivered to listeners (re-entering the
   consumer's trace-cb) before the handler-scope binding ever took

@@ -320,7 +320,7 @@
 ;; handler's.
 ;;
 ;; The framework's stock cofx surface emits no success-path trace of its
-;; own (`cofx.cljc` only emits `:rf.error/no-such-cofx` on the miss
+;; own (`cofx.cljc` only emits `:rf.error/unregistered-cofx` on the miss
 ;; path). To exercise the success-path binding contract, the test
 ;; registers a cofx whose body itself calls `trace/emit!` — exactly the
 ;; pattern an instrumented cofx (http, persistence, websocket) would
