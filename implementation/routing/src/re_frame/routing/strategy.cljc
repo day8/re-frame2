@@ -31,7 +31,11 @@
     history). Side-reading (touches `window.location`), CLJS-only.
   - `:push!` / `:replace!` drive `window.history` with the ENCODED href
     — `:push!` adds a history entry, `:replace!` overwrites the current
-    one. Side-effecting, CLJS-only.
+    one. They are RAW window.history legs: `:encode` is the SINGLE
+    outbound encoding authority (the nav fxs encode the path-form URL to
+    its final href ONCE and hand it here), so `:push!` / `:replace!` MUST
+    NOT re-encode — a custom strategy's legs receive the already-encoded
+    href verbatim (rf2-irygd6). Side-effecting, CLJS-only.
   - `:install-listener!` installs the browser URL-change listener and
     returns a 0-arg teardown thunk. `on-change` is a 1-arg fn the
     listener calls with the DECODED path-form URL on every browser-driven
@@ -166,19 +170,26 @@
 
 #?(:cljs
    (defn hash-push!
-     "Hash strategy `:push!` — push a NEW history entry carrying the hash
-     href. Uses `pushState` (not a bare `location.hash =`) so the entry is
-     created deterministically without also firing a synchronous
-     `hashchange` mid-drain."
+     "Hash strategy `:push!` — push a NEW history entry carrying the
+     already-encoded hash href. RAW (rf2-irygd6): `:encode` is the single
+     outbound encoding authority — the nav fxs encode the path-form URL to
+     `#/active` ONCE and hand it here — so this leg pushes the href
+     UNCHANGED and must NOT re-encode, or a base-path deploy would
+     double-hash (`#/demos#/active`). Uses `pushState` (not a bare
+     `location.hash =`) so the entry is created deterministically without
+     also firing a synchronous `hashchange` mid-drain."
      [href]
-     (.pushState js/window.history nil "" (hash-encode href))))
+     (.pushState js/window.history nil "" href)))
 
 #?(:cljs
    (defn hash-replace!
      "Hash strategy `:replace!` — overwrite the current history entry with
-     the hash href via `replaceState` (no new entry)."
+     the already-encoded hash href via `replaceState` (no new entry). RAW,
+     like `hash-push!` (rf2-irygd6): `:encode` is the single outbound
+     encoding authority, so this leg replaces with the href UNCHANGED — no
+     internal `hash-encode`."
      [href]
-     (.replaceState js/window.history nil "" (hash-encode href))))
+     (.replaceState js/window.history nil "" href)))
 
 #?(:cljs
    (defn hash-install-listener!
@@ -267,10 +278,16 @@
     - `:decode`            strips `base` off the wrapped strategy's decoded
                            path-form URL.
     - `:encode`            re-adds `base` to the wrapped strategy's encoded
-                           href (the `route-link` / history-fx egress leg).
-    - `:push!` / `:replace!` re-add `base` before driving the wrapped
-                           strategy's history mutation, so the browser
-                           address bar carries the real mount-point URL.
+                           href — the SINGLE outbound base-composition point
+                           (rf2-irygd6). `route-link` renders this href and the
+                           nav fxs push it, so the mount-point prefix sits
+                           OUTSIDE the address-bar form (`/demos#/active` for a
+                           hash app, `/demos/active` for a history app).
+    - `:push!` / `:replace!` are NOT re-wrapped — `:encode` is the single
+                           outbound encoding authority, so the base already
+                           rides the encoded href the nav fxs hand these RAW
+                           legs. Re-adding it here would double it into the
+                           fragment on a hash app (`#/demos#/active`).
     - `:install-listener!` strips `base` off each browser-driven change
                            before calling `on-change`, so the dispatched
                            `:rf.route/handle-url-change` URL is always
@@ -282,9 +299,11 @@
 
   `base` is normalized (a leading `/` is added if missing; a trailing `/`
   is stripped). A blank/nil `base` returns `strategy` UNCHANGED — the common
-  no-sub-path app pays no wrapping cost. The side-effecting keys
-  (`:push!` / `:replace!` / `:install-listener!`) are CLJS-only, mirroring
-  the two shipped strategies (SSR ignores strategies).
+  no-sub-path app pays no wrapping cost. Only `:install-listener!` among the
+  side-effecting keys is wrapped (base-stripping ingress); `:push!` /
+  `:replace!` pass through unwrapped from the inner strategy, since `:encode`
+  already carries the base outbound. The wrapped `:install-listener!` is
+  CLJS-only, mirroring the two shipped strategies (SSR ignores strategies).
 
   Declare on the URL-owning frame:
 
@@ -299,12 +318,16 @@
       (merge strategy
              {:encode (fn [path] (str b ((:encode strategy) path)))
               :decode (fn [] (strip-base-path b ((:decode strategy))))}
+             ;; :push! / :replace! are deliberately NOT wrapped (rf2-irygd6):
+             ;; `:encode` is the single outbound encoding authority — the nav
+             ;; fxs encode once and hand these RAW legs the final base-prefixed
+             ;; href — so the inner strategy's :push!/:replace! pass through via
+             ;; `merge` unchanged. Re-adding the base here would double it into
+             ;; the fragment on a hash app (`#/demos#/active`). Only the ingress
+             ;; listener is wrapped: it STRIPS the base so `on-change` stays
+             ;; app-relative.
              #?(:cljs
                 (cond-> {}
-                  (:push! strategy)
-                  (assoc :push! (fn [href] ((:push! strategy) (str b href))))
-                  (:replace! strategy)
-                  (assoc :replace! (fn [href] ((:replace! strategy) (str b href))))
                   (:install-listener! strategy)
                   (assoc :install-listener!
                          (fn [on-change]

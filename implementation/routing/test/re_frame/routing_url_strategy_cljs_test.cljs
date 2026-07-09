@@ -17,12 +17,18 @@
   Plus an ADVERSARIAL negative: a malformed `#`-URL fails closed to a
   route-miss, exactly as a malformed path-URL does.
 
-  5. The `with-base-path` combinator's three CLJS-only side-effecting legs
-     (rf2-33uv27): `:push!` / `:replace!` re-add the deployment base before
-     driving `window.history`, and `:install-listener!` STRIPS the base off
-     each browser-driven change before `on-change` — a `/realworld`-deployed
-     app's address bar carries the mount-point URL while the router stays
-     app-relative.
+  5. The `with-base-path` combinator (rf2-33uv27 / rf2-irygd6): `:encode` is
+     the single outbound authority that re-adds the deployment base (the nav
+     fxs encode ONCE then drive the RAW `:push!` / `:replace!` legs), and
+     `:install-listener!` STRIPS the base off each browser-driven change before
+     `on-change` — a `/realworld`-deployed app's address bar carries the
+     mount-point URL while the router stays app-relative.
+
+  6. rf2-irygd6 end-to-end: over BOTH shipped strategies, with and without a
+     base, `:encode` / `:rf.nav/push-url` / `:rf.nav/replace-url` agree — a
+     `/demos` hash app's route-link href AND its pushed/replaced address bar
+     all read `/demos#/active` (base OUTSIDE the fragment), never
+     `#/demos/active`, and no produced URL is double-encoded.
 
   Node has no `window`, so a jsdom-style history/location stub is installed
   per-test (mirroring `routing_history_cljs_test.cljs`). Per Spec 012 §URL
@@ -130,6 +136,16 @@
   (rf/reg-route :s/active    {} "/active")
   (rf/reg-route :s/completed {} "/completed")
   (rf/reg-route :rf.route/not-found {} "/_404"))
+
+(defn- double-hash?
+  "True when `s` carries two or more `#` — the double-encode failure shape
+  (`#/demos#/active`) rf2-irygd6 forbids on every produced URL."
+  [s]
+  (<= 2 (count (filter #(= % \#) s))))
+
+(defn- route-slice-id [frame-id]
+  (:route-id (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
+                     [:rf.runtime/routing :current])))
 
 ;; ==========================================================================
 ;; 1. push-url / replace-url through a HASH-strategy frame push the `#` href
@@ -265,44 +281,46 @@
     (is (= "#/active" (strategy/hash-encode (strategy/hash-encode "/active"))))))
 
 ;; ==========================================================================
-;; 5. with-base-path (rf2-g8pbwg / rf2-33uv27) — the three CLJS-only
-;;    side-effecting legs (:push! / :replace! / :install-listener!) driven
-;;    against the live stubbed window.
+;; 5. with-base-path (rf2-g8pbwg / rf2-33uv27 / rf2-irygd6) — the CLJS-only
+;;    side-effecting legs driven against the live stubbed window.
 ;;
 ;; The JVM suite (`routing_url_strategy_test.clj`) pins the host-agnostic
-;; :encode/:decode wrapping + the blank-base no-op; these three side-effecting
-;; legs are CLJS-only and had ZERO executed coverage (rf2-33uv27). They are the
-;; egress (`:push!`/`:replace!` re-add the base so the address bar carries the
-;; real mount-point URL) and ingress (`:install-listener!` STRIPS the base so
-;; the app-side handler stays app-relative) halves the base-path combinator
-;; exists for — a `/realworld`-deployed app. Driven here over the DEFAULT
-;; history strategy (the case the bead describes); the wrapper's `:decode`
-;; strip is already round-tripped by section 3's live-window test for the
-;; shipped strategies.
+;; :encode/:decode wrapping + the blank-base no-op; these legs are CLJS-only
+;; and had ZERO executed coverage (rf2-33uv27).
+;;
+;; rf2-irygd6 CONTRACT CHANGE: `:encode` is the SINGLE outbound encoding
+;; authority — the nav fxs encode the path-form url ONCE (base re-added there)
+;; and hand the final href to the RAW `:push!` / `:replace!` legs, which drive
+;; window.history WITHOUT re-encoding. So `with-base-path` no longer wraps
+;; `:push!` / `:replace!` (they pass through from the inner strategy); the base
+;; rides the encoded href instead. These two tests therefore model the nav-fx
+;; contract directly: encode-once, then drive the raw leg with the final href.
+;; The ingress `:install-listener!` STRIPS the base (unchanged).
 ;; ==========================================================================
 
-(deftest with-base-path-push!-re-adds-base-to-history-entry-cljs
-  (testing "rf2-33uv27: a with-base-path-wrapped history strategy's :push!
-            re-adds the base before driving window.history — every pushed
-            entry carries the real /realworld mount-point href, not the bare
-            app-relative path"
-    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
-      ((:push! wrapped) "/active")
-      ((:push! wrapped) "/completed")
+(deftest with-base-path-encode-then-push!-drives-base-prefixed-entry-cljs
+  (testing "rf2-irygd6: :encode re-adds the base ONCE, then the RAW :push! leg
+            drives window.history with that final href unchanged — every pushed
+            entry carries the real /realworld mount-point href (base outside the
+            wrapped form), mirroring how the nav fx drives it"
+    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")
+          drive!  (fn [p] ((:push! wrapped) ((:encode wrapped) p)))]
+      (drive! "/active")
+      (drive! "/completed")
       (is (= ["/" "/realworld/active" "/realworld/completed"]
              (:entries @*history-state*))
-          "each :push! entry is the base-prefixed href (a new entry per push)")
+          "each entry is the base-prefixed href (encode-once → raw push)")
       (is (= "/realworld/completed" (current-url *history-state*))
           "the address bar sits on the base-prefixed completed href"))))
 
-(deftest with-base-path-replace!-re-adds-base-and-overwrites-cljs
-  (testing "rf2-33uv27: the wrapped :replace! re-adds the base AND overwrites
-            the current history entry (no new entry) — mirroring the shipped
-            strategy's replace semantics under the base prefix"
+(deftest with-base-path-encode-then-replace!-overwrites-cljs
+  (testing "rf2-irygd6: the RAW :replace! leg overwrites the current history
+            entry (no new entry) with the encode-once base-prefixed href —
+            mirroring the shipped strategy's replace semantics under the base"
     (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
-      ((:push! wrapped) "/active")
+      ((:push! wrapped) ((:encode wrapped) "/active"))
       (let [before (count (:entries @*history-state*))]
-        ((:replace! wrapped) "/completed")
+        ((:replace! wrapped) ((:encode wrapped) "/completed"))
         (is (= before (count (:entries @*history-state*)))
             ":replace! did not add a history entry")
         (is (= "/realworld/completed" (current-url *history-state*))
@@ -349,3 +367,93 @@
       (is (= "/" @received)
           "the mount root decodes+strips to the app root `/`")
       (teardown))))
+
+;; ==========================================================================
+;; 6. rf2-irygd6 — single outbound-encoding authority: :encode / :rf.nav/push-url
+;;    / :rf.nav/replace-url AGREE over both strategies, with and without a base,
+;;    and no produced URL is double-encoded. The canonical hash+base shape is
+;;    base OUTSIDE the fragment (/demos#/active) — the route-link href AND the
+;;    address bar read it identically; inbound decode always returns the
+;;    app-relative path-form. This is the divergence the bead fixes: before, the
+;;    :encode href read /demos#/active while :push! drove #/demos/active.
+;; ==========================================================================
+
+(deftest hash-base-links-and-address-bar-agree-irygd6-cljs
+  (testing "rf2-irygd6: a /demos-based HASH app — the route-link href, the
+            :rf.nav/push-url entry, and the :rf.nav/replace-url entry ALL read
+            /demos#/…-shaped (base OUTSIDE the fragment), inbound decode returns
+            the app-relative path-form, and no URL is double-hashed"
+    (rf/reg-frame :rf/default
+                  {:url-bound?   true
+                   :url-strategy (strategy/with-base-path
+                                   strategy/hash-url-strategy "/demos")})
+    (register-routes!)
+    ;; (a) route-link href — the :encode egress leg.
+    (let [[_ attrs] (rf/with-frame :rf/default
+                      (routing/route-link-render {:to :s/active}))]
+      (is (= "/demos#/active" (:href attrs))
+          "route-link href puts the base OUTSIDE the fragment (:encode authority)")
+      (is (not (double-hash? (:href attrs))) "route-link href is not double-hashed"))
+    ;; (b) :rf.nav/push-url — the address bar agrees with the href.
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (is (= ["/" "/demos#/active"] (:entries @*history-state*))
+        "the pushed history entry matches the route-link href — base outside the fragment")
+    (is (= :s/active (route-slice-id :rf/default))
+        "the route slice tracks the path-form route (cascade stays path-form)")
+    (is (not (double-hash? (current-url *history-state*)))
+        "the pushed address-bar URL is not double-hashed (#/demos#/active)")
+    ;; (c) :rf.nav/replace-url — overwrites in place with the same shape.
+    (let [before (count (:entries @*history-state*))]
+      (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
+      (is (= before (count (:entries @*history-state*)))
+          "replace did not add a history entry")
+      (is (= "/demos#/completed" (current-url *history-state*))
+          "the replaced entry is base-outside-fragment shaped, agreeing with :encode")
+      (is (not (double-hash? (current-url *history-state*)))
+          "the replaced URL is not double-hashed"))
+    ;; (d) inbound decode returns the app-relative path-form.
+    (let [strat (strategy/url-strategy-for-frame-id :rf/default)]
+      (is (= "/completed" ((:decode strat)))
+          "decode of the live /demos#/completed address bar is app-relative /completed"))))
+
+(deftest history-base-links-and-address-bar-agree-irygd6-cljs
+  (testing "rf2-irygd6 mirror: a /demos-based HISTORY app — route-link href +
+            push + replace all read /demos/…-shaped, decode is app-relative
+            (behaviour unchanged by the seam, pinned for parity with the hash case)"
+    (rf/reg-frame :rf/default
+                  {:url-bound?   true
+                   :url-strategy (strategy/with-base-path
+                                   strategy/history-url-strategy "/demos")})
+    (register-routes!)
+    (let [[_ attrs] (rf/with-frame :rf/default
+                      (routing/route-link-render {:to :s/active}))]
+      (is (= "/demos/active" (:href attrs))
+          "route-link href re-adds the base to the path-form href"))
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (is (= ["/" "/demos/active"] (:entries @*history-state*))
+        "the pushed entry carries the base-prefixed path")
+    (is (= :s/active (route-slice-id :rf/default))
+        "the route slice tracks the path-form route")
+    (let [before (count (:entries @*history-state*))]
+      (rf/dispatch-sync [:rf.route/navigate :s/completed {} {:replace? true}])
+      (is (= before (count (:entries @*history-state*)))
+          "replace did not add a history entry")
+      (is (= "/demos/completed" (current-url *history-state*))
+          "the replaced entry is base-prefixed, agreeing with :encode"))
+    (let [strat (strategy/url-strategy-for-frame-id :rf/default)]
+      (is (= "/completed" ((:decode strat)))
+          "decode strips the base — app-relative /completed"))))
+
+(deftest hash-no-base-push-is-single-hash-irygd6-cljs
+  (testing "rf2-irygd6: the HASH strategy WITHOUT a base still pushes a single
+            #/active (no double-hash) — the raw :push! leg drives exactly the
+            :encode-produced href. (History-without-base is pinned by
+            `history-frame-push-url-pushes-path-href-cljs`.)"
+    (rf/reg-frame :rf/default {:url-bound?   true
+                               :url-strategy strategy/hash-url-strategy})
+    (register-routes!)
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
+    (is (= ["/" "#/active"] (:entries @*history-state*))
+        "hash pushes a single-# href")
+    (is (not (double-hash? (current-url *history-state*)))
+        "the hash URL is not double-hashed")))
