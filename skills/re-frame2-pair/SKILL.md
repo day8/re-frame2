@@ -14,8 +14,8 @@ description: >
   matches alone do not justify activation.
 allowed-tools:
   # Pair-MCP — single persistent nREPL connection per session
-  # (install: npm install -g @day8/re-frame2-pair-mcp). All 30 server
-  # tools are reachable; the body + references explain each surface.
+  # (not yet on npm — build/run from a re-frame2 clone; see docs/LOCAL_DEV.md).
+  # All 30 server tools are reachable; the body + references explain each surface.
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch
@@ -90,22 +90,16 @@ Every op eventually becomes a short ClojureScript form evaluated through the REP
 
 The skill's helper namespace ships into the app via shadow-cljs's `:devtools :preloads` mechanism (separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract). **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. When `discover-app` can't find the marker it runs a diagnostic ladder; the normal missing-preload verdict is `:reason :runtime-loaded-but-preload-missing`. See [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder) for the full reason set and each recovery.
 
-First install the preload package as a dev dependency in the consumer app:
-
-```bash
-npm install -D @day8/re-frame2-pair
-```
-
-This is a **separate package from the MCP server** (`@day8/re-frame2-pair-mcp`, installed globally) — the MCP server does NOT ship `preload/`, so installing only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. Then the two-line `shadow-cljs.edn` change:
+The skill installs from a repo checkout (not npm — see the README's *Install* / [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)), so the preload comes off the linked skill's own `preload/` directory. Point the consumer app's shadow-cljs `:source-paths` at it — the two-line `shadow-cljs.edn` change:
 
 ```clojure
 {:source-paths ["src"
-                "node_modules/@day8/re-frame2-pair/preload"]  ;; add this
+                "<abs>/skills/re-frame2-pair/preload"]  ;; add this (the linked skill's preload/)
  :builds
- {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}     ;; …and this
+ {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}  ;; …and this
 ```
 
-The `preload/` directory the `:source-paths` entry points at ships in the `@day8/re-frame2-pair` npm package; from a linked clone, substitute the absolute path to `skills/re-frame2-pair/preload/` instead (no package install — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)).
+The `re-frame2-pair.runtime` namespace is **separate from the MCP server** (`@day8/re-frame2-pair-mcp`) — the MCP server does NOT ship `preload/`, so wiring only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. (Once the `@day8/re-frame2-pair` package is published to npm, `npm install -D @day8/re-frame2-pair` and point `:source-paths` at `node_modules/@day8/re-frame2-pair/preload` instead — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md).)
 
 Verify by running `discover-app` — success is `{:ok? true :build-id ... :debug-enabled? true :frames [...]}` plus other health slots. A missing preload returns `{:ok? false :reason :runtime-loaded-but-preload-missing :hint "..."}`; report the hint verbatim (fixable in seconds). The other ladder rungs (`:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable`, plus the blanket `:runtime-not-preloaded` degradation fallback) each mean a different fix — see [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder).
 

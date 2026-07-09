@@ -14,6 +14,8 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 ## Install / configure (one-time)
 
+The MCP server is **not yet published to npm** — build and run it from a re-frame2 clone (`cd tools/re-frame2-pair-mcp && npm install && npm run build`, then point `mcpServers` at the compiled `out/server.js`; see [`docs/LOCAL_DEV.md` §MCP server from a clone](../docs/LOCAL_DEV.md#mcp-server-from-a-clone)). Once published:
+
 ```bash
 npm install -g @day8/re-frame2-pair-mcp
 ```
