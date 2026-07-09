@@ -347,7 +347,7 @@ Test-support surface for driving the pipeline without the network: canned-reply 
   ```
 - **Description**: Lexical-scope stubbing.
   - `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` (success) or `{[<method> <url>] {:reply {:failure <failure-map>}}}` (failure).
-  - Inside the body, requests matching a stubbed route bypass the real client: the helper registers a per-scope stub fx (a process-unique `:rf.http/managed-test-stub-<n>` id, so nested scopes compose) and installs the matching `:rf.http/managed` override for the body's dynamic extent. Plain `dispatch-sync` calls auto-route by method + URL with no manual `:fx-overrides`; a per-call `:fx-overrides` still wins.
+  - Inside the body, requests matching a stubbed route bypass the real client: the helper registers a per-scope stub fx (a process-unique `:rf.test/managed-http-stub-<n>` id under the test-runner-internal `:rf.test/*` fx-stub family, so nested scopes compose) and installs the matching `:rf.http/managed` override for the body's dynamic extent. Plain `dispatch-sync` calls auto-route by method + URL with no manual `:fx-overrides`; a per-call `:fx-overrides` still wins.
   - Routes match against the post-`:before` request (the method + URL the pipeline would actually issue). A request with no matching route receives a synthesised `:rf.http/transport` failure reply.
   - The façade macro requires `re-frame.http.test-support` in the require closure — without it the call raises `:rf.error/http-artefact-missing`.
 
