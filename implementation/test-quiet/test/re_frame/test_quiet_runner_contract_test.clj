@@ -80,6 +80,24 @@
   hanging the whole JVM suite (rf2-8dfq5j.3)."
   60000)
 
+(def ^:private force-kill-reap-timeout-ms
+  "Bounded ceiling to wait for a force-killed child to actually be REAPED
+  after `destroyForcibly` (rf2-5m8ocd, porting rf2-16n94y).  `Process.
+  destroyForcibly` only *requests* forced termination — the JDK docs
+  explicitly allow the child to remain alive briefly after the call and
+  direct callers that need termination to have COMPLETED to `waitFor`.
+  Without this wait the timeout branch could return `:timed-out? true`
+  while the OS had not yet reaped the child, so a caller checking
+  `.isAlive` immediately (the `drain-process-kills-and-flags-a-hanging-child`
+  contract below) lost the reap race on a loaded CI runner — a residual
+  intermittent test-quiet flake.  A SIGKILLed child is normally reaped in
+  milliseconds; this generous bound only bites a pathologically
+  unkillable child, and even then keeps the helper bounded (well under
+  the outer 30s contract-test guard and the CI job timeout).  Reached
+  ONLY on the exceptional timeout branch — the fast `done?` path that the
+  ~24 real subprocesses take is untouched."
+  10000)
+
 (defn- drain-process
   "Drain `proc`'s stdout AND stderr concurrently, then `waitFor` UNDER A
   TIMEOUT.  Returns {:exit :out :err :timed-out?}.  The concurrent drain
@@ -106,6 +124,13 @@
          ;; The child outlived the ceiling — force-kill it and interrupt
          ;; the drain threads so neither this helper nor the futures hang.
          (.destroyForcibly proc)
+         ;; `destroyForcibly` only REQUESTS termination; block (bounded)
+         ;; until the OS has actually reaped the child before returning, so
+         ;; `:timed-out? true` never races ahead of the real kill and a
+         ;; caller's immediate `.isAlive` check is reliable (rf2-5m8ocd,
+         ;; porting rf2-16n94y).
+         (.waitFor proc force-kill-reap-timeout-ms
+                   java.util.concurrent.TimeUnit/MILLISECONDS)
          (future-cancel out-f)
          (future-cancel err-f)
          {:exit       -1
