@@ -1,6 +1,6 @@
 # re-frame.test-support
 
-`re-frame.test-support` is the **runtime-state** testing surface: test-only fixture machinery and test-flavoured helpers that drive and assert against a frame's `app-db`, the registrar, the dispatch drain, and the trace stream. Its sibling `re-frame.test-helpers` owns the view-tree axis (hiccup walkers plus the `testid` authoring helper).
+`re-frame.test-support` is the **runtime-state** testing surface. It holds test-only fixture machinery and test-flavoured helpers that drive and assert against a frame's `app-db`, the registrar, the dispatch drain, and the trace stream. Its sibling `re-frame.test-helpers` owns the view-tree axis: the hiccup walkers plus the `testid` authoring helper.
 
 This namespace does not re-export from `re-frame.core`, so a production build never picks up test-flavoured machinery by accident. A test file requires it alongside `[re-frame.core :as rf]` (and `[re-frame.test-helpers :as th]` for view assertions).
 
@@ -12,7 +12,7 @@ Examples below also use `[re-frame.core :as rf]` for the production primitives t
 
 ## Fixture machinery
 
-The fixture primitives follow one pattern: snapshot the registrar before the test mutates registrations; restore after, pass or fail. Framework-shipped registrations (captured in the snapshot) survive; per-test registrations are rolled back.
+The fixture primitives follow one pattern: snapshot the registrar before the test mutates registrations, then restore it afterwards, whether the test passes or fails. Framework-shipped registrations are captured in the snapshot, so they survive. Per-test registrations are rolled back.
 
 ### `snapshot-registrar`
 
@@ -51,13 +51,13 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   ```clojure
   (merge-registrar-snapshots base overlay) → snapshot
   ```
-- **Description**: Two-level merge of two registrar snapshots (`kind → id → metadata`), returning a new snapshot.
+- **Description**: Merge two registrar snapshots two levels deep (`kind → id → metadata`) and return a new snapshot.
 
   - `overlay` wins on a per-`[kind id]` collision.
   - ids present only in `base` survive.
   - ids present only in `overlay` are added.
 
-  `make-reset-runtime-fixture` uses this to fold a stable ns-load baseline back over whatever the registrar currently holds, so a test namespace's own ns-load registrations are present regardless of run order.
+  `make-reset-runtime-fixture` uses this to fold a stable ns-load baseline back over whatever the registrar currently holds. That keeps a test namespace's own ns-load registrations present regardless of run order.
 - **Example**:
   ```clojure
   ;; `base` and `overlay` are each a value from `snapshot-registrar`.
@@ -72,7 +72,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   ```clojure
   (with-fresh-registrar body-fn) → any
   ```
-- **Description**: Snapshot + body + restore, composed. Captures the registrar, runs `body-fn`, then restores the captured state in a `finally` — even if `body-fn` throws. Returns `body-fn`'s return value.
+- **Description**: Snapshot + body + restore, composed. Captures the registrar, runs `body-fn`, then restores the captured state in a `finally`. The restore runs even if `body-fn` throws. Returns `body-fn`'s return value.
 - **Example**:
   ```clojure
   ;; As a clojure.test / cljs.test :each fixture:
@@ -94,9 +94,9 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
 
   Around each test the fixture:
 
-  - reinstates the stable ns-load registrar and source-store baseline captured at fixture-build time (run-order independence inside a shared test bundle);
+  - reinstates the stable ns-load registrar and source-store baseline captured at fixture-build time, which makes tests independent of run order inside a shared test bundle;
   - snapshots the registrar;
-  - resets the frames registry, trace listeners, and per-artefact state (flows, schemas, machines, routing, resources, http, epoch — via late-bind hooks that no-op when an artefact is absent from the classpath);
+  - resets the frames registry, trace listeners, and per-artefact state (flows, schemas, machines, routing, resources, http, epoch). This runs via late-bind hooks that no-op when an artefact is absent from the classpath;
   - disposes then reinstalls the adapter;
   - restores everything in a `finally`.
 
@@ -104,7 +104,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
 
   | Key | Meaning |
   |-----|---------|
-  | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. Omitted: no adapter is installed. |
+  | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed. |
   | `:init-fn` | Zero-arg fn run after adapter install, before the test body, under the same ambient frame scope as the body. |
   | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
   | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
@@ -130,7 +130,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (dispatch-sequence events)
   (dispatch-sequence events opts)
   ```
-- **Description**: Run a list of `events` end-to-end against the resolved frame. Each event is delivered synchronously and the queue drains to fixed point before the next, so observable state between events reflects committed effects. Returns the final `app-db`.
+- **Description**: Run a list of `events` end-to-end against the resolved frame. Each event is delivered synchronously, and the queue drains to fixed point before the next event runs. Observable state between events therefore reflects committed effects. Returns the final `app-db`.
 
   `opts`:
 
@@ -157,11 +157,11 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (assert-path-equals path expected-val)
   (assert-path-equals path expected-val opts)
   ```
-- **Description**: Assert `(get-in db path) == expected-val` against the resolved frame's `app-db`. Mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass, `false` otherwise — the failure has already been reported either way.
+- **Description**: Assert `(get-in db path) == expected-val` against the resolved frame's `app-db`. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise; the failure has already been reported either way.
 
   `opts`: `:frame` targets a non-default frame; frame resolution matches `dispatch-sequence` (`:frame` opt → `(current-frame)` → `:rf/default`).
 
-  The fn-side counterpart to the `:rf.assert/path-equals` story event-family — same name root, different runner channel.
+  This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
 - **Example**:
   ```clojure
   (rf/dispatch-sync [:counter/inc])
@@ -178,7 +178,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (assert-db-equals expected-db)
   (assert-db-equals expected-db opts)
   ```
-- **Description**: Full-db sync assertion — `(= expected-db app-db)` against the resolved frame. Mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass, `false` otherwise.
+- **Description**: A full-db sync assertion: `(= expected-db app-db)` against the resolved frame. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise.
 
   `opts`: `:frame` targets a non-default frame; frame resolution matches `dispatch-sequence`.
 
@@ -201,10 +201,10 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (poll-until pred)
   (poll-until pred opts)
   ```
-- **Description**: Bounded-deadline poll of `pred`.
+- **Description**: Poll `pred` until it returns truthy, within a bounded deadline.
 
-  - **JVM**: synchronous — returns the truthy value; throws `ex-info` on timeout.
-  - **CLJS**: returns a `js/Promise` resolving with the truthy value, or rejecting on timeout. A `pred` that returns a `js/Promise` is awaited and its resolved value drives the truthy check.
+  - **JVM**: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
+  - **CLJS**: returns a `js/Promise` that resolves with the truthy value, or rejects on timeout. A `pred` that returns a `js/Promise` is awaited; its resolved value drives the truthy check.
 
   The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical discriminator), plus `:elapsed-ms` and `:label` in its data.
 
@@ -230,7 +230,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (with-trace-recorder! [recs-sym] body+)
   (with-trace-recorder! [recs-sym opts] body+)
   ```
-- **Description**: Bracket `body` with a fresh trace-tooling listener that accumulates matching trace events into an atom bound to `recs-sym`. The listener is registered before `body` runs and unregistered in a `finally` on the way out — even if `body` throws. Returns the value of `body`'s final form.
+- **Description**: Bracket `body` with a fresh trace-tooling listener that accumulates matching trace events into an atom bound to `recs-sym`. The listener is registered before `body` runs and unregistered in a `finally` on the way out, even if `body` throws. Returns the value of `body`'s final form.
 
   `opts` (optional map literal; keys evaluated at macroexpansion):
 
@@ -241,7 +241,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   Macro requires:
 
   - **JVM**: resolves alias-qualified through the normal `(:require [re-frame.test-support :as ts])`.
-  - **CLJS**: the namespace carries no self-`:require-macros` (unlike `re-frame.core`), so CLJS test files must require the macro explicitly — `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
+  - **CLJS**: the namespace carries no self-`:require-macros` (unlike `re-frame.core`). CLJS test files must therefore require the macro explicitly: `(:require-macros [re-frame.test-support :refer [with-trace-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
 - **Example**:
   ```clojure
   ;; Flat shape (default), default filter, simple read.

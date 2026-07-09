@@ -1,12 +1,12 @@
 # re-frame.epoch
 
-`re-frame.epoch` is the per-frame epoch-history surface: dev-only time-travel and post-mortem. On each dequeued event (at its run-to-completion boundary, not once per drain) the runtime records one `:rf/epoch-record` into a per-frame ring buffer, capturing before/after frame-state, the triggering event, and the harvested trace stream. Pair-shaped tools (Xray, re-frame2-pair, Story) read this history. Production builds (`:advanced` + `goog.DEBUG=false`) elide the whole surface — no allocation, storage, or overhead.
+`re-frame.epoch` is the per-frame epoch-history surface: dev-only time-travel and post-mortem. On each dequeued event, the runtime records one `:rf/epoch-record` into a per-frame ring buffer. Recording happens at the event's run-to-completion boundary, not once per drain. Each record captures before/after frame-state, the triggering event, and the harvested trace stream. Pair-shaped tools (Xray, re-frame2-pair, Story) read this history. Production builds (`:advanced` + `goog.DEBUG=false`) elide the whole surface: no allocation, no storage, no overhead.
 
 ```clojure
 (:require [re-frame.epoch :as epoch])
 ```
 
-Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch drain-settle **listener** is NOT a per-channel facade re-export — its app-facing route is the `:epoch` stream of the one listener verb, `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)` (the `epoch/register-epoch-listener!` native form below is the same underlying registry). See [Observability](../core/observability.md) for how epochs fit the broader trace model.
+Most of this surface is re-exported on the `re-frame.core` facade, so `rf/restore-epoch!` and `epoch/restore-epoch!` name the same function. Examples below use the `rf/` form for re-exported names and the `epoch/` form for the epoch-only helpers (`clear-history!`, `current-config`, `register-epoch-listener!`, `unregister-epoch-listener!`, `clear-epoch-listeners!`, `configure!`). The epoch drain-settle **listener** is NOT a per-channel facade re-export. Its app-facing route is the `:epoch` stream of the one listener verb: `(rf/register-listener! :epoch id f)` / `(rf/unregister-listener! :epoch id)`. The `epoch/register-epoch-listener!` native form below is the same underlying registry. See [Observability](../core/observability.md) for how epochs fit the broader trace model.
 
 ## Epoch history
 
@@ -34,7 +34,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (clear-history!) → nil
   ```
-- **Description**: Drops every recorded epoch for every frame, plus any in-flight per-frame capture buffer. Used by test fixtures so each fixture's drain starts from a fresh capture state (a leftover mid-flight buffer would otherwise be picked up by the next fixture's first run).
+- **Description**: Drops every recorded epoch for every frame, plus any in-flight per-frame capture buffer. Test fixtures use it so each fixture's drain starts from a fresh capture state. Without it, a leftover mid-flight buffer would be picked up by the next fixture's first run.
 
 ```clojure
 ;; Reset epoch state between test fixtures.
@@ -50,9 +50,9 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (restore-epoch! frame-id epoch-id) → boolean
   ```
-- **Description**: Restores the frame's whole frame-state — both app-db and runtime-db partitions — to the named epoch's `:frame-state-after`, in one atomic write. Machine snapshots, the route slice, and other runtime-db material rewind alongside app-db, not just the application slice.
+- **Description**: Restores the frame's whole frame-state to the named epoch's `:frame-state-after` in one atomic write. Both partitions rewind, app-db and runtime-db alike. Machine snapshots, the route slice, and other runtime-db material travel back too, not just the application slice.
   - Returns `true` on success and emits `:rf.epoch/restored`.
-  - Returns `false` on any failure; each failure is a no-op on frame-state and emits a structured error trace:
+  - Returns `false` on any failure. Each failure is a no-op on frame-state and emits a structured error trace:
     - `:rf.error/no-such-handler` (kind `:frame`) — frame not registered / destroyed
     - `:rf.epoch/restore-during-drain` — called while a drain is in flight
     - `:rf.epoch/restore-unknown-epoch` — epoch-id not in the frame's current history
@@ -69,7 +69,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
 
 ## Pair-tool writes
 
-`replace-frame-state!` is the ONE state-injection surface — it replaces a frame's partitions directly, bypassing the dispatch loop. It records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind past the injection) and emits `:rf.epoch/db-replaced` on success. Dev-only; production builds elide it.
+`replace-frame-state!` is the ONE state-injection surface. It replaces a frame's partitions directly, bypassing the dispatch loop. It records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past the injection, and emits `:rf.epoch/db-replaced` on success. Dev-only; production builds elide it.
 
 ### `replace-frame-state!`
 
@@ -78,7 +78,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (replace-frame-state! frame-id new-frame-state) → boolean
   ```
-- **Description**: The ONE frame-state write surface (rf2-t3lftq — API-shrink #3 consolidated the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` four-mutator family, which shared identical machinery differing only in which partition keys they touched, into this). `new-frame-state` is a PARTIAL frame-state map — any subset of `{:rf.db/app … :rf.db/runtime …}`: a present key replaces that partition, an ABSENT key is preserved unchanged. A db-shaped key never silently touches the other partition. Bypasses the dispatch loop. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
+- **Description**: The ONE frame-state write surface. API-shrink #3 (rf2-t3lftq) consolidated the former four-mutator family — `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` / `replace-frame-state!` — into this single fn. Those four shared identical machinery and differed only in which partition keys they touched. `new-frame-state` is a PARTIAL frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A present key replaces that partition; an ABSENT key is preserved unchanged. A db-shaped key never silently touches the other partition. Bypasses the dispatch loop. Returns `true` on success. No-ops returning `false` (each emitting a structured trace) on:
   - `:rf.error/replace-frame-state-bad-keys` — the map carries no recognized partition key, or an unrecognized key (checked BEFORE frame resolution)
   - `:rf.error/no-such-handler` — frame not registered
   - `:rf.epoch/replace-during-drain`
@@ -110,11 +110,11 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (register-epoch-listener! id callback-fn) → id
   ```
-- **Description**: Registers a process-global assembled-epoch listener. Returns the `id`. The app-facing route is `(rf/register-listener! :epoch id callback-fn)` — the `:epoch` stream of the one stream-parameterized listener verb; `epoch/register-epoch-listener!` is the direct epoch-namespace form of the same registry (there is no `rf/register-epoch-listener!` facade re-export — retired in API-shrink #4).
+- **Description**: Registers a process-global assembled-epoch listener. Returns the `id`. The app-facing route is `(rf/register-listener! :epoch id callback-fn)`, the `:epoch` stream of the one stream-parameterized listener verb. `epoch/register-epoch-listener!` is the direct epoch-namespace form of the same registry. There is no `rf/register-epoch-listener!` facade re-export; it was retired in API-shrink #4.
   - `callback-fn` is invoked once per committed record with the fully-assembled raw `:rf/epoch-record`, after it lands in the frame's ring buffer. Listeners receive every record regardless of `:outcome`.
   - `id` may be any comparable value; registering the same `id` twice replaces.
-  - Listener exceptions are caught and isolated (emitting `:rf.epoch.cb/listener-exception`) — one broken listener cannot block others.
-  - When a frame a callback has observed is destroyed, a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace is emitted for that callback.
+  - Listener exceptions are caught and isolated, emitting `:rf.epoch.cb/listener-exception`. One broken listener cannot block others.
+  - When a frame that a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback.
 
 ```clojure
 ;; Observe each assembled epoch as frames settle (app-facing route).
@@ -135,7 +135,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
   ```clojure
   (unregister-epoch-listener! id) → nil
   ```
-- **Description**: The inverse. App-facing route: `(rf/unregister-listener! :epoch id)`.
+- **Description**: The inverse of `register-epoch-listener!`: removes the listener registered under `id`. App-facing route: `(rf/unregister-listener! :epoch id)`.
 - **Example**: `(epoch/unregister-epoch-listener! :my-app/epoch-watch)`
 
 ### `clear-epoch-listeners!`
@@ -154,7 +154,7 @@ Per-frame epoch snapshots, recorded on each dequeued event's run-to-completion i
 
 ## Off-box egress projection
 
-Tools that forward epoch records across a process boundary (Xray-MCP `watch-epochs`, story / pair recorders, hosted post-mortem forwarders) must route through these helpers at the wire boundary. The on-box ring buffer and `register-epoch-listener!` fan-out always deliver the raw record so on-box devtools (Xray diff, REPL, `restore-epoch!`) can reason about exact state. See [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for the projection model.
+Tools that forward epoch records across a process boundary must route through these helpers at the wire boundary. That covers Xray-MCP `watch-epochs`, story / pair recorders, and hosted post-mortem forwarders. The on-box ring buffer and the `register-epoch-listener!` fan-out always deliver the raw record, so on-box devtools (Xray diff, REPL, `restore-epoch!`) can reason about exact state. See [keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for the projection model.
 
 ### `projected-record`
 
@@ -164,9 +164,9 @@ Tools that forward epoch records across a process boundary (Xray-MCP `watch-epoc
   (projected-record record)
   (projected-record record opts)
   ```
-- **Description**: Projects an `:rf/epoch-record` for off-box egress — the single normative projection emission site for forwarding records across a process boundary. Routes the full-value payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through the record-level egress boundary under a `:rf.egress/profile`, redacting sensitive paths to `:rf/redacted` and eliding large paths to `:rf.size/large-elided` markers. The frame-state `:rf.db/runtime` partition, the structured `:effects` `:args`, and the `:trigger-event` / trace-event args all fail closed (redacted) by default. `record` may be `nil` (returns `nil`). The 2-arity threads trusted-local egress `opts`; the 1-arity is the safe, fully-redacted off-box path.
+- **Description**: Projects an `:rf/epoch-record` for off-box egress. This is the single normative projection emission site for forwarding records across a process boundary. It routes the full-value payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through the record-level egress boundary under a `:rf.egress/profile`. Sensitive paths redact to `:rf/redacted`; large paths elide to `:rf.size/large-elided` markers. The frame-state `:rf.db/runtime` partition, the structured `:effects` `:args`, and the `:trigger-event` / trace-event args all fail closed (redacted) by default. `record` may be `nil` (returns `nil`). The 2-arity threads trusted-local egress `opts`; the 1-arity is the safe, fully-redacted off-box path.
   - **Profiles** (the primary `:rf.egress/profile` selector — *"which boundary is this?"*):
-    - `:rf.egress/off-box-observability` (DEFAULT) — hosted monitoring / log shippers / Story / pair recorders (redact sensitive, elide large, omit structural digests).
+    - `:rf.egress/off-box-observability` (DEFAULT) — for hosted monitoring, log shippers, Story, and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
     - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same redact/elide defaults, but includes structural marker indicators (`:digest`) so a tool can reason about an elided large slot's shape. An unknown profile is rejected against the closed enum.
   - The advanced per-call `:include-*` overrides (`:include-sensitive?` / `:include-large?` / `:include-runtime-db?` / `:include-fx-args?` / `:include-event-args?`, all default `false`) compose over the selected profile.
 
@@ -205,8 +205,8 @@ Tools that forward epoch records across a process boundary (Xray-MCP `watch-epoc
   ```
 - **Description**: Buffer-depth and redactor knobs for the epoch ring.
   - `:depth` — non-negative integer; per-frame ring-buffer depth (default 50). `0` disables recording.
-  - `:trace-events-keep` — non-negative integer; caps how many of the most-recent records per frame retain their raw `:trace-events` vector (older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections). Defaults to 50 (matching the default `:depth`) so trace + epoch evict atomically; pass a smaller value to bound dev-session heap.
-  - `:redact-fn` — `fn?` or `nil`; the advanced projection-side override, invoked once per record at the off-box egress boundary inside `projected-record`, never at storage time (the ring buffer and every listener receive the raw record, since epoch records are causal replay material). A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. `nil` clears any previously-installed fn.
+  - `:trace-events-keep` — non-negative integer. Caps how many of the most-recent records per frame retain their raw `:trace-events` vector; older records keep only the cheap structured `:sub-runs` / `:renders` / `:effects` projections. Defaults to 50 (matching the default `:depth`) so trace and epoch evict atomically. Pass a smaller value to bound dev-session heap.
+  - `:redact-fn` — `fn?` or `nil`; the advanced projection-side override. It is invoked once per record at the off-box egress boundary inside `projected-record`, never at storage time. The ring buffer and every listener receive the raw record, since epoch records are causal replay material. A throwing fn emits `:rf.warning/epoch-redact-fn-exception` and falls back to the projected record. `nil` clears any previously-installed fn.
   - Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and a malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the boundary.
 
   Apps usually set this through `rf/configure!` with the `:epoch-history` key; see [re-frame.core.md](re-frame.core.md).
@@ -240,14 +240,14 @@ Tools that forward epoch records across a process boundary (Xray-MCP `watch-epoc
   (settle! frame-id frame-state-before frame-state-after committed-at)
   (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
   ```
-- **Description**: The hook the router calls once per dequeued event — at each event's run-to-completion boundary, not once per drain. Framework-internal: the router invokes it; application and tool code never call it directly. Per call it:
+- **Description**: The hook the router calls once per dequeued event, at each event's run-to-completion boundary — not once per drain. Framework-internal: the router invokes it; application and tool code never call it directly. Per call it:
   - harvests that event's trace buffer;
   - assembles the `:rf/epoch-record` (deriving the `:db-before` / `:db-after` app-db projections from the whole-frame-state snapshots);
   - appends it to the per-frame ring buffer;
   - emits `:rf.epoch/snapshotted` with an `:outcome` tag plus its consumer-facing companion `:rf.epoch/outcome` (`:ok` / `:blocked` / `:error`);
   - fans out to every registered listener.
 
-  A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued commits two records (one per event); a machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router (not an ambient assembly-time clock read), which keeps the record replayable. The 4-arity is the clean `:ok` settle (skipped when the captured buffer is empty); the 6-arity is the drain-boundary commit with an explicit outcome (`:ok` / `:halted-depth` / `:halted-destroy`).
+  A drain that processes a parent event and an `:fx [[:dispatch …]]` child it queued commits two records, one per event. A machine macrostep stays one epoch. `committed-at` is the committing causal token's `:rf.cofx` `:rf/time-ms`, threaded down by the router rather than read from an ambient assembly-time clock; this keeps the record replayable. The 4-arity is the clean `:ok` settle, skipped when the captured buffer is empty. The 6-arity is the drain-boundary commit with an explicit outcome (`:ok` / `:halted-depth` / `:halted-destroy`).
 
 ```clojure
 ;; Framework-internal — the router invokes this through the :epoch/settle! late-bind hook.
