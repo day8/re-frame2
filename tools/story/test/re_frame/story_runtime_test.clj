@@ -42,7 +42,12 @@
             ;; namespaces register the SAME event id with DIFFERENT meanings;
             ;; a variant's `:images` `:select-ns` selects one or the other.
             [story.test-helpers.image-behaviour-v1]
-            [story.test-helpers.image-behaviour-v2]))
+            [story.test-helpers.image-behaviour-v2]
+            ;; rf2-14gqim runtime-image-last shadow fixture: registers a broken
+            ;; handler under the SAME id as a Story-runtime `:rf.assert/*` handler
+            ;; from an app provenance, so a scoped app image overlaps the runtime
+            ;; image on that `[kind id]`.
+            [story.test-helpers.runtime-shadow]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -1066,6 +1071,158 @@
         "a state-only variant carries no :rf/images slot")
     (frames/destroy! :story.img/meta)
     (frames/destroy! :story.img/state-only)))
+
+;; ===========================================================================
+;; VARIANT-IMAGE COMPOSITION MODEL (rf2-14gqim)
+;;
+;; Gate-verifies the owned-frame image composition `allocate!` builds:
+;;
+;;     composed :images = [<story-images…> <variant-images…> runtime-image]
+;;                        (EP-0026 §Layered Resolution — the later image wins)
+;;
+;; The five tests below pin, from first principles, the axes the ruling
+;; blessed: story→variant inheritance, variant later-wins override, authored-
+;; id reporting excluding the library runtime image, the runtime-image-LAST
+;; shadow invariant, and the absence-is-default (no-app-image) fallback.
+;; ===========================================================================
+
+(deftest variant-image-inherits-story-image
+  (testing "rf2-14gqim (1) — a variant with NO :images inherits its parent
+            story's :images. The story declares the app image ONCE; the variant
+            resolves :img.counter/step through the inherited v1 image (add one),
+            and the inherited image id surfaces on the run-result :images slot."
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (story/reg-story :story.imginh
+      {:doc    "Parent story declaring the app image once."
+       :images [(rf/image {:id :img/behaviour-v1
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]})
+    (story/reg-variant :story.imginh/child
+      {:events [[:img.counter/step]]})           ; NO :images of its own
+    (let [r (async/deref-blocking (story/run-variant :story.imginh/child) 5000)]
+      (is (= 1 (-> r :app-db :n))
+          "the inherited story image resolved :img.counter/step to the v1 (add-one) handler")
+      (is (= :v1-add-one (-> r :app-db :behaviour)))
+      (is (= [:img/behaviour-v1] (:images r))
+          "the parent story's image id is reported on the variant even though the
+           variant declared none (inheritance)"))
+    (story/destroy-variant! :story.imginh/child)))
+
+(deftest variant-image-later-wins-over-story-image
+  (testing "rf2-14gqim (2) — a variant's own :images layer ON TOP of the story
+            image and WIN the same [kind id] (later image wins). Story declares
+            the v1 image (add one); the variant declares the v2 image (add
+            hundred) for the SAME :img.counter/step id. The composition
+            [v1-story v2-variant runtime] resolves the id to v2, and the shadow
+            report names v1 shadowed-by v2."
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (require 'story.test-helpers.image-behaviour-v2 :reload)
+    (story/reg-story :story.imgover
+      {:doc    "Parent story: baseline app image is v1 (add one)."
+       :images [(rf/image {:id :img/behaviour-v1
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]})
+    (story/reg-variant :story.imgover/wins
+      {:images [(rf/image {:id :img/behaviour-v2
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
+       :events [[:img.counter/step]]})
+    (let [r (async/deref-blocking (story/run-variant :story.imgover/wins) 5000)]
+      (is (= 100 (-> r :app-db :n))
+          "the variant image (v2, add-hundred) layered on top WON the override
+           of the story image's :img.counter/step")
+      (is (= :v2-add-hundred (-> r :app-db :behaviour)))
+      (is (= [:img/behaviour-v1 :img/behaviour-v2] (:images r))
+          "both authored ids reported, story image FIRST then variant image")
+      (let [shadows (:rf.gen/shadows (rf/frame-generation :story.imgover/wins))]
+        (is (some #(= {:registration [:event :img.counter/step]
+                       :image        :img/behaviour-v1
+                       :shadowed-by  :img/behaviour-v2}
+                      %)
+                  shadows)
+            "the generation shadow report records the story image (v1) shadowed
+             by the later variant image (v2) — later-wins is the sole precedence")))
+    (story/destroy-variant! :story.imgover/wins)))
+
+(deftest authored-image-report-excludes-runtime-image
+  (testing "rf2-14gqim (3) — the AUTHORED :images report (frame-meta :rf/images)
+            carries the story + variant app image ids and EXCLUDES the
+            library-composed :rf.story/runtime image, even though the runtime
+            image IS genuinely composed into the frame's generation."
+    (require 'story.test-helpers.image-behaviour-v1 :reload)
+    (require 'story.test-helpers.image-behaviour-v2 :reload)
+    (story/reg-story :story.imgrep
+      {:doc    "Parent story with the v1 app image."
+       :images [(rf/image {:id :img/behaviour-v1
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]})
+    (story/reg-variant :story.imgrep/v
+      {:images [(rf/image {:id :img/behaviour-v2
+                           :select-ns {:include ["story.test-helpers.image-behaviour-v2"]}})]
+       :events []})
+    (frames/allocate! :story.imgrep/v (story/resolve-decorators :story.imgrep/v))
+    (let [reported (frames/variant-image-ids :story.imgrep/v)]
+      (is (= [:img/behaviour-v1 :img/behaviour-v2] reported)
+          "authored image ids: story + variant, story first")
+      (is (not (contains? (set reported) :rf.story/runtime))
+          "the library runtime image id is NOT reported as an authored behaviour image"))
+    (let [resolver (:rf.gen/resolver (rf/frame-generation :story.imgrep/v))]
+      (is (contains? resolver [:event :rf.assert/path-equals])
+          "the runtime image IS composed into the generation (a Story :rf.assert/*
+           handler resolves) — excluded only from the AUTHORED-id report, not the frame"))
+    (frames/destroy! :story.imgrep/v)))
+
+(deftest runtime-image-composed-last-shadows-app-image
+  (testing "rf2-14gqim (4) — the load-bearing shadow test. An app image
+            overlaps a Story-runtime [kind id] (:rf.assert/path-equals); because
+            the runtime image is composed LAST, it WINS the overlap, so the real
+            Story assertion handler stays live (the broken app shadow never
+            runs). Proved two ways: the generation shadow report names the app
+            image shadowed-by :rf.story/runtime, AND the in-script assertion
+            passes while the app shadow's sentinel is absent."
+    (require 'story.test-helpers.runtime-shadow :reload)
+    (story/reg-variant :story.shadow/v
+      {:images [(rf/image {:id :shadow.app/image
+                           :select-ns {:include ["story.test-helpers.runtime-shadow"]}})]
+       :setup  [[:shadow.app/seed-count]]
+       :script [[:assert [:rf.assert/path-equals [:count] 1]]]})
+    (let [r (async/deref-blocking (story/run-variant :story.shadow/v) 5000)]
+      (let [shadows (:rf.gen/shadows (rf/frame-generation :story.shadow/v))]
+        (is (some #(= {:registration [:event :rf.assert/path-equals]
+                       :image        :shadow.app/image
+                       :shadowed-by  :rf.story/runtime}
+                      %)
+                  shadows)
+            "the app image's :rf.assert/path-equals is shadowed BY the runtime
+             image — runtime is the LAST (winning) image"))
+      (is (= :pass (:status r))
+          "the real Story :rf.assert/path-equals handler is live (checkpoint passed)")
+      (is (story/assertions-passing? r)
+          "the assertion machinery from the runtime image ran normally")
+      (is (nil? (-> r :app-db :shadow/app-assert-ran))
+          "the broken app-shadow handler did NOT run — the runtime image was not
+           shadowed out by the app image"))
+    (story/destroy-variant! :story.shadow/v)))
+
+(deftest no-app-image-resolves-default-image-with-runtime-visible
+  (testing "rf2-14gqim (5) — absence-is-default. With NO story/variant app
+            image, compose-variant-images yields nil, allocate! omits :images,
+            and the frame resolves the EP-0026 default whole-store projection.
+            No :rf/images is stamped, and the Story runtime stays visible through
+            that default projection (the :rf.assert/* checkpoint passes)."
+    (rf/reg-event :test/seed-count
+      (fn [{:keys [db]} _] {:db (assoc db :count 1)}))
+    (story/reg-variant :story.noimg/v
+      {:setup  [[:test/seed-count]]
+       :script [[:assert [:rf.assert/path-equals [:count] 1]]]})
+    (is (nil? (#'frames/compose-variant-images :story.noimg/v nil))
+        "no story image + no variant image → compose yields nil (the
+         absence-is-default signal; runtime image deliberately NOT composed here)")
+    (let [r (async/deref-blocking (story/run-variant :story.noimg/v) 5000)]
+      (is (= :ready (:lifecycle r)))
+      (is (nil? (frames/variant-image-ids :story.noimg/v))
+          "no :rf/images stamped — allocate! omitted :images (default-image path)")
+      (is (= :pass (:status r))
+          "the Story :rf.assert/* handler resolved through the default whole-store
+           projection — the runtime stays visible without an explicit runtime image")
+      (is (story/assertions-passing? r)))
+    (story/destroy-variant! :story.noimg/v)))
 
 (deftest run-variant-with-loaders-and-events
   (testing "run-variant drains loaders before events"
