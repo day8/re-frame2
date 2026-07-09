@@ -275,8 +275,8 @@ Reach for a frame sink when you want either of these:
 A frame declares which sink ids it routes to under its `:observability` config — `:handled-events` for the per-event metrics stream, `:errors` for projected error records — and you register the concrete sink function against each id:
 
 ```clojure
-;; On the frame registration (per spec/015-Data-Classification.md). Each entry
-;; carries an :rf.egress/profile naming the boundary — that profile is what
+;; On the frame registration, under the frame's data-classification policy. Each
+;; entry carries an :rf.egress/profile naming the boundary — that profile is what
 ;; decides how much survives projection:
 ;;   :observability
 ;;   {:handled-events [{:sink :app.sinks/datadog
