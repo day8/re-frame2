@@ -120,7 +120,7 @@
 ;; `:status` (`:ok` / `:error` / `:cancelled`; `:stale` is suppressed
 ;; before app delivery and never reaches this handler), the decoded
 ;; `:value` on `:ok`, the classified `:rf.http/*` failure map under
-;; `:error`, plus `:work/id` and `:completed-at`. There is NO separate
+;; `:error`, plus `:rf.reply/work-id` and `:completed-at`. There is NO separate
 ;; `{:kind :success/:failure}` HTTP dialect (rf2-ibksxg — retired).
 ;; `:on-success` / `:on-failure` are pure ROUTING sugar over the one
 ;; direct reply target `:rf/reply-to` — both receive this same canonical

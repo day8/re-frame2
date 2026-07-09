@@ -21,9 +21,9 @@
   shape for that: every managed-async family (HTTP / resources /
   mutations / route loaders / machine async work / future managed
   timers) completes through a single **reply map** carrying one closed
-  `:status`, value/error data, `:work/id` work correlation,
-  `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`, the durable
-  timestamps, the cancellation/staleness facts, and a `:correlation`
+  `:status`, value/error data, `:rf.reply/work-id` work correlation,
+  `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`,
+  the durable timestamps, the cancellation/staleness facts, and a `:correlation`
   side-bag (`re-frame.reply` is the framework substrate). Property 9 /
   §Tracing mandate that families emit their trace rows FROM those
   reply-envelope facts.
@@ -97,17 +97,19 @@
                      problems under `:error` (GraphQL is the motivating case).
     - `:error`     — completed with a failure, reply current; `:error` present.
     - `:cancelled` — intentionally cancelled while still correlated;
-                     `:cancel/reason` present.
+                     `:rf.reply/cancel-reason` present.
     - `:stale`     — completed/observed after correlation became obsolete;
-                     `:stale? true` + `:stale/reason`; NO app-state mutation."
+                     `:stale? true` + `:rf.reply/stale-reason`; NO app-state mutation."
   #{:ok :partial :error :cancelled :stale})
 
 (def work-statuses
-  "The operational `:work/status` vocabulary on a reply map / ledger row
-  (mirror of `re-frame.reply/work-statuses`). Narrower / more operational
-  than reply `:status`: `:timed-out` is an error work-status (timeout is an
-  error KIND + a work status, NOT a top-level reply status); `:suppressed`
-  is the stale terminal."
+  "The operational work-status vocabulary — `:rf.reply/work-status` on a reply
+  map (post-l7s7b7 single-root), the same values under the bare `:status` a
+  durable work-ledger row carries (the cross-record spelling — Managed-Effects
+  §The uniform reply envelope) (mirror of `re-frame.reply/work-statuses`).
+  Narrower / more operational than reply `:status`: `:timed-out` is an error
+  work-status (timeout is an error KIND + a work status, NOT a top-level reply
+  status); `:suppressed` is the stale terminal."
   #{:completed :failed :timed-out :suppressed :cancelled})
 
 (def work-kinds
@@ -135,10 +137,14 @@
 ;; Reply-map field readers (Managed-Effects §The reply map). A reply map is
 ;; the appended last-arg of a reply-target event, or the data-only trace
 ;; summary a family emits on completion. The work-correlation reads the
-;; canonical `:work/id` (EP-0011 one-name-per-fact: every family — HTTP,
-;; resources, mutations — emits the qualified `:work/id` on both the reply
-;; map and the trace row's `:tags`; no bare `:work-id` trace-tag spelling
-;; remains to tolerate). The frame reader still accepts either the canonical
+;; canonical `:rf.reply/work-id` (post-l7s7b7 the reply MAP single-roots the
+;; work identity there, EP-0011 one-name-per-fact — Managed-Effects §The
+;; uniform reply envelope; the trace row's `:tags` stamp the same
+;; `:rf.reply/work-id`, and no bare `:work-id` trace-tag spelling remains to
+;; tolerate). The bare `:work/id` fallback is the durable work-ledger row's
+;; cross-record spelling (Managed-Effects §The uniform reply envelope — a
+;; queryable status record vs a transient causal envelope), NOT a reply-map
+;; spelling. The frame reader still accepts either the canonical
 ;; `:rf.frame/id` or the bare `:frame-id` some trace rows stamp, so one
 ;; reader works on both the dispatched reply map and the trace row's `:tags`.
 ;; ---------------------------------------------------------------------------
@@ -157,20 +163,28 @@
 
   rf2-o6c2jr — the CANONICAL trace-tag spelling is `:rf.reply/work-id`; the
   bare `:work/id` trace-tag duplicate was dropped (one name per fact —
-  Conventions rule 1). Prefer `:rf.reply/work-id`; fall back to `:work/id`,
-  which is still the canonical key ON THE REPLY MAP itself (the durable
-  work-ledger identity — untouched by the tag-duplicate cull). nil when
-  absent (a non-ledger-backed managed async)."
+  Conventions rule 1). Post-l7s7b7 the reply MAP also single-roots its work
+  identity as `:rf.reply/work-id`. Prefer `:rf.reply/work-id`; fall back to
+  the bare `:work/id`, which is now the DURABLE work-ledger row's cross-record
+  spelling (Managed-Effects §The uniform reply envelope — a queryable status
+  record vs a transient causal envelope), NOT a reply-map key. nil when absent
+  (a non-ledger-backed managed async)."
   [m]
   (or (:rf.reply/work-id m) (:work/id m)))
 
 (defn work-kind-of
-  "Read the `:work/kind` family tag off a reply map or trace tags (one of
-  `work-kinds`), tolerating `:work/kind` or bare `:work-kind`/`:kind`. nil
-  when absent. When absent on a reply, `infer-work-kind` derives it from the
-  work-id tuple head."
+  "Read the work-kind family tag off a reply map or trace tags (one of
+  `work-kinds`). Prefer the migrated reply-envelope spelling
+  `:rf.reply/work-kind` (post-l7s7b7 the reply MAP single-roots the work
+  identity there — Managed-Effects §The uniform reply envelope; a family
+  trace row also stamps it additively). Fall back to the bare `:work/kind`
+  the durable work-ledger row keeps under the cross-record spelling rule,
+  then to `:work-kind`/`:kind`. nil when absent. When absent on a reply,
+  `infer-work-kind` derives it from the work-id tuple head — note a
+  `:mutation` reuses the `:rf.work/resource` head and so is only
+  distinguishable by an explicit `:rf.reply/work-kind`/`:work/kind`."
   [m]
-  (or (:work/kind m) (:work-kind m) (:kind m)))
+  (or (:rf.reply/work-kind m) (:work/kind m) (:work-kind m) (:kind m)))
 
 (defn infer-work-kind
   "Infer the `:work/kind` from a `:work/id` tuple head when the reply / row
@@ -197,8 +211,9 @@
       nil)))
 
 (defn resolve-work-kind
-  "The work-kind for a reply map / row: the explicit `:work/kind` when
-  present, else inferred from the `:work/id` tuple head. Pure."
+  "The work-kind for a reply map / row: the explicit work-kind when present
+  (`:rf.reply/work-kind` on a reply map / trace row, or the bare `:work/kind`
+  the ledger row keeps), else inferred from the work-id tuple head. Pure."
   [m]
   (or (work-kind-of m)
       (infer-work-kind (work-id-of m))))
@@ -258,7 +273,10 @@
     {:work-id       work-id
      :work-kind     (resolve-work-kind reply)
      :status        status
-     :work-status   (or (:work/status reply) (:work-status reply))
+     ;; Post-l7s7b7 the reply MAP single-roots the operational work status as
+     ;; `:rf.reply/work-status` (Managed-Effects §The uniform reply envelope);
+     ;; prefer it, tolerating the pre-migration bare `:work/status`/`:work-status`.
+     :work-status   (or (:rf.reply/work-status reply) (:work/status reply) (:work-status reply))
      :attempt       (:attempt reply)
      ;; The reply MAP's frame is the canonical EP-0002 carried-frame stamp
      ;; `:rf.frame/id` — UNIFORM across every family on the reply map
@@ -278,9 +296,12 @@
      :error-kind    (when (map? error) (:kind error))
      :correlation   (when (contains? reply :correlation) (rh/summarize (:correlation reply)))
      :stale?        (boolean (:stale? reply))
-     :stale-reason  (:stale/reason reply)
+     ;; Post-l7s7b7 reply-map spelling is `:rf.reply/stale-reason` /
+     ;; `:rf.reply/cancel-reason` (Managed-Effects §The uniform reply
+     ;; envelope); prefer them, tolerating the pre-migration bare keys.
+     :stale-reason  (or (:rf.reply/stale-reason reply) (:stale/reason reply))
      :cancelled?    (boolean (:cancelled? reply))
-     :cancel-reason (:cancel/reason reply)
+     :cancel-reason (or (:rf.reply/cancel-reason reply) (:cancel/reason reply))
      :delivered?    delivered?
      :meta          (when (contains? reply :meta) (rh/summarize (:meta reply)))}))
 
