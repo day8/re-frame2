@@ -294,7 +294,7 @@
 ;; (`:rf.error/fx-handler-exception`), an unknown fx-id
 ;; (`:rf.error/no-such-fx`), an override misconfiguration
 ;; (`:rf.error/override-fallthrough`), and an unknown cofx-id
-;; (`:rf.error/no-such-cofx`) were previously dev-trace-ONLY, so they lost
+;; (`:rf.error/unregistered-cofx`) were previously dev-trace-ONLY, so they lost
 ;; their diagnostic entirely under `:advanced` + `goog.DEBUG=false` — even
 ;; though Spec 009 catalogues them as production-reachable and Spec 011 maps
 ;; fx-handler-exception to a 500 off the always-on substrate. Now they fan

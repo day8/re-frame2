@@ -44,7 +44,7 @@
 
 ;; ---- recompute attribution sentinel + cause-sub resolution ---------------
 ;;
-;; The `:sub/run` trace carries value-change + cascade
+;; The `:rf.sub/run` trace carries value-change + cascade
 ;; attribution so Xray's Reactive panel can populate its "SUBS WHOSE
 ;; VALUE CHANGED" and "SUBS THAT CASCADED" sections. The memo wrapper
 ;; already holds the prior computed value and prior input value(s) in its
@@ -132,7 +132,7 @@
      return value against the sub's `:schema` meta. Failures emit
      :rf.error/schema-validation-failure and yield nil (recovery
      :replaced-with-default).
-  3. Spec 009 §:op-type vocabulary — emit :sub/run for the recompute.
+  3. Spec 009 §:op-type vocabulary — emit :rf.sub/run for the recompute.
      The memo-hit path does NOT emit (per Spec 006 §No-op via value
      equality). The emit fires AFTER (1)+(2) so the trace can carry the
      COMPUTED value and value-change / cascade attribution (see
@@ -144,7 +144,7 @@
 
   ## Recompute attribution (dev-only)
 
-  When `interop/debug-enabled?` the `:sub/run` tag carries:
+  When `interop/debug-enabled?` the `:rf.sub/run` tag carries:
 
     :value-changed?  — `(not= prev-value computed)`. The `::unset`
                        sentinel on the first recompute reports `true`.
@@ -193,7 +193,7 @@
   `:prev-value` and `:value` are wire-value-sensitive app data, but they
   are emitted RAW here and redacted DOWNSTREAM by the existing
   `re-frame.classification/project-sub-tags` chokepoint that `re-frame.trace/
-  build-event` already runs for every `:sub/run` event. That chokepoint
+  build-event` already runs for every `:rf.sub/run` event. That chokepoint
   resolves the sub's sensitive/large state from process-scoped marks +
   the sub-output propagation table — NEVER by reading the frame's app-db
   container.
@@ -224,9 +224,9 @@
   [body-fn in-vals query-id query-v frame-id input-signals sub-meta
    prev-value prev-in-vals vector-inputs?]
   ;; Publish the sub's HandlerScope for the duration of body-fn
-  ;; invocation + validation + the `:sub/run` emit. Per Spec 009
+  ;; invocation + validation + the `:rf.sub/run` emit. Per Spec 009
   ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
-  ;; (`:sub/run` success, `:rf.error/sub-exception` / schema-validation /
+  ;; (`:rf.sub/run` success, `:rf.error/sub-exception` / schema-validation /
   ;; transitive sub-miss errors). The emit MUST sit inside the scope.
   ;;
   ;; `vector-inputs?`: when true, the body ALWAYS receives the
@@ -486,7 +486,7 @@
             (emit-sub-skip! query-id query-v frame-id sub-meta [])
             @last-result)
           ;; Capture the prior cells BEFORE the recompute so the
-          ;; `:sub/run` attribution can report value-change
+          ;; `:rf.sub/run` attribution can report value-change
           ;; against the last computed value. Layer-1 has no upstream
           ;; sub inputs, so `input-signals` is `[]` and `prev-in-vals`
           ;; is irrelevant to cause-sub resolution (a layer-1 recompute
@@ -542,7 +542,7 @@
           (do
             (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
-          ;; Capture prior cells BEFORE the recompute for the `:sub/run`
+          ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
           ;; attribution. `prev-in-vals` is the last-seen
           ;; single input value in singleton-list shape (matching the
           ;; `(list v0)` `in-vals` form) so `changed-cause-sub` can diff
@@ -604,7 +604,7 @@
           (do
             (emit-sub-skip! query-id query-v frame-id sub-meta (vec input-signals))
             @last-result)
-          ;; Capture prior cells BEFORE the recompute for the `:sub/run`
+          ;; Capture prior cells BEFORE the recompute for the `:rf.sub/run`
           ;; attribution. `prev-in-vals` is the last-seen
           ;; input-value seq (parallel to `input-signals`), which
           ;; `changed-cause-sub` diffs positionally to name the upstream

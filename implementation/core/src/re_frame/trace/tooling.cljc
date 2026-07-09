@@ -304,7 +304,7 @@
 ;;   - For `:rf.registry/handler-replaced`: same shape composed from the
 ;;     new metadata. Re-emit suppressed iff matches the prior entry.
 ;;   - For `:rf.registry/handler-cleared`: the shape is the sentinel
-;;     `:rf.trace.tooling/cleared`. A second clear-of-a-cleared id
+;;     `::cleared` (= `:re-frame.trace.tooling/cleared`). A second clear-of-a-cleared id
 ;;     (e.g. a double-clear) is suppressed.
 ;;
 ;; The same dedup keys both `:rf.registry/handler-registered` and

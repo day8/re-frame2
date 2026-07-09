@@ -328,7 +328,7 @@
 ;;   - :rf.error/fx-handler-exception — recovers (the fx is skipped,
 ;;       siblings still fire, app-db is NOT rolled back).
 ;;   - :rf.error/no-such-fx / :rf.error/override-fallthrough /
-;;     :rf.error/no-such-cofx — invalid operations; the listener fires and
+;;     :rf.error/unregistered-cofx — invalid operations; the listener fires and
 ;;       the framework applies its built-in recovery.
 ;; ============================================================================
 
