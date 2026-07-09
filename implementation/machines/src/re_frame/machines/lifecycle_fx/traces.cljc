@@ -43,9 +43,9 @@
   it closes the work attempt the reply-envelope way: a
   `:status :cancelled` reply (cancellation as DATA, not the absence of a
   reply — Managed-Effects §Cancellation; EP-0011 §Cancellation). The
-  reply-envelope facts (`:work/id` keyed on the destroyed actor instance,
+  reply-envelope facts (`:rf.reply/work-id` keyed on the destroyed actor instance,
   `:rf.reply/status :cancelled`, `:rf.reply/work-status :cancelled`,
-  `:cancel/reason`) ride ADDITIVELY so the cancelled completion joins the
+  `:rf.reply/cancel-reason`) ride ADDITIVELY so the cancelled completion joins the
   same uniform work/reply row the spawn started, classified the same way
   the single-`:spawn` `:rf.machine/done` reply is. A `:rf.machine/finished`
   destroy is NOT a cancellation — the actor already closed its attempt
@@ -72,12 +72,12 @@
                    (contains? args :parent-id) (assoc :parent-id parent-id)
                    (contains? args :invoke-id) (assoc :invoke-id invoke-id)
                    (contains? args :child-id)  (assoc :child-id  child-id)
-                   cancelled? (assoc :work/kind            (:work/kind summary)
+                   cancelled? (assoc :rf.reply/work-kind            (:rf.reply/work-kind summary)
                                      :rf.reply/status      (:status summary)
-                                     :rf.reply/work-id     (:work/id summary)
-                                     :rf.reply/work-status (:work/status summary)
+                                     :rf.reply/work-id     (:rf.reply/work-id summary)
+                                     :rf.reply/work-status (:rf.reply/work-status summary)
                                      :rf.reply/cancelled?  (:cancelled? summary)
-                                     :rf.reply/cancel-reason (:cancel/reason summary)
+                                     :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
                                      :rf.reply/correlation (:correlation summary))))))
 
 (defn emit-system-id-released!

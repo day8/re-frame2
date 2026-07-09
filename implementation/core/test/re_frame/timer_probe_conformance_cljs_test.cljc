@@ -152,7 +152,7 @@
                                         {:started-at 1781078400156 :completed-at 1781078400456})]
       (is (reply/valid-reply? reply) "validates against re-frame.reply/validate-reply")
       (is (= :ok (:status reply)))
-      (is (= :completed (:work/status reply)))
+      (is (= :completed (:rf.reply/work-status reply)))
       (is (= :timer (:work/kind reply)))
       (is (= [:rf.work/timer :debounce/search 1] (:work/id reply)))
       (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")
@@ -171,7 +171,7 @@
                                       {:completed-at 1781078400456})]
       (is (reply/valid-reply? reply))
       (is (= :error (:status reply)))
-      (is (= :failed (:work/status reply)))
+      (is (= :failed (:rf.reply/work-status reply)))
       (is (= :rf.timer/elapsed-error (-> reply :error :kind))
           "an :error reply MUST carry a family :kind"))
     (testing "an explicitly-kinded error is preserved"
@@ -192,13 +192,13 @@
     (let [{:keys [deliver? reply trace] :as outcome}
           (probe/suppress base-args 2 {:completed-at 1781078400456})]
       (is (false? deliver?) "property 9: the app reply target MUST NOT run when stale")
-      (is (= :suppressed (:work/status outcome)) "ledger terminal for a stale timer")
+      (is (= :suppressed (:rf.reply/work-status outcome)) "ledger terminal for a stale timer")
 
       (testing "the reply is a valid, app-state-safe :status :stale reply"
         (is (reply/valid-reply? reply))
         (is (= :stale (:status reply)))
         (is (true? (:stale? reply)))
-        (is (= :rf.timer/generation-stale (:stale/reason reply)))
+        (is (= :rf.timer/generation-stale (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply carries NO :value (no app mutation)")
         (is (= :timer (:work/kind reply)))
         (is (= [:rf.work/timer :debounce/search 1] (:work/id reply)))
@@ -209,7 +209,7 @@
         (is (= [:rf.work/timer :debounce/search 1] (:work/id trace)))
         (is (= {:generation 1} (:rf.reply/carried trace)) "carried gate")
         (is (= {:generation 2} (:rf.reply/current trace)) "current gate")
-        (is (= :rf.timer/generation-stale (:stale/reason trace))))))
+        (is (= :rf.timer/generation-stale (:rf.reply/stale-reason trace))))))
 
   (testing "suppress? delegates to the shared re-frame.reply/stale? over the gate
             — the probe does NOT re-implement the comparison"
@@ -265,7 +265,7 @@
           mapped-out (probe/suppress base-args 2 {:completed-at 1} mapped)]
       (is (= (:reply plain-out) (:reply mapped-out))
           "the stale reply is identical — mapping the target did not touch status/work-id/stale")
-      (is (= (:work/status plain-out) (:work/status mapped-out))))))
+      (is (= (:rf.reply/work-status plain-out) (:rf.reply/work-status mapped-out))))))
 
 ;; ===========================================================================
 ;; Property 6 — retry / abort / teardown AS DATA.
@@ -292,7 +292,7 @@
         (is (reply/valid-reply? reply))
         (is (= :cancelled (:status reply)))
         (is (true? (:cancelled? reply)))
-        (is (= :rf.timer/cancelled (:cancel/reason reply)))
+        (is (= :rf.timer/cancelled (:rf.reply/cancel-reason reply)))
         (is (= 1000 (:started-at reply)) "the causal start reading rides the cancelled reply")
         (is (= 1781078400999 (:completed-at reply))))))
   (testing "aborting a timer that is not in-flight is a no-op recorded as data"

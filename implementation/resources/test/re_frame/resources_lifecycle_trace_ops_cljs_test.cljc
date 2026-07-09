@@ -280,7 +280,7 @@
 (deftest stale-suppressed-trace-carries-canonical-reply-envelope
   (rf/reg-resource :rev/article (article-spec) article-spec-request)
   (testing "rf2-mn4j89 — a superseded resource reply (carried gen 1 vs current
-            gen 2) is recorded :status :stale / :work/status :suppressed via
+            gen 2) is recorded :status :stale / :rf.reply/work-status :suppressed via
             the shared substrate, with the carried-vs-current generation pair
             on the production :rf.resource/stale-suppressed trace; the app
             target does NOT run (no entry write) and the ledger is :suppressed"

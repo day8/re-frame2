@@ -168,7 +168,7 @@ implementation/
   reply-conformance/         Cross-family reply-vocabulary conformance tier (EP-0011) —
                              test-only, no shipped namespace. Holds the umbrella guards
                              that sit above several artefacts: the shared :status /
-                             :work/status / :work/id / canonical-stale vocabulary across
+                             :rf.reply/work-status / :work/id / canonical-stale vocabulary across
                              every managed-async family (HTTP, resources, mutations,
                              machines, routing) plus the family-level functor/naturality
                              law at the target-relocating families.

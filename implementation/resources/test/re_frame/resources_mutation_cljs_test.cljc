@@ -655,7 +655,7 @@
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
     (is (= 2 (:generation (instance :rv))))
     (testing "rf2-mn4j89 — the STALE gen-1 reply is recorded :status :stale /
-              :work/status :suppressed via the shared substrate, with the
+              :rf.reply/work-status :suppressed via the shared substrate, with the
               carried-vs-current (1 vs 2) generation pair on the production
               :rf.mutation/stale-suppressed trace; NO durable write"
       (let [wid1   (-> gen1-args :on-success (nth 1) :work/id)
@@ -1608,9 +1608,9 @@
 (deftest accepted-abort-reply-settles-ledger-cancelled
   ;; rf2-qsn30x (EP-0011): an ACCEPTED mutation abort/cancel reply
   ;; (`{:kind :rf.http/aborted}`, which the reply substrate lowers to
-  ;; `:status :cancelled` / `:work/status :cancelled`) must settle the
+  ;; `:status :cancelled` / `:rf.reply/work-status :cancelled`) must settle the
   ;; work-ledger row terminal `:cancelled` — NOT `:failed`. The ledger
-  ;; status MUST agree with the canonical reply's `:work/status`
+  ;; status MUST agree with the canonical reply's `:rf.reply/work-status`
   ;; (Managed-Effects §Status taxonomy / §Work-status mapping). A stale
   ;; abort still settles `:suppressed` (covered by the stale suite); this
   ;; pins the LIVE/accepted path.
@@ -1625,8 +1625,8 @@
   (testing "the work-ledger row settled terminal :cancelled (agrees with the reply)"
     (let [rec (mutation-record :ac1)]
       (is (= :cancelled (:status rec)))
-      (is (= :cancelled (:work/status (second (first @replied))))
-          "the ledger status agrees with the canonical reply :work/status")))
+      (is (= :cancelled (:rf.reply/work-status (second (first @replied))))
+          "the ledger status agrees with the canonical reply :rf.reply/work-status")))
   (testing "the ledger outcome carries the cancel reason, not an error summary"
     (let [rec (mutation-record :ac1)]
       (is (= :aborted (:reason (:outcome rec))))

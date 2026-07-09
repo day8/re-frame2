@@ -3654,11 +3654,11 @@
                       ;; `:rf.reply/work-id` (canonical) joins this stale
                       ;; `:after` completion into the uniform work/reply rows
                       ;; the same way every other managed async family does.
-                      :work/kind            (:work/kind summary)
+                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
                       :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:work/id summary)
-                      :rf.reply/work-status (:work/status summary)
-                      :rf.reply/stale-reason (:stale/reason summary)
+                      :rf.reply/work-id     (:rf.reply/work-id summary)
+                      :rf.reply/work-status (:rf.reply/work-status summary)
+                      :rf.reply/stale-reason (:rf.reply/stale-reason summary)
                       :rf.reply/correlation (:correlation summary)}
                        ;; The CAUSAL completion timestamp of the
                        ;; firing dispatch (router-stamped `:rf/time-ms`), under
@@ -3668,9 +3668,9 @@
                        (some? (:completed-at summary))
                        (assoc :rf.reply/completed-at (:completed-at summary))))))
     ;; A FIRED (live) `:after` timer is a CLOSED `:after`
-    ;; completion (`:status :ok` / `:work/status :completed`). Build the
-    ;; canonical fired reply and stamp the reply-envelope facts (`:work/id`,
-    ;; `:work/kind :timer`, status, work-status) onto the
+    ;; completion (`:status :ok` / `:rf.reply/work-status :completed`). Build the
+    ;; canonical fired reply and stamp the reply-envelope facts (`:rf.reply/work-id`,
+    ;; `:rf.reply/work-kind :timer`, status, work-status) onto the
     ;; `:rf.machine.timer/fired` trace so it joins the uniform work/reply rows
     ;; (Managed-Effects §Tracing).
     (when (:guard-suppressed? match)
@@ -3694,10 +3694,10 @@
                       :fired? false
                       :frame  frame-id
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :work/kind            (:work/kind summary)
+                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
                       :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:work/id summary)
-                      :rf.reply/work-status (:work/status summary)
+                      :rf.reply/work-id     (:rf.reply/work-id summary)
+                      :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
                        ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))
@@ -3730,10 +3730,10 @@
                       :fired? true
                       :frame  frame-id
                       ;; reply-envelope vocabulary (Managed-Effects §9)
-                      :work/kind            (:work/kind summary)
+                      :rf.reply/work-kind            (:rf.reply/work-kind summary)
                       :rf.reply/status      (:status summary)
-                      :rf.reply/work-id     (:work/id summary)
-                      :rf.reply/work-status (:work/status summary)
+                      :rf.reply/work-id     (:rf.reply/work-id summary)
+                      :rf.reply/work-status (:rf.reply/work-status summary)
                       :rf.reply/correlation (:correlation summary)}
                        ;; Causal completion time (see stale branch).
                        (some? (:completed-at summary))

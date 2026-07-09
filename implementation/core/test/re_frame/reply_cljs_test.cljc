@@ -89,37 +89,37 @@
         "a loose scalar :error on a :partial is rejected just like on :error")))
 
 (deftest cancelled-conventions
-  (testing ":cancelled requires :cancel/reason AND the :cancelled? true marker; :error MAY carry compatibility data"
-    (is (reply/valid-reply? {:status :cancelled :cancel/reason :user :cancelled? true}))
+  (testing ":cancelled requires :rf.reply/cancel-reason AND the :cancelled? true marker; :error MAY carry compatibility data"
+    (is (reply/valid-reply? {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true}))
     (is (reply/valid-reply? {:status        :cancelled
-                             :cancel/reason :actor-destroyed
+                             :rf.reply/cancel-reason :actor-destroyed
                              :cancelled?    true
                              :error         {:kind :rf.http/aborted :reason :actor-destroyed}}))
     (is (some #(= :rf.reply/cancelled-missing-reason (:rf.reply/problem %))
               (reply/validate-reply {:status :cancelled :cancelled? true})))
     (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled :cancel/reason :user}))
-        "a :cancel/reason alone is NOT enough — cancellation is a positive :cancelled? true fact")
+              (reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user}))
+        "a :rf.reply/cancel-reason alone is NOT enough — cancellation is a positive :cancelled? true fact")
     (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled :cancel/reason :user :cancelled? false}))
+              (reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}))
         ":cancelled? false on a :cancelled reply is contradictory and fails loud")))
 
 (deftest stale-conventions
-  (testing ":stale requires :stale? true + :stale/reason and carries NO :value"
-    (is (reply/valid-reply? {:status :stale :stale? true :stale/reason :generation-mismatch}))
+  (testing ":stale requires :stale? true + :rf.reply/stale-reason and carries NO :value"
+    (is (reply/valid-reply? {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch}))
     (is (some #(= :rf.reply/stale-missing-flag (:rf.reply/problem %))
-              (reply/validate-reply {:status :stale :stale/reason :x})))
+              (reply/validate-reply {:status :stale :rf.reply/stale-reason :x})))
     (is (some #(= :rf.reply/stale-missing-reason (:rf.reply/problem %))
               (reply/validate-reply {:status :stale :stale? true})))
     (is (some #(= :rf.reply/stale-has-value (:rf.reply/problem %))
-              (reply/validate-reply {:status :stale :stale? true :stale/reason :x :value 1}))
+              (reply/validate-reply {:status :stale :stale? true :rf.reply/stale-reason :x :value 1}))
         "a stale reply MUST NOT mutate app state — carrying :value would invite it")))
 
 (deftest work-status-vocabulary
-  (testing ":work/status, when present, is in the closed operational set"
-    (is (reply/valid-reply? {:status :error :error {:kind :rf.http/timeout} :work/status :timed-out}))
+  (testing ":rf.reply/work-status, when present, is in the closed operational set"
+    (is (reply/valid-reply? {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out}))
     (is (some #(= :rf.reply/invalid-work-status (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value 1 :work/status :weird})))))
+              (reply/validate-reply {:status :ok :value 1 :rf.reply/work-status :weird})))))
 
 (deftest data-only-invariant-no-host-handles
   (testing "a fn anywhere in the reply is a host handle"
@@ -137,7 +137,7 @@
            :value        {:title "Welcome"}
            :work/id      [:rf.work/http :article/by-id 42 1]
            :work/kind    :http
-           :work/status  :completed
+           :rf.reply/work-status  :completed
            :attempt      1
            :rf.frame/id  :app/main
            :started-at   1781078400123
@@ -424,13 +424,13 @@
                           {:work/id      (:work/id carried)
                            :work/kind    :resource
                            :rf.frame/id  :app/main
-                           :stale/reason :resource/generation-mismatch})]
+                           :rf.reply/stale-reason :resource/generation-mismatch})]
       (is (false? deliver?) "the app reply target MUST NOT run")
       (is (= :stale (:status reply)))
       (is (true? (:stale? reply)))
-      (is (= :resource/generation-mismatch (:stale/reason reply)))
-      (is (= :suppressed (:work/status reply)) "ledger terminal for a stale completion")
-      (is (= :suppressed (:work/status out)))
+      (is (= :resource/generation-mismatch (:rf.reply/stale-reason reply)))
+      (is (= :suppressed (:rf.reply/work-status reply)) "ledger terminal for a stale completion")
+      (is (= :suppressed (:rf.reply/work-status out)))
       (is (not (contains? reply :value)) "a stale reply carries NO value — no app-state mutation"))))
 
 (deftest suppress-records-carried-and-current-trace-facts
@@ -438,16 +438,16 @@
     (let [carried {:route/nav-token "nav-1"}
           current {:route/nav-token "nav-2"}
           {:keys [trace]} (reply/suppress [:x] carried current
-                                          {:stale/reason :route/nav-token-mismatch})]
+                                          {:rf.reply/stale-reason :route/nav-token-mismatch})]
       (is (true? (:rf.reply/suppressed? trace)))
-      (is (= :route/nav-token-mismatch (:stale/reason trace)))
+      (is (= :route/nav-token-mismatch (:rf.reply/stale-reason trace)))
       (is (= carried (:rf.reply/carried trace)))
       (is (= current (:rf.reply/current trace))))))
 
 (deftest suppress-default-reason
-  (testing "a default :stale/reason is supplied when the family does not name one"
+  (testing "a default :rf.reply/stale-reason is supplied when the family does not name one"
     (is (= :rf.reply/correlation-mismatch
-           (:stale/reason (:reply (reply/suppress [:x] {:g 1} {:g 2})))))))
+           (:rf.reply/stale-reason (:reply (reply/suppress [:x] {:g 1} {:g 2})))))))
 
 (deftest suppress-extra-cannot-override-stale-boundary
   (testing "rf2-waawic — `extra` CANNOT override the stale boundary: threading a
@@ -461,13 +461,13 @@
           (reply/suppress nil {:g 1} {:g 2}
                           {:status      :ok
                            :value       {:title "should-be-stripped"}
-                           :work/status :completed
+                           :rf.reply/work-status :completed
                            :work/id     [:rf.work/http :req 1 1]
                            :work/kind   :http
                            :rf.frame/id :app/main})]
       (is (= :stale (:status reply)) "status forced to :stale, not the :ok in extra")
       (is (true? (:stale? reply)))
-      (is (= :suppressed (:work/status reply)) "work-status forced, not :completed")
+      (is (= :suppressed (:rf.reply/work-status reply)) "work-status forced, not :completed")
       (is (not (contains? reply :value)) "the :value in extra is stripped — a stale reply MUST NOT carry one")
       (is (false? deliver?))
       ;; identity facts from extra still ride verbatim

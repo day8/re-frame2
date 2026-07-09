@@ -237,8 +237,8 @@
   `:reply-to` workflow continuation reads directly (Spec 016 §Read completion
   continuations): the resource id, the canonical params, the resolved scope,
   the `:resource/key`, and `:cache-hit?`. The canonical reply already carries
-  `:status`, `:value` / `:error`, `:work/id`, `:work/kind :resource`,
-  `:work/status`, `:rf.frame/id`, `:completed-at`, and `:correlation`; this
+  `:status`, `:value` / `:error`, `:rf.reply/work-id`, `:rf.reply/work-kind :resource`,
+  `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`, and `:correlation`; this
   layers on the resource facts a handler needs without reaching into
   `:correlation`. Mirrors the mutation `continuation-reply`. Pure."
   [reply {:keys [resource-key cache-hit?]}]
@@ -570,7 +570,7 @@
         ;; the read-completion continuation (`:cache-hit? true`).
         (when hit-cont-fx
           (emit-resource-replied!
-            frame-id scoped-key (:work/id hit-reply) :ok [reply-to'] true))
+            frame-id scoped-key (:rf.reply/work-id hit-reply) :ok [reply-to'] true))
         ;; arm the poll (+ re-arm stale / GC) for an owner-free entry just
         ;; revived by a new lease, mirroring the success-path arming, and
         ;; append the immediate cache-hit continuation dispatch. Only emitted
@@ -2131,7 +2131,7 @@
 ;;
 ;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
 ;; map every managed-async family produces — `re-frame.resources.reply`
-;; builds `{:status :value/:error :work/id :work/kind :resource :work/status
+;; builds `{:status :value/:error :rf.reply/work-id :rf.reply/work-kind :resource :rf.reply/work-status
 ;; :rf.frame/id :completed-at :correlation}` (Managed-Effects §The uniform
 ;; reply envelope / EP-0011 §Resource Reply And Work Ledger). The internal
 ;; resource reply targets are framework-INTERNAL, so they receive the
@@ -2226,7 +2226,7 @@
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply never
       ;; mutates a newer entry. Per Managed-Effects §Stale suppression the
-      ;; completion is recorded `:status :stale` / `:work/status :suppressed`
+      ;; completion is recorded `:status :stale` / `:rf.reply/work-status :suppressed`
       ;; through the SHARED `re-frame.reply` substrate (via
       ;; `rreply/stale-reply`), exactly as every other managed-async family
       ;; lowers its stale outcome — the canonical reply built above
@@ -2434,7 +2434,7 @@
       ;; STALE SUPPRESSION (mandatory): a superseded / vanished reply (failure
       ;; OR abort) never mutates a newer entry. Per Managed-Effects §Stale
       ;; suppression the completion is recorded `:status :stale` /
-      ;; `:work/status :suppressed` through the SHARED `re-frame.reply`
+      ;; `:rf.reply/work-status :suppressed` through the SHARED `re-frame.reply`
       ;; substrate (via `stale-suppress-reply`), and the canonical reply-
       ;; envelope vocabulary rides ADDITIVELY on the `:rf.resource/stale-
       ;; suppressed` trace. STALE VALIDATION WINS OVER NATURAL STATUS
@@ -2753,7 +2753,7 @@
     (if (nil? entry)
       ;; STALE SUPPRESSION (mandatory) — a superseded / vanished / cross-frame
       ;; page reply never appends to a newer feed. Recorded `:status :stale` /
-      ;; `:work/status :suppressed` through the shared reply substrate, exactly
+      ;; `:rf.reply/work-status :suppressed` through the shared reply substrate, exactly
       ;; as the scalar success path does.
       (let [stale (stale-suppress-reply runtime-db resource-key payload
                                         {:outcome :page-success})]

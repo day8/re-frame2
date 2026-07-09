@@ -14,7 +14,7 @@
   aborts every in-flight managed request the restored frame issued, suppressing
   the app reply (the abort fires with `:reason :epoch-restored`, a reply-
   suppressing reason) and emitting the EP-0011 `:status :stale` /
-  `:work/status :suppressed` envelope facts (Managed-Effects §restore: \"epoch
+  `:rf.reply/work-status :suppressed` envelope facts (Managed-Effects §restore: \"epoch
   restore MUST NOT revive host work\").
 
   Strategy: a blocking in-process server holds the request mid-flight while the

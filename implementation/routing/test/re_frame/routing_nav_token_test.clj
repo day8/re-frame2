@@ -647,7 +647,7 @@
         (is (= "A" id) "the target event ran with its leading args intact")
         (is (map? reply) "the reply map was appended as the final argument")
         (is (= :ok (:status reply)) "the live reply is :status :ok")
-        (is (= :completed (:work/status reply)))
+        (is (= :completed (:rf.reply/work-status reply)))
         (is (= :route (:work/kind reply)))
         (is (= {:title "Welcome"} (:value reply)) "the loader :value rides the reply (EP-0007)")
         (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]

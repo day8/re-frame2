@@ -18,7 +18,7 @@
   Two concerns:
 
    1. **Work-id correlation** (`work-id`). One HTTP attempt has one
-      `:work/id` head `[:rf.work/http logical-id issuance attempt]`
+      `:rf.reply/work-id` head `[:rf.work/http logical-id issuance attempt]`
       (`issuance` is the monotonic per-`request-id` re-issuance counter so a
       superseded attempt and its superseder carry distinct work ids;
       `attempt` discriminates transport retries within one issuance — see
@@ -36,11 +36,11 @@
       facts become a single `re-frame.reply`-conformant reply map with one
       closed `:status` (`:ok` / `:error` / `:cancelled`), `:value` on
       `:ok`, the classified `:rf.http/*` failure map riding verbatim
-      under `:error`, plus `:work/id`, `:work/kind :http`,
-      `:work/status`, `:attempt`, `:rf.frame/id`, `:completed-at` (read
+      under `:error`, plus `:rf.reply/work-id`, `:rf.reply/work-kind :http`,
+      `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`, `:completed-at` (read
       ONCE from the host completion — never re-read in the reply
       handler), and `:correlation {:request-id …}`. Timeout lowers to
-      `:status :error` + `:work/status :timed-out` (NOT a top-level
+      `:status :error` + `:rf.reply/work-status :timed-out` (NOT a top-level
       status); abort lowers to `:status :cancelled` with an
       `:rf.http/aborted` `:error`. This map is delivered to the app
       target as-is — there is no public reshape.
@@ -78,7 +78,7 @@
 ;;  - `attempt`  — the retry attempt number WITHIN one issuance, which
 ;;    discriminates transport retries of the same issuance.
 ;;
-;; Together: one ATTEMPT (issuance × retry) has one `:work/id` (the EP-0007
+;; Together: one ATTEMPT (issuance × retry) has one `:rf.reply/work-id` (the EP-0007
 ;; rule — Managed-Effects §Work-id correlation §184).
 ;; ---------------------------------------------------------------------------
 
@@ -102,9 +102,9 @@
   "Build the frame-qualified transport request-id `[:rf.req frame-id
   work-id]` (Managed-Effects §Work-id correlation — the sanctioned second
   identity for process-global transport-level in-flight correlation, landed
-  in Spec 016). The frame-local `:work/id` carries no frame id, so it is not
+  in Spec 016). The frame-local `:rf.reply/work-id` carries no frame id, so it is not
   a safe process-global transport token on its own; this qualified form is.
-  Intra-frame stale suppression still keys on `:work/id`, not this."
+  Intra-frame stale suppression still keys on `:rf.reply/work-id`, not this."
   [frame-id wid]
   [:rf.req frame-id wid])
 
@@ -164,14 +164,14 @@
 
 (defn- base-reply
   "The correlation/identity facts every HTTP reply carries, independent of
-  status. `:work/id`, `:work/kind :http`, `:attempt`, `:rf.frame/id`,
+  status. `:rf.reply/work-id`, `:rf.reply/work-kind :http`, `:attempt`, `:rf.frame/id`,
   `:completed-at`, and `:correlation {:request-id …}`. Optional facts
   (`:completed-at`, `:correlation`) are omitted when absent rather than
   filled with nil sentinels (Managed-Effects §The reply map)."
   [{:keys [request-id origin-event issuance attempt frame completed-at] :as ctx}]
   (let [wid (work-id ctx)]
-    (cond-> {:work/id     wid
-             :work/kind   :http
+    (cond-> {:rf.reply/work-id     wid
+             :rf.reply/work-kind   :http
              :attempt     (or attempt 1)}
       (some? frame)        (assoc :rf.frame/id frame)
       (some? completed-at) (assoc :completed-at completed-at)
@@ -183,15 +183,15 @@
 (defn success-reply
   "Build the canonical `:status :ok` reply map for a successful HTTP
   completion. `value` is the decoded-and-`:accept`-projected payload.
-  `:work/status :completed`."
+  `:rf.reply/work-status :completed`."
   [ctx value]
   (assoc (base-reply ctx)
          :status      :ok
-         :work/status :completed
+         :rf.reply/work-status :completed
          :value       value))
 
 (defn- timed-out?
-  "A `:rf.http/timeout` failure lowers to `:work/status :timed-out` (NOT a
+  "A `:rf.http/timeout` failure lowers to `:rf.reply/work-status :timed-out` (NOT a
   top-level reply status — timeout is an error KIND + a work status per
   Managed-Effects §Status taxonomy)."
   [failure]
@@ -206,9 +206,9 @@
      path — `dispatch-failure!` always lowers aborts through `failure-reply`;
      the standalone `aborted-reply` builder produces the identical map but has
      no production caller, existing only for conformance/lowering tests);
-   - `:rf.http/timeout`  → `:status :error` + `:work/status :timed-out`
+   - `:rf.http/timeout`  → `:status :error` + `:rf.reply/work-status :timed-out`
      (timeout is NOT a top-level status);
-   - everything else     → `:status :error` + `:work/status :failed`.
+   - everything else     → `:status :error` + `:rf.reply/work-status :failed`.
 
   The classified `:rf.http/*` failure map rides verbatim as `:error` (it
   already carries the family `:kind` the reply-map contract requires)."
@@ -217,29 +217,29 @@
     (if aborted?
       (assoc (base-reply ctx)
              :status        :cancelled
-             :work/status   :cancelled
+             :rf.reply/work-status   :cancelled
              :cancelled?    true
-             :cancel/reason (:reason failure)
+             :rf.reply/cancel-reason (:reason failure)
              :error         failure)
       (assoc (base-reply ctx)
              :status      :error
-             :work/status (if (timed-out? failure) :timed-out :failed)
+             :rf.reply/work-status (if (timed-out? failure) :timed-out :failed)
              :error       failure))))
 
 (defn aborted-reply
   "Build the canonical `:status :cancelled` reply map for a cancelled HTTP
   request (Managed-Effects §Cancellation). `failure` is the
   `:rf.http/aborted` shape (`:kind` / `:reason` / `:request-id` /
-  `:actor-id`). Carries `:cancelled? true`, `:cancel/reason`, and the
+  `:actor-id`). Carries `:cancelled? true`, `:rf.reply/cancel-reason`, and the
   abort failure under `:error` (Managed-Effects: `:error` MAY carry
-  compatibility failure data for `:status :cancelled`). `:work/status
+  compatibility failure data for `:status :cancelled`). `:rf.reply/work-status
   :cancelled`."
   [ctx failure]
   (assoc (base-reply ctx)
          :status        :cancelled
-         :work/status   :cancelled
+         :rf.reply/work-status   :cancelled
          :cancelled?    true
-         :cancel/reason (:reason failure)
+         :rf.reply/cancel-reason (:reason failure)
          :error         failure))
 
 ;; ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@
 ;; suppression; rf2-azcmd3). When a fresh request supersedes a prior one with
 ;; the same `:request-id`, the prior (superseded) attempt's app reply MUST NOT
 ;; run, its ledger row reaches `:suppressed`, and the trace stream records a
-;; `:status :stale` / `:work/status :suppressed` reply-envelope row carrying
+;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope row carrying
 ;; the CARRIED (the superseded attempt's work-id) and CURRENT (the superseding
 ;; attempt's work-id) correlation. The supersession gate is data-only: the
 ;; carried `:work/id` no longer being the current `:work/id` under the
@@ -257,7 +257,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def stale-reason
-  "The `:stale/reason` a superseded HTTP completion carries: a fresh request
+  "The `:rf.reply/stale-reason` a superseded HTTP completion carries: a fresh request
   under the same `:request-id` replaced this one. Named once (EP-0007)."
   :rf.http/request-id-superseded)
 
@@ -267,7 +267,7 @@
   shared `re-frame.reply/suppress` (the correctness boundary made concrete):
   the returned `:reply` is `:status :stale` (no `:value`, no app mutation),
   `:deliver?` is false, and `:trace` carries the carried/current work-id
-  correlation joined to `:work/id`.
+  correlation joined to `:rf.reply/work-id`.
 
   `ctx` is the superseded attempt's reply-ctx (`{:request-id … :origin-event
   … :issuance … :attempt … :frame …}`) — it supplies the carried HTTP
@@ -281,10 +281,10 @@
     (reply/suppress nil
                     {:work/id carried-wid}
                     {:work/id current-work-id}
-                    (cond-> {:work/id      carried-wid
-                             :work/kind    :http
+                    (cond-> {:rf.reply/work-id      carried-wid
+                             :rf.reply/work-kind    :http
                              :attempt      (or (:attempt ctx) 1)
-                             :stale/reason stale-reason}
+                             :rf.reply/stale-reason stale-reason}
                       (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
@@ -298,7 +298,7 @@
 ;; request whose origin / explicit target names the actor under teardown) has
 ;; an OBSOLETE target — that event-id no longer names a live actor — so its
 ;; app reply MUST NOT run. It lowers to the canonical `:status :stale` /
-;; `:work/status :suppressed` outcome, exactly like supersession. A request
+;; `:rf.reply/work-status :suppressed` outcome, exactly like supersession. A request
 ;; whose reply target is an ordinary (non-actor) event is STILL MEANINGFUL —
 ;; it keeps the live `:status :cancelled` delivery (rf2-wvkn). The
 ;; obsolescence determinant is STRUCTURAL, not a live-DB read: when
@@ -308,7 +308,7 @@
 ;; is obsolete by construction, no liveness probe required.
 
 (def actor-destroy-stale-reason
-  "The `:stale/reason` an obsolete actor-bound HTTP completion carries: the
+  "The `:rf.reply/stale-reason` an obsolete actor-bound HTTP completion carries: the
   reply target's owning actor was destroyed before delivery, so the target is
   obsolete (Managed-Effects §Cancellation). Named once (EP-0007)."
   :rf.http/actor-destroyed-target-obsolete)
@@ -340,7 +340,7 @@
   target. Delegates to the shared `re-frame.reply/suppress` correctness
   boundary: the returned `:reply` is `:status :stale` (no `:value`, no app
   mutation), `:deliver?` is false, and `:trace` carries the carried correlation
-  joined to `:work/id`.
+  joined to `:rf.reply/work-id`.
 
   `ctx` is the aborted attempt's reply-ctx (`{:request-id … :origin-event …
   :issuance … :attempt … :frame …}`) — it supplies the carried HTTP work-id.
@@ -354,10 +354,10 @@
     (reply/suppress nil
                     {:work/id carried-wid}
                     nil
-                    (cond-> {:work/id      carried-wid
-                             :work/kind    :http
+                    (cond-> {:rf.reply/work-id      carried-wid
+                             :rf.reply/work-kind    :http
                              :attempt      (or (:attempt ctx) 1)
-                             :stale/reason actor-destroy-stale-reason}
+                             :rf.reply/stale-reason actor-destroy-stale-reason}
                       (some? (:frame ctx))      (assoc :rf.frame/id (:frame ctx))
                       (some? (:request-id ctx)) (assoc :correlation {:request-id (:request-id ctx)})))))
 
@@ -389,8 +389,8 @@
   `:correlation`, `:meta`) elide through the single shared
   `re-frame.elision/elide-wire-value` walker (via
   `re-frame.reply/trace-summary`) — never a family-private elider
-  (Managed-Effects §Tracing); the identity facts (`:status`, `:work/id`,
-  `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`,
+  (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
+  `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`,
   `:completed-at`) ride verbatim.
 
   `opts`:

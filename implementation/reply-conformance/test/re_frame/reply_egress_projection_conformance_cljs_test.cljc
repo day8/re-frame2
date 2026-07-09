@@ -121,12 +121,12 @@
 (defn- ok-reply []
   ;; The canonical :ok reply SHAPE built via the shared
   ;; `re-frame.reply-conformance-fixtures/canonical-ok-reply` (rf2-b2a3a2).
-  ;; This suite's row additionally pins `:work/status :completed`.
+  ;; This suite's row additionally pins `:rf.reply/work-status :completed`.
   (fixtures/canonical-ok-reply
     {:value        (reply-body)
      :work/id      work-id
      :work/kind    :resource
-     :work/status  :completed
+     :rf.reply/work-status  :completed
      :rf.frame/id  frame-id
      :completed-at completed-at-ms}))
 
@@ -143,7 +143,7 @@
                  :blob   big-string}
    :work/id     work-id
    :work/kind   :resource
-   :work/status :failed
+   :rf.reply/work-status :failed
    :rf.frame/id frame-id})
 
 (defn- redacted? [v] (= privacy/redacted-sentinel v))
@@ -180,7 +180,7 @@
         (is (= work-id (:work/id summary))         ":work/id verbatim")
         (is (= :ok (:status summary))              ":status verbatim")
         (is (= :resource (:work/kind summary))     ":work/kind verbatim")
-        (is (= :completed (:work/status summary))  ":work/status verbatim")
+        (is (= :completed (:rf.reply/work-status summary))  ":rf.reply/work-status verbatim")
         (is (= frame-id (:rf.frame/id summary))    ":rf.frame/id verbatim")
         (is (= completed-at-ms (:completed-at summary)) ":completed-at verbatim")))))
 

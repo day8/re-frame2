@@ -46,7 +46,7 @@
                                   {:work-kind rreply/work-kind-resource :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= :resource (:work/kind r)))
       (is (= {:title "Welcome"} (:value r)))
       (is (not (contains? r :data)) "the reply-map spelling is :value, not :data")
@@ -69,7 +69,7 @@
                                    :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
-      (is (= :failed (:work/status r)))
+      (is (= :failed (:rf.reply/work-status r)))
       (is (= :resource (:work/kind r)))
       (is (= {:kind :rf.http/http-5xx :status 503} (:error r)))
       (is (= 1781078400456 (:completed-at r))
@@ -82,9 +82,9 @@
                                    :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
-      (is (= :cancelled (:work/status r)))
+      (is (= :cancelled (:rf.reply/work-status r)))
       (is (true? (:cancelled? r)))
-      (is (= :actor-destroyed (:cancel/reason r)))
+      (is (= :actor-destroyed (:rf.reply/cancel-reason r)))
       (is (= 1781078400456 (:completed-at r))
           "the cancellation reply carries the causal :completed-at (rf2-rl27r2)")
       (is (= {:kind :rf.http/aborted :reason :actor-destroyed} (:error r))))))
@@ -116,13 +116,13 @@
                      :extra   {:work/id (:work/id carried)
                                :work/kind :resource
                                :rf.frame/id :app/main
-                               :stale/reason :resource/generation-mismatch}})]
+                               :rf.reply/stale-reason :resource/generation-mismatch}})]
       (is (false? (:deliver? out)) "a stale app reply MUST NOT be delivered")
-      (is (= :suppressed (:work/status out)))
+      (is (= :suppressed (:rf.reply/work-status out)))
       (let [r (:reply out)]
         (is (= :stale (:status r)))
         (is (true? (:stale? r)))
-        (is (= :resource/generation-mismatch (:stale/reason r)))
+        (is (= :resource/generation-mismatch (:rf.reply/stale-reason r)))
         (is (not (contains? r :value)) "a stale reply carries no value (no app mutation)")
         (is (reply/valid-reply? r) (str (reply/validate-reply r))))
       (testing "the suppression trace carries the carried + current correlation"

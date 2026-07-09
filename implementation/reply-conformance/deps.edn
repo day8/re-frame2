@@ -6,7 +6,7 @@
 ;; the umbrella conformance the per-family reply suites cannot: the
 ;; cross-family VOCABULARY-consistency guard (every managed-async family —
 ;; HTTP, resources, mutations, machines, routing — produces the ONE shared
-;; `:status` / `:work/status` / `:work/id` / canonical-stale shape, the
+;; `:status` / `:rf.reply/work-status` / `:work/id` / canonical-stale shape, the
 ;; axis rf2-mn4j89 violated) and the family-level functor/naturality law at
 ;; the TARGET-RELOCATING families (route-loader relay, machine-spawn
 ;; `:on-done`). The test namespaces sit ABOVE several artefacts (core,

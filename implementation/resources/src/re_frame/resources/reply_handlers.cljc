@@ -9,7 +9,7 @@
   builder, `rreply`). Both the resource and mutation families verify a late
   internal reply against the LIVE durable slot (frame + work-id + generation)
   and, on a superseded / vanished / cross-frame reply, lower the SAME stale-
-  suppression outcome (`:status :stale` / `:work/status :suppressed`) and emit
+  suppression outcome (`:status :stale` / `:rf.reply/work-status :suppressed`) and emit
   the SAME additively-shaped stale-suppressed trace. That trio of behaviours —
   the live-slot verifier, the stale-suppress reply builder, and the
   stale-suppressed trace emitter — was copy-pasted between `events.cljc` and
@@ -28,7 +28,7 @@
   - **`work-kind`** — `rreply/work-kind-resource` | `rreply/work-kind-mutation`
     (Managed-Effects §Work-id correlation).
   - **`stale-reason`** — `:rf.resource/superseded` | `:rf.mutation/superseded`
-    (the family's `:stale/reason` on the suppressed reply).
+    (the family's `:rf.reply/stale-reason` on the suppressed reply).
 
   …plus a `correlation-fn` (`(payload) → extra-correlation` — the family's
   diagnostic correlation keys beyond the carried/current `:generation` pair:
@@ -131,13 +131,13 @@
 
   Returns the `re-frame.reply/suppress` outcome map (`:deliver?` is false — the
   app reply target MUST NOT run; `:reply` is the data-only `:status :stale`
-  reply; `:work/status :suppressed`).
+  reply; `:rf.reply/work-status :suppressed`).
 
   The three family knobs:
   - `path-fn` reads the live slot's `:current` generation (see
     `current-generation`);
   - `work-kind` is `rreply/work-kind-resource` | `rreply/work-kind-mutation`;
-  - `stale-reason` is the family's `:stale/reason`.
+  - `stale-reason` is the family's `:rf.reply/stale-reason`.
   `correlation-fn` is `(payload) → extra-correlation` (the family's diagnostic
   correlation keys merged ONTO the carried/current `:generation` pair —
   `:resource/key` / `:scope` for a resource; `:instance/id` / `:mutation/id` /
@@ -149,9 +149,9 @@
     (rreply/stale-reply
       {:carried {:work/id work-id :generation carried-gen}
        :current {:generation current-gen}
-       :extra   (merge {:work/id      work-id
-                        :work/kind    work-kind
-                        :stale/reason stale-reason
+       :extra   (merge {:rf.reply/work-id      work-id
+                        :rf.reply/work-kind    work-kind
+                        :rf.reply/stale-reason stale-reason
                         :correlation  (assoc (correlation-fn payload)
                                              :generation {:carried carried-gen
                                                           :current current-gen})}
@@ -187,9 +187,9 @@
                          ;; shared substrate, recorded ADDITIVELY (the bespoke
                          ;; facts above are preserved).
                          :rf.reply/status      (:status summary)
-                         :rf.reply/work-status (:work/status summary)
-                         :rf.reply/work-id     (:work/id summary)
-                         :rf.reply/stale-reason (:stale/reason summary)
+                         :rf.reply/work-status (:rf.reply/work-status summary)
+                         :rf.reply/work-id     (:rf.reply/work-id summary)
+                         :rf.reply/stale-reason (:rf.reply/stale-reason summary)
                          :rf.reply/correlation (:correlation summary)
                          ;; rf2-waawic — the SHARED carried/current stale-gate
                          ;; facts `re-frame.reply/suppress` already computed on

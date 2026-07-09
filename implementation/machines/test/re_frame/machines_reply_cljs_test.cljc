@@ -87,7 +87,7 @@
               {:user-id "u-42"})]
       (is (= :ok (:status r)))
       (is (= :machine (:work/kind r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= {:user-id "u-42"} (:value r)))
       (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r)))
       (is (= :app/main (:rf.frame/id r)))
@@ -115,7 +115,7 @@
               {:actor-id :auth/flow#2 :parent-id :auth/main :work-bearing-path [:authenticating]}
               {:reason :bad-creds})]
       (is (= :error (:status r)))
-      (is (= :failed (:work/status r)))
+      (is (= :failed (:rf.reply/work-status r)))
       (is (= :machine (:work/kind r)))
       (is (some? (:error r)))
       (is (some? (:kind (:error r))) ":error carries a family :kind")
@@ -138,8 +138,8 @@
               {:actor-id :auth/flow#1 :parent-id :auth/main :work-bearing-path [:authenticating]})]
       (is (= :stale (:status r)))
       (is (true? (:stale? r)))
-      (is (= :rf.machine/actor-not-live (:stale/reason r)))
-      (is (= :suppressed (:work/status r)))
+      (is (= :rf.machine/actor-not-live (:rf.reply/stale-reason r)))
+      (is (= :suppressed (:rf.reply/work-status r)))
       (is (not (contains? r :value)) ":stale MUST NOT carry :value (no app mutation)")
       (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r)))
       (is (reply/valid-reply? r) "conforms to the shared reply-map contract"))))
@@ -193,15 +193,15 @@
       ;; the canonical :work/id joins the uniform work/reply rows;
       ;; the SCHEDULED epoch (the timer's attempt identity) keys it.
       (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
-      (is (= :suppressed (:work/status r)))
-      (is (= :rf.machine.timer/after-epoch-mismatch (:stale/reason r)))
+      (is (= :suppressed (:rf.reply/work-status r)))
+      (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason r)))
       (is (not (contains? r :value)))
       (is (= {:path [:loading] :rf/after-epoch 1} (-> r :correlation :carried)))
       (is (= {:path [:loading] :rf/after-epoch 2} (-> r :correlation :current)))
       (is (reply/valid-reply? r)))))
 
 (deftest after-fired-reply-is-canonical
-  (testing "rf2-niarhz — a FIRED (live) :after timer is a closed :status :ok / :work/status :completed completion carrying the canonical :work/id"
+  (testing "rf2-niarhz — a FIRED (live) :after timer is a closed :status :ok / :rf.reply/work-status :completed completion carrying the canonical :work/id"
     (let [r (m-reply/after-fired-reply
               {:actor-id   :a/multi
                :state      :loading
@@ -211,7 +211,7 @@
                :frame      :rf/default})]
       (is (= :ok (:status r)))
       (is (= :timer (:work/kind r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= [:rf.work/timer [:a/multi :loading] 2] (:work/id r)))
       (is (nil? (:value r)) "a timer carries no payload — :value is an explicit nil (completed-with-no-payload)")
       (is (reply/valid-reply? r) (str (reply/validate-reply r))))
@@ -222,7 +222,7 @@
                  :decl-path [:loading] :epoch 2 :frame :rf/default
                  :guard-suppressed? true})]
         (is (= :ok (:status r)))
-        (is (= :completed (:work/status r)))
+        (is (= :completed (:rf.reply/work-status r)))
         (is (true? (-> r :correlation :guard-suppressed?)))
         (is (reply/valid-reply? r))))))
 
@@ -236,8 +236,8 @@
                :reason :on-exit})]
       (is (= :cancelled (:status r)))
       (is (true? (:cancelled? r)) "cancellation is a positive fact")
-      (is (= :on-exit (:cancel/reason r)))
-      (is (= :cancelled (:work/status r)))
+      (is (= :on-exit (:rf.reply/cancel-reason r)))
+      (is (= :cancelled (:rf.reply/work-status r)))
       (is (= :timer (:work/kind r)))
       ;; matches the fired / stale reply's work-id (same scheduling attempt row)
       (is (= [:rf.work/timer [:a/multi :loading] 1] (:work/id r)))
@@ -248,7 +248,7 @@
       (let [r (m-reply/cancelled-timer-reply
                 {:actor-id :a/m :state :s :delay 100
                  :decl-path [:s] :epoch 1 :frame :rf/default :reason reason})]
-        (is (= reason (:cancel/reason r)))
+        (is (= reason (:rf.reply/cancel-reason r)))
         (is (reply/valid-reply? r) (str reason " ⇒ " (reply/validate-reply r)))))))
 
 (deftest on-restore-cancel-reason-in-closed-vocab
@@ -265,7 +265,7 @@
               {:actor-id :a/m :state :waiting :delay 5000
                :decl-path [:waiting] :epoch 2 :frame :rf/default
                :reason :on-restore})]
-      (is (= :on-restore (:cancel/reason r)))
+      (is (= :on-restore (:rf.reply/cancel-reason r)))
       (is (reply/valid-reply? r) (str "on-restore ⇒ " (reply/validate-reply r))))))
 
 (deftest cancelled-actor-reply-is-canonical
@@ -276,17 +276,17 @@
                :reason :explicit})]
       (is (= :cancelled (:status r)))
       (is (true? (:cancelled? r)))
-      (is (= :explicit (:cancel/reason r)))
-      (is (= :cancelled (:work/status r)))
+      (is (= :explicit (:rf.reply/cancel-reason r)))
+      (is (= :cancelled (:rf.reply/work-status r)))
       (is (= :machine (:work/kind r)))
       (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r))
           "reuses the machine work-id so the cancel joins the spawn's row")
       (is (not (contains? r :value)) "the actor never produced an :output-key result")
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
-  (testing "join-survivor cancel reason rides as :cancel/reason"
+  (testing "join-survivor cancel reason rides as :rf.reply/cancel-reason"
     (let [r (m-reply/cancelled-actor-reply
               {:actor-id :child/c#2 :parent-id :sup/all
                :work-bearing-path [:hydrating] :frame :rf/default
                :reason :on-join-resolution})]
-      (is (= :on-join-resolution (:cancel/reason r)))
+      (is (= :on-join-resolution (:rf.reply/cancel-reason r)))
       (is (reply/valid-reply? r)))))

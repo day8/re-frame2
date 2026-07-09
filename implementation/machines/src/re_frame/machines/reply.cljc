@@ -28,8 +28,8 @@
       leaf, the runtime forms a canonical reply map internally — one
       closed `:status` (`:ok` for a plain final leaf, `:error` for an
       `:error?` error terminal), the child's `:output-key` result under
-      `:value`, `:work/id` `[:rf.work/machine actor-id work-bearing-path
-      generation]`, `:work/kind :machine`, `:work/status`,
+      `:value`, `:rf.reply/work-id` `[:rf.work/machine actor-id work-bearing-path
+      generation]`, `:rf.reply/work-kind :machine`, `:rf.reply/work-status`,
       `:rf.frame/id`, and `:correlation {:actor-id … :parent-id …
       :invoke-id …}`. The PUBLIC `:on-done` `:data` callback is then driven
       with `(:value reply)` as its `:result`; `:on-error` with the
@@ -100,7 +100,7 @@
 ;;                         `<type>#<n>` instance-id form it is `n` (the
 ;;                         spawn-counter reading that minted this instance),
 ;;                         so a re-spawn under the same declaring path lands
-;;                         on a fresh work id (one ATTEMPT, one `:work/id`,
+;;                         on a fresh work id (one ATTEMPT, one `:rf.reply/work-id`,
 ;;                         per EP-0007). An explicit `:fixed-actor-id` actor
 ;;                         with no `#n` suffix carries generation 1.
 ;; ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@
 
 (defn- base-reply
   "The correlation/identity facts every spawned-actor reply carries,
-  independent of status: `:work/id`, `:work/kind :machine`,
+  independent of status: `:rf.reply/work-id`, `:rf.reply/work-kind :machine`,
   `:rf.frame/id`, optional `:completed-at`, and
   `:correlation {:actor-id … :parent-id … :invoke-id …}`. The
   `:actor-id` is the finishing actor's live INSTANCE address; the
@@ -166,8 +166,8 @@
   distinct identity facts. Optional facts are omitted when absent rather
   than nil-filled (Managed-Effects §The reply map)."
   [{:keys [actor-id parent-id work-bearing-path frame completed-at]}]
-  (cond-> {:work/id   (spawn-work-id actor-id work-bearing-path)
-           :work/kind :machine}
+  (cond-> {:rf.reply/work-id   (spawn-work-id actor-id work-bearing-path)
+           :rf.reply/work-kind :machine}
     (some? frame)        (assoc :rf.frame/id frame)
     (some? completed-at) (assoc :completed-at completed-at)
     true                 (assoc :correlation
@@ -179,14 +179,14 @@
   "Build the canonical `:status :ok` reply map for a spawned child that
   reached a plain (non-error) `:final?` leaf (EP-0011 §Machine
   Completion). `value` is the child's `:output-key` result (nil when the
-  final leaf declares no `:output-key`). `:work/status :completed`.
+  final leaf declares no `:output-key`). `:rf.reply/work-status :completed`.
 
   `ctx` keys: `:actor-id`, `:parent-id`, `:work-bearing-path`, `:frame`,
   `:completed-at`."
   [ctx value]
   (assoc (base-reply ctx)
          :status      :ok
-         :work/status :completed
+         :rf.reply/work-status :completed
          :value       value))
 
 (defn error-reply
@@ -195,7 +195,7 @@
   failure that drives the parent's `:spawn :on-error` transition (EP-0011
   §Machine Completion; Spec 005 §`:on-error`). `error` is the failure
   payload (the child's `:output-key` slot for an error leaf, or the
-  action-exception envelope). `:work/status :failed`.
+  action-exception envelope). `:rf.reply/work-status :failed`.
 
   The `:error` slot carries a family `:kind` per the reply-map contract:
   when `error` is already a map carrying `:kind` it rides verbatim;
@@ -210,7 +210,7 @@
                     {:kind :rf.machine/spawn-error :value error})]
     (assoc (base-reply ctx)
            :status      :error
-           :work/status :failed
+           :rf.reply/work-status :failed
            :error       error-map)))
 
 ;; ---------------------------------------------------------------------------
@@ -225,8 +225,8 @@
   already destroyed, or the spawn slot was reused). Per Managed-Effects
   §Stale suppression the app target (the `:on-done` / `:on-error`
   routing) MUST NOT run; this reply carries NO `:value` and produces no
-  app mutation. `:stale/reason :rf.machine/actor-not-live`,
-  `:work/status :suppressed`.
+  app mutation. `:rf.reply/stale-reason :rf.machine/actor-not-live`,
+  `:rf.reply/work-status :suppressed`.
 
   `ctx` keys mirror `success-reply`'s (`:actor-id`, `:parent-id`,
   `:work-bearing-path`, `:frame`, `:completed-at`) plus an optional
@@ -248,10 +248,10 @@
         carried-generation (actor-generation actor-id)]
     (cond-> {:status       :stale
              :stale?       true
-             :stale/reason :rf.machine/actor-not-live
-             :work/id      (spawn-work-id actor-id work-bearing-path)
-             :work/kind    :machine
-             :work/status  :suppressed
+             :rf.reply/stale-reason :rf.machine/actor-not-live
+             :rf.reply/work-id      (spawn-work-id actor-id work-bearing-path)
+             :rf.reply/work-kind    :machine
+             :rf.reply/work-status  :suppressed
              :correlation  (cond-> {:actor-id   actor-id
                                     :generation {:carried carried-generation
                                                  :current current-generation}}
@@ -269,7 +269,7 @@
 ;; completion (a child dispatching `[parent [:on-child-done child-id …]]` /
 ;; `:on-child-error` into the parent's join) folds into join state and
 ;; carries the SAME uniform reply vocabulary the single-`:spawn` path
-;; carries — a canonical reply map, `:work/id`, and `:rf.reply/*` facts.
+;; carries — a canonical reply map, `:rf.reply/work-id`, and `:rf.reply/*` facts.
 ;; The PUBLIC join protocol (the parent dispatch, the resolution events,
 ;; the join-resolution sibling-cancellation cascade) is independent of these helpers; this is
 ;; INTERNAL trace-stream lowering only, so a join child's done / failed /
@@ -280,21 +280,21 @@
 ;; SPAWNED instance id (the `<type>#<n>` actor address in the join-state
 ;; `:children` map) and the parent's `invoke-id` (the `:spawn-all`-bearing
 ;; node's declaring path) as the work-bearing path — one child attempt, one
-;; `:work/id`, per EP-0007.
+;; `:rf.reply/work-id`, per EP-0007.
 ;; ---------------------------------------------------------------------------
 
 (defn join-child-reply
   "Build the canonical reply map for a `:spawn-all` join-child completion
   that folded into the join (EP-0011 §Machine Completion; Managed-Effects
   §Status taxonomy). `kind` is `:done` (a `:on-child-done` arrival —
-  `:status :ok` / `:work/status :completed`) or `:failed` (a
-  `:on-child-error` arrival — `:status :error` / `:work/status :failed`).
+  `:status :ok` / `:rf.reply/work-status :completed`) or `:failed` (a
+  `:on-child-error` arrival — `:status :error` / `:rf.reply/work-status :failed`).
 
   The work-id is `[:rf.work/machine spawned-id parent-invoke-id
   generation]` — the child's SPAWNED instance address (the `<type>#<n>`
   actor id in the join-state `:children` map) keyed on the parent's
-  `:spawn-all`-bearing declaring path; one child attempt has one `:work/id`.
-  `:work/kind :machine`.
+  `:spawn-all`-bearing declaring path; one child attempt has one `:rf.reply/work-id`.
+  `:rf.reply/work-kind :machine`.
 
   `ctx` keys: `:parent-id` (the join-owning parent INSTANCE), `:invoke-id`
   (the `:spawn-all`-bearing declaring path — the work-bearing path),
@@ -307,8 +307,8 @@
   reply-map schema's value/error conventions hold. Optional facts are
   omitted (not nil-filled) when absent."
   [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind child-extra]
-  (let [base (cond-> {:work/id   (spawn-work-id spawned-id invoke-id)
-                      :work/kind :machine
+  (let [base (cond-> {:rf.reply/work-id   (spawn-work-id spawned-id invoke-id)
+                      :rf.reply/work-kind :machine
                       :correlation
                       (cond-> {}
                         (some? parent-id)  (assoc :parent-id parent-id)
@@ -320,14 +320,14 @@
     (if (= kind :failed)
       (assoc base
              :status      :error
-             :work/status :failed
+             :rf.reply/work-status :failed
              :error       (let [e child-extra]
                             (if (and (map? e) (some? (:kind e)))
                               e
                               {:kind :rf.machine/spawn-all-child-error :value e})))
       (assoc base
              :status      :ok
-             :work/status :completed
+             :rf.reply/work-status :completed
              :value       child-extra))))
 
 (defn stale-join-child-reply
@@ -336,8 +336,8 @@
   post-resolution late-completion branch). Per Managed-Effects §Stale
   suppression the late completion MUST NOT mutate the join (the join is
   latched `:resolved?`); this reply carries NO `:value` and represents the
-  drop the reply-envelope way — `:stale/reason
-  :rf.machine.spawn-all/join-resolved`, `:work/status :suppressed`.
+  drop the reply-envelope way — `:rf.reply/stale-reason
+  :rf.machine.spawn-all/join-resolved`, `:rf.reply/work-status :suppressed`.
 
   Work-id matches `join-child-reply`'s so the suppressed late completion
   joins the same uniform work/reply row as the child's earlier (decisive
@@ -347,10 +347,10 @@
   [{:keys [parent-id invoke-id child-id spawned-id frame completed-at]} kind]
   (cond-> {:status       :stale
            :stale?       true
-           :stale/reason :rf.machine.spawn-all/join-resolved
-           :work/id      (spawn-work-id spawned-id invoke-id)
-           :work/kind    :machine
-           :work/status  :suppressed
+           :rf.reply/stale-reason :rf.machine.spawn-all/join-resolved
+           :rf.reply/work-id      (spawn-work-id spawned-id invoke-id)
+           :rf.reply/work-kind    :machine
+           :rf.reply/work-status  :suppressed
            :correlation  (cond-> {}
                            (some? parent-id)  (assoc :parent-id parent-id)
                            (some? invoke-id)  (assoc :invoke-id (vec invoke-id))
@@ -380,9 +380,9 @@
   counterpart) yields `[:rf.work/timer nil epoch]`, a valid distinct id.
 
   The machine `:after` timer completions (`:rf.machine.timer/fired` /
-  `:rf.machine.timer/stale-after`) carry this `:work/id` so they join into
+  `:rf.machine.timer/stale-after`) carry this `:rf.reply/work-id` so they join into
   the uniform work/reply rows that every other managed async family
-  correlates by (Managed-Effects §Tracing — \"one `:work/id`\")."
+  correlates by (Managed-Effects §Tracing — \"one `:rf.reply/work-id`\")."
   [actor-id decl-path epoch]
   (let [logical-id (cond
                      (and (some? actor-id) (some? decl-path))
@@ -412,12 +412,12 @@
   Per Managed-Effects §Stale suppression the timer's transition MUST NOT
   fire — this is the existing epoch-gated drop expressed in the shared
   reply vocabulary. Carries NO `:value` (no app mutation),
-  `:work/kind :timer` (the timer family work-kind; the machine `:after` is
+  `:rf.reply/work-kind :timer` (the timer family work-kind; the machine `:after` is
   a specialized timer instance per EP-0011 §Timer Reply),
-  `:work/status :suppressed`, and the carried/current epoch facts under
+  `:rf.reply/work-status :suppressed`, and the carried/current epoch facts under
   `:correlation`.
 
-  The reply carries the canonical `:work/id`
+  The reply carries the canonical `:rf.reply/work-id`
   `[:rf.work/timer <decl-path> <scheduled-epoch>]` (the timer's attempt
   identity — see `timer-work-id`), so a stale `:after` completion joins into
   the uniform work/reply rows by the same key HTTP / resources / routing use.
@@ -441,10 +441,10 @@
            completed-at]}]
   (cond-> {:status       :stale
            :stale?       true
-           :stale/reason :rf.machine.timer/after-epoch-mismatch
-           :work/id      (timer-work-id actor-id decl-path scheduled-epoch)
-           :work/kind    :timer
-           :work/status  :suppressed
+           :rf.reply/stale-reason :rf.machine.timer/after-epoch-mismatch
+           :rf.reply/work-id      (timer-work-id actor-id decl-path scheduled-epoch)
+           :rf.reply/work-kind    :timer
+           :rf.reply/work-status  :suppressed
            :correlation  (cond-> {:state   state
                                   :delay   delay
                                   :carried (after-suppression-gate decl-path scheduled-epoch)
@@ -457,9 +457,9 @@
   "Build the canonical reply for a machine `:after` timer that FIRED (live —
   its declaring path is still active and its carried epoch equals the node's
   current per-path epoch). A fired `:after` timer is a CLOSED
-  `:after` completion: `:status :ok` / `:work/status :completed`, carrying the
-  canonical `:work/id` `[:rf.work/timer <decl-path> <epoch>]` and
-  `:work/kind :timer` so its `:rf.machine.timer/fired` trace joins the uniform
+  `:after` completion: `:status :ok` / `:rf.reply/work-status :completed`, carrying the
+  canonical `:rf.reply/work-id` `[:rf.work/timer <decl-path> <epoch>]` and
+  `:rf.reply/work-kind :timer` so its `:rf.machine.timer/fired` trace joins the uniform
   work/reply rows the same way every other managed async completion does
   (Managed-Effects §Tracing — \"completion classified as one of the five
   statuses\"). A timer carries no `:value` (its effect is the transition it
@@ -467,11 +467,11 @@
 
   A GUARD-SUPPRESSED fired timer (the timer was live but its transition guard
   evaluated false, so no transition fired) is STILL a closed `:status :ok` /
-  `:work/status :completed` completion — the timer fired and completed; the
+  `:rf.reply/work-status :completed` completion — the timer fired and completed; the
   guard's no-transition decision is APP-level, not the stale-suppression
   correctness boundary (the timer was NOT stale). The distinction rides as
   `:guard-suppressed? true` under `:correlation` (data-only), keeping
-  `:work/status` inside the closed `work-statuses` vocabulary. Pass
+  `:rf.reply/work-status` inside the closed `work-statuses` vocabulary. Pass
   `:guard-suppressed? true` for that case.
 
   The reply also threads the CAUSAL completion timestamp (`:completed-at`)
@@ -499,9 +499,9 @@
            ;; no payload" shape); a nil value keeps the reply schema-valid
            ;; without inventing a synthetic payload.
            :value       nil
-           :work/id     (timer-work-id actor-id decl-path epoch)
-           :work/kind   :timer
-           :work/status :completed
+           :rf.reply/work-id     (timer-work-id actor-id decl-path epoch)
+           :rf.reply/work-kind   :timer
+           :rf.reply/work-status :completed
            :correlation (cond-> {:state state
                                  :delay delay
                                  :gate  (after-suppression-gate decl-path epoch)}
@@ -518,18 +518,18 @@
 ;; Machine cancellation terminal paths (timer cancel on state exit /
 ;; destroy / supersede / frame-destroy; actor destroy; `:spawn-all`
 ;; join-survivor cancel) complete the work attempt the reply-envelope way:
-;; cancellation as DATA. Each carries the canonical `:work/id`,
+;; cancellation as DATA. Each carries the canonical `:rf.reply/work-id`,
 ;; `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and
-;; `:cancel/reason`, so a cancelled timer / actor's terminal EP-0011 reply
+;; `:rf.reply/cancel-reason`, so a cancelled timer / actor's terminal EP-0011 reply
 ;; row joins the same uniform work/reply row its scheduled / spawned START
 ;; opened. The validated `:status :cancelled` shape requires BOTH
-;; `:cancel/reason` AND `:cancelled? true` (cancellation is a positive
-;; fact), and `:work/status :cancelled` (the closed work-status vocab).
+;; `:rf.reply/cancel-reason` AND `:cancelled? true` (cancellation is a positive
+;; fact), and `:rf.reply/work-status :cancelled` (the closed work-status vocab).
 ;; ---------------------------------------------------------------------------
 
 (def timer-cancel-reasons
   "The closed `:rf.machine.timer/cancelled` `:reason` set —
-  the cancel-reason taxonomy a cancelled-timer reply's `:cancel/reason`
+  the cancel-reason taxonomy a cancelled-timer reply's `:rf.reply/cancel-reason`
   carries: `:on-exit` (state exit), `:on-destroy` (actor destroy),
   `:on-resolution` (subscription-delay re-resolution), `:on-supersede`
   (in-place reschedule), `:on-frame-destroy` (frame teardown), and
@@ -546,11 +546,11 @@
   timer (EP-0011 §Cancellation; Managed-Effects §Cancellation). The timer's
   host-clock handle was released before it fired; cancellation completes the
   work attempt as DATA rather than the absence of a reply. Carries the
-  canonical `:work/id` `[:rf.work/timer <logical-id> <epoch>]` (matching
+  canonical `:rf.reply/work-id` `[:rf.work/timer <logical-id> <epoch>]` (matching
   `after-fired-reply` / `after-stale-reply` so a cancelled timer joins the
-  same uniform work/reply row its scheduling started), `:work/kind :timer`,
-  `:work/status :cancelled`, the `:cancelled? true` marker, and
-  `:cancel/reason` from `timer-cancel-reasons`. NO `:value` (the timer never
+  same uniform work/reply row its scheduling started), `:rf.reply/work-kind :timer`,
+  `:rf.reply/work-status :cancelled`, the `:cancelled? true` marker, and
+  `:rf.reply/cancel-reason` from `timer-cancel-reasons`. NO `:value` (the timer never
   fired).
 
   `ctx` keys: `:actor-id` (the timer's owning actor INSTANCE — optional),
@@ -559,10 +559,10 @@
   [{:keys [actor-id state delay decl-path epoch frame reason]}]
   (cond-> {:status        :cancelled
            :cancelled?    true
-           :cancel/reason reason
-           :work/id       (timer-work-id actor-id decl-path epoch)
-           :work/kind     :timer
-           :work/status   :cancelled
+           :rf.reply/cancel-reason reason
+           :rf.reply/work-id       (timer-work-id actor-id decl-path epoch)
+           :rf.reply/work-kind     :timer
+           :rf.reply/work-status   :cancelled
            :correlation   (cond-> {:state state
                                    :delay delay
                                    :gate  (after-suppression-gate decl-path epoch)}
@@ -576,8 +576,8 @@
   completes through the same envelope). Reuses the machine work-id
   `[:rf.work/machine actor-id work-bearing-path generation]` so the
   cancelled completion joins the same uniform work/reply row the spawn
-  started; `:work/kind :machine`, `:work/status :cancelled`, the
-  `:cancelled? true` marker, and `:cancel/reason` (the destroy reason —
+  started; `:rf.reply/work-kind :machine`, `:rf.reply/work-status :cancelled`, the
+  `:cancelled? true` marker, and `:rf.reply/cancel-reason` (the destroy reason —
   e.g. `:explicit` for a direct / cascade destroy, `:on-join-resolution`
   for a join-survivor teardown). NO `:value` (the actor never produced an
   `:output-key` result).
@@ -588,10 +588,10 @@
   [{:keys [actor-id parent-id work-bearing-path frame reason]}]
   (cond-> {:status        :cancelled
            :cancelled?    true
-           :cancel/reason reason
-           :work/id       (spawn-work-id actor-id work-bearing-path)
-           :work/kind     :machine
-           :work/status   :cancelled
+           :rf.reply/cancel-reason reason
+           :rf.reply/work-id       (spawn-work-id actor-id work-bearing-path)
+           :rf.reply/work-kind     :machine
+           :rf.reply/work-status   :cancelled
            :correlation   (cond-> {:actor-id actor-id}
                             (some? parent-id)         (assoc :parent-id parent-id)
                             (some? work-bearing-path) (assoc :invoke-id (vec work-bearing-path)))}
@@ -611,9 +611,9 @@
   `:correlation`, `:meta`) elide through the single shared
   `re-frame.elision/elide-wire-value` walker (via
   `re-frame.reply/trace-summary`) — never a family-private elider
-  (Managed-Effects §Tracing); the identity facts (`:status`, `:work/id`,
-  `:work/kind`, `:work/status`, `:rf.frame/id`, `:completed-at`,
-  `:stale/reason`) ride verbatim. `opts` is forwarded to the walker (e.g.
+  (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
+  `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`,
+  `:rf.reply/stale-reason`) ride verbatim. `opts` is forwarded to the walker (e.g.
   `:frame`)."
   ([reply] (trace-reply reply nil))
   ([reply opts] (reply/trace-summary reply opts)))
@@ -625,8 +625,8 @@
   `after-stale-reply` → `trace-reply`. The wire-bearing slots (here
   `:correlation`, carrying the carried/current generation gate) elide
   through the single shared `re-frame.elision/elide-wire-value` walker via
-  `trace-reply`; the identity facts (`:status`, `:work/id`, `:work/kind`,
-  `:work/status`, `:stale/reason`, `:rf.frame/id`) ride verbatim. `opts`
+  `trace-reply`; the identity facts (`:status`, `:rf.reply/work-id`, `:rf.reply/work-kind`,
+  `:rf.reply/work-status`, `:rf.reply/stale-reason`, `:rf.frame/id`) ride verbatim. `opts`
   is forwarded to the walker (e.g. `:frame`)."
   ([reply] (stale-spawn-trace reply nil))
   ([reply opts] (trace-reply reply opts)))

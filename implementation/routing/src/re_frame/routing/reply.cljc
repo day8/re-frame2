@@ -18,7 +18,7 @@
   Two concerns, both consuming the shared `re-frame.reply` substrate:
 
    1. **Work-id correlation** (`work-id`). One route-loader attempt has
-      one `:work/id` head `[:rf.work/route route-id nav-token loader-id]`
+      one `:rf.reply/work-id` head `[:rf.work/route route-id nav-token loader-id]`
       (Managed-Effects §Work-id correlation). The nav-token is NOT a
       second stale-suppression key in its own right — it is the value of
       the ONE suppression gate (`:route/nav-token`) AND a component of
@@ -31,7 +31,7 @@
       `re-frame.reply/stale?` — the shared correctness boundary. On
       mismatch `re-frame.reply/suppress` produces the `:status :stale`
       reply (no app mutation) and the data-only trace facts joined to
-      `:work/id`; the app reply target does NOT run. On match the live
+      `:rf.reply/work-id`; the app reply target does NOT run. On match the live
       reply (`:ok` / `:error`, and `:cancelled` for an explicit user
       cancel) flows through to the handler unchanged.
 
@@ -51,7 +51,7 @@
 ;; Work-id correlation (Managed-Effects §Work-id correlation).
 ;;
 ;; Route head: `[:rf.work/route route-id nav-token loader-id]`. One ATTEMPT
-;; has one `:work/id` (the EP-0007 rule): a distinct nav-token (a fresh
+;; has one `:rf.reply/work-id` (the EP-0007 rule): a distinct nav-token (a fresh
 ;; navigation epoch) is a distinct attempt, so the nav-token rides IN the
 ;; work-id tuple. The nav-token is the same fact named once — it is the
 ;; component that discriminates a superseded attempt AND the value of the
@@ -120,11 +120,11 @@
 ;; `re-frame.reply/suppress` (Managed-Effects §Stale suppression). The route
 ;; family supplies the carried + current gates and the route work-id; the
 ;; substrate produces the `:status :stale` reply + the data-only trace facts
-;; joined to `:work/id`, and signals non-delivery.
+;; joined to `:rf.reply/work-id`, and signals non-delivery.
 ;; ---------------------------------------------------------------------------
 
 (def stale-reason
-  "The `:stale/reason` a superseded route completion carries: the
+  "The `:rf.reply/stale-reason` a superseded route completion carries: the
   navigation epoch moved on. Named once (EP-0007)."
   :rf.route/nav-token-stale)
 
@@ -145,7 +145,7 @@
 (defn live-reply
   "Build the LIVE `:status :ok` route-loader reply map for a completion whose
   carried nav-token is still current (Managed-Effects §The reply map / §Status
-  taxonomy). Carries the route `:work/id` + `:work/kind :route`, the loader's
+  taxonomy). Carries the route `:rf.reply/work-id` + `:rf.reply/work-kind :route`, the loader's
   decoded result `:value` (the reply-result spelling EVERYWHERE — EP-0007;
   `nil` for a loader that produced no payload — `:ok` REQUIRES `:value`
   present, so it rides even when nil rather than being omitted), the carried
@@ -155,7 +155,7 @@
 
   `ctx` is `{:route-id … :nav-token <carried> :loader-id … :frame …
   :completed-at …}` — the same identity-fact map `suppress` consumes, so a live
-  and a stale completion correlate by the identical `:work/id`."
+  and a stale completion correlate by the identical `:rf.reply/work-id`."
   ([ctx] (live-reply ctx nil))
   ([{:keys [frame completed-at] :as ctx} value]
    (cond-> {:status      :ok
@@ -163,9 +163,9 @@
             ;; taxonomy / `validate-reply`); a successful load with no payload
             ;; rides `:value nil` rather than omitting the slot.
             :value       value
-            :work/id     (work-id ctx)
-            :work/kind   :route
-            :work/status :completed}
+            :rf.reply/work-id     (work-id ctx)
+            :rf.reply/work-kind   :route
+            :rf.reply/work-status :completed}
      (some? frame)        (assoc :rf.frame/id frame)
      (some? completed-at) (assoc :completed-at completed-at))))
 
@@ -207,14 +207,14 @@
   Returns the `re-frame.reply/suppress` shape:
     {:deliver?    <bool>          ;; false ⇒ DO NOT run the app reply target
      :reply       <:status :stale reply, data-only, app-state-safe>
-     :work/status :suppressed     ;; the ledger terminal for a stale route load
+     :rf.reply/work-status :suppressed     ;; the ledger terminal for a stale route load
      :trace       <data-only facts carrying CARRIED + CURRENT gates, joined
-                   to :work/id>}
+                   to :rf.reply/work-id>}
 
-  The trace facts are joined to `:work/id` per the Route-Loader-Completion
+  The trace facts are joined to `:rf.reply/work-id` per the Route-Loader-Completion
   contract; the caller maps them onto the existing `:rf.route.nav-token/
   stale-suppressed` trace operation (carried-token / current-token /
-  event-id ride alongside `:work/id`)."
+  event-id ride alongside `:rf.reply/work-id`)."
   ([ctx current] (suppress ctx current nil))
   ([{:keys [nav-token frame completed-at] :as ctx} current target]
    (let [wid (work-id ctx)]
@@ -222,9 +222,9 @@
                      (gate nav-token)
                      (current-gate current)
                      (cond-> {:status       :stale
-                              :work/id      wid
-                              :work/kind    :route
-                              :stale/reason stale-reason}
+                              :rf.reply/work-id      wid
+                              :rf.reply/work-kind    :route
+                              :rf.reply/stale-reason stale-reason}
                        (some? frame)        (assoc :rf.frame/id frame)
                        (some? completed-at) (assoc :completed-at completed-at))))))
 
@@ -241,8 +241,8 @@
   `:correlation`, `:meta`) elide through the single shared
   `re-frame.elision/elide-wire-value` walker (via
   `re-frame.reply/trace-summary`) — never a family-private elider
-  (Managed-Effects §Tracing); the identity facts (`:status`, `:work/id`,
-  `:work/kind`, `:work/status`, `:rf.frame/id`, `:completed-at`) ride
+  (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
+  `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`) ride
   verbatim. `opts` is forwarded to the walker (e.g. `:frame`)."
   ([reply] (trace-reply reply nil))
   ([reply opts] (reply/trace-summary reply opts)))

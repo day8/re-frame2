@@ -353,7 +353,7 @@
         ;; spawning parent was already DESTROYED. The completion is then
         ;; STALE — its `:on-done` / `:on-error` routing has no live parent to
         ;; drive, so per §Stale suppression the app target MUST NOT run and
-        ;; the completion is recorded `:status :stale` / `:work/status
+        ;; the completion is recorded `:status :stale` / `:rf.reply/work-status
         ;; :suppressed` via the shared substrate, carrying the full stale
         ;; vocabulary rather than a bare `:ok` reply.
         ;;
@@ -428,12 +428,12 @@
                                 ;; The CANONICAL `:rf.reply/work-id` joins
                                 ;; this spawned-actor completion into Xray's
                                 ;; uniform work/reply rows + stale-race
-                                ;; grouping. `:work/kind` rides alongside as the
+                                ;; grouping. `:rf.reply/work-kind` rides alongside as the
                                 ;; work-family tag (no reply-envelope twin).
-                                :work/kind            (:work/kind done-summary)
+                                :rf.reply/work-kind            (:rf.reply/work-kind done-summary)
                                 :rf.reply/status      (:status done-summary)
-                                :rf.reply/work-id     (:work/id done-summary)
-                                :rf.reply/work-status (:work/status done-summary)}
+                                :rf.reply/work-id     (:rf.reply/work-id done-summary)
+                                :rf.reply/work-status (:rf.reply/work-status done-summary)}
                          ;; the causal completion timestamp — the
                          ;; router's `:rf.cofx` `:rf/time-ms` threaded
                          ;; into the reply (Managed-Effects §155/§231: a
@@ -444,8 +444,8 @@
                          (assoc :rf.reply/completed-at (:completed-at done-summary))
                          ;; stale-suppression vocabulary — carried
                          ;; ADDITIVELY only for a stale late completion, joined
-                         ;; to `:work/id` via the shared `:rf.reply/*` facts.
-                         stale-spawn? (assoc :rf.reply/stale-reason (:stale/reason done-summary)
+                         ;; to `:rf.reply/work-id` via the shared `:rf.reply/*` facts.
+                         stale-spawn? (assoc :rf.reply/stale-reason (:rf.reply/stale-reason done-summary)
                                              :rf.reply/correlation  (:correlation done-summary))))
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf.runtime/machines :snapshots <parent-id>]; we read it,

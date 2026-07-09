@@ -3,7 +3,7 @@
   EP-0011 testing-rigour audit rf2-h8xw2v).
 
   EP-0011's whole point is ONE work/reply vocabulary across EVERY managed
-  *async* family — the closed `:status` enum, the closed `:work/status`
+  *async* family — the closed `:status` enum, the closed `:rf.reply/work-status`
   enum, the `:work/id` correlation tuple, the canonical `:status :stale`
   suppression shape — so tools read ONE stream and apps classify
   completion ONE way. Each family already validates its OWN reply slice
@@ -31,19 +31,19 @@
   set of cross-family assertions then proves EVERY family, for EVERY
   situation it supports, produces the canonical shared shape:
 
-    (a) success    → `:status :ok`        + `:work/status :completed`
-    (b) error      → `:status :error`     + `:work/status :failed`
+    (a) success    → `:status :ok`        + `:rf.reply/work-status :completed`
+    (b) error      → `:status :error`     + `:rf.reply/work-status :failed`
                      (or `:timed-out`, the timeout work-status) + a family
                      `:error` MAP carrying a `:kind`
-    (c) cancel     → `:status :cancelled` + `:work/status :cancelled`
+    (c) cancel     → `:status :cancelled` + `:rf.reply/work-status :cancelled`
                      + `:cancelled? true`
-    (d) stale      → `:status :stale`     + `:work/status :suppressed`
+    (d) stale      → `:status :stale`     + `:rf.reply/work-status :suppressed`
                      + `:stale? true` + a carried/current correlation gate,
                      and NO `:value` (no app mutation)
 
   PLUS the invariants every reply shares regardless of situation: every
   reply VALIDATES against the single `re-frame.reply/validate-reply`; the
-  `:status` is in the closed `re-frame.reply/statuses`; the `:work/status`
+  `:status` is in the closed `re-frame.reply/statuses`; the `:rf.reply/work-status`
   (when present) is in the closed `re-frame.reply/work-statuses`; the
   `:work/id` is a `[:rf.work/* …]` tuple, `=`-comparable and EDN-round-
   trippable; and the reply is DATA-ONLY (no host handle anywhere).
@@ -146,7 +146,7 @@
 ;;   :work-head     — the expected `[:rf.work/* …]` head keyword
 ;;   :success       — () → success reply map, or nil if N/A
 ;;   :error         — () → error reply map, or nil if N/A
-;;   :error-work-status — the expected error :work/status (:failed default;
+;;   :error-work-status — the expected error :rf.reply/work-status (:failed default;
 ;;                    HTTP timeout family also proves :timed-out separately)
 ;;   :cancel        — () → cancelled reply map, or nil if N/A
 ;;   :stale         — () → stale reply map, or nil if N/A
@@ -235,7 +235,7 @@
                :extra   {:work/id      (:work/id carried)
                          :work/kind    :resource
                          :rf.frame/id  :app/main
-                         :stale/reason :resource/generation-mismatch}}))))
+                         :rf.reply/stale-reason :resource/generation-mismatch}}))))
 
 (def ^:private families
   [{:family    :http
@@ -247,7 +247,7 @@
     ;; Pin the canonical stale shape via the REAL production helper
     ;; `re-frame.http.reply/suppress` (NOT the substrate directly with a
     ;; synthetic extra) so this row would go red if the HTTP helper drifts in
-    ;; its :stale/reason, carried/current facts, frame threading, or work-id
+    ;; its :rf.reply/stale-reason, carried/current facts, frame threading, or work-id
     ;; shape (rf2-fkdyhl). `current-work-id` is the superseding attempt's
     ;; work-id (issuance 2), =-distinct from the carried one (issuance 1).
     :stale     #(:reply (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))}
@@ -279,7 +279,7 @@
                              :extra   {:work/id      (:work/id carried)
                                        :work/kind    :mutation
                                        :rf.frame/id  :app/main
-                                       :stale/reason :mutation/superseded}})))}
+                                       :rf.reply/stale-reason :mutation/superseded}})))}
 
    {:family    :machine
     :work-head :rf.work/machine
@@ -348,10 +348,10 @@
         (is (contains? reply/statuses (:status reply))
             (str family " " situation " :status " (:status reply)
                  " is not in the closed " reply/statuses)))
-      (testing ":work/status (when present) is in the ONE closed work-status vocabulary"
-        (when (contains? reply :work/status)
-          (is (contains? reply/work-statuses (:work/status reply))
-              (str family " " situation " :work/status " (:work/status reply)
+      (testing ":rf.reply/work-status (when present) is in the ONE closed work-status vocabulary"
+        (when (contains? reply :rf.reply/work-status)
+          (is (contains? reply/work-statuses (:rf.reply/work-status reply))
+              (str family " " situation " :rf.reply/work-status " (:rf.reply/work-status reply)
                    " is not in the closed " reply/work-statuses))))
       (testing "the reply is DATA-ONLY (no host handle anywhere)"
         (is (not-any? #(= :rf.reply/host-handle (:rf.reply/problem %))
@@ -424,7 +424,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (a) SUCCESS — every family that produces a success reply produces the
-;; SAME success shape: :status :ok + :work/status :completed + a :value.
+;; SAME success shape: :status :ok + :rf.reply/work-status :completed + a :value.
 ;; ---------------------------------------------------------------------------
 
 (deftest success-shape-is-consistent-across-families
@@ -434,8 +434,8 @@
     (testing (str family " success → canonical :ok / :completed")
       (is (= :ok (:status reply))
           (str family " success :status must be :ok, got " (:status reply)))
-      (is (= :completed (:work/status reply))
-          (str family " success :work/status must be :completed, got " (:work/status reply)))
+      (is (= :completed (:rf.reply/work-status reply))
+          (str family " success :rf.reply/work-status must be :completed, got " (:rf.reply/work-status reply)))
       (is (contains? reply :value)
           (str family " success reply MUST carry a :value (the decoded result)"))
       (is (nil? (:error reply))
@@ -555,7 +555,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; (b) ERROR — every family that produces an error reply produces the SAME
-;; error shape: :status :error + a :work/status in #{:failed :timed-out} +
+;; error shape: :status :error + a :rf.reply/work-status in #{:failed :timed-out} +
 ;; a family :error MAP carrying a :kind (never a loose scalar).
 ;; ---------------------------------------------------------------------------
 
@@ -566,27 +566,27 @@
     (testing (str family " error → canonical :error + family-error map")
       (is (= :error (:status reply))
           (str family " error :status must be :error, got " (:status reply)))
-      (is (contains? #{:failed :timed-out} (:work/status reply))
-          (str family " error :work/status must be :failed (or :timed-out), got "
-               (:work/status reply)))
+      (is (contains? #{:failed :timed-out} (:rf.reply/work-status reply))
+          (str family " error :rf.reply/work-status must be :failed (or :timed-out), got "
+               (:rf.reply/work-status reply)))
       (is (map? (:error reply))
           (str family " error :error must be a family-error MAP (never a loose scalar)"))
       (is (some? (:kind (:error reply)))
           (str family " error :error map MUST carry a :kind")))))
 
 (deftest http-timeout-is-error-plus-timed-out-work-status
-  (testing "timeout is :status :error + :work/status :timed-out (NOT a top-level status) — the one family with a :timed-out work-status proves it lands in the closed enum"
+  (testing "timeout is :status :error + :rf.reply/work-status :timed-out (NOT a top-level status) — the one family with a :timed-out work-status proves it lands in the closed enum"
     (let [reply (http-reply/failure-reply http-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
       (is (= :error (:status reply)) "timeout is NOT a top-level :status")
-      (is (= :timed-out (:work/status reply)))
-      (is (contains? reply/work-statuses (:work/status reply))
+      (is (= :timed-out (:rf.reply/work-status reply)))
+      (is (contains? reply/work-statuses (:rf.reply/work-status reply))
           ":timed-out is in the ONE closed work-status vocabulary"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) CANCEL — every family that produces a cancellation reply produces the
-;; SAME shape: :status :cancelled + :work/status :cancelled + :cancelled? true
-;; + a :cancel/reason. (An :rf.http/aborted lowers to cancellation, never an
+;; SAME shape: :status :cancelled + :rf.reply/work-status :cancelled + :cancelled? true
+;; + a :rf.reply/cancel-reason. (An :rf.http/aborted lowers to cancellation, never an
 ;; :error, uniformly across HTTP / resources / mutations.)
 ;; ---------------------------------------------------------------------------
 
@@ -597,21 +597,21 @@
     (testing (str family " cancel → canonical :cancelled")
       (is (= :cancelled (:status reply))
           (str family " cancel :status must be :cancelled, got " (:status reply)))
-      (is (= :cancelled (:work/status reply))
-          (str family " cancel :work/status must be :cancelled, got " (:work/status reply)))
+      (is (= :cancelled (:rf.reply/work-status reply))
+          (str family " cancel :rf.reply/work-status must be :cancelled, got " (:rf.reply/work-status reply)))
       (is (true? (:cancelled? reply))
           (str family " cancel reply MUST carry the :cancelled? true marker"))
-      (is (some? (:cancel/reason reply))
-          (str family " cancel reply MUST carry a :cancel/reason")))))
+      (is (some? (:rf.reply/cancel-reason reply))
+          (str family " cancel reply MUST carry a :rf.reply/cancel-reason")))))
 
 ;; ---------------------------------------------------------------------------
 ;; (d) STALE — THE axis rf2-mn4j89 violated. EVERY family that suppresses a
 ;; superseded completion produces the SAME canonical stale shape:
-;;   :status :stale + :work/status :suppressed + :stale? true + :stale/reason
+;;   :status :stale + :rf.reply/work-status :suppressed + :stale? true + :rf.reply/stale-reason
 ;;   + NO :value (a stale reply MUST NOT mutate app state).
 ;; This is the umbrella guard: had resources/mutations still emitted their
 ;; bespoke :rf.resource/stale-suppressed shape (no :status :stale, no
-;; :work/status :suppressed), THIS test would go RED.
+;; :rf.reply/work-status :suppressed), THIS test would go RED.
 ;; ---------------------------------------------------------------------------
 
 (deftest stale-shape-is-consistent-across-EVERY-family
@@ -631,12 +631,12 @@
       (is (= :stale (:status reply))
           (str family " stale :status must be :stale (NOT a bespoke shape), got "
                (:status reply)))
-      (is (= :suppressed (:work/status reply))
-          (str family " stale :work/status must be :suppressed, got " (:work/status reply)))
+      (is (= :suppressed (:rf.reply/work-status reply))
+          (str family " stale :rf.reply/work-status must be :suppressed, got " (:rf.reply/work-status reply)))
       (is (true? (:stale? reply))
           (str family " stale reply MUST carry the :stale? true marker"))
-      (is (some? (:stale/reason reply))
-          (str family " stale reply MUST carry a :stale/reason"))
+      (is (some? (:rf.reply/stale-reason reply))
+          (str family " stale reply MUST carry a :rf.reply/stale-reason"))
       (is (not (contains? reply :value))
           (str family " stale reply MUST NOT carry a :value — a stale reply "
                "mutates NO app state")))))
@@ -644,7 +644,7 @@
 ;; ---------------------------------------------------------------------------
 ;; The suppress OUTCOME builders for the four suppress-DELEGATING families.
 ;; Each returns the `re-frame.reply/suppress` outcome map
-;; `{:deliver? :reply :work/status :trace}` (HTTP / resources / mutations /
+;; `{:deliver? :reply :rf.reply/work-status :trace}` (HTTP / resources / mutations /
 ;; routing all delegate to `re-frame.reply/suppress`, so the carried/current
 ;; correlation rides the OUTCOME's `:trace`, not the reply). Factored so the
 ;; correlation-gate assertion AND the adversarial control share one source.
@@ -665,14 +665,14 @@
     {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
      :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
      :extra   {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2]
-               :work/kind :mutation :stale/reason :mutation/superseded}}))
+               :work/kind :mutation :rf.reply/stale-reason :mutation/superseded}}))
 
 (defn- resource-stale-out []
   (rreply/stale-reply
     {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
      :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
      :extra   {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
-               :work/kind :resource :stale/reason :resource/generation-mismatch}}))
+               :work/kind :resource :rf.reply/stale-reason :resource/generation-mismatch}}))
 
 (defn- route-stale-out []
   (route-reply/suppress {:route-id :route/article :nav-token "nav-1"
@@ -708,8 +708,8 @@
                           [:route    (route-stale-out)]]]
       (is (false? (:deliver? out))
           (str family " stale suppression MUST NOT deliver the app target"))
-      (is (= :suppressed (:work/status out))
-          (str family " stale suppression outcome is :work/status :suppressed"))
+      (is (= :suppressed (:rf.reply/work-status out))
+          (str family " stale suppression outcome is :rf.reply/work-status :suppressed"))
       (is (some? (get-in out [:trace :rf.reply/carried]))
           (str family " stale trace carries the :rf.reply/carried correlation"))
       (is (some? (get-in out [:trace :rf.reply/current]))
@@ -732,7 +732,7 @@
   "Simulate a non-conforming family whose stale outcome forgets the
   carried/current correlation facts (a bespoke suppression shape). Returns a
   conforming suppress outcome with the two correlation slots dissoc'd from
-  its :trace — everything else (delivery, :work/status, :status :stale) is
+  its :trace — everything else (delivery, :rf.reply/work-status, :status :stale) is
   still valid, so ONLY the carried/current gate distinguishes it."
   [out]
   (update out :trace dissoc :rf.reply/carried :rf.reply/current))
@@ -744,8 +744,8 @@
       ;; The outcome is otherwise a perfectly valid stale suppression …
       (is (false? (:deliver? out))
           (str family " control outcome still suppresses delivery"))
-      (is (= :suppressed (:work/status out))
-          (str family " control outcome is still :work/status :suppressed"))
+      (is (= :suppressed (:rf.reply/work-status out))
+          (str family " control outcome is still :rf.reply/work-status :suppressed"))
       (is (= :stale (get-in out [:reply :status]))
           (str family " control reply is still :status :stale"))
       ;; … yet the carried/current correlation facts are GONE, so the exact

@@ -1070,7 +1070,7 @@
   `:work/kind :mutation`) with the mutation-specific facts a `:reply-to`
   continuation needs (Spec 016 §Mutation completion continuations, the reply
   table). The canonical reply already carries `:status`, `:value` / `:error`,
-  `:work/id`, `:work/kind`, `:work/status`, `:rf.frame/id`, `:completed-at`,
+  `:rf.reply/work-id`, `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`,
   and `:correlation`; this layers on the TOP-LEVEL mutation facts the
   continuation handler reads directly:
 
@@ -1546,8 +1546,8 @@
 ;;   [:rf.mutation.internal/succeeded <verification-payload> {:status :ok    :value <data> …}]
 ;;   [:rf.mutation.internal/failed    <verification-payload> {:status :error :error <envelope> …}]
 ;; The reply handlers RE-LIFT (arg 2 + arg 3) into the ONE canonical reply
-;; map (`re-frame.resources.reply`, `:work/kind :mutation`) — `{:status
-;; :value/:error :work/id :work/kind :mutation :work/status :rf.frame/id
+;; map (`re-frame.resources.reply`, `:rf.reply/work-kind :mutation`) — `{:status
+;; :value/:error :rf.reply/work-id :rf.reply/work-kind :mutation :rf.reply/work-status :rf.frame/id
 ;; :completed-at :correlation}` (Managed-Effects §The uniform reply envelope
 ;; / EP-0011 §Mutation Reply). The mutation instance then stores the canonical
 ;; reply's `:value` under its durable `:result` (the instance layer's spelling
@@ -1609,7 +1609,7 @@
       ;; STALE SUPPRESSION (mandatory): a superseded / cleared / cross-frame
       ;; reply never mutates a newer (or another frame's) instance — NO
       ;; durable write. Per Managed-Effects §Stale suppression the completion
-      ;; is recorded `:status :stale` / `:work/status :suppressed` through the
+      ;; is recorded `:status :stale` / `:rf.reply/work-status :suppressed` through the
       ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), and
       ;; the canonical reply-envelope vocabulary rides ADDITIVELY on the
       ;; `:rf.mutation/stale-suppressed` trace. Settle the (already-superseded)
@@ -1894,7 +1894,7 @@
   EP-0011 §Mutation Reply.
 
   The failure is re-lifted into the canonical reply map
-  (`rreply/failure-reply` with `:work/kind :mutation` — `:status :error`
+  (`rreply/failure-reply` with `:rf.reply/work-kind :mutation` — `:status :error`
   carrying the `:rf.http/*` envelope under `:error`, or `:status :cancelled`
   for an abort). The `:error` envelope (the same closed shape the instance
   `:error` stores) is read back from the canonical reply.
@@ -1923,9 +1923,9 @@
         ;; rf2-qsn30x (EP-0011 §Status taxonomy / §Work-status mapping): an
         ;; `:rf.http/aborted` failure envelope is an intentional CANCELLATION,
         ;; which `failure-reply` lowers to `:status :cancelled` /
-        ;; `:work/status :cancelled` (not `:error` / `:failed`). The accepted
+        ;; `:rf.reply/work-status :cancelled` (not `:error` / `:failed`). The accepted
         ;; live path MUST settle the work-ledger row terminal `:cancelled`,
-        ;; agreeing with the reply's `:work/status` — settling it `:failed`
+        ;; agreeing with the reply's `:rf.reply/work-status` — settling it `:failed`
         ;; while the reply says `:cancelled` violates the closed status
         ;; taxonomy. A STALE abort still settles `:suppressed` (the nil-inst
         ;; path below): stale validation wins over the natural cancellation
@@ -1937,7 +1937,7 @@
       ;; STALE SUPPRESSION (mandatory): a superseded / cleared / cross-frame
       ;; failure reply never mutates a newer (or another frame's) instance —
       ;; NO durable write, NO `:reply-to` continuation. The completion is
-      ;; recorded `:status :stale` / `:work/status :suppressed` through the
+      ;; recorded `:status :stale` / `:rf.reply/work-status :suppressed` through the
       ;; SHARED `re-frame.reply` substrate (via `stale-suppress-reply`), with
       ;; the canonical reply-envelope vocabulary riding ADDITIVELY on the
       ;; `:rf.mutation/stale-suppressed` trace.
@@ -2024,11 +2024,11 @@
                          ;; summary mirrors the resource abort path
                          ;; (`{:reason :aborted …}` carries no error envelope —
                          ;; an abort is not a user-visible failure) so the
-                         ;; ledger status and the canonical reply `:work/status`
+                         ;; ledger status and the canonical reply `:rf.reply/work-status`
                          ;; agree (Managed-Effects §Status taxonomy).
                          (work-ledger/update-record
                            work-id work-ledger/mark-terminal
-                           (:work/status reply)
+                           (:rf.reply/work-status reply)
                            (if aborted?
                              {:reason :aborted :completed-at completed-at}
                              {:error error})))

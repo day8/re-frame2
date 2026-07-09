@@ -6,7 +6,7 @@
   A cancelled `:after` timer, a destroyed actor, and a `:spawn-all`
   join-survivor cancellation each carry a canonical terminal reply: their
   traces carry reason / state / epoch ALONGSIDE a canonical `:work/id`,
-  `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and `:cancel/reason`
+  `:rf.reply/status :cancelled`, `:rf.reply/work-status`, and `:rf.reply/cancel-reason`
   — so a cancelled timer / actor closes its scheduled / spawned START with a
   terminal EP-0011 reply row.
 
@@ -18,7 +18,7 @@
       `:reason :rf.machine/finished` carries NO cancelled facts (the actor
       already closed through `:rf.machine/done`);
    3. `:rf.machine.spawn/cancelled-on-join-resolution` →
-      `:rf.reply/status :cancelled` + `:cancel/reason :on-join-resolution`."
+      `:rf.reply/status :cancelled` + `:rf.reply/cancel-reason :on-join-resolution`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as mtest]
@@ -140,7 +140,7 @@
 
 (deftest join-survivor-cancel-trace-carries-cancelled-reply
   (testing "rf2-sfunt8 — :rf.machine.spawn/cancelled-on-join-resolution carries
-            the reply-envelope :status :cancelled facts (:cancel/reason
+            the reply-envelope :status :cancelled facts (:rf.reply/cancel-reason
             :on-join-resolution)"
     (let [child  (mk-child :sup/sfunt8 :asset/loaded :asset/failed)
           parent {:initial :idle

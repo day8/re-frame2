@@ -258,7 +258,7 @@
 
   rf2-azcmd3 — returns the superseded handle (or nil when nothing was in
   flight) so the caller can emit the canonical `:status :stale` /
-  `:work/status :suppressed` reply-envelope trace for the OLD attempt
+  `:rf.reply/work-status :suppressed` reply-envelope trace for the OLD attempt
   (Managed-Effects §Stale suppression). The handle carries the old attempt's
   identity facts (`:work/id`, `:request-id`, `:origin-event`, `:attempt`,
   `:frame`) the stale-reply trace needs."
@@ -431,14 +431,14 @@
 ;; suppressing the app reply (the abort fires with `:reason :epoch-restored`,
 ;; which `http-transport` treats as a reply-suppressing reason — no delivery to
 ;; `:rf/reply-to`) and emitting the EP-0011 `:status :stale` /
-;; `:work/status :suppressed` envelope facts for the suppressed attempt
+;; `:rf.reply/work-status :suppressed` envelope facts for the suppressed attempt
 ;; (Managed-Effects §restore: "epoch restore MUST NOT revive host work" —
 ;; clauses 2/3/4 of §Stale suppression). It is the non-resource counterpart of
 ;; the resources reconcile, published as the `:http/abort-in-flight-for-frame!`
 ;; late-bind hook the epoch boundary fires AFTER a successful install.
 
 (defn- emit-restore-stale-trace!
-  "Emit the canonical EP-0011 `:status :stale` / `:work/status :suppressed`
+  "Emit the canonical EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed`
   reply-envelope trace for one managed HTTP attempt aborted because epoch
   restore unwound its timeline (rf2-u5kmf8), WITHOUT dispatching any app target.
   Mirrors `http-transport/emit-superseded-stale-trace!` (the supersede sibling):
@@ -460,10 +460,10 @@
                       (:frame handle) (assoc :frame (:frame handle))))]
       (trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
-                            :rf.reply/work-status  (:work/status summary)
-                            :rf.reply/stale-reason (:stale/reason summary)
-                            :rf.reply/work-id      (:work/id summary)
-                            :work/kind             :http
+                            :rf.reply/work-status  (:rf.reply/work-status summary)
+                            :rf.reply/stale-reason (:rf.reply/stale-reason summary)
+                            :rf.reply/work-id      (:rf.reply/work-id summary)
+                            :rf.reply/work-kind             :http
                             :rf.reply/carried      (:rf.reply/carried trace)
                             :rf.reply/current      (:rf.reply/current trace)
                             :recovery              :suppressed-on-epoch-restore}

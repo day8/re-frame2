@@ -71,13 +71,13 @@
                                  :frame     :rf/default}
                                 "nav-2")]
       (is (false? deliver?) "the app reply target MUST NOT run for a stale completion")
-      (is (= :suppressed (:work/status outcome)) "ledger terminal for a stale route load")
+      (is (= :suppressed (:rf.reply/work-status outcome)) "ledger terminal for a stale route load")
 
       (testing "the reply map is a valid, app-state-safe :status :stale reply"
         (is (reply/valid-reply? reply) "conforms to the reply-map contract")
         (is (= :stale (:status reply)))
         (is (true? (:stale? reply)))
-        (is (= :rf.route/nav-token-stale (:stale/reason reply)))
+        (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply carries no :value (no app mutation)")
         (is (= :route (:work/kind reply)))
         (is (= [:rf.work/route :route/article "nav-1" :article/loaded] (:work/id reply))
@@ -90,7 +90,7 @@
             "EP-0011 §Route Loader Completion: the suppression trace is joined to :work/id")
         (is (= {:route/nav-token "nav-1"} (:rf.reply/carried trace)) "carried gate")
         (is (= {:route/nav-token "nav-2"} (:rf.reply/current trace)) "current gate")
-        (is (= :rf.route/nav-token-stale (:stale/reason trace)))))))
+        (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason trace)))))))
 
 (deftest suppress-carries-completed-at-on-stale-reply
   (testing "rf2-ux8sgg — a route loader that supplies the reply completion
@@ -147,7 +147,7 @@
                                         {:title "Welcome"})]
       (is (reply/valid-reply? reply) "conforms to the reply-map contract")
       (is (= :ok (:status reply)))
-      (is (= :completed (:work/status reply)))
+      (is (= :completed (:rf.reply/work-status reply)))
       (is (= :route (:work/kind reply)))
       (is (= {:title "Welcome"} (:value reply)) "the loader result is :value (EP-0007)")
       (is (= [:rf.work/route :route/article "nav-1" :article/load-replied] (:work/id reply))

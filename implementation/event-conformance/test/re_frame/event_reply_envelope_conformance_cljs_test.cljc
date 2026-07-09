@@ -24,7 +24,7 @@
   ## What this tier proves
 
   A canonical reply map (`:status` + `:value`/`:error`, `:work/id`,
-  `:work/kind`, `:work/status`, `:rf.frame/id`, `:completed-at`) is built,
+  `:work/kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`) is built,
   a `:rf/reply-to` target is COMPLETED with `re-frame.reply/complete`, and
   the resulting event is dispatched through the PUBLIC `rf/dispatch-sync` /
   `reg-event` pipeline. The handler — an ordinary `reg-event` — sees the
@@ -68,7 +68,7 @@
    :value        {:article {:id 42 :title "Welcome"}}
    :work/id      [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
    :work/kind    :resource
-   :work/status  :completed
+   :rf.reply/work-status  :completed
    :rf.frame/id  :rf/default
    :completed-at completed-at-ms})
 
@@ -122,13 +122,13 @@
             (is (= :rf.work/resource (first (:work/id delivered)))
                 ":work/id head is the family head")
             (is (= :resource (:work/kind delivered))    ":work/kind preserved")
-            (is (= :completed (:work/status delivered)) ":work/status preserved")
+            (is (= :completed (:rf.reply/work-status delivered)) ":rf.reply/work-status preserved")
             (is (= :rf/default (:rf.frame/id delivered)) ":rf.frame/id preserved")
             (is (= completed-at-ms (:completed-at delivered)) ":completed-at (EP-0017) preserved")
             (is (contains? reply/statuses (:status delivered))
                 ":status is in the ONE closed status vocabulary")
-            (is (contains? reply/work-statuses (:work/status delivered))
-                ":work/status is in the ONE closed work-status vocabulary"))))
+            (is (contains? reply/work-statuses (:rf.reply/work-status delivered))
+                ":rf.reply/work-status is in the ONE closed work-status vocabulary"))))
 
       (testing "the reply event got ORDINARY event-model semantics — a coeffects
                 map IN (the reg-event-fx shape), not a bare db, and the {:db …}
@@ -182,9 +182,9 @@
         (rf/dispatch-sync completed))
       (let [delivered (peek @seen-event)]
         (is (= :stale (:status delivered))    "the delivered envelope is :status :stale")
-        (is (= :suppressed (:work/status delivered)) ":work/status :suppressed")
+        (is (= :suppressed (:rf.reply/work-status delivered)) ":rf.reply/work-status :suppressed")
         (is (true? (:stale? delivered))       "the :stale? marker rides")
-        (is (some? (:stale/reason delivered)) "a :stale/reason rides")
+        (is (some? (:rf.reply/stale-reason delivered)) "a :rf.reply/stale-reason rides")
         (is (not (contains? delivered :value))
             "a stale reply carries NO :value — it mutates no app state")
         (is (contains? reply/statuses (:status delivered))
