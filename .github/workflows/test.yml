@@ -369,6 +369,31 @@ jobs:
       - name: Verify framework source carries no keyword-only thrown message (rf2-vvixub)
         run: python scripts/check_thrown_error_messages.py --verbose
 
+      # Keyword drift gate (rf2-1nci83) — the api-manifest pattern applied to
+      # KEYWORDS. The public-VAR surface is self-enforcing (the lint.yml
+      # api-manifest job); keywords — larger + more contract-critical — had no
+      # equivalent, which is why two catalogue breaches shipped undetected
+      # (rf2-720yoj five constructed :rf.error/reply-* ids; rf2-xrk4w1 the
+      # :rf.error/cookie-invalid-* member set — a constructor minting
+      # :rf.error/ids no Spec 009 row covered). Two minimal checks (SCOPE-TRIM,
+      # no gold-plating): (A) every :rf.error/:rf.warning id LITERAL emitted by
+      # implementation source has a Spec 009 catalogue row (this is the check
+      # that would have caught rf2-720yoj + rf2-xrk4w1) or is an explicitly
+      # KNOWN_UNCATALOGUED id; (B) every emitted :rf.* namespace is reserved in
+      # spec/Conventions.md (the class rf2-0lb6xc closed). Comment + string
+      # masked, so only real code keyword forms fire. Pure Python stdlib.
+      # Self-test first (proves BOTH checks fire on an injected violation +
+      # stay green on the conformant counterparts), then the live scan asserts
+      # implementation/ source is clean against the tracked Spec 009 + Conventions.
+      # Hosted in this always-on PR-spine python job so keyword-contract drift
+      # blocks the merge regardless of which surface a PR touches. See
+      # scripts/check_keyword_catalogue_drift.py.
+      - name: Self-test the keyword drift gate
+        run: python scripts/check_keyword_catalogue_drift.py --self-test --verbose
+
+      - name: Verify impl keyword contract vs Spec 009 + Conventions (rf2-1nci83)
+        run: python scripts/check_keyword_catalogue_drift.py --verbose
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub
