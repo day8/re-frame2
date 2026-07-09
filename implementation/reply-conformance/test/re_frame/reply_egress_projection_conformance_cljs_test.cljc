@@ -27,7 +27,7 @@
        trace / tool / log egress — `trace-summary` routes `:value` / `:error`
        / `:correlation` / `:meta` through `elide-wire-value`, and
        `project-egress` routes a reply tree through the same walker; identity
-       facts (`:work/id` / `:status` / `:rf.frame/id` / timestamps) ride
+       facts (`:rf.reply/work-id` / `:status` / `:rf.frame/id` / timestamps) ride
        VERBATIM;
     2. sensitive + large markings are honored, with SENSITIVE winning over
        large at a both-marked path;
@@ -124,8 +124,8 @@
   ;; This suite's row additionally pins `:rf.reply/work-status :completed`.
   (fixtures/canonical-ok-reply
     {:value        (reply-body)
-     :work/id      work-id
-     :work/kind    :resource
+     :rf.reply/work-id      work-id
+     :rf.reply/work-kind    :resource
      :rf.reply/work-status  :completed
      :rf.frame/id  frame-id
      :completed-at completed-at-ms}))
@@ -141,8 +141,8 @@
                  :status 503
                  :token  "bearer-SECRET-do-not-ship"
                  :blob   big-string}
-   :work/id     work-id
-   :work/kind   :resource
+   :rf.reply/work-id     work-id
+   :rf.reply/work-kind   :resource
    :rf.reply/work-status :failed
    :rf.frame/id frame-id})
 
@@ -177,9 +177,9 @@
         (is (large-marker? (get-in summary [:meta :blob]))
             ":meta large leaf elided"))
       (testing "identity / correlation facts ride VERBATIM (never elided)"
-        (is (= work-id (:work/id summary))         ":work/id verbatim")
+        (is (= work-id (:rf.reply/work-id summary))         ":rf.reply/work-id verbatim")
         (is (= :ok (:status summary))              ":status verbatim")
-        (is (= :resource (:work/kind summary))     ":work/kind verbatim")
+        (is (= :resource (:rf.reply/work-kind summary))     ":rf.reply/work-kind verbatim")
         (is (= :completed (:rf.reply/work-status summary))  ":rf.reply/work-status verbatim")
         (is (= frame-id (:rf.frame/id summary))    ":rf.frame/id verbatim")
         (is (= completed-at-ms (:completed-at summary)) ":completed-at verbatim")))))
@@ -200,7 +200,7 @@
           "the family error :kind rides (not a declared wire path)")
       (is (= 503 (get-in summary [:error :status]))
           "the family error :status rides (not a declared wire path)")
-      (is (= work-id (:work/id summary)) ":work/id verbatim on an error reply"))))
+      (is (= work-id (:rf.reply/work-id summary)) ":rf.reply/work-id verbatim on an error reply"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) SENSITIVE wins over LARGE at a both-marked path.
@@ -241,8 +241,8 @@
       (is (not= "bearer-SECRET-do-not-ship" (get-in unresolved [:value :token]))
           "the raw token NEVER ships under an unresolved frame")
       ;; Identity facts still ride (they are not wire slots).
-      (is (= work-id (:work/id unresolved))
-          ":work/id still rides verbatim — only the wire slots fail closed"))))
+      (is (= work-id (:rf.reply/work-id unresolved))
+          ":rf.reply/work-id still rides verbatim — only the wire slots fail closed"))))
 
 ;; rf2-wjo28z — pin the carried-stamp seed: `trace-summary` seeds the egress
 ;; frame from the reply map's own `:rf.frame/id` when no explicit `:frame` opt
@@ -273,8 +273,8 @@
             "the raw token NEVER ships")
         (is (= frame-id (:rf.frame/id summary))
             "the carried :rf.frame/id rides VERBATIM as an identity fact")
-        (is (= work-id (:work/id summary))
-            ":work/id still rides verbatim")))
+        (is (= work-id (:rf.reply/work-id summary))
+            ":rf.reply/work-id still rides verbatim")))
     (testing "a carried `:rf.frame/id` naming a NEVER-REGISTERED frame, summarized
               with NIL opts, STILL fails closed (unresolved-stamp companion)"
       (let [reply   (assoc (ok-reply) :rf.frame/id :reply-egress/ghost)
@@ -375,7 +375,7 @@
           "the EGRESS projection of the appended reply redacts the sensitive body")
       (is (large-marker? (get-in summary [:value :blob]))
           "the egress projection elides the large body")
-      (is (= work-id (:work/id summary))
+      (is (= work-id (:rf.reply/work-id summary))
           "identity facts still ride on the egress product"))))
 
 ;; ---------------------------------------------------------------------------

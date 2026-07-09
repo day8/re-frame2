@@ -53,7 +53,7 @@
       ;; current = the superseding attempt's work-id (issuance 2); =-distinct.
       (is (= [:rf.work/http :article/by-id 1 1] (:work/id (:rf.reply/carried trace))))
       (is (= [:rf.work/http :article/by-id 2 1] (:work/id (:rf.reply/current trace))))
-      (is (= [:rf.work/http :article/by-id 1 1] (:work/id trace))))))
+      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id trace))))))
 
 (deftest actor-destroy-obsolete-target-suppression
   (testing "rf2-yrrpe2 — actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
@@ -85,7 +85,7 @@
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= :completed (:rf.reply/work-status r)))
-      (is (= :http (:work/kind r)))
+      (is (= :http (:rf.reply/work-kind r)))
       (is (= {:request-id :article/by-id} (:correlation r)))
       (is (not (contains? r :request-id))
           ":request-id is correlation metadata, not a second stale key")))
@@ -148,7 +148,7 @@
     (let [r       (http-reply/success-reply ctx {:secret "x"})
           summary (http-reply/trace-reply r {:sensitive? true})]
       (is (= :ok (:status summary)))
-      (is (= [:rf.work/http :article/by-id 1 1] (:work/id summary)))
-      (is (= :http (:work/kind summary)))
+      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id summary)))
+      (is (= :http (:rf.reply/work-kind summary)))
       (testing "a sensitive request redacts the wire slots wholesale"
         (is (= :rf/redacted (:value summary)))))))

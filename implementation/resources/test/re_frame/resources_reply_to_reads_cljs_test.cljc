@@ -193,8 +193,8 @@
         (is (= :rf.scope/global (:scope reply)))
         (is (= rkey (:resource/key reply)))
         (is (false? (:cache-hit? reply)) "a fetched settle is not a cache hit")
-        (is (= :resource (:work/kind reply)))
-        (is (some? (:work/id reply)))
+        (is (= :resource (:rf.reply/work-kind reply)))
+        (is (some? (:rf.reply/work-id reply)))
         (is (= :rf/default (:rf.frame/id reply)))
         (is (= completed-at (:completed-at reply)) "EP-0010 causal completion time")))))
 
@@ -227,7 +227,7 @@
         (is (true? (:cache-hit? reply)))
         (is (= {:title "Cached"} (:value reply)))
         (is (= rkey (:resource/key reply)))
-        (is (some? (:work/id reply)) "cache-hit derives a work id from the entry generation")))))
+        (is (some? (:rf.reply/work-id reply)) "cache-hit derives a work id from the entry generation")))))
 
 ;; ===========================================================================
 ;; 3. Join-in-flight — one accepted reply fans out to every joined target once

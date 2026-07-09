@@ -47,16 +47,16 @@
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= :completed (:rf.reply/work-status r)))
-      (is (= :resource (:work/kind r)))
+      (is (= :resource (:rf.reply/work-kind r)))
       (is (= {:title "Welcome"} (:value r)))
       (is (not (contains? r :data)) "the reply-map spelling is :value, not :data")
-      (is (= [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4] (:work/id r)))
+      (is (= [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4] (:rf.reply/work-id r)))
       (is (= :app/main (:rf.frame/id r)))
       (is (= 1781078400456 (:completed-at r)))
       (testing "scope / generation / resource-key ride as :correlation, never a second work key"
         (is (= {:scope :rf.scope/global
                 :generation 4
-                :resource/key [:rf.scope/global :article/by-slug {:slug "w"}]}
+                :rf.reply/resource-key [:rf.scope/global :article/by-slug {:slug "w"}]}
                (:correlation r)))))))
 
 (deftest resource-failure-reply-is-canonical
@@ -70,7 +70,7 @@
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))
-      (is (= :resource (:work/kind r)))
+      (is (= :resource (:rf.reply/work-kind r)))
       (is (= {:kind :rf.http/http-5xx :status 503} (:error r)))
       (is (= 1781078400456 (:completed-at r))
           "the failure reply carries the causal :completed-at (rf2-rl27r2)")
@@ -96,10 +96,10 @@
                                   {:work-kind rreply/work-kind-mutation :completed-at 1781078400456})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
-      (is (= :mutation (:work/kind r)))
+      (is (= :mutation (:rf.reply/work-kind r)))
       (is (= {:slug "w" :title "Welcome"} (:value r)))
       (is (not (contains? r :result)) "the reply-map spelling is :value, not :result")
-      (is (= [:rf.work/resource [:rf.mutation :form/save-1] 2] (:work/id r)))
+      (is (= [:rf.work/resource [:rf.mutation :form/save-1] 2] (:rf.reply/work-id r)))
       (testing "mutation + instance ids ride as :correlation"
         (is (= {:mutation/id :article/save
                 :instance/id :form/save-1
@@ -113,7 +113,7 @@
           current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
           out     (rreply/stale-reply
                     {:carried carried :current current
-                     :extra   {:work/id (:work/id carried)
+                     :extra   {:rf.reply/work-id (:work/id carried)
                                :work/kind :resource
                                :rf.frame/id :app/main
                                :rf.reply/stale-reason :resource/generation-mismatch}})]
