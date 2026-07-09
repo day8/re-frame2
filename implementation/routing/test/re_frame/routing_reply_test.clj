@@ -79,14 +79,14 @@
         (is (true? (:stale? reply)))
         (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply carries no :value (no app mutation)")
-        (is (= :route (:work/kind reply)))
-        (is (= [:rf.work/route :route/article "nav-1" :article/loaded] (:work/id reply))
+        (is (= :route (:rf.reply/work-kind reply)))
+        (is (= [:rf.work/route :route/article "nav-1" :article/loaded] (:rf.reply/work-id reply))
             "the reply carries the route work-id")
         (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply"))
 
       (testing "the trace facts are joined to :work/id and carry both correlation gates"
         (is (true? (:rf.reply/suppressed? trace)))
-        (is (= [:rf.work/route :route/article "nav-1" :article/loaded] (:work/id trace))
+        (is (= [:rf.work/route :route/article "nav-1" :article/loaded] (:rf.reply/work-id trace))
             "EP-0011 §Route Loader Completion: the suppression trace is joined to :work/id")
         (is (= {:route/nav-token "nav-1"} (:rf.reply/carried trace)) "carried gate")
         (is (= {:route/nav-token "nav-2"} (:rf.reply/current trace)) "current gate")
@@ -148,9 +148,9 @@
       (is (reply/valid-reply? reply) "conforms to the reply-map contract")
       (is (= :ok (:status reply)))
       (is (= :completed (:rf.reply/work-status reply)))
-      (is (= :route (:work/kind reply)))
+      (is (= :route (:rf.reply/work-kind reply)))
       (is (= {:title "Welcome"} (:value reply)) "the loader result is :value (EP-0007)")
-      (is (= [:rf.work/route :route/article "nav-1" :article/load-replied] (:work/id reply))
+      (is (= [:rf.work/route :route/article "nav-1" :article/load-replied] (:rf.reply/work-id reply))
           "the complete route work-id rides the live reply")
       (is (= :rf/default (:rf.frame/id reply)))
       (is (= 1717000000000 (:completed-at reply))))
@@ -197,10 +197,10 @@
 (deftest trace-reply-routes-wire-slots-through-shared-walker
   (testing "trace-reply is the shared re-frame.reply/trace-summary — identity facts
             ride verbatim; wire slots elide through the one shared walker"
-    (let [r {:status :ok :work/id [:rf.work/route :r "n" :l] :work/kind :route
+    (let [r {:status :ok :rf.reply/work-id [:rf.work/route :r "n" :l] :rf.reply/work-kind :route
              :rf.frame/id :rf/default :value {:title "Welcome"}}
           summary (route-reply/trace-reply r {:frame :rf/default})]
       (is (= (reply/trace-summary r {:frame :rf/default}) summary)
           "delegates to the shared trace-summary — never a family-private elider")
       (is (= :ok (:status summary)) "identity facts ride verbatim")
-      (is (= [:rf.work/route :r "n" :l] (:work/id summary))))))
+      (is (= [:rf.work/route :r "n" :l] (:rf.reply/work-id summary))))))

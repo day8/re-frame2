@@ -60,10 +60,10 @@
                :child-id :a :spawned-id :child/a#1 :frame :rf/default}
               :done {:loaded true})]
       (is (= :ok (:status r)))
-      (is (= :machine (:work/kind r)))
+      (is (= :machine (:rf.reply/work-kind r)))
       (is (= :completed (:rf.reply/work-status r)))
       (is (= {:loaded true} (:value r)))
-      (is (= [:rf.work/machine :child/a#1 [:hydrating] 1] (:work/id r)))
+      (is (= [:rf.work/machine :child/a#1 [:hydrating] 1] (:rf.reply/work-id r)))
       (is (= :a (-> r :correlation :child-id)))
       (is (= :child/a#1 (-> r :correlation :spawned-id)))
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
@@ -88,7 +88,7 @@
       (is (= :rf.machine.spawn-all/join-resolved (:rf.reply/stale-reason r)))
       (is (= :suppressed (:rf.reply/work-status r)))
       (is (not (contains? r :value)) ":stale carries no :value (no app mutation)")
-      (is (= [:rf.work/machine :child/c#1 [:hydrating] 1] (:work/id r)))
+      (is (= [:rf.work/machine :child/c#1 [:hydrating] 1] (:rf.reply/work-id r)))
       (is (reply/valid-reply? r) (str (reply/validate-reply r))))))
 
 ;; ---- integration: resolution trace carries reply facts ----------------
@@ -127,7 +127,7 @@
           (is (= :ok (:rf.reply/status (:tags done)))
               "the decisive child completion classified as :ok")
           (is (= :completed (:rf.reply/work-status (:tags done))))
-          (is (= :machine (:work/kind (:tags done))))
+          (is (= :machine (:rf.reply/work-kind (:tags done))))
           (is (some? (:rf.reply/work-id (:tags done)))
               "the decisive child's canonical :work/id rides the resolution trace")
           (is (= (first (:rf.reply/work-id (:tags done))) :rf.work/machine)))))))

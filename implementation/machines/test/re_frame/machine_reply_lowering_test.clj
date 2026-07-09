@@ -102,7 +102,7 @@
                   "canonical timer :rf.reply/work-id on the stale-after trace (actor-scoped)")
               (is (not (contains? tags :work/id))
                   "no bare :work/id duplicate on the reply-envelope row")
-              (is (= :timer (:work/kind tags)))
+              (is (= :timer (:rf.reply/work-kind tags)))
               ;; the declaring path + epoch ARE the data-only suppression gate
               (let [corr (:rf.reply/correlation tags)]
                 (is (= {:path [:loading] :rf/after-epoch scheduled-epoch}
@@ -178,7 +178,7 @@
                 "canonical machine :rf.reply/work-id join key on the done trace")
             (is (not (contains? tags :work/id))
                 "no bare :work/id duplicate on the reply-envelope done trace")
-            (is (= :machine (:work/kind tags)))))
+            (is (= :machine (:rf.reply/work-kind tags)))))
         (finally (trace/unregister-listener! ::done-ok))))))
 
 (deftest spawned-error-drives-on-error-transition

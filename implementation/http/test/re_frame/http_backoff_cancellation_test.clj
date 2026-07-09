@@ -360,7 +360,7 @@
           (let [tags (:tags (first stale))]
             (is (= :stale (:rf.reply/status tags)))
             (is (= :suppressed (:rf.reply/work-status tags)))
-            (is (= :http (:work/kind tags)))
+            (is (= :http (:rf.reply/work-kind tags)))
             ;; THE BUG (rf2-hbus90): the carried work-id must be the SLEEPING
             ;; retry attempt's work-id — issuance 1, attempt 2. The pre-fix
             ;; backoff handle dropped :issuance / :attempt, so the carried id

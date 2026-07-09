@@ -131,8 +131,8 @@
       (is (= :ok (:status r)))
       (is (= {:title "Welcome"} (:value r)))
       (is (= :completed (:rf.reply/work-status r)))
-      (is (= :http (:work/kind r)))
-      (is (= [:rf.work/http :article/by-id 1 1] (:work/id r)))
+      (is (= :http (:rf.reply/work-kind r)))
+      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id r)))
       (is (= :app/main (:rf.frame/id r)))
       (is (= 1781078400456 (:completed-at r)))
       (testing ":request-id rides as :correlation metadata, NOT a top-level stale key"
@@ -219,7 +219,7 @@
         (let [reply (http-reply/success-reply base-ctx {:title "Welcome"})]
           ;; work-id / status are not stored on the target, so mapping cannot
           ;; touch them — the law is structural.
-          (is (= [:rf.work/http :article/by-id 1 1] (:work/id reply)))
+          (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id reply)))
           (is (= :ok (:status reply))))))))
 
 ;; ===========================================================================
@@ -255,7 +255,7 @@
           (is (= :ok (get-in db [:reply :status])))
           (is (= "hello" (get-in db [:reply :value :title])))
           (is (= :completed (get-in db [:reply :rf.reply/work-status])))
-          (is (= :http (get-in db [:reply :work/kind])))
+          (is (= :http (get-in db [:reply :rf.reply/work-kind])))
           ;; the retired {:kind :success} dialect is GONE
           (is (not (contains? (:reply db) :kind))))
         (finally (stop-server! srv))))))
@@ -414,8 +414,8 @@
           (let [tags (:tags (first replied))]
             ;; identity facts ride verbatim on the canonical trace summary
             (is (= :ok (:status tags)))
-            (is (= :http (:work/kind tags)))
-            (is (= [:rf.work/http :t/load 1 1] (:work/id tags)))
+            (is (= :http (:rf.reply/work-kind tags)))
+            (is (= [:rf.work/http :t/load 1 1] (:rf.reply/work-id tags)))
             ;; :request-id is correlation metadata, not a second stale key
             (is (= {:request-id :t/load} (:correlation tags)))))
         (finally
@@ -518,7 +518,7 @@
             (is (= :stale (:rf.reply/status tags)))
             (is (= :suppressed (:rf.reply/work-status tags)))
             (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags)))
-            (is (= :http (:work/kind tags)))
+            (is (= :http (:rf.reply/work-kind tags)))
             ;; Carried = the superseded attempt's work-id (issuance 1);
             ;; current = the superseding attempt's work-id (issuance 2). The
             ;; two are =-distinct — tooling can tell them apart by :work/id.

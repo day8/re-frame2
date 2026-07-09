@@ -94,7 +94,7 @@
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :work/id))))
+                          (-> ev :tags :rf.reply/work-id))))
                 @traces)
           "the stale-suppressed trace is joined to the route :work/id (the carried nav-token rides in the tuple)"))))
 
@@ -143,12 +143,12 @@
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :work/id))))
+                          (-> ev :tags :rf.reply/work-id))))
                 @traces)
           "the stale work-id uses the CAPTURED route id (:route/article), not the live route (:route/profile)")
       (is (not-any? (fn [ev]
                       (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                           (= :route/profile (first (rest (-> ev :tags :work/id))))))
+                           (= :route/profile (first (rest (-> ev :tags :rf.reply/work-id))))))
                     @traces)
           "no stale work-id is mis-attributed to the live route B (:route/profile)"))))
 
@@ -247,7 +247,7 @@
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :work/id))))
+                          (-> ev :tags :rf.reply/work-id))))
                 @traces)
           "the production :rf.route/with-nav-token suppression is joined to the route :work/id")
 
@@ -283,7 +283,7 @@
           ;; the work-id is the join key — present here under the canonical
           ;; bare :work/id (EP-0011 §Work-id correlation).
           (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                 (:work/id tags))
+                 (:rf.reply/work-id tags))
               "canonical :work/id correlation rides the production stale trace")))
 
       ;; Negative: no spurious suppressed-trace for the fresh path.
@@ -595,7 +595,7 @@
                           (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
                         @traces)]
         (is (some? stale) "A's stale completion produced a suppression trace")
-        (let [wid (-> stale :tags :work/id)]
+        (let [wid (-> stale :tags :rf.reply/work-id)]
           (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
               "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
           (is (not (nil? (second wid)))
@@ -648,10 +648,10 @@
         (is (map? reply) "the reply map was appended as the final argument")
         (is (= :ok (:status reply)) "the live reply is :status :ok")
         (is (= :completed (:rf.reply/work-status reply)))
-        (is (= :route (:work/kind reply)))
+        (is (= :route (:rf.reply/work-kind reply)))
         (is (= {:title "Welcome"} (:value reply)) "the loader :value rides the reply (EP-0007)")
         (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
-               (:work/id reply))
+               (:rf.reply/work-id reply))
             "the live reply carries the complete route work-id (loader-id = target event-id)")
         (is (= :rf/default (:rf.frame/id reply)) "the carried frame stamp rides the reply")))))
 
@@ -689,7 +689,7 @@
                         @traces)]
         (is (some? stale) "a stale-suppressed trace fired for the suppressed reply-to completion")
         (is (= [:rf.work/route :route/article "nav-1" :article/load-replied]
-               (-> stale :tags :work/id))
+               (-> stale :tags :rf.reply/work-id))
             "the suppression is joined to the route :work/id (loader-id = target event-id)")
         (is (= :stale (-> stale :tags :rf.reply/status)))
         (is (= :suppressed (-> stale :tags :rf.reply/work-status)))))))
@@ -737,7 +737,7 @@
             (is (= :stale (:status reply)) "it received the :status :stale reply")
             (is (true? (:stale? reply)))
             (is (= [:rf.work/route :route/article "nav-1" :tool/observe-stale]
-                   (:work/id reply))
+                   (:rf.reply/work-id reply))
                 "the stale reply carries the route work-id"))))
 
       (testing "an APP target setting :dispatch-stale? true WITHOUT authority FAILS LOUD"
