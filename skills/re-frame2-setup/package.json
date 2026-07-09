@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-setup",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Scaffold a fresh re-frame2 ClojureScript project — deps.edn, shadow-cljs.edn, entry namespace, and a working first counter. A Claude Code Skill, companion to the main re-frame2 skill.",
   "keywords": [
     "claude-code",
@@ -33,9 +34,6 @@
     "references/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }
