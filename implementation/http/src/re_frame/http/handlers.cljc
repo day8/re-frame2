@@ -340,7 +340,7 @@
         issuance     (registry/next-issuance! request-id)
         normalised   (assoc normalised0 :issuance issuance)]
     ;; rf2-azcmd3 — supersession emits the SUPERSEDED attempt's canonical
-    ;; `:status :stale` / `:work/status :suppressed` reply-envelope trace
+    ;; `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope trace
     ;; (Managed-Effects §Stale suppression) carrying carried/current work-id
     ;; correlation, with NO app dispatch. `supersede!` returns the old handle
     ;; (carrying its identity facts); we hand it plus the NEW attempt's

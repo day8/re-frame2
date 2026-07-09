@@ -21,7 +21,7 @@
   `[:rf.runtime/routing :current :nav-token]` via the shared
   `re-frame.reply/stale?` (through `re-frame.routing.reply`). The route
   work-id is `[:rf.work/route route-id nav-token loader-id]`; the
-  suppression trace is joined to `:work/id`. The PUBLIC API (the cofx and
+  suppression trace is joined to `:rf.reply/work-id`. The PUBLIC API (the cofx and
   the `:rf.route/with-nav-token` fx) is PRESERVED — internal lowering
   only. See `spec/Managed-Effects.md` §The uniform reply envelope and
   Spec 012 §Lowering onto the uniform reply envelope.
@@ -130,7 +130,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   "Emit the `:rf.route.nav-token/stale-suppressed` trace for a superseded
   route-loader completion. The facts ride on top of the shared
   `re-frame.reply/suppress` outcome (EP-0011 §Route Loader Completion):
-  the suppression trace is joined to `:work/id`, alongside the existing
+  the suppression trace is joined to `:rf.reply/work-id`, alongside the existing
   carried-token / current-token / event-id tags. Shared by the
   production `:rf.route/with-nav-token` handler and the test-only
   `:rf.test/simulate-http-resolution` fixture so one conformance
@@ -152,7 +152,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   production trace via the identical canonical facts as every other family,
   not only the route-specific `:carried-token` / `:current-token` tokens.
   The facts are read off the `route-reply/suppress` `:reply` (the
-  `:status :stale` / `:work/status :suppressed` / `:stale/reason` the
+  `:status :stale` / `:rf.reply/work-status :suppressed` / `:rf.reply/stale-reason` the
   shared substrate produced).
 
   rf2-ux8sgg — `:completed-at` is the recordable `:rf/time-ms` completion
@@ -174,7 +174,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   `::stale-authority` capability and sets `:dispatch-stale? true` is honoured
   — and an app target that sets `:dispatch-stale? true` without authority
   FAILS LOUD (the shared substrate throws). Returns the full
-  `re-frame.reply/suppress` outcome (`{:deliver? :reply :work/status :trace}`)
+  `re-frame.reply/suppress` outcome (`{:deliver? :reply :rf.reply/work-status :trace}`)
   so the caller can complete + dispatch the stale reply when (and only when)
   `:deliver?` is true — the same shape the live branch's `complete-live`
   produces."
@@ -212,11 +212,11 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                                 :current-token     current-token
                                 :rf.trace/event-id event-id
                                 ;; The suppression trace is joined to
-                                ;; `:work/id` per EP-0011 §Route Loader
+                                ;; `:rf.reply/work-id` per EP-0011 §Route Loader
                                 ;; Completion — the route-loader work-id
                                 ;; `[:rf.work/route route-id nav-token
                                 ;; loader-id]` the shared substrate built.
-                                :work/id           (:work/id trace)
+                                :rf.reply/work-id           (:rf.reply/work-id trace)
                                 ;; rf2-waawic — the shared carried/current
                                 ;; correlation facts `re-frame.reply/suppress`
                                 ;; computes (Managed-Effects §Tracing), so the
@@ -235,8 +235,8 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                                 ;; trace via the SAME canonical facts as the
                                 ;; resource / machine / HTTP families.
                                 :rf.reply/status      (:status reply)
-                                :rf.reply/work-status (:work/status reply)
-                                :rf.reply/stale-reason (:stale/reason reply)
+                                :rf.reply/work-status (:rf.reply/work-status reply)
+                                :rf.reply/stale-reason (:rf.reply/stale-reason reply)
                                 :recovery          :replaced-with-default}
                          frame-id (assoc :frame frame-id)
                          ;; rf2-ux8sgg — the recordable reply completion
@@ -382,7 +382,7 @@ required continuation surface."
         ;; The identity-fact context the reply substrate keys on (rf2-2avo53 /
         ;; rf2-azcmd3 / rf2-ux8sgg). Shared by both branches so a LIVE and a
         ;; STALE completion of the same attempt correlate by the identical
-        ;; `:work/id`.
+        ;; `:rf.reply/work-id`.
         reply-ctx       {:route-id     carried-route-id
                          :nav-token    nav-token
                          :loader-id    loader-id

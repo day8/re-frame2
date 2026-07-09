@@ -15,7 +15,7 @@
       `*/any-failed`);
    2. a post-resolution late completion (a known child re-completing after
       the `:resolved?` latch flipped) rides a `:status :stale` /
-      `:work/status :suppressed` reply on the `:late-completion` trace —
+      `:rf.reply/work-status :suppressed` reply on the `:late-completion` trace —
       the spawn-all analogue of the single-`:spawn` stale path.
 
   Every reply fact asserted here corresponds to a canonical reply map built
@@ -61,7 +61,7 @@
               :done {:loaded true})]
       (is (= :ok (:status r)))
       (is (= :machine (:work/kind r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= {:loaded true} (:value r)))
       (is (= [:rf.work/machine :child/a#1 [:hydrating] 1] (:work/id r)))
       (is (= :a (-> r :correlation :child-id)))
@@ -73,7 +73,7 @@
                :child-id :b :spawned-id :child/b#1 :frame :rf/default}
               :failed :boom)]
       (is (= :error (:status r)))
-      (is (= :failed (:work/status r)))
+      (is (= :failed (:rf.reply/work-status r)))
       (is (some? (:kind (:error r))) ":error carries a family :kind")
       (is (reply/valid-reply? r) (str (reply/validate-reply r))))))
 
@@ -85,8 +85,8 @@
               :done)]
       (is (= :stale (:status r)))
       (is (true? (:stale? r)))
-      (is (= :rf.machine.spawn-all/join-resolved (:stale/reason r)))
-      (is (= :suppressed (:work/status r)))
+      (is (= :rf.machine.spawn-all/join-resolved (:rf.reply/stale-reason r)))
+      (is (= :suppressed (:rf.reply/work-status r)))
       (is (not (contains? r :value)) ":stale carries no :value (no app mutation)")
       (is (= [:rf.work/machine :child/c#1 [:hydrating] 1] (:work/id r)))
       (is (reply/valid-reply? r) (str (reply/validate-reply r))))))
@@ -172,7 +172,7 @@
 (deftest late-completion-carries-stale-reply
   (testing "rf2-d63qtp — a post-resolution late completion (a known child
             re-completing after the join latched) rides a :status :stale /
-            :work/status :suppressed reply on the late-completion trace"
+            :rf.reply/work-status :suppressed reply on the late-completion trace"
     (let [child  (mk-child :sup/relp3 :asset/loaded :asset/failed)
           ;; Parent stays in :hydrating across resolution by NOT declaring
           ;; an :on for the resolution event (the runtime still dispatches

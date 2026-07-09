@@ -266,7 +266,7 @@
         ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
         ;; real transport's status taxonomy) while every other kind is
         ;; `:status :error`. The stub omits the real transport's identity facts
-        ;; (`:work/id` / `:attempt` / `:work/status` / `:completed-at`) — a
+        ;; (`:work/id` / `:attempt` / `:rf.reply/work-status` / `:completed-at`) — a
         ;; handler branches on `:status` and reads `:error`, nothing more; the
         ;; full envelope is pinned by the lowering conformance.
         reply        (if (= :rf.http/aborted kind)

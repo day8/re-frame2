@@ -40,13 +40,13 @@
            (http-reply/transport-request-id :app/main (http-reply/work-id ctx))))))
 
 (deftest suppress-builds-canonical-stale-reply
-  (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :work/status :suppressed reply with carried/current work-id correlation, joined to :work/id"
+  (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
     (let [{:keys [deliver? reply trace]}
           (http-reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
       (is (false? deliver?) "a superseded attempt's app target MUST NOT run")
-      (is (= :suppressed (:work/status reply)))
+      (is (= :suppressed (:rf.reply/work-status reply)))
       (is (= :stale (:status reply)))
-      (is (= :rf.http/request-id-superseded (:stale/reason reply)))
+      (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason reply)))
       (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
       (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
       ;; carried = the superseded attempt's work-id (issuance 1);
@@ -62,7 +62,7 @@
       (is (false? (http-reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
       (is (false? (http-reply/actor-destroy-target-obsolete? :worker/proc#1 nil)))
       (is (false? (http-reply/actor-destroy-target-obsolete? nil :worker/proc#1))))
-    (testing "actor-destroy-suppress produces a canonical :status :stale / :work/status :suppressed reply with carried work-id, no current successor"
+    (testing "actor-destroy-suppress produces a canonical :status :stale / :rf.reply/work-status :suppressed reply with carried work-id, no current successor"
       (let [actor-ctx {:request-id   [:worker/proc#1 :slow]
                        :origin-event [:worker/proc#1 [:rf.http/failed]]
                        :issuance     1
@@ -70,9 +70,9 @@
                        :frame        :app/main}
             {:keys [deliver? reply trace]} (http-reply/actor-destroy-suppress actor-ctx)]
         (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
-        (is (= :suppressed (:work/status reply)))
+        (is (= :suppressed (:rf.reply/work-status reply)))
         (is (= :stale (:status reply)))
-        (is (= :rf.http/actor-destroyed-target-obsolete (:stale/reason reply)))
+        (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
         (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
         (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1] (:work/id (:rf.reply/carried trace))))
@@ -84,7 +84,7 @@
     (let [r (http-reply/success-reply ctx {:title "Welcome"})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= :http (:work/kind r)))
       (is (= {:request-id :article/by-id} (:correlation r)))
       (is (not (contains? r :request-id))
@@ -93,19 +93,19 @@
     (let [r (http-reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
-      (is (= :failed (:work/status r)))))
-  (testing "timeout → :status :error + :work/status :timed-out (not a top-level status)"
+      (is (= :failed (:rf.reply/work-status r)))))
+  (testing "timeout → :status :error + :rf.reply/work-status :timed-out (not a top-level status)"
     (let [r (http-reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
-      (is (= :timed-out (:work/status r)))))
+      (is (= :timed-out (:rf.reply/work-status r)))))
   (testing "abort → :status :cancelled with :rf.http/aborted :error"
     (let [r (http-reply/aborted-reply ctx {:kind :rf.http/aborted :reason :user})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
-      (is (= :cancelled (:work/status r)))
+      (is (= :cancelled (:rf.reply/work-status r)))
       (is (true? (:cancelled? r)))
-      (is (= :user (:cancel/reason r)))
+      (is (= :user (:rf.reply/cancel-reason r)))
       (is (= :rf.http/aborted (get-in r [:error :kind]))))))
 
 (deftest no-public-payload-reshape

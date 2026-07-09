@@ -233,14 +233,14 @@
 ;;     The PRODUCTION path (not the pure builder): a child reaches
 ;;     its :final? leaf AFTER its spawning parent was already destroyed. The
 ;;     :on-done callback MUST NOT run (no live parent to mutate), the ledger /
-;;     trace MUST classify the late completion :status :stale / :work/status
+;;     trace MUST classify the late completion :status :stale / :rf.reply/work-status
 ;;     :suppressed via the shared substrate, and the carried/current generation
 ;;     gate MUST ride the :rf.machine/done trace. This is the spawn-path
 ;;     analogue of (1)'s :after epoch-mismatch production test.
 ;; ===========================================================================
 
 (deftest spawn-stale-parent-destroyed-before-child-suppresses-with-reply-vocabulary
-  (testing "a child reaching :final? AFTER its parent was destroyed is STALE: :on-done does NOT run, and the :rf.machine/done trace carries :status :stale / :work/status :suppressed / :rf.machine/actor-not-live + the carried/current generation gate"
+  (testing "a child reaching :final? AFTER its parent was destroyed is STALE: :on-done does NOT run, and the :rf.machine/done trace carries :status :stale / :rf.reply/work-status :suppressed / :rf.machine/actor-not-live + the carried/current generation gate"
     (let [traces (capture-traces ::spawn-stale)]
       (try
         ;; A child that does NOT auto-finish on spawn — it sits in :running

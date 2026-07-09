@@ -7,10 +7,10 @@
     1. CANONICAL reply map — the transport's success / failure / abort facts
        become a single `re-frame.reply`-conformant reply map: one closed
        `:status`, `:work/id` `[:rf.work/http logical-id attempt]`,
-       `:work/kind :http`, `:work/status`, `:correlation {:request-id …}`
+       `:work/kind :http`, `:rf.reply/work-status`, `:correlation {:request-id …}`
        (the `:request-id` is correlation metadata, NOT a second stale key),
        `:completed-at` from the reply token. Timeout → `:status :error` +
-       `:work/status :timed-out`; abort → `:status :cancelled` with an
+       `:rf.reply/work-status :timed-out`; abort → `:status :cancelled` with an
        `:rf.http/aborted` `:error`.
     2. CANONICAL delivery — `:on-success` / `:on-failure` are pure routing
        sugar and the co-located `(:rf/reply msg)` merge both deliver the
@@ -130,7 +130,7 @@
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= {:title "Welcome"} (:value r)))
-      (is (= :completed (:work/status r)))
+      (is (= :completed (:rf.reply/work-status r)))
       (is (= :http (:work/kind r)))
       (is (= [:rf.work/http :article/by-id 1 1] (:work/id r)))
       (is (= :app/main (:rf.frame/id r)))
@@ -145,17 +145,17 @@
               base-ctx {:kind :rf.http/http-5xx :status 503 :body "down"})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)))
-      (is (= :failed (:work/status r)))
+      (is (= :failed (:rf.reply/work-status r)))
       (is (= :rf.http/http-5xx (get-in r [:error :kind])))
       (is (= 503 (get-in r [:error :status]))))))
 
 (deftest timeout-maps-to-error-plus-timed-out-work-status
-  (testing "timeout is :status :error + :work/status :timed-out (NOT a top-level status)"
+  (testing "timeout is :status :error + :rf.reply/work-status :timed-out (NOT a top-level status)"
     (let [r (http-reply/failure-reply
               base-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :error (:status r)) "timeout is NOT a top-level :status")
-      (is (= :timed-out (:work/status r)))
+      (is (= :timed-out (:rf.reply/work-status r)))
       (is (= :rf.http/timeout (get-in r [:error :kind]))))))
 
 (deftest abort-maps-to-cancelled
@@ -164,15 +164,15 @@
           r       (http-reply/aborted-reply base-ctx failure)]
       (is (reply/valid-reply? r) (str (reply/validate-reply r)))
       (is (= :cancelled (:status r)))
-      (is (= :cancelled (:work/status r)))
+      (is (= :cancelled (:rf.reply/work-status r)))
       (is (true? (:cancelled? r)))
-      (is (= :user (:cancel/reason r)))
+      (is (= :user (:rf.reply/cancel-reason r)))
       (is (= :rf.http/aborted (get-in r [:error :kind])))))
   (testing "an aborted failure routed through failure-reply also lowers to :cancelled"
     (let [r (http-reply/failure-reply
               base-ctx {:kind :rf.http/aborted :reason :actor-destroyed})]
       (is (= :cancelled (:status r)))
-      (is (= :actor-destroyed (:cancel/reason r))))))
+      (is (= :actor-destroyed (:rf.reply/cancel-reason r))))))
 
 ;; ===========================================================================
 ;; Group 1b — the SHARED-TARGET lowering path + the reply-mapping functor law
@@ -254,7 +254,7 @@
           ;; The canonical reply envelope — the ONE dialect delivered to the app.
           (is (= :ok (get-in db [:reply :status])))
           (is (= "hello" (get-in db [:reply :value :title])))
-          (is (= :completed (get-in db [:reply :work/status])))
+          (is (= :completed (get-in db [:reply :rf.reply/work-status])))
           (is (= :http (get-in db [:reply :work/kind])))
           ;; the retired {:kind :success} dialect is GONE
           (is (not (contains? (:reply db) :kind))))
@@ -275,7 +275,7 @@
         (rf/dispatch-sync [:svc/call])
         (let [db (await-reply! #(some? (:got %)))]
           (is (= :error (get-in db [:got :status])))
-          (is (= :failed (get-in db [:got :work/status])))
+          (is (= :failed (get-in db [:got :rf.reply/work-status])))
           ;; the classified :rf.http/* failure map rides VERBATIM under :error
           (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
           (is (= 503 (get-in db [:got :error :status])))
@@ -474,7 +474,7 @@
         (finally (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
-  (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :work/status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
+  (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
     (let [gate    (java.util.concurrent.CountDownLatch. 1)
           srv     (start-server!
                     (fn [^HttpExchange ex]
@@ -536,7 +536,7 @@
 ;; Group 4 — actor-destroy obsolete-target stale suppression (rf2-yrrpe2,
 ;; pure altitude). Managed-Effects §Cancellation: an actor-destroy abort whose
 ;; reply target addresses the destroyed actor itself is OBSOLETE and lowers to
-;; `:status :stale` / `:work/status :suppressed` (no app delivery); a target
+;; `:status :stale` / `:rf.reply/work-status :suppressed` (no app delivery); a target
 ;; naming an ordinary event is still meaningful and stays a live `:cancelled`.
 ;; ===========================================================================
 
@@ -552,7 +552,7 @@
         "no resolvable target → not classified obsolete")))
 
 (deftest actor-destroy-suppress-is-canonical-stale
-  (testing "rf2-yrrpe2 — an obsolete actor-bound completion lowers to the shared :status :stale / :work/status :suppressed outcome, no app delivery"
+  (testing "rf2-yrrpe2 — an obsolete actor-bound completion lowers to the shared :status :stale / :rf.reply/work-status :suppressed outcome, no app delivery"
     (let [ctx {:request-id   [:worker/proc#1 :slow]
                :origin-event [:worker/proc#1 [:rf.http/failed]]
                :issuance     1
@@ -560,12 +560,12 @@
                :frame        :app/main}
           {:keys [deliver? reply trace] :as out} (http-reply/actor-destroy-suppress ctx)]
       (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
-      (is (= :suppressed (:work/status out)))
+      (is (= :suppressed (:rf.reply/work-status out)))
       (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
       (is (= :stale (:status reply)))
       (is (true? (:stale? reply)))
-      (is (= :rf.http/actor-destroyed-target-obsolete (:stale/reason reply)))
-      (is (= :suppressed (:work/status reply)))
+      (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason reply)))
+      (is (= :suppressed (:rf.reply/work-status reply)))
       (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
       (testing "the trace joins the carried work-id"
         (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1]

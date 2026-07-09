@@ -207,7 +207,7 @@
   `join-child-reply` (`:status :ok` for the `:done`-side resolutions,
   `:status :error` for the `:on-any-failed` resolution) — the same uniform
   vocabulary the single-`:spawn` `:rf.machine/done` reply carries. Returns
-  a tag-map fragment `{:work/id … :rf.reply/status … …}` to merge into the
+  a tag-map fragment `{:rf.reply/work-id … :rf.reply/status … …}` to merge into the
   resolution trace, or `{}` when no decisive child is resolvable.
 
   `kind` is the arriving child's fold kind (`:done` / `:failed`);
@@ -224,10 +224,10 @@
                       :completed-at completed-at}
                      kind child-extra)
         summary    (m-reply/trace-reply reply {:frame frame-id})]
-    (cond-> {:work/kind            (:work/kind summary)
+    (cond-> {:rf.reply/work-kind            (:rf.reply/work-kind summary)
              :rf.reply/status      (:status summary)
-             :rf.reply/work-id     (:work/id summary)
-             :rf.reply/work-status (:work/status summary)
+             :rf.reply/work-id     (:rf.reply/work-id summary)
+             :rf.reply/work-status (:rf.reply/work-status summary)
              :rf.reply/correlation (:correlation summary)}
       (some? (:completed-at summary))
       (assoc :rf.reply/completed-at (:completed-at summary)))))
@@ -244,7 +244,7 @@
 
   The DECISIVE child completion that drove the resolution lowers through
   the shared `join-child-reply`; its reply-envelope facts
-  (`:work/id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
+  (`:rf.reply/work-id`, `:rf.reply/status`, `:rf.reply/work-status`, the causal
   `:completed-at`) ride ADDITIVELY on the resolution trace, so the
   join-resolving child completion classifies the same way the
   single-`:spawn` path does. The public resolution-trace shape
@@ -313,9 +313,9 @@
               ;; A join-survivor cancellation closes the survivor's actor
               ;; work attempt the reply-envelope way: a `:status :cancelled`
               ;; reply (cancellation as DATA, Managed-Effects §Cancellation).
-              ;; The reply-envelope facts (`:work/id`
+              ;; The reply-envelope facts (`:rf.reply/work-id`
               ;; keyed on the survivor's spawned instance, `:rf.reply/status
-              ;; :cancelled`, `:cancel/reason :on-join-resolution`) ride
+              ;; :cancelled`, `:rf.reply/cancel-reason :on-join-resolution`) ride
               ;; ADDITIVELY so the survivor cancellation joins the same
               ;; uniform work/reply row the spawn started — the spawn-all
               ;; analogue of the single-actor destroy cancellation. The
@@ -339,12 +339,12 @@
                               :join-event join-event-kw
                               :frame      frame-id
                               ;; reply-envelope vocabulary (Managed-Effects §9)
-                              :work/kind            (:work/kind survivor-summary)
+                              :rf.reply/work-kind            (:rf.reply/work-kind survivor-summary)
                               :rf.reply/status      (:status survivor-summary)
-                              :rf.reply/work-id     (:work/id survivor-summary)
-                              :rf.reply/work-status (:work/status survivor-summary)
+                              :rf.reply/work-id     (:rf.reply/work-id survivor-summary)
+                              :rf.reply/work-status (:rf.reply/work-status survivor-summary)
                               :rf.reply/cancelled?  (:cancelled? survivor-summary)
-                              :rf.reply/cancel-reason (:cancel/reason survivor-summary)
+                              :rf.reply/cancel-reason (:rf.reply/cancel-reason survivor-summary)
                               :rf.reply/correlation (:correlation survivor-summary)})))
             (mapv (fn [[_ spawned-id]]
                     [:rf.machine/destroy spawned-id])
@@ -425,7 +425,7 @@
           ;; for observability + classify it stale (no further PARENT event
           ;; ever fires — the `:resolved?` latch already flipped). The
           ;; reply-envelope facts mark the completion `:status :stale` /
-          ;; `:work/status :suppressed` (Managed-Effects §Stale suppression):
+          ;; `:rf.reply/work-status :suppressed` (Managed-Effects §Stale suppression):
           ;; it is SUPPRESSED from RE-RESOLVING the join — exactly the
           ;; §Stale-suppression "fires no further parent event" rule.
           ;;
@@ -454,11 +454,11 @@
                                   :kind       kind
                                   :frame      frame-id
                                   ;; reply-envelope vocabulary (Managed-Effects §9)
-                                  :work/kind             (:work/kind summary)
+                                  :rf.reply/work-kind             (:rf.reply/work-kind summary)
                                   :rf.reply/status       (:status summary)
-                                  :rf.reply/work-id      (:work/id summary)
-                                  :rf.reply/work-status  (:work/status summary)
-                                  :rf.reply/stale-reason (:stale/reason summary)
+                                  :rf.reply/work-id      (:rf.reply/work-id summary)
+                                  :rf.reply/work-status  (:rf.reply/work-status summary)
+                                  :rf.reply/stale-reason (:rf.reply/stale-reason summary)
                                   :rf.reply/correlation  (:correlation summary)}
                            (some? (:completed-at summary))
                            (assoc :rf.reply/completed-at (:completed-at summary))))

@@ -4,7 +4,7 @@
   actor itself (the machine-shape wrapper's `[self-id [:rf.http/failed]]`
   default, or any request whose reply addresses its own actor) — does NOT
   deliver a live `:cancelled`/failure reply to the app target. It lowers to
-  the canonical `:status :stale` / `:work/status :suppressed` reply-envelope
+  the canonical `:status :stale` / `:rf.reply/work-status :suppressed` reply-envelope
   outcome: the app target MUST NOT run, and a `:rf.http/stale-suppressed`
   reply-envelope trace records the carried correlation joined to `:work/id`.
 

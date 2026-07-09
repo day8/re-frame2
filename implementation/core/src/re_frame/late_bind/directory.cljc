@@ -677,7 +677,7 @@
    {:key         :http/abort-in-flight-for-frame!
     :producer-ns 're-frame.http.managed
     :design-bead "rf2-u5kmf8"
-    :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:work/status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
+    :description "Epoch-restore host-transient quiesce for NON-resource managed HTTP. Consulted by `re-frame.epoch.tool-pair/perform-restore!` AFTER a successful install: aborts every in-flight `:rf.http/managed` request the restored frame issued with the reply-suppressing `:reason :epoch-restored` (no delivery to the original `:rf/reply-to`) and emits the EP-0011 `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts. The non-ledger-backed counterpart of the resources work-id dangling, so a pre-restore in-flight reply cannot mutate the restored state (Managed-Effects §SSR, preload, hydration, and restore: \"epoch restore MUST NOT revive host work\")."}
    {:key         :http/register-managed-machine!
     :producer-ns 're-frame.http.managed
     :design-bead "rf2-ijm7"

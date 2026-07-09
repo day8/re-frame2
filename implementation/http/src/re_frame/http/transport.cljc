@@ -117,8 +117,8 @@
 ;; Every completion (success / failure / abort) flows through ONE canonical
 ;; reply map built in `re-frame.http.reply` — `:status` (`:ok` / `:error` /
 ;; `:cancelled`), `:value` on `:ok`, the classified `:rf.http/*` failure map
-;; verbatim under `:error`, `:work/id` `[:rf.work/http logical-id issuance
-;; attempt]` (rf2-azcmd3), `:work/kind :http`, `:work/status`, `:attempt`,
+;; verbatim under `:error`, `:rf.reply/work-id` `[:rf.work/http logical-id issuance
+;; attempt]` (rf2-azcmd3), `:rf.reply/work-kind :http`, `:rf.reply/work-status`, `:attempt`,
 ;; `:rf.frame/id`, `:completed-at`, and `:correlation {:request-id …}` (the
 ;; `:request-id` is correlation metadata, NOT a second stale-suppression key).
 ;; rf2-ibksxg — that canonical reply is the SINGLE public artefact too: it is
@@ -243,7 +243,7 @@
   `:correlation`) route through the shared `http-reply/trace-reply` →
   `re-frame.reply/trace-summary` → `re-frame.elision/elide-wire-value`
   walker (never a family-private elider); the identity facts (`:status`,
-  `:work/id`, `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`,
+  `:rf.reply/work-id`, `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`,
   `:completed-at`) ride verbatim. Gated on `debug-enabled?` like the other
   `:rf.http/*` trace rows."
   [ctx reply]
@@ -293,7 +293,7 @@
 
 (defn emit-superseded-stale-trace!
   "rf2-azcmd3 — emit the canonical EP-0011 `:status :stale` /
-  `:work/status :suppressed` reply-envelope trace for a SUPERSEDED HTTP
+  `:rf.reply/work-status :suppressed` reply-envelope trace for a SUPERSEDED HTTP
   attempt, WITHOUT dispatching any app target (Managed-Effects §Stale
   suppression — clauses 2/3/4: the superseded attempt's reply outcome becomes
   `:stale`, its ledger row reaches `:suppressed`, and the trace stream records
@@ -330,10 +330,10 @@
                       (:frame superseded-handle) (assoc :frame (:frame superseded-handle))))]
       (trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
-                            :rf.reply/work-status   (:work/status summary)
-                            :rf.reply/stale-reason  (:stale/reason summary)
-                            :rf.reply/work-id       (:work/id summary)
-                            :work/kind              :http
+                            :rf.reply/work-status   (:rf.reply/work-status summary)
+                            :rf.reply/stale-reason  (:rf.reply/stale-reason summary)
+                            :rf.reply/work-id       (:rf.reply/work-id summary)
+                            :rf.reply/work-kind              :http
                             ;; the shared carried/current correlation facts
                             ;; the `re-frame.reply/suppress` trace computes —
                             ;; carried = superseded work-id, current =
@@ -348,7 +348,7 @@
 
   rf2-zqefg3.2 / rf2-ibksxg — the failure lowers through the canonical
   reply envelope: the `:rf.http/*` failure map becomes a `:status :error`
-  (or `:status :cancelled` for an abort, `:work/status :timed-out` for a
+  (or `:status :cancelled` for an abort, `:rf.reply/work-status :timed-out` for a
   timeout) canonical reply (`http-reply/failure-reply`), a completion trace
   row is emitted from those canonical facts, and the SAME canonical reply is
   delivered to the app target — it threads through the `:after` chain +
@@ -372,7 +372,7 @@
   "Dispatch a `:success` reply carrying `value` as its `:value` slot.
 
   rf2-zqefg3.2 / rf2-ibksxg — the success lowers through the canonical
-  reply envelope: `value` becomes a `:status :ok` / `:work/status
+  reply envelope: `value` becomes a `:status :ok` / `:rf.reply/work-status
   :completed` canonical reply (`http-reply/success-reply`), a completion
   trace row is emitted from those canonical facts, and the SAME canonical
   reply is delivered to the app target verbatim (no `{:kind :success}`
@@ -387,7 +387,7 @@
 
 (defn emit-actor-destroy-stale-trace!
   "rf2-yrrpe2 — emit the canonical EP-0011 `:status :stale` /
-  `:work/status :suppressed` reply-envelope trace for an actor-destroy abort
+  `:rf.reply/work-status :suppressed` reply-envelope trace for an actor-destroy abort
   whose reply target is OBSOLETE (it addressed the destroyed actor itself),
   WITHOUT dispatching the app target (Managed-Effects §Cancellation /
   §Stale suppression — clauses 1/2/3/4: the obsolete actor-bound target's
@@ -410,10 +410,10 @@
                       (:frame ctx) (assoc :frame (:frame ctx))))]
       (trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
-                            :rf.reply/work-status   (:work/status summary)
-                            :rf.reply/stale-reason  (:stale/reason summary)
-                            :rf.reply/work-id       (:work/id summary)
-                            :work/kind              :http
+                            :rf.reply/work-status   (:rf.reply/work-status summary)
+                            :rf.reply/stale-reason  (:rf.reply/stale-reason summary)
+                            :rf.reply/work-id       (:rf.reply/work-id summary)
+                            :rf.reply/work-kind              :http
                             :rf.reply/carried       (:rf.reply/carried trace)
                             :rf.reply/current       (:rf.reply/current trace)
                             :recovery               :actor-destroyed-target-obsolete}
@@ -458,7 +458,7 @@
   actor itself (the machine-shape wrapper's `[self-id [:rf.http/failed]]`
   default, or any request whose default reply addresses its own actor) — does
   NOT deliver a live `:cancelled`/failure reply; it lowers to the canonical
-  `:status :stale` / `:work/status :suppressed` outcome (the `:rf.http/aborted`
+  `:status :stale` / `:rf.reply/work-status :suppressed` outcome (the `:rf.http/aborted`
   trace still fires; only the app reply delivery is suppressed). An
   `:actor-destroyed` abort whose target is an ORDINARY (still-meaningful)
   event keeps the live failure delivery, as do explicit `:user` aborts."
@@ -499,7 +499,7 @@
 
       ;; Per rf2-yrrpe2 — an actor-destroy abort whose reply target is
       ;; OBSOLETE (it addresses the destroyed actor itself) suppresses the app
-      ;; delivery as a canonical `:status :stale` / `:work/status :suppressed`
+      ;; delivery as a canonical `:status :stale` / `:rf.reply/work-status :suppressed`
       ;; outcome (Managed-Effects §Cancellation). The app target MUST NOT run.
       (and (= :actor-destroyed reason)
            (http-reply/actor-destroy-target-obsolete?
@@ -643,7 +643,7 @@
     ;; JVM completion-wins-the-CAS race reaches here (the abort-fn flips
     ;; `:aborted?` then loses the once-only CAS to the whenComplete thread, which
     ;; reclassifies via `aborted-snapshot`). It lowers to the canonical
-    ;; `:status :stale` / `:work/status :suppressed` outcome, matching
+    ;; `:status :stale` / `:rf.reply/work-status :suppressed` outcome, matching
     ;; `dispatch-aborted!`. The `:rf.http/aborted` error trace already fired
     ;; above; only the app delivery is replaced by the stale-suppressed trace.
     ;; `(:actor-id failure)` is the destroyed actor's id carried from the abort

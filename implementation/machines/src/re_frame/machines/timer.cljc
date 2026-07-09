@@ -200,10 +200,10 @@
         sub-vec      (when (vector? delay-key) delay-key)
         ;; Close the timer work attempt the reply-envelope way: a cancelled
         ;; `:after` timer is `:status :cancelled` DATA, not the absence of a
-        ;; reply (Managed-Effects §Cancellation). The canonical `:work/id`
+        ;; reply (Managed-Effects §Cancellation). The canonical `:rf.reply/work-id`
         ;; matches the fired / stale reply's so the cancelled completion
         ;; joins the same uniform work/reply row the timer's scheduling
-        ;; started; `:cancel/reason` carries the closed `timer-cancel-reasons`
+        ;; started; `:rf.reply/cancel-reason` carries the closed `timer-cancel-reasons`
         ;; discriminator. The reply facts ride ADDITIVELY — the public trace
         ;; shape (`:actor-id` / `:state` / `:delay` / `:epoch` / `:reason` /
         ;; sub identity) is preserved.
@@ -226,12 +226,12 @@
                           :reason     reason
                           :frame      frame-id
                           ;; reply-envelope vocabulary (Managed-Effects §9)
-                          :work/kind            (:work/kind summary)
+                          :rf.reply/work-kind            (:rf.reply/work-kind summary)
                           :rf.reply/status      (:status summary)
-                          :rf.reply/work-id     (:work/id summary)
-                          :rf.reply/work-status (:work/status summary)
+                          :rf.reply/work-id     (:rf.reply/work-id summary)
+                          :rf.reply/work-status (:rf.reply/work-status summary)
                           :rf.reply/cancelled?  (:cancelled? summary)
-                          :rf.reply/cancel-reason (:cancel/reason summary)
+                          :rf.reply/cancel-reason (:rf.reply/cancel-reason summary)
                           :rf.reply/correlation (:correlation summary)}
                    (some? delay-source) (assoc :delay-source delay-source)
                    (some? sub-vec)      (assoc :rf.sub/id      (first sub-vec)

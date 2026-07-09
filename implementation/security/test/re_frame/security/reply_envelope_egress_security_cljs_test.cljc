@@ -19,7 +19,7 @@
       walker — never a family-private elider — so `:sensitive?` / `:large?`
       compose uniformly with the rest of the trace stream;
     - keep the CLOSED status taxonomy (`:ok` / `:partial` / `:error` /
-      `:cancelled` / `:stale`) and the closed `:work/status` vocabulary;
+      `:cancelled` / `:stale`) and the closed `:rf.reply/work-status` vocabulary;
     - suppress STALE app deliveries by default (the correctness boundary):
       a superseded completion produces `:status :stale` WITHOUT dispatching
       the app target and WITHOUT carrying `:value`;
@@ -132,7 +132,7 @@
                      :correlation  {:partner-key sentinel :trace-id "t-1"}
                      :meta         {:token sentinel :note "ok"}
                      :work/id      [:rf.work/http :article/by-id 1]
-                     :work/status  :failed
+                     :rf.reply/work-status  :failed
                      :rf.frame/id  :reply/framed
                      :completed-at 1781078400456}
           out (reply/trace-summary reply-map
@@ -157,7 +157,7 @@
       ;; data) — the trace summary must keep them for tool correlation.
       (is (= :partial (:status out)))
       (is (= [:rf.work/http :article/by-id 1] (:work/id out)) "canonical :work/id verbatim")
-      (is (= :failed (:work/status out)))
+      (is (= :failed (:rf.reply/work-status out)))
       (is (= :reply/framed (:rf.frame/id out)))
       (is (= 1781078400456 (:completed-at out)) "causal completion timestamp verbatim"))))
 
@@ -169,7 +169,7 @@
     (let [opts {:frame :reply/deleg}
           value {:token sentinel :doc big-string :public 7}
           reply-map {:status :ok :value value
-                     :work/id [:rf.work/http :x 1] :work/status :completed}
+                     :work/id [:rf.work/http :x 1] :rf.reply/work-status :completed}
           out (reply/trace-summary reply-map opts)]
       (is (= (:value out) (elision/elide-wire-value value opts))
           ":value slot is exactly elide-wire-value under the resolved opts"))))
@@ -193,7 +193,7 @@
                        :correlation {:partner-key sentinel}
                        :meta        {:secret sentinel}
                        :work/id     [:rf.work/http :y 2]
-                       :work/status :failed}
+                       :rf.reply/work-status :failed}
             out (reply/trace-summary reply-map nil)]
         ;; Every wire slot fails closed to the whole-value sentinel.
         (is (gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
@@ -203,12 +203,12 @@
         ;; Identity facts still ride (framework data is not walked).
         (is (= :error (:status out)))
         (is (= [:rf.work/http :y 2] (:work/id out)))
-        (is (= :failed (:work/status out))))
+        (is (= :failed (:rf.reply/work-status out))))
       ;; The deliberate opt-out is the single control point: include-sensitive?
       ;; true gets an identity walk against the empty no-frame policy.
       (let [out (reply/trace-summary {:status :ok :value {:token sentinel}
                                       :work/id [:rf.work/http :z 3]
-                                      :work/status :completed}
+                                      :rf.reply/work-status :completed}
                   {:rf.size/include-sensitive? true})]
         (is (= sentinel (get-in out [:value :token]))
             "explicit include-sensitive? true is the deliberate frameless opt-out")))))
@@ -228,7 +228,7 @@
   (gen/gen-fmap
     (fn [[status work-status]]
       (let [base {:work/id     [:rf.work/http :gen 1]
-                  :work/status work-status
+                  :rf.reply/work-status work-status
                   :rf.frame/id :reply/corpus
                   :correlation {:partner-key sentinel :trace-id "tc"}
                   :meta        {:token sentinel}}
@@ -237,16 +237,16 @@
           :ok        (assoc base :status :ok :value {:token sentinel :public 1})
           :partial   (assoc base :status :partial
                                  :value {:token sentinel} :error err)
-          :error     (assoc base :status :error :error err :work/status :failed)
+          :error     (assoc base :status :error :error err :rf.reply/work-status :failed)
           :cancelled (assoc base :status :cancelled
                                  :cancelled? true
-                                 :cancel/reason :user-abort
-                                 :work/status :cancelled)
+                                 :rf.reply/cancel-reason :user-abort
+                                 :rf.reply/work-status :cancelled)
           :stale     (-> base
                          (dissoc :value)
                          (assoc :status :stale :stale? true
-                                :stale/reason :rf.reply/correlation-mismatch
-                                :work/status :suppressed)))))
+                                :rf.reply/stale-reason :rf.reply/correlation-mismatch
+                                :rf.reply/work-status :suppressed)))))
     (fn [rng]
       (let [[status rng1] (gen/rand-nth rng (vec reply/statuses))
             [ws rng2]     (gen/rand-nth rng1 (vec reply/work-statuses))]
@@ -280,20 +280,20 @@
 
 (deftest stale-suppression-never-delivers-app-target-or-value
   (testing "suppress on a superseded completion yields :deliver? false,
-            :status :stale, :work/status :suppressed, and STRIPS any :value —
+            :status :stale, :rf.reply/work-status :suppressed, and STRIPS any :value —
             even when a natural success reply is threaded as `extra`"
     (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
           current {:work/id [:rf.work/http :a 1] :generation 2}
           ;; A caller accidentally threads a full natural success reply
           ;; (carrying the secret :value) as `extra`.
           natural {:status :ok :value {:token sentinel}
-                   :work/status :completed :work/id [:rf.work/http :a 1]
+                   :rf.reply/work-status :completed :work/id [:rf.work/http :a 1]
                    :rf.frame/id :reply/stale :completed-at 1781078400456}
           {:keys [deliver? reply] :as outcome} (reply/suppress nil carried current natural)]
       (is (false? deliver?) "a superseded app reply is NOT delivered")
       (is (= :stale (:status reply)) "the forced status is :stale")
       (is (true? (:stale? reply)) ":stale? marker forced on")
-      (is (= :suppressed (:work/status reply)) ":work/status forced to :suppressed")
+      (is (= :suppressed (:rf.reply/work-status reply)) ":rf.reply/work-status forced to :suppressed")
       (is (not (contains? reply :value)) ":value is STRIPPED — no app mutation can ride")
       (is (not (contains-sentinel? reply)) "the secret value never rides the stale reply")
       ;; Identity facts threaded via `extra` survive (work id / frame / time).
@@ -337,7 +337,7 @@
     ;; A fn is a host handle on BOTH runtimes (no host-specific object needed).
     (let [handle (fn [] :callback)
           reply-with-handle {:status :ok :value {:on-done handle}
-                             :work/id [:rf.work/http :h 1] :work/status :completed}
+                             :work/id [:rf.work/http :h 1] :rf.reply/work-status :completed}
           problems (reply/validate-reply reply-with-handle)]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %)) problems)
           "validate-reply flags the host handle in the reply :value"))
@@ -351,7 +351,7 @@
           "a host handle in a durable target's public field fails loud"))
     ;; A clean data-only reply / target passes.
     (is (reply/valid-reply? {:status :ok :value {:public 1}
-                             :work/id [:rf.work/http :h 2] :work/status :completed}))
+                             :work/id [:rf.work/http :h 2] :rf.reply/work-status :completed}))
     (is (reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))
 
 ;; ---------------------------------------------------------------------------

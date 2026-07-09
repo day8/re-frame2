@@ -12,7 +12,7 @@
     - target normalization (vector-prefix ↔ descriptor form),
     - completion (append the reply map to the target per `:delivery`),
     - reply-target mapping — the functor law (`map-completed-event`
-      changes ONLY the completed event, never issuance / `:work/id` /
+      changes ONLY the completed event, never issuance / `:rf.reply/work-id` /
       status / cancellation / staleness / tracing),
     - reply-map schema validation (the closed `:status` taxonomy +
       value/error conventions + the data-only invariant),
@@ -55,12 +55,12 @@
   "The CLOSED reply `:status` vocabulary (Managed-Effects §Status taxonomy).
   Exactly one of these is the reply's status. `:ok`/`:partial` carry
   `:value`; `:error`/`:partial` carry `:error`; `:cancelled` carries
-  `:cancel/reason`; `:stale` carries `:stale? true` + `:stale/reason` and
+  `:rf.reply/cancel-reason`; `:stale` carries `:stale? true` + `:rf.reply/stale-reason` and
   MUST NOT mutate app state."
   #{:ok :partial :error :cancelled :stale})
 
 (def work-statuses
-  "The operational `:work/status` vocabulary on a reply map. Narrower /
+  "The operational `:rf.reply/work-status` vocabulary on a reply map. Narrower /
   more operational than reply `:status` (the ledger row may carry the same
   value). `:suppressed` is the stale terminal; `:timed-out` is an error
   work-status (timeout is an error KIND + a work status, never a top-level
@@ -170,7 +170,7 @@
   uncatalogued `:rf.error/id`.
 
   NOTE `:rf.reply/correlation-mismatch` is NOT a member — it is a
-  `:stale/reason` VALUE on a (non-throwing) stale reply, never an
+  `:rf.reply/stale-reason` VALUE on a (non-throwing) stale reply, never an
   `:rf.error/id`; only the five throw categories are catalogued here."
   {:rf.reply/invalid-target              :rf.error/reply-invalid-target
    :rf.reply/non-data-target             :rf.error/reply-non-data-target
@@ -317,7 +317,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Reply-target mapping — the functor (Managed-Effects §Reply mapping and the
 ;; functor law). `map-completed-event` rewrites ONLY the completed event; it
-;; never touches issuance, `:work/id`, status, cancellation, stale checks, or
+;; never touches issuance, `:rf.reply/work-id`, status, cancellation, stale checks, or
 ;; tracing — those are not stored on the target at all, so the law holds
 ;; structurally.
 ;; ---------------------------------------------------------------------------
@@ -542,10 +542,10 @@
                        error MAP carrying a `:kind`;
         `:error`     — `:error` present as a family error MAP carrying a
                        `:kind`;
-        `:cancelled` — `:cancel/reason` present AND `:cancelled? true`
+        `:cancelled` — `:rf.reply/cancel-reason` present AND `:cancelled? true`
                        (the intentional-cancellation marker);
-        `:stale`     — `:stale? true` AND `:stale/reason` present;
-    - `:work/status` (when present) in the `work-statuses` set;
+        `:stale`     — `:stale? true` AND `:rf.reply/stale-reason` present;
+    - `:rf.reply/work-status` (when present) in the `work-statuses` set;
     - the data-only invariant: no host handles anywhere in the map.
 
   The `:error`/`:partial` error shape is TIGHT: the spec status taxonomy
@@ -555,7 +555,7 @@
   cross-family error handling have a uniform shape to dispatch on (a scalar
   would force each consumer to special-case it). Likewise a `:cancelled`
   reply MUST carry the `:cancelled? true` marker, not merely a
-  `:cancel/reason`, so cancellation is an explicit positive fact rather than
+  `:rf.reply/cancel-reason`, so cancellation is an explicit positive fact rather than
   inferred from the presence of a reason.
 
   Pure; throws only on a non-map argument."
@@ -609,26 +609,26 @@
              (and (= status :error) (some? error) (not (error-map-with-kind? error)))
              (conj (problem :rf.reply/error-not-family-map [:error] error))
 
-             ;; :cancelled — :cancel/reason present AND the :cancelled? true
+             ;; :cancelled — :rf.reply/cancel-reason present AND the :cancelled? true
              ;; intentional-cancellation marker (cancellation is a positive
              ;; fact, not inferred from a stray reason).
-             (and (= status :cancelled) (nil? (:cancel/reason reply)))
-             (conj (problem :rf.reply/cancelled-missing-reason [:cancel/reason] nil))
+             (and (= status :cancelled) (nil? (:rf.reply/cancel-reason reply)))
+             (conj (problem :rf.reply/cancelled-missing-reason [:rf.reply/cancel-reason] nil))
              (and (= status :cancelled) (not (true? (:cancelled? reply))))
              (conj (problem :rf.reply/cancelled-missing-marker [:cancelled?] (:cancelled? reply)))
 
-             ;; :stale — :stale? true and :stale/reason present; MUST NOT carry :value.
+             ;; :stale — :stale? true and :rf.reply/stale-reason present; MUST NOT carry :value.
              (and (= status :stale) (not (true? (:stale? reply))))
              (conj (problem :rf.reply/stale-missing-flag [:stale?] (:stale? reply)))
-             (and (= status :stale) (nil? (:stale/reason reply)))
-             (conj (problem :rf.reply/stale-missing-reason [:stale/reason] nil))
+             (and (= status :stale) (nil? (:rf.reply/stale-reason reply)))
+             (conj (problem :rf.reply/stale-missing-reason [:rf.reply/stale-reason] nil))
              (and (= status :stale) (contains? reply :value))
              (conj (problem :rf.reply/stale-has-value [:value] value))
 
-             ;; :work/status closed vocabulary.
-             (and (contains? reply :work/status)
-                  (not (contains? work-statuses (:work/status reply))))
-             (conj (problem :rf.reply/invalid-work-status [:work/status] (:work/status reply))))
+             ;; :rf.reply/work-status closed vocabulary.
+             (and (contains? reply :rf.reply/work-status)
+                  (not (contains? work-statuses (:rf.reply/work-status reply))))
+             (conj (problem :rf.reply/invalid-work-status [:rf.reply/work-status] (:rf.reply/work-status reply))))
         ;; Data-only invariant — no host handles anywhere.
         handle-path (walk-find-host-handle reply)
         ps (cond-> ps
@@ -660,8 +660,8 @@
 (defn trace-summary
   "Build a DATA-ONLY trace summary of `reply` for a managed-async trace row.
 
-  Identity / correlation facts (`:status`, `:work/id`, `:work/kind`,
-  `:work/status`, `:attempt`, `:rf.frame/id`, the durable timestamps, the
+  Identity / correlation facts (`:status`, `:rf.reply/work-id`, `:rf.reply/work-kind`,
+  `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`, the durable timestamps, the
   cancellation / staleness facts) ride verbatim. The wire-bearing slots
   (`:value`, `:error`, `:correlation`, `:meta`) route through the single
   shared `elide-wire-value` walker so `:sensitive?` / `:large?` compose
@@ -742,12 +742,12 @@
                 its `:dispatch-stale?` opt-in and `::stale-authority`.
     `carried` — the data-only correlation captured at issuance.
     `current` — the data-only correlation read from live frame-state now.
-    `extra`   — optional reply fields to carry verbatim (`:work/id`,
-                `:work/kind`, `:rf.frame/id`, `:completed-at`, `:meta`, …);
-                `:stale/reason` defaults to `:rf.reply/correlation-mismatch`
+    `extra`   — optional reply fields to carry verbatim (`:rf.reply/work-id`,
+                `:rf.reply/work-kind`, `:rf.frame/id`, `:completed-at`, `:meta`, …);
+                `:rf.reply/stale-reason` defaults to `:rf.reply/correlation-mismatch`
                 when not supplied. The stale boundary is NON-NEGOTIABLE:
                 `extra` CANNOT override `:status :stale` / `:stale? true` /
-                `:work/status :suppressed`, and a `:value` in `extra` is
+                `:rf.reply/work-status :suppressed`, and a `:value` in `extra` is
                 STRIPPED (a stale reply MUST NOT carry `:value` — see
                 `validate-reply`). So threading a natural success/error reply
                 as `extra` cannot produce a non-stale outcome.
@@ -755,7 +755,7 @@
   Returns:
     {:deliver? <bool>           ;; false ⇒ DO NOT dispatch the app target
      :reply    <stale reply>    ;; :status :stale, data-only, app-state-safe
-     :work/status :suppressed   ;; the ledger terminal for a stale completion
+     :rf.reply/work-status :suppressed   ;; the ledger terminal for a stale completion
      :trace    <data-only trace facts carrying CARRIED + CURRENT>}
 
   The caller's contract: when `:deliver?` is false it MUST NOT run the app
@@ -766,7 +766,7 @@
   ledger / trace bookkeeping."
   ([target carried current] (suppress target carried current nil))
   ([target carried current extra]
-   (let [reason   (or (:stale/reason extra) :rf.reply/correlation-mismatch)
+   (let [reason   (or (:rf.reply/stale-reason extra) :rf.reply/correlation-mismatch)
          d        (when target (normalize-target target))
          wants?   (true? (:dispatch-stale? d))
          authorised? (true? (get d stale-authority-key))
@@ -779,34 +779,34 @@
                              :rf.reply/unauthorized-stale-delivery
                              "Stale delivery (:dispatch-stale? true) is restricted to framework test/tool targets — this target lacks the stale-delivery authority. App reply targets MUST NOT receive stale envelopes. Drop :dispatch-stale? from the target, or use a framework/tool target that carries the stale-delivery capability."
                              {:target         d
-                              :stale/reason   reason
-                              :stale/authorised? authorised?})))
+                              :rf.reply/stale-reason   reason
+                              :rf.reply/stale-authorised? authorised?})))
          opt-in?  (and wants? authorised?)
          ;; `suppress` is THE correctness boundary, so "stale
          ;; wins over the natural completion status" (Managed-Effects
          ;; §Status taxonomy) MUST be structurally impossible for a caller
-         ;; to violate. Merge `extra` FIRST (its identity facts — `:work/id`,
-         ;; `:work/kind`, `:rf.frame/id`, `:completed-at`, `:correlation`,
+         ;; to violate. Merge `extra` FIRST (its identity facts — `:rf.reply/work-id`,
+         ;; `:rf.reply/work-kind`, `:rf.frame/id`, `:completed-at`, `:correlation`,
          ;; `:meta` — ride verbatim), then FORCE the stale invariants on top
          ;; and STRIP `:value`. A caller that accidentally threads a natural
          ;; success/error reply as `extra` (`{:status :ok :value … :work/
          ;; status :completed}`) can no longer produce an invalid non-stale
          ;; reply — the forced fields override and `:value` (which a stale
          ;; reply MUST NOT carry — see `validate-reply`) is dissoc'd.
-         carry    (dissoc extra :stale/reason :value)
+         carry    (dissoc extra :rf.reply/stale-reason :value)
          ;; `carry` is merged FIRST so the stale-boundary map (the second
          ;; `merge` arg) wins every shared key — `extra` cannot override
-         ;; `:status` / `:stale?` / `:work/status`, and `:value` was already
+         ;; `:status` / `:stale?` / `:rf.reply/work-status`, and `:value` was already
          ;; stripped above.
          reply    (merge carry {:status       :stale
                                 :stale?       true
-                                :stale/reason reason
-                                :work/status  :suppressed})]
+                                :rf.reply/stale-reason reason
+                                :rf.reply/work-status  :suppressed})]
      {:deliver?    opt-in?
       :reply       reply
-      :work/status :suppressed
+      :rf.reply/work-status :suppressed
       :trace       {:rf.reply/suppressed?  true
-                    :stale/reason          reason
-                    :work/id               (:work/id reply)
+                    :rf.reply/stale-reason          reason
+                    :rf.reply/work-id               (:rf.reply/work-id reply)
                     :rf.reply/carried      carried
                     :rf.reply/current      current}})))

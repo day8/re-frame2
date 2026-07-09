@@ -43,7 +43,7 @@
      validated by `valid-args?`.
   3. failure taxonomy — timer failures carry `:kind :rf.timer/*`
      (`:rf.timer/elapsed-error`, `:rf.timer/cancelled`) under `:error` /
-     `:cancel/reason`, the family `:kind` the reply-map contract requires.
+     `:rf.reply/cancel-reason`, the family `:kind` the reply-map contract requires.
   4. trace facts — `suppress` / completion produce data-only trace facts
      (`re-frame.reply/trace-summary`); the probe never invents a private
      trace shape.
@@ -238,13 +238,13 @@
 (defn complete-elapsed
   "Build the canonical `:status :ok` reply for a timer that elapsed
   successfully. `value` is the elapsed payload (the reply result is `:value`
-  EVERYWHERE — EP-0007). `:work/status :completed`. `times` supplies the
+  EVERYWHERE — EP-0007). `:rf.reply/work-status :completed`. `times` supplies the
   causal `:started-at` / `:completed-at` (EP-0010 — the host completion's
   readings, not ambient). Per Managed-Effects §Status taxonomy."
   [args value times]
   (assoc (base-reply args times)
          :status      :ok
-         :work/status :completed
+         :rf.reply/work-status :completed
          :value       value))
 
 (defn complete-error
@@ -255,7 +255,7 @@
   [args error times]
   (assoc (base-reply args times)
          :status      :error
-         :work/status :failed
+         :rf.reply/work-status :failed
          :error       (cond-> error
                         (not (:kind error)) (assoc :kind :rf.timer/elapsed-error))))
 
@@ -263,14 +263,14 @@
   "Build the canonical `:status :cancelled` reply for an EXPLICIT user
   cancellation that is still correlated with the target (Managed-Effects
   §Cancellation — cancellation is DATA, not the absence of a reply).
-  `:cancel/reason` defaults to `:rf.timer/cancelled`."
+  `:rf.reply/cancel-reason` defaults to `:rf.timer/cancelled`."
   ([args times] (complete-cancelled args times :rf.timer/cancelled))
   ([args times reason]
    (assoc (base-reply args times)
           :status        :cancelled
-          :work/status   :cancelled
+          :rf.reply/work-status   :cancelled
           :cancelled?    true
-          :cancel/reason reason)))
+          :rf.reply/cancel-reason reason)))
 
 ;; ---------------------------------------------------------------------------
 ;; Property 9 — stale suppression, THE correctness boundary (Managed-Effects
@@ -282,7 +282,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def stale-reason
-  "The `:stale/reason` a superseded timer completion carries: a fresh
+  "The `:rf.reply/stale-reason` a superseded timer completion carries: a fresh
   schedule advanced the generation. Named once (EP-0007)."
   :rf.timer/generation-stale)
 
@@ -325,7 +325,7 @@
                    (cond-> {:status       :stale
                             :work/id      (work-id args)
                             :work/kind    work-kind
-                            :stale/reason stale-reason}
+                            :rf.reply/stale-reason stale-reason}
                      (some? frame)        (assoc :rf.frame/id frame)
                      (some? completed-at) (assoc :completed-at completed-at)))))
 
