@@ -30,6 +30,8 @@ Type: standards-track
 > architecture. See the *Addendum — multi-realm substrate retired* under
 > *Backwards Compatibility And EP-0013 Partial Supersession*. No new public
 > model; status stays `final`.
+>
+> **Supersession addendum 2026-07-09:** two APIs shown live in the body below were subsequently retired — `reload-images!` folded into `re-make-frame` (generation-diff reload) per rf2-lxwpob, and `:initial-db` retired by EP-0027 in favour of a `{}` start plus `:rf/set-db` via `:initial-events`; the historical body is left as authored (retro-stamp only).
 
 ## Abstract
 
