@@ -583,12 +583,12 @@
            (rf/reg-cofx :rf.route/some-subsystem-fact
              {:recordable? true :provided? true}))
         "an `rf.X/*` (subsystem-shaped) id registers without throwing")
-    (is (= :rf.app/ambient-pref
-           (rf/reg-cofx :rf.app/ambient-pref
+    (is (= :rf.myapp/ambient-pref
+           (rf/reg-cofx :rf.myapp/ambient-pref
              {:doc "Lint would flag this app id; the registrar does not."}
              (fn [] "value")))
         "even an obviously app-shaped `rf.`-prefixed id is accepted at registration")
-    (is (some? (registrar/lookup :cofx :rf.app/ambient-pref))
+    (is (some? (registrar/lookup :cofx :rf.myapp/ambient-pref))
         "the `rf.`-prefixed registration is present in the registry")))
 
 ;; ===========================================================================
