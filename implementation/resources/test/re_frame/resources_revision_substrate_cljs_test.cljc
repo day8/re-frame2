@@ -190,7 +190,7 @@
                        (state/entry-start-load
                          {:generation 3 :work-id [:w 2] :request-id "r" :owner :o}))
           rec-rev  (state/entry-revision loading)
-          settled  (state/entry-failed loading {:error {:kind :rf.http/http-404}})]
+          settled  (state/entry-failed loading {:error {:kind :rf.http/http-4xx}})]
       (is (= :loading (:status loading)) "first load — no usable data yet")
       (is (= :error (:status settled)) "first-load failure → :error")
       (is (nil? (:data settled)))
