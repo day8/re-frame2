@@ -165,7 +165,7 @@ spec/                          Full specification (AI-targeted; the primary arte
   013-Flows.md                 Registered, toggleable computed-state declarations
   014-HTTPRequests.md          Managed HTTP effect — retry, abort, taxonomy
   015-Data-Classification.md   Path-marked sensitive/large declarations; redaction sentinels
-  Principles.md                The 11 AI-first practical principles
+  Principles.md                The AI-first practical principles
   Conventions.md               Reserved namespaces, fx-ids, app-db keys
   Ownership.md                 Contract-surface → owning-Spec map (the "where does X live?" reference)
   API.md                       Consolidated CLJS reference API
