@@ -35,7 +35,7 @@ At this early point, all you need to note is that this application is a series o
   - `reg-sub` is called once to register a `subscription` 
   - `reg-view` is called once to register a `view`
 
-**A re-frame2 app is a set of registrations.**   These registered functions each have an `id` and they are looked up and called by the re-frame2 computational runtime.  
+**A re-frame2 app is a set of registrations.**   Notice that no function here calls another — and you will never call your handlers yourself. Each registration has an `id`, and the re-frame2 runtime looks handlers up by that id and calls them, at the right stage of a pipeline. In most libraries your code drives and the library assists. Here the machine drives, and your registrations are the instruction set it executes. 
 
 Aside: re-frame2 uses the term `image` for a collection of registrations. But more on that soon.
 
@@ -155,6 +155,8 @@ The event pipeline itself decomposes into three phases:
 1. **write side** — event handling: what should change?
 2. **commit** — the world changes (including application state)
 3. **read side** — the UI changes to match the new state of the application
+
+The pipeline is **fixed**. Every event — yours, the framework's, the one a timer fires at 3am — travels the same stages in the same order. No stage can be skipped, reordered, or invented at runtime. Your functions are Turing-complete; the structure between them deliberately is not. It looks like a restriction. It is what later buys you replay, time travel, and tests without mocks.
 
 ## The write side
 
@@ -276,10 +278,19 @@ Frames are cheap to create and tear down, which makes them ideal for unit tests 
 
 ## In summary
 
-re-frame2 computes in a particular way: it is an event-sourced fold. 
+re-frame2 computes in a particular way. Now you can see the whole machine:
 
-It is pluggable by functions. Your registrations are the plugins. 
+  - your **registrations** are its instruction set
+  - **events** are the instructions
+  - the **event stream** is the program
+  - a **frame** is one running machine
 
-At the top of this page, I said you needed to know how re-frame2 computes. Now you do. 
+And the computation itself is an event-sourced fold:
+
+```text
+app-state = reduce(event-pipeline, initial-state, events)
+```
+
+One formula, applied one event at a time, forever. At the top of this page, I said you needed to know how re-frame2 computes. Now you do. 
 
 But I have kept one important thing from you.  I wonder if you noticed it?  The next page will reveal all. 
