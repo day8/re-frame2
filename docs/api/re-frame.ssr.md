@@ -551,7 +551,7 @@ All server-only — `:platforms #{:server}`. These build the response accumulato
 Boundary validation (all seven):
 
 - A header name violating the RFC 7230 token grammar throws `:rf.error/header-invalid-name`; a header value carrying CR/LF/NUL throws `:rf.error/header-invalid-value`.
-- Cookie fields throw `:rf.error/cookie-invalid-name` / `:rf.error/cookie-invalid-<attr>`.
+- A cookie `:name` violating the RFC 6265 token grammar (or of an unsupported type) throws `:rf.error/cookie-invalid-name`; any other cookie attribute (`:value` / `:path` / `:domain` / `:max-age` / `:same-site` / `:expires`) carrying CR/LF/NUL throws the single `:rf.error/cookie-invalid-attribute`, naming the offending attribute in its `:attribute` payload slot.
 - A redirect `:location` carrying CR/LF/NUL throws `:rf.error/redirect-invalid-location`; the retired `:url` / `:to` target keys throw `:rf.error/redirect-retired-target-key`.
 - `:status` and `:redirect` are last-write-wins — a second write in the same drain emits `:rf.warning/multiple-status-set` / `:rf.warning/multiple-redirects`.
 

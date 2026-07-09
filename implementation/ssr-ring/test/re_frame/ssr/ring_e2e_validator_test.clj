@@ -269,8 +269,9 @@
 ;;
 ;; `:rf.server/set-cookie` validates `:value` via
 ;; `re-frame.ssr.response/validate-cookie-attr!` (rf2-z7gor). A
-;; CRLF-bearing value throws `:rf.error/cookie-invalid-value` from
-;; the fx body during drain.
+;; CRLF-bearing value throws the catalogued
+;; `:rf.error/cookie-invalid-attribute` (carrying `:attribute :value`;
+;; rf2-xrk4w1) from the fx body during drain.
 ;;
 ;; The throw fires INSIDE the drain — fx-handler exceptions are caught
 ;; by the runtime and surface as `:rf.error/fx-handler-exception` trace
@@ -310,7 +311,7 @@
       (ts/with-jetty [port handler]
         (let [{:keys [status headers]} (http-get port "/")]
           (is (= 500 status)
-              "validator's `:rf.error/cookie-invalid-value` trace flowed
+              "validator's `:rf.error/cookie-invalid-attribute` trace flowed
                through the default error projector → 500 status on the
                wire (Spec 011 §Server error projection)")
           ;; LOAD-BEARING wire assertion: the cookie was never written

@@ -34,14 +34,17 @@
 
   Two predicates (`contains-injection-char?`, `valid-token-name?`) carry
   the accept/reject decision; the THROW shape stays at each callsite
-  because the two boundaries surface DISTINCT error keywords / `:where`
-  tags that are part of each layer's documented contract — the fx
-  boundary throws `:rf.error/header-invalid-name` /
-  `:rf.error/cookie-invalid-<field>` with `:where 'rf.ssr/response`, the
+  because the two boundaries surface distinct `:where` tags that are part
+  of each layer's documented contract — the fx boundary throws
+  `:rf.error/header-invalid-name` /
+  `:rf.error/cookie-invalid-attribute` with `:where 'rf.ssr/response`, the
   materialiser throws `:rf.error/cookie-invalid-name` /
   `:rf.error/cookie-invalid-attribute` with
-  `:where 'rf.ssr/cookie->set-cookie-header`. The decision is shared; the
-  diagnostics are local."
+  `:where 'rf.ssr/cookie->set-cookie-header`. Both boundaries emit the SAME
+  catalogued `:rf.error/cookie-invalid-attribute` for the injection class
+  (rf2-xrk4w1 — the offending attribute rides the `:attribute` payload slot,
+  not a per-attribute error id); the decision is shared, the diagnostics are
+  local."
   (:require [clojure.string]))
 
 #?(:clj (set! *warn-on-reflection* true))

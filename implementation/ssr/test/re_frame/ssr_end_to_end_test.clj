@@ -429,6 +429,19 @@
              " trace carrying " error-kw
              "; saw: " (pr-str (mapv (comp :operation) traces))))))
 
+(defn- fx-error-extra
+  "Return the `ex-data` of the first captured :rf.error/fx-handler-exception
+  trace whose inner exception carries `error-kw`. The collapsed cookie
+  contract (rf2-xrk4w1) stores WHICH attribute carried the injection char in
+  the ex-data's `:attribute` slot rather than in the error id, so tests assert
+  the offending attribute here. nil when no captured trace matches."
+  [traces error-kw]
+  (some (fn [ev]
+          (let [e (-> ev :tags :exception)]
+            (when (and e (str/includes? (str (.getMessage e)) (str error-kw)))
+              (ex-data e))))
+        traces))
+
 (deftest ssr-set-header-rejects-crlf-injection
   (testing "rf2-hbty2 §P1.3 — :rf.server/set-header with CR/LF/NUL in
             value surfaces :rf.error/header-invalid-value as the inner
@@ -2049,8 +2062,9 @@
         traces :rf.error/cookie-invalid-name
         "set-cookie with CRLF in :name")))
 
-  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :value surfaces
-            :rf.error/cookie-invalid-value"
+  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :value
+            surfaces the single catalogued :rf.error/cookie-invalid-attribute
+            (offending attribute rides the :attribute payload slot)"
     (rf/reg-event :ck/crlf-in-value
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
@@ -2060,11 +2074,13 @@
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-value] {:frame f})))]
       (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-value
-        "set-cookie with CRLF in :value")))
+        traces :rf.error/cookie-invalid-attribute
+        "set-cookie with CRLF in :value")
+      (is (= :value (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+          "the offending attribute (:value) rides the :attribute payload slot")))
 
-  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :path surfaces
-            :rf.error/cookie-invalid-path"
+  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :path
+            surfaces :rf.error/cookie-invalid-attribute (:attribute :path)"
     (rf/reg-event :ck/crlf-in-path
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
@@ -2075,11 +2091,13 @@
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-path] {:frame f})))]
       (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-path
-        "set-cookie with CRLF in :path")))
+        traces :rf.error/cookie-invalid-attribute
+        "set-cookie with CRLF in :path")
+      (is (= :path (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+          "the offending attribute (:path) rides the :attribute payload slot")))
 
-  (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :domain surfaces
-            :rf.error/cookie-invalid-domain"
+  (testing "rf2-z7gor / rf2-xrk4w1 — :rf.server/set-cookie with CRLF in :domain
+            surfaces :rf.error/cookie-invalid-attribute (:attribute :domain)"
     (rf/reg-event :ck/crlf-in-domain
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
@@ -2090,8 +2108,10 @@
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/crlf-in-domain] {:frame f})))]
       (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-domain
-        "set-cookie with CRLF in :domain"))))
+        traces :rf.error/cookie-invalid-attribute
+        "set-cookie with CRLF in :domain")
+      (is (= :domain (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+          "the offending attribute (:domain) rides the :attribute payload slot"))))
 
 (deftest ssr-delete-cookie-rejects-invalid-fields
   (testing "rf2-z7gor — :rf.server/delete-cookie runs the same validators
@@ -2104,8 +2124,10 @@
           traces (capture-fx-traces!
                    (fn [] (rf/dispatch-sync [:ck/del-crlf-path] {:frame f})))]
       (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-path
-        "delete-cookie with CRLF in :path"))))
+        traces :rf.error/cookie-invalid-attribute
+        "delete-cookie with CRLF in :path")
+      (is (= :path (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+          "the offending attribute (:path) rides the :attribute payload slot"))))
 
 (deftest ssr-set-cookie-crlf-checks-every-attribute
   (testing "rf2-kjf3m.1 / Spec 011 §CRLF fail-fast: :rf.server/set-cookie
@@ -2116,7 +2138,7 @@
             must not re-enter the header line as CRLF-bearing payload."
     ;; The concrete failing scenario from the bead: string :max-age
     ;; carrying a forged second Set-Cookie line.
-    (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-max-age"
+    (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-attribute (:attribute :max-age)"
       (rf/reg-event :ck/crlf-in-max-age
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
@@ -2127,12 +2149,14 @@
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-max-age] {:frame f})))]
         (expect-fx-error-keyword!
-          traces :rf.error/cookie-invalid-max-age
+          traces :rf.error/cookie-invalid-attribute
           "set-cookie with CRLF in :max-age")
+        (is (= :max-age (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+            "the offending attribute (:max-age) rides the :attribute payload slot")
         (is (empty? (:cookies (get-response f)))
             "no cookie lands on the accumulator — rejection is a no-op")))
 
-    (testing ":same-site with CRLF → :rf.error/cookie-invalid-same-site"
+    (testing ":same-site with CRLF → :rf.error/cookie-invalid-attribute (:attribute :same-site)"
       (rf/reg-event :ck/crlf-in-same-site
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
@@ -2143,10 +2167,17 @@
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-same-site] {:frame f})))]
         (expect-fx-error-keyword!
-          traces :rf.error/cookie-invalid-same-site
-          "set-cookie with CRLF in :same-site")))
+          traces :rf.error/cookie-invalid-attribute
+          "set-cookie with CRLF in :same-site")
+        (is (= :same-site (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+            "the offending attribute (:same-site) rides the :attribute payload slot")))
 
-    (testing ":expires with CRLF → :rf.error/cookie-invalid-expires"
+    ;; rf2-xrk4w1 — a CRLF-bearing :expires is an INJECTION failure and now
+    ;; collapses onto :rf.error/cookie-invalid-attribute (:attribute :expires),
+    ;; ending the former overload of :rf.error/cookie-invalid-expires. That id
+    ;; is reserved for a NON-integer epoch at the Ring materialiser (a shape
+    ;; error, not an injection) — see the ssr-ring cookie tests.
+    (testing ":expires with CRLF → :rf.error/cookie-invalid-attribute (:attribute :expires)"
       (rf/reg-event :ck/crlf-in-expires
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
@@ -2157,8 +2188,15 @@
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:ck/crlf-in-expires] {:frame f})))]
         (expect-fx-error-keyword!
-          traces :rf.error/cookie-invalid-expires
-          "set-cookie with CRLF in :expires")))
+          traces :rf.error/cookie-invalid-attribute
+          "set-cookie with CRLF in :expires")
+        (let [extra (fx-error-extra traces :rf.error/cookie-invalid-attribute)]
+          (is (= :rf.error/cookie-invalid-attribute (:rf.error/id extra))
+              "CRLF-in-:expires collapses onto the catalogued attribute id, NOT cookie-invalid-expires")
+          (is (= :expires (:attribute extra))
+              "the offending attribute (:expires) rides the :attribute payload slot")
+          (is (contains? extra :value)
+              "the offending value rides the :value payload slot"))))
 
     (testing "bare LF / bare CR / NUL in :max-age all rejected"
       (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
@@ -2170,8 +2208,10 @@
               traces (capture-fx-traces!
                        (fn [] (rf/dispatch-sync [:ck/probe-max-age] {:frame f})))]
           (expect-fx-error-keyword!
-            traces :rf.error/cookie-invalid-max-age
-            (str "hostile :max-age " (pr-str hostile))))))))
+            traces :rf.error/cookie-invalid-attribute
+            (str "hostile :max-age " (pr-str hostile)))
+          (is (= :max-age (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+              (str "hostile :max-age " (pr-str hostile) " rides the :attribute payload slot")))))))
 
 (deftest ssr-set-cookie-rejects-non-string-name-type
   (testing "rf2-9t17id — a cookie :name that is neither a string nor a Named
