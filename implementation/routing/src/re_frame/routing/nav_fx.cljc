@@ -206,11 +206,15 @@
 ;; rf2-aerrz5 (URL-strategy seam): the URL-owning frame's `:url-strategy`
 ;; (default `history-url-strategy`, path-form) is consulted HERE — one of
 ;; the four egress/ingress consult points. The pushed URL arrives PATH-FORM
-;; (`route-url`/the cascade never encode); the strategy op does the encode
-;; and the actual `window.history` drive (`history-*` = pushState/replaceState
-;; on the path unchanged; `hash-*` = pushState/replaceState on `#<path>`). So
-;; a hash app pushes `#/active` while a history app pushes `/active`, from the
-;; same fx, with no branch here.
+;; (`route-url`/the cascade never encode). rf2-irygd6 — this fx is the SINGLE
+;; outbound encoding authority: it encodes the path-form URL to its final href
+;; ONCE via the strategy's `:encode`, then hands that href to the RAW
+;; `:push!`/`:replace!` leg, which drives `window.history` WITHOUT re-encoding
+;; (`history-*` = pushState/replaceState of the path unchanged; `hash-*` =
+;; pushState/replaceState of the `#<path>` href it is given). So a hash app
+;; pushes `#/active`, a history app `/active`, and a `/demos`-based hash app
+;; `/demos#/active` (base OUTSIDE the fragment) — the same href `:encode`
+;; renders into the `route-link` <a>, from the same fx, with no branch here.
 
 #?(:cljs
    (defn- run-history-mutation!
@@ -241,10 +245,12 @@
   is that pre-built `:rf.fx/<fx-id>-failed` keyword. `strategy-op` is the
   strategy-map key naming the history drive (`:push!` or `:replace!`).
 
-  rf2-aerrz5 (URL-strategy seam): on CLJS the URL-owning frame's
-  `:url-strategy` is resolved and its `strategy-op` fn is called with the
-  PATH-FORM `url` — the strategy encodes it (identity for history, `#`-prefix
-  for hash) and drives `window.history`. The drive runs through
+  rf2-aerrz5 (URL-strategy seam) / rf2-irygd6 (single outbound-encoding
+  authority): on CLJS the URL-owning frame's `:url-strategy` is resolved, its
+  `:encode` maps the PATH-FORM `url` to the final href ONCE (identity for
+  history, `#`-prefix for hash, base-OUTSIDE-fragment for a based hash app),
+  and that href is handed to the RAW `strategy-op` leg (`:push!` / `:replace!`)
+  which drives `window.history` WITHOUT re-encoding. The drive runs through
   `run-history-mutation!` so a browser throw fails closed to the structured
   failure trace rather than crashing the fx drain. Non-URL-bound frames skip
   the mutation: the frame's route slice at `[:rf.runtime/routing :current]`
@@ -255,9 +261,16 @@
   [fx-id failed-trace-id frame url strategy-op]
   (if (url-bound-frame? frame)
     #?(:cljs (let [strat  (strategy/url-strategy-for-frame-id frame)
-                   drive! (get strat strategy-op)]
+                   drive! (get strat strategy-op)
+                   ;; Single outbound-encoding authority (rf2-irygd6): encode
+                   ;; the path-form url to its final href ONCE here, then hand
+                   ;; it to the RAW :push!/:replace! leg (which drives
+                   ;; window.history without re-encoding). The failure/skip
+                   ;; traces keep the path-form `url` — the navigation's
+                   ;; behavioural identity (push-url-meta).
+                   href   ((:encode strat) url)]
                (run-history-mutation! failed-trace-id fx-id frame url
-                                      #(drive! url)))
+                                      #(drive! href)))
        :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
                           {:rf.fx/id fx-id :url url}))
     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
