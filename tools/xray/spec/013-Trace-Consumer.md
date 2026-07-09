@@ -348,9 +348,12 @@ Every managed *async* family (HTTP, resources, mutations, route
 loaders, machine async work, future managed timers) completes through
 the ONE shape defined in [`spec/Managed-Effects.md` §The uniform reply
 envelope](../../../spec/Managed-Effects.md) (EP-0011): a single **reply
-map** carrying one closed `:status`, value/error data, `:work/id` work
-correlation, `:work/kind`, `:work/status`, `:attempt`, `:rf.frame/id`,
-the durable timestamps, and the cancellation/staleness facts. Property 9
+map** carrying one closed `:status`, value/error data, `:rf.reply/work-id`
+work correlation, `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`,
+`:rf.frame/id`, the durable timestamps, and the cancellation/staleness facts
+(the reply map single-roots the work identity under `:rf.reply/*` post-l7s7b7;
+the durable work-ledger row keeps the bare `:work/id` cross-record spelling).
+Property 9
 / §Tracing require each family to emit its trace rows **from those
 reply-envelope facts, not from private callback facts**.
 

@@ -149,6 +149,50 @@
       (is (= :rf.graphql/partial-success (:error-kind row)))
       (is (true? (:delivered? row))))))
 
+(deftest migrated-reply-map-reads
+  ;; rf2-6a0vyq / rf2-l7s7b7 — the reply MAP single-roots its work identity /
+  ;; operational facts under `:rf.reply/*` (Managed-Effects §The uniform reply
+  ;; envelope): `:rf.reply/work-id` / `:rf.reply/work-kind` /
+  ;; `:rf.reply/work-status` / `:rf.reply/cancel-reason` / `:rf.reply/stale-reason`
+  ;; (the bare `:status` / `:cancelled?` / `:stale?` / `:rf.frame/id` / timestamps
+  ;; stay). This pins the panel's reply-map reads against that MIGRATED shape —
+  ;; the reads must PREFER the `:rf.reply/*` spelling, not just tolerate the
+  ;; pre-migration bare keys the other reply-row tests still exercise.
+  (testing "work-kind-of prefers the migrated :rf.reply/work-kind"
+    (is (= :http (re/work-kind-of {:rf.reply/work-kind :http})))
+    ;; the canonical spelling wins over a stray bare twin
+    (is (= :mutation (re/work-kind-of {:rf.reply/work-kind :mutation :work/kind :resource}))))
+  (testing "resolve-work-kind: a POST-migration :mutation reply map (reusing the
+            :rf.work/resource head) resolves :mutation off :rf.reply/work-kind —
+            inference alone would misclassify it as :resource"
+    (is (= :mutation
+           (re/resolve-work-kind
+             {:rf.reply/work-kind :mutation
+              :rf.reply/work-id   [:rf.work/resource [:rf.mutation :m1] 1]}))))
+  (testing "reply-row reads a fully migrated :rf.reply/* reply map — the exact
+            shape the substrate + families now emit (re-frame.reply/suppress,
+            re-frame.http.reply, re-frame.resources.reply)"
+    (let [ok  (re/reply-row {:status :ok :value {:title "W"}
+                             :rf.reply/work-id     [:rf.work/http :article 1]
+                             :rf.reply/work-kind   :http
+                             :rf.reply/work-status :completed
+                             :attempt 1 :rf.frame/id :frame-7 :completed-at 42})
+          can (re/reply-row {:status :cancelled :cancelled? true
+                             :rf.reply/cancel-reason :actor-destroyed
+                             :error {:kind :rf.http/aborted}
+                             :rf.reply/work-id [:rf.work/http :a 1]})
+          st  (re/reply-row {:status :stale :stale? true
+                             :rf.reply/stale-reason :rf.reply/correlation-mismatch
+                             :rf.reply/work-status  :suppressed
+                             :rf.reply/work-id [:rf.work/resource :k 3]})]
+      (is (= :http (:work-kind ok)))
+      (is (= [:rf.work/http :article 1] (:work-id ok)))
+      (is (= :completed (:work-status ok)))
+      (is (= :actor-destroyed (:cancel-reason can)))
+      (is (= :rf.reply/correlation-mismatch (:stale-reason st)))
+      (is (= :suppressed (:work-status st)))
+      (is (false? (:delivered? st))))))
+
 (deftest reply-map?-predicate
   (is (re/reply-map? {:status :ok :value 1}))
   (is (re/reply-map? {:status :stale :stale? true}))
