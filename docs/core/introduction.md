@@ -1,18 +1,16 @@
 # Introduction
 
-To understand re-frame2, you need to understand how it does computation.  Which is an odd opening for an SPA library, I know. Bear with me.
-
-To assist explanations, we'll use a small application: a counter app — a plus button, and a value that starts at 0. 
+To understand re-frame2, you need to understand how it does computation. Which is an odd opening for an SPA library, I know. Bear with me.
 
 ## The counter app
 
-And here's the re-frame2 code for that app:
+To assist explanations, we'll use a small application: a counter app — a plus button, and a value that starts at 0.
 
 ```cljs-rf2
 (ns first-app.counter
   (:require [re-frame.core :as rf]))
 
-;; call reg-event to register an event handler 
+;; call reg-event to register an event handler
 (rf/reg-event :inc
   (fn [{:keys [db]} _event]
     {:db (update db :value (fnil inc 0))}))
@@ -22,28 +20,26 @@ And here's the re-frame2 code for that app:
   (fn [db _query]
     (:value db 0)))
 
-;; call reg-view to register a view 
+;; call reg-view to register a view
 (rf/reg-view counter [background]
   [:div {:style {:background background}} "Counter: "
    [:span @(subscribe [:value])]
    [:button {:on-click #(dispatch [:inc])} "+"]])
 ```
 
-At this early point, all you need to note is that this application is a series of function calls, starting with `reg-`: 
+You'll note that this application is a series of function calls, starting with `reg-`:
 
   - `reg-event` is called once to register an `event handler`
-  - `reg-sub` is called once to register a `subscription` 
+  - `reg-sub` is called once to register a `subscription`
   - `reg-view` is called once to register a `view`
 
-**A re-frame2 app is a set of registrations.**   Notice that no function here calls another — and you will never call your handlers yourself. Each registration has an `id`, and the re-frame2 runtime looks handlers up by that id and calls them, at the right stage of a pipeline. In most libraries your code drives and the library assists. Here the machine drives, and your registrations are the instruction set it executes. 
-
-Aside: re-frame2 uses the term `image` for a collection of registrations. But more on that soon.
+**A re-frame2 app is a set of registrations.** Each registration has an `id`, and the re-frame2 runtime looks up handlers by that `id` and calls them, at the right stage of a pipeline. In most libraries your code drives and the library assists. Here the machine drives, and your registrations are the instruction set it executes.
 
 ## Running an app
 
-We might have created the Counter app (via those mysterious registrations), but we haven't run it yet.  To do that, we need to create a `frame`, which provides an isolated execution context. 
+We might have created the Counter app (via those registrations), but we haven't run it yet. To do that, we need to create a `frame`, which provides an isolated execution context.
 
-In fact, to double the excitement, let's create two `frames` and have two instances of our Counter app on the page at the same time: one with a yellow background and one with a green background:
+In fact, to double the excitement, let's create two `frames` and have two instances of our Counter app on the page at the same time: one with a blue background and one with a lavender background:
 
 ```cljs-rf2
 (ns first-app.main
@@ -51,26 +47,29 @@ In fact, to double the excitement, let's create two `frames` and have two instan
             [first-app.counter :refer [counter]]))
 
 [:div
-  [rf/frame-provider {:id :app1}
-    [counter "yellow"]]
-  [rf/frame-provider {:id :app2}
-    [counter "green"]]]
+  [rf/frame-provider {:id :app1}  [counter "LightBlue"]]
+  [rf/frame-provider {:id :app2}  [counter "LavenderBlush"]]]
 ```
 
-This code block ends with some `hiccup` (a data structure representing DOM).  In this in-browser dev environment, trailing hiccup gets rendered. That hiccup is: 
+This code block ends with some `hiccup` (a data structure representing DOM). In this in-browser dev environment, trailing hiccup gets rendered. That hiccup is:
 
   - a `[:div ...]`
-  - containing two child `frame-providers` 
-  - each `frame-provider` wraps the previously registered view `counter`, like this: `[counter "a colour"]` 
-  
-When you see `frame-provider` think of **Provider** in the **React Context** sense. It is like a view node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views. 
+  - containing two child `frame-providers`
+  - each `frame-provider` wraps the previously registered view `counter`, like this: `[counter "a colour"]`
 
-And so, we have two early points to grasp:
+When you see `frame-provider` think of **Provider** in the **React Context** sense. A `frame-provider` is like a view node which provides context to its child views — in this case a `frame` (an isolated execution context) is ambiently available to each of the two `counter` views which are in different branches of the DOM.
 
-  - an app is a set of registrations  (an `image`)
-  - apps run inside `frames`, which provide the execution context.
+## Isolated execution context
 
-Let's backtrack a bit now, and build up from the basics. 
+The isolated execution context provided by a `frame` reifies:
+
+  - state — an immutable map which starts off as `{}`
+  - a queue of events
+  - some caches for performance
+
+In our Counter app, state starts as `{}`, and then becomes `{:value 1}` after the "+" button gets clicked the first time. Then `{:value 2}`, etc. re-frame2 calls this state `app-db` for reasons explained later.
+
+Let's backtrack a bit now, and build up from the basics.
 
 ## Events
 
@@ -104,7 +103,7 @@ In our Counter app there is only one event: `[:inc]`. It represents the fact tha
 
 ## Dispatch
 
-You announce that an event has happened using the function `dispatch`. 
+You announce that an event has happened using the function `dispatch`.
 
 In the case of `Counter`:
 
@@ -112,7 +111,7 @@ In the case of `Counter`:
 (dispatch [:inc])
 ```
 
-Typically, a dispatch happens in a DOM event handler (but not always). In our Counter app, the view has this for the "+" button: 
+Typically, a dispatch happens in a DOM event handler (but not always). In our Counter app, the view has this for the "+" button:
 
 ```clojure
 [:button {:on-click #(dispatch [:inc])} "+"]
@@ -142,10 +141,10 @@ So the overall control flow in a re-frame2 app is simple. If events happen like 
 event1 → event2 → event3 → event4 → ...
 ```
 
-then computation happens like this — one run of the **event pipeline** (an *ep*) per event:
+then computation happens like this — one full run of the **event pipeline** per event:
 
 ```text
-ep1 → ep2 → ep3 → ep4 → ...
+pipeline → pipeline → pipeline → pipeline → ...
 ```
 
 ## Pipeline stages
@@ -172,7 +171,7 @@ So an event handler does not change the world — it returns a *description* of 
 How it looks in code (properly explained on the next page):
 
 ```clojure
-(reg-event            ;; the re-frame2 API which allows you to register event handlers
+(rf/reg-event         ;; the re-frame2 API which allows you to register event handlers
   :event-id           ;; <- the event for which we are providing a handler
   {...}               ;; a map of metadata, including what facts the handler requires
   (fn [world event]   ;; the function to compute the effects of the event
@@ -187,7 +186,7 @@ In the Counter app:
     {:db (update db :value (fnil inc 0))}))
 ```
 
-You'll notice that `world` (the first argument) is destructured: `{:keys [db]}` pulls out the `:db` entry, which is `app-db` — the map holding the app's current state. That's the only fact this handler needs, so it's the only one it asks for.
+You'll notice that `world` (the first argument) is destructured: `{:keys [db]}` pulls out the `:db` entry, which is `app-db` — the map holding the app's current state (within the `frame`). That's the only fact this handler needs, so it's the only one it asks for. Counter never needs other coeffects; a value from local storage or a fresh UUID would be declared the same way when a handler actually needs them.
 
 It doesn't change `db` in place. `(fnil inc 0)` is a function that increments `:value` — or starts it at 0 the first time, before `:value` exists — and `update` uses it to produce a *new* map. The handler wraps that new map up as `{:db <new value>}` and returns it.
 
@@ -195,14 +194,14 @@ That returned map is the handler's `effects` — a description of what should ch
 
 ## Commit
 
-The `effects` returned by the event handler have to be actioned. They have to be *done*. This part is impure: for example, new application state is committed to `app-db`, the HTTP request actually leaves the building, there's a call to `postMessage`.
+The `effects` returned by the event handler have to be actioned. They have to be *done*. This part is impure: for example, new application state is committed to `app-db` (within the `frame`), the HTTP request actually leaves the building, there's a call to `postMessage`.
 
 How it looks in code (properly explained later, on the Effects page):
 
 ```clojure
-(reg-fx               ;; the re-frame2 API which allows you to register side-effect handlers
+(rf/reg-fx            ;; the re-frame2 API which allows you to register side-effect handlers
   :fx-id
-  (fn [ctx effect]   ;; ignore ctx for now
+  (fn [ctx effect]    ;; ignore ctx for now
     ;; do something impure to make `effect` happen
     ))
 ```
@@ -211,26 +210,19 @@ In the Counter app, you won't find a `reg-fx` anywhere — and that's the common
 
 ## The read side
 
-Back in 2014, when React (the JavaScript library re-frame2 renders through) wasn't trying to do too much, this part was written as the formula `v = f(s)`. Views are a function of state.
+Back in 2014, when React wasn't trying to do too much, this part was written as the formula `v = f(s)`. Views are a function of state.
 
 While that formula is true, there's a layered mechanism to it in re-frame2:
 
 ```text
-view-model = subscribe(state)   ;; derive a projection of state suitable for use in a view (renderer)
+view-model = subscribe(app-db)  ;; derive a projection of state suitable for use in a view (renderer)
 vdom       = views(view-model)  ;; render a data representation of DOM (hiccup) using the view-model as input
 dom        = reconcile(vdom)    ;; React does this part
 ```
 
-The read side is reactive: when committed state changes, only the affected derivations recompute, and only the affected views re-render. `view-model` is computed as a graph of cached derivations (a memoised DAG, sometimes called a signal graph). You supply these derivations via `reg-sub`.
+The read side is reactive: when committed `app-db` changes, only the affected derivations recompute, and only the affected views re-render. `view-model` is computed as a graph of cached derivations (a memoised DAG, sometimes called a signal graph). You supply these derivations via `reg-sub`.
 
-How it looks in code (properly explained on the next page):
-
-```clojure
-(reg-view greet []    ;; the re-frame2 API for creating views — a defn-like macro
-  [:div "Hello, " @(subscribe [:name])])   ;; return DOM as data; subscribe returns a derefable projection of state — hence the @
-```
-
-In the Counter app:
+In the Counter app, those two layers look like this:
 
 ```clojure
 (rf/reg-sub :value
@@ -259,11 +251,13 @@ When you program re-frame2, your job is to register handlers which slot into the
 - `reg-sub` — to supply the derivations that turn state into `view-model`
 - `reg-view` — to supply the views that turn `view-model` into vdom
 
+Counter only needs three of those five — event, sub, and view. The other two wait until a handler needs a fact from the world, or an effect beyond `:db`.
+
 ## Programs and images
 
-A `program` is a set of registrations. Yes, really — your handlers, registered by id, *are* the program.
+A set of registrations *is* the program: your handlers, registered by id.
 
-And now that earlier aside can pay off. Take that set of registrations as a *value* — a thing you can name and pass around, holding no state of its own — and you have what re-frame2 calls an `image`. Most apps have exactly one, assembled for you from everything you've registered: the *default image*, "all the handlers already loaded." You only name an image yourself when different frames need different behaviour — a test frame with fake effects, say, or two examples that reuse the same event ids. So: `program` is the idea, `image` is that idea reified as a value. For the rest of this guide, "the default image" is all you need.
+Take that set as a *value* — a thing you can name and pass around, holding no state of its own — and you have what re-frame2 calls an `image`. Most apps have exactly one, assembled for you from everything you've registered: the *default image*, "all the handlers already loaded." You only name an image yourself when different frames need different behaviour — a test frame with fake effects, say, or two examples that reuse the same event ids. So: the registrations are the program; an `image` is that program reified as a value. For the rest of this guide, "the default image" is all you need.
 
 ## Frames
 
@@ -282,8 +276,8 @@ re-frame2 computes in a particular way. Now you can see the whole machine:
 
   - your **registrations** are its instruction set
   - **events** are the instructions
-  - the **event stream** is the program
-  - a **frame** is one running machine
+  - the **event stream** is the input the machine folds over
+  - a **frame** is one running machine (with memory)
 
 And the computation itself is an event-sourced fold:
 
@@ -291,6 +285,5 @@ And the computation itself is an event-sourced fold:
 app-state = reduce(event-pipeline, initial-state, events)
 ```
 
-One formula, applied one event at a time, forever. At the top of this page, I said you needed to know how re-frame2 computes. Now you do. 
+One formula, applied one event at a time, forever. At the top of this page, I said you needed to know how re-frame2 computes. Now you do.
 
-But I have kept one important thing from you.  I wonder if you noticed it?  The next page will reveal all. 
