@@ -236,33 +236,50 @@
          :extra    {:name n}}))
     s))
 
+(def ^:private checked-cookie-attrs
+  "The cookie attributes a host adapter concatenates verbatim into the
+  Set-Cookie wire form and that the fx boundary therefore CR/LF/NUL-gates
+  (`:value`, `:path`, `:domain`, `:max-age`, `:same-site`, `:expires`). An
+  explicit greppable literal — the checked set is auditable in place rather
+  than implied by a call sequence, and every member on an injection-char
+  failure throws the SINGLE catalogued `:rf.error/cookie-invalid-attribute`
+  (Spec 009), carrying the offending attribute in the payload's `:attribute`
+  slot rather than in a per-attribute error id (rf2-xrk4w1). `:name` is NOT
+  here — it carries its own RFC 6265 §4.1.1 token-grammar +
+  type gate (`validate-cookie-name!` → `:rf.error/cookie-invalid-name`)."
+  [:value :path :domain :max-age :same-site :expires])
+
 (defn- validate-cookie-attr!
-  "Throw `:rf.error/cookie-invalid-<field>` if the cookie attribute
-  string contains CR / LF / NUL. Applied to EVERY attribute that a host
-  adapter concatenates into the Set-Cookie wire form — `:value`, `:path`,
-  `:domain`, `:max-age`, `:same-site`, `:expires`. The value is
-  `str`-coerced first because callers legitimately pass non-string
-  forms (`:max-age` as an int, `:expires` as an instant); the CR/LF/NUL
-  ban applies to the serialised form a host adapter would emit. Per
-  rf2-z7gor (the fx-boundary gate) and rf2-kjf3m.1 (Spec 011 §CRLF
-  fail-fast mandates checking EVERY attribute, not just :value — an
-  attacker who controls any one attribute must not be able to re-enter
-  the header line as CRLF-bearing payload)."
-  [field-key v]
+  "Throw the catalogued `:rf.error/cookie-invalid-attribute` (Spec 009) if
+  the cookie attribute string contains CR / LF / NUL. Applied to EVERY
+  attribute a host adapter concatenates into the Set-Cookie wire form — the
+  members of `checked-cookie-attrs`. The value is `str`-coerced first because
+  callers legitimately pass non-string forms (`:max-age` as an int,
+  `:expires` as an epoch-millis long); the CR/LF/NUL ban applies to the
+  serialised form a host adapter would emit. The offending attribute rides
+  the payload's `:attribute` slot — the SAME error id + `{:attribute :value}`
+  emit shape the Ring materialiser throws (`re-frame.ssr.ring.cookie`,
+  rf2-rpedl), so the fx boundary and the wire serialiser share one catalogued
+  vocabulary: the injection class is one fact, and WHICH attribute carried the
+  injection char is data, not a distinct error id (rf2-xrk4w1). Per rf2-z7gor
+  (the fx-boundary gate) and rf2-kjf3m.1 (Spec 011 §CRLF fail-fast mandates
+  checking EVERY attribute, not just :value — an attacker who controls any one
+  attribute must not be able to re-enter the header line as CRLF-bearing
+  payload)."
+  [attr-key v]
   (let [s (str v)]
     (when (http-validation/contains-injection-char? s)
-      (let [error-kw (keyword "rf.error" (str "cookie-invalid-" (name field-key)))]
-        (error/throw-error!
-          error-kw
-          'rf.ssr/response
-          (str "cookie " field-key " " (pr-str s)
-               " contains CR/LF/NUL — forbidden by"
-               " RFC 7230 §3.2.4 (header-splitting"
-               " injection). Strip CR/LF/NUL from the cookie "
-               (name field-key) ".")
-          {:recovery :remove-injection-chars-from-cookie-attr
-           :extra    {:field field-key
-                      :value v}})))
+      (error/throw-error!
+        :rf.error/cookie-invalid-attribute
+        'rf.ssr/response
+        (str "cookie attribute " attr-key " " (pr-str s)
+             " contains CR/LF/NUL — forbidden by"
+             " RFC 7230 §3.2.4 (header-splitting"
+             " injection). Strip CR/LF/NUL from the cookie "
+             (name attr-key) ".")
+        {:recovery :remove-injection-chars-from-cookie-attr
+         :extra    {:attribute attr-key
+                    :value     v}}))
     s))
 
 (defn- validate-cookie!
@@ -283,12 +300,10 @@
   rather than splitting the header on a non-Ring host."
   [cookie]
   (validate-cookie-name! (:name cookie))
-  (when (some? (:value     cookie)) (validate-cookie-attr! :value     (:value     cookie)))
-  (when (some? (:path      cookie)) (validate-cookie-attr! :path      (:path      cookie)))
-  (when (some? (:domain    cookie)) (validate-cookie-attr! :domain    (:domain    cookie)))
-  (when (some? (:max-age   cookie)) (validate-cookie-attr! :max-age   (:max-age   cookie)))
-  (when (some? (:same-site cookie)) (validate-cookie-attr! :same-site (:same-site cookie)))
-  (when (some? (:expires   cookie)) (validate-cookie-attr! :expires   (:expires   cookie)))
+  (doseq [attr-key checked-cookie-attrs
+          :let  [v (get cookie attr-key)]
+          :when (some? v)]
+    (validate-cookie-attr! attr-key v))
   cookie)
 
 (def status-writes-key   :rf.server/_status-writes)
@@ -435,11 +450,14 @@
   "Handler fn for `:rf.server/set-cookie`. Cookie attributes are stored
   as a structured map (RFC 6265 wire-form serialisation is host-adapter
   business). Throws `:rf.error/cookie-invalid-name` on a name violating
-  the RFC 6265 §4.1.1 token grammar, and
-  `:rf.error/cookie-invalid-{value,path,domain}` on a CRLF/NUL-bearing
+  the RFC 6265 §4.1.1 token grammar, and the single catalogued
+  `:rf.error/cookie-invalid-attribute` (carrying the offending
+  `:attribute` + `:value` in its payload) on a CRLF/NUL-bearing
   attribute string — rf2-z7gor gates the structured cookie at the fx
   boundary so non-ring host adapters get the same safety the ring
-  materialiser (rf2-rpedl) provides at wire-write time."
+  materialiser (rf2-rpedl) provides at wire-write time, and rf2-xrk4w1
+  collapses the per-attribute injection failures onto the one catalogued
+  id the ring serialiser already throws."
   [{:keys [frame]} cookie-map]
   (validate-cookie! cookie-map)
   (swap-response!

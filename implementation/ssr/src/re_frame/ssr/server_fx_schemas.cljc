@@ -42,7 +42,7 @@
 
   These are SHAPE checks — the structural contract on the fx args. The
   per-attribute CRLF / token-grammar gates in `re-frame.ssr.response`
-  (`:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-*`, …)
+  (`:rf.error/header-invalid-value`, `:rf.error/cookie-invalid-attribute`, …)
   are a SEPARATE, complementary defence layer that the args schema
   cannot express (a CRLF-bearing string is still a `:string`). Spec 011
   §CRLF fail-fast: 'args validation surfaces the [structural] bug at
@@ -78,8 +78,9 @@
 
   A schema that enforced strict canonical types would reject those string
   forms at the Spec 010 §step-5 boundary BEFORE the CRLF gate runs —
-  changing the surfaced error from the specific `:rf.error/cookie-invalid-
-  <attr>` to a generic `:rf.error/schema-validation-failure`, and
+  changing the surfaced error from the specific
+  `:rf.error/cookie-invalid-attribute` to a generic
+  `:rf.error/schema-validation-failure`, and
   rejecting the legitimately-tolerated string `:same-site`/`:expires`. So
   the three coercible attrs widen to `[:or <canonical-type> :string]`: the
   canonical type is documented + validated, AND the deliberately-tolerated
