@@ -2300,7 +2300,7 @@
   machine action exception contract — NOT escape as a generic
   `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
   the call is wrapped in try/catch: on throw, return a `result/fail`
-  Result stamped with the stable action id `:rf.spawn/on-spawn` plus
+  Result stamped with the stable action id `:rf.machine.spawn/on-spawn` plus
   enough context to locate the spawn (`:spawned-id`; the caller adds
   `:invoke-id` / `:child-id`, and `apply-transition-once` stamps
   `:decl-path` / `:transition` / `:state-path`). The lifecycle boundary
@@ -2332,7 +2332,7 @@
                                      :rf.machine/update-snapshot]}))
         snap)
       (catch #?(:clj Throwable :cljs :default) e
-        (result/fail {:action-ref :rf.spawn/on-spawn
+        (result/fail {:action-ref :rf.machine.spawn/on-spawn
                       :spawned-id spawned-id
                       :exception  e})))
     snap))
@@ -2372,8 +2372,8 @@
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `result/fail` Result on failure. The failure is stamped
-  `:action-ref :rf.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
-  or `:action-ref :rf.spawn/on-spawn` + `:invoke-id`
+  `:action-ref :rf.machine.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
+  or `:action-ref :rf.machine.spawn/on-spawn` + `:invoke-id`
   (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
   so the lifecycle boundary routes BOTH through the machine action
   exception contract rather than letting an `:on-spawn` throw escape as a
@@ -2389,7 +2389,7 @@
                            (assoc :rf/parent-id  parent-id)
                            (assoc :rf/invoke-id  invoke-id)))
         spawn-r      (spawn-one spawn-spec s-alloc event id args-builder
-                                {:action-ref :rf.spawn/data-fn
+                                {:action-ref :rf.machine.spawn/data-fn
                                  :invoke-id  invoke-id})]
     (if (result/fail? spawn-r)
       (reduced spawn-r)
@@ -2430,7 +2430,7 @@
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `result/fail` Result (stamped with
-  `:action-ref :rf.spawn-all/data-fn`, `:invoke-id`, and the failing
+  `:action-ref :rf.machine.spawn-all/data-fn`, `:invoke-id`, and the failing
   `:child-id`) on `:data` failure."
   [machine parent-id s acc-fx prefix n event]
   (let [spawn-all-spec (:spawn-all n)
@@ -2472,7 +2472,7 @@
                   r (spawn-one child s-alloc event
                                (:rf/spawned-id child)
                                args-builder
-                               {:action-ref :rf.spawn-all/data-fn
+                               {:action-ref :rf.machine.spawn-all/data-fn
                                 :invoke-id  invoke-id
                                 :child-id   (:id child)})]
               (if (result/fail? r)

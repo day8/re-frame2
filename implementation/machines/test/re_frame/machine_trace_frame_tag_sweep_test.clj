@@ -272,10 +272,10 @@
                                              [:working]])]
                        (rf/dispatch-sync [child-id [:finish]]))))
           ev    (first (filter
-                         #(= :rf.spawn/on-done (get-in % [:tags :action-id]))
+                         #(= :rf.machine.spawn/on-done (get-in % [:tags :action-id]))
                          (of-op traces :rf.error/machine-action-exception)))]
       (is (some? ev)
-          ":rf.error/machine-action-exception with :action-id :rf.spawn/on-done fired")
+          ":rf.error/machine-action-exception with :action-id :rf.machine.spawn/on-done fired")
       (is (= :rf/default (frame-tag ev))
           ":frame tag stamped on the on-done-throw error"))))
 
