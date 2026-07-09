@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-skill",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Writes re-frame2 ClojureScript application code — events, subscriptions, effects, frames, state machines, schemas, stories, routing, tests, and the canonical patterns. A Claude Code Skill.",
   "keywords": [
     "claude-code",
@@ -34,9 +35,6 @@
     "decision-trees/",
     ".claude-plugin/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }

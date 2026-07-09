@@ -1,6 +1,7 @@
 {
   "name": "@day8/re-frame2-pair",
   "version": "0.1.0-alpha.1",
+  "private": true,
   "description": "Pair-program with a live re-frame2 application. A Claude Code Skill consuming re-frame2's Tool-Pair surfaces. No re-frame-10x dependency.",
   "keywords": [
     "claude-code",
@@ -37,9 +38,6 @@
     "references/",
     "docs/"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   }
