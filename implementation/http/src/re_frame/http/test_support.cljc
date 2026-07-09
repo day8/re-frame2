@@ -573,10 +573,15 @@
 (defonce ^:private scope-stub-counter (atom 0))
 
 (defn- next-scope-stub-id
-  "Mint a process-unique `:rf.http/managed-test-stub-<n>` fx-id for one
-  `with-managed-request-stubs*` scope."
+  "Mint a process-unique `:rf.test/managed-http-stub-<n>` fx-id for one
+  `with-managed-request-stubs*` scope. The id lives under the reserved
+  test-runner-internal `:rf.test/*` fx-stub family (Conventions §Reserved
+  namespaces) — NOT the fixed-and-additive `:rf.http/*` reserved namespace,
+  whose member set is closed by Spec change and must never be minted into at
+  runtime. (The stable, documented `:fx-overrides` target keeps its own
+  `:rf.http/managed-test-stub` id; only this per-scope variant is minted.)"
   []
-  (keyword "rf.http" (str "managed-test-stub-" (swap! scope-stub-counter inc))))
+  (keyword "rf.test" (str "managed-http-stub-" (swap! scope-stub-counter inc))))
 
 (defn with-managed-request-stubs*
   "Function form: install stubs, route `:rf.http/managed` through them for
