@@ -22,7 +22,7 @@ skills/re-frame2/
 ├── SKILL.md                          The router. Loaded when the skill activates.
 ├── README.md                         This file.
 ├── LICENSE                           MIT.
-├── package.json                      npm distribution metadata.
+├── package.json                      Package metadata. Marked `private` — the skill installs from a repo checkout, not npm.
 ├── examples-map.md                   One-paragraph index of every worked example.
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
@@ -34,14 +34,14 @@ skills/re-frame2/
 ├── patterns/                         One leaf per canonical pattern (14 leaves).
 ├── decision-trees/                   pick-a-pattern, slice-or-machine.
 ├── spec/                             Skill-internal meta-docs (design, inputs, authoring-prompt). Not loaded at runtime.
-└── evals/                            Eval harness. Repo-maintenance artifact; not in the published package.
+└── evals/                            Eval harness. Repo-maintenance artifact; not shipped with the skill.
 ```
 
 The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the fourteen canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
 
 ## Install
 
-`re-frame2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm registry entry yet — clone the repo and **link** the skill into `~/.claude/skills/` (Claude Code loads skills from there).
+`re-frame2` is distributed with the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. The two supported channels are a **repo checkout** (git clone + link) and a **Claude Code marketplace plugin** — it is **not** published to npm (the `package.json` is marked `private`). Clone the repo and **link** the skill into `~/.claude/skills/` (Claude Code loads skills from there).
 
 **Link, never copy.** A copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Use the cross-platform installer, which links *every* skill in the monorepo so the active skill is the repo source by construction:
 
@@ -74,7 +74,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a **repo-maintenance artifact** — not in the published package (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` list omits it; run the harness from a monorepo clone).
+**Alpha.** The skill covers `references/fundamentals/`, `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The `evals/` harness is a **repo-maintenance artifact** — not shipped with the skill (see [`evals/README.md` §Repo-maintenance artifact](evals/README.md); `package.json`'s `files` allow-list omits it; run the harness from a monorepo clone).
 
 ## License
 
