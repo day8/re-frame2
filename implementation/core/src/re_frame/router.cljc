@@ -2296,8 +2296,8 @@
                                 entirely when zero user cofx were
                                 injected.
     `:rf.event/after-deltas` — vector of per-`:after` interceptor
-                                ctx-delta records `{:rf.icpt/id <id>
-                                :rf.icpt/ctx-delta {...}}` populated by
+                                ctx-delta records `{:rf.interceptor.delta/id <id>
+                                :rf.interceptor.delta/ctx-delta {...}}` populated by
                                 `interceptor/execute-chain` for every
                                 user-registered `:after` that mutated
                                 the context. Absent when no user-`:after`
@@ -2312,7 +2312,7 @@
   (let [user-cofx    (when interop/debug-enabled?
                        (fx/user-injected-coeffects (:coeffects final-ctx)))
         after-deltas (when interop/debug-enabled?
-                       (not-empty (:rf/icpt-after-deltas final-ctx)))]
+                       (not-empty (:rf/interceptor-after-deltas final-ctx)))]
     (trace/emit! :rf.event :rf.event/run-end
                  (cond-> {:rf.trace/event-id event-id
                           :rf.event/v        emit-event

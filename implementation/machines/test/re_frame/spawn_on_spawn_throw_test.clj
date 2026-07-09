@@ -16,7 +16,7 @@
 
    1. A throwing `:on-spawn` emits EXACTLY ONE
       `:rf.error/machine-action-exception` (op-type `:error`) stamped with
-      the stable action id `:rf.spawn/on-spawn` and the machine's frame.
+      the stable action id `:rf.machine.spawn/on-spawn` and the machine's frame.
    2. NO generic `:rf.error/handler-exception` is emitted — the throw is
       caught inside the machine layer, not at the core dispatch boundary.
    3. ATOMIC ROLLBACK: no parent snapshot, no spawned child snapshot, and
@@ -68,7 +68,7 @@
 
 (deftest single-spawn-on-spawn-throw-routes-to-machine-action-exception
   (testing "a throwing :on-spawn callback on a single :spawn emits exactly
-   one :rf.error/machine-action-exception (action-id :rf.spawn/on-spawn,
+   one :rf.error/machine-action-exception (action-id :rf.machine.spawn/on-spawn,
    frame-tagged), NO generic :rf.error/handler-exception, and commits no
    snapshot or registry slot"
     (let [child  {:initial :running :data {} :states {:running {}}}
@@ -88,8 +88,8 @@
         (is (= 1 (count errs))
             "exactly one :rf.error/machine-action-exception for the throw")
         (let [{:keys [tags]} (first errs)]
-          (is (= :rf.spawn/on-spawn (:action-id tags))
-              "the error carries the stable :rf.spawn/on-spawn action id")
+          (is (= :rf.machine.spawn/on-spawn (:action-id tags))
+              "the error carries the stable :rf.machine.spawn/on-spawn action id")
           (is (= :sup/on-spawn-throw (:actor-id tags))
               "the error is scoped to the spawning parent LIVE actor (rf2-yyvtk5)")
           (is (= :rf/default (:frame tags))
@@ -112,7 +112,7 @@
 
 (deftest spawn-all-on-spawn-throw-routes-to-machine-action-exception
   (testing "a throwing :on-spawn on ONE :spawn-all child emits exactly one
-   :rf.error/machine-action-exception (action-id :rf.spawn/on-spawn,
+   :rf.error/machine-action-exception (action-id :rf.machine.spawn/on-spawn,
    frame-tagged), NO generic :rf.error/handler-exception, and terminates
    the spawn reducer with full atomic rollback — no child snapshot, no
    registry slot, no parent transition commit"
@@ -140,8 +140,8 @@
         (is (= 1 (count errs))
             "exactly one :rf.error/machine-action-exception for the throwing child")
         (let [{:keys [tags]} (first errs)]
-          (is (= :rf.spawn/on-spawn (:action-id tags))
-              "the error carries the stable :rf.spawn/on-spawn action id")
+          (is (= :rf.machine.spawn/on-spawn (:action-id tags))
+              "the error carries the stable :rf.machine.spawn/on-spawn action id")
           (is (= :sup/all-throw (:actor-id tags))
               "the error is scoped to the spawning parent LIVE actor (rf2-yyvtk5)")
           (is (= :rf/default (:frame tags))

@@ -270,9 +270,9 @@
         (let [after (or (f context) context)]
           (if capture?
             (if-let [delta (compute-ctx-delta before after)]
-              (update after :rf/icpt-after-deltas (fnil conj [])
-                      {:rf.icpt/id        (:id interceptor)
-                       :rf.icpt/ctx-delta delta})
+              (update after :rf/interceptor-after-deltas (fnil conj [])
+                      {:rf.interceptor.delta/id        (:id interceptor)
+                       :rf.interceptor.delta/ctx-delta delta})
               after)
             after))
         (catch #?(:clj Throwable :cljs :default) e

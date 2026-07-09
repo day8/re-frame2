@@ -485,14 +485,14 @@
                                     ;; action, so its throw rides the same
                                     ;; always-on-plus-dev-trace fan-out
                                     ;; (rf2-cprm0q): `:failing-id` is the
-                                    ;; reserved `:rf.spawn/on-done` slot id.
+                                    ;; reserved `:rf.machine.spawn/on-done` slot id.
                                     ;; Axis 1 — STRUCTURAL-ONLY always-on
                                     ;; record (no prose; see error-emit).
                                     ;; `:state` is the final leaf the actor
                                     ;; rests on as its `:on-done` fired.
                                     (machine-error-emit/emit-machine-action-exception!
                                       {:actor-id   machine-id
-                                       :failing-id :rf.spawn/on-done
+                                       :failing-id :rf.machine.spawn/on-done
                                        :state      (:state next-snapshot)
                                        :frame      frame-id
                                        :recovery   :no-recovery
@@ -510,8 +510,8 @@
                                       (trace/emit-error! :rf.error/machine-action-exception
                                         {:actor-id   machine-id
                                          :machine-id machine-id
-                                         :action-id  :rf.spawn/on-done
-                                         :failing-id :rf.spawn/on-done
+                                         :action-id  :rf.machine.spawn/on-done
+                                         :failing-id :rf.machine.spawn/on-done
                                          :state      (:state next-snapshot)
                                          :parent-id  parent-id
                                          :invoke-id  invoke-id
