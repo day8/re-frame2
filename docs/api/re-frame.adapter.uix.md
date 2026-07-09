@@ -1,8 +1,13 @@
 # re-frame.adapter.uix
 
-The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes hooks (`use-subscribe`, `use-resource-lease`, `use-current-frame`), the `frame-provider` component, the `adapter` spec map you pass to `init!`, and adapter seams for tests, SSR, and code-gen.
+The UIx adapter connects re-frame2's substrate-agnostic core to UIx, a hooks-first React substrate. It exposes:
 
-Ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection — UIx components call `use-subscribe` and `(rf/capture-frame)` directly.
+- the hooks `use-subscribe`, `use-resource-lease`, and `use-current-frame`;
+- the `frame-provider` component;
+- the `adapter` spec map you pass to `init!`;
+- adapter seams for tests, SSR, and code-gen.
+
+It ships in the `day8/re-frame2-uix` artefact. The dependency direction is one-way: the adapter depends on `re-frame.core`, never the reverse. There is no auto-injection; UIx components call `use-subscribe` and `(rf/capture-frame)` directly.
 
 ```clojure
 (:require [re-frame.adapter.uix :as uix-adapter])
@@ -61,12 +66,12 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   (use-subscribe query-v) → current sub value
   (use-subscribe frame-kw query-v) → current sub value
   ```
-- **Description**: Subscribe inside a UIx component; the hook-shaped equivalent of `subscribe`.
+- **Description**: Subscribe inside a UIx component. This is the hook-shaped equivalent of `subscribe`.
 
   Returns the current sub value and re-renders the calling component when the value changes.
 
-  - 1-arg form resolves the frame through the standard chain — `with-frame` dynamic scope first, then the surrounding `frame-provider`. Raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
-  - 2-arg form pins to an explicit frame-id, bypassing the chain.
+  - The 1-arg form resolves the frame through the standard chain: `with-frame` dynamic scope first, then the surrounding `frame-provider`. It raises `:rf.error/no-frame-context` when neither is in scope (there is no `:rf/default` floor).
+  - The 2-arg form pins to an explicit frame-id, bypassing the chain.
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -84,7 +89,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```
 - **Description**: Holds a resource liveness lease for the calling component's mounted lifetime. On mount, dispatches `:rf.resource/ensure` with an app-minted `[:lease …]` owner; on unmount, dispatches `:rf.resource/release-owner` for that same lease.
 
-  Returns nil — a lifecycle hook, not a read. Pair it with `use-subscribe` on a `[:rf.resource/*]` query to read the data.
+  Returns nil: this is a lifecycle hook, not a read. Pair it with `use-subscribe` on a `[:rf.resource/*]` query to read the data.
 
   - `descriptor` — the resource-instance identity `{:resource … :scope … :params …}`.
   - `opts` keys: `:cause` (recorded on the ensure; defaults to `[:lease :mount]`) and `:frame` (pin to an explicit frame-id).
@@ -106,9 +111,9 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```clojure
   (use-current-frame) → frame-kw, or :rf.frame/no-provider
   ```
-- **Description**: Returns the frame keyword of the surrounding `frame-provider`, for components that thread the frame through hand-written child callbacks.
+- **Description**: Returns the frame keyword of the surrounding `frame-provider`. It exists for components that thread the frame through hand-written child callbacks.
 
-  React-context tier only. Returns the no-provider sentinel `:rf.frame/no-provider` when no provider sits above — never nil, never a synthesised default. Does not consult the `with-frame` dynamic var; for the full resolution chain use `rf/current-frame-id`.
+  This hook reads the React-context tier only. When no provider sits above, it returns the no-provider sentinel `:rf.frame/no-provider` — never nil, and never a synthesised default. It does not consult the `with-frame` dynamic var; for the full resolution chain, use `rf/current-frame-id`.
 
 > **NOT USED** — no call sites found in `implementation/`, `examples/`, or `tools/`.
 
@@ -129,9 +134,9 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   - `:rf.error/no-frame-context` on a nil `:frame`
   - `:rf.error/bad-frame-provider-arg` on a non-keyword `:frame`
 
-  `{:id …}` — ENSURE a named frame (create-if-absent / reuse-no-reseed, `make-frame` opts incl. `:images` / `:initial-events`, no destroy-on-unmount). `:id` must be a keyword; a missing / nil / non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`. Re-mounting the ENSURE shape under the same `:id` neither destroys durable state nor re-runs `:initial-events`.
+  `{:id …}` — ENSURE a named frame: create it if absent, or reuse it without re-seeding. This shape accepts `make-frame` opts, including `:images` / `:initial-events`, and never destroys the frame on unmount. `:id` must be a keyword; a missing, nil, or non-keyword `:id` raises `:rf.error/ensure-frame-provider-missing-id`. Re-mounting the ENSURE shape under the same `:id` neither destroys durable state nor re-runs `:initial-events`.
 
-  Children ride the idiomatic `$` trailing-args channel — pass them after the prop map, as for any other UIx component (no `:children` prop-map key).
+  Children ride the idiomatic `$` trailing-args channel. Pass them after the prop map, as for any other UIx component (there is no `:children` prop-map key).
 - **Example**:
   ```clojure
   ;; ENSURE shape at the render root: create the frame on first mount, seed it
@@ -149,7 +154,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```clojure
   (wrap-view id metadata user-fn) → wrapped fn
   ```
-- **Description**: Adapter-side source-coord injection. Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
+- **Description**: Adapter-side source-coord injection: wraps a component head so its rendered root DOM element carries `data-rf2-source-coord` in debug builds (see the Notes below). Most users register through `reg-view*`; `wrap-view` is for code-gen and library scaffolding.
 - **Example**:
   ```clojure
   ;; Code-gen / scaffolding seam: wrap a component head so its root DOM element
@@ -167,7 +172,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   (flush-views!)
   (flush-views! f)
   ```
-- **Description**: Wraps React's `act()` for tests.
+- **Description**: Wraps React's `act()` for tests. Flushes pending renders synchronously and returns nil.
 - **Example**:
   ```clojure
   ;; Test-only: flush pending renders synchronously, returns nil.
@@ -182,7 +187,7 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Description**: Install a render-tree → HTML fn. Parity with the Reagent adapter's late-bind seam for SSR.
+- **Description**: Install a render-tree → HTML fn. This is the UIx side of the SSR late-bind seam, at parity with the Reagent adapter. Normally you don't call this directly; requiring `re-frame.ssr` wires the emitter for you. Pass `nil` to reset.
 - **Example**:
   ```clojure
   ;; SSR: install a render-tree → HTML emitter (normally wired for you by
@@ -193,8 +198,8 @@ For narrative coverage and the substrate decision set, see [Use UIx, Helix, or r
 
 ## Notes
 
-- **Shared React Context.** The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three, so a mixed-substrate app composes — a UIx `frame-provider` can wrap a Reagent or Helix subtree, and vice versa.
-- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element; `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes; it powers click-to-source in Xray and re-frame2-pair. Full contract in the [Observability concept guide](../core/observability.md).
+- **Shared React Context.** The `frame-provider` in all three adapters (Reagent, UIx, Helix) consumes the same `createContext` object, factored into `re-frame.adapter.context` (a CLJS-only file in core). There is exactly one Context, not three. A mixed-substrate app therefore composes: a UIx `frame-provider` can wrap a Reagent or Helix subtree, and vice versa.
+- **DOM source-coord annotations.** Adapters inject `data-rf2-source-coord` on every registered view's root element; `wrap-view` is the explicit seam for that injection. The attribute is gated on debug builds and elided from production `:advanced` builds via dead-code elimination, so it costs no shipped bytes. It powers click-to-source in Xray and re-frame2-pair. The full contract is in the [Observability concept guide](../core/observability.md).
 
 ## See also
 

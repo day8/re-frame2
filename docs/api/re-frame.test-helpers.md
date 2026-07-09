@@ -1,8 +1,8 @@
 # re-frame.test-helpers
 
-`re-frame.test-helpers` is the view-tree assertion axis of the testing surface. A view is a function that returns [hiccup](../core/glossary.md#hiccup); these helpers walk that returned data structure — locate nodes by `:data-testid` (or any attribute), read their text, and pluck or invoke an attached event handler. The walk helpers are pure functions over hiccup data. The whole surface — single-frame fixture trio included — is JVM-runnable with no JSDOM, no React, and no `act()`.
+`re-frame.test-helpers` is the view-tree assertion axis of the testing surface. A view is a function that returns [hiccup](../core/glossary.md#hiccup). These helpers walk that returned data structure: they locate nodes by `:data-testid` (or any attribute), read their text, and pluck or invoke an attached event handler. The walk helpers are pure functions over hiccup data. The whole surface, single-frame fixture trio included, runs on the JVM with no JSDOM, no React, and no `act()`.
 
-Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-string view-test path): use hiccup-walk when asserting on *structure* or *handlers*, `render-to-string` when asserting on rendered *markup*. The runtime-state axis (registrar fixtures, `dispatch-sequence`, the `assert-*-equals` family) lives in [re-frame.test-support.md](re-frame.test-support.md); a test needing both `:require`s both.
+This namespace pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md), the HTML-string view-test path. Use the hiccup walkers when asserting on *structure* or *handlers*. Use `render-to-string` when asserting on rendered *markup*. The runtime-state axis (registrar fixtures, `dispatch-sequence`, the `assert-*-equals` family) lives in [re-frame.test-support.md](re-frame.test-support.md). A test that needs both axes `:require`s both namespaces.
 
 ```clojure
 (:require [re-frame.test-helpers :as th])
@@ -17,10 +17,10 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (expand-tree tree) → tree
   ```
-- **Description**: Recursively expand function components (including Form-2 fn-returning-fn components) and Form-3 class components inside a hiccup tree, invoking each with its args as Reagent's renderer would. After expansion every vector's first element is a keyword tag or a non-component value.
+- **Description**: Recursively expand the components inside a hiccup tree, invoking each with its args just as Reagent's renderer would. This covers function components, Form-2 fn-returning-fn components, and Form-3 class components. After expansion, every vector's first element is a keyword tag or a non-component value.
 
-  - Form-3 classes expand by calling the stashed `:reagent-render` fn directly — no React instantiation, no lifecycle methods (on the JVM, class detection is a no-op).
-  - The `find-*` / `text-content` walkers expand internally; call this directly only to re-expand a sub-tree mid-walk.
+  - Form-3 classes expand by calling the stashed `:reagent-render` fn directly. No React is instantiated and no lifecycle methods run. (On the JVM, class detection is a no-op.)
+  - The `find-*` and `text-content` walkers already expand internally. Call `expand-tree` directly only to re-expand a sub-tree mid-walk.
 - **Example**:
   ```clojure
   (th/expand-tree [parent-view {:n 5}])  ; => hiccup whose vectors all start
@@ -50,7 +50,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (children node) → vector
   ```
-- **Description**: Return everything after the tag (and optional attrs map). Always a vector — empty when the node has no children; `nil` for non-vector input.
+- **Description**: Return everything after the tag and the optional attrs map. The result is always a vector, and it is empty when the node has no children. Non-vector input returns `nil`.
 - **Example**:
   ```clojure
   (th/children [:div {:k 1} "a" "b"])  ; => ["a" "b"]
@@ -64,7 +64,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (text-content node) → string
   ```
-- **Description**: Recursively collect string leaves under `node` (expanding nested components) and join. Numbers coerce to strings; nils are skipped; empty result is `""`.
+- **Description**: Recursively collect the string leaves under `node`, expanding nested components along the way, and join them into one string. Numbers coerce to strings and nils are skipped. When nothing matches, the result is `""`.
 - **Example**:
   ```clojure
   (th/text-content [:div "Count: " [:b 5]])  ; => "Count: 5"
@@ -93,7 +93,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (find-by-attr tree attr val) → node
   ```
-- **Description**: First hiccup node whose attrs map carries `attr == val`, or `nil`. Generic over the attribute keyword (`:data-testid`, `:id`, `:data-test`, custom).
+- **Description**: Return the first hiccup node whose attrs map carries `attr == val`, or `nil` when nothing matches. It is generic over the attribute keyword: `:data-testid`, `:id`, `:data-test`, or anything custom.
 - **Example**:
   ```clojure
   ;; Generic over the attribute keyword.
@@ -108,7 +108,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (find-all-by-attr tree attr val) → vector
   ```
-- **Description**: Every matching node, in depth-first order.
+- **Description**: Return every matching node, in depth-first order.
 - **Example**:
   ```clojure
   (th/find-all-by-attr tree :data-test "row")  ; => every matching node
@@ -121,7 +121,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (find-by-attr-prefix tree attr prefix) → vector
   ```
-- **Description**: Every node whose `attr` value (a string) starts with `prefix`. Non-string attr values do not match.
+- **Description**: Return every node whose `attr` value is a string starting with `prefix`. Non-string attr values never match.
 - **Example**:
   ```clojure
   ;; Matches "row-1", "row-2", … — non-string attr values never match.
@@ -181,10 +181,10 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   ```clojure
   (invoke-handler node event-key & args) → any
   ```
-- **Description**: Find the handler under `event-key` on `node`, call it with `args`, and return its value. Throws (a missing handler is treated as a test bug):
+- **Description**: Find the handler under `event-key` on `node`, call it with `args`, and return its value. A missing handler is treated as a test bug, so this throws:
 
   - `:rf.error/invoke-handler-bad-node` — `node` is not a hiccup vector.
-  - `:rf.error/invoke-handler-missing` — no handler fn under `event-key` (including the no-attrs-map case).
+  - `:rf.error/invoke-handler-missing` — no handler fn exists under `event-key` (including when the node has no attrs map at all).
 - **Example**:
   ```clojure
   (let [btn (th/find-by-testid tree "counter-inc")]
@@ -201,7 +201,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
   (testid id) → map
   (testid id extra) → map
   ```
-- **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into the map; `:data-testid` always wins on collision. Use at the view call site; pair with `find-by-testid` at the assertion site.
+- **Description**: Build an attrs map carrying `:data-testid id`. The 2-arity merges `extra` into that map, and `:data-testid` always wins on collision. Use it at the view call site. Pair it with `find-by-testid` at the assertion site.
 - **Example**:
   ```clojure
   [:button (th/testid "counter-inc" {:on-click #(rf/dispatch [:counter/inc])})
@@ -211,7 +211,7 @@ Pairs with `render-to-string` in [re-frame.ssr.md](re-frame.ssr.md) (the HTML-st
 
 ## Single-frame e2e fixture
 
-The trio below — `with-app-fixture`, `expect-text`, `wait-until` — covers the single-frame e2e pattern: create a frame, install handlers, dispatch, assert on the rendered view, destroy the frame. Multi-frame setups use `re-frame.core`'s frame primitives directly. The two dynamic vars carry the fixture-stashed root view that the 2-arity forms of `expect-text` / `wait-until` render against.
+The trio below — `with-app-fixture`, `expect-text`, and `wait-until` — covers the single-frame e2e pattern: create a frame, install handlers, dispatch, assert on the rendered view, then destroy the frame. Multi-frame setups use `re-frame.core`'s frame primitives directly. The two dynamic vars carry the fixture-stashed root view. The 2-arity forms of `expect-text` and `wait-until` render against it.
 
 ### `with-app-fixture`
 
@@ -221,11 +221,18 @@ The trio below — `with-app-fixture`, `expect-text`, `wait-until` — covers th
   (with-app-fixture opts-map frame-id body+)
   (with-app-fixture opts-map          body+)   ; anonymous gensym'd id
   ```
-- **Description**: Bracket `body` with a fresh single-frame fixture. Creates the frame (anonymous, or the supplied `frame-id` — a literal keyword, the discriminator between the two shapes), binds it as the current frame, stashes `:root-view` / `:root-view-args` for the body's dynamic extent, calls the opts' `:install` hook inside that scope, runs `body`, then destroys the frame on exit — success or exception.
+- **Description**: Bracket `body` with a fresh single-frame fixture. In order, the macro:
+
+  - creates the frame — anonymous, or under the supplied `frame-id` (a literal keyword; its presence is what selects between the two shapes);
+  - binds it as the current frame;
+  - stashes `:root-view` / `:root-view-args` for the body's dynamic extent;
+  - calls the opts' `:install` hook inside that scope;
+  - runs `body`;
+  - destroys the frame on exit, whether `body` succeeded or threw.
 
   `opts-map` keys (all optional):
 
-  - `:install` — zero-arg fn run with the frame already bound; typically the `reg-event` / `reg-sub` / `reg-view` calls the test relies on.
+  - `:install` — a zero-arg fn run with the frame already bound. Typically it holds the `reg-event` / `reg-sub` / `reg-view` calls the test relies on.
   - `:root-view` — a hiccup-returning view fn, stashed for the 2-arity assertion forms.
   - `:root-view-args` — args vector passed to `:root-view` (default `[]`).
   - `:frame-config` — extra map merged into the frame config.
@@ -250,11 +257,11 @@ The trio below — `with-app-fixture`, `expect-text`, `wait-until` — covers th
   (expect-text testid expected)
   (expect-text tree testid expected)
   ```
-- **Description**: Assert that the hiccup node carrying `:data-testid testid` has `text-content` equal to `expected`, reporting via `clojure.test/is`. Returns `true` on pass, `false` on fail (the `clojure.test` failure is reported either way).
+- **Description**: Assert that the hiccup node carrying `:data-testid testid` has `text-content` equal to `expected`. Failures report through `clojure.test/is`. Returns `true` on pass and `false` on fail; the `clojure.test` failure is reported either way.
 
-  - 2-arity — renders the fixture-stashed root view (`*current-root-view*`, set by `with-app-fixture`) with `*current-root-view-args*`. Raises `:rf.error/no-root-view` outside a fixture body, or when the fixture supplied no `:root-view`.
-  - 3-arity — walks an explicit `tree`; needs no fixture.
-  - `testid` may be a string (`"counter-display"`) or keyword (`:counter-display`, coerced via `name`); anything else raises `:rf.error/testid-bad-arg`.
+  - The 2-arity renders the fixture-stashed root view (`*current-root-view*`, set by `with-app-fixture`) with `*current-root-view-args*`. It raises `:rf.error/no-root-view` outside a fixture body, or when the fixture supplied no `:root-view`.
+  - The 3-arity walks an explicit `tree` and needs no fixture.
+  - `testid` may be a string (`"counter-display"`) or a keyword (`:counter-display`, coerced via `name`). Anything else raises `:rf.error/testid-bad-arg`.
 - **Example**:
   ```clojure
   ;; 2-arity — against the fixture's :root-view:
@@ -274,17 +281,17 @@ The trio below — `with-app-fixture`, `expect-text`, `wait-until` — covers th
   (wait-until testid expected)
   (wait-until testid expected opts)
   ```
-- **Description**: Bounded-deadline poll until a condition is truthy — the view-test counterpart to `re-frame.test-support/poll-until`. Use for async runs (HTTP, scheduled events, machine `:after` transitions) whose post-condition is observable in the rendered view; for sync runs, `expect-text` after `dispatch-sync` suffices.
+- **Description**: Poll until a condition is truthy, within a bounded deadline. This is the view-test counterpart to `re-frame.test-support/poll-until`. Use it for async runs (HTTP, scheduled events, machine `:after` transitions) whose post-condition shows up in the rendered view. For sync runs, `expect-text` after `dispatch-sync` suffices.
 
-  - Predicate form — polls `(pred)` until truthy or the deadline elapses.
-  - Testid form — polls the fixture-stashed root view until `(text-content (find-by-testid tree testid))` equals `expected`. `testid` may be a string or keyword (coerced via `name`; anything else raises `:rf.error/testid-bad-arg`).
-  - An exception thrown by the predicate/probe counts as a falsey poll, not a propagated error — so a missing fixture root view surfaces as the timeout, not as `:rf.error/no-root-view`.
+  - The predicate form polls `(pred)` until truthy or the deadline elapses.
+  - The testid form polls the fixture-stashed root view until `(text-content (find-by-testid tree testid))` equals `expected`. `testid` may be a string or a keyword (coerced via `name`); anything else raises `:rf.error/testid-bad-arg`.
+  - An exception thrown by the predicate or probe counts as a falsey poll, not a propagated error. So a missing fixture root view surfaces as the timeout, not as `:rf.error/no-root-view`.
   - `opts` (all optional): `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label`.
 
   Per-platform shape matches `poll-until`:
 
-  - JVM — synchronous; returns the truthy value; on timeout throws `ex-info` carrying `:rf.error/id` `:rf.error/wait-until-timeout` (the canonical discriminator).
-  - CLJS — returns a `js/Promise` resolving with the truthy value or rejecting on timeout (compose with `cljs.test/async`).
+  - JVM — synchronous. Returns the truthy value. On timeout it throws an `ex-info` carrying `:rf.error/id` `:rf.error/wait-until-timeout` (the canonical discriminator).
+  - CLJS — returns a `js/Promise` that resolves with the truthy value or rejects on timeout. Compose it with `cljs.test/async`.
 - **Example**:
   ```clojure
   ;; JVM — testid form; blocks until the display text settles.
@@ -298,12 +305,12 @@ The trio below — `with-app-fixture`, `expect-text`, `wait-until` — covers th
 ### `*current-root-view*`
 
 - **Kind**: dynamic var
-- **Description**: Root-view fn stashed by `with-app-fixture` for the body's dynamic extent. The 2-arity testid forms of `expect-text` and `wait-until` read this var to know which view-fn to call when assembling the hiccup tree. `nil` outside a fixture body; callers operating on an explicit tree use the 3-arity shapes instead.
+- **Description**: The root-view fn stashed by `with-app-fixture` for the body's dynamic extent. The 2-arity testid forms of `expect-text` and `wait-until` read this var to know which view-fn to call when assembling the hiccup tree. It is `nil` outside a fixture body. Callers operating on an explicit tree use the 3-arity shapes instead.
 
 ### `*current-root-view-args*`
 
 - **Kind**: dynamic var
-- **Description**: Args vector passed to `*current-root-view*` when rendering the tree. Defaults to `[]` (the common zero-arg view). `with-app-fixture` sets it from the fixture opts' `:root-view-args` key, so a root view taking arguments (e.g. a props map) is supplied once at the fixture site rather than at every `expect-text` call.
+- **Description**: The args vector passed to `*current-root-view*` when rendering the tree. Defaults to `[]`, the common zero-arg view. `with-app-fixture` sets it from the fixture opts' `:root-view-args` key. A root view that takes arguments (e.g. a props map) is therefore supplied once, at the fixture site, rather than at every `expect-text` call.
 
 ## See also
 
