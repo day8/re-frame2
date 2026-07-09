@@ -121,6 +121,14 @@ Concretely, the Spec applies the rule to every cross-cutting vocabulary and ever
 
 The cost is verbosity at the design margin (you cannot rename a misnamed key once it ships; you must deprecate-and-add). The benefit is exactly what AI-generated code, downstream tools, and long-lived applications need: a contract that doesn't move under them. Spec-ulation is the stability discipline that makes the rest of the AI-first principles — public query surfaces, machine-readable errors, schemas-on-the-wire — durable across versions.
 
+### The demand bar
+
+**Principle:** a public surface ships only for a *named consumer*.
+
+A capability with no consumer today — however plausible — is not added; it is **parked**. The refusal is recorded with (a) explicit **un-park triggers** (the observable conditions under which the surface earns its place) and (b) a **pre-settled promotion shape** (the design decided now, so promotion is cheap later). Refusing a surface is a design act of the same rank as shipping one: every shipped name is a permanent obligation on every conforming port, so the demand bar is what keeps the closed vocabularies closed and prevents *one-fact-many-names* hazards — a second run-this-later surface, a third debounce mechanism.
+
+Where fixed-and-additive governs how an *existing* surface evolves, the demand bar governs *whether a new surface may exist at all*. The Spec ships this discipline concretely: the managed-effect umbrella deliberately ships no `:rf.ws/*` — Pattern-WebSocket shows the app-built path instead; the public `:rf.timer/after` surface is parked behind named un-park triggers with its promotion shape pre-settled; and examples are test-free by ruling, the same refusal applied to test infrastructure that has no consumer.
+
 ## The deliverable principle
 
 ### Construction prompts as a deliverable
