@@ -126,9 +126,9 @@ The reply map is **data only**. It MUST NOT contain functions, promises, `AbortC
 {:status       :ok | :partial | :error | :cancelled | :stale
  :value        value-or-nil
  :error        error-map-or-nil
- :work/id      work-id-or-nil
- :work/kind    :http | :resource | :mutation | :timer | :route | :machine | ...
- :work/status  :completed | :failed | :timed-out | :suppressed | :cancelled
+ :rf.reply/work-id      work-id-or-nil
+ :rf.reply/work-kind    :http | :resource | :mutation | :timer | :route | :machine | ...
+ :rf.reply/work-status  :completed | :failed | :timed-out | :suppressed | :cancelled
  :attempt      positive-int-or-nil
  :rf.frame/id  frame-id
  :started-at   started-at-or-nil
@@ -136,9 +136,9 @@ The reply map is **data only**. It MUST NOT contain functions, promises, `AbortC
  :deadline-at  deadline-at-or-nil
  :correlation  data-only-map
  :stale?       boolean
- :stale/reason keyword-or-nil
+ :rf.reply/stale-reason keyword-or-nil
  :cancelled?   boolean
- :cancel/reason keyword-or-nil
+ :rf.reply/cancel-reason keyword-or-nil
  :trace        data-only-trace-summary
  :meta         effect-family-data}
 ```
@@ -147,7 +147,7 @@ Required / conditional fields:
 
 - `:status` is **always** required.
 - `:value` carries the decoded successful result for `:status :ok` and `:status :partial`. **One-name-per-fact note ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)):** the decoded result on the *reply map* is `:value` everywhere, across every family (HTTP, resource, mutation, machine, timer, route) — there is no per-family synonym for it. A *mutation-instance state* sub may store that same decoded result under a different key (`:result`) as a distinct fact: the instance sub is a durable, queryable status record (`{:pending? :success? :error? :settled? :result :error}`), not the transient causal reply, so the two spellings name two facts living in two layers. Spec 016 reconciles that pairing on its own surface. The same layer-distinction explains the [Pattern-RemoteData](Pattern-RemoteData.md) slice's `:data` key: a reply handler reads the transient `:value` off the reply and *folds* it into its durable app-db slice under that slice's own spelling (`[:feature.resource :data]`) — `:value` is the reply fact, `:data` is the durable slice fact, and the handler is the explicit hop between them. In every case the reply-map spelling is `:value`, full stop.
-- `:work/id` is required for ledger-backed work and SHOULD be present for any managed async effect that can be correlated.
+- `:rf.reply/work-id` is required for ledger-backed work and SHOULD be present for any managed async effect that can be correlated. **Cross-record spelling (rf2-l7s7b7):** the reply envelope single-roots the work identity as `:rf.reply/work-id` / `:rf.reply/work-kind`; the SAME fact is spelled bare `:work/id` / `:work/kind` on the durable work-ledger row, the runtime verification payload, and the entry's `:current-work` — two spellings across the record↔reply boundary (a durable, queryable status record vs a transient causal envelope). The carried/current stale-gate correlation nested under `:rf.reply/carried` / `:rf.reply/current` keeps the bare `:work/id` spelling as plain data.
 - `:rf.frame/id` is required when the effect is frame-scoped. This is the canonical carried frame stamp ([EP-0002](../docs/EP/EP-0002-frame-target-resolution.md)); there is no second frame spelling. The frame id is the **whole** routing coordinate on the reply map — there is no second realm/app stamp carried beside it, and no `:rf.realm/id` ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) / [EP-0024](../docs/EP/EP-0024-unified-frame-identity-and-lifecycle.md)).
 - `:error` is present for `:status :error`; present with structured partial diagnostics for `:status :partial`; and MAY carry compatibility failure data for `:status :cancelled`.
 - `:started-at`, `:completed-at`, and `:deadline-at` are causal completion metadata ([EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) — suffixless durable timestamps; the values are causal epoch-millisecond readings supplied by the triggering or reply token, **not** fresh ambient clock reads). Carry them when the fact affects durable state; omit a field a family does not durably use. The `:completed-at` payload is the **same durable wall-clock value** the **live reply dispatch** carries as the flat `:rf.cofx` `:rf/time-ms` fact ([EP-0017](../docs/EP/EP-0017-recordable-coeffects.md) — `:rf/time-ms` is the framework's one built-in recordable coeffect, stamped on every dispatch and reply envelope; the dispatch-opts key is the flat `:rf.cofx`, never the retired `:rf.world/inputs`). The reply-map `:completed-at` and the reply-dispatch envelope's `:rf.cofx` `:rf/time-ms` therefore stay in sync; every managed-async family threads the same fact uniformly, and a family supplied no completion time omits `:completed-at` (no nil sentinel) rather than letting a reducer derive a durable timestamp from a stale/missing fact. The cross-family `reply-conformance` tier locks this propagation (pure over reply maps); the router and per-family lowering suites lock the live-dispatch `:rf.cofx` half.
@@ -163,15 +163,15 @@ The reply `:status` vocabulary is **closed**:
 | `:ok` | Work completed successfully and the reply is current. | `:value` present; `:error` absent. |
 | `:partial` | Work completed with usable value data **and** structured family-specific problems; the reply is current and the family decides how partial data installs. | `:value` present; `:error` present as a family error **map** carrying a `:kind` (e.g. `:rf.graphql/partial-success`) — a loose scalar error is rejected. |
 | `:error` | Work completed with a failure and the reply is current. | `:error` present as a family error **map** carrying a `:kind` — a loose scalar error is rejected. |
-| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancelled? true` (the intentional-cancellation marker) **and** `:cancel/reason` present; `:error` MAY carry compatibility failure data. |
-| `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:stale/reason` present; **no app-state mutation**. |
+| `:cancelled` | Work was intentionally cancelled while still correlated with the target. | `:cancelled? true` (the intentional-cancellation marker) **and** `:rf.reply/cancel-reason` present; `:error` MAY carry compatibility failure data. |
+| `:stale` | Work completed or was observed after its correlation became obsolete. | `:stale? true`; `:rf.reply/stale-reason` present; **no app-state mutation**. |
 
 `:partial` keeps the envelope transport-neutral: a protocol that can return both data and errors in one completion (GraphQL is the motivating case) must not be forced to pretend it is plain `:ok` or plain `:error`. Plain managed HTTP does not emit `:partial` — an HTTP response is decoded as `:ok` or projected as `:error`/`:cancelled`/`:stale`.
 
 **Timeout is not a top-level status.** It is an error kind plus a work status:
 
 ```clojure
-{:status :error :work/status :timed-out
+{:status :error :rf.reply/work-status :timed-out
  :error  {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012}}
 ```
 
@@ -222,7 +222,7 @@ If validation fails:
 
 ### Cancellation
 
-Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:cancel/reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery. The *obsolete-target* check itself is surface-specific: HTTP needs an explicit target-identity gate (`actor-destroy-target-obsolete?`) because it alone re-dispatches a reply at a caller-supplied event target; resources/mutations gate obsolescence on work-id/generation entry-liveness, and machines split late-obsolete arrivals into separate semantic `:stale` paths — so none of the sibling surfaces needs HTTP's predicate.
+Cancellation is represented as **data**, not as the absence of a reply. Explicit user cancellation that is still live MAY dispatch a `:status :cancelled` reply (with `:cancelled? true` and `:rf.reply/cancel-reason`); supersession cancellation should usually suppress the old app reply as `:status :stale`/`:suppressed`. Actor-destroy cancellation is delivered by the owning surface and completes through this same envelope: `:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery. The *obsolete-target* check itself is surface-specific: HTTP needs an explicit target-identity gate (`actor-destroy-target-obsolete?`) because it alone re-dispatches a reply at a caller-supplied event target; resources/mutations gate obsolescence on work-id/generation entry-liveness, and machines split late-obsolete arrivals into separate semantic `:stale` paths — so none of the sibling surfaces needs HTTP's predicate.
 
 ### Causal completion metadata
 
@@ -251,7 +251,7 @@ Implementations need not store arbitrary functions in effect maps to satisfy thi
 
 SSR and preload integrations observe **work-ledger rows and reply statuses**, not effect-family callback slots: the server enqueues blocking resource work; SSR waits for ledger rows on the current route/nav-token to become terminal; successful replies update entries with causal `:completed-at`; stale/superseded replies are suppressed by work id/generation/nav-token; hydration serializes the allowed projection and non-terminal work *summaries*, never host handles. Hydration and epoch restore MUST NOT revive host work — a pre-restore host completion that arrives later cannot mutate the restored frame because its work id/generation/token cannot match the post-restore live correlation. See [016 §SSR and hydration](016-Resources.md#ssr-and-hydration) for the landed projection.
 
-A restore installs the captured durable frame-state WHOLESALE, but the async host work the unwound epochs spawned — machine `:after` host-clock timers and non-resource managed-HTTP `AbortController`s / in-flight handles — is **not** frame-state, so the install leaves it attached to the pre-restore timeline. Restore therefore **quiesces** that orphaned host work for the restored frame on a successful install: it cancels/clears the host handles so a late pre-restore completion is stale-suppressed and never delivers to its original `:rf/reply-to` target. For ledger-backed work (resources/mutations) the dangling work-id + generation check is the structural suppression boundary ([016 §Restore and replay](016-Resources.md#restore-and-replay)); for a plain `:rf.http/managed` request (no ledger gate) the restore aborts it with the reply-suppressing `:epoch-restored` reason and emits the `:status :stale` / `:work/status :suppressed` envelope facts; a machine `:after` timer's liveness reverts with the snapshot (a fired stale-epoch timer drops via `:rf.machine.timer/stale-after`, [005 §Hierarchy interaction](005-StateMachines.md#hierarchy-interaction)) while its host-clock handle is released eagerly (`:rf.machine.timer/cancelled :reason :on-restore`). In the reference implementation the epoch restore boundary fires a late-bound host-transient quiesce hook chain (`:machines/on-frame-restored!`, `:http/abort-in-flight-for-frame!`) AFTER the atomic install — the restore counterpart of the `destroy-frame!` teardown chain.
+A restore installs the captured durable frame-state WHOLESALE, but the async host work the unwound epochs spawned — machine `:after` host-clock timers and non-resource managed-HTTP `AbortController`s / in-flight handles — is **not** frame-state, so the install leaves it attached to the pre-restore timeline. Restore therefore **quiesces** that orphaned host work for the restored frame on a successful install: it cancels/clears the host handles so a late pre-restore completion is stale-suppressed and never delivers to its original `:rf/reply-to` target. For ledger-backed work (resources/mutations) the dangling work-id + generation check is the structural suppression boundary ([016 §Restore and replay](016-Resources.md#restore-and-replay)); for a plain `:rf.http/managed` request (no ledger gate) the restore aborts it with the reply-suppressing `:epoch-restored` reason and emits the `:status :stale` / `:rf.reply/work-status :suppressed` envelope facts; a machine `:after` timer's liveness reverts with the snapshot (a fired stale-epoch timer drops via `:rf.machine.timer/stale-after`, [005 §Hierarchy interaction](005-StateMachines.md#hierarchy-interaction)) while its host-clock handle is released eagerly (`:rf.machine.timer/cancelled :reason :on-restore`). In the reference implementation the epoch restore boundary fires a late-bound host-transient quiesce hook chain (`:machines/on-frame-restored!`, `:http/abort-in-flight-for-frame!`) AFTER the atomic install — the restore counterpart of the `destroy-frame!` teardown chain.
 
 ## Instances today
 

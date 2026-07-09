@@ -527,9 +527,9 @@ There is **one** reply shape. Every managed-HTTP completion delivers the framewo
 {:status       :ok            ;; one of :ok | :error | :cancelled | :stale (:stale is a suppression outcome — never delivered to an app target; see §Actor-destroyed suppression)
  :value        <decoded-and-accepted-payload>   ;; on :ok
  :error        {:kind <one of :rf.http/*> …}     ;; on :error / :cancelled — the classified failure map, verbatim
- :work/id      [:rf.work/http logical-id issuance attempt] ;; the attempt identity
- :work/kind    :http
- :work/status  :completed | :failed | :timed-out | :cancelled
+ :rf.reply/work-id      [:rf.work/http logical-id issuance attempt] ;; the attempt identity
+ :rf.reply/work-kind    :http
+ :rf.reply/work-status  :completed | :failed | :timed-out | :cancelled
  :attempt      1
  :rf.frame/id  :app/main
  :completed-at 1781078400456   ;; read ONCE from the host completion
@@ -548,10 +548,10 @@ A reply handler branches on the closed `:status`:
 
 Status mapping (per [Managed-Effects §Status taxonomy](Managed-Effects.md#status-taxonomy)):
 
-- a successful, decoded-and-`:accept`-projected response → `:status :ok` (`:work/status :completed`), decoded value at `:value`;
+- a successful, decoded-and-`:accept`-projected response → `:status :ok` (`:rf.reply/work-status :completed`), decoded value at `:value`;
 - any `:rf.http/*` failure → `:status :error`, the classified failure map riding **verbatim** as `:error` — the closed [failure-category set](#failure-categories-closed-set) is what the handler branches on under `:error`;
-- a **timeout** → `:status :error` with `:work/status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
-- an **abort** → `:status :cancelled` with `:cancelled? true`, `:cancel/reason`, and the `:rf.http/aborted` shape under `:error`.
+- a **timeout** → `:status :error` with `:rf.reply/work-status :timed-out` — **timeout is not a top-level status**, it is an error kind (`:rf.http/timeout`) plus a work status;
+- an **abort** → `:status :cancelled` with `:cancelled? true`, `:rf.reply/cancel-reason`, and the `:rf.http/aborted` shape under `:error`.
 
 **The priced wrinkle — `:status` at two levels on HTTP 4xx/5xx.** The reply's top-level `:status :error` and the `:error` map's own `:status` (the HTTP status code, e.g. `503`) are distinct facts at two levels — the reply-envelope status vs the wire status. This mirrors the pre-existing `:kind`-at-two-levels shape (the reply status vs the failure category `:kind`) and is accepted as the cost of one uniform envelope.
 
@@ -629,7 +629,7 @@ A subsequent `:rf.http/managed-abort` fx with the same id (compared by `=`) canc
 {:fx [[:rf.http/managed-abort [:articles :load "hello"]]]}
 ```
 
-When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersession records the superseded attempt the [uniform reply-envelope way](Managed-Effects.md#stale-suppression): a canonical `:rf.http/stale-suppressed` trace row carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` (`:stale/reason :rf.http/request-id-superseded`) and the **carried** (the superseded attempt's `:work/id`) and **current** (the superseding attempt's `:work/id`) correlation — the two being `=`-distinct because the per-`request-id` issuance counter bumped. The legacy `:rf.http/aborted` trace (with `:reason :request-id-superseded`) still emits for abort-telemetry consumers; consumers wanting either subscribe via `register-listener!`. No app target runs for the superseded attempt. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
+When a fresh request supersedes a prior one with the same `:request-id`, the prior request's `:on-failure` reply is **not dispatched** — semantically the new request *replaces* the old one (the debounce-search mental model). The supersession records the superseded attempt the [uniform reply-envelope way](Managed-Effects.md#stale-suppression): a canonical `:rf.http/stale-suppressed` trace row carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` (`:rf.reply/stale-reason :rf.http/request-id-superseded`) and the **carried** (the superseded attempt's `:work/id`) and **current** (the superseding attempt's `:work/id`) correlation — the two being `=`-distinct because the per-`request-id` issuance counter bumped. The legacy `:rf.http/aborted` trace (with `:reason :request-id-superseded`) still emits for abort-telemetry consumers; consumers wanting either subscribe via `register-listener!`. No app target runs for the superseded attempt. A manual `:rf.http/managed-abort` aborts whichever request currently holds the id and DOES dispatch `:on-failure` with `:reason :user`.
 
 ### `:abort-signal` (external)
 
@@ -646,7 +646,7 @@ The fx threads the signal through to the underlying transport. User owns the con
 The single final outcome is determined by the **finalising cancellation source** — the source whose observation wins the once-only finalisation:
 
 - **External `:abort-signal` wins** (or a manual `:rf.http/managed-abort` on the same `:request-id`) → a live `:rf.http/aborted` reply with `:reason :user` is delivered to the failure target.
-- **Same-`:request-id` supersede wins** (a fresh request replaces the prior one) → the prior request's reply is **suppressed** (no app target runs) and a `:rf.http/stale-suppressed` trace records the superseded attempt's correlation (`:stale/reason :rf.http/request-id-superseded`), exactly as [§`:request-id` (internal)](#request-id-internal) describes for the supersede-alone case.
+- **Same-`:request-id` supersede wins** (a fresh request replaces the prior one) → the prior request's reply is **suppressed** (no app target runs) and a `:rf.http/stale-suppressed` trace records the superseded attempt's correlation (`:rf.reply/stale-reason :rf.http/request-id-superseded`), exactly as [§`:request-id` (internal)](#request-id-internal) describes for the supersede-alone case.
 - **Already completed and cleared** → a later supersede (or external abort) does **not** retroactively suppress or reclassify a request that has already finalised; the finalisation that already won stands.
 
 In short: supplying both keys is a legal, fully-defined configuration; the finalise order picks the single winner and the CAS guarantees no second reply.
@@ -670,24 +670,24 @@ When the request's reply target is **still meaningful** — an ordinary register
 ```clojure
 {:rf/reply {:status        :cancelled
             :cancelled?    true
-            :cancel/reason :actor-destroyed
+            :rf.reply/cancel-reason :actor-destroyed
             :error         {:kind       :rf.http/aborted
                             :request-id <id-or-nil>
                             :reason     :actor-destroyed
                             :actor-id   <destroyed-spawned-actor-id>}
-            ;; …plus :work/id / :work/kind :http / :work/status :cancelled /
+            ;; …plus :rf.reply/work-id / :rf.reply/work-kind :http / :rf.reply/work-status :cancelled /
             ;; :rf.frame/id / :completed-at, per §Reply payload shape.
             }}
 ```
 
-The discriminator from a user-issued abort is the reason (top-level `:cancel/reason`, mirrored on the `:error` map's `:reason`) — `:user` (manual `:rf.http/managed-abort`) or `:actor-destroyed` (this contract). Callers that branch on the reason recover that distinction; callers that don't see one uniform `:status :cancelled` outcome. (The third reason value, `:request-id-superseded`, never lands on a reply dispatch — per [§`:request-id` (internal)](#request-id-internal) supersede suppresses the prior request's reply and emits only to the trace bus.)
+The discriminator from a user-issued abort is the reason (top-level `:rf.reply/cancel-reason`, mirrored on the `:error` map's `:reason`) — `:user` (manual `:rf.http/managed-abort`) or `:actor-destroyed` (this contract). Callers that branch on the reason recover that distinction; callers that don't see one uniform `:status :cancelled` outcome. (The third reason value, `:request-id-superseded`, never lands on a reply dispatch — per [§`:request-id` (internal)](#request-id-internal) supersede suppresses the prior request's reply and emits only to the trace bus.)
 
 #### Obsolete target — stale suppression
 
 When the request's reply target is **obsolete** — its event-id names the destroyed actor itself (the [machine-shape wrapper](#machine-shape-wrapper)'s `[self-id [:rf.http/failed]]` default, or any request whose reply addresses its own actor) — dispatching it would address a now-dead actor. Per [Managed-Effects §Cancellation](Managed-Effects.md#cancellation) (`:status :cancelled` when the actor-bound target is still meaningful, `:status :stale`/`:suppressed` when teardown made the target obsolete before delivery), the abort lowers to the canonical uniform-reply-envelope **stale-suppression** outcome instead of a live `:cancelled`/failure reply:
 
 1. the app reply target **MUST NOT run** (no dispatch to the dead actor);
-2. the reply outcome is `:status :stale` / `:work/status :suppressed`, carrying `:stale/reason :rf.http/actor-destroyed-target-obsolete`;
+2. the reply outcome is `:status :stale` / `:rf.reply/work-status :suppressed`, carrying `:rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete`;
 3. a `:rf.http/stale-suppressed` reply-envelope trace records the carried correlation joined to `:work/id` (`:recovery :actor-destroyed-target-obsolete`) — the same canonical stale row a [supersession](#request-id-internal) emits;
 4. the `:rf.http/aborted` trace still fires (the abort is observable); only the app **reply delivery** is suppressed.
 
@@ -715,7 +715,7 @@ Apps that want HTTP requests tied to the lifetime of a state-machine state shoul
 
 `:rf.http/aborted-on-actor-destroy` (per [Spec 009 §Trace events](009-Instrumentation.md)) fires once per cancelled request. `:tags` carry `:request-id`, `:actor-id`, and `:url`.
 
-When the request's reply target was **obsolete** (it addressed the destroyed actor — see [§Obsolete target — stale suppression](#obsolete-target--stale-suppression)), a `:rf.http/stale-suppressed` reply-envelope row ALSO fires (`:stale/reason :rf.http/actor-destroyed-target-obsolete`, `:recovery :actor-destroyed-target-obsolete`), carrying the canonical `:status :stale` / `:work/status :suppressed` facts joined to `:work/id` — the same canonical stale row supersession emits.
+When the request's reply target was **obsolete** (it addressed the destroyed actor — see [§Obsolete target — stale suppression](#obsolete-target--stale-suppression)), a `:rf.http/stale-suppressed` reply-envelope row ALSO fires (`:rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete`, `:recovery :actor-destroyed-target-obsolete`), carrying the canonical `:status :stale` / `:rf.reply/work-status :suppressed` facts joined to `:rf.reply/work-id` — the same canonical stale row supersession emits.
 
 #### Cross-references
 
@@ -1052,7 +1052,7 @@ The fx vectors the helpers synthesise are exactly the same shape as the hand-wri
 | `:rf.http/managed-canned-success` | Synthesises a success reply. Args take `:value` (the payload to put under `:rf/reply :value`); defaults to a literal `{:stubbed true}`. |
 | `:rf.http/managed-canned-failure` | Synthesises a failure reply. Args take `:kind` (one of `:rf.http/*`; default `:rf.http/transport`) and `:tags` (the kind-specific tags map; defaults documented per row of [§Failure categories](#failure-categories-closed-set)). |
 
-The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). A stub has no real request lifecycle, so it omits the transport's identity facts (`:work/id`, `:attempt`, `:work/status`, `:completed-at`); those are exercised against the real transport. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
+The stubs deliver a **minimal canonical reply** — `{:status :ok :value v}` on success, `{:status :error :error f}` (or `{:status :cancelled :error f}` for an `:rf.http/aborted` kind) on failure — the shape a handler actually branches on (`:status`, `:value`, `:error`). A stub has no real request lifecycle, so it omits the transport's identity facts (`:rf.reply/work-id`, `:attempt`, `:rf.reply/work-status`, `:completed-at`); those are exercised against the real transport. Same pattern as the existing http-stub idiom (see `examples_test.clj` and `ssr_end_to_end_test.clj` for prior art).
 
 #### `:after-ms` — deferring a canned reply
 
