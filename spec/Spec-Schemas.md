@@ -3105,7 +3105,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   [:enum :ok :partial :error :cancelled :stale])
 
 (def ReplyWorkStatus
-  ;; The operational :work/status on a reply map — narrower / more
+  ;; The operational :rf.reply/work-status on a reply map — narrower / more
   ;; operational than the reply :status. :suppressed is the stale terminal;
   ;; :timed-out is an error work-status. Mirrors the ledger row's terminal
   ;; statuses (WorkLedger above), minus the non-terminal :queued/:running.
@@ -3124,9 +3124,9 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:status        ReplyStatus]                              ;; ALWAYS required
    [:value         {:optional true} :any]                    ;; present for :ok / :partial; absent for :stale
    [:error         {:optional true} :any]                    ;; for :error / :partial a family error MAP carrying a :kind (loose scalar rejected); MAY carry compat data for :cancelled
-   [:work/id       {:optional true} :any]                    ;; required for ledger-backed work; =-comparable EDN attempt identity
-   [:work/kind     {:optional true} :keyword]                ;; :http / :resource / :mutation / :timer / :route / :machine / …
-   [:work/status   {:optional true} ReplyWorkStatus]
+   [:rf.reply/work-id   {:optional true} :any]               ;; required for ledger-backed work; =-comparable EDN attempt identity. Spelled bare :work/id on the durable ledger row / verification payload / entry :current-work — SAME fact, two spellings across the record↔reply boundary (rf2-l7s7b7)
+   [:rf.reply/work-kind {:optional true} :keyword]           ;; :http / :resource / :mutation / :timer / :route / :machine / … (bare :work/kind on the durable ledger row)
+   [:rf.reply/work-status   {:optional true} ReplyWorkStatus]
    [:attempt       {:optional true} [:maybe :int]]
    [:rf.frame/id   {:optional true} :any]                    ;; required when frame-scoped — the canonical carried frame stamp (EP-0002)
    [:started-at    {:optional true} [:maybe :int]]           ;; EP-0010 causal epoch-ms — NOT a fresh ambient read
@@ -3134,9 +3134,9 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
    [:deadline-at   {:optional true} [:maybe :int]]
    [:correlation   {:optional true} :map]                    ;; data-only correlation metadata (request-id, scope, generation, owner, …)
    [:stale?        {:optional true} :boolean]               ;; required true for :status :stale
-   [:stale/reason  {:optional true} [:maybe :keyword]]
+   [:rf.reply/stale-reason  {:optional true} [:maybe :keyword]]
    [:cancelled?    {:optional true} :boolean]               ;; required true for :status :cancelled — the intentional-cancellation marker
-   [:cancel/reason {:optional true} [:maybe :keyword]]
+   [:rf.reply/cancel-reason {:optional true} [:maybe :keyword]]
    [:trace         {:optional true} :any]                    ;; data-only trace summary (wire slots elided via rf/elide-wire-value)
    [:meta          {:optional true} :any]])                  ;; effect-family data
 
@@ -3163,7 +3163,9 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
     [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool opt-in to stale delivery; app targets MUST NOT set it (enforced: needs the framework-private stale-authority capability)
 ```
 
-`:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:cancel/reason` on `:cancelled`; `:stale? true` + `:stale/reason` and no `:value` on `:stale`), the `:work/id` correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:work/status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
+`:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:rf.reply/cancel-reason` on `:cancelled`; `:stale? true` + `:rf.reply/stale-reason` and no `:value` on `:stale`), the work-identity correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:rf.reply/work-status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
+
+**Cross-record work-identity spelling (rf2-l7s7b7).** The one work-identity fact is deliberately spelled two ways across the record↔reply boundary: bare `:work/id` (and `:work/kind`) on the DURABLE `WorkLedger` row, the runtime verification payload, and the entry's `:current-work`; single-rooted `:rf.reply/work-id` (and `:rf.reply/work-kind`) on the TRANSIENT reply envelope + its trace tags. A ledger row is a durable, queryable status record; a reply is a transient causal envelope — the same fact living in two layers, exactly as a resource's decoded result is `:value` on the reply and `:data` on the durable entry ([016 §The uniform reply envelope](016-Resources.md#the-uniform-reply-envelope-and-the-canonical-reply-map)). The reply's `:correlation` slot spells the resource cache key `:rf.reply/resource-key` (bare `:resource/key` remains the STRUCTURAL runtime-db carrier). The carried/current stale-suppression GATES nested under `:rf.reply/carried` / `:rf.reply/current` keep the bare `:work/id` spelling as plain correlation data.
 
 <a id="rfelision-registry"></a>
 
