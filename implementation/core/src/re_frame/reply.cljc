@@ -148,25 +148,59 @@
 ;; The `:rf.error/id` ↔ `:rf.error/kind` pair stays in lockstep by
 ;; construction. `:where` names the user-facing surface (`:rf/reply-to`).
 
-(defn- reply-category->error-id
-  "Map a reply-specific `:rf.reply/<suffix>` category to its canonical
-  `:rf.error/reply-<suffix>` Spec 009 discriminator. Keeps the `:rf.error/id`
-  in the framework's `:rf.error/*` namespace (so the `[:rf.error/<id>]` grep
-  token + conformance predicates apply) while the original category survives
-  unchanged in `:rf.error/kind`."
-  [category]
-  (keyword "rf.error" (str "reply-" (name category))))
+(def ^:private reply-category->error-id
+  "The CLOSED literal `:rf.reply/<category>` → `:rf.error/reply-<category>`
+  table — the five mintable reply error-ids, each spelled as a GREPPABLE
+  literal adjacent to the construction site so `rg :rf.error/reply-` hits the
+  SOURCE (not only the Spec 009 catalogue), and the member set is pinned
+  CLOSED. Every reply throw's canonical `:rf.error/id` is a value here; the
+  five keys are exactly the five `:rf.error/reply-*` rows in
+  `spec/009-Instrumentation.md` §Error event catalogue — the Conventions
+  co-edit invariant (a mintable id with no catalogue row, or a throw whose
+  category is absent from this table, is a contract bug, not a deferred
+  follow-up). Keep the two in lockstep.
+
+  Replaces the former dynamic `(keyword \"rf.error\" (str \"reply-\" (name
+  category)))` constructor: that minted the same ids but they were
+  grep-INVISIBLE in source (the docstring cited greppability the construction
+  itself defeated) AND the mintable set was open (any `:rf.reply/*` category
+  produced an id with no catalogue row). A map is callable, so the single
+  call site reads unchanged; the fail-closed guard in `reply-error` turns an
+  unregistered category into a loud framework error rather than a silently
+  uncatalogued `:rf.error/id`.
+
+  NOTE `:rf.reply/correlation-mismatch` is NOT a member — it is a
+  `:stale/reason` VALUE on a (non-throwing) stale reply, never an
+  `:rf.error/id`; only the five throw categories are catalogued here."
+  {:rf.reply/invalid-target              :rf.error/reply-invalid-target
+   :rf.reply/non-data-target             :rf.error/reply-non-data-target
+   :rf.reply/non-map-reply               :rf.error/reply-non-map-reply
+   :rf.reply/unauthorized-stale-delivery :rf.error/reply-unauthorized-stale-delivery
+   :rf.reply/unknown-delivery            :rf.error/reply-unknown-delivery})
 
 (defn- reply-error
   "Build the canonical reply thrown-error `ex-info`. `category`
   is the `:rf.reply/*` discriminator: it lands in `:rf.error/kind` (the
-  preserved reply-specific slot), and its `:rf.error/reply-*` projection lands
-  in `:rf.error/id` (the canonical Spec 009 slot). `reason` is the human
-  sentence; `extras` merge on top."
+  preserved reply-specific slot), and its `:rf.error/reply-*` projection —
+  looked up in the closed literal `reply-category->error-id` table — lands in
+  `:rf.error/id` (the canonical Spec 009 slot). `reason` is the human
+  sentence; `extras` merge on top.
+
+  FAILS CLOSED on an unregistered `category`: a reply throw whose category is
+  absent from `reply-category->error-id` (a new throw added without its
+  catalogue row + table entry) raises a loud framework error rather than
+  minting an uncatalogued `:rf.error/id` — the closed-member-set invariant."
   ([category reason] (reply-error category reason nil))
   ([category reason extras]
-   (error/thrown-ex-info (reply-category->error-id category) :rf/reply-to reason
-                         {:extra (merge {:rf.error/kind category} extras)})))
+   (let [error-id (or (reply-category->error-id category)
+                      (throw (ex-info
+                               (str "re-frame.reply: no catalogued :rf.error/id for reply "
+                                    "category " category " — add it to the closed "
+                                    "reply-category->error-id table AND spec/009-Instrumentation.md "
+                                    "§Error event catalogue (the co-edit invariant).")
+                               {:category category})))]
+     (error/thrown-ex-info error-id :rf/reply-to reason
+                           {:extra (merge {:rf.error/kind category} extras)}))))
 
 (defn normalize-target
   "Normalize a reply target to the canonical descriptor map.
