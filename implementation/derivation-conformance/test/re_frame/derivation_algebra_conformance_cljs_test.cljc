@@ -110,15 +110,18 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             ;; EP-0015 / EP-0017 redaction conformance arms (rf2-zt5j96 /
-            ;; rf2-iormgq) — the in-tree egress primitives the umbrella egress
-            ;; arms compose: `re-frame.identity` mints the stable opaque
-            ;; scoped-key handle (the CEDN-1 canonical-bytes hash), and
-            ;; `re-frame.privacy` carries the `:rf/redacted` sentinel
-            ;; `rf/elide-wire-value` writes. These are `implementation/`-resident
-            ;; (NOT a `tools/` reach), so the cross-family conformance surface
-            ;; proves the egress LAW over the REAL composer output without
-            ;; importing the named first-consumer Xray (bundle isolation).
-            [re-frame.identity :as identity]
+            ;; rf2-iormgq): the OFF-BOX graph-egress projection is owned by the
+            ;; bundle-isolated core tooling ns `re-frame.derivation.egress`
+            ;; (rf2-mm3y49) — the ONE algorithm the named first-consumer Xray's
+            ;; `redact-graph-for-egress` ALSO delegates to. This suite tests
+            ;; that owner DIRECTLY over the REAL composer output, so the
+            ;; cross-family egress LAW and the Xray call site can never drift.
+            ;; `re-frame.privacy` carries the `:rf/redacted` sentinel the
+            ;; fail-closed arms assert. All `implementation/`-resident (NOT a
+            ;; `tools/` reach — the dependency arrow flows conformance →
+            ;; implementation, never conformance → tools; bundle isolation
+            ;; preserved).
+            [re-frame.derivation.egress :as egress]
             [re-frame.privacy :as privacy]
             ;; EP-0025: the derived-output sensitivity INHERITANCE conformance
             ;; (§H) is removed — classification no longer propagates input →
@@ -1177,284 +1180,29 @@
 ;; derived value leaving through an identity-embedded graph position, nor a
 ;; projection that drops graph connectivity. These arms close that gap.
 ;;
-;; ## Where the egress boundary lives, and why this surface re-composes it
+;; ## Where the egress boundary lives, and why this suite tests the owner
 ;;
-;; The graph-level egress CALL SITE is BORN in the named first consumer Xray
-;; (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`)
-;; — a `tools/` artefact this cross-family conformance surface MUST NOT
-;; `:require` (tools/README.md bundle isolation: the dependency arrow flows
-;; conformance → implementation, never conformance → tools). But that call
-;; site is built ENTIRELY from `implementation/`-resident primitives:
-;; `rf/elide-wire-value` (the single shared per-frame fail-closed value
-;; walker, EP-0015 §11) for value-bearing node fields, and
-;; `identity/canonical-bytes` (the CEDN-1 canonical token, EP-0012) hashed
-;; into a stable opaque handle for the identity-embedded scoped key the
-;; value-path walk is structurally blind to. So these arms re-compose the
-;; SAME egress projection from those in-tree primitives and run it over the
-;; REAL composer output (`graph/live-derivation-graph` over contributors that
-;; return the realized sensitive shapes) — proving the LAW holds against the
-;; actual assembled graph, with no tool reach. `egress-project-graph` below
-;; is the conformance surface's faithful mirror of the Xray call site's
-;; semantics; if the law it asserts ever diverges from the tool, the Xray
-;; redaction suite (`derivation-graph-redaction-cljs-test`) is the per-tool
-;; pin and this is the cross-family pin — two independent witnesses to one
-;; law.
+;; The graph egress redaction ALGORITHM is OWNED by the bundle-isolated core
+;; tooling ns `re-frame.derivation.egress/project-graph` (rf2-mm3y49). It was
+;; previously duplicated as this suite's own in-tree mirror AND the named
+;; first-consumer Xray call site
+;; (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`),
+;; which drifted; both now DELEGATE to the one core owner. This suite tests
+;; that owner DIRECTLY (`egress/project-graph`) — NOT the Xray consumer, a
+;; `tools/` artefact this cross-family conformance surface MUST NOT `:require`
+;; (tools/README.md bundle isolation: the dependency arrow flows conformance →
+;; implementation, never conformance → tools). Because the owner lives in
+;; `implementation/core` and is built entirely from `implementation/`-resident
+;; primitives (`elide-wire-value` value walker + `canonical-bytes` opaque
+;; handle), the suite reaches the SAME algorithm Xray runs, with no tool
+;; reach. These arms run it over the REAL composer output
+;; (`graph/live-derivation-graph` over contributors that return the realized
+;; sensitive shapes) — proving the LAW holds against the actual assembled
+;; graph. The Xray redaction suite
+;; (`derivation-graph-redaction-cljs-test`) keeps FOCUSED consumer/wiring
+;; pins over the same owner; this is the cross-family pin — two witnesses to
+;; one shared algorithm.
 ;; ===========================================================================
-
-;; ---- the in-tree egress projection (mirrors the Xray call site) ----------
-
-(defn- already-projected-handle?
-  "True when `v` is ALREADY an egress-projected handle — an opaque
-  `[:rf.resource/opaque <digest>]` token or the `:rf/redacted` fail-closed
-  sentinel. Re-projecting such a value MUST be the identity (idempotence):
-  the conformance mirror models the SAME forwarder-pipeline contract the Xray
-  call site does — a value may egress more than once, and hashing an
-  already-projected handle would mint a NEW handle and silently change the
-  live node identity across the boundary."
-  [v]
-  (or (= v privacy/redacted-sentinel)
-      (and (vector? v)
-           (= 2 (count v))
-           (= :rf.resource/opaque (nth v 0)))))
-
-(defn- opaque-scoped-key-handle
-  "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
-  component — the `implementation/`-resident analogue of the Xray
-  `opaque-handle`. Deterministic from the value (same value ⇒ same handle,
-  so connectivity survives) but IRREVERSIBLE: a HASH of the value's CEDN-1
-  canonical token (`identity/canonical-bytes`), never the token itself.
-  FAILS CLOSED to the `:rf/redacted` sentinel for any value outside the
-  CEDN-1 identity domain or on any error — never host-stringify a secret
-  onto the wire. IDEMPOTENT: an already-projected `[:rf.resource/opaque …]`
-  handle / `:rf/redacted` sentinel is returned UNCHANGED (hashing it again
-  would mint a fresh, DIFFERENT handle on a second egress pass)."
-  [v]
-  (if (already-projected-handle? v)
-    v
-    (try
-      (let [token  (identity/canonical-bytes v)
-            digest #?(:clj  (Integer/toHexString (hash token))
-                      :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
-        [:rf.resource/opaque digest])
-      (catch #?(:clj Throwable :cljs :default) _
-        privacy/redacted-sentinel))))
-
-(defn- scoped-resource-key?
-  "True when `v` is a live resource SCOPED KEY — a 3-tuple
-  `[cache-scope resource-id canonical-params]` (the resource's concrete live
-  fact identity, Derivations §Fact identity): the MIDDLE element is the
-  registration `resource-id` keyword and the LAST is the canonical-params
-  MAP. A static resource node's `:id` is a bare keyword (not this shape), so
-  only LIVE resource identities match; an already-projected scoped key keeps
-  the shape, so re-projection is well-defined."
-  [v]
-  (and (vector? v)
-       (= 3 (count v))
-       (keyword? (nth v 1))
-       (map? (nth v 2))))
-
-(defn- project-scoped-key
-  "Project a live resource scoped key `[scope resource-id params]` into its
-  egress form `[<scope-handle> resource-id <params-handle>]` — the scope and
-  params replaced by stable opaque handles, the registration `resource-id`
-  PRESERVED (a tool still sees WHICH resource). Idempotent."
-  [[scope resource-id params]]
-  [(opaque-scoped-key-handle scope) resource-id (opaque-scoped-key-handle params)])
-
-(defn- project-identity-in-path
-  "Replace any live resource scoped key embedded in `path` (e.g. the
-  `:output` runtime path `[:runtime [:rf.runtime/resources :entries
-  <scoped-key>]]`) with its projected form, so the secret-bearing scoped key
-  never egresses through a structure position."
-  [path]
-  (if (sequential? path)
-    (mapv (fn [el]
-            (cond
-              (scoped-resource-key? el) (project-scoped-key el)
-              (sequential? el)          (project-identity-in-path el)
-              :else                     el))
-          path)
-    path))
-
-(defn- project-resource-inputs
-  "Project a live resource node's realized `:inputs`
-  `[[:scope <scope>] [:param <params>]]` — opaque the `[:scope …]` /
-  `[:param …]` payloads (the realized scope + params edges carry the same
-  sensitive identity). Other input shapes ride through untouched. Idempotent:
-  the payload runs through `opaque-scoped-key-handle`, which returns an
-  already-projected handle / `:rf/redacted` UNCHANGED, so re-projecting an
-  already-projected inputs vector is the identity (rf2-g197ep — this is the
-  one input position projected unconditionally rather than gated by the
-  scoped-key shape, so its idempotence MUST come from the handle minter)."
-  [inputs]
-  (if (sequential? inputs)
-    (mapv (fn [in]
-            (if (and (vector? in) (= 2 (count in)) (#{:scope :param} (first in)))
-              [(first in) (opaque-scoped-key-handle (second in))]
-              in))
-          inputs)
-    inputs))
-
-(defn- project-work-id
-  "Project the scoped key embedded in a resource work-id
-  `[:rf.work/resource <scoped-key> <generation>]` — a work-id of another
-  shape (e.g. a non-resource family's work-id) rides unchanged. Mirrors
-  `re-frame.resources.tooling/project-work-id` (rf2-0t0l3w); re-composed here
-  from the in-tree primitives per this suite's egress-mirror contract
-  (rf2-tmyfkn). Idempotent by delegation: `project-scoped-key` /
-  `opaque-scoped-key-handle` already return an already-projected handle
-  unchanged, regardless of whether the embedded key still LOOKS like a raw
-  `scoped-resource-key?` shape (an opaqued key's tail is a vector, not a
-  map — see `opaque-scoped-key-handle`'s docstring)."
-  [work-id]
-  (if (and (vector? work-id) (= :rf.work/resource (first work-id)))
-    (update work-id 1 project-scoped-key)
-    work-id))
-
-(defn- project-host-transient
-  "Project the work-id embedded in a `:host-transient`
-  `[[:rf.http/in-flight <work-id>]]` in-flight handle address (rf2-tmyfkn) —
-  the abortable-handle address names the SAME work-id the work-ledger link
-  carries, so it must not leak the raw scoped key either. Other shapes ride
-  through untouched."
-  [host-transient]
-  (if (sequential? host-transient)
-    (mapv (fn [entry]
-            (if (and (vector? entry) (= 2 (count entry)) (= :rf.http/in-flight (first entry)))
-              (update entry 1 project-work-id)
-              entry))
-          host-transient)
-    host-transient))
-
-(defn- project-resource-node-identity
-  "Project ONE live resource node's secret-bearing IDENTITY fields — the
-  positions the value-path `rf/elide-wire-value` walk is structurally blind
-  to: `:id` (the scoped key), `:output` (the scoped key embedded in the
-  runtime path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads,
-  `:work-ledger :record :resource/key`, the resource work-id embedded in
-  BOTH `:work-ledger :work/id` and `:work-ledger :record :work/id` (rf2-
-  tmyfkn — a THIRD identity position, independent of `:resource/key`), and
-  the `:host-transient` in-flight handle address (which names that SAME
-  work-id). Structure / classification fields are untouched."
-  [node]
-  (cond-> node
-    (scoped-resource-key? (:id node))
-    (update :id project-scoped-key)
-
-    (contains? node :output)
-    (update :output project-identity-in-path)
-
-    (contains? node :inputs)
-    (update :inputs project-resource-inputs)
-
-    (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
-    (update-in [:work-ledger :record :resource/key] project-scoped-key)
-
-    (contains? (:work-ledger node) :work/id)
-    (update-in [:work-ledger :work/id] project-work-id)
-
-    (contains? (get-in node [:work-ledger :record]) :work/id)
-    (update-in [:work-ledger :record :work/id] project-work-id)
-
-    (contains? node :host-transient)
-    (update :host-transient project-host-transient)))
-
-(defn- resource-node-key?
-  "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
-  whose scoped key embeds a secret-bearing scope/params. A static resource
-  node key `[:resource <bare-keyword>]` does NOT match."
-  [node-key]
-  (and (vector? node-key)
-       (= :resource (first node-key))
-       (scoped-resource-key? (second node-key))))
-
-(defn- project-resource-node-key
-  "Project a live resource node KEY `[:resource <scoped-key>]` to
-  `[:resource <projected-scoped-key>]`; other node keys ride through."
-  [node-key]
-  (if (resource-node-key? node-key)
-    [:resource (project-scoped-key (second node-key))]
-    node-key))
-
-(def ^:private value-bearing-node-keys
-  "The value-bearing summary fields the egress walk runs through
-  `rf/elide-wire-value` under the frame's policy (Xray's
-  `value-bearing-node-keys`). Identity-embedded positions are handled by the
-  scoped-key projection, not this value walk."
-  [:value :params :query :state])
-
-(def ^:private dead-egress-frame-sentinel
-  "A frame id that can NEVER resolve to a live frame — the conformance
-  mirror's fail-closed stamp for a nil / unreachable egress frame, matching
-  the Xray helper's `dead-frame-sentinel`. Stamped as the `:frame` opt so
-  `rf/elide-wire-value` takes its unresolvable-frame branch (whole value ⇒
-  `:rf/redacted`) instead of resolving the ambient bound frame."
-  ::no-egress-frame)
-
-(defn- egress-project-graph
-  "Project a `DerivationGraph` through `frame-id`'s egress policy for the
-  off-box wire boundary — the conformance surface's faithful mirror of the
-  Xray `redact-graph-for-egress` call site, built from `implementation/`
-  primitives only (no tools reach).
-
-    - value-bearing node fields → `rf/elide-wire-value` under the named
-      frame's own policy (passed as the `:frame` opt so it applies THAT
-      frame's classification regardless of any ambient scope);
-    - FAIL-CLOSED on a nil / UNREACHABLE frame — `rf/elide-wire-value`
-      resolves its governing frame as `(or (:frame opts)
-      (frame/resolve-current-frame))`, so a nil `:frame` opt falls through to
-      the AMBIENT dynamically-bound frame and would ship the value RAW under
-      its (here `:rf/default`, empty) policy. A NON-nil but unreachable
-      `:frame` opt instead takes the unresolvable-frame fail-closed branch
-      (rf2-t55hxg.18: a frame-id alone is not policy-bearing — it must
-      resolve to a live frame via `frame/frame`, else the walker fails closed
-      to `:rf/redacted`). So when `frame-id` is nil or names no LIVE frame we
-      stamp a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id that can
-      never resolve — so the walker takes its dead-frame fail-closed branch
-      rather than resolving an AMBIENT frame (which, unlike Xray's
-      `:ambient-frame nil` harness, this cross-family fixture binds to
-      `:rf/default`). A nil / absent `:frame` would let the frameless walk
-      resolve to that ambient frame and ship the value RAW (rf2-udkj69);
-    - identity-embedded scoped keys (node KEY, `:id`, `:output`, `:inputs`,
-      `:work-ledger :record :resource/key`, AND every edge endpoint) →
-      stable opaque handles, the SAME projection applied consistently so the
-      remap keeps connectivity.
-
-  `:mode` / `:frame` unchanged; STRUCTURE preserved (a redacted value/param
-  is still an edge; the node is still present + classified)."
-  [graph frame-id]
-  ;; Carry a NON-nil `:frame` opt so `rf/elide-wire-value` never falls through
-  ;; to the ambient frame. A LIVE frame applies its own policy; a nil /
-  ;; unreachable frame stamps the dead-frame sentinel so the walker takes its
-  ;; unresolvable-frame fail-closed branch (redact whole) — NEVER resolving
-  ;; the ambient `:rf/default` this fixture binds (rf2-udkj69).
-  (let [reachable? (and (some? frame-id) (contains? (rf/frame-ids) frame-id))
-        walk-opts  {:frame (if reachable? frame-id dead-egress-frame-sentinel)}
-        redact-node
-        (fn [node]
-          (-> (reduce
-                (fn [n k]
-                  (if (contains? n k)
-                    (assoc n k (rf/elide-wire-value (get n k) walk-opts))
-                    n))
-                node
-                value-bearing-node-keys)
-              project-resource-node-identity))]
-    (-> graph
-        (update :nodes (fn [nodes]
-                         (into {}
-                               (map (fn [[k node]]
-                                      [(project-resource-node-key k)
-                                       (redact-node node)]))
-                               nodes)))
-        (update :edges (fn [edges]
-                         (mapv (fn [edge]
-                                 (cond-> edge
-                                   (resource-node-key? (:from edge))
-                                   (update :from project-resource-node-key)
-                                   (resource-node-key? (:to edge))
-                                   (update :to project-resource-node-key)))
-                               (or edges [])))))))
 
 ;; ---- (g) resource identity egress redaction (rf2-zt5j96) -----------------
 ;;
@@ -1565,7 +1313,7 @@
   ;; SAME stable opaque scoped key, and edges still connect.
   (rf/reg-frame egress-frame {:doc "off-box egress conformance frame"})
   (let [raw      (graph/live-derivation-graph egress-frame (egress-live-contributors))
-        redacted (egress-project-graph raw egress-frame)]
+        redacted (egress/project-graph raw egress-frame)]
 
     (testing "PRECONDITION — the composer assembled the live sensitive resource
               node + its route-owned activation edge over the concrete scoped
@@ -1692,7 +1440,7 @@
     (testing "egress under an UNKNOWN frame fails closed: the value-bearing
               field is redacted to :rf/redacted (no reachable policy ⇒ no raw
               ship), and the identity scoped key is opaqued — NO secret survives"
-      (let [redacted (egress-project-graph raw :app/does-not-exist)
+      (let [redacted (egress/project-graph raw :app/does-not-exist)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
         (is (= privacy/redacted-sentinel (:value sub))
             "the whole value-bearing field is redacted under no reachable policy")
@@ -1709,7 +1457,7 @@
         (is (some? (frame/resolve-current-frame))
             "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
              walk WOULD resolve it (the borrow this arm forbids)")
-        (let [redacted (egress-project-graph raw nil)
+        (let [redacted (egress/project-graph raw nil)
               sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
           (is (= privacy/redacted-sentinel (:value sub))
               "nil frame ⇒ the whole value-bearing field is redacted, NOT shipped
@@ -1718,7 +1466,7 @@
               "no raw secret survives a nil-frame egress under an ambient binding"))))
     (testing "egress under the KNOWN frame redacts the frame-declared sensitive
               value path while keeping the structure"
-      (let [redacted (egress-project-graph raw egress-frame)
+      (let [redacted (egress/project-graph raw egress-frame)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
         (is (= privacy/redacted-sentinel (get-in sub [:value :cart :items]))
             "the frame-declared sensitive [:cart :items] leaf is redacted")
@@ -1743,8 +1491,8 @@
   ;; that catches it; it FAILS against the pre-fix unconditional re-hash.
   (rf/reg-frame egress-frame {})
   (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
-        once  (egress-project-graph raw egress-frame)
-        twice (egress-project-graph once egress-frame)
+        once  (egress/project-graph raw egress-frame)
+        twice (egress/project-graph once egress-frame)
         node1 (-> once :nodes vals first)
         node2 (-> twice :nodes vals first)]
     (is (not (contains-secret? twice)) "still no secret after double projection")
@@ -1784,7 +1532,7 @@
 ;; (g+) THE REAL RESOURCE-CACHE GRAPH EGRESS PATH (rf2-uh2clr).
 ;;
 ;; Every (g) arm above proves the UMBRELLA egress-projection LAW
-;; (`egress-project-graph`, this suite's in-tree Xray-call-site mirror)
+;; (`egress/project-graph`, the core-owned algorithm Xray also delegates to)
 ;; against a hand-built SYNTHETIC contributor (`egress-live-contributors`) —
 ;; correct for pinning the projection HELPER in isolation, but it never
 ;; drives the PRODUCTION wiring: `re-frame.resources.tooling/
