@@ -40,31 +40,35 @@
   (is (some? (defn-named 'validate-registered))
       "runtime.cljs must define `validate-registered` — the generic registry-validation helper (rf2-3bu3d.3)."))
 
-(deftest consequence-surfaces-the-named-slots
+(deftest consequence-delegates-to-tested-pure-projection
   (let [form (defn-named 'dispatch-consequence!)]
     (is (some? form))
     (when form
-      ;; The consequence projection lives in `consequence-from-summary`,
-      ;; which dispatch-consequence! calls. Check the projection helper
-      ;; carries the named slots so a future refactor can't drop them.
+      ;; The consequence projection (`:db-changed?` / `:changed-paths` /
+      ;; `:effects-fired` / `:no-op?`) now lives in the SHIPPED pure helper
+      ;; `re-frame2-pair.pure/consequence-from-summary`, exercised directly by
+      ;; the CLJS node-test (rf2-etsj8p). `consequence-from-summary` here is
+      ;; the thin runtime wrapper that delegates to it — pin the delegation so
+      ;; the runtime keeps calling the tested code.
       (let [proj (defn-named 'consequence-from-summary)]
-        (is (some? proj) "consequence-from-summary projects the consequence shape")
-        (doseq [slot [:db-changed? :changed-paths :effects-fired :no-op?]]
-          (is (form-contains? #(= slot %) proj)
-              (str "the consequence projection MUST carry " slot
-                   " so a no-op is visible (rf2-3bu3d.2).")))))))
+        (is (some? proj) "consequence-from-summary wrapper is present")
+        (is (form-contains? #(= 'pure/consequence-from-summary %) proj)
+            "consequence-from-summary MUST delegate to the tested pure projection (rf2-etsj8p).")))))
 
 (deftest consequence-echoes-resolved-event
   (let [form (defn-named 'dispatch-consequence!)]
     (is (form-contains? #(= :resolved %) form)
         "dispatch-consequence! MUST echo the parsed event under :resolved (rf2-3bu3d.3).")))
 
-(deftest validate-returns-unknown-id-with-nearest
+(deftest validate-delegates-to-tested-pure-core
   (let [form (defn-named 'validate-registered)]
-    (is (form-contains? #(= :unknown-id %) form)
-        "validate-registered MUST return :reason :unknown-id on a miss (no silent swallow).")
-    (is (form-contains? #(= :nearest %) form)
-        "validate-registered MUST carry :nearest matches so the agent gets a corrective hint.")))
+    ;; The `:unknown-id` / `:nearest` envelope shape is produced by the SHIPPED
+    ;; pure helper `re-frame2-pair.pure/validate-against-known` (node-tested,
+    ;; rf2-etsj8p); `validate-registered` reads the LIVE registry and delegates
+    ;; the decision. Pin the delegation so the runtime keeps calling the tested
+    ;; code — the no-silent-swallow behaviour is asserted in the node-test.
+    (is (form-contains? #(= 'pure/validate-against-known %) form)
+        "validate-registered MUST delegate to the tested pure validation core (rf2-etsj8p).")))
 
 (deftest nearest-ids-helper-present
   (is (some? (defn-named 'nearest-ids))
