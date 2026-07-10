@@ -11,7 +11,7 @@ Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** 
 - Picking the substrate-adapter artefact
 - Pin the migration corpus before reading it
 - Discovering the current VERSION
-- The pay-as-you-go artefact split (M-27 through M-32)
+- The pay-as-you-go artefact split — the principle
 - Edge cases
 - The optimized / release compile gate (`-Xss` for the StackOverflow class)
 
@@ -277,24 +277,13 @@ Error building classpath. Local lib day8/re-frame2-reagent not found: ...
 
 The real done-signal is therefore **CI green on a clean checkout**, not a green local build — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build). Record the final clean-runner-resolvable coords in the migration report, exactly as the chosen `<v2-version>` / route is recorded above.
 
-## The pay-as-you-go artefact split (M-27 through M-32)
+## The pay-as-you-go artefact split — the principle
 
-re-frame2 splits seven per-feature artefacts out of core. **Add them only when the codebase actually uses the feature.** Do not add them defensively.
+re-frame2 splits seven per-feature artefacts out of core (`-schemas`, `-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`). **The rule is one line: add an artefact only when the codebase actually uses that feature. Never add one defensively.**
 
-| Artefact | Add when codebase uses... |
-|---|---|
-| `day8/re-frame2-schemas` | `reg-app-schema`, or `:schema` keys in registration metadata (incl. `:schema` on `reg-event-*` for event-payload schemas — the key is `:schema` post-M-54, was `:spec` pre-M-54) (M-27) |
-| `day8/re-frame2-machines` | `reg-machine` (M-28) |
-| `day8/re-frame2-routing` | `reg-route` or dispatches `:rf.route/*` events (M-29) |
-| `day8/re-frame2-flows` | `reg-flow` (M-30) — also where v1's `on-changes` interceptor migrates to. M-30 also carries the v1→v2 flow-map conversion (Type-B `:live?` re-home) — see [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion) |
-| `day8/re-frame2-http` | `[:rf.http/managed ...]` as an `:fx` entry, or `:rf.http/managed` as a child machine (M-31) |
-| `day8/re-frame2-ssr` | `render-to-string` server-side (M-32) |
-| `day8/re-frame2-epoch` | `epoch-history`, `restore-epoch!`, or transitively via `re-frame2-pair` (no M-rule; pull only if directly used) |
-| `[re-frame.http.test-support]` (test-ns require, not a Maven dep) | managed-HTTP canned-stub fxs (`:rf.http/managed-canned-success` / `-canned-failure`, M-31a) or the stub macros (`with-managed-request-stubs` family, M-65) appear in test code — add the require or the `rf/<stub>` re-exports raise `:rf.error/http-artefact-missing` |
+The full trigger→rule→dependency matrix — *which* v1 surface forces *which* artefact (M-27 through M-33, plus the HTTP test-support require, M-31a / M-65) — lives in **one place** and is not restated here: [`breaking-changes.md` §Required (M-rules) by trigger surface](breaking-changes.md#required-m-rules-by-trigger-surface), rows M-27–M-33. Read it there when you need the per-surface mapping. The per-artefact `:require` + load-hook + missing-artefact behavior is in [`auto-cross-cutting.md` §Per-feature artefact adds](auto-cross-cutting.md#per-feature-artefact-adds-m-27-through-m-33).
 
-In practice: most v1 codebases use **none** of these, because none of these features exist in v1. State machines / flows / managed-HTTP / SSR are v2 additions. v1 codebases doing equivalent things by hand stay doing them by hand post-migration; you do **not** rewrite those into the new artefacts as part of the required migration. (Adopting them is opt-in; see the `O-N` rules.)
-
-The one exception is `-flows` — v1's `on-changes` interceptor (one of the removed five, per M-21) migrates to `reg-flow`, so if the codebase used `on-changes`, add `day8/re-frame2-flows` at the same time you apply M-21.
+In practice most v1 codebases add **none** of these: state machines, flows, managed-HTTP, and SSR are v2 additions, so a v1 app has no trigger surface for them. v1 code doing equivalent things by hand stays hand-rolled post-migration; you do **not** rewrite it into the new artefacts as part of the required migration (adopting them is opt-in — see the `O-N` rules). The one exception is `-flows`: v1's `on-changes` interceptor (one of the five removed by M-21) migrates to `reg-flow`, so a codebase that used `on-changes` adds `day8/re-frame2-flows` when it applies M-21 (M-30 also carries the v1→v2 flow-map conversion — the Type-B `:live?` re-home — see [`breaking-changes.md` §M-30](breaking-changes.md#m-30-also-carries-the-flow-map-conversion)).
 
 ## Edge cases
 
