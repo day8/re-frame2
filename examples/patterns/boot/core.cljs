@@ -21,6 +21,11 @@
   (:require [clojure.string :as str]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
+            ;; `registrar/handler` looks up the framework's canonical
+            ;; canned-success fx handler so the demo stub can DELEGATE to it
+            ;; (with an `:after-ms` delay) instead of hand-rolling the latency
+            ;; plumbing.
+            [re-frame.registrar :as registrar]
             ;; The adapter `rf/init!` needs.
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; Managed HTTP ships in its own artefact; this require
@@ -77,45 +82,42 @@
       (str/includes? u "/user.json")   demo-user
       :else                            {})))
 
-(rf/reg-event :boot.demo/schedule-reply
-  {:doc "Internal plumbing, fired by :boot.demo/http-stub. It schedules
-         the reply with `:dispatch-later` rather than a raw timeout, so
-         framework time controls (time-travel, the `:dispatch-later`
-         override seam) cover the fake latency too. Not for direct use."}
-  (fn handler-boot-demo-schedule-reply [_ [_ args-map payload]]
-    {:fx [[:dispatch-later
-           {:ms    60
-            :event [:boot.demo/deliver-reply args-map payload]}]]}))
-
-(rf/reg-event :boot.demo/deliver-reply
-  {:doc "The other half of the fake latency — fired when the
-         `:dispatch-later` from :boot.demo/schedule-reply comes due. It
-         hands the per-URL payload to the framework's
-         `:rf.http/managed-canned-success`, which completes the request."}
-  (fn handler-boot-demo-deliver-reply [_ [_ args-map payload]]
-    {:fx [[:rf.http/managed-canned-success (assoc args-map :value payload)]]}))
+;; The fake backend's latency, in milliseconds. The pause is deliberate, not
+;; laziness: it's what lets you actually *watch* the boot-progress screen step
+;; through its phases. Without it the whole boot resolves in a single drain and
+;; you'd blink straight to the `:ready` screen.
+(def ^:private reply-delay-ms 60)
 
 (rf/reg-fx :boot.demo/http-stub
   {:doc       "Our stand-in for `:rf.http/managed`: match the URL by
-               substring, return the matching canned payload, and the
-               example needs no backend at all.
+               substring to pick a canned payload, then DELEGATE to the
+               framework's own `:rf.http/managed-canned-success` — handing
+               it the payload as `:value` and `reply-delay-ms` as
+               `:after-ms`. With no server behind the example, that's all it
+               takes to fake the backend.
 
-               The 60 ms delay is deliberate, not laziness. It dispatches
-               :boot.demo/schedule-reply so the reply rides `:dispatch-later`
-               instead of a raw `js/setTimeout` — which means framework time
-               controls (time-travel, the override seam) cover it for free.
-               And the pause is what lets you actually *watch* the
-               boot-progress screen step through its phases; without it the
-               whole boot resolves in one drain and you'd blink straight to
-               the `:ready` screen. The reply itself lands via the
-               framework's `:rf.http/managed-canned-success`."
+               The framework canned-success handler owns everything about
+               the delayed reply: `:after-ms` defers it via the
+               framework-native `:dispatch-later` (not a raw `js/setTimeout`),
+               so the fake latency is observable in the tape and
+               time-travel-safe — Tool-Pair time-travel and the
+               `:dispatch-later` override seam apply for free — and the reply
+               addresses the originating loader exactly as the immediate path
+               would. The demo owns only the URL→payload routing; the
+               transport plumbing is entirely the framework's."
    :platforms #{:server :client}}
   (fn fx-managed-boot-demo [frame-ctx args-map]
-    (let [url     (-> args-map :request :url)
-          payload (demo-payload-for-url url)
-          frame   (:frame frame-ctx)]
-      (rf/dispatch [:boot.demo/schedule-reply args-map payload]
-                   {:frame frame}))))
+    (let [url            (-> args-map :request :url)
+          payload        (demo-payload-for-url url)
+          canned-success (registrar/handler :fx :rf.http/managed-canned-success)]
+      ;; Delegate to the framework canned-success handler. Passing `frame-ctx`
+      ;; straight through preserves the `:frame` stamp and the originating
+      ;; `:event`, so the deferred reply is addressed to the loader that
+      ;; issued the GET — the handler's own `:after-ms` plumbing carries that
+      ;; origin across the `:dispatch-later` boundary.
+      (canned-success frame-ctx
+                      (assoc args-map :value    payload
+                                      :after-ms reply-delay-ms)))))
 
 ;; ============================================================================
 ;; MOUNT
