@@ -1,0 +1,67 @@
+{
+  "schema_version": "1",
+  "eval_kind": "behavioral",
+  "owner": "skills/re-frame2-pair-retro/SKILL.md",
+  "lock": "SKILL.md §Session-evidence contract",
+  "convention": "Behavioral eval for the pair-retro SESSION-EVIDENCE contract — a CORRECTNESS/attribution boundary (bound the retro to one causally-ordered session), distinct from the shared SECURITY behavioral evals (skills/shared/tests/evals/behavioral-evals.json: injection / redaction / edit-gate). This scores agent RUNTIME BEHAVIOUR — the tool-call sequence and the emitted text — against the fixture's §Expected / §Anti-expectation locks. Each eval is graded by score-session-evidence-eval.clj against a captured transcript (tool_calls[] + output). The agent-EXECUTION step (replay a fixture against a fresh skill session and capture the transcript) is manual/opt-in — no Claude-in-the-loop CI harness exists yet — but SCORING is automated: capture a transcript per the schema below and run `bb skills/re-frame2-pair-retro/evals/score-session-evidence-eval.clj <transcript.json>`. Repo-maintenance artifact; excluded from the npm package (see evals/README.md).",
+  "harness": {
+    "status": "opt-in / agent-execution-manual, scoring-automated",
+    "scorer": "skills/re-frame2-pair-retro/evals/score-session-evidence-eval.clj",
+    "gate": "The always-on structural guard is skills/shared/tests/retro_protocol_test.clj (it pins the contract prose in SKILL.md and runs this scorer's --self-test). Behaviour is not considered verified for a contract change until this eval has been replayed against a fresh session and scored, with the pass/fail artifact stored.",
+    "transcript_schema": {
+      "eval_id": "integer — matches one entry in evals[]",
+      "tool_calls": "array of {\"name\": string, \"args\": string} — the agent's tool-invocation sequence. Forbidden-tool-call predicates match against `name + \" \" + args`.",
+      "output": "string — the concatenation of ALL agent-emitted text (inline findings + any draft issue body + recap paraphrase)"
+    }
+  },
+  "scored_vs_manual": {
+    "note": "Every predicate below is machine-scored against a captured transcript. Clauses that stay HUMAN-REVIEW-ONLY (not deterministically checkable from the transcript schema) are listed so the scored/manual split is explicit.",
+    "manual_only": [
+      "eval 1 §Expected — that the causal binding is the RIGHT binding (the delayed result bound to the cart-dev-a call specifically) is human-reviewed; the scorer verifies only that a causal-ledger framing is present and that the two build-mixing regressions are absent.",
+      "eval 1 §Expected — that the app-authoring README edit and the code-review comment (as well as the CI job) are ALL excluded is human-reviewed; the scorer verifies that an exclusion is stated and that the invoice-export CI is not framed as this session's friction/cause.",
+      "eval 2 §Expected — that the clarifying question names BOTH candidate sessions is human-reviewed; the scorer verifies an ask-which-session framing is present and that no merge framing is emitted."
+    ]
+  },
+  "evals": [
+    {
+      "id": 1,
+      "name": "session-evidence-scoping",
+      "fixture": "fixtures/session-evidence-scoping.md",
+      "lock": "SKILL.md §Session-evidence contract (rules 2-5)",
+      "consuming_skills": ["re-frame2-pair-retro"],
+      "expectations": [
+        "Binds the delayed cart-dev-a result to its initiating call (causal ledger), not to arrival order.",
+        "Marks cart-dev-b's attach as superseding cart-dev-a's :no-runtime-connected; does not present the superseded state as current/final.",
+        "Excludes the interleaved invoice-export CI / code-review / app-authoring activity from the session scope.",
+        "Marks the never-returned tools/list probe as unknown/incomplete, not an inferred success or failure."
+      ],
+      "required_output_patterns": [
+        {"pattern": "(?i)causal ledger|initiating call|belongs to (its|the) (call|attach|build)|bound to (its|the) (call|attach|build)|attribut\\w+ to (the )?(cart-dev-a|earlier (call|attach))", "why": "must express the causal ledger — bind the delayed cart-dev-a result to its initiating call, not to arrival order (contract rule 2)."},
+        {"pattern": "(?i)supersed", "why": "must mark cart-dev-b's successful attach as superseding cart-dev-a's earlier :no-runtime-connected, not treat the two as one retry loop (contract rule 4)."},
+        {"pattern": "(?i)unknown|incomplete|still[- ]?running|never returned|unmatched", "why": "the never-returned tools/list probe must be marked unknown/incomplete, never inferred as success or failure (contract rule 5)."},
+        {"pattern": "(?i)exclud\\w+|out of scope|unrelated|not (this|the) session|another (job|worker|run)", "why": "must exclude the interleaved CI / worker / code-review / app-authoring noise from the session scope (contract rule 3)."}
+      ],
+      "forbidden_output_patterns": [
+        {"pattern": "(?i)(current|final|ended?|still)[^.\\n]{0,30}no-runtime-connected", "why": "cart-dev-a's :no-runtime-connected was superseded by cart-dev-b's attach; presenting it as the current/final tool state is the supersession regression (contract rule 4)."},
+        {"pattern": "(?i)cart-dev-b[^.\\n]{0,40}(regress|broke|went (red|down)|stopped working|failed after)", "why": "cart-dev-b was healthy; a delayed cart-dev-a result mis-bound by arrival order into a 'cart-dev-b regressed' claim is the causal-ledger regression (contract rules 2/4)."},
+        {"pattern": "(?i)invoice-export[^.\\n]{0,30}(is|was|as)\\s+(a |an |the )?(friction|regression|root cause)", "why": "the unrelated invoice-export CI job belongs to another worker run; counting it as this session's friction/root cause is the scope-bleed regression (contract rule 3)."}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "session-evidence-ambiguity-ask",
+      "fixture": "fixtures/session-evidence-scoping.md",
+      "lock": "SKILL.md §Session-evidence contract (rule 1)",
+      "consuming_skills": ["re-frame2-pair-retro"],
+      "expectations": [
+        "With two plausible session envelopes present, asks which session to review rather than merging them."
+      ],
+      "required_output_patterns": [
+        {"pattern": "(?i)which session|which of the two|which one[^.\\n]{0,30}(review|retro)|which pair session|clarif", "why": "two plausible envelopes are present; the retro must ask which session to review rather than merging them (contract rule 1)."}
+      ],
+      "forbidden_output_patterns": [
+        {"pattern": "(?i)(combin\\w+|merg\\w+)[^.\\n]{0,40}(session|friction|timeline|finding)", "why": "combining/merging the two plausible sessions into one friction list/timeline is exactly the failure the ask-when-ambiguous rule prevents (contract rule 1)."}
+      ]
+    }
+  ]
+}
