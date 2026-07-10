@@ -19,9 +19,10 @@
    *off* auto-open here (`:rf.xray/auto-open? false`) on purpose: the page
    should greet you with the actual app or the shell, not a debugger. When
    you're curious, Ctrl+Shift+C opens Xray over whichever surface you're on,
-   and a submit lets you watch the `:auth.login/submit` → `:rf.http/managed`
+   and a submit lets you watch the `:auth.login/submit-form` → `:rf.http/managed`
    → reply cascade roll across the Epoch / Trace / Side Effects panels — or,
-   on the bad-input and failure paths, light up the Issues ribbon.
+   on the bad-input path, the form's pre-submit validation catch it, and on the
+   failure path, the server error recorded on the machine.
 
    ## One adapter for everything
 

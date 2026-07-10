@@ -38,10 +38,10 @@
    framework's canned-success stub. So a submit isn't a mock — it's the real
    cascade, running end to end:
 
-       [:auth.login/flow [:auth.login/submit creds]]   (→ :submitting)
-         → machine `:issue-request` action
-             → [:rf.http/managed {…}]                  (a real fx)
-                 → canned-success reply                (Side Effects panel)
+       [:auth.login/submit-form]                       (validates the draft)
+         → [:rf.http/managed {… :sensitive? true}]     (a real fx)
+         → [:auth.login/flow [:auth.login/submit]]      (→ :submitting)
+             → canned-success reply                    (Side Effects panel)
                  → [:auth.login/flow [:auth.login/success …]]
                      → :authed
 
@@ -50,13 +50,14 @@
    `:success` variant, press Ctrl+Shift+C, and watch the whole thing light
    up like a pinball table.
 
-   Two variants deliberately set off Xray's Issues ribbon — because seeing
-   the framework *catch* a mistake is half the lesson:
-     - `:invalid-credentials` — the malformed `:submit` bounces off the
-       `Credentials` schema at the boundary; the handler never runs, and an
-       Issue is raised.
-     - `:auth-error` / `:locked-out` — a 401 failure cascade; the
-       `:rf.http/managed` request fires (Side Effects) and the
+   A couple of variants show the flow's unhappy paths — because seeing the
+   framework *catch* a mistake is half the lesson:
+     - `:invalid-credentials` — a bad draft (bad email + too-short password) is
+       caught by `submit-form`'s pre-submit `Credentials` validation; field
+       errors surface under each input and nothing is dispatched, so the machine
+       stays `:idle`.
+     - `:auth-error` / `:locked-out` — a 401 failure cascade; the machine is
+       driven into `:submitting` with a credential-free `:submit` signal and the
        `:auth.login/failure` follow-on records the error.
 
    One more thing worth noticing: every variant body below is plain data —
@@ -78,32 +79,36 @@
 ;; ---------------------------------------------------------------------------
 ;; The story-side submit — our way of triggering the full, Xray-rich pipeline run.
 ;;
-;; Recall what the machine does on submit: its `:issue-request` action fires
-;; a real `:rf.http/managed` request and pipes the reply back through
-;; `:auth.login/success` / `:auth.login/failure`. And recall the `:preset
-;; :story` frame redirects `:rf.http/managed` to the framework's
-;; canned-success stub (which just echoes the request's `:value` slot back
-;; as the payload).
+;; Recall how a login submits: `:auth.login/submit-form` validates the draft,
+;; fires the real `:rf.http/managed` request (with `:sensitive? true`), and
+;; nudges the machine with a credential-free `:submit` signal. The reply pipes
+;; back through `:auth.login/success` / `:auth.login/failure`. And recall the
+;; `:preset :story` frame redirects `:rf.http/managed` to the framework's
+;; canned-success stub (which just echoes the request's `:value` slot back as
+;; the payload).
 ;;
-;; Put those together and this event has almost nothing to do: it just
-;; dispatches the real `:auth.login/submit`. Same machine action, same real
-;; fx (right there in Xray's Side Effects panel), and the canned stub
-;; answers it — no app-side override needed. The reply `:value` happens to
-;; be nil (we sent none), but that's fine: the welcome banner keys off the
-;; `:auth/authenticated` tag, not the payload, so the flow still settles
-;; happily at `:authed`.
+;; So this driver walks the real form path: seed the draft (email via
+;; `:auth.login/edit-field`, password via the classified `:auth.login/edit-
+;; password`), then dispatch `:auth.login/submit-form`. Same real fx (right
+;; there in Xray's Side Effects panel), and the canned stub answers it — no
+;; app-side override needed. The reply `:value` happens to be nil (we sent
+;; none), but that's fine: the welcome banner keys off the `:auth/authenticated`
+;; tag, not the payload, so the flow still settles happily at `:authed`.
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-event :login.story/submit
-  {:doc "Story-shell driver for the auth-submit cascade. Dispatches the
-         real `:auth.login/submit` sub-event so the machine's
-         `:issue-request` action fires the real `:rf.http/managed` fx;
-         under the `:preset :story` frame the canned-success stub
-         resolves it and the `:auth.login/success` follow-on lands the
-         flow at `:authed`. The whole chain shows in Xray's Epoch /
-         Trace / Side Effects panels."}
+  {:doc "Story-shell driver for the auth-submit cascade. Runs the REAL form
+         path: seed the draft, then dispatch `:auth.login/submit-form`, which
+         validates the draft, fires the (sensitive) `:rf.http/managed` request,
+         and nudges the machine with a credential-free `:submit` signal. Under
+         the `:preset :story` frame the canned-success stub resolves it and the
+         `:auth.login/success` follow-on lands the flow at `:authed`. The whole
+         chain shows in Xray's Epoch / Trace / Side Effects panels."}
   (fn handler-story-submit [_ [_ creds]]
-    {:fx [[:dispatch [:auth.login/flow [:auth.login/submit creds]]]]}))
+    {:fx [[:dispatch [:auth.login/initialise-form]]
+          [:dispatch [:auth.login/edit-field :email (:email creds)]]
+          [:dispatch [:auth.login/edit-password {:value (:password creds)}]]
+          [:dispatch [:auth.login/submit-form]]]}))
 
 ;; ---------------------------------------------------------------------------
 ;; register-all!
@@ -116,9 +121,9 @@
 
 (def ^:private good-creds
   "Credentials the demo would accept (they mirror `login.core/good-password`).
-   We only need them to get a submit payload past the `Credentials` boundary
-   schema — once it's through, the canned-success stub doesn't even look at
-   them."
+   The story driver types them into the draft and submits through the real form
+   path; the canned-success stub doesn't even look at them, it just answers
+   `:ok`."
   {:email "ada@example.com" :password "correct-horse"})
 
 (defn- failure-reply
@@ -180,27 +185,30 @@
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Filled — both fields typed, nothing submitted. We get there honestly:
-  ;; by dispatching the very same `:auth.login/edit-field` events a real
-  ;; keystroke fires, which write into the app-db slice. The machine stays
-  ;; `:idle`, and the inputs show the seeded draft as their `:value`. No
-  ;; shortcuts.
+  ;; Filled — both fields typed, nothing submitted. We get there honestly: by
+  ;; dispatching the very same edit events a real keystroke fires (email via
+  ;; `:auth.login/edit-field`, password via the classified
+  ;; `:auth.login/edit-password`), which write into the app-db slice. The
+  ;; machine stays `:idle`, and the inputs show the seeded draft as their
+  ;; `:value`. No shortcuts.
   (story/reg-variant :story.login/filled
     {:doc        "Both fields filled in, nothing submitted yet — the form
-                 mid-edit. The draft was typed into the app-db login-form
-                 slice via real `:auth.login/edit-field` events, so the
-                 inputs show their `:value` and the flow is still `:idle`."
+                 mid-edit. The draft was typed into the app-db login-form slice
+                 via real edit events (email via `:auth.login/edit-field`,
+                 password via the classified `:auth.login/edit-password`), so
+                 the inputs show their `:value` and the flow is still `:idle`."
      :setup      [[:auth.login/flow [:auth.login/dismiss]]
                   [:auth.login/edit-field :email "ada@example.com"]
-                  [:auth.login/edit-field :password "correct-horse"]]
+                  [:auth.login/edit-password {:value "correct-horse"}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Submitting — frozen mid-request, on purpose. The trick is
-  ;; `force-fx-stub`: it catches the `:rf.http/managed` fx that
-  ;; `:issue-request` emits, records it (you'll see it in Side Effects), and
-  ;; then deliberately answers nothing. With no reply, no `:success` /
-  ;; `:failure` ever fires, so the canvas is stuck in `:submitting`
+  ;; Submitting — frozen mid-request, on purpose. It runs the real form path
+  ;; (`:login.story/submit` → `submit-form`), which fires the `:rf.http/managed`
+  ;; request and moves the machine to `:submitting`. The trick is
+  ;; `force-fx-stub`: it catches that request, records it (you'll see it in Side
+  ;; Effects), and then deliberately answers nothing. With no reply, no
+  ;; `:success` / `:failure` ever fires, so the canvas is stuck in `:submitting`
   ;; (`:auth/busy`) — inputs disabled, button reading "Signing in…". A
   ;; freeze-frame of the in-flight moment.
   (story/reg-variant :story.login/submitting
@@ -208,43 +216,45 @@
                  are disabled and the button reads 'Signing in…'. The
                  fx-stub records the `:rf.http/managed` request and
                  resolves nothing, so the canvas locks in `:submitting`."
-     :setup      [[:auth.login/flow [:auth.login/submit good-creds]]]
+     :setup      [[:login.story/submit good-creds]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Invalid credentials — the schema doing its job. We submit a deliberately
-  ;; bad payload (short password), and the `Credentials` boundary schema
-  ;; turns it away before the handler runs. The machine never leaves `:idle`,
-  ;; and the rejection raises an Issue you can watch light up Xray's ribbon.
+  ;; Invalid credentials — validation doing its job. We type a deliberately bad
+  ;; draft (bad email + too-short password) and dispatch `submit-form`, whose
+  ;; pre-submit `Credentials` check turns it away: the field errors land in the
+  ;; slice, `:submit-attempted?` latches, and nothing is dispatched — so the
+  ;; machine never leaves `:idle` and the form shows what's wrong under each
+  ;; input.
   (story/reg-variant :story.login/invalid-credentials
-    {:doc        "A malformed submit (too-short password) is rejected at
-                 the event-schema boundary — the `:auth.login/flow`
-                 handler never runs and the flow stays at `:idle`. Open
-                 Xray (Ctrl+Shift+C): the rejection lights the Issues
-                 ribbon, showing schema enforcement at the boundary."
-     :setup      [[:auth.login/flow [:auth.login/submit {:email    "nope"
-                                                          :password "short"}]]]
+    {:doc        "A bad draft (bad email + too-short password) is caught by
+                 `submit-form`'s pre-submit `Credentials` validation: field
+                 errors surface under each input, `:submit-attempted?` latches,
+                 and nothing is dispatched, so the flow stays at `:idle`."
+     :setup      [[:auth.login/initialise-form]
+                  [:auth.login/flow [:auth.login/dismiss]]
+                  [:auth.login/edit-field :email "nope"]
+                  [:auth.login/edit-password {:value "short"}]
+                  [:auth.login/submit-form]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
-  ;; Auth error — the 401. We stub out the real request (still recorded in
-  ;; Side Effects), then drive the `:auth.login/failure` ourselves — the one
-  ;; the request would have triggered had we let it answer. Driving the
+  ;; Auth error — the 401. We move the machine into `:submitting` with a
+  ;; credential-free `:submit` signal, then drive the `:auth.login/failure`
+  ;; ourselves — the one the real request would have triggered. Driving the
   ;; outcome by hand is the standard Story move for pinning a precise terminal
   ;; state without being at the mercy of timing. The flow settles at
   ;; `:error-shown`, error message and all.
   (story/reg-variant :story.login/auth-error
-    {:doc        "Server rejected the credentials. The form is
-                 re-enabled and the error message surfaces under the
-                 submit button (`:error-shown`). The real
-                 `:rf.http/managed` request shows in Xray's Side Effects
-                 panel; the manually-driven `:failure` follow-on records
-                 the error."
-     :setup      [[:auth.login/flow [:auth.login/submit good-creds]]
+    {:doc        "Server rejected the credentials. The form is re-enabled and
+                 the error message surfaces under the submit button
+                 (`:error-shown`). The machine is driven into `:submitting` with
+                 a credential-free `:submit` signal and the manually-driven
+                 `:failure` follow-on records the error."
+     :setup      [[:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 401 "Invalid credentials.")]]]
-     :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
      :tags       #{:dev :docs}
      :substrates #{:reagent}})
 
@@ -260,16 +270,16 @@
                  `:lock-account` request (visible in Xray's Side Effects
                  panel). The account is locked; the form no longer
                  retries."
-     :setup      [[:auth.login/flow [:auth.login/submit good-creds]]
+     :setup      [[:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 401 "Invalid credentials.")]]
-                  [:auth.login/flow [:auth.login/submit good-creds]]
+                  [:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 401 "Invalid credentials.")]]
-                  [:auth.login/flow [:auth.login/submit good-creds]]
+                  [:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 401 "Invalid credentials.")]]
-                  [:auth.login/flow [:auth.login/submit good-creds]]
+                  [:auth.login/flow [:auth.login/submit]]
                   [:auth.login/flow [:auth.login/failure
                                      (failure-reply 423 "Account locked.")]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
@@ -277,11 +287,10 @@
      :substrates #{:reagent}})
 
   ;; Success — the hero shot, and the most satisfying one to inspect. The
-  ;; whole real pipeline run flows through `:login.story/submit`: submit →
-  ;; `:issue-request` → real `:rf.http/managed` fx → canned reply →
-  ;; `:auth.login/success` → `:authed`. Open this one, hit Ctrl+Shift+C, and
-  ;; watch the full chain march across Xray's Epoch / Trace / Side Effects
-  ;; panels.
+  ;; whole real pipeline run flows through `:login.story/submit`: submit-form →
+  ;; real `:rf.http/managed` fx → canned reply → `:auth.login/success` →
+  ;; `:authed`. Open this one, hit Ctrl+Shift+C, and watch the full chain march
+  ;; across Xray's Epoch / Trace / Side Effects panels.
   (story/reg-variant :story.login/success
     {:doc        "Server accepted the credentials. The form is replaced
                  by the 'Welcome!' banner (`:authed`). The full

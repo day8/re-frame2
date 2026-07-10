@@ -43,31 +43,23 @@
 ;; ============================================================================
 
 ;; What valid credentials look like: an email and a password of at least 8
-;; characters. This schema validates shape; it does not classify or redact the
-;; password. While the user types, the password lives in the form draft in
-;; app-db and in `:auth.login/edit-field` events. A valid submit clears the
-;; durable draft; `:sensitive? true` below separately redacts the managed-HTTP
-;; request. See docs/core/how-to/keep-secrets-out-of-traces.md for the
-;; classification required on every other observation surface.
+;; characters. This schema validates *shape*; classification is a separate job.
+;; The password is a secret that crosses three observation boundaries, each
+;; classified by its own owner (docs/core/how-to/keep-secrets-out-of-traces.md):
+;; the app-db draft (`:sensitive` on `:auth.login/initialise-form`), the
+;; `:auth.login/edit-password` edit event (a `:sensitive` map payload), and the
+;; managed-HTTP request body (`:sensitive? true`). It never enters the machine.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
    [:password [:string {:min 8}]]])
 
 ;; The schema for the whole event vector the :auth.login/flow machine handles.
-;; It earns its keep by validating credentials at the door: a `:submit` is
-;; checked strictly against `Credentials`, while the framework's own sub-events
-;; (:dismiss, :success, :failure) get a more relaxed welcome.
-;;
-;; One subtlety worth pausing on: the :submit branch is a `:tuple`, not a
-;; `:cat`. The outer `:cat` swallows the nested sub-event as a single element,
-;; so the branch has to match that element *as a vector*. A `:cat` here would
-;; apply sequence-regex semantics and quietly wave through a `:submit` whose
-;; `Credentials` had already failed — exactly the leak we're trying to plug.
-;; With the strict `:tuple`, a short password or a bad email bounces off the
-;; `:where :event` boundary before the machine transitions or fires off the
-;; login request (docs/core/how-to/validate-with-schemas.md, §"Put a schema
-;; on the event too").
+;; Every sub-event is credential-free — the machine tracks the login lifecycle
+;; but never touches the password. The form validates the draft against
+;; `Credentials` and issues the request itself (see submit-form below), then
+;; sends the machine a bare `:submit` signal. So the four sub-events (:submit,
+;; :dismiss, :success, :failure) share one relaxed tail.
 ;;
 ;; The trailing `[:? :any]` is there to catch the managed-HTTP reply. The
 ;; framework tacks the reply map (`{:status :ok :value …}` or
@@ -79,10 +71,14 @@
 ;; docs/core/glossary.md#the-uniform-reply.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
-   [:or
-    [:tuple [:= :auth.login/submit] Credentials]
-    [:cat [:enum :auth.login/dismiss :auth.login/success :auth.login/failure]
-     [:* :any]]]
+   ;; The `[:schema …]` wrapper is load-bearing: without it, a `:cat` nested
+   ;; directly inside a `:cat` *composes* (flattens) into the parent regex, so
+   ;; the schema would match `[:auth.login/flow :auth.login/submit …]` instead of
+   ;; the real `[:auth.login/flow [:auth.login/submit] …]`. `[:schema …]` resets
+   ;; the regex context so this branch matches the nested sub-event vector.
+   [:schema [:cat [:enum :auth.login/submit :auth.login/dismiss
+                   :auth.login/success :auth.login/failure]
+             [:* :any]]]
    [:? :any]])
 
 ;; This schema watches the machine's `:data` slot — the user-domain extended
@@ -171,22 +167,6 @@
    {:clear-error
     (fn [_] {:data {:error nil}})
 
-    :issue-request
-    (fn [{[_ creds] :event}]
-      {:fx [[:rf.http/managed
-             ;; `:sensitive? true` is the per-request wire scrub: it redacts
-             ;; this request body — which is carrying the `:password` — from
-             ;; every `:rf.http/*` trace event, so the HTTP surface does not add
-             ;; it to the tape. See docs/core/how-to/keep-secrets-out-of-traces.md.
-             {:request    {:method :post
-                           :url    "/api/login"
-                           :body   creds
-                           :request-content-type :json
-                           :sensitive? true}
-              :decode     :json
-              :on-success [:auth.login/flow [:auth.login/success]]
-              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
-
     :record-error
     ;; The classified failure map rides under :error.
     (fn [{data :data [_ {:keys [error]}] :event}]
@@ -219,9 +199,10 @@
     :submitting
     ;; The :auth/busy tag is how the view knows a request is in flight. It asks
     ;; [:rf.machine/has-tag? :auth.login/flow :auth/busy] and, while that's
-    ;; true, disables the inputs and relabels the submit button.
+    ;; true, disables the inputs and relabels the submit button. No `:entry`
+    ;; action: submit-form (the credential owner) already fired the request;
+    ;; this state just waits for the reply.
     {:tags  #{:auth/busy}
-     :entry :issue-request
      :on    {:auth.login/success {:target :authed
                                   :action :store-session}
              :auth.login/failure [{:target :error-shown
@@ -280,7 +261,8 @@
 ;; The draft is application state like any other, so it lives in app-db — read
 ;; through subs, changed through events — never squirrelled away in a view-local
 ;; atom or hook. The inputs are controlled: each `:value` reads the draft sub,
-;; each `:on-change` dispatches `:auth.login/edit-field`. The full recipe (slice
+;; each `:on-change` dispatches an edit event (`:auth.login/edit-field` for the
+;; email, `:auth.login/edit-password` for the secret). The full recipe (slice
 ;; shape, the seven standard form events, the touched-or-submitted rule for when
 ;; to show errors) lives in docs/core/how-to/build-a-form.md.
 ;;
@@ -307,9 +289,18 @@
 
 ;; Lay down the slice in its starting shape: empty `:draft`, `:status :idle`,
 ;; and the rest. Fires once, via the frame-provider's `:initial-events`.
+;;
+;; Owner 1 of the password's three egress boundaries: alongside the `:db` write
+;; we return a `:sensitive` classification effect for the draft-password path.
+;; Installed here — the first durable write that creates the slice — so no
+;; keystroke can race it. It is value-independent and egress-only: whatever
+;; later lands at `[:auth :login-form :draft :password]` reads `:rf/redacted` in
+;; every snapshot / epoch / off-box record, while handlers still see the real
+;; value (docs/core/how-to/keep-secrets-out-of-traces.md).
 (rf/reg-event :auth.login/initialise-form
   {:doc "Seed the login-form slice at [:auth :login-form] to its starting shape
-         (empty draft, :idle status)."}
+         (empty draft, :idle status), and classify the draft-password path
+         :sensitive so it is redacted at every egress."}
   (fn handler-login-form-initialise [{:keys [db]} _]
     {:db (assoc-in db [:auth :login-form]
                    {:draft             login-form-defaults
@@ -318,20 +309,43 @@
                     :status            :idle
                     :errors            {}
                     :touched           #{}
-                    :submit-error      nil})}))
+                    :submit-error      nil})
+     :sensitive [[:auth :login-form :draft :password]]}))
 
-;; The user touched a field. Write the new value into `:draft` and remember the
-;; field is now `:touched`. This is the whole job of an input's `:on-change` —
-;; it never reaches for view-local state. The `:schema` turns away any
-;; malformed edit-field vector at the `:where :event` boundary.
+;; The user touched a NON-SECRET field (the email). Write the new value into
+;; `:draft` and remember the field is now `:touched`. This is the whole job of a
+;; non-secret input's `:on-change` — it never reaches for view-local state. The
+;; `:schema` turns away any malformed edit-field vector at the `:where :event`
+;; boundary. The value rides *positionally*, which is fine for an email but
+;; would leak a secret raw (redaction is path-based, and a positional index is
+;; not addressable) — so the password gets its own map-shaped, classified event
+;; below. Never route a secret through this event.
 (rf/reg-event :auth.login/edit-field
-  {:doc    "Controlled-input edit: write one field into the login-form draft
-            and mark it touched."
+  {:doc    "Controlled-input edit for a NON-SECRET field (email): write it into
+            the login-form draft and mark it touched. Secrets use
+            :auth.login/edit-password."
    :schema [:cat [:= :auth.login/edit-field] :keyword :string]}
   (fn handler-login-form-edit-field [{:keys [db]} [_ field value]]
     {:db (-> db
              (assoc-in  [:auth :login-form :draft field] value)
              (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
+
+;; Owner 2. The password's keystrokes get their own event with a MAP payload
+;; `{:value …}`, so the registration can name a path into it. `:sensitive
+;; [[:value]]` classifies that key: the dispatched-event trace (and any error
+;; record carrying it) redacts `:value` to `:rf/redacted`, while the handler
+;; still receives the real keystroke. Splitting the secret off keeps the email
+;; edit visible — only the password value is redacted.
+(rf/reg-event :auth.login/edit-password
+  {:doc       "Controlled-input edit for the PASSWORD field: write the value
+               into the draft and mark it touched. The value rides a map payload
+               classified :sensitive so the edit trace redacts it."
+   :sensitive [[:value]]
+   :schema    [:cat [:= :auth.login/edit-password] [:map [:value :string]]]}
+  (fn handler-login-form-edit-password [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in  [:auth :login-form :draft :password] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) :password))}))
 
 ;; Submit. First it *validates* the draft against `Credentials` — the same
 ;; schema the machine's `:submit` boundary enforces — and latches
@@ -340,11 +354,11 @@
 ;; visibility rule, docs/core/how-to/build-a-form.md).
 ;;
 ;; On a clean draft this is the hand-off: flip `:status` to `:submitting`,
-;; clear any stale field errors, and dispatch the draft into the machine. That
-;; hand-off is the single place the draft ever crosses into the machine. From
-;; there the machine — not the slice — owns the real story: in flight, authed,
-;; errored, locked. The slice's `:status` records only the valid-submit handoff;
-;; views use machine tags for the authoritative lifecycle.
+;; clear any stale field errors, issue the login request, and nudge the machine
+;; with a credential-free `:submit` signal. From there the machine — not the
+;; slice — owns the real story: in flight, authed, errored, locked. The slice's
+;; `:status` records only the valid-submit handoff; views use machine tags for
+;; the authoritative lifecycle.
 ;;
 ;; On an *invalid* draft we stop here: the field errors land in `:errors`
 ;; (rendered under each input) and nothing is dispatched. Handing a bad draft
@@ -353,18 +367,19 @@
 ;; the password cleared and the form quietly inert. So the form catches it
 ;; first, keeps the password for the fixup, and shows what's wrong.
 ;;
-;; And a word on the password. On the clean branch we read it off the draft,
-;; give it to the machine, then clear `[:draft :password]` in the very same
-;; commit. Once the request is on its way the secret has done its job, and
-;; there's no reason to leave it sitting in app-db for later snapshots. This
-;; cleanup does not retroactively redact the edit/submit events or earlier
-;; snapshots; `:sensitive? true` covers only the HTTP request. The password is
-;; never copied to `:submitted` or the machine's `:data`. See
+;; And a word on the password. It is already classified `:sensitive` (owner 1),
+;; so it reads redacted at every egress even while it lives in app-db — but a
+;; password is transient, so once the request is in flight we also blank
+;; `[:draft :password]` to keep its *live* lifetime short. Classification covers
+;; the observable shadow; blanking retires the live value. The password never
+;; touches `:submitted` or the machine — only the HTTP body carries it off-box,
+;; scrubbed by `:sensitive? true`. See
 ;; docs/core/how-to/keep-secrets-out-of-traces.md.
 (rf/reg-event :auth.login/submit-form
   {:doc "Submit the login form: validate the draft against Credentials. If
-         clean, hand it to the :auth.login/flow machine's :submit sub-event and
-         clear the password (secret-field hygiene); if not, surface the field
+         clean, issue the (sensitive) managed-HTTP login request, nudge the
+         :auth.login/flow machine with a credential-free :submit signal, and
+         blank the password (secret-field hygiene); if not, surface the field
          errors and don't submit. Latches :submit-attempted? either way."}
   (fn handler-login-form-submit [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login-form :draft])
@@ -375,7 +390,21 @@
                  (assoc-in [:auth :login-form :status] :submitting)
                  (assoc-in [:auth :login-form :errors] {})
                  (assoc-in [:auth :login-form :draft :password] ""))
-         :fx [[:dispatch [:auth.login/flow [:auth.login/submit draft]]]]}
+         :fx [;; Advance the machine — credential-free. It never sees the password.
+              [:dispatch [:auth.login/flow [:auth.login/submit]]]
+              ;; Owner 3/4 — submit-form holds the validated draft, so it is the
+              ;; classified owner that sends the credential. `:sensitive? true`
+              ;; scrubs the password (and every param) from every `:rf.http/*`
+              ;; trace event; the reply comes home to the machine.
+              [:rf.http/managed
+               {:request    {:method :post
+                             :url    "/api/login"
+                             :body   draft
+                             :request-content-type :json
+                             :sensitive? true}
+                :decode     :json
+                :on-success [:auth.login/flow [:auth.login/success]]
+                :on-failure [:auth.login/flow [:auth.login/failure]]}]]}
         {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
 
 ;; Wipe the slate: put the slice back to its empty, :idle starting shape.
@@ -463,8 +492,9 @@
 ;; docs/core/how-to/use-uix-helix-or-slim.md.
 ;;
 ;; The inputs are controlled: each `:value` reads the draft from
-;; `:auth.login/draft`, and `:on-change` dispatches `:auth.login/edit-field`.
-;; The draft lives in app-db, which is exactly why you won't find a
+;; `:auth.login/draft`, and `:on-change` dispatches an edit event
+;; (`:auth.login/edit-field` for email, `:auth.login/edit-password` for the
+;; secret). The draft lives in app-db, which is exactly why you won't find a
 ;; `uix/use-state` anywhere in here.
 (defui login-form []
   (let [draft     (uix-adapter/use-subscribe [:auth.login/draft])
@@ -492,7 +522,7 @@
                    :disabled    busy?
                    :data-testid "login-password"
                    :value       (:password draft)
-                   :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])})
+                   :on-change   #(dispatch [:auth.login/edit-password {:value (.. % -target -value)}])})
        (when pw-err ($ :p.error {:data-testid "login-password-error"} pw-err))
        ($ :button {:type "submit" :disabled busy?
                    :data-testid "login-submit"}
