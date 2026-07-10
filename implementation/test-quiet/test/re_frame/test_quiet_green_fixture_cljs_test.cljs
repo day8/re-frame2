@@ -1,7 +1,7 @@
 (ns re-frame.test-quiet-green-fixture-cljs-test
   "A deliberately minimal, always-GREEN CLJS suite used as the focused
   target for the process-level quiet-shape regression in
-  `re-frame.test-quiet-shadow-node-cljs-test` (rf2-spzkgo).
+  `re-frame.test-quiet-shadow-node-cljs-test`.
 
   The quiet-shape regression spawns the REAL built `out/node-test.js`
   shadow-node entry point with `--test=<this-ns>` and asserts the green

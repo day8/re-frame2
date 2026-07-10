@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet-red-warn-fixture-cljs-test
   "A CLJS fixture suite for the warning-buffer red-replay regression in
-  `re-frame.test-quiet-shadow-node-cljs-test` (rf2-8dfq5j.2).
+  `re-frame.test-quiet-shadow-node-cljs-test`.
 
   The buffered-`console.warn` contract (quiet on green, replayed on red)
   can only be observed across a process boundary: the buffer is replayed
@@ -31,11 +31,11 @@
   (is (or (not armed?) (= :expected :actual))
       "armed fixture fails so the run is RED and the buffer replays"))
 
-;; ---- large-replay truncation fixture (rf2-4co7oo) ------------------------
+;; ---- large-replay truncation fixture -------------------------------------
 ;;
 ;; Fills the warn ring to its cap with LARGE warnings so the red replay far
 ;; exceeds a POSIX pipe buffer (~64 KiB), then fails RED. If the replay were
-;; written to the async `process.stderr` and followed immediately by
+;; written through asynchronous `process.stderr` and followed immediately by
 ;; `js/process.exit`, its TAIL — the newest warnings, replayed last — would be
 ;; dropped on POSIX before reaching captured output. The synchronous
 ;; `fs.writeSync` replay guarantees the tail survives. Gated on its OWN env

@@ -2,24 +2,22 @@
   "Silent-on-success test reporter.
 
   Loading this namespace installs `defmethod` overrides on
-  `clojure.test/report` (JVM) and `cljs.test/report` (CLJS) so the
-  REPORTER's own green-run output is exactly the canonical 3-line
-  summary:
+  `clojure.test/report` (JVM) and `cljs.test/report` (CLJS). The
+  reporter's green output is one leading blank followed by the two
+  canonical summary lines:
 
       Ran N tests containing M assertions.
       0 failures, 0 errors.
 
-  Per-namespace `Testing <ns>` banners are SUPPRESSED on the success
+  Per-namespace `Testing <ns>` banners are suppressed on the success
   path; per-`deftest` `Testing <var>` banners were already silent in
   both reporters by default and stay that way.
 
-  This reporter governs only the REPORTER's output.  The cross-runtime
-  quiet contract (rf2-nrk066) is completed by the runtime entry points
-  (`re-frame.test-quiet.runner` on the JVM,
-  `re-frame.test-quiet.shadow-node` on CLJS node): stdout is
-  PASS-THROUGH (a test's bare `(println …)` reaches stdout — only
-  cognitect's discovery banner is dropped), and stderr/warning noise is
-  BUFFERED and replayed only on RED.  So a green run shows the summary
+  This namespace governs only reporter output. The runtime entry points
+  (`re-frame.test-quiet.runner` on the JVM and
+  `re-frame.test-quiet.shadow-node` on CLJS node) pass stdout through. The
+  JVM runner filters cognitect's discovery banner. Each runner buffers its
+  runtime-specific warning channel and replays it only on red. A green run shows the summary
   plus whatever a test deliberately printed, and never the expected
   warnings warning-heavy suites emit.  See those namespaces' docstrings
   for the runtime side of the contract.
@@ -36,11 +34,6 @@
       Ran N tests containing M assertions.
       1 failures, 0 errors.
 
-  Output is therefore proportional to *failure count*, not test count —
-  agents that read test output burn context proportional to actionable
-  signal.  rf2-try1x is the parent bead; the rationale (~10-25K tokens
-  per agent run on green-path noise) is captured there.
-
   Dispatch:
 
    - JVM (`clojure.test/report`): single-key dispatch on `(:type m)`.
@@ -51,55 +44,33 @@
      `::cljs.test/default`.  Same set of method keys, prefixed with
      the reporter sentinel.
 
-  The *reporter* is bufferless for FAILURE TEXT — we don't capture
+  The reporter does not buffer failure text: we don't capture
   failure-message bytes and replay them (the runners separately buffer
   stderr/warning noise; that buffering lives in the runtime entry points,
   not here).  Instead, the first `:fail` / `:error` inside an
   unprinted namespace prints the namespace banner immediately, then
-  DELEGATES to the captured default `report` method.  This means the
+  delegates to the captured default `report` method. This means the
   failure output shape (the precise text clojure.test or cljs.test
   emits for `FAIL in (...)`, the `expected:` / `actual:` lines, the
   stack) is owned by the test library, not forked here — any upstream
   change to failure formatting, formatter handling, or stack-depth
   behaviour is inherited automatically.
 
-  Delegation mechanism: at namespace-load time — BEFORE we install our
-  own overrides — we capture the library's default `:fail` / `:error`
+  At namespace-load time, before installing the overrides, we capture the
+  library's default `:fail` / `:error`
   methods via `get-method`.  Our override then prints the withheld
   banner and invokes that captured method.  The default already wraps
   its body in `with-test-out` (JVM) / writes through `*out*` (CLJS), so
   the banner is emitted into the same stream by forcing it under the
   same `with-test-out` on the JVM and by a plain `println` on CLJS.
-  Capturing the methods rather than re-`defmethod`-ing inline keeps the
-  failure path a thin banner-prefix over the real reporter.
+  Capturing the methods keeps the failure path a thin banner prefix over
+  the real reporter. `defonce` protects those captures from reload-induced
+  self-recursion.
 
-  Loading this namespace MULTIPLE TIMES is idempotent — `defmethod`
-  silently replaces the existing dispatch entry.
-
-  Reload-friendly: dropping the `defmethod` overrides at the top of the
-  test runtime is fine.  The methods close over the namespace's
-  `printed-banners` atom (a set of namespaces whose banner has already
-  been flushed), which the failure path consults and grows.
-
-  Nested-run correctness (rf2-8n97n.1 / .2): the banner namespace is
-  derived from the FAILING var's metadata at `:fail` / `:error` time,
-  NOT from a single mutable \"current ns\" cell.  A nested
-  `run-tests` called from inside a `deftest` fires its own
-  `:begin-test-ns`; with a single-cell design that clobbers the
-  \"current ns\" to the inner namespace, so a subsequent outer failure
-  is mislabelled (prints the inner ns banner) or — once the inner run
-  flushed its banner — orphaned (no banner at all).  Reading the ns off
-  the var that actually failed makes the banner always match the
-  failure, regardless of nesting.
-
-  test-ns-hook fallback (rf2-g92dsm): a namespace's `test-ns-hook` runs
-  OUTSIDE `test-var`, so a bare failing assertion inside it reports with
-  an empty `*testing-vars*` — the var-derived ns is nil and the failure
-  would print with NO banner.  For that (and only that) no-var case,
-  `banner-ns` falls back to the innermost open namespace, tracked on a
-  begin/end-balanced `ns-stack` (a proper stack, NOT the clobberable
-  single cell above).  The failing var still wins whenever one exists, so
-  nested-run correctness is unchanged."
+  The failure banner comes from the failing var, so nested `run-tests`
+  calls cannot relabel an outer failure. A balanced namespace stack
+  supplies the fallback for `test-ns-hook` assertions, which run without
+  a current test var."
   (:require
     #?(:clj  [clojure.test]
        :cljs [cljs.test])))
@@ -107,39 +78,15 @@
 ;; ----------------------------------------------------------------------
 ;; Banner state.
 ;;
-;; A `clojure.test/run-tests` (or `cljs.test/run-tests`) call walks
-;; namespaces serially on the calling thread.  Every canonical test
-;; runner — cognitect-test-runner, shadow.test.node, shadow.test.browser
-;; — is single-threaded on the reporter callback, so a plain atom is
-;; sufficient: on the JVM the multi-method body runs on the test-driver
-;; thread, and under CLJS the single-threaded runtime makes it trivially
-;; safe.
+;; Reporter callbacks are serial in the supported runners, so plain atoms
+;; are sufficient for this process-local state.
 ;;
-;; We DON'T derive the failure banner from a single mutable "current ns"
-;; cell — that is the source of the nested-run mislabel / orphan bugs
-;; (rf2-8n97n.1 / .2), because a nested run's `:begin-test-ns` clobbers it.
-;; The PRIMARY banner ns is derived from the failing VAR itself (see
-;; `failing-ns`), which is always correct regardless of nesting.
+;; The primary banner namespace comes from the failing var, not mutable
+;; current-namespace state, so nested runs cannot clobber it.
 ;;
-;; We DO keep a STACK of the namespaces currently open — `:begin-test-ns`
-;; pushes, `:end-test-ns` pops — for two things:
-;;   - nesting depth: an EMPTY stack at `:begin-test-ns` means we are
-;;     entering an OUTERMOST namespace, which clears the printed-banner set
-;;     so a fresh `run-tests` (or the next sibling ns within one run)
-;;     re-flushes banners.  A NESTED run's `:begin-test-ns` fires while the
-;;     outer ns is still open (non-empty stack), so it does NOT clear: the
-;;     outer run's already-printed banners stay suppressed while the inner
-;;     ns can still print its own.  `:begin-test-ns`/`:end-test-ns` are
-;;     balanced per ns and never nested for sibling nses, so the stack is
-;;     non-empty only across a nested run-tests boundary.
-;;   - a FALLBACK banner ns: a `test-ns-hook` runs OUTSIDE `test-var`, so a
-;;     bare failing assertion inside it reports with an EMPTY
-;;     `*testing-vars*` — the var-derived `failing-ns` is then nil and the
-;;     failure would print with NO banner, violating the failure-banner
-;;     contract.  `banner-ns` falls back to the innermost open ns (the top
-;;     of this stack) when there is no failing var (rf2-g92dsm).  The stack
-;;     is only a FALLBACK; whenever a failing var exists it wins, so
-;;     nested-run correctness is unchanged.
+;; The balanced namespace stack distinguishes outermost from nested entry,
+;; resets the printed set between sibling namespaces, and supplies the
+;; fallback for `test-ns-hook` failures that have no current var.
 
 (def ^:private printed-banners
   (atom #{}))
@@ -149,8 +96,8 @@
 
 (defn- on-begin-test-ns!
   "Push `ns-sym` onto the open-namespace stack and clear the printed-banner
-  set on entry to an OUTERMOST namespace (empty stack) so each top-level
-  run — and each sibling ns within it — re-flushes its banner.  Nested-run
+  set on entry to an outermost namespace (empty stack) so each top-level
+  run and each sibling ns within it re-flushes its banner. Nested-run
   entries (non-empty stack) preserve the outer run's printed set."
   [ns-sym]
   (when (empty? @ns-stack)
@@ -163,7 +110,7 @@
 
 (defn- current-test-ns
   "The namespace of the innermost currently-open `test-ns` (top of the
-  begin/end stack), or nil if none is open.  The FALLBACK banner ns for a
+  begin/end stack), or nil if none is open. The fallback banner ns for a
   failure with no failing var in scope (see `banner-ns`)."
   []
   (peek @ns-stack))
@@ -194,9 +141,7 @@
      read off `clojure.test/*testing-vars*` (the same stack
      `testing-vars-str` renders).  Returns nil if no var is in scope.
 
-     This is what makes the banner nesting-correct: it is derived from
-     the var that actually failed, so a nested run-tests can never
-     mislabel or orphan the outer failure's banner (rf2-8n97n.1 / .2)."
+     The var-derived namespace remains correct across nested runs."
      []
      (when-let [v (first clojure.test/*testing-vars*)]
        (when-let [ns (:ns (meta v))]
@@ -215,9 +160,8 @@
 
 #?(:clj
    (defn- banner-ns
-     "The namespace to head the failure banner: the FAILING var's ns when a
-     var is in scope (nesting-correct, rf2-8n97n), else the innermost open
-     `test-ns` (the `test-ns-hook` no-var fallback, rf2-g92dsm)."
+     "The namespace to head the failure banner: the failing var's ns when a
+     var is in scope, otherwise the innermost open `test-ns`."
      []
      (or (failing-ns) (current-test-ns))))
 
@@ -283,7 +227,7 @@
      off the env's `:testing-vars` stack (the same stack
      `testing-vars-str` renders).  Derived from the var that actually
      failed so a nested run-tests can't mislabel/orphan the outer
-     banner (rf2-8n97n.1 / .2).  Returns nil if no var is in scope."
+     banner. Returns nil if no var is in scope."
      []
      (when-let [v (first (:testing-vars (cljs.test/get-current-env)))]
        (let [ns (:ns (meta v))]
@@ -300,9 +244,8 @@
 
 #?(:cljs
    (defn- banner-ns
-     "The namespace to head the failure banner: the FAILING var's ns when a
-     var is in scope (nesting-correct, rf2-8n97n), else the innermost open
-     `test-ns` (the no-current-var fallback, rf2-g92dsm)."
+     "The namespace to head the failure banner: the failing var's ns when a
+     var is in scope, otherwise the innermost open `test-ns`."
      []
      (or (failing-ns) (current-test-ns))))
 

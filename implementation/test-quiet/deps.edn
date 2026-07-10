@@ -1,30 +1,28 @@
-;; day8/re-frame2-test-quiet — test-runtime quiet-reporter artefact
-;; (rf2-try1x).
+;; day8/re-frame2-test-quiet - test-runtime quiet-reporter artefact.
 ;;
 ;; A tiny, test-only library that overrides `clojure.test/report` (JVM)
-;; and `cljs.test/report` (CLJS) so a green run of any test alias in the
-;; repository REPORTS only the 3-line summary:
+;; and `cljs.test/report` (CLJS) so the reporter contributes one leading
+;; blank and the two summary lines to a green run:
 ;;
 ;;     Ran N tests containing M assertions.
 ;;     0 failures, 0 errors.
 ;;
-;; The cross-runtime quiet contract (rf2-nrk066) is pass-through stdout +
-;; red-replayed noise buffering. The buffering POLICY is symmetric across
-;; JVM / CLJS node / browser — buffer the noise channel, drop it on green,
-;; replay it on red — but the buffered SCOPE is runtime-specific: JVM
-;; buffers `*err*` / `System.err`; CLJS node buffers `console.warn` only;
-;; browser / Playwright diagnostics are owned by the browser harnesses:
+;; The JVM and CLJS node runners pass stdout through and buffer a bounded
+;; noise channel, dropping it on green and replaying it on red. Their scope
+;; differs: JVM buffers the test thread's `*err*` plus process-global
+;; `System.err`; CLJS node buffers `console.warn` only. Browser / Playwright
+;; diagnostics are owned by the browser harnesses.
 ;;
-;;   - STDOUT is PASS-THROUGH, not summary-only. The reporter makes the
+;;   - STDOUT is pass-through, not summary-only. The reporter makes the
 ;;     reporter's OWN green output the canonical summary, but the runner
 ;;     forwards every other stdout byte a test/fixture/CLI emits — `-H`
 ;;     usage, parse-error diagnostics, and bare `(println …)` — so runner
-;;     misuse and failure-time diagnostics stay visible (rf2-lbo79.2).
+;;     misuse and failure-time diagnostics stay visible.
 ;;     Only cognitect's own `Running tests in #{…}` discovery banner is
 ;;     dropped. A green run is therefore "summary + whatever a test chose
 ;;     to print", which under the repo's no-stray-println discipline is
 ;;     just the summary.
-;;   - STDERR/WARNINGS are BUFFERED, replayed on red, dropped on green —
+;;   - STDERR/WARNINGS are buffered, replayed on red, dropped on green.
 ;;     the JVM runner (`re-frame.test-quiet.runner`) buffers JVM stderr
 ;;     (`*err*` / `System.err`) while the CLJS node runner
 ;;     (`re-frame.test-quiet.shadow-node`) buffers `console.warn` warnings
@@ -33,12 +31,11 @@
 ;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks. The
 ;;     narrower CLJS scope keeps real error channels visible even on green.
 ;;
-;; Failures are unchanged — a failing namespace's banner + the failure
+;; Failures are unchanged: a failing namespace's banner, the failure
 ;; lines + the failure stack reach stdout exactly as before, and a red
 ;; run additionally replays the buffered stderr context.
 ;;
-;; Wired into every per-artefact `:test` alias by replacing
-;; `:main-opts ["-m" "cognitect.test-runner"]` with
+;; Wired into per-artefact `:test` aliases by using
 ;; `:main-opts ["-m" "re-frame.test-quiet.runner"]` and adding this
 ;; artefact as a `:local/root` extra-dep.  The shadow-cljs `:node-test`
 ;; build (top-level `implementation/shadow-cljs.edn`) wires the matching
@@ -55,7 +52,7 @@
          {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
 
  :aliases
- {;; Self-test alias — drives the stdout-line-count pin
+ {;; Self-test alias - drives the stdout-line-count pin
   ;; (`re-frame.test-quiet-pin-test`) plus the trivial known-green
   ;; sub-suite the pin exercises.  Uses the quiet runner like every
   ;; other artefact so the pin is verified against the same code
