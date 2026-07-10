@@ -1136,3 +1136,240 @@
       ;; And the old conn is untouched — they're independent atoms.
       (is (= :examples/old-build (:resolved-build-id @old-conn))
           "the discarded conn keeps its state — no cross-conn mutation"))))
+
+;; ===========================================================================
+;; Single-flight connection + generation ownership (rf2-3fc89f.23).
+;;
+;; MCP permits concurrent tool calls, and `send-op!` calls `connect!` on
+;; EVERY op — so two simultaneous first ops both reach `connect!` before
+;; either socket comes up. The OLD code let each caller run
+;; `net/createConnection`, opening two live sockets whose handlers folded
+;; two TCP streams into one bencode buffer and whose stale close could mark
+;; the winner closed. The fix makes `connect!` single-flight (one socket per
+;; transition; concurrent callers share the same Promise) and tags every
+;; socket with a `:generation` so only the authoritative socket mutates conn
+;; state.
+;;
+;; Each fake socket gets its OWN callback map (unlike `connect-fake-socket`,
+;; which shares one) so two candidate sockets can be driven independently.
+;; ===========================================================================
+
+(defn- make-concurrency-fake
+  "A `net.Socket` stand-in whose event callbacks land in its OWN `cbs` atom,
+  and which records `write`/`end`/`destroy` on `flags` — so a test can drive
+  two candidate sockets independently and assert teardown."
+  [cbs flags]
+  (j/lit {:on      (fn [event cb] (swap! cbs assoc event cb) nil)
+          :once    (fn [event cb] (swap! cbs assoc event cb) nil)
+          :write   (fn [_] (swap! flags update :writes (fnil inc 0)) nil)
+          :end     (fn [] (swap! flags assoc :ended? true) nil)
+          :destroy (fn [] (swap! flags assoc :destroyed? true) nil)}))
+
+(defn- with-multi-create-connection!
+  "Install a `net.createConnection` stub that builds a DISTINCT fake socket
+  per call, appending `{:cbs :flags :socket}` to `sockets*`. Returns a
+  0-arity restore thunk."
+  [sockets*]
+  (let [orig (.-createConnection net)]
+    (set! (.-createConnection net)
+          (fn [_opts]
+            (let [cbs   (atom {})
+                  flags (atom {})
+                  sock  (make-concurrency-fake cbs flags)]
+              (swap! sockets* conj {:cbs cbs :flags flags :socket sock})
+              sock)))
+    (fn restore! [] (set! (.-createConnection net) orig))))
+
+(defn- fire-cb! [rec event & args]
+  (apply (get @(:cbs rec) event) args))
+
+(deftest connect!-single-flight-one-socket-for-concurrent-callers
+  ;; The core race: two concurrent `connect!` callers BEFORE either callback
+  ;; fires must open exactly ONE socket and share ONE Promise. On old code
+  ;; this asserted two createConnection calls.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          p1       (nrepl/connect! conn)
+          p2       (nrepl/connect! conn)]
+      (is (= 1 (count @sockets*))
+          "exactly ONE net.createConnection for two concurrent connect! callers")
+      (is (identical? p1 p2)
+          "both concurrent callers received the SAME in-flight Promise")
+      (is (some? (:connecting @conn)) "the in-flight slot is claimed while connecting")
+      ;; The single socket comes up.
+      (fire-cb! (first @sockets*) "connect")
+      (-> (js/Promise.all #js [p1 p2])
+          (.then (fn [^js results]
+                   (is (identical? conn (aget results 0)) "caller 1 resolved to the conn")
+                   (is (identical? conn (aget results 1)) "caller 2 resolved to the SAME conn")
+                   (is (some? (:socket @conn)) "exactly one socket published")
+                   (is (false? (:closed? @conn)) "the conn is live")
+                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on publish")
+                   (restore!) (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest concurrent-send-ops-multiplex-over-one-socket
+  ;; Two simultaneous `send-op!` calls share one connect, then register
+  ;; DISTINCT pending ids and write over the SAME socket — the multiplex the
+  ;; single-flight fix preserves. Ops are resolved by feeding each pending
+  ;; accumulator a `:done` frame directly (the send-op response-assembly seam
+  ;; the suite already uses), so the assertion doesn't depend on bencode
+  ;; wire round-tripping.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          p1       (nrepl/send-op! conn {"op" "eval" "code" "1"})
+          p2       (nrepl/send-op! conn {"op" "eval" "code" "2"})]
+      (is (= 1 (count @sockets*)) "one socket for two concurrent send-ops")
+      ;; Bring the shared socket up; let both send-op! .then bodies register.
+      (fire-cb! (first @sockets*) "connect")
+      (-> (js/Promise.resolve nil)
+          (.then (fn [_] nil))     ; flush send-op! connect continuations
+          (.then (fn [_]
+                   (is (= 2 (count (:pending @conn)))
+                       "both ops registered distinct pending ids on the ONE socket")
+                   (is (= 2 (:writes @(:flags (first @sockets*))))
+                       "both ops wrote to the single shared socket")
+                   ;; Resolve both ops via their registered on-frame accumulator.
+                   (doseq [on-frame (vals (:pending @conn))]
+                     (on-frame #js {"status" #js ["done"]}))
+                   (js/Promise.all #js [p1 p2])))
+          (.then (fn [^js rs]
+                   (is (= 2 (.-length rs)) "both ops resolved")
+                   (is (= {} (:pending @conn)) "pending drained on resolution")
+                   (restore!) (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest superseded-socket-callbacks-cannot-mutate-current-generation
+  ;; A losing/stale socket's data/error/close must be inert once a newer
+  ;; generation is live — the "a losing socket's later close marks the winner
+  ;; closed" corruption path, closed by the generation guard.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          p1       (nrepl/connect! conn)]        ; gen1 connect started
+      (fire-cb! (first @sockets*) "connect")     ; gen1 publishes
+      (-> p1
+          (.then (fn [_]
+                   ;; Transient hiccup on gen1 → reopen to gen2.
+                   (fire-cb! (first @sockets*) "close" nil)
+                   (is (true? (:closed? @conn)) "gen1's own close flips :closed?")
+                   (let [p2 (nrepl/connect! conn)]
+                     (fire-cb! (second @sockets*) "connect")  ; gen2 publishes
+                     p2)))
+          (.then (fn [_]
+                   (is (false? (:closed? @conn)) "gen2 is the live generation")
+                   (let [gen2-sock (:socket @conn)]
+                     ;; STALE gen1 callbacks fire late — all must be inert.
+                     (fire-cb! (first @sockets*) "close" nil)
+                     (is (false? (:closed? @conn))
+                         "a stale gen1 close cannot mark the live gen2 conn closed")
+                     (fire-cb! (first @sockets*) "error" (js/Error. "late gen1 error"))
+                     (is (false? (:closed? @conn))
+                         "a stale gen1 error cannot mark the live gen2 conn closed")
+                     (fire-cb! (first @sockets*) "data" (frame-buf {"id" "x" "value" "1"}))
+                     (is (zero? (.-length (:buf @conn)))
+                         "a stale gen1 data chunk never enters the live framing buffer")
+                     (is (identical? gen2-sock (:socket @conn))
+                         "the live socket is untouched by stale callbacks"))
+                   (restore!) (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest stale-generation-partial-frame-never-concatenated
+  ;; Bytes from two socket generations must never concatenate into one
+  ;; bencode buffer — a stale gen1 tail cannot complete a frame against
+  ;; gen2's fresh stream.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          full     (frame-buf {"id" "p1" "value" "7"})
+          mid      (js/Math.floor (/ (.-length full) 2))
+          head     (.slice full 0 mid)
+          tail     (.slice full mid)
+          p1       (nrepl/connect! conn)]
+      (fire-cb! (first @sockets*) "connect")
+      (-> p1
+          (.then (fn [_]
+                   ;; gen1 buffers a partial frame head.
+                   (fire-cb! (first @sockets*) "data" head)
+                   (is (pos? (.-length (:buf @conn))) "gen1 partial head buffered")
+                   ;; Hiccup + reopen to gen2.
+                   (fire-cb! (first @sockets*) "close" nil)
+                   (let [p2 (nrepl/connect! conn)]
+                     (fire-cb! (second @sockets*) "connect")
+                     p2)))
+          (.then (fn [_]
+                   (is (zero? (.-length (:buf @conn)))
+                       "gen2 publish reset the framing buffer (fresh stream)")
+                   (let [got* (atom nil)]
+                     (swap! conn assoc :pending {"p1" #(reset! got* %)})
+                     ;; The STALE gen1 tail must NOT complete the frame.
+                     (fire-cb! (first @sockets*) "data" tail)
+                     (is (nil? @got*)
+                         "a stale gen1 tail cannot concatenate onto gen2 to fake a frame")
+                     (is (zero? (.-length (:buf @conn)))
+                         "and it never entered the live buffer"))
+                   (restore!) (done)))
+          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+
+(deftest connect!-rejection-clears-in-flight-slot-and-next-call-retries
+  ;; A failed connect rejects the waiter, clears the in-flight slot, and the
+  ;; next call retries with a fresh socket — the non-sticky failure contract.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          orig-err (.-error js/console)
+          p1       (nrepl/connect! conn)]
+      (is (= 1 (count @sockets*)))
+      (is (some? (:connecting @conn)) "in-flight slot claimed")
+      (set! (.-error js/console) (fn [& _] nil))       ; silence the socket-error log
+      (fire-cb! (first @sockets*) "error" (js/Error. "ECONNREFUSED"))
+      (set! (.-error js/console) orig-err)
+      (-> p1
+          (.then (fn [_] (restore!) (is false "connect must reject") (done))
+                 (fn [e]
+                   (is (= "ECONNREFUSED" (.-message e)) "the waiter received the socket error")
+                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on rejection")
+                   (is (true? (:closed? @conn)) "conn marked closed")
+                   ;; A later call retries — opens a FRESH socket.
+                   (let [p2 (nrepl/connect! conn)]
+                     (is (= 2 (count @sockets*)) "the retry opened a fresh socket")
+                     (fire-cb! (second @sockets*) "connect")
+                     (-> p2
+                         (.then (fn [_]
+                                  (is (false? (:closed? @conn)) "the retry connected")
+                                  (restore!) (done)))
+                         (.catch (fn [e2] (restore!)
+                                   (is false (str "retry rejected: " (.-message e2))) (done)))))))))))
+
+(deftest close!-during-in-flight-connect-settles-waiter-and-orphans-candidate
+  ;; Operator teardown mid-connect: the conn ends closed, the in-flight
+  ;; candidate is destroyed, the waiter settles, and a LATE candidate connect
+  ;; cannot undo the close by publishing itself.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          p1       (nrepl/connect! conn)]
+      (is (some? (:connecting @conn)) "connect in flight")
+      (nrepl/close! conn)
+      (is (true? (:closed? @conn)) "close! left the conn closed")
+      (is (nil? (:connecting @conn)) "close! cleared the in-flight slot")
+      (is (true? (:destroyed? @(:flags (first @sockets*))))
+          "close! destroyed the in-flight candidate socket")
+      (-> p1
+          (.then (fn [_] (restore!) (is false "the waiter must reject after close!") (done))
+                 (fn [_e]
+                   (is true "the waiter settled (rejected) via close!")
+                   ;; A LATE connect on the orphaned candidate must not publish.
+                   (fire-cb! (first @sockets*) "connect")
+                   (is (nil? (:socket @conn))
+                       "a late candidate connect cannot undo the close (no socket published)")
+                   (is (true? (:closed? @conn)) "still closed after the late candidate")
+                   (restore!) (done)))))))

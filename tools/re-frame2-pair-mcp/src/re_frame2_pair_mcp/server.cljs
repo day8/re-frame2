@@ -113,13 +113,22 @@
   for diagnostics; it does NOT gate. While `:discovered?` is
   false, every tool call re-runs the cascade, so a recoverable failure
   (shadow not up at the first call) self-heals on a later call once the
-  operator starts the build."
-  (atom {:project-home    nil
-         :port-file       nil
-         :port            nil
-         :conn            nil
-         :discovered?     false
-         :discovery-error nil}))
+  operator starts the build.
+
+  `:transition` / `:transition-token` make discovery + endpoint replacement
+  single-flight (`ensure-connection!` / `run-transition!`): the first caller
+  to start a session transition stores its in-flight Promise here and a
+  unique ownership token; every concurrent caller awaits the same Promise
+  rather than launching a second discovery or a duplicate reconnect. The
+  completing transition clears the slot only if it still owns the token."
+  (atom {:project-home     nil
+         :port-file        nil
+         :port             nil
+         :conn             nil
+         :discovered?      false
+         :discovery-error  nil
+         :transition       nil
+         :transition-token nil}))
 
 (defn session-state-snapshot
   "Deref the private `session-state` for tests — read-only window onto
@@ -133,12 +142,14 @@
   tests so the lazy-discovery retry contract can be exercised from a
   known slate."
   []
-  (reset! session-state {:project-home    nil
-                         :port-file       nil
-                         :port            nil
-                         :conn            nil
-                         :discovered?     false
-                         :discovery-error nil}))
+  (reset! session-state {:project-home     nil
+                         :port-file        nil
+                         :port             nil
+                         :conn             nil
+                         :discovered?      false
+                         :discovery-error  nil
+                         :transition       nil
+                         :transition-token nil}))
 
 (defn mark-discovered-for-tests!
   "Stand in for `discover-and-cache!`'s success side effect — record a
@@ -311,6 +322,42 @@
                                :reason   port-not-found-hint
                                :hint     port-not-found-hint}))))))))
 
+(defn- run-transition!
+  "Start a single-flight session transition. `body-fn` is a 0-arg thunk
+  returning a Promise that performs the discovery / endpoint replacement
+  and resolves to the authoritative conn atom.
+
+  The in-flight Promise is stored in `session-state`'s `:transition` slot
+  (with a unique ownership token) BEFORE this returns, so a concurrent
+  `ensure-connection!` in the same tick observes it and awaits the SAME
+  Promise rather than launching a duplicate discovery/reconnect. On settle
+  (resolve or reject) the slot is cleared only if this transition still owns
+  the token — a `reset-session-state-for-tests!` (or any external reset) in
+  flight must not be clobbered by a stale completion."
+  [body-fn]
+  (let [token  (js/Object.)
+        settle (fn []
+                 (when (identical? token (:transition-token @session-state))
+                   (swap! session-state assoc :transition nil :transition-token nil)))
+        p      (-> (js/Promise.resolve nil)
+                   (.then (fn [_] (body-fn)))
+                   (.then (fn [v] (settle) v)
+                          (fn [e] (settle) (js/Promise.reject e))))]
+    (swap! session-state assoc :transition p :transition-token token)
+    p))
+
+(defn- run-discovery!
+  "Run the discovery cascade thunk and settle to the freshly-cached conn.
+  On failure, record `:discovery-error` (diagnostic only — the session is
+  NOT wedged; the next call re-runs discovery) and re-reject so the waiter
+  surfaces the structured error."
+  [launch-flags discover-fn]
+  (-> (discover-fn launch-flags)
+      (.then (fn [_] (:conn @session-state)))
+      (.catch (fn [e]
+                (swap! session-state assoc :discovery-error e)
+                (js/Promise.reject e)))))
+
 (defn ensure-connection!
   "Lazy-discovery entry: called before every tool dispatch. Three paths:
 
@@ -320,6 +367,15 @@
   3. Cached + port-file content changed (or vanished) — shadow was
      restarted; close the stale socket, swap in a NEW conn for the new
      port (or force re-discovery).
+
+  ## Single-flight transitions
+
+  Every state-changing path (first-call discovery, vanished-port
+  re-discovery, port-change replacement) runs under `run-transition!`, so
+  concurrent tool calls that observe the same pre-transition state share ONE
+  transition: exactly one discovery runs, the old conn is closed exactly
+  once, and exactly one authoritative conn is published. The fast path
+  (path 2) needs no transition — it only reads the cached conn.
 
   Path 3 is where the genuine \"operator restarted shadow against a
   different build\" reset happens: a restart almost always grabs a new
@@ -354,37 +410,42 @@
   uses the 1-arity, which threads in `discover-and-cache!`."
   ([launch-flags] (ensure-connection! launch-flags discover-and-cache!))
   ([launch-flags discover-fn]
-  (let [{:keys [discovered? port-file port conn]} @session-state]
+  (let [{:keys [discovered? port-file port conn transition]} @session-state]
     (cond
+      ;; A discovery / endpoint-replacement transition is already in flight —
+      ;; await the SAME Promise rather than starting a second one.
+      (some? transition)
+      transition
+
+      ;; First call (or post-invalidation) — run discovery single-flight.
       (not discovered?)
-      (-> (discover-fn launch-flags)
-          (.then (fn [_] (:conn @session-state)))
-          (.catch (fn [e]
-                    ;; Record the last failure for diagnostics only — the
-                    ;; next tool call re-runs discovery; a recoverable
-                    ;; failure (shadow not up yet) must not permanently
-                    ;; wedge the session.
-                    (swap! session-state assoc :discovery-error e)
-                    (js/Promise.reject e))))
+      (run-transition! (fn [] (run-discovery! launch-flags discover-fn)))
 
       :else
       (let [current-port (when port-file (nrepl/read-port-file port-file))]
         (cond
-          ;; The cached file vanished — shadow shut down. Force re-discovery.
+          ;; The cached file vanished — shadow shut down. Force re-discovery
+          ;; under a single transition (close the stale conn first).
           (and port-file (nil? current-port))
-          (do (log! "cached port file disappeared at" port-file "— re-discovering")
+          (run-transition!
+            (fn []
+              (log! "cached port file disappeared at" port-file "— re-discovering")
               (nrepl/close! conn)
               (swap! session-state assoc :discovered? false :conn nil
                      :discovery-error nil)
-              (ensure-connection! launch-flags discover-fn))
+              (run-discovery! launch-flags discover-fn)))
 
-          ;; Port changed — shadow restarted on a new ephemeral port.
+          ;; Port changed — shadow restarted on a new ephemeral port. Replace
+          ;; the endpoint under a single transition so the old conn is closed
+          ;; exactly once and exactly one fresh conn is published.
           (and current-port (not= current-port port))
-          (do (log! "nREPL port changed:" port "→" current-port "— reconnecting")
+          (run-transition!
+            (fn []
+              (log! "nREPL port changed:" port "→" current-port "— reconnecting")
               (nrepl/close! conn)
               (let [conn' (new-conn-for-port current-port)]
                 (swap! session-state assoc :port current-port :conn conn')
-                (js/Promise.resolve conn')))
+                (js/Promise.resolve conn'))))
 
           ;; Same port (or env/cwd path without project-home) — fast path.
           :else
