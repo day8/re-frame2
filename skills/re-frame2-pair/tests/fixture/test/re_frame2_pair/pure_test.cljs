@@ -282,6 +282,111 @@
         "keys AND-compose")))
 
 ;; ===========================================================================
+;; Pair-epoch attribution (queued-correct, frame-qualified, bounded)
+;; ===========================================================================
+;;
+;; These pins exercise the EXACT logic `re-frame2-pair.runtime`'s assembled-
+;; epoch listener (`attribute-pair-epoch!`) and `last-pair-epoch` delegate to.
+;; They demonstrate the three defects the old bare-id / sync-only attribution
+;; carried (rf2-3fc89f.39): a queued pair epoch never attributed, a bare id
+;; colliding across frames, and unbounded growth.
+
+(defn- dispatched-epoch
+  "An assembled epoch record carrying the `:rf.event/dispatched` origin trace
+   the listener classifies on."
+  [frame epoch-id origin]
+  {:frame frame :epoch-id epoch-id
+   :trace-events [{:operation :rf.event/dispatched
+                   :tags {:rf.event/origin origin}}]})
+
+(deftest origin-matches-reads-the-dispatched-trace
+  (let [pair (:trace-events (dispatched-epoch :rf/default "ep-1" :pair))
+        app  (:trace-events (dispatched-epoch :rf/default "ep-1" :app))]
+    (is (true?  (pure/origin-matches? :pair pair)))
+    (is (false? (pure/origin-matches? :pair app)) "an :app cascade is not pair-origin")
+    (is (false? (pure/origin-matches? :pair []))  "no dispatched trace -> false")
+    (is (false? (pure/origin-matches? :pair nil)))
+    (is (false? (pure/origin-matches? :pair
+                  [{:operation :rf.event/run-start :tags {:rf.event/origin :pair}}]))
+        "origin rides on :rf.event/dispatched, not an arbitrary trace op")))
+
+(deftest pair-origin-predicate-classifies-records
+  (is (true?  (pure/pair-origin? (dispatched-epoch :rf/default "ep-1" :pair))))
+  (is (false? (pure/pair-origin? (dispatched-epoch :rf/default "ep-1" :app)))
+      "a non-pair epoch is never pair-origin, even for an identical event vector")
+  (is (false? (pure/pair-origin? {:frame :rf/default :epoch-id "ep-1"}))
+      "a trace-elided record does not RE-classify as pair (attribution is remembered, not re-derived)"))
+
+(deftest epoch-matches-origin-axis-routes-through-origin-matches
+  (let [rec {:frame :rf/default
+             :trace-events (:trace-events (dispatched-epoch :rf/default "ep-1" :pair))}]
+    (is (pure/epoch-matches? {:origin :pair} rec))
+    (is (not (pure/epoch-matches? {:origin :app} rec)))))
+
+(deftest attribute-pair-epoch-attributes-queued-and-frame-qualifies
+  (testing "a queued pair epoch is attributed when it settles at the listener"
+    (let [store (pure/attribute-pair-epoch {} (dispatched-epoch :A "ep-1" :pair)
+                                           #{:A} #{"ep-1"})]
+      (is (= {:A #{"ep-1"}} store))
+      (is (= "ep-1" (:epoch-id (pure/pick-pair-epoch (get store :A)
+                                                     [(dispatched-epoch :A "ep-1" :pair)])))
+          "last-pair-epoch surfaces the queued record")))
+  (testing "a non-pair epoch is not attributed"
+    (is (= {} (pure/attribute-pair-epoch {} (dispatched-epoch :A "ep-1" :app)
+                                         #{:A} #{"ep-1"}))))
+  (testing "two frames sharing an epoch-id stay isolated"
+    ;; frame A dispatches pair epoch "ep-7"; frame B has its own non-pair "ep-7"
+    (let [store (-> {}
+                    (pure/attribute-pair-epoch (dispatched-epoch :A "ep-7" :pair) #{:A :B} #{"ep-7"})
+                    (pure/attribute-pair-epoch (dispatched-epoch :B "ep-7" :app) #{:A :B} #{"ep-7"}))]
+      (is (= #{"ep-7"} (get store :A)))
+      (is (nil? (get store :B)) "frame B never inherits A's attribution")
+      (is (nil? (pure/pick-pair-epoch (get store :B #{})
+                                      [(dispatched-epoch :B "ep-7" :app)]))
+          "querying frame B never matches a pair dispatch from frame A"))))
+
+(deftest attribute-pair-epoch-is-bounded-and-cleans-up
+  (testing "bounded to the live ring — rolled-over ids are pruned"
+    (let [depth 8
+          store (reduce (fn [s i]
+                          (let [ring-ids (into #{} (map #(str "ep-" %))
+                                              (range (max 0 (- i (dec depth))) (inc i)))]
+                            (pure/attribute-pair-epoch s (dispatched-epoch :A (str "ep-" i) :pair)
+                                                       #{:A} ring-ids)))
+                        {}
+                        (range 1000))]
+      (is (= depth (count (get store :A)))
+          "the attribution set never exceeds the live ring depth across 1000 dispatches")))
+  (testing "destroyed-frame state is removed"
+    (let [store (-> {}
+                    (pure/attribute-pair-epoch (dispatched-epoch :A "a-1" :pair) #{:A :Z} #{"a-1"})
+                    (pure/attribute-pair-epoch (dispatched-epoch :Z "z-1" :pair) #{:A :Z} #{"z-1"}))]
+      (is (= #{:A :Z} (set (keys store))))
+      ;; :Z is destroyed; the next settle on :A drops :Z's entry.
+      (let [store' (pure/attribute-pair-epoch store (dispatched-epoch :A "a-2" :pair)
+                                              #{:A} #{"a-1" "a-2"})]
+        (is (= #{:A} (set (keys store'))) "unregistered frame :Z is pruned"))))
+  (testing "a frame whose set empties is dropped, never left as an empty entry"
+    (let [store (-> {}
+                    (pure/attribute-pair-epoch (dispatched-epoch :A "a-1" :pair) #{:A} #{"a-1"})
+                    ;; a-1 rolls out of the ring; a NON-pair a-2 settles -> set empties
+                    (pure/attribute-pair-epoch (dispatched-epoch :A "a-2" :app) #{:A} #{"a-2"}))]
+      (is (not (contains? store :A)) "no empty #{} entry retained"))))
+
+(deftest pick-pair-epoch-newest-first-and-survives-elision
+  (let [ring [(dispatched-epoch :A "ep-1" :pair)
+              (dispatched-epoch :A "ep-2" :app)
+              (dispatched-epoch :A "ep-3" :pair)]]
+    (is (= "ep-3" (:epoch-id (pure/pick-pair-epoch #{"ep-1" "ep-3"} ring)))
+        "walks the ring backward — newest attributed epoch wins")
+    (is (nil? (pure/pick-pair-epoch #{} ring)) "no attributed ids -> nil"))
+  (testing "survives trace elision — attribution is remembered, not re-parsed"
+    ;; ep-1's raw :trace-events were elided for ring age; it is still attributed.
+    (let [aged-ring [{:frame :A :epoch-id "ep-1"}          ; trace elided
+                     (dispatched-epoch :A "ep-2" :app)]]
+      (is (= "ep-1" (:epoch-id (pure/pick-pair-epoch #{"ep-1"} aged-ring)))))))
+
+;; ===========================================================================
 ;; Cascade / consequence projection (cascade outcome + redaction matrices)
 ;; ===========================================================================
 

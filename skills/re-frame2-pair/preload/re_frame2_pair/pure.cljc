@@ -422,6 +422,28 @@
               "="  (fn [ms] (and (number? ms) (= ms n)))
               nil)))))))
 
+(defn origin-matches?
+  "True when a cascade's `trace-events` carry an `:rf.event/dispatched` trace
+   tagged with `:rf.event/origin` = `origin`.
+
+   The SINGLE trace-tag rule for dispatch-origin classification — both
+   `epoch-matches?`'s `:origin` axis (origin filtering) and `pair-origin?`
+   (listener attribution) route through it, so the two never drift on how an
+   epoch's origin is read off the cascade."
+  [origin trace-events]
+  (boolean
+    (some (fn [t] (and (= :rf.event/dispatched (:operation t))
+                       (= origin (get-in t [:tags :rf.event/origin]))))
+          trace-events)))
+
+(defn pair-origin?
+  "True when an assembled epoch `record`'s cascade was dispatched with
+   `:origin :pair` — i.e. THIS skill fired it. The single classification
+   predicate the assembled-epoch listener uses to attribute pair epochs;
+   funnels through `origin-matches?` (the same rule `epoch-matches?` uses)."
+  [record]
+  (origin-matches? :pair (:trace-events record)))
+
 (defn epoch-matches?
   "Test an epoch record against a predicate map. Recognised keys: :event-id,
    :event-id-prefix, :effects, :touches-path, :sub-ran, :render, :origin,
@@ -450,12 +472,59 @@
                                 (= p-sub (first (:query-v %))))
                            sub-runs) true)
         (if p-render (some #(= p-render (str (:render-key %))) renders) true)
-        (if p-origin (some (fn [t] (and (= :rf.event/dispatched (:operation t))
-                                        (= p-origin (get-in t [:tags :rf.event/origin]))))
-                           trace-events)
-                     true)
+        (if p-origin (origin-matches? p-origin trace-events) true)
         (if p-frame  (= p-frame frame) true)
         (if timing-fn (timing-fn (epoch-elapsed-ms {:trace-events trace-events})) true)))))
+
+;; ===========================================================================
+;; Pair-epoch attribution (frame-qualified, queued-correct, bounded)
+;; ===========================================================================
+;;
+;; `last-pair-epoch` answers "which epoch did THIS skill most-recently fire in
+;; this frame?". Attribution happens at the assembled-epoch listener — the one
+;; point where BOTH synchronous AND queued dispatches settle — never eagerly at
+;; dispatch time (which misses the queued path, where the head has not advanced
+;; yet). Identity is stored frame-qualified (`{frame-id #{epoch-id ...}}`),
+;; never as a bare epoch-id: `:epoch-id` is unique only WITHIN a frame history
+;; (Spec-Schemas §`:rf/epoch-record`), so two frames can legitimately carry the
+;; same id. The store is bounded to the frame's LIVE retained ring — rolled-over
+;; ids and destroyed-frame entries are dropped — so it never becomes a second,
+;; unbounded mirror of the epoch ring.
+
+(defn attribute-pair-epoch
+  "Pure next-state for the frame-qualified pair-attribution store.
+
+     store      — current `{frame-id #{epoch-id ...}}`
+     record     — the just-settled assembled epoch record (from the listener)
+     registered — set of currently-registered frame-ids
+     live-ids   — set of epoch-ids in `record`'s frame's live epoch ring
+
+   Adds `record`'s epoch-id under its frame iff the cascade was `:origin :pair`
+   (`pair-origin?`); then rebinds the store to live retained history:
+   entries for frames absent from `registered` are dropped (frame-destruction
+   cleanup), and the settling frame's set is intersected with `live-ids`
+   (ring-rollover cleanup). A frame whose set empties is removed so the map
+   never retains empty entries. The attributed epoch-id is retained even after
+   its raw trace is elided for age, as long as it is still in `live-ids`."
+  [store record registered live-ids]
+  (let [frame-id (:frame record)
+        base     (into {} (filter (fn [[fid _]] (contains? registered fid))) store)]
+    (if (nil? frame-id)
+      base
+      (let [ids  (cond-> (get base frame-id #{})
+                   (pair-origin? record) (conj (:epoch-id record)))
+            kept (into #{} (filter live-ids) ids)]
+        (if (seq kept)
+          (assoc base frame-id kept)
+          (dissoc base frame-id))))))
+
+(defn pick-pair-epoch
+  "The most recent record in `history` (oldest-first) whose `:epoch-id` is a
+   member of `ids` (the frame's attributed pair epochs), or nil. Walks the ring
+   backward so the newest pair epoch wins."
+  [ids history]
+  (some (fn [r] (when (contains? ids (:epoch-id r)) r))
+        (reverse history)))
 
 ;; ===========================================================================
 ;; Cascade / consequence projection
