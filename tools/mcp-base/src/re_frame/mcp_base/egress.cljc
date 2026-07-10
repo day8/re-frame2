@@ -104,3 +104,29 @@
   bundle."
   [profile]
   (get profile->size-opts profile))
+
+(defn mcp-tool-profile
+  "Map an MCP tool server's already-permission-gated sensitive-read
+  posture to its named `:rf.egress/*` boundary profile (EP-0015 §10).
+
+  `sensitive-reads-allowed?` is the boolean each server computes AFTER
+  its own operator-launch gate (`--allow-sensitive-reads`) AND per-call
+  `:include-sensitive` opt-in. This fn performs NO permission check — it
+  is the pure two-value posture→profile mapping that the two MCP tool
+  servers (story-mcp, re-frame2-pair-mcp) share:
+
+  - `false` (the published-build default, or a caller under the gate who
+    did not opt in) ⇒ `:rf.egress/off-box-tool` — the MCP/AI tool wire:
+    sensitive redacts, large elides, structural digests on.
+  - `true` (the trusted-local operator's deliberate raw read) ⇒
+    `:rf.egress/local-raw` — sensitive AND large pass through.
+
+  Both servers previously duplicated this exact `if` (story-mcp's
+  `tools.egress/posture->profile`, pair-mcp's
+  `tools.elision/posture->profile`); it lives here once so the two
+  cannot drift. Callers resolve the returned profile to its `:rf.size/*`
+  floor via `profile-size-opts`."
+  [sensitive-reads-allowed?]
+  (if sensitive-reads-allowed?
+    :rf.egress/local-raw
+    :rf.egress/off-box-tool))

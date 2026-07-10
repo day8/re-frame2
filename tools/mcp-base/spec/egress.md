@@ -21,6 +21,7 @@ This namespace is the pure-data, framework-runtime-free mirror of the six-member
 - `profiles` — the closed six-member `:rf.egress/*` set.
 - `profile->size-opts` — the profile → `:rf.size/*` opt-set table.
 - `profile-size-opts` — the resolver (`[profile] → opt-set | nil`).
+- `mcp-tool-profile` — the shared MCP-tool posture mapping (`[sensitive-reads-allowed?] → :rf.egress/off-box-tool | :rf.egress/local-raw`). The pure two-value `if` both MCP servers' direct-read surfaces used to duplicate, centralized here so they cannot drift.
 
 `egress` does NOT own:
 
@@ -50,8 +51,11 @@ The opt-set keys are `vocab/include-sensitive-opt` / `vocab/include-large-opt` /
 | `profiles` | (def) | the closed `#{:rf.egress/…}` six-member set |
 | `profile->size-opts` | (def) | `{profile → {:rf.size/include-*? bool}}` table |
 | `profile-size-opts` | `[profile]` | the `:rf.size/*` floor map, or `nil` for an unknown / absent profile |
+| `mcp-tool-profile` | `[sensitive-reads-allowed?]` | `:rf.egress/off-box-tool` (false) or `:rf.egress/local-raw` (true) |
 
 `profile-size-opts` returns `nil` (not a permissive default) for an unknown or absent profile. Callers choose profiles from the closed `profiles` set; this resolver does not validate or throw for them.
+
+`mcp-tool-profile` is the pure posture→profile mapping the two MCP tool servers (story-mcp, re-frame2-pair-mcp) share on their direct-read surfaces: `false ⇒ :rf.egress/off-box-tool` (the default MCP/AI tool wire), `true ⇒ :rf.egress/local-raw` (the trusted-local operator's deliberate raw read). It performs NO permission check — the `sensitive-reads-allowed?` boolean is produced by each server's own operator-launch gate + per-call `:include-sensitive` opt-in, and each consumer calls this fn only AFTER that gate. Centralizing it here (rf2-54y369) removes the duplicated `if` each server previously carried (`story-mcp tools.egress/posture->profile`, `pair-mcp tools.elision/posture->profile`).
 
 ## Determinism + drift protection
 

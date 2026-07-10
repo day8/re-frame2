@@ -6,8 +6,9 @@
  {:cljs-test
   {:target    :node-test
    :output-to "out/cljs-test.js"
-   ;; Select the CLJS-only coverage ns and the .cljc dedup suite.
-   :ns-regexp "(dedup-test|cljs-test)$"
+   ;; Select the CLJS-only coverage ns and the cross-host .cljc suites
+   ;; (dedup + egress posture mapping).
+   :ns-regexp "(dedup-test|egress-test|cljs-test)$"
    :autorun   true
    ;; Silent-on-success reporter from the :cljs-test classpath.
    :main      re-frame.test-quiet.shadow-node/main}}}

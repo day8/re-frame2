@@ -150,34 +150,28 @@
 ;; cross-MCP `re-frame.mcp-base.egress` mirror (pinned byte-identical to
 ;; the framework `re-frame.projection` table by the mcp-conformance
 ;; wire-vocab gate). The boolean `include?` each tool computes
-;; (`(and (sensitive-reads-allowed?) per-call-include-sensitive)`) selects
-;; the boundary: not-opted-in ⇒ `:rf.egress/off-box-tool` (redact
-;; sensitive, elide large, structural digests on); the trusted-local
-;; opt-in ⇒ `:rf.egress/local-raw` (sensitive AND large pass through).
-;; The server expresses "which boundary is this", never a hand-rolled
-;; `:rf.size/*` combination.
+;; (`(and (sensitive-reads-allowed?) per-call-include-sensitive)`) is
+;; mapped to the boundary by the SHARED pure fn
+;; `re-frame.mcp-base.egress/mcp-tool-profile`: not-opted-in ⇒
+;; `:rf.egress/off-box-tool` (redact sensitive, elide large, structural
+;; digests on); the trusted-local opt-in ⇒ `:rf.egress/local-raw`
+;; (sensitive AND large pass through). The mapping lives in mcp-base so
+;; story-mcp and re-frame2-pair-mcp cannot drift; this server calls it
+;; only AFTER its own operator + per-call permission checks. The server
+;; expresses "which boundary is this", never a hand-rolled `:rf.size/*`
+;; combination.
 ;; ---------------------------------------------------------------------------
-
-(defn posture->profile
-  "Resolve the off-box egress posture to a named `:rf.egress/*` profile.
-  `include?` is the already-gated,
-  already-opted-in boolean: `false` ⇒ `:rf.egress/off-box-tool` (the
-  default MCP/AI tool wire); `true` ⇒ `:rf.egress/local-raw` (the
-  trusted-local operator's deliberate raw read). Mirror of
-  re-frame2-pair-mcp's `tools.elision/posture->profile`."
-  [include?]
-  (if include?
-    :rf.egress/local-raw
-    :rf.egress/off-box-tool))
 
 (defn posture->elision-opts
   "The `:rf.size/*` option set used by `elide-wire-value` for the
-  resolved egress posture — the named profile's
-  floor from the cross-MCP `mcp-base.egress` mirror. `:rf.egress/off-box-tool`
-  redacts sensitive + elides large + emits structural digests;
-  `:rf.egress/local-raw` opts both back in."
+  resolved egress posture — the named profile's floor from the cross-MCP
+  `mcp-base.egress` mirror. The posture→profile mapping is the shared
+  `re-frame.mcp-base.egress/mcp-tool-profile` (called here only AFTER this
+  server's permission gate). `:rf.egress/off-box-tool` redacts sensitive +
+  elides large + emits structural digests; `:rf.egress/local-raw` opts both
+  back in."
   [include?]
-  (base-egress/profile-size-opts (posture->profile include?)))
+  (base-egress/profile-size-opts (base-egress/mcp-tool-profile include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Path-based redaction
@@ -348,7 +342,7 @@
        :frame     variant-id
        :tree      tree
        :source-db app-db}
-      {:rf.egress/profile (posture->profile false)})))
+      {:rf.egress/profile (base-egress/mcp-tool-profile false)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-live runtime and captured values

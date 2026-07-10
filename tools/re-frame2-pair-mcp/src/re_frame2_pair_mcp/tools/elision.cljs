@@ -139,35 +139,15 @@
   [include-large? include-sensitive?]
   (not (and include-large? include-sensitive?)))
 
-(defn posture->profile
-  "Resolve the off-box egress POSTURE of a direct-read tool surface to a
-  named `:rf.egress/*` profile (EP-0015 §10).
-
-  `include-sensitive?` is the already-gated, already-opted-in boolean each
-  tool computes (`(and (raw-state-allowed?) per-call-include-sensitive)`):
-
-  - `false` (the published-build default, or a forgetful caller under the
-    gate) ⇒ `:rf.egress/off-box-tool` — the MCP/AI tool wire. Sensitive
-    redacts, large elides, structural digests on.
-  - `true`  (the trusted-local operator's deliberate raw read) ⇒
-    `:rf.egress/local-raw` — sensitive AND large pass through.
-
-  Revealing sensitive data is the operator's `local-raw` act and is
-  trace-visible (Spec 015 §Cross-tool visibility grain) — the
-  `--allow-sensitive-reads` launch log + the per-call opt-in are the
-  audit record of the reveal."
-  [include-sensitive?]
-  (if include-sensitive?
-    :rf.egress/local-raw
-    :rf.egress/off-box-tool))
-
 (defn elision-opts-edn
   "Render the elision opts map as an EDN string for inlining into a
   CLJS eval form sent over nREPL.
 
   Resolution (EP-0015 §10): the egress POSTURE
-  (`include-sensitive?`) names a `:rf.egress/*` profile via
-  `posture->profile`; the framework's `re-frame.projection/profile-size-opts`
+  (`include-sensitive?`) names a `:rf.egress/*` profile via the SHARED
+  cross-MCP mapping `re-frame.mcp-base.egress/mcp-tool-profile` (called
+  here only AFTER this server's `--allow-sensitive-reads` gate + per-call
+  opt-in); the framework's `re-frame.projection/profile-size-opts`
   resolves that profile to its `:rf.size/*` floor (the single source of
   truth — this server never re-derives the table). The `:elision` MCP arg
   composes on top as the explicit override: when `include-large?` is true
@@ -208,7 +188,7 @@
   ([include-large?]
    (elision-opts-edn include-large? false))
   ([include-large? include-sensitive?]
-   (let [profile (posture->profile include-sensitive?)
+   (let [profile (base-egress/mcp-tool-profile include-sensitive?)
          floor   (base-egress/profile-size-opts profile)]
      ;; The `:elision` arg is the EP-0015 §10 explicit override: a caller
      ;; turning elision OFF overlays `:rf.size/include-large? true` on the
