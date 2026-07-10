@@ -27,13 +27,13 @@
 
 'use strict';
 
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   waitForOwnedHttpReady,
@@ -91,8 +91,6 @@ const { spawnSync } = require('child_process');
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
 
 const cleanup = createHarnessCleanup();
-const TOKEN_PATH = path.join(ROOT, TOKEN_FILE_BASENAME);
-cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 function compile() {
@@ -120,21 +118,6 @@ function stageHtml() {
   }
   fs.copyFileSync(HTML_SRC, path.join(ROOT, 'index.html'));
   return true;
-}
-
-function writeOwnershipToken() {
-  if (!fs.existsSync(ROOT)) return null;
-  const token = crypto.randomBytes(16).toString('hex');
-  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
-  return token;
-}
-
-function removeOwnershipToken() {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
-  } catch (_) {
-    // best-effort cleanup.
-  }
 }
 
 function withTimeout(promise, ms, label) {
@@ -191,11 +174,13 @@ async function runSpec(baseUrl) {
   if (!compile()) return 1;
   if (!stageHtml()) return 1;
 
-  const token = writeOwnershipToken();
-  if (!token) {
+  const published = publishOwnershipToken(ROOT);
+  if (!published) {
     console.error(`Asset root missing: ${ROOT}. Did shadow-cljs compile run?`);
     return 1;
   }
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   const port = await resolveServePort(DEFAULT_PORT, {
     onFallback: (pref, fallback) =>

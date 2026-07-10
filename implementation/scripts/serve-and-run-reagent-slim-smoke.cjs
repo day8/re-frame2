@@ -30,7 +30,6 @@
  */
 
 const { spawnSync } = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -38,6 +37,7 @@ const { isVerboseTests } = require('./lib/browser-test-report.cjs');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   waitForOwnedHttpReady,
@@ -71,17 +71,7 @@ try {
   );
 }
 
-const TOKEN_PATH = path.join(OUT_DIR, TOKEN_FILE_BASENAME);
 const cleanup = createHarnessCleanup();
-
-function removeOwnershipToken() {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
-  } catch (_) {
-    // best-effort; teardown bookkeeping must never fail the run.
-  }
-}
-cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 function cleanAndStage() {
@@ -107,13 +97,6 @@ function stageHtml() {
     throw new Error(`Testbed HTML source missing: ${HTML_SRC}`);
   }
   fs.copyFileSync(HTML_SRC, path.join(OUT_DIR, 'index.html'));
-}
-
-function writeOwnershipToken() {
-  if (!fs.existsSync(OUT_DIR)) return null;
-  const token = crypto.randomBytes(16).toString('hex');
-  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
-  return token;
 }
 
 async function runSmoke(baseUrl) {
@@ -186,8 +169,10 @@ async function main() {
   compile();
   stageHtml();
 
-  const token = writeOwnershipToken();
-  if (!token) throw new Error(`Staging dir missing: ${OUT_DIR}. Did staging run?`);
+  const published = publishOwnershipToken(OUT_DIR);
+  if (!published) throw new Error(`Staging dir missing: ${OUT_DIR}. Did staging run?`);
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   const port = await resolveServePort(PREFERRED_PORT, {
     onFallback: (preferred, fallback) => {

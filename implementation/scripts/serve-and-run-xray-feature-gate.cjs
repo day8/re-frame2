@@ -11,7 +11,6 @@
  */
 
 const { spawnSync } = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -20,6 +19,7 @@ const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
   probeTargetFromBaseUrl,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   waitForHttpReady,
@@ -46,28 +46,14 @@ const TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE_TESTS = isVerboseTests();
 
-// Per-run ownership token (rf2-84gzw / rf2-gkf9). Published as
-// `${OUT_ROOT}/.rf-harness-token` before http-server is spawned (OUT_ROOT
-// is a staging dir this script owns — cleanAndStageRoot() recreates it),
-// then verified by waitForOwnedHttpReady before any Playwright scenario
-// runs. Defeats a stale/foreign listener on the chosen port serving a
-// different (possibly stale-but-compatible → FALSE-GREEN) asset tree.
-const TOKEN_PATH = path.join(OUT_ROOT, TOKEN_FILE_BASENAME);
-
-function writeOwnershipToken() {
-  if (!fs.existsSync(OUT_ROOT)) return null;
-  const token = crypto.randomBytes(16).toString('hex');
-  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
-  return token;
-}
-
-function removeOwnershipToken() {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
-  } catch (_) {
-    // best-effort cleanup; never let teardown bookkeeping fail the run.
-  }
-}
+// Per-run ownership token (rf2-84gzw / rf2-gkf9). publishOwnershipToken
+// writes `${OUT_ROOT}/.rf-harness-token` before http-server is spawned
+// (OUT_ROOT is a staging dir this script owns — cleanAndStageRoot()
+// recreates it), then waitForOwnedHttpReady verifies it before any
+// Playwright scenario runs. Defeats a stale/foreign listener on the chosen
+// port serving a different (possibly stale-but-compatible → FALSE-GREEN)
+// asset tree. The whole token lifecycle (nonce + write + concurrency-safe
+// idempotent cleanup) lives in the shared local-browser-harness.cjs.
 
 // rf2-wa3oo: PR-smoke vs nightly-full split. With `--smoke` (or
 // RF2_GATE_SMOKE=1) the gate runs only the scenarios tagged
@@ -128,7 +114,6 @@ const SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
   paths: [IMPL_ROOT],
 });
 const cleanup = createHarnessCleanup();
-cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 function relPath(parts) {
@@ -567,12 +552,14 @@ async function main() {
 
   // Publish the per-run ownership token BEFORE spawning http-server so
   // the sentinel is visible the moment the server starts serving
-  // OUT_ROOT (rf2-84gzw). Cleaned up unconditionally via the registered
-  // cleanup fn.
-  const token = writeOwnershipToken();
-  if (!token) {
+  // OUT_ROOT (rf2-84gzw). The returned `remove` (idempotent, only unlinks
+  // our own token) is registered for teardown now that the token exists.
+  const published = publishOwnershipToken(OUT_ROOT);
+  if (!published) {
     throw new Error(`Staging root missing: ${OUT_ROOT}. Did staging run?`);
   }
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   // Resolve the port: prefer XRAY_FEATURE_GATE_PORT (default 8037) when
   // free, else fall back to an OS-chosen free port (rf2-84gzw). This
