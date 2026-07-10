@@ -42,4 +42,19 @@
  :output-dir "public/out"
  :asset-path "/out"
  :modules {:main {:init-fn counter.core/run}}
- :devtools {:preloads [re-frame2-pair.runtime]}}}}
+ :devtools {:preloads [re-frame2-pair.runtime]}}
+
+ ;; CLJS node-test build for the SHIPPED preload's pure core
+ ;; (`re-frame2-pair.pure`, on the `../../preload` source path). The tests
+ ;; under `test/` (deps.edn `:paths`) exercise the EXACT pure fns
+ ;; `re-frame2-pair.runtime` delegates to — cascade / consequence
+ ;; projections, the multi-frame resolver, the id-validation core, the
+ ;; streaming queue transforms, the epoch timing + matcher, the snapshot
+ ;; scope resolver, and the orient assembler — rather than a Babashka mirror
+ ;; that could drift from the shipped code (rf2-etsj8p). Run with
+ ;; `shadow-cljs compile pure-test && node target/pure-test.js`.
+ :pure-test
+ {:target :node-test
+ :output-to "target/pure-test.js"
+ :ns-regexp "pure-test$"
+ :autorun false}}}
