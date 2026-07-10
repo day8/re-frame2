@@ -11,6 +11,7 @@
  "scripts": {
  "watch": "shadow-cljs watch app",
  "release": "shadow-cljs release app",
+ "test:pure": "shadow-cljs compile pure-test && node target/pure-test.js",
  "clean": "rm -rf out public/out .shadow-cljs target"
  }
 }

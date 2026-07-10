@@ -24,7 +24,7 @@
 ;; package.json) drives the build; this entry just makes the JVM side
 ;; happy when the CLI shells out to `clojure`. The version is pinned
 ;; to match the package.json devDependency exactly.
-{:paths ["src" "../../preload"]
+{:paths ["src" "test" "../../preload"]
  :deps {day8/re-frame2 {:local/root "../../../../implementation/core"}
  day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
  day8/re-frame2-epoch {:local/root "../../../../implementation/epoch"}
