@@ -674,6 +674,36 @@
       (is (some? payload))
       (is (not (contains? payload :rf/frame-id))
           "the resources payload OMITS :rf/frame-id")
+      ;; ── Response document envelope (rf2-3fc89f.30) ───────────────────────
+      ;; `handle-request` owns the ONE document shell; the app renders as a
+      ;; FRAGMENT into `<div id='app'>`. A drift back to `:doctype? true` on
+      ;; the fragment emitter nests a SECOND `<!DOCTYPE html>` inside `#app` —
+      ;; malformed HTML the old code shipped, surviving only via browser parser
+      ;; recovery. Assert exactly one doctype, envelope-owned, at byte zero,
+      ;; the fragment beginning at the child of `#app`, with the hydration hash
+      ;; and the envelope's head/payload/main.js all preserved.
+      (let [body     (:body resp)
+            app-open (clojure.string/index-of body "<div id='app'>")]
+        (is (= 1 (count (re-seq #"(?i)<!doctype" body)))
+            "exactly one doctype in the whole response (envelope-owned; no nested)")
+        (is (clojure.string/starts-with? (clojure.string/lower-case body)
+                                          "<!doctype html>")
+            "the sole doctype sits at byte zero of the document")
+        (is (some? app-open)
+            "the response carries the `<div id='app'>` mount point")
+        (is (not (clojure.string/includes?
+                   (clojure.string/lower-case (subs body app-open)) "<!doctype"))
+            "no doctype occurs within or after `<div id='app'>` (app is a fragment)")
+        (is (clojure.string/includes? body "<div id='app'><div class=\"page\"")
+            "the first child of #app is the page root element (fragment, not a nested doc)")
+        (is (clojure.string/includes? body "data-rf-render-hash=")
+            "the fragment root carries data-rf-render-hash (`:emit-hash? true` retained)")
+        (is (clojure.string/includes? body "<title>Resources SSR demo</title>")
+            "envelope head metadata preserved")
+        (is (clojure.string/includes? body "id='__rf_payload'")
+            "payload script preserved")
+        (is (clojure.string/includes? body "<script src='/main.js'></script>")
+            "client boot script preserved"))
       ;; The runtime-db projection carries the loaded resource entry (the
       ;; allowed `:entries`, not the indexes).
       (let [entries (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])]
