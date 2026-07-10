@@ -158,23 +158,6 @@
   (some (fn [[_ node]] (when (true? (:error? node)) node))
         (region-final-leaf-nodes machine state)))
 
-(defn- find-spawn-spec-at
-  "Walk `parent-spec`'s state tree to the node at `invoke-id` (the
-  absolute prefix-path stamped at spawn time) and return that node's
-  `:spawn` map. For a parallel-region parent, the first element of
-  `invoke-id` is the region name; strip and descend
-  into that region's body. Returns nil if the path doesn't resolve
-  or the node doesn't declare `:spawn`."
-  [parent-spec invoke-id]
-  (when (and parent-spec (vector? invoke-id) (seq invoke-id))
-    (let [[head & tail] invoke-id
-          [tree path]   (if (and (parallel/parallel? parent-spec)
-                                 (contains? (:regions parent-spec) head))
-                          [(get-in parent-spec [:regions head]) (vec tail)]
-                          [parent-spec invoke-id])
-          node          (transition/node-at tree path)]
-      (:spawn node))))
-
 ;; ---- the orchestrator ------------------------------------------------------
 
 (defn finalize-machine
@@ -336,7 +319,7 @@
                         (:rf/machine? parent-reg) (:rf/machine parent-reg)
                         :else                     (resolver/spec-from-snapshot parent-snap)))
         spawn-spec  (when (and parent-meta invoke-id)
-                      (find-spawn-spec-at parent-meta invoke-id))
+                      (resolver/spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)
         ;; `:on-error` is a transition spec (not a fn) — its PRESENCE on the
         ;; resolved `:spawn` map decides whether the error-leaf trigger routes
