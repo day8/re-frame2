@@ -1,118 +1,19 @@
-;; re-frame2 event-conformance tier — the broader event-conformance TEST
-;; surface (rf2-xhfxcs.6; EP-0018 §Conformance + Bead Plan item 7).
+;; Cross-artefact conformance for the public event model. The suites exercise
+;; one-form event registration, recordable coeffects, image-scoped dispatch,
+;; reply delivery, and the always-on event/error channels against core's public
+;; facade and runtime seams.
 ;;
-;; Its CORE lock is the EP-0018 one-form event-MODEL contract (the
-;; `event_model_conformance_cljs_test.cljc` umbrella), but follow-on locks
-;; have since landed alongside it on this same surface:
-;;
-;;   - the EP-0017 recordable-coeffect locks live IN the model-conformance
-;;     ns (flat declared delivery, the one-arg ambient supplier arg path,
-;;     and the slice-B recordable-generator / mint-policy machinery —
-;;     `:live` mint + write-back, `:strict` refuse-to-mint, `:explicit-live`
-;;     escape; rf2-lpyw1v); and
-;;   - the EP-0023 image-loaded frame dispatch-isolation lock is a SEPARATE
-;;     ns (`event_frame_isolation_conformance_cljs_test.cljc`, rf2-slvzn3)
-;;     this alias also runs.
-;;
-;; This is NOT a published Maven artefact — it has no `src/`. It is a
-;; cross-artefact TEST surface (the precedent is `reply-conformance/` and
-;; `derivation-conformance/`) that holds the umbrella REGRESSION LOCK on
-;; the one-form event-registration PUBLIC CONTRACT EP-0018 settled:
-;;
-;;   - `reg-event` is the SINGLE public event-registration form, with
-;;     reg-event-fx semantics (coeffects in / a closed effects map out;
-;;     `{:db …}` is the db-write effect; `:rf.cofx/requires` works
-;;     uniformly — the EP-0017 hole closed).
-;;   - the THREE retired public names (`reg-event-db` / `reg-event-fx` /
-;;     `reg-event-ctx`) survive ONLY as facade-exported `^:no-doc`
-;;     throwing stubs that raise their exact hard errors
-;;     (`:rf.error/reg-event-{db,fx,ctx}-removed`) — production-survivable
-;;     (fan out on the always-on error channel, THEN throw).
-;;   - ONE unified `:rf/event-handler` wrapper (`:rf/default? true`); the
-;;     `:event/kind` sub-tag is GONE; `reg-event-ctx` is NOT a public
-;;     (doc'd) facade var.
-;;
-;; This tier carries NO realm-routing / frame-query section. The EP-0013
-;; multi-realm substrate was retired in the EP-0023/EP-0024 realm collapse
-;; (rf2-afdlyr / rf2-tu2vr7) — there is no public realm query coordinate;
-;; the public read grammar is FRAME-TARGETED over a live frame's sealed
-;; image generation. The frame/query read contract (`rf/handler-meta` /
-;; `rf/registrations` `{:frame …}`) is locked in core's
-;; `re-frame.facade-frame-read-cljs-test`, and the live-dispatch isolation
-;; leg in the sibling `re-frame.event-frame-isolation-conformance-cljs-test`
-;; — not restated here.
-;;
-;; ## Ownership split — what core owns, what this tier owns
-;;
-;; The BASELINE reg-event unit behaviour is owned by core's
-;; `re-frame.reg-event-cljs-test` (registration shape, `:db`/`:fx` effect
-;; semantics, nil/{} no-op, `:rf.cofx/requires` flat delivery + storage,
-;; the retired-name stubs, the reg-event-ctx→reg-interceptor guidance),
-;; and the frame-owned OBSERVABILITY-ROUTING E2E (a real dispatch routing
-;; a projected handled-event / error record to a frame `:observability`
-;; sink, registration-owned `:sensitive` event-arg redaction, fail-closed
-;; routing) is owned END TO END by core's
-;; `re-frame.observability-routing-cljs-test`. Those baseline scenarios are
-;; NOT restated here.
-;;
-;; This tier is the ADVERSARIAL umbrella LOCK over the contracts that span
-;; wider than either core suite: every assertion is shaped so a future
-;; RE-INTRODUCTION of an old form (a working `reg-event-db`/`-fx`/`-ctx`),
-;; a SECOND wrapper id, a re-appearing `:event/kind` sub-tag, or a
-;; `reg-event-ctx` promotion back onto the public facade would turn it RED —
-;; alongside the unique locks that have no in-core home (the canonical
-;; coeffect shape, the closed effect-map negatives, the recordable-generator
-;; / mint-policy triad, and the always-on error-/event-emit fan-out). It
-;; lives in its own cross-artefact surface because the contract spans the
-;; events runtime, the public facade, and the always-on error-/event-emit
-;; channels.
-;;
-;; ## Why this deps.edn exists
-;;
-;; The conformance namespaces are `.cljc` and run in BOTH runtimes. They
-;; ride the always-on CLJS `:node-test` gate (`npm run test:cljs`, ns
-;; matches `cljs-test$`) via the cross-artefact source path the top-level
-;; `implementation/shadow-cljs.edn` lists. This alias is the JVM
-;; counterpart: it runs the SAME `.cljc` namespaces under the JVM so the
-;; `:clj` reader-conditional arms (the `:no-doc`-meta facade probe, which
-;; reads `(meta (var …))` and is JVM-only) AND the `:clj` host throw type
-;; (`clojure.lang.ExceptionInfo`) are exercised — mirroring why
-;; `reply-conformance/deps.edn` and `derivation-conformance/deps.edn`
-;; exist. Wired into `scripts/test-jvm-implementation.sh`.
-;;
-;; ## Why test-only deps, not :local/root in :deps
-;;
-;; This artefact ships nothing, so the top-level `:deps` is empty. The
-;; cross-artefact source the test namespaces `:require`
-;; (`re-frame.core` — the public facade; plus the internal
-;; `re-frame.events` / `re-frame.error-emit` / `re-frame.event-emit` /
-;; `re-frame.registrar` / `re-frame.test-support` /
-;; `re-frame.substrate.plain-atom` from core) is pulled in under the
-;; `:test` alias only. `:extra-paths` is JUST `["test"]` so the cognitect
-;; test-runner scans ONLY this tier's test dir — the `:local/root` core
-;; dep contributes its `src` (never its `:test`), so core's own tests do
-;; not run here.
-;;
-;; ## Bundle isolation (tools/README.md)
-;;
-;; No tool deps; this is a pure conformance surface. The dependency arrow
-;; flows event-conformance(test) → core, never the reverse. Nothing under
-;; `implementation/` production `src/` `:require`s anything here, so no
-;; production bundle is widened.
+;; This is a test-only artefact: it has no `src` and publishes no bundle. Core is
+;; therefore a `:test` dependency, while `:extra-paths ["test"]` keeps the JVM
+;; runner scoped to this tier. The same `.cljc` namespaces also run in the CLJS
+;; node-test build configured by `implementation/shadow-cljs.edn`.
 {:paths []
  :deps  {}
 
  :aliases
  {:test
   {:extra-paths ["test"]
-   ;; core carries the WHOLE one-form event contract: the public facade
-   ;; (`re-frame.core`), the events runtime + retired stubs
-   ;; (`re-frame.events`), the always-on error/event channels
-   ;; (`re-frame.error-emit` / `re-frame.event-emit`), the registrar
-   ;; (`re-frame.registrar`), the default substrate, and the shared test
-   ;; harness.
    :extra-deps  {day8/re-frame2 {:local/root "../core"}
-                 ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
