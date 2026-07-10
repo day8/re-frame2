@@ -91,9 +91,13 @@
 ;;
 ;; Sources are `.cljc` so they load identically into the JVM
 ;; classpath (story-mcp) and the shadow-cljs CLJS build
-;; (re-frame2-pair-mcp). The tests target Clojure (test runner via
+;; (re-frame2-pair-mcp). Most tests target Clojure (test runner via
 ;; cognitect-labs/test-runner) — the algorithmic content is platform-
-;; agnostic, so a JVM round-trip is the cheapest gate.
+;; agnostic, so a JVM round-trip is the cheapest gate. The canonical
+;; dedup suite (`dedup_test.cljc`, rf2-ywkiss) is the exception: it runs
+;; on BOTH hosts (JVM `:test` + shadow `cljs-test`) so the wire-boundary
+;; encode step both servers now consume DIRECTLY is proven on each
+;; server's actual runtime.
 ;;
 ;; ## Release
 ;;

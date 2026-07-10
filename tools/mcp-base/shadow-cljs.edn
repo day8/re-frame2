@@ -20,19 +20,23 @@
 ;; their soft-pass branch — the CLJS-only path the JVM suite cannot
 ;; reach.
 ;;
-;; The build runs ONLY the `.cljs` test namespaces (`-cljs-test$`
-;; regexp): the existing `.clj` JVM tests use `clojure.lang.ExceptionInfo`
-;; and a JVM Malli dep and cannot compile to CLJS. The CLJS-specific
-;; coverage lives in `re-frame.mcp-base.cljs-branches-cljs-test`.
+;; The build runs the `.cljs` CLJS-only coverage ns
+;; (`re-frame.mcp-base.cljs-branches-cljs-test`) PLUS the canonical
+;; `.cljc` dedup suite (`re-frame.mcp-base.dedup-test`, rf2-ywkiss) so
+;; the wire-boundary dedup encode step is proven on the CLJS runtime
+;; re-frame2-pair-mcp ships on — not just the JVM. The remaining `.clj`
+;; JVM tests use `clojure.lang.ExceptionInfo` and a JVM Malli dep and
+;; cannot compile to CLJS, so they stay excluded.
 {:deps {:aliases [:cljs-test]}
  :builds
  {:cljs-test
   {:target    :node-test
    :output-to "out/cljs-test.js"
-   ;; Only the dedicated `.cljs` test ns — the `.clj` JVM tests are not
-   ;; CLJS-compilable. The `-cljs-test$` suffix selects exactly the CLJS
-   ;; coverage file and never the JVM `*_test.clj` namespaces.
-   :ns-regexp "-cljs-test$"
+   ;; Selects exactly two namespaces: the CLJS-only coverage file
+   ;; (ends `-cljs-test`) and the cross-host canonical dedup suite
+   ;; (ends `dedup-test`). No other `.clj` JVM `*_test.clj` namespace
+   ;; matches either suffix, so they stay excluded.
+   :ns-regexp "(dedup-test|cljs-test)$"
    :autorun   true
    ;; rf2-try1x — silent-on-success reporter (mirrors re-frame2-pair-mcp's
    ;; :server-test build). Provided by day8/re-frame2-test-quiet on the
