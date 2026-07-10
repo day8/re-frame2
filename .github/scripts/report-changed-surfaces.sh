@@ -265,6 +265,28 @@ else
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
+      examples/scripts/examples-asset-manifest.cjs)
+        # rf2-78th1g — false-green fix, mirroring the examples-staging.cjs
+        # case above. examples-asset-manifest.cjs is the SINGLE side-effect-free
+        # owner of every examples external-asset EXCEPTION (rf2-phpbo8): what
+        # extra static asset each departing example stages and which _shared
+        # asset it may omit. The staging helper examples-staging.cjs require's
+        # its `stagedAssetsByBuild` projection to decide what to STAGE before
+        # the browser gates run — and examples-staging.cjs itself fires BOTH
+        # browser-gate families (adapter_testbed_smokes via the adapter-smoke
+        # orchestrator, story_xray_browser via the two Story launchers). So a
+        # regression in the manifest data or its projection can break the files
+        # those gates serve, yet a PR touching only the manifest used to fall
+        # through to the generic examples/* case below (cljs_browser +
+        # cljs_node_test), skipping both Playwright gates it underpins — a CI
+        # false-green for this slice. Fire BOTH gates, exactly like the shared
+        # examples-staging.cjs case, so editing the manifest runs the browser
+        # gates that depend on it. (The static asset scanner
+        # check-examples-assets.cjs also require's `pageExemptions`, but it is
+        # not a CI gate, so no extra fan-out is warranted.)
+        adapter_testbed_smokes=true
+        story_xray_browser=true
+        ;;
       implementation/epoch/*)
         # rf2-ribu5a — false-green fix. Epoch is the ONLY per-feature
         # artefact wired into a LIVE MCP conformance gate: the
