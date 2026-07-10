@@ -186,7 +186,7 @@ And construction is strict: a setup step that fails — a thrown handler, a miss
 
 ### Ergonomic state assertions
 
-For the assertion itself, `test-support` ships two `clojure.test`-aware helpers that read the *current* (or a named) frame's app-db, so you don't have to thread `app-db-value` through `get-in` by hand: `(ts/assert-path-equals path expected)` checks one path, and `(ts/assert-db-equals expected-db)` checks the whole map. Both take an optional `{:frame …}` opt and report a `:pass` / `:fail` through `clojure.test`, so they slot straight into a `deftest`:
+For the assertion itself, `test-support` ships a `clojure.test`-aware helper that reads the *current* (or a named) frame's app-db, so you don't have to thread `app-db-value` through `get-in` by hand: `(ts/assert-path-equals path expected)` checks one path. It takes an optional `{:frame …}` opt and reports a `:pass` / `:fail` through `clojure.test`, so it slots straight into a `deftest` (for a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`):
 
 ```clojure
 (deftest page-committed
@@ -208,19 +208,18 @@ So: if two test namespaces register different handlers under the same id, the la
 If your tests — or any helpers they load — register anything themselves, bracket each test with a registrar snapshot/restore so the table is put back the way it was:
 
 ```clojure
-(use-fixtures :each (fn [test-fn] (ts/with-fresh-registrar test-fn)))
+(use-fixtures :each (ts/make-reset-runtime-fixture {}))
 ```
 
-`ts/with-fresh-registrar` rolls the registrar back on the way out, while keeping the ns-load registrations it captured at the start.
+`make-reset-runtime-fixture` snapshots the registrar before each test and restores it on the way out, keeping the ns-load registrations it captured at the start.
 
 ### Picking the right reset fixture
 
-`with-fresh-registrar` resets exactly the registrar — and nothing else. `re-frame.test-support` offers a small ladder of reset fixtures, so you can match the cleanup to what your suite actually touches:
+`re-frame.test-support` offers a small ladder of reset options, so you can match the cleanup to what your suite actually touches:
 
 | Reach for | When |
 |---|---|
-| `ts/snapshot-registrar` + `ts/restore-registrar!` | You're hand-rolling a fixture and want the raw snapshot/restore primitives — capture the registrar map, restore it later. |
-| `ts/with-fresh-registrar` | An ad-hoc `deftest` or REPL block whose only shared state is the registrar — no frames, no flows, no schemas left to clean up. |
+| `ts/snapshot-registrar` + `ts/restore-registrar!` | You're hand-rolling a fixture and want the raw snapshot/restore primitives — capture the registrar map, restore it later (e.g. a `(let [snap (ts/snapshot-registrar)] (try … (finally (ts/restore-registrar! snap))))` bracket around a single ad-hoc block). |
 | `ts/make-reset-runtime-fixture` | The **default for any real suite**. It snapshots/restores the registrar *and* resets the rest of per-process state — frames, flows, schemas, machine timers, routing counters, in-flight HTTP, resource caches, epoch history, trace listeners. It's a *factory*: call it to get the fixture fn. |
 
 ```clojure
@@ -230,7 +229,7 @@ If your tests — or any helpers they load — register anything themselves, bra
 
 `make-reset-runtime-fixture` is the right default because its resets are no-ops when an artefact is absent — a plain JVM event-handler suite that never pulls in flows or schemas doesn't pay for resetting them.
 
-One last stumble, and it's a common one: the two fixtures have different call shapes. `with-fresh-registrar` *takes a thunk and runs it* (`(ts/with-fresh-registrar test-fn)`), while `make-reset-runtime-fixture` *returns a fixture fn* you hand to `use-fixtures` (`(ts/make-reset-runtime-fixture {})`). If `use-fixtures` complains, check which side of this line you're on.
+One thing to keep straight: `make-reset-runtime-fixture` is a *factory* — it *returns* the fixture fn you hand to `use-fixtures` (`(ts/make-reset-runtime-fixture {})`), it is not itself the fixture. The raw `snapshot-registrar` / `restore-registrar!` pair, by contrast, you call directly inside a hand-rolled bracket. If `use-fixtures` complains, check which side of this line you're on.
 
 ??? info "For JavaScript developers"
 

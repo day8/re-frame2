@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 467,
+ :var-count 458,
  :tier-vocab
  [:front-porch
   :advanced
@@ -456,12 +456,9 @@
   {:namespace "re-frame.story", :var "variants-with-tags", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "watch-variant", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "workspace->edn", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-helpers", :var "*current-root-view*", :tier :testing, :kind :var, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-helpers", :var "*current-root-view-args*", :tier :testing, :kind :var, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "attrs", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "children", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "expand-tree", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-helpers", :var "expect-text", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "extract-handler", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "find-all-by-attr", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "find-all-by-testid", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
@@ -472,15 +469,9 @@
   {:namespace "re-frame.test-helpers", :var "invoke-handler", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "testid", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-helpers", :var "text-content", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-helpers", :var "wait-until", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-helpers", :var "with-app-fixture", :tier :testing, :kind :macro, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "assert-db-equals", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "assert-path-equals", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "dispatch-sequence", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "make-reset-runtime-fixture", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "merge-registrar-snapshots", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "poll-until", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "restore-registrar!", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "snapshot-registrar", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.test-support", :var "with-fresh-registrar", :tier :testing, :kind :fn, :owner "008", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.test-support", :var "with-trace-recorder!", :tier :testing, :kind :macro, :owner "008", :status "v1", :facade? false, :runtime-verified? true}]}

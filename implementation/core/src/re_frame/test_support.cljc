@@ -5,9 +5,10 @@
 
   Sibling namespace covering the **view-tree assertion axis** — hiccup
   walkers (`find-by-testid`, `text-content`, `extract-handler`), handler
-  invocation (`invoke-handler`), the single-frame e2e fixture trio
-  (`with-app-fixture` / `expect-text` / `wait-until`), and the `testid`
-  authoring helper.
+  invocation (`invoke-handler`), and the `testid` authoring helper. The
+  single-frame view test composes those walkers with
+  `make-reset-runtime-fixture` + `poll-until` from this namespace — see
+  `docs/core/testing/views.md`.
 
   This namespace owns the **runtime-state assertion axis**: registrar,
   frames, `app-db`, drain, in-flight requests, fixture machinery.
@@ -55,9 +56,6 @@
   ### Fixture machinery
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
-  - [[merge-registrar-snapshots]] — two-level merge of two registrar
-    snapshots (overlay wins per `[kind id]`).
-  - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
   - [[make-reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
@@ -68,15 +66,10 @@
     `:node-test` bundle (rf2-7hwnu).
 
   ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5 / rf2-8j9m6)
-  - [[dispatch-sequence]] — fire a vector of events synchronously,
-    optionally observing intermediate state via `:after-each`.
   - [[assert-path-equals]] — assert `(= expected (get-in app-db path))`
     against the resolved frame; failure reports via `clojure.test/is`.
     Mirrors the `:rf.assert/path-equals` event (Story `:play` blocks);
     same name root so a reader who knows one surface navigates the other.
-  - [[assert-db-equals]] — assert `(= expected-db app-db)` against the
-    resolved frame; failure reports via `clojure.test/is`. Companion
-    full-db form (no event analog).
 
   ### Trace-recorder bracket (rf2-64iuw)
   - [[with-trace-recorder!]] — register a trace-tooling listener for the
@@ -152,7 +145,6 @@
             ;; reset so a forwarder registered in one test doesn't see
             ;; events fired by a sibling test.
             [re-frame.event-emit :as event-emit]
-            [re-frame.router :as router]
             [re-frame.substrate.adapter :as adapter]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
@@ -185,7 +177,7 @@
   (reset! registrar/kind->id->metadata snapshot)
   nil)
 
-(defn merge-registrar-snapshots
+(defn- merge-registrar-snapshots
   "Two-level merge of two registrar snapshots (`kind → id → metadata`).
 
   Entries from `overlay` win on a per-`[kind id]` collision; ids present
@@ -201,31 +193,6 @@
   `:each` fixture last restored the registrar to (rf2-7hwnu)."
   [base overlay]
   (merge-with merge base overlay))
-
-(defn with-fresh-registrar
-  "Run `body-fn` with a snapshot/restore bracket around the registrar.
-
-  Captures the registrar before `body-fn`, runs `body-fn`, then restores
-  the registrar to the captured state — even if `body-fn` throws.
-  Returns whatever `body-fn` returned.
-
-  Intended for use in `clojure.test` / `cljs.test` `:each` fixtures:
-
-      (defn fixture [test-fn]
-        (with-fresh-registrar test-fn))
-
-      (use-fixtures :each fixture)
-
-  Tests can `reg-event` / `reg-sub` / `reg-view` / etc. freely; the
-  registrar is rolled back on the way out so those user registrations
-  don't leak into the next test, while ns-load-time framework
-  registrations (which are part of the captured snapshot) survive."
-  [body-fn]
-  (let [snap (snapshot-registrar)]
-    (try
-      (body-fn)
-      (finally
-        (restore-registrar! snap)))))
 
 ;; ---- full per-test runtime reset ------------------------------------------
 
@@ -768,14 +735,14 @@
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;
-;; Two thin wrappers over `dispatch-sync!` and `frame-app-db-value` for
-;; ergonomic test code. The fixture machinery above carries the heavy
-;; lifting; these helpers are composition sugar.
+;; A thin wrapper over `frame-app-db-value` for ergonomic test code. The
+;; fixture machinery above carries the heavy lifting; this helper is
+;; composition sugar.
 ;;
-;; Per Spec 008 §Built-in test-runner namespace, both live under
+;; Per Spec 008 §Built-in test-runner namespace it lives under
 ;; re-frame.test-support so users `(:require [re-frame.test-support :as t])`
-;; once and reach the full testing surface — including dispatch-sequence
-;; and the assert-*-equals fn-family — without an additional require.
+;; once and reach the full testing surface — including assert-path-equals —
+;; without an additional require.
 
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
@@ -784,59 +751,6 @@
         defaults to `:rf/default`."
   [opts]
   (or (:frame opts) (frame/current-frame)))
-
-(defn dispatch-sequence
-  "Fire each event in `events` synchronously, in order, against the
-  resolved frame. Returns the final app-db value.
-
-  Each event is delivered via `dispatch-sync!`, which runs the handler
-  and drains the queue to fixed point before returning. The drain
-  settles between events, so observable state between calls reflects
-  committed effects.
-
-  Options (all optional):
-    :after-each — fn of `(db, event)` invoked after each event's drain
-                  settles. Useful for capturing intermediate states or
-                  per-step assertions.
-    :frame      — frame id. Defaults to `(current-frame)`, which is
-                  `:rf/default` outside a `with-frame` binding.
-
-  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s decision.
-
-  Example — assert final state:
-
-      (dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])
-      ;; => {:counter/value 1}
-
-  Example — capture intermediate states:
-
-      (let [seen (atom [])]
-        (dispatch-sequence [[:counter/inc] [:counter/inc]]
-                           {:after-each (fn [db ev] (swap! seen conj [ev db]))})
-        @seen)"
-  ([events] (dispatch-sequence events {}))
-  ([events {:keys [after-each] :as opts}]
-   (let [frame-id (resolve-frame opts)
-         ;; Per rf2-hxj0d + rf2-1ve9h: stamp `:source :test` on every
-         ;; test-fixture-driven dispatch so the Epoch panel's DISPATCH
-         ;; step labels these dispatches as "from test" instead of
-         ;; "from unknown" (the new default), and Xray's L2 timeline +
-         ;; per-source filter pills can discriminate test-driven
-         ;; cascades from user-origin events. Per rf2-1ve9h
-         ;; (Mike-approved Option A, 2026-05-28) the prior parallel
-         ;; `:rf/dispatch-origin :test-harness` axis was collapsed
-         ;; into `:source` — `:test` is now the single functional-
-         ;; origin discriminator. Caller may override `:source`.
-         dispatch-opts (cond-> {:frame frame-id
-                                :source :test}
-                         (contains? opts :origin) (assoc :origin (:origin opts))
-                         (contains? opts :source)
-                         (assoc :source (:source opts)))]
-     (doseq [ev events]
-       (router/dispatch-sync! ev dispatch-opts)
-       (when after-each
-         (after-each (frame/frame-app-db-value frame-id) ev)))
-     (frame/frame-app-db-value frame-id))))
 
 (defn assert-path-equals
   "Assert `(= expected-val (get-in app-db path))` against the resolved
@@ -848,8 +762,7 @@
     (assert-path-equals path expected-val)
     (assert-path-equals path expected-val {:frame :test/foo})
 
-  Frame-resolution chain matches `dispatch-sequence`: `:frame` opt →
-  `(current-frame)` → `:rf/default`.
+  Frame resolution: `:frame` opt → `(current-frame)` → `:rf/default`.
 
   Returns `true` when the assertion passes, `false` otherwise — the
   `clojure.test` failure has already been reported in either case, so
@@ -874,43 +787,6 @@
         :message  (str "assert-path-equals mismatch at path " (pr-str path)
                        " on frame " frame-id)
         :expected expected-val
-        :actual   actual})
-     pass?)))
-
-(defn assert-db-equals
-  "Assert `(= expected-db (frame-app-db-value frame))` against the
-  resolved frame's `app-db`. Mismatch is reported via `clojure.test/is`
-  — the failure carries the actual value so the diagnostic is one line.
-
-  Call shapes:
-
-    (assert-db-equals expected-db)
-    (assert-db-equals expected-db {:frame :test/foo})
-
-  Frame-resolution chain matches `dispatch-sequence`: `:frame` opt →
-  `(current-frame)` → `:rf/default`.
-
-  Returns `true` when the assertion passes, `false` otherwise — the
-  `clojure.test` failure has already been reported in either case, so
-  callers rarely care about the boolean.
-
-  No `:rf.assert/*` event analog exists for the full-db form (the event
-  family is path-keyed); `assert-db-equals` is the companion fn-only
-  shape carried alongside `assert-path-equals`.
-
-  Per Spec 008 §Normative surface and the rf2-hkr5 / rf2-0l3s / rf2-8j9m6
-  decisions."
-  ([expected-db]
-   (assert-db-equals expected-db nil))
-  ([expected-db opts]
-   (let [opts     (or opts {})
-         frame-id (resolve-frame opts)
-         actual   (frame/frame-app-db-value frame-id)
-         pass?    (= expected-db actual)]
-     (ctest/do-report
-       {:type     (if pass? :pass :fail)
-        :message  (str "assert-db-equals full-db mismatch on frame " frame-id)
-        :expected expected-db
         :actual   actual})
      pass?)))
 
@@ -983,8 +859,8 @@
         (loop []
           ;; A transient throw from `pred` (e.g. reading state mid-transition) is
           ;; a falsy probe — keep polling until the deadline. Mirrors the CLJS arm
-          ;; below and the sibling `wait-until` (test_helpers), so the single
-          ;; cross-platform helper has uniform pred-exception semantics.
+          ;; below, so the single cross-platform helper has uniform
+          ;; pred-exception semantics.
           (let [v (try (pred) (catch Throwable _ false))]
             (cond
               v v

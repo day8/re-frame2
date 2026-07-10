@@ -239,7 +239,7 @@ Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hi
 
 !!! warning "Gotcha — a wrong testid fails loud, not soft"
 
-    `find-by-testid` returns `nil` when nothing carries that id, so `invoke-handler` on the result *throws* (`:rf.error/invoke-handler-bad-node`), as does invoking a node whose `:on-click` you mistyped (`:rf.error/invoke-handler-missing`). A missing handle is almost always a stale testid or a renamed key — a test bug, not a passing case — so you want it surfaced, not swallowed into a green run. (`text-content` is gentler: handed `nil` it returns `""`, so a bad testid in an `expect-text`-style assertion shows up as a plain string mismatch.)
+    `find-by-testid` returns `nil` when nothing carries that id, so `invoke-handler` on the result *throws* (`:rf.error/invoke-handler-bad-node`), as does invoking a node whose `:on-click` you mistyped (`:rf.error/invoke-handler-missing`). A missing handle is almost always a stale testid or a renamed key — a test bug, not a passing case — so you want it surfaced, not swallowed into a green run. (`text-content` is gentler: handed `nil` it returns `""`, so a bad testid in a `text-content` assertion shows up as a plain string mismatch.)
 
 !!! note "Two flavours of view test"
 
@@ -247,7 +247,7 @@ Three helpers from `re-frame.test-helpers` do the work, all pure walkers over hi
 
 ??? note "Going deeper — the `test-support` sugar"
 
-    The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / pipeline-run tests pull `re-frame.test-support` for its sugar — `dispatch-sequence` to fire a vector of events in order, `assert-path-equals` and `assert-db-equals` for `clojure.test`-aware state assertions, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub`. [Test an event handler](../../core/testing/event-handlers.md) and [Test a pipeline run](../../core/testing/pipeline-runs.md) are the focused recipes.
+    The view-content tests pull `re-frame.test-helpers` (the view-tree axis); the event / sub / pipeline-run tests pull `re-frame.test-support` for its sugar — `assert-path-equals` for a `clojure.test`-aware state assertion, `poll-until` for async settles whose result lands in state after `dispatch-sync` returns. Reach for them when the inline `(is (= …))` form gets repetitive; everything else composes straight from `dispatch-sync` / `app-db-value` / `compute-sub` (a multi-event run is a `doseq` over `dispatch-sync`). [Test an event handler](../../core/testing/event-handlers.md) and [Test a pipeline run](../../core/testing/pipeline-runs.md) are the focused recipes.
 
 ## 6. Reset between tests
 
@@ -262,7 +262,7 @@ One detail underwrites every test above: each runs against a clean runtime, with
 
 ??? note "Going deeper — two scopes of isolation, stacked"
 
-    The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every pipeline-run test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to `with-fresh-registrar`, which brackets just the registrar around a single body.
+    The fixture resets the *process*; `with-new-frame` scopes one *frame's* lifetime to one test (created for the body, destroyed on exit — success or exception). Every pipeline-run test above wraps both, belt-and-braces, so no frame, no registration, and no in-flight request can survive into the next test. If a test only registers a handful of handlers and never mounts an adapter or drives a long-lived frame, you can reach below the fixture to the raw `snapshot-registrar` / `restore-registrar!` pair, bracketing just the registrar around a single body.
 
 Run the suite:
 

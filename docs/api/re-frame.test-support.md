@@ -44,44 +44,6 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (ts/restore-registrar! snap)
   ```
 
-### `merge-registrar-snapshots`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (merge-registrar-snapshots base overlay) → snapshot
-  ```
-- **Description**: Merge two registrar snapshots two levels deep (`kind → id → metadata`) and return a new snapshot.
-
-  - `overlay` wins on a per-`[kind id]` collision.
-  - ids present only in `base` survive.
-  - ids present only in `overlay` are added.
-
-  `make-reset-runtime-fixture` uses this to fold a stable ns-load baseline back over whatever the registrar currently holds. That keeps a test namespace's own ns-load registrations present regardless of run order.
-- **Example**:
-  ```clojure
-  ;; `base` and `overlay` are each a value from `snapshot-registrar`.
-  ;; Overlay wins per [kind id]; ids unique to either side survive.
-  (ts/merge-registrar-snapshots base overlay)
-  ```
-
-### `with-fresh-registrar`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (with-fresh-registrar body-fn) → any
-  ```
-- **Description**: Snapshot + body + restore, composed. Captures the registrar, runs `body-fn`, then restores the captured state in a `finally`. The restore runs even if `body-fn` throws. Returns `body-fn`'s return value.
-- **Example**:
-  ```clojure
-  ;; As a clojure.test / cljs.test :each fixture:
-  (defn fixture [test-fn]
-    (ts/with-fresh-registrar test-fn))
-
-  (use-fixtures :each fixture)
-  ```
-
 ### `make-reset-runtime-fixture`
 
 - **Kind**: function
@@ -122,32 +84,12 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
 
 ## Test-flavoured helpers
 
-### `dispatch-sequence`
+To fire several events in order, call `rf/dispatch-sync` per event — each drains to fixed point before the next, so observable state between calls reflects committed effects:
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (dispatch-sequence events)
-  (dispatch-sequence events opts)
-  ```
-- **Description**: Run a list of `events` end-to-end against the resolved frame. Each event is delivered synchronously, and the queue drains to fixed point before the next event runs. Observable state between events therefore reflects committed effects. Returns the final `app-db`.
-
-  `opts`:
-
-  - `:after-each (fn [db ev] ...)` — between-event assertion, invoked after each event's drain settles.
-  - `:frame` — target a non-default frame.
-
-  Frame resolution: `:frame` opt → `(current-frame)` → `:rf/default`.
-- **Example**:
-  ```clojure
-  ;; Run a list of events end-to-end; returns the final app-db.
-  (ts/dispatch-sequence [[:counter/inc] [:counter/inc] [:counter/dec]])
-
-  ;; :after-each observes committed state between events.
-  (let [seen (atom [])]
-    (ts/dispatch-sequence [[:counter/inc] [:counter/inc]]
-                          {:after-each (fn [db ev] (swap! seen conj [(:n db) ev]))}))
-  ```
+```clojure
+(doseq [ev [[:counter/inc] [:counter/inc] [:counter/dec]]]
+  (rf/dispatch-sync ev))
+```
 
 ### `assert-path-equals`
 
@@ -159,7 +101,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   ```
 - **Description**: Assert `(get-in db path) == expected-val` against the resolved frame's `app-db`. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise; the failure has already been reported either way.
 
-  `opts`: `:frame` targets a non-default frame; frame resolution matches `dispatch-sequence` (`:frame` opt → `(current-frame)` → `:rf/default`).
+  `opts`: `:frame` targets a non-default frame; frame resolution is `:frame` opt → `(current-frame)` → `:rf/default`.
 
   This is the fn-side counterpart to the `:rf.assert/path-equals` story event-family: same name root, different runner channel.
 - **Example**:
@@ -170,26 +112,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (ts/assert-path-equals [:cart :count] 2 {:frame :checkout})
   ```
 
-### `assert-db-equals`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (assert-db-equals expected-db)
-  (assert-db-equals expected-db opts)
-  ```
-- **Description**: A full-db sync assertion: `(= expected-db app-db)` against the resolved frame. A mismatch fires a `clojure.test/is`-style failure via `do-report`. Returns `true` on pass and `false` otherwise.
-
-  `opts`: `:frame` targets a non-default frame; frame resolution matches `dispatch-sequence`.
-
-  No `:rf.assert/*` event analog exists for the full-db form (the event family is path-keyed).
-- **Example**:
-  ```clojure
-  (rf/dispatch-sync [:counter/init])
-  (ts/assert-db-equals {:n 0})
-  ;; against a non-default frame:
-  (ts/assert-db-equals {:n 4} {:frame :checkout})
-  ```
+For a full-db assertion, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`.
 
 ## Deterministic-wait helpers
 

@@ -287,28 +287,29 @@ If [Xray](../glossary.md#xray) — the dev inspector — was open when the bug h
 
 (deftest issue-217-unfavorite-leaves-count-stale
   (rf/with-new-frame [f (rf/make-frame {:initial-events [[:app/init]]})]
-    (ts/dispatch-sequence [[:article/loaded {:slug "ten-tips" :favorites-count 0}]
-                           [:article/favorite "ten-tips"]
-                           [:article/unfavorite "ten-tips"]])
+    (doseq [ev [[:article/loaded {:slug "ten-tips" :favorites-count 0}]
+                [:article/favorite "ten-tips"]
+                [:article/unfavorite "ten-tips"]]]
+      (rf/dispatch-sync ev))
     ;; assert what the fold SHOULD produce
     (is (= 0 (get-in (rf/app-db-value f)
                      [:articles "ten-tips" :favorites-count])))))
 ```
 
-`ts/dispatch-sequence` runs the rows through `dispatch-sync` in order and returns the final `app-db`. This is the one place a multi-event run belongs in the test *body* rather than in `:initial-events`: the sequence itself is the subject — it *is* the bug — not setup for something else. (App boot, by contrast, is setup, which is why `[:app/init]` rides the frame's construction above.) Note the rows are bare event vectors: when a replayed event's handler declares facts, give that row its own `dispatch-sync` carrying the recorded `:rf.cofx` — replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red); fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that can't flake, because every input is pinned.
+A `doseq` over `dispatch-sync` runs the rows in order — each drains to fixed point before the next. This is the one place a multi-event run belongs in the test *body* rather than in `:initial-events`: the sequence itself is the subject — it *is* the bug — not setup for something else. (App boot, by contrast, is setup, which is why `[:app/init]` rides the frame's construction above.) Note the rows are bare event vectors: when a replayed event's handler declares facts, give that row its own `dispatch-sync` carrying the recorded `:rf.cofx` — replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red); fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that can't flake, because every input is pinned.
 
 !!! note "Capturing intermediate state on the way through"
 
-    When the bug is "the count was briefly wrong *between* two events", pass `:after-each` to capture state at each step. It's a `(fn [db ev] ...)` run after every event's drain settles:
+    When the bug is "the count was briefly wrong *between* two events", read state inside the loop, after each event's drain settles:
 
     ```clojure
     (let [seen (atom [])]
-      (ts/dispatch-sequence [[:article/favorite "ten-tips"]
-                             [:article/unfavorite "ten-tips"]]
-                            {:after-each (fn [db ev]
-                                           (swap! seen conj
-                                                  [(first ev)
-                                                   (get-in db [:articles "ten-tips" :favorites-count])]))})
+      (doseq [ev [[:article/favorite "ten-tips"]
+                  [:article/unfavorite "ten-tips"]]]
+        (rf/dispatch-sync ev)
+        (swap! seen conj
+               [(first ev)
+                (get-in (rf/app-db-value f) [:articles "ten-tips" :favorites-count])]))
       @seen)   ;; => [[:article/favorite 1] [:article/unfavorite 0]]
     ```
 
@@ -320,7 +321,7 @@ If you'd rather the assertion read like the ledger does, `re-frame.test-support`
 (ts/assert-path-equals [:articles "ten-tips" :favorites-count] 0 {:frame f})
 ```
 
-It shares its name root with the `:rf.assert/path-equals` event you'd use inside a Story `:script` block, so navigating between a `deftest` and a story variant needs no translation table. The companion `assert-db-equals` takes a whole expected `app-db` — handy in small fixtures where "the whole thing should equal this" is the natural shape. For a single inline check, the plain `(is (= ... (get-in ...)))` form reads fine; reach for the `assert-*` family when you're checking many path/value pairs in sequence.
+It shares its name root with the `:rf.assert/path-equals` event you'd use inside a Story `:script` block, so navigating between a `deftest` and a story variant needs no translation table. For a whole-map check, compare `app-db-value` directly — `(is (= expected-db (rf/app-db-value f)))`. For a single inline path check, the plain `(is (= ... (get-in ...)))` form reads fine; reach for `assert-path-equals` when you're checking many path/value pairs in sequence.
 
 ## Asserting on a derived value, not raw `app-db`
 
@@ -401,4 +402,4 @@ That middle — the handler and its interceptor chain's *logic* — is the progr
 
 !!! note "Where these surfaces live"
 
-    The dispatch opts, frame lifecycle, and drain semantics are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md); the reply envelope and canned-reply stubs in [Managed HTTP](../../async/http.md); the fixture helpers (`dispatch-sequence`, `assert-path-equals`, `poll-until`, `make-reset-runtime-fixture`) in the [test-support API reference](../../api/re-frame.test-support.md). `with-managed-request-stubs` and the `:rf.http/managed-canned-*` stubs ship in `re-frame.http.test-support` and must never appear in a production require.
+    The dispatch opts, frame lifecycle, and drain semantics are covered in [Frames](../frames.md) and [Run to completion](../run-to-completion.md); the reply envelope and canned-reply stubs in [Managed HTTP](../../async/http.md); the fixture helpers (`assert-path-equals`, `poll-until`, `make-reset-runtime-fixture`) in the [test-support API reference](../../api/re-frame.test-support.md). `with-managed-request-stubs` and the `:rf.http/managed-canned-*` stubs ship in `re-frame.http.test-support` and must never appear in a production require.

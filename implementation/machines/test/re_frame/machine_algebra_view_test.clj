@@ -79,14 +79,16 @@
   ;; registered by a sibling test ns (the reset fixture snapshot/restores rather
   ;; than `clear-all!`s), so assert the empty-registry contract against a
   ;; freshly-cleared registrar bracketed by snapshot/restore.
-  (core-test-support/with-fresh-registrar
-    (fn []
+  (let [snap (core-test-support/snapshot-registrar)]
+    (try
       (registrar/clear-all!)
       (testing "(machine-algebra-view) returns {} (not nil) when no machines are registered"
         (is (= {} (mtooling/machine-algebra-view)))
         (is (map? (mtooling/machine-algebra-view))))
       (testing "(machine-algebra-view machine-id) returns nil for an unregistered id"
-        (is (nil? (mtooling/machine-algebra-view :nope/missing)))))))
+        (is (nil? (mtooling/machine-algebra-view :nope/missing))))
+      (finally
+        (core-test-support/restore-registrar! snap)))))
 
 (deftest jvm-alias-mirrors-the-tooling-fn
   (testing "the JVM `re-frame.machines/machine-*` aliases are the tooling fns"
