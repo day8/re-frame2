@@ -14,9 +14,9 @@ Almost everything else in re-frame2 stays simple *because* of that.
 
 ## A complete live counter
 
-In the intro, the frame started as `{}` and the display showed `0` only because the subscription fell back when `:value` was missing. After the first click, app-db became `{:value 1}`.
+In the intro, the frame's app-db started as `{}` and the display showed `0` only because the subscription fell back when `:value` was missing. After the first click, app-db became `{:value 1}`.
 
-This chapter makes the initial value **explicit** through an `:initialise` event, then adds a second fact — `:step-size` — in the same map. Still one store. Click the buttons (edit the cell and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
+This page makes the initial value **explicit** through an `:initialise` event, then adds a second fact — `:step-size` — in the same map. Still one store. Click the buttons (edit the cell and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -54,13 +54,13 @@ This chapter makes the initial value **explicit** through an `:initialise` event
  [stepping-counter]]
 ```
 
-No second store. After `:initialise`, the shape is already both facts:
+No second store. After `:initialise`, the shape already holds both facts:
 
 ```clojure
 {:value 0 :step-size 1}
 ```
 
-not a lone `{:value 0}` that later grows a second key by accident — you put both in the seed map (or add keys in later events the same way).
+— not a lone `{:value 0}` that later grows a second key by accident. You put both in the seed map (or add keys in later events the same way).
 
 That is a **complete live counter**: [registrations](glossary.md#register), a [frame-provider](glossary.md#frame-provider) that creates and scopes the frame and runs the seed, and a view. (The playground mounts the trailing hiccup; a real app still needs boot wiring — [counter example](../../examples/core/counter) or [Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows this same counter one concept at a time.
 
@@ -155,4 +155,4 @@ Poor:
 
 ## Yours, and the framework's next door
 
-For everything you write, app-db is the state that matters. A running frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeeping (machine snapshots, route, resource cache, …) under reserved `:rf.runtime/*` keys. [Two partitions](glossary.md#the-two-partitions): app-db is yours; runtime-db is the framework's (read via its subscriptions; influence by dispatching its events — never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine snapshot. [Frames](frames.md) goes deeper.
+For everything you write, app-db is the state that matters. A running frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeeping (machine snapshots, route, resource cache, …) under reserved `:rf.runtime/*` keys. [Two partitions](glossary.md#the-two-partitions): app-db is yours; runtime-db is the framework's (read it via its subscriptions; influence it by dispatching its events — never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine snapshot. [Frames](frames.md) goes deeper.
