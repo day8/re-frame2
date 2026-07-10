@@ -68,22 +68,22 @@
 ;;
 ;; Three slots, and that's the whole of this app's state:
 ;;
-;; {:counter/count    <int>                     ;; the number on screen
-;;  :counter/status   <:idle|:loading|:error>   ;; where the request is in its life
-;;  :counter/error    <failure-map-or-nil>}
+;; {:http-counter/count    <int>                     ;; the number on screen
+;;  :http-counter/status   <:idle|:loading|:error>   ;; where the request is in its life
+;;  :http-counter/error    <failure-map-or-nil>}
 ;;
 ;; :status is what makes the in-flight lifecycle visible: :loading while the
 ;; runtime is working a request, then :idle (or :error) once the reply lands.
 ;;
-;; Every slot, sub-id, and event wears a :counter/ prefix. It's the feature
+;; Every slot, sub-id, and event wears a :http-counter/ prefix. It's the feature
 ;; convention, and it's cheap insurance — this app's keys can't collide with
 ;; another feature's.
 
-(rf/reg-event :counter/initialise
+(rf/reg-event :http-counter/initialise
   (fn [{:keys [db]} _ev]
-    {:db {:counter/count  0
-     :counter/status :idle
-     :counter/error  nil}}))
+    {:db {:http-counter/count  0
+     :http-counter/status :idle
+     :http-counter/error  nil}}))
 
 ;; ============================================================================
 ;; +1  —  real round-trip via Fetch
@@ -93,13 +93,13 @@
 ;; handler, two jobs. The first time through, the :else branch *describes* a
 ;; request and hands back an :rf.http/managed effect whose `:reply-to` points
 ;; back at THIS event. The runtime takes it from there: GET api/inc.json,
-;; decode the `{"delta": 1}` body, and re-dispatch [:counter/+1 <reply>] right
+;; decode the `{"delta": 1}` body, and re-dispatch [:http-counter/+1 <reply>] right
 ;; back to this same handler — the canonical reply envelope appended as the
 ;; last arg. Second time through it's the :ok branch, which applies the
 ;; increment. All the asynchrony lives in the runtime. The handler never stops
 ;; being a plain pure function — no callbacks, no promises to babysit.
 
-(rf/reg-event :counter/+1
+(rf/reg-event :http-counter/+1
   (fn [{:keys [db]} [_ reply]]
     (cond
       ;; The reply came back happy — bump the count by the delta the server
@@ -108,23 +108,23 @@
       ;; decoded body at `:value`.
       (some-> reply :status (= :ok))
       {:db (-> db
-               (update :counter/count + (or (:delta (:value reply)) 1))
-               (assoc :counter/status :idle :counter/error nil))}
+               (update :http-counter/count + (or (:delta (:value reply)) 1))
+               (assoc :http-counter/status :idle :http-counter/error nil))}
 
       ;; The reply came back unhappy — stash the error so the view can show it.
       ;; Failure is `:status :error`, the classified `:rf.http/*` map at `:error`.
       (some-> reply :status (= :error))
       {:db (-> db
-               (assoc :counter/status :error
-                      :counter/error  (:error reply)))}
+               (assoc :http-counter/status :error
+                      :http-counter/error  (:error reply)))}
 
       ;; No reply yet, so this is the opening move: fire the request and
       ;; address its reply back to THIS event with `:reply-to`. `rf.http/get`
       ;; builds the same `[:rf.http/managed args-map]` vector a hand-written
       ;; `:method :get` entry would — just in one tidy line.
       :else
-      {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:counter/+1]})]})))
+      {:db (assoc db :http-counter/status :loading :http-counter/error nil)
+       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:http-counter/+1]})]})))
 
 ;; ============================================================================
 ;; Fail  —  real 404 from the http-server
@@ -135,15 +135,15 @@
 ;; map (it rides under :error). Its own :kind is the :rf.http/* category —
 ;; exactly what the view reaches for to tell the user what went wrong.
 
-(rf/reg-event :counter/fail
+(rf/reg-event :http-counter/fail
   (fn [{:keys [db]} [_ reply]]
     (cond
       (some-> reply :status (= :error))
-      {:db (assoc db :counter/status :error :counter/error (:error reply))}
+      {:db (assoc db :http-counter/status :error :http-counter/error (:error reply))}
 
       (some-> reply :status (= :ok))
       ;; We never expect to land here — the URL is a deliberate 404.
-      {:db (assoc db :counter/status :idle :counter/error nil)}
+      {:db (assoc db :http-counter/status :idle :http-counter/error nil)}
 
       ;; Same `rf.http/get` helper as above, and a worthwhile detail hides in
       ;; here: status is classified *before* the body is decoded. So a 404 that
@@ -153,8 +153,8 @@
       ;; everyday case: a JSON endpoint that 404s with a load-balancer's HTML
       ;; error page. The classification order is in docs/async/http.md.
       :else
-      {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:counter/fail]})]})))
+      {:db (assoc db :http-counter/status :loading :http-counter/error nil)
+       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:http-counter/fail]})]})))
 
 ;; ============================================================================
 ;; Retry-recover  —  canned-stub at app level
@@ -169,16 +169,16 @@
 ;; server, and — the part that matters — the handler can't tell the
 ;; difference. It reads the reply the same way either way.
 
-(rf/reg-event :counter/retry-recover
+(rf/reg-event :http-counter/retry-recover
   (fn [{:keys [db]} [_ reply]]
     (cond
       (some-> reply :status (= :ok))
       {:db (-> db
-               (update :counter/count + (or (:delta (:value reply)) 0))
-               (assoc :counter/status :idle :counter/error nil))}
+               (update :http-counter/count + (or (:delta (:value reply)) 0))
+               (assoc :http-counter/status :idle :http-counter/error nil))}
 
       :else
-      {:db (assoc db :counter/status :loading)
+      {:db (assoc db :http-counter/status :loading)
        ;; The stub conjures the reply directly. We still spell out the
        ;; :request and :decode so the call site reads like the real thing —
        ;; the stub just quietly skips the trip over the network. `:reply-to`
@@ -187,7 +187,7 @@
              {:request  {:method :get :url "api/flaky"}
               :decode   :json
               :value    {:delta 5}
-              :reply-to [:counter/retry-recover]}]]})))
+              :reply-to [:http-counter/retry-recover]}]]})))
 
 ;; ============================================================================
 ;; Start long / Cancel  —  a REAL abort of a REAL in-flight request
@@ -212,7 +212,7 @@
 ;; classification are all the real thing — and you can watch them in Xray
 ;; and the trace stream.
 
-(def long-request-id :counter/long)
+(def long-request-id :http-counter/long)
 
 ;; A placeholder URL we stamp on the seeded handle purely so it reads
 ;; naturally in the abort trace and any registry peek. Nothing fetches it —
@@ -220,11 +220,11 @@
 ;; deterministic.
 (def long-pending-url "api/long")
 
-(rf/reg-fx :counter/seed-long-request
+(rf/reg-fx :http-counter/seed-long-request
   {:doc       "Demo-only fx that fakes a request stuck in flight. It records a
                request-id-keyed handle in the framework registry whose
                :abort-fn clears the slot and dispatches the :rf.http/aborted
-               reply back to :counter/start-long. That's the whole trick: it
+               reply back to :http-counter/start-long. That's the whole trick: it
                lets the live :rf.http/managed-abort fx resolve a real handle
                end-to-end, with no real request behind it."
    :platforms #{:client}}
@@ -246,14 +246,14 @@
          ;; and calls us with the abort `reason` (`:user` here). Our two jobs:
          ;; clear the registry slot, and dispatch the :rf.http/aborted reply —
          ;; the exact shape the live transport's abort path emits — home to
-         ;; :counter/start-long. The live fx would deliver it via `:reply-to`,
+         ;; :http-counter/start-long. The live fx would deliver it via `:reply-to`,
          ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
                      (http-registry/clear-in-flight! request-id)
                      ;; rf2-ibksxg — the canonical abort reply: an abort is
                      ;; `:status :cancelled`, the `:rf.http/aborted` map under
                      ;; `:error` (mirrors the live transport's abort path).
-                     (rf/dispatch [:counter/start-long
+                     (rf/dispatch [:http-counter/start-long
                                    {:status        :cancelled
                                     :cancelled?    true
                                     :cancel/reason reason
@@ -263,7 +263,7 @@
                                   {:frame frame}))}))
     nil))
 
-(rf/reg-event :counter/start-long
+(rf/reg-event :http-counter/start-long
   (fn [{:keys [db]} [_ reply]]
     (cond
       ;; The reply branch. When Cancel fires, the :abort-fn dispatches the
@@ -272,26 +272,26 @@
       ;; and ease the UI to :idle.
       (some-> reply :status (= :cancelled))
       {:db (assoc db
-                  :counter/status :idle
-                  :counter/error  (:error reply))}
+                  :http-counter/status :idle
+                  :http-counter/error  (:error reply))}
 
       (some-> reply :status (= :ok))
-      {:db (assoc db :counter/status :idle :counter/error nil)}
+      {:db (assoc db :http-counter/status :idle :http-counter/error nil)}
 
       ;; The opening move: seed a request that's genuinely in flight, ready
       ;; for Cancel to abort for real. We stay in :loading until that abort
       ;; resolves the slot.
       :else
-      {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [[:counter/seed-long-request {:request-id long-request-id}]]})))
+      {:db (assoc db :http-counter/status :loading :http-counter/error nil)
+       :fx [[:http-counter/seed-long-request {:request-id long-request-id}]]})))
 
-(rf/reg-event :counter/cancel
+(rf/reg-event :http-counter/cancel
   (fn [{:keys [db]} _]
     {:db db
      ;; Abort by request-id, through the *live* :rf.http/managed-abort fx —
      ;; no shortcut. It finds the seeded handle in the in-flight registry and
      ;; fires its :abort-fn, which clears the slot and sends the
-     ;; :rf.http/aborted reply back to :counter/start-long (handled above).
+     ;; :rf.http/aborted reply back to :http-counter/start-long (handled above).
      ;; If nothing's in flight the registry lookup simply misses, and this is
      ;; a harmless no-op.
      :fx [[:rf.http/managed-abort long-request-id]]}))
@@ -304,9 +304,9 @@
 ;; only recomputes when their input actually moves. Deliberately boring — the
 ;; HTTP machinery upstream is where the interesting stuff lives.
 
-(rf/reg-sub :counter/count  (fn [db _] (:counter/count  db)))
-(rf/reg-sub :counter/status (fn [db _] (:counter/status db)))
-(rf/reg-sub :counter/error  (fn [db _] (:counter/error  db)))
+(rf/reg-sub :http-counter/count  (fn [db _] (:http-counter/count  db)))
+(rf/reg-sub :http-counter/status (fn [db _] (:http-counter/status db)))
+(rf/reg-sub :http-counter/error  (fn [db _] (:http-counter/error  db)))
 
 ;; ============================================================================
 ;; VIEWS
@@ -317,9 +317,9 @@
 ;; whole contract, and keeping it that thin is what keeps it predictable.
 
 (rf/reg-view counter-view []
-  (let [count  @(subscribe [:counter/count])
-        status @(subscribe [:counter/status])
-        error  @(subscribe [:counter/error])]
+  (let [count  @(subscribe [:http-counter/count])
+        status @(subscribe [:http-counter/status])
+        error  @(subscribe [:http-counter/error])]
     [:div {:style {:font-family "sans-serif" :padding "1em"}}
      [:h1 "Managed HTTP counter"]
      [:p "Count: " [:span {:data-testid "count"} count]]
@@ -329,11 +329,11 @@
             :style       {:color "crimson"}}
         "Error kind: " (str (:kind error))])
      [:div {:style {:display :flex :gap "0.5em"}}
-      [:button {:on-click #(dispatch [:counter/+1])}              "+1"]
-      [:button {:on-click #(dispatch [:counter/fail])}            "Fail"]
-      [:button {:on-click #(dispatch [:counter/retry-recover])}   "Retry-recover"]
-      [:button {:on-click #(dispatch [:counter/start-long])}      "Start long"]
-      [:button {:on-click #(dispatch [:counter/cancel])}          "Cancel"]]]))
+      [:button {:on-click #(dispatch [:http-counter/+1])}              "+1"]
+      [:button {:on-click #(dispatch [:http-counter/fail])}            "Fail"]
+      [:button {:on-click #(dispatch [:http-counter/retry-recover])}   "Retry-recover"]
+      [:button {:on-click #(dispatch [:http-counter/start-long])}      "Start long"]
+      [:button {:on-click #(dispatch [:http-counter/cancel])}          "Cancel"]]]))
 
 (rf/reg-view counter-app []
   [counter-view])
@@ -353,7 +353,7 @@
 ;; The app stands its frame up in exactly one place: the render root's
 ;; `frame-provider {:id app-frame}`. On the first mount that provider creates
 ;; the frame, applies its config, and runs `:initial-events` once (our
-;; `[:counter/initialise]` seed). On a hot reload it finds the frame already
+;; `[:http-counter/initialise]` seed). On a hot reload it finds the frame already
 ;; there, reuses it, and skips the seed. From then on every `dispatch` and
 ;; `subscribe` in the tree resolves to this frame.
 ;;
@@ -374,7 +374,7 @@
       (reset! react-root (rdc/create-root el)))
     (rdc/render @react-root
                 [rf/frame-provider {:id app-frame
-                                    :initial-events [[:counter/initialise]]}
+                                    :initial-events [[:http-counter/initialise]]}
                  [counter-app]])))
 
 (defn run []
