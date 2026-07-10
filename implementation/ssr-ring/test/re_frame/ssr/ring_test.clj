@@ -19,6 +19,7 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
+            [re-frame.ssr.ring.shell :as shell]
             [re-frame.ssr.ring.test-support :as ts]))
 
 ;; rf2-i3qc0 / rf2-09iktm — the canonical reset-runtime fixture is
@@ -1709,6 +1710,70 @@
           "streaming suffix escapes :script-src (parity with default-html-shell)")
       (is (not (str/includes? suffix "src=\"/main.js?v=\"x\"\""))
           "no raw quote breakout in the streaming suffix"))))
+
+;; ===========================================================================
+;; rf2-od9fet — single-source document envelope. `default-html-shell` and the
+;; streaming prefix/suffix compose the SAME `shell/document-prefix` /
+;; `shell/document-suffix` renderers, so the non-streaming shell is
+;; byte-identical to prefix + body + `</div>` + payload-script + suffix. A
+;; regression that let one response mode drift on the doctype / `<html>`-
+;; `<body>` attr bags / charset / `#app` escaping / closing tags would break
+;; this equality.
+;; ===========================================================================
+
+(deftest default-html-shell-composes-from-shared-envelope-renderers
+  (testing "rf2-od9fet: default-html-shell == default-streaming-prefix
+            (render-hash nil) + body + </div> + payload-script-tag +
+            default-streaming-suffix — the two response modes single-source
+            the envelope, so security-load-bearing escaping cannot diverge"
+    (let [opts      {:head           "<title>T</title><meta name=\"x\" content=\"y\">"
+                     :html-attrs     {:lang "fr" :data-theme "dark"}
+                     :body-attrs     {:class "page-article"}
+                     :head-hash      "deadbeef"
+                     :app-element-id "ro\"ot"           ; attribute-value escaping
+                     :script-src     "/boot.js?a=1&b=2" ; ampersand escaping
+                     :body-end       "<script>ga();</script>"}
+          body      "<main><h1>Hi</h1></main>"
+          payload   "{:rf/app-db {:x 1} :rf/version 1}"
+          shell-out (ssr-ring/default-html-shell body payload opts)
+          ;; The streaming prefix with NO :render-hash reproduces the
+          ;; non-streaming shell's prefix exactly (the #app root carries no
+          ;; data-rf-render-hash marker in the non-streaming mode). `:head`
+          ;; is threaded as the prefix's positional head-html arg.
+          composed  (str (ssr-ring/default-streaming-prefix (:head opts) opts)
+                         body
+                         "</div>"
+                         (shell/payload-script-tag payload)
+                         (ssr-ring/default-streaming-suffix opts))]
+      (is (= shell-out composed)
+          "the non-streaming shell is byte-identical to the composition of
+           the shared streaming prefix/suffix renderers")
+      ;; Spot-anchors so a future edit that breaks the equality gives a
+      ;; readable failure, not just a giant string diff.
+      (is (str/includes? shell-out "<div id=\"ro&quot;ot\">")
+          "app-element-id is escape-attr'd inside the composed div")
+      (is (str/includes? shell-out "src=\"/boot.js?a=1&amp;b=2\"")
+          "script-src ampersand is escape-attr'd in the composed suffix")
+      (is (not (str/includes? shell-out "data-rf-render-hash"))
+          "the non-streaming shell's #app root carries NO render-hash marker")
+      (is (str/includes? shell-out "data-rf-head-hash=\"deadbeef\"")
+          "the head-hash marker rides the shared prefix"))))
+
+(deftest streaming-prefix-render-hash-is-the-only-mode-divergence
+  (testing "rf2-od9fet: the ONLY prefix divergence between response modes is
+            the explicit render-hash arg — the streaming prefix stamps
+            data-rf-render-hash on #app when supplied; a render-hash-less
+            call matches the non-streaming shell's marker-free #app root"
+    (let [opts   {:app-element-id "app"}
+          hashed (ssr-ring/default-streaming-prefix "" (assoc opts :render-hash "cafebabe"))
+          plain  (ssr-ring/default-streaming-prefix "" opts)]
+      (is (str/includes? hashed "<div id=\"app\" data-rf-render-hash=\"cafebabe\">")
+          "streaming prefix stamps the marker when :render-hash is supplied")
+      (is (str/includes? plain "<div id=\"app\">")
+          "streaming prefix omits the marker when :render-hash is absent")
+      (is (not (str/includes? plain "data-rf-render-hash"))
+          "no marker without a render-hash — byte-identical #app-root open to
+           the non-streaming shell"))))
 
 ;; ===========================================================================
 ;; default-html-shell — title is sourced from the head fragment, never the
