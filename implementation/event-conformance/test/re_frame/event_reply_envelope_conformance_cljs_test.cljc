@@ -12,8 +12,10 @@
   dispatch isolation), but it carried no EP-0011-shaped reply event case.
 
   The pure reply substrate (`re-frame.reply`) is pinned in
-  `reply-conformance/` (the cross-family vocabulary + functor-law tiers),
-  and each family's reply slice is pinned in its `*-reply-lowering-*` suite.
+  `reply-conformance/` (the cross-family vocabulary + egress-projection tiers;
+  the functor laws are owned by core `re-frame.reply-test` + the timer-probe
+  consumer proof), and each family's reply slice is pinned in its
+  `*-reply-lowering-*` suite.
   But NONE of those prove, in this public event-model umbrella surface, that
   a completed `:rf/reply-to` event is HANDLED by the single public
   `reg-event` path with the reply map visible as the final argument and

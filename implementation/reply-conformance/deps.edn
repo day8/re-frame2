@@ -7,12 +7,14 @@
 ;; cross-family VOCABULARY-consistency guard (every managed-async family —
 ;; HTTP, resources, mutations, machines, routing — produces the ONE shared
 ;; `:status` / `:rf.reply/work-status` / `:work/id` / canonical-stale shape, the
-;; axis rf2-mn4j89 violated) and the family-level functor/naturality law at
-;; the TARGET-RELOCATING families (route-loader relay, machine-spawn
-;; `:on-done`). The test namespaces sit ABOVE several artefacts (core,
-;; http, resources, machines, routing), so they live in their own
-;; top-level `reply-conformance/` surface rather than any single family's
-;; test tree.
+;; axis rf2-mn4j89 violated) and the EP-0015 reply-envelope EGRESS-projection
+;; conformance (every wire-bearing reply slot projects through the shared
+;; elider at each trace / tool / log boundary). The test namespaces sit ABOVE
+;; several artefacts (core, http, resources, machines, routing), so they live
+;; in their own top-level `reply-conformance/` surface rather than any single
+;; family's test tree. (rf2-9dc84j retired the synthetic functor/naturality
+;; suite — core + timer-probe own the reply-target functor laws; this tier no
+;; longer claims family-level relocation conformance.)
 ;;
 ;; ## Why this deps.edn exists
 ;;
