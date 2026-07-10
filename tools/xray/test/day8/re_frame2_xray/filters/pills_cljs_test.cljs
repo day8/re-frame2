@@ -7,6 +7,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.filters.pills :as pills]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]
@@ -24,46 +25,11 @@
   (frame/reg-frame :rf/xray {}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
-
-(defn- text-nodes [tree]
-  (->> (hiccup-seq tree)
-       (filter string?)
-       (apply str)))
+;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
+;; prefix / text-nodes copies were semantically identical to
+;; `re-frame.test-helpers`; tests call `th/find-by-testid`,
+;; `th/find-by-testid-prefix` and `th/text-content` directly (rf2-vj80u8 — no
+;; Xray walker facade).
 
 ;; -------------------------------------------------------------------------
 ;; (1) Empty filters — no committed pills in the cluster
@@ -77,17 +43,17 @@
 (deftest empty-filters-render-empty-cluster
   (xray-setup!)
   (let [tree (pills/pills-view rf/dispatch {:filters {:in [] :out []}})]
-    (is (some? (find-by-testid tree "rf-xray-ribbon-filters"))
+    (is (some? (th/find-by-testid tree "rf-xray-ribbon-filters"))
         "cluster element always present")
-    (is (nil? (find-by-testid tree "rf-xray-filter-add"))
+    (is (nil? (th/find-by-testid tree "rf-xray-filter-add"))
         "add-pill is NOT part of the committed-pills cluster (moved to bar-1)")
-    (is (empty? (find-all-by-testid-prefix tree "rf-xray-filter-pill-"))
+    (is (empty? (th/find-by-testid-prefix tree "rf-xray-filter-pill-"))
         "no pill rows when both buckets are empty")))
 
 (deftest add-pill-renders-standalone
   (xray-setup!)
   (let [tree (pills/add-pill rf/dispatch)]
-    (is (some? (find-by-testid tree "rf-xray-filter-add"))
+    (is (some? (th/find-by-testid tree "rf-xray-filter-add"))
         "add-pill renders the `[ + ]` affordance standalone (bar-1 mount)")))
 
 ;; -------------------------------------------------------------------------
@@ -99,19 +65,19 @@
   (let [filters {:in  [{:pattern ":auth/*"} {:pattern ":order/*"}]
                  :out [{:pattern ":mouse-move"}]}
         tree    (pills/pills-view rf/dispatch {:filters filters})]
-    (is (some? (find-by-testid tree "rf-xray-filter-pill-in-0")))
-    (is (some? (find-by-testid tree "rf-xray-filter-pill-in-1")))
-    (is (some? (find-by-testid tree "rf-xray-filter-pill-out-0")))
-    (is (nil? (find-by-testid tree "rf-xray-filter-pill-out-1"))
+    (is (some? (th/find-by-testid tree "rf-xray-filter-pill-in-0")))
+    (is (some? (th/find-by-testid tree "rf-xray-filter-pill-in-1")))
+    (is (some? (th/find-by-testid tree "rf-xray-filter-pill-out-0")))
+    (is (nil? (th/find-by-testid tree "rf-xray-filter-pill-out-1"))
         "no extra OUT pill")))
 
 (deftest in-pill-shows-pattern-text
   (xray-setup!)
   (let [tree (pills/pills-view rf/dispatch {:filters {:in [{:pattern ":auth/*"}]
                                           :out []}})
-        pill (find-by-testid tree "rf-xray-filter-pill-in-0")]
+        pill (th/find-by-testid tree "rf-xray-filter-pill-in-0")]
     (is (some? pill))
-    (is (re-find #":auth/\*" (text-nodes pill))
+    (is (re-find #":auth/\*" (th/text-content pill))
         "pill renders the pattern")))
 
 (deftest pill-body-has-no-leading-mode-glyph
@@ -125,10 +91,10 @@
     (let [tree    (pills/pills-view rf/dispatch
                     {:filters {:in  [{:pattern ":auth/*"}]
                                :out [{:pattern ":mouse-move"}]}})
-          in-body (find-by-testid tree "rf-xray-filter-pill-in-0-body")
-          out-body (find-by-testid tree "rf-xray-filter-pill-out-0-body")
-          in-text  (text-nodes in-body)
-          out-text (text-nodes out-body)]
+          in-body (th/find-by-testid tree "rf-xray-filter-pill-in-0-body")
+          out-body (th/find-by-testid tree "rf-xray-filter-pill-out-0-body")
+          in-text  (th/text-content in-body)
+          out-text (th/text-content out-body)]
       (is (some? in-body))
       (is (some? out-body))
       (is (not (re-find #"^\s*\+" in-text))
@@ -150,8 +116,8 @@
     (xray-setup!)
     (let [tree   (pills/pills-view rf/dispatch {:filters {:in  [{:pattern ":auth/*"}]
                                               :out [{:pattern ":mouse-move"}]}})
-          in     (find-by-testid tree "rf-xray-filter-pill-in-0")
-          out    (find-by-testid tree "rf-xray-filter-pill-out-0")
+          in     (th/find-by-testid tree "rf-xray-filter-pill-in-0")
+          out    (th/find-by-testid tree "rf-xray-filter-pill-out-0")
           in-st  (:style (second in))
           out-st (:style (second out))]
       ;; include = green border + green ink + transparent bg.
@@ -169,9 +135,9 @@
       (is (= "transparent" (:background out-st))
           "exclude pill background is transparent")
       ;; each carries a remove `×` button.
-      (is (some? (find-by-testid tree "rf-xray-filter-pill-in-0-remove"))
+      (is (some? (th/find-by-testid tree "rf-xray-filter-pill-in-0-remove"))
           "include pill has a remove `×`")
-      (is (some? (find-by-testid tree "rf-xray-filter-pill-out-0-remove"))
+      (is (some? (th/find-by-testid tree "rf-xray-filter-pill-out-0-remove"))
           "exclude pill has a remove `×`"))))
 
 ;; -------------------------------------------------------------------------
@@ -186,7 +152,7 @@
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (let [tree (pills/pills-view rf/dispatch {:filters {:in [{:pattern ":auth/*"}]
                                               :out []}})
-            body (find-by-testid tree "rf-xray-filter-pill-in-0-body")
+            body (th/find-by-testid tree "rf-xray-filter-pill-in-0-body")
             handler (:on-click (second body))]
         (is (some? body) "pill body is addressable")
         (when handler (handler nil))))
@@ -213,7 +179,7 @@
       (let [tree (pills/pills-view rf/dispatch {:filters {:in  []
                                               :out [{:pattern ":mouse-move"}
                                                     {:pattern ":anim-frame"}]}})
-            x (find-by-testid tree "rf-xray-filter-pill-out-1-remove")
+            x (th/find-by-testid tree "rf-xray-filter-pill-out-1-remove")
             handler (:on-click (second x))]
         (is (some? x) "remove button addressable")
         (when handler (handler nil))))
@@ -231,7 +197,7 @@
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       ;; rf2-3f2di A5 — the add-pill is now a standalone bar-1 affordance.
       (let [tree (pills/add-pill rf/dispatch)
-            add  (find-by-testid tree "rf-xray-filter-add")
+            add  (th/find-by-testid tree "rf-xray-filter-add")
             handler (:on-click (second add))]
         (is (some? add))
         (when handler (handler nil))))
@@ -253,7 +219,7 @@
                                                 {:pattern ":b"}
                                                 {:pattern ":c"}]
                                           :out [{:pattern ":d"}]}})
-        cluster (find-by-testid tree "rf-xray-ribbon-filters")
+        cluster (th/find-by-testid tree "rf-xray-ribbon-filters")
         title   (:title (second cluster))]
     (is (some? cluster))
     (is (re-find #"IN: 3 patterns" title))
@@ -282,7 +248,7 @@
                 (throw (js/Error. "window.prompt called — stub regression")))))
       (try
         (let [tree (pills/pills-view rf/dispatch {:filters {:in [] :out []}})
-              add  (find-by-testid tree "rf-xray-filter-add")
+              add  (th/find-by-testid tree "rf-xray-filter-add")
               handler (:on-click (second add))]
           (when handler (handler nil)))
         (is (not @prompt-called?)

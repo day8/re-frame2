@@ -40,6 +40,7 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.registry :as registry]
@@ -71,32 +72,14 @@
   {:before setup-runtime!
    :after  teardown-runtime!})
 
-;; ---- hiccup walker (mirrors popup_dispatch_routing test) ---------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq copies were semantically identical to
+;; `re-frame.test-helpers`; the walk delegates to `th/find-by-testid`
+;; (rf2-vj80u8 — no Xray walker facade). The `with-frame` wrapper is retained
+;; deliberately (NOT a walker difference):
 (defn- find-by-testid [tree testid]
   ;; EP-0002 (rf2-bd4div): walking the rendered tree RE-INVOKES nested
-  ;; component fns (`expand-tree`), and those render-time `rf/subscribe`s
+  ;; component fns (`th/expand-tree`), and those render-time `rf/subscribe`s
   ;; resolve through the surrounding frame. The palette mounts in the
   ;; `:rf/xray` own-frame, so the expansion must run under that scope —
   ;; ambient (no-scope) re-expansion would raise `:rf.error/no-frame-context`
@@ -104,12 +87,7 @@
   ;; click-time HANDLER is still invoked OUTSIDE any scope — that is the
   ;; real click-fires-after-render path under test.)
   (rf/with-frame :rf/xray
-    (some (fn [node]
-            (when (and (vector? node)
-                       (map? (second node))
-                       (= testid (:data-testid (second node))))
-              node))
-          (hiccup-seq tree))))
+    (th/find-by-testid tree testid)))
 
 ;; ---- click-time helpers ------------------------------------------------
 

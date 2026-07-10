@@ -17,6 +17,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
@@ -50,36 +51,10 @@
   {:before setup-runtime!
    :after  teardown-runtime!})
 
-;; ---- hiccup walker (mirrors popup_dispatch_routing) --------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq / find-by-testid copies were
+;; semantically identical to `re-frame.test-helpers`; tests call
+;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- events + sub -------------------------------------------------------
 
@@ -108,11 +83,11 @@
     (let [rendered (editor-hint/Toast)]
       (is (some? rendered)
           "Toast renders hiccup when editor-hint-open? is true")
-      (is (find-by-testid rendered "rf-xray-editor-hint-toast")
+      (is (th/find-by-testid rendered "rf-xray-editor-hint-toast")
           "the toast root is present")
-      (is (find-by-testid rendered "rf-xray-editor-hint-open-settings")
+      (is (th/find-by-testid rendered "rf-xray-editor-hint-open-settings")
           "the 'Open Settings' button is present")
-      (is (find-by-testid rendered "rf-xray-editor-hint-dismiss")
+      (is (th/find-by-testid rendered "rf-xray-editor-hint-dismiss")
           "the dismiss ✕ button is present"))))
 
 ;; ---- open-settings wiring ----------------------------------------------

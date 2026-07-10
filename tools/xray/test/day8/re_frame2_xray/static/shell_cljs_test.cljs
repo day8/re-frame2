@@ -37,6 +37,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
@@ -59,42 +60,9 @@
 
 ;; ---- hiccup walker (mirrors shell_cljs_test) ----------------------------
 
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
+;; The private expand-tree / hiccup-seq / find-by-testid copies were
+;; semantically identical to `re-frame.test-helpers`; tests call
+;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- helpers ------------------------------------------------------------
 
@@ -204,17 +172,17 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (static-shell/surface)]
-        (is (some? (find-by-testid tree "rf-xray-static-surface"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-surface"))
             "Static surface envelope present")
-        (is (some? (find-by-testid tree "rf-xray-static-ribbon"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-ribbon"))
             "L1 ribbon present")
-        (is (some? (find-by-testid tree "rf-xray-static-tab-bar"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-tab-bar"))
             "L3 tab bar present")
         ;; default tab is :machines → detail panel testid carries the tab name
-        (is (some? (find-by-testid tree "rf-xray-static-detail-panel-machines"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-detail-panel-machines"))
             "L4 detail panel present (default :machines tab)")
         ;; CRITICAL: no L2 event list in Static mode
-        (is (nil? (find-by-testid tree "rf-xray-event-list"))
+        (is (nil? (th/find-by-testid tree "rf-xray-event-list"))
             "no L2 event list (Static is event-INDEPENDENT)")))))
 
 (deftest static-ribbon-mounts-mode-pill-frame-picker-and-right-icons
@@ -227,24 +195,24 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (static-shell/surface)]
-        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+        (is (some? (th/find-by-testid tree "rf-xray-mode-pill"))
             "mode pill present at ribbon-left")
         ;; L1 frame picker mounts in Static (the picker collapses to a
         ;; flat label when only one frame is available — match either
         ;; the `<select>` or the label fallback).
-        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
-                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+        (is (or (some? (th/find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (th/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker present (picker `<select>` or label fallback)")
-        (is (some? (find-by-testid tree "rf-xray-static-ribbon-icons"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-ribbon-icons"))
             "right icons cluster present")
-        (is (some? (find-by-testid tree "rf-xray-static-icon-settings"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-icon-settings"))
             "settings icon present")
-        (is (some? (find-by-testid tree "rf-xray-static-icon-close"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-icon-close"))
             "close icon present")
         ;; Spine-coupled clusters MUST NOT mount in Static surface
-        (is (nil? (find-by-testid tree "rf-xray-ribbon-nav"))
+        (is (nil? (th/find-by-testid tree "rf-xray-ribbon-nav"))
             "no nav cluster")
-        (is (nil? (find-by-testid tree "rf-xray-ribbon-filters"))
+        (is (nil? (th/find-by-testid tree "rf-xray-ribbon-filters"))
             "no filter pills")))))
 
 ;; -------------------------------------------------------------------------
@@ -265,7 +233,7 @@
     (rf/with-frame :rf/xray
       (let [tree (static-shell/surface)]
         (doseq [tab-id expected-static-tab-ids]
-          (is (some? (find-by-testid tree (str "rf-xray-static-tab-" (name tab-id))))
+          (is (some? (th/find-by-testid tree (str "rf-xray-static-tab-" (name tab-id))))
               (str "tab button for " tab-id)))))))
 
 (deftest static-tab-bar-uses-tablist-aria
@@ -275,7 +243,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree    (static-shell/surface)
-            tab-bar (find-by-testid tree "rf-xray-static-tab-bar")
+            tab-bar (th/find-by-testid tree "rf-xray-static-tab-bar")
             attrs   (second tab-bar)]
         (is (= "tablist" (:role attrs))
             "container carries role='tablist'")
@@ -283,7 +251,7 @@
             "container has an accessible name"))
       (let [tree (static-shell/surface)]
         (doseq [tab-id expected-static-tab-ids]
-          (let [btn   (find-by-testid tree (str "rf-xray-static-tab-" (name tab-id)))
+          (let [btn   (th/find-by-testid tree (str "rf-xray-static-tab-" (name tab-id)))
                 attrs (second btn)]
             (is (= "tab" (:role attrs))
                 (str "tab " tab-id " carries role='tab'"))
@@ -304,9 +272,9 @@
     (rf/with-frame :rf/xray
       (frame-dispatch [:rf.xray.static/select-tab :machines])
       (let [tree (static-shell/surface)]
-        (is (some? (find-by-testid tree "rf-xray-static-machines-panel"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-machines-panel"))
             "live Machines panel mounts")
-        (is (nil? (find-by-testid tree "rf-xray-static-placeholder-machines"))
+        (is (nil? (th/find-by-testid tree "rf-xray-static-placeholder-machines"))
             "no placeholder card renders for :machines")))))
 
 ;; -------------------------------------------------------------------------
@@ -375,12 +343,12 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (mode-pill/mode-pill)]
-        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+        (is (some? (th/find-by-testid tree "rf-xray-mode-pill"))
             "the select control is present")
         (is (= :select (first tree)) "the control is a native <select>")
-        (is (some? (find-by-testid tree "rf-xray-mode-pill-dynamic"))
+        (is (some? (th/find-by-testid tree "rf-xray-mode-pill-dynamic"))
             "Dynamic option present")
-        (is (some? (find-by-testid tree "rf-xray-mode-pill-static"))
+        (is (some? (th/find-by-testid tree "rf-xray-mode-pill-static"))
             "Static option present")))))
 
 (deftest mode-dropdown-reflects-active-mode
@@ -415,11 +383,11 @@
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
       (let [tree (shell/surface-composer)]
-        (is (some? (find-by-testid tree "rf-xray-static-surface"))
+        (is (some? (th/find-by-testid tree "rf-xray-static-surface"))
             "Static surface mounts")
-        (is (nil? (find-by-testid tree "rf-xray-ribbon"))
+        (is (nil? (th/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon does NOT mount")
-        (is (nil? (find-by-testid tree "rf-xray-event-list"))
+        (is (nil? (th/find-by-testid tree "rf-xray-event-list"))
             "Dynamic L2 event list does NOT mount")))))
 
 (deftest surface-composer-renders-dynamic-when-mode-dynamic
@@ -429,9 +397,9 @@
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
       (let [tree (shell/surface-composer)]
-        (is (some? (find-by-testid tree "rf-xray-ribbon"))
+        (is (some? (th/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon mounts")
-        (is (nil? (find-by-testid tree "rf-xray-static-surface"))
+        (is (nil? (th/find-by-testid tree "rf-xray-static-surface"))
             "Static surface does NOT mount")))))
 
 (deftest ribbon-always-mounts-mode-pill
@@ -441,7 +409,7 @@
     (xray-setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/ribbon nil)]
-        (is (some? (find-by-testid tree "rf-xray-mode-pill"))
+        (is (some? (th/find-by-testid tree "rf-xray-mode-pill"))
             "mode pill mounts in the Dynamic ribbon unconditionally")))))
 
 ;; -------------------------------------------------------------------------
@@ -464,8 +432,8 @@
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
       (let [tree (shell/surface-composer)]
-        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
-                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+        (is (or (some? (th/find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (th/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker (or single-frame label) present in Dynamic")))))
 
 (deftest l1-frame-picker-mounts-in-static-mode
@@ -478,8 +446,8 @@
     (frame-dispatch [:rf.xray/set-mode :static])
     (rf/with-frame :rf/xray
       (let [tree (shell/surface-composer)]
-        (is (or (some? (find-by-testid tree "rf-xray-ribbon-frame-picker"))
-                (some? (find-by-testid tree "rf-xray-ribbon-frame")))
+        (is (or (some? (th/find-by-testid tree "rf-xray-ribbon-frame-picker"))
+                (some? (th/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker (or single-frame label) present in Static")))))
 
 ;; -------------------------------------------------------------------------

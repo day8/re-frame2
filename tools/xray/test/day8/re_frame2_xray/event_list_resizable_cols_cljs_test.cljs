@@ -19,6 +19,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
@@ -41,48 +42,14 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {}))
 
-;; ---- hiccup walker (mirrors shell_cljs_test) ---------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq / find-by-testid / find-all-by-testid-
+;; prefix copies were semantically identical to `re-frame.test-helpers`; tests
+;; call `th/find-by-testid` / `th/find-by-testid-prefix` directly (rf2-vj80u8 —
+;; no Xray walker facade).
 
 (defn- style-of [node]
-  (when (and (vector? node) (map? (second node)))
-    (:style (second node))))
+  (:style (th/attrs node)))
 
 ;; ---- trace-bus helpers (one cascade so the L2 list renders) -------------
 
@@ -106,13 +73,13 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
-            dividers (find-all-by-testid-prefix
+            dividers (th/find-by-testid-prefix
                        tree "rf-xray-event-list-col-divider-")]
-        (is (some? (find-by-testid tree "rf-xray-event-list-col-divider-source"))
+        (is (some? (th/find-by-testid tree "rf-xray-event-list-col-divider-source"))
             "source-column divider renders")
-        (is (some? (find-by-testid tree "rf-xray-event-list-col-divider-timestamp"))
+        (is (some? (th/find-by-testid tree "rf-xray-event-list-col-divider-timestamp"))
             "timestamp-column divider renders")
-        (is (some? (find-by-testid tree "rf-xray-event-list-col-divider-duration"))
+        (is (some? (th/find-by-testid tree "rf-xray-event-list-col-divider-duration"))
             "duration-column divider renders")
         ;; Each divider appears at least once in the header + once per
         ;; row, so we expect at minimum 6 (one row + header = 2 instances
@@ -145,8 +112,8 @@
       (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 120]))
     (rf/with-frame :rf/xray
       (let [tree        (shell/shell-view)
-            h-timestamp (find-by-testid tree "rf-xray-event-list-col-timestamp")
-            r-time      (find-by-testid tree "rf-xray-row-time-chip")]
+            h-timestamp (th/find-by-testid tree "rf-xray-event-list-col-timestamp")
+            r-time      (th/find-by-testid tree "rf-xray-row-time-chip")]
         (is (some? h-timestamp) "header timestamp cell renders")
         (is (some? r-time)      "row time chip renders")
         (is (= "120px" (:width (style-of h-timestamp)))
@@ -163,12 +130,12 @@
     (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
     (rf/with-frame :rf/xray
       (let [tree     (shell/shell-view)
-            h-source (find-by-testid tree "rf-xray-event-list-col-source")
-            r-source (find-by-testid tree "rf-xray-row-origin-after-timer")
-            h-time   (find-by-testid tree "rf-xray-event-list-col-timestamp")
-            r-time   (find-by-testid tree "rf-xray-row-time-chip")
-            h-dur    (find-by-testid tree "rf-xray-event-list-col-duration")
-            r-dur    (find-by-testid tree "rf-xray-row-duration")]
+            h-source (th/find-by-testid tree "rf-xray-event-list-col-source")
+            r-source (th/find-by-testid tree "rf-xray-row-origin-after-timer")
+            h-time   (th/find-by-testid tree "rf-xray-event-list-col-timestamp")
+            r-time   (th/find-by-testid tree "rf-xray-row-time-chip")
+            h-dur    (th/find-by-testid tree "rf-xray-event-list-col-duration")
+            r-dur    (th/find-by-testid tree "rf-xray-row-duration")]
         (is (= "52px" (:width (style-of h-source)) (:width (style-of r-source)))
             "source column defaults to 52px on header + row")
         (is (= "76px" (:width (style-of h-time)) (:width (style-of r-time)))
@@ -370,7 +337,7 @@
                                       ([ev _opts] (swap! dispatches conj ev) nil))]
       (rf/with-frame :rf/xray
         (let [tree    (shell/shell-view)
-              divider (find-by-testid
+              divider (th/find-by-testid
                         tree "rf-xray-event-list-col-divider-source")
               handler (:on-double-click (second divider))]
           (is (fn? handler)
@@ -390,7 +357,7 @@
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (rf/with-frame :rf/xray
       (let [tree    (shell/shell-view)
-            divider (find-by-testid
+            divider (th/find-by-testid
                       tree "rf-xray-event-list-col-divider-source")
             props   (second divider)]
         (is (= "separator" (:role props)))
