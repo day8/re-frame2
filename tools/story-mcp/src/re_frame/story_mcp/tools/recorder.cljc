@@ -5,9 +5,10 @@
   sleep for :duration-ms → stop-recording! → gen-play-snippet) per
   tools/story/spec/005-SOTA-Features.md §Test Codegen \"MCP wiring\".
 
-  This tool's job is the cross-process bridge: an agent calls it and
-  gets back the `(reg-variant ...)` snippet for whatever the canvas
-  dispatched during the recording window. The recorder itself does the
+  This tool's job is the agent-facing wrapper (a direct, in-process
+  call in the shared JVM — spec/006 §Architecture): an agent calls it
+  and gets back the `(reg-variant ...)` snippet for whatever the
+  canvas dispatched during the recording window. The recorder itself does the
   filter work (op-type :event/dispatched, frame scope, internal-ns
   suppression) — see `re-frame.story.recorder/recordable-event?`.
 

@@ -15,12 +15,15 @@
     `run-variant` against a seeded variant; assert the return shape
     matches spec/002 + spec/006 (`{:frame :app-db :assertions
     :rendered-hiccup :elapsed-ms ...}`).
-  - **dispatch-via-mcp end-to-end** — register a variant via
-    `reg-variant*` (the MCP write path), then dispatch into the
+  - **dispatch-via-mcp same-process round trip** — register a variant
+    via `reg-variant*` (the MCP write path), then dispatch into the
     variant's frame with the `{:frame variant-id}` opts map (the
-    `re-frame.core/dispatch-sync` shape the Tool-Pair bridge invokes
-    against an allocated frame); assert the frame's `app-db` reflects
-    the dispatched event's effect.
+    `re-frame.core/dispatch-sync` shape the MCP jar's tools invoke
+    directly in the shared JVM); assert the frame's `app-db` reflects
+    the dispatched event's effect. These are same-process public-API
+    shape pins, NOT cross-process bridge coverage — no such bridge
+    exists; live-browser Story access is pair-owned (spec/006 §Two
+    surfaces, one live door; rf2-3fc89f.22).
   - **story-state-snapshot identity stability** — invoke
     `snapshot-identity` for a variant; mutating cell-overrides
     (render-relevant input) changes the identity hash; mutating the
@@ -121,8 +124,9 @@
 ;; underlying call. The shape an agent expects in the return slot is
 ;; specified by spec/002 §run-variant result map. This test pins the
 ;; shape from the MCP boundary's vantage: invoke run-variant the same
-;; way the Tool-Pair bridge would and assert every keyed slot of the
-;; documented return shape is present.
+;; way the MCP jar does (a direct, in-process call — spec/006
+;; §Architecture) and assert every keyed slot of the documented
+;; return shape is present.
 ;; ===========================================================================
 
 (deftest run-variant-return-shape-matches-spec
@@ -174,9 +178,10 @@
 ;;
 ;; The MCP write path: an agent calls `reg-variant*` (programmatic write
 ;; — no source coord), then drives a dispatch against the allocated
-;; frame via `(rf/dispatch-sync event {:frame variant-id})`. The Tool-
-;; Pair bridge invokes this exact shape; the test pins the round-trip
-;; from registration through dispatch through observable app-db change.
+;; frame via `(rf/dispatch-sync event {:frame variant-id})`. The MCP
+;; jar's tools invoke this exact shape in the shared JVM; the test pins
+;; the round-trip from registration through dispatch through observable
+;; app-db change — a same-process shape pin, not bridge coverage.
 ;; ===========================================================================
 
 (deftest dispatch-via-mcp-writes-to-variant-frame-app-db

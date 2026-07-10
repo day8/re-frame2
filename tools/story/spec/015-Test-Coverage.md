@@ -187,6 +187,16 @@ follow-up implementation bead, not here:
 
 ### MCP surface scenarios — spec/006
 
+**Labelling note (rf2-3fc89f.22).** Every row in this table is a
+**same-process public-API shape pin**: the JVM test seeds the Story
+registry and calls `re-frame.story/*` directly — the same direct,
+in-process invocation the MCP jar makes (spec/006 §Architecture).
+None of these rows is cross-process or bridge coverage, and no such
+bridge exists to cover: live-browser Story access is pair-owned
+(spec/006 §Two surfaces, one live door; recipe tracked as
+rf2-s99lw4). Story-MCP's own wire/tool/gate coverage lives in
+`tools/story-mcp/test/`.
+
 | Scenario | Setup | Acceptance | Test home | Status |
 |---|---|---|---|---|
 | Public read-Var surface resolves | Iterate spec/006 §read primitives; each resolves to a callable Var on `re-frame.story`. | Every named Var resolves AND is `fn?`. | `tools/story/test/re_frame/story_mcp_boundary_test.clj` §`public-read-surface-resolves`. | Covered |
@@ -197,7 +207,7 @@ follow-up implementation bead, not here:
 | Late-bind panel registration | Re-registering a panel under an id replaces the prior slot — the contract that lets any artefact ship a view under a panel-author's `:render` id. | Second `reg-story-panel` for the same id replaces `:render`/`:title`; shell picks the live view. | Same file §late-bind contract. | Covered |
 | list-stories / list-variants / list-modes shape | Seeded registry; invoke each list primitive. | Returns set of keyword ids; shape matches spec/006 read primitive table. | `tools/story/test/re_frame/story_mcp_surface_test.clj` §`list-stories-returns-id-set` + §`list-variants-returns-id-set` + §`list-modes-returns-id-set` (pin set-of-keyword shape AND `(list-modes) = (ids :mode)` alias). | Covered (rf2-1svim) |
 | render-story / run-variant from MCP perspective | Invoke `run-variant` against a seeded variant; assert return shape matches spec/002 + spec/006. | `{:frame ... :app-db ... :assertions ... :elapsed-ms ... :snapshot ... :decorators ...}` keys present. | `tools/story/test/re_frame/story_mcp_surface_test.clj` §`run-variant-return-shape-matches-spec` + §`run-variant-empty-play-still-returns-shape`. CROSS-REF: `story_runtime_test.clj` covers the lifecycle-side; this row covers the MCP-boundary shape contract. | Covered (rf2-1svim) |
-| dispatch-via-mcp end-to-end | Simulate MCP-bridge dispatch into a variant's frame; assert `app-db` reflects the dispatch. | Frame `app-db` carries the dispatched event's effect; default frame untouched (per-frame isolation holds). | `tools/story/test/re_frame/story_mcp_surface_test.clj` §`dispatch-via-mcp-writes-to-variant-frame-app-db` + §`dispatch-via-mcp-multiple-events-accumulate` (registered via `reg-variant*` the MCP write path; dispatch via `{:frame variant-id}` the Tool-Pair bridge invocation). | Covered (rf2-1svim) |
+| dispatch-via-mcp same-process round trip | Direct-call dispatch into a variant's frame (the shape the MCP jar's tools invoke in the shared JVM); assert `app-db` reflects the dispatch. | Frame `app-db` carries the dispatched event's effect; default frame untouched (per-frame isolation holds). | `tools/story/test/re_frame/story_mcp_surface_test.clj` §`dispatch-via-mcp-writes-to-variant-frame-app-db` + §`dispatch-via-mcp-multiple-events-accumulate` (registered via `reg-variant*` the MCP write path; dispatch via `{:frame variant-id}` — a same-process public-API shape pin, NOT bridge coverage). | Covered (rf2-1svim; relabelled rf2-3fc89f.22) |
 | story-state-snapshot identity stability | Invoke `snapshot-identity` for a variant; mutate args; identity changes. Mutate `:source` coords; identity unchanged. | Hash changes on render-relevant input change; unchanged on cosmetic-only edit. | `tools/story/test/re_frame/story_mcp_surface_test.clj` §`snapshot-identity-stable-across-cosmetic-edits` + §`snapshot-identity-changes-on-args-edit` + §`snapshot-identity-changes-on-active-modes` (MCP-perspective: cell-overrides + active-modes + cosmetic :source mutations exercised via the opts map). | Covered (rf2-1svim) |
 
 ### `:test` mode pane scenarios — spec/009
