@@ -62,13 +62,13 @@
 (deftest canned-success-default-reply-addressing-cljs
   (testing "the canned-success stub dispatches a default reply (originating event-id with :rf/reply)"
     (rf/reg-event :article/load
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           (case (:status reply)
             :ok    {:db {:article (:value reply)}}
             :error {:db {:error (:error reply)}})
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles/hello"}
+                 {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
     (rf/dispatch-sync [:article/load {:slug "hello"}]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
@@ -149,11 +149,11 @@
             with NO per-call :fx-overrides (the helper installs the
             :rf.http/managed override for the thunk's dynamic extent)"
     (rf/reg-event :articles/list
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:result reply}}
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles"}
+                 {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
@@ -180,11 +180,11 @@
       (rf/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
-        (fn [_ [_ msg]]
-          (if-let [reply (:rf/reply msg)]
+        (fn [_ [_ msg reply]]
+          (if reply
             {:db {:result reply}}
             {:fx [[:rf.http/managed
-                   {:request {:method :get :url "/rzqan"}
+                   {:reply-to [:rzqan/load msg] :request {:method :get :url "/rzqan"}
                     :decode  :json}]]})))
       (rf/with-managed-request-stubs*
         {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
@@ -203,11 +203,11 @@
 (deftest with-managed-request-stubs-failure-cljs
   (testing "with-managed-request-stubs* synthesises a failure reply when {:reply {:failure ...}}"
     (rf/reg-event :articles/list
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:result reply}}
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles"}
+                 {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
                   :decode  :json}]]})))
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:failure {:kind   :rf.http/http-4xx
@@ -225,11 +225,11 @@
 (deftest with-managed-request-stubs-unmatched-cljs
   (testing "an unmatched [method url] under stubs synthesises a :rf.http/transport failure"
     (rf/reg-event :unmatched/load
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:result reply}}
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/never"}
+                 {:reply-to [:unmatched/load msg] :request {:method :get :url "/never"}
                   :decode  :json}]]})))
     (rf/with-managed-request-stubs*
       ;; Configure stubs that do NOT match the request URL.
@@ -270,11 +270,11 @@
 (deftest multi-frame-reply-isolation-cljs
   (testing "managed requests issued from frame A reply into frame A's app-db"
     (rf/reg-event :article/load
-      (fn [_ [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [_ [_ msg reply]]
+        (if reply
           {:db {:article (:value reply)}}
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/articles/hello"}
+                 {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
                   :decode  :json}]]})))
     (let [left  (frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides

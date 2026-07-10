@@ -331,13 +331,13 @@
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
         (rf/reg-event :legacy/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               (case (:status reply)
                 :ok    {:db (assoc db :result (:value reply))}
                 :error {:db (assoc db :error (:error reply))})
               {:fx [[:rf.http/managed
-                     {:request {:url    (str "http://127.0.0.1:" port "/")
+                     {:reply-to [:legacy/load msg] :request {:url    (str "http://127.0.0.1:" port "/")
                                 :method :get}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:legacy/load {}])

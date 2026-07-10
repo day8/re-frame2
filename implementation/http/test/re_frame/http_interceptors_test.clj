@@ -108,11 +108,11 @@
                      (assoc-in ctx [:request :headers "Authorization"]
                                "Bearer secret-token-42"))})
         (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/secured")}
+                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/secured")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:load])
         (await-reply! #(some? (:reply %)) 5000)
@@ -151,11 +151,11 @@
                      (is (= "2" (get-in ctx [:request :headers "X-Two"])))
                      (assoc-in ctx [:request :headers "X-Three"] "3"))})
         (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:load])
         (await-reply! #(some? (:reply %)) 5000)
@@ -332,12 +332,12 @@
                      (assoc-in ctx [:request :headers "Authorization"]
                                "Bearer A"))})
         (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (-> db
                        (update :replies (fnil conj []) reply))}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
                       :decode  :json}]]})))
         ;; First dispatch — interceptor fires.
         (rf/dispatch-sync [:load])
@@ -603,11 +603,11 @@
               "all three ids appear in the :rf/default chain"))
 
         (rf/reg-event :test.lfvi/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (-> db (update :replies (fnil conj []) reply))}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                     {:reply-to [:test.lfvi/load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
                       :decode  :json}]]})))
 
         ;; First dispatch — all three interceptors fire.
@@ -752,11 +752,11 @@
         (rf/reg-http-interceptor :add-credentials
           {:before (fn [ctx] (assoc-in ctx [:request :credentials] :include))})
         (rf/reg-event :rznrz.cljsonly/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                     {:reply-to [:rznrz.cljsonly/load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:rznrz.cljsonly/load])
         (await-reply! #(some? (:reply %)) 5000)
@@ -969,11 +969,11 @@
         (rf/reg-http-interceptor :c
           {:after (fn [_ctx resp] (swap! order conj :c) resp)})
         (rf/reg-event :uheqq/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                     {:reply-to [:uheqq/load msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load])
         (await-reply-with-payload!)
@@ -1001,11 +1001,11 @@
                                            (::start ctx))})
                      resp)})
         (rf/reg-event :uheqq/load-timing
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/timing")}
+                     {:reply-to [:uheqq/load-timing msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/timing")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-timing])
         (await-reply-with-payload!)
@@ -1031,11 +1031,11 @@
                     (update resp :value
                             (fn [v] (assoc v :touched-by :after))))})
         (rf/reg-event :uheqq/load-xform
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                     {:reply-to [:uheqq/load-xform msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-xform])
         (let [reply (await-reply-with-payload!)]
@@ -1066,11 +1066,11 @@
                     (swap! order conj :after-only-fired)
                     resp)})
         (rf/reg-event :uheqq/load-transparent
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
+                     {:reply-to [:uheqq/load-transparent msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-transparent])
         (await-reply-with-payload!)
@@ -1119,11 +1119,11 @@
                              :limit     100
                              :ctx-aware (::rate-limit-aware ctx)}))})
         (rf/reg-event :uheqq/load-rate
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/items")}
+                     {:reply-to [:uheqq/load-rate msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/items")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-rate])
         (let [reply (await-reply-with-payload!)]
@@ -1155,11 +1155,11 @@
                        (reset! observed {:delta-ms delta :start started})
                        (assoc resp :telemetry {:elapsed-ms delta})))})
         (rf/reg-event :uheqq/load-telemetry
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/telemetry")}
+                     {:reply-to [:uheqq/load-telemetry msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/telemetry")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-telemetry])
         (let [reply (await-reply-with-payload!)]
@@ -1195,11 +1195,11 @@
                     ;; the canonical form.
                     (assoc resp :cache {:max-age 600 :public? true}))})
         (rf/reg-event :uheqq/load-cache
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/cache")}
+                     {:reply-to [:uheqq/load-cache msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/cache")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-cache])
         (let [reply (await-reply-with-payload!)]
@@ -1231,11 +1231,11 @@
                       (assoc resp :auth-refresh-required true)
                       resp))})
         (rf/reg-event :uheqq/load-401
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" (:port srv) "/protected")}
+                     {:reply-to [:uheqq/load-401 msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/protected")}
                       :decode  :json}]]})))
         (rf/dispatch-sync [:uheqq/load-401])
         (let [reply (await-reply-with-payload!)]

@@ -55,10 +55,13 @@
 
 (defn- call-managed!
   "Invoke `:rf.http/managed` via the public handler with the given
-  request map. Returns nil on success or the ex-info on a throw."
+  request map. Returns nil on success or the ex-info on a throw.
+
+  Supplies a `:reply-to` so the request satisfies the mandatory reply
+  addressing (rf2-et4c1s) and this suite isolates the `:url` guard."
   [request]
   (try (handlers/managed-handler {:frame :rf/default :event [:no-op]}
-                                 {:request request})
+                                 {:request request :reply-to [:no-op]})
        nil
        (catch clojure.lang.ExceptionInfo e e)))
 

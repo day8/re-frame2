@@ -338,11 +338,11 @@
           replies (atom [])]
       (try
         (rf/reg-event :direct/load
-          (fn [_ [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [_ [_ msg reply]]
+            (if reply
               (do (swap! replies conj reply) {})
               {:fx [[:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" port "/")}
+                     {:reply-to [:direct/load msg] :request    {:url (str "http://127.0.0.1:" port "/")}
                       :decode     :json
                       :request-id :direct}]]})))
         (rf/dispatch-sync [:direct/load {}])
