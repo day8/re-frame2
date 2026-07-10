@@ -109,57 +109,45 @@
   [actor-id path]
   (into (paths/snapshot-path actor-id) path))
 
+(defn- machine-owner
+  "The multi-owner elision-registry owner identity a machine actor's lowered
+  `:data` classification claims under. The `:actor-id` is carried so an actor's
+  spawn / destroy scopes to THAT instance — removing one actor's claims never
+  disturbs a sibling actor's or another source's claim on the same absolute
+  path."
+  [actor-id]
+  {:source :machine :actor-id actor-id})
+
 (defn- apply-decls
   "Pure registry transform: ADD (`set?` true) or DROP (`set?` false) the
   absolute snapshot-rooted declarations for `actor-id`'s `decls`
   (`{:sensitive [paths] :large [paths]}`) on a base elision-registry value
-  `reg`. SET writes `{:source :machine}` at each axis slot
+  `reg`, delegating to the core multi-owner ops. SET UNIONS this actor's owner
+  (`{:source :machine :actor-id …}`) into each axis slot
   (`:sensitive-declarations` / `:declarations` — the SAME slots the four
-  commit-plane effects and `reg-flow` outputs populate) WITHOUT clobbering a
-  foreign-source standing entry (the registry is one-entry-per-path-per-axis;
-  an app effect, flow, or route claim on the same absolute path is left
-  standing). DROP is SOURCE-SCOPED: it dissocs a named absolute path only when
-  its standing entry
-  is the machine's own (`:source :machine`). A path ALSO claimed by another
-  source (Spec 015 L149 explicitly permits an app to additionally classify a
-  subsystem absolute path from a handler effect, `:source :effect`) is LEFT
-  INTACT, so an actor teardown never silently un-redacts a path another owner
-  still classifies (a privacy fail-open). Mirrors the effect clear
-  (`re-frame.elision/apply-classification-effects`, source-scoped) and the
-  route lowering (`re-frame.routing.classification/without-route-sourced`,
-  which filters `:source :route`). An emptied axis slot is pruned. Returns the new registry
-  value."
+  commit-plane effects and `reg-flow` outputs populate) ALONGSIDE any foreign
+  owner on the same absolute path (Spec 015 L149 explicitly permits an app to
+  additionally classify a subsystem absolute path from a handler effect,
+  `:source :effect`); DROP removes ONLY this actor's own owner
+  (`elision/remove-claims`) at the named absolute paths — a path ALSO claimed
+  by another owner is LEFT INTACT, so an actor teardown never silently
+  un-redacts a path another owner still classifies (a privacy fail-open,
+  rf2-wdm1vg). An emptied axis slot is pruned by the core ops. Returns the new
+  registry value."
   [reg actor-id decls set?]
-  (reduce
-    (fn [reg [axis slot]]
-      (let [paths (get decls axis)]
-        (if-not (seq paths)
-          reg
-          (let [abs (map #(absolute-snapshot-path actor-id %) paths)
-                cur (get reg slot)
-                updated (if set?
-                          (reduce (fn [m p]
-                                    ;; Do NOT overwrite a foreign-source entry —
-                                    ;; only write the machine claim into a free
-                                    ;; or already-machine-owned slot.
-                                    (let [src (:source (get m p))]
-                                      (if (or (nil? src) (= :machine src))
-                                        (assoc m p {:source :machine})
-                                        m)))
-                                  (or cur {}) abs)
-                          ;; SOURCE-SCOPED drop: remove a path only when its
-                          ;; standing entry is the machine's own.
-                          (reduce (fn [m p]
-                                    (if (= :machine (:source (get m p)))
-                                      (dissoc m p)
-                                      m))
-                                  (or cur {}) abs))]
-            (if (seq updated)
-              (assoc reg slot updated)
-              (dissoc reg slot))))))
-    (or reg {})
-    {:sensitive :sensitive-declarations
-     :large     :declarations}))
+  (let [owner (machine-owner actor-id)]
+    (reduce
+      (fn [reg [axis slot]]
+        (let [paths (get decls axis)]
+          (if-not (seq paths)
+            reg
+            (let [abs (map #(absolute-snapshot-path actor-id %) paths)]
+              (if set?
+                (elision/add-claims reg slot owner abs)
+                (elision/remove-claims reg slot owner abs))))))
+      (or reg {})
+      {:sensitive :sensitive-declarations
+       :large     :declarations})))
 
 (defn lower-at-spawn!
   "LOWER the machine `spec`'s projection-relative `:sensitive` / `:large`
