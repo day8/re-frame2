@@ -27,25 +27,20 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cc]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
+  ;; which already includes the trace-collector ring reset the old init
+  ;; called a SECOND, redundant time.
+  (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- hiccup walkers (mirror other view tests) ---------------------------
 

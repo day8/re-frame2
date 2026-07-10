@@ -24,25 +24,19 @@
             [re-frame.epoch :as epoch-api]
             [re-frame.epoch.state :as epoch-state]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus-resolver]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.spine :as spine]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): plain-atom adapter
+  ;; + the `:all` reset tier — install (== preload's alias) + registry +
+  ;; mount idempotency sentinels plus the trace-collector rings.
+  (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)

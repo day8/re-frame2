@@ -60,7 +60,6 @@
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
             [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
@@ -70,6 +69,7 @@
             [day8.re-frame2-xray.panels.machines.topology :as topo]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ============================================================================
@@ -161,15 +161,13 @@
 ;; fixture
 ;; ============================================================================
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; tier — install (== preload's alias) + registry + mount idempotency
+  ;; sentinels plus the trace-collector rings — over the Reagent adapter
+  ;; this suite renders through.
+  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)

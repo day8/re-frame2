@@ -50,9 +50,9 @@
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as mih]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
             ;; The SHARED machine specs the deck mounts — the harness drives
             ;; the IDENTICAL values (single source of truth, rf2-g27vv).
             [machine-epochs.machines :as machines]))
@@ -61,15 +61,13 @@
 ;; fixture + drivers
 ;; ============================================================================
 
-(defn- xray-init! []
-  (preload/reset-for-test!)
-  (registry/reset-for-test!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) replaces the bespoke
+  ;; `xray-init!` (preload/registry/trace three-liner): the `:all` reset
+  ;; tier — install (== preload's alias) + registry + mount idempotency
+  ;; sentinels plus the trace-collector rings — over the Reagent adapter
+  ;; this suite renders through.
+  (xray-test-support/make-xray-runtime-fixture {:adapter reagent-adapter/adapter}))
 
 (defn- setup!
   "Register the Xray handlers + trace collector, register every (non-throwing)
