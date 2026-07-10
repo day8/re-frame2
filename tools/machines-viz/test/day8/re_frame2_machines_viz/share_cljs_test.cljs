@@ -22,6 +22,7 @@
             [clojure.string :as str]
             [clojure.walk]
             [cognitect.transit :as transit]
+            [day8.re-frame2-machines-viz.grammar :as grammar]
             [day8.re-frame2-machines-viz.share :as share]))
 
 ;; ---------------------------------------------------------------------------
@@ -547,6 +548,132 @@
           d (try (share/decode-share-url smuggled)
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3fc89f.18 — malformed machine DEFINITIONS fail closed at the
+;; share/viewer trust boundary. The boundary previously carried a PRIVATE
+;; definition-shape predicate weaker than the canonical Machines-Viz grammar
+;; gate (`grammar/valid-definition?` — the SAME gate the AI / Mermaid / SCXML
+;; emitters + the chart projector share): it accepted any TRUTHY flat
+;; `:initial` (even a STRING) and every non-empty parallel `:regions` map
+;; WITHOUT validating the region bodies. A forged-but-valid-Transit share URL
+;; therefore decoded `:ok` and was handed to `MachineChart` even though the
+;; same definition is rejected everywhere else. The fix deletes the private
+;; copy and routes the definition slot through the canonical grammar gate
+;; (after the SAME `desugar-grammar` policy the projectors use), so decode
+;; FAILS CLOSED on a malformed definition.
+
+(def timeout-definition
+  "An authored `:timeout` / `:on-timeout` definition (EP-0029 A4). The share
+  stores the AUTHORED form; the boundary desugars to VALIDATE without
+  rewriting the stored payload — so the decoded definition is byte-identical
+  to the authored one."
+  {:initial :idle
+   :states  {:idle    {:timeout 5000 :on-timeout :expired :on {:go :done}}
+             :expired {:final? true}
+             :done    {:final? true}}})
+
+(def choice-definition
+  "An authored `:type :choice` transient state (EP-0029 A5). Round-trips in
+  authored form; the boundary desugars only to validate."
+  {:initial :evaluating
+   :states  {:evaluating {:type   :choice
+                          :choice [{:target :a :guard :ready?} {:target :b}]}
+             :a {:final? true}
+             :b {:final? true}}})
+
+(def valid-definitions
+  "Well-formed definitions the canonical grammar gate accepts (flat, compound,
+  parallel, and the two authored-sugar shapes)."
+  {:flat     idle-loading-success
+   :compound compound-definition
+   :parallel (:definition parallel-state)
+   :timeout  timeout-definition
+   :choice   choice-definition})
+
+(def malformed-definitions
+  "Machine definitions the canonical grammar gate REJECTS but the old private
+  share predicate ACCEPTED. Each is a well-formed Transit value (it survives
+  decode up to the schema check) but a malformed machine SHAPE — a non-keyword
+  / missing flat `:initial`, empty `:states`, or a malformed parallel region
+  body (missing keyword `:initial` / empty `:states`)."
+  {:flat-string-initial     {:initial "idle" :states {:idle {}}}
+   :flat-missing-initial     {:states {:idle {}}}
+   :flat-empty-states        {:initial :idle :states {}}
+   :parallel-empty-region    {:type :parallel :regions {:main {:states {}}}}
+   :parallel-string-initial  {:type :parallel :regions {:main {:initial "x" :states {:x {}}}}}
+   :parallel-no-initial      {:type :parallel :regions {:main {:states {:x {}}}}}})
+
+(defn- forge-definition-url
+  "Forge a share-URL whose `…/chart` carries `definition` verbatim (bypassing
+  the encoder's own validation) so decode-side fail-closed behaviour can be
+  exercised directly."
+  [definition]
+  (envelope->url
+    {:rf.machines-viz.share/v       "2"
+     :rf.machines-viz.share/chart   {:machine-id :demo :definition definition}
+     :rf.machines-viz.share/created 0}))
+
+(deftest decoded-malformed-definition-rejected-throwing
+  (testing "rf2-3fc89f.18 — a forged share-URL carrying a malformed machine
+            definition is rejected at decode with :invalid-chart-state (the
+            throwing API), fail-closed"
+    (doseq [[label definition] malformed-definitions]
+      (let [d (try (share/decode-share-url (forge-definition-url definition))
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "malformed definition " label " must fail closed at decode"))
+        (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))))))
+
+(deftest decoded-malformed-definition-rejected-safe
+  (testing "rf2-3fc89f.18 — the SAFE decode API returns
+            {:error {:reason :invalid-chart-state}} — never :ok — for a
+            malformed definition (the viewer's ingestion API)"
+    (doseq [[label definition] malformed-definitions]
+      (let [{:keys [ok error]} (share/decode-share-url-safe (forge-definition-url definition))]
+        (is (nil? ok) (str "malformed definition " label " must NOT decode :ok"))
+        (is (= :invalid-chart-state (:reason error))
+            (str "malformed definition " label " surfaces a banner-friendly reason"))))))
+
+(deftest encode-rejects-malformed-definitions
+  (testing "rf2-3fc89f.18 — the encoder rejects the same malformed definitions
+            (encode/decode stay symmetric — the encoder never emits a payload
+            the decoder would reject)"
+    (doseq [[label definition] malformed-definitions]
+      (let [d (try (share/encode-share-url {:machine-id :demo :definition definition})
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "malformed definition " label " must be rejected at encode"))
+        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
+
+(deftest valid-definitions-round-trip-unchanged
+  (testing "rf2-3fc89f.18 — hardening the gate does NOT regress valid
+            definitions; flat / compound / parallel / timeout / choice authored
+            forms all round-trip UNCHANGED (share stores the authored form; the
+            boundary desugars only to validate, never rewriting the payload)"
+    (doseq [[label definition] valid-definitions]
+      (let [cs   {:machine-id :demo :definition definition}
+            back (:rf.machines-viz.share/chart
+                   (share/decode-share-url (share/encode-share-url cs)))]
+        (is (= definition (:definition back))
+            (str label " definition round-trips UNCHANGED (authored form preserved)"))))))
+
+(deftest share-definition-gate-agrees-with-canonical-grammar
+  (testing "rf2-3fc89f.18 — the share boundary accepts/rejects EXACTLY the
+            definitions the canonical Machines-Viz grammar gate does (the same
+            gate the AI / Mermaid / SCXML emitters + chart projector share), so
+            one machine value cannot be accepted by one surface and rejected by
+            another. Pins one table of valid + invalid shapes against the
+            canonical predicate so the boundaries cannot drift again."
+    (doseq [[label definition] (merge valid-definitions malformed-definitions)]
+      ;; `grammar/valid-definition?` is a truthy/falsy predicate (its last
+      ;; `and` term is `(seq …)` — a seq, not a literal boolean), so coerce
+      ;; both sides to booleans before comparing agreement.
+      (let [canonical? (boolean (grammar/valid-definition? (grammar/desugar-grammar definition)))
+            share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
+        (is (= canonical? share-ok?)
+            (str label ": share boundary must agree with the canonical grammar gate "
+                 "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-dplwxh — top-level ChartState is CLOSED on decode. The encoder

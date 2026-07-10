@@ -52,7 +52,8 @@
   Lock #5."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
-            [cognitect.transit :as transit]))
+            [cognitect.transit :as transit]
+            [day8.re-frame2-machines-viz.grammar :as grammar]))
 
 ;; ---------------------------------------------------------------------------
 ;; Constants
@@ -297,14 +298,23 @@
 ;; that accepted compound/parallel snapshots a keyword-only decoder
 ;; then refused — an undecodable URL).
 
-(defn- valid-definition?
-  "A MachineDefinition is either a flat/compound spec (`:initial` +
-  non-empty `:states`) or a parallel spec (`:type :parallel` +
-  non-empty `:regions`)."
-  [d]
-  (and (map? d)
-       (or (and (:initial d) (map? (:states d)) (seq (:states d)))
-           (and (= :parallel (:type d)) (map? (:regions d)) (seq (:regions d))))))
+;; The machine-definition SHAPE gate is the canonical Machines-Viz grammar
+;; predicate (rf2-3fc89f.18) — `grammar/valid-definition?`, the SAME gate the
+;; AI-generate / Mermaid / SCXML emitters + the chart projector share
+;; (rf2-egupfk unified them). The share boundary previously kept a PRIVATE,
+;; WEAKER copy that accepted any truthy flat `:initial` (even a string) and
+;; every non-empty parallel `:regions` map without validating region bodies,
+;; so a forged-but-valid-Transit share URL decoded `:ok` and was handed to
+;; `MachineChart` even though the definition is rejected everywhere else. The
+;; boundary now desugars (`grammar/desugar-grammar`, the SAME lowering the
+;; projectors apply — EP-0029 A4/A5) and routes the definition slot through
+;; `grammar/valid-definition?` in `valid-core-chart-state?` below, so decode
+;; FAILS CLOSED on a malformed definition. Only the definition SHAPE gate is
+;; shared with grammar; the closed-map / snapshot / privacy-sanitisation /
+;; value-free diagnostics stay LOCAL to share. `grammar` is the machines-viz-
+;; local, engine-INDEPENDENT validator (it :requires only clojure.string), so
+;; requiring it here does NOT pull the runtime machines artefact into this
+;; bundle-isolated tool.
 
 (defn- valid-state-path?
   "A compound `:state` arm: a non-empty vector of keywords naming the
@@ -348,6 +358,17 @@
   (and (map? s)
        (= #{:state} (set (keys s)))
        (valid-state-configuration? (:state s))))
+
+(defn- valid-definition?
+  "True when `d` is a projectable machine definition. Holds NO shape logic of
+  its own: it desugars `d` (`grammar/desugar-grammar` — the SAME EP-0029 A4/A5
+  lowering the projectors apply) and delegates the shape check to the canonical
+  `grammar/valid-definition?` gate — see the rationale comment above. Desugars
+  only to CHECK; the stored payload keeps the AUTHORED form
+  (`allowlist-chart-state` never desugars), so an authored `:timeout` /
+  `:choice` definition round-trips byte-identically."
+  [d]
+  (grammar/valid-definition? (grammar/desugar-grammar d)))
 
 (defn- valid-core-chart-state?
   "Validate the load-bearing ChartState slots (`:machine-id`,
