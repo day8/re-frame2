@@ -1,6 +1,5 @@
 (ns re-frame.schemas-conformance-test
-  "Per rf2-2l08g (audit rf2-x8x4p §TE5). Drives every
-  `spec/conformance/fixtures/schema-*.edn` fixture (plus
+  "Drives every `spec/conformance/fixtures/schema-*.edn` fixture (plus
   `error-schema-failure.edn`) through the live runtime — `reg-app-schema`,
   `validate-app-schema!`, the `:schemas/validate-event!` /
   `:schemas/validate-sub!` late-bind hooks, the EP-0017 recordable-cofx
@@ -9,24 +8,8 @@
   the conformance-corpus's recorded outcome against what the artefact
   actually produces.
 
-  This is the schemas artefact's own conformance gate. Pre-rf2-2l08g
-  the schema fixtures rode the CORE artefact's
-  `re-frame.conformance-test` only (rf2-d0wem patterned for machines,
-  rf2-i3qc0 for ssr; analogous gap for schemas). Two drawbacks:
-
-    1. The gate ran at the wrong artefact. A schemas-touching PR
-       could break a schema fixture and only surface at core's gate —
-       at which point the failure has to be triaged across two
-       artefacts. Now it surfaces here, alongside the elision-toggle
-       and validator-table tests in the same gate.
-    2. The schemas artefact's per-artefact test suite did NOT
-       exercise the corpus that defines its public contract. The
-       unit tests in `schemas_test` cover the elision toggle and the
-       projector mapping; the corpus covers the dispatch-time
-       behaviour (event-payload rejection skips the handler, cofx
-       rejection skips the handler, sub-return rejection replaces
-       with default, app-db slice violation emits with :where :app-db).
-       Both surfaces need running for every schemas-touching change.
+  This is the schemas artefact's conformance gate. It keeps fixture failures
+  local to the artefact while unit tests cover elision and validator details.
 
   ## What this runner does
 
@@ -42,9 +25,8 @@
        (a re-use of core's pre-existing helpers; the interpreter is
        in `core/src` so the schemas artefact has it on the classpath
        without pulling core's test tree).
-    3. Wires `:fixture/registry :app-schemas` into `reg-app-schema`
-       (rf2-cq1ak — the fixture key is plural; app-db schemas are NOT
-       a registrar kind).
+    3. Wires `:fixture/registry :app-schemas` into `reg-app-schema`;
+       app-db schemas are not registrar entries.
     4. Registers the default frame with the fixture's
        `:fixture/frame-config` (e.g. `:initial-events [[:init]]`).
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`.
@@ -77,8 +59,7 @@
   fixtures (e.g. those that combine schemas with routing or SSR) and
   the FSM / ssr / routing / flows fixtures live at their respective
   artefact gates (or at core's full-corpus gate). Running them here
-  would be redundant and slow the gate; missing them would re-create
-  the gap rf2-2l08g closes."
+  would be redundant and slow the gate."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -87,13 +68,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
-            ;; Per rf2-v96fh (schema implies validation) requiring
-            ;; `re-frame.schemas` above already loads `re-frame.schemas.malli`
-            ;; for its ns-load side effect (publishes the validate/explain
-            ;; late-bind hooks), so the default validator is LIVE — the
-            ;; conformance corpus's Malli-backed outcomes hold without this
-            ;; explicit require. The require is kept as a harmless, explicit
-            ;; statement of the Malli dependency (rf2-a5kzs finding 4).
+            ;; Explicit test dependency; the facade also loads this adapter.
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.subs :as subs]

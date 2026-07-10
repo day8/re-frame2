@@ -1,9 +1,5 @@
 (ns re-frame.schemas-concurrency-stress-test
-  "Per rf2-utdxg — JVM concurrency stress coverage for the schemas
-  artefact's parallel-region invariants. Mirrors the rf2-1gpx8
-  (`machine_actor_concurrency_stress_test.clj`) and rf2-35rgj
-  (`concurrency_stress_test.clj`) shape but targets the schemas
-  artefact's three contention surfaces:
+  "JVM stress coverage for three schemas contention surfaces:
 
     1. **Hot-reload race** — N threads concurrently `reg-app-schemas`
        against a shared frame's per-frame side-table
@@ -34,8 +30,8 @@
        and every captured snapshot MUST be re-digestible without error
        (no torn-read fragment that breaks the serialisation pass).
 
-    3. **Sensitive-path resolution under contention** (rf2-ay2kp's
-       deep walker) — `extract-sensitive-paths-from-schema` walks a
+    3. **Sensitive-path resolution under contention** —
+       `extract-sensitive-paths-from-schema` walks a
        Malli EDN schema vector, threading an accumulator map through
        a recursive descent. The walker is pure — same input ALWAYS
        produces the same output — so under N concurrent calls against
@@ -45,7 +41,7 @@
        silently corrupt between threads; pure recursion with local
        accumulators does not).
 
-  Invariants asserted (mirrors the rf2-q4twq audit shape):
+  Invariants asserted:
 
     1. **No event dropped.** Every `reg-app-schemas` call from every
        thread lands in the final per-frame side-table — total entry
@@ -73,12 +69,11 @@
        `walk-cross-check` that re-runs the walker once on the main
        thread post-stress and asserts every parallel result equals it.
 
-  Threads start in lockstep via `CountDownLatch.countDown` — same
-  shape as rf2-35rgj scenario 2 / rf2-1gpx8 — so contention on the
+  Threads start in lockstep via `CountDownLatch.countDown` so contention on the
   shared `schemas-by-frame` atom is maximised.
 
-  Per-thread iters default to 5000 (rf2-ynk7 / rf2-35rgj / rf2-1gpx8
-  standard); env-overridable via `RF2_UTDXG_STRESS_ITERS`. Default
+  Per-thread iterations default to 5000 and are overridable via
+  `RF2_UTDXG_STRESS_ITERS`. Default
   thread count is 8 (matches the sibling concurrency stress files).
 
   CLJS is single-threaded; the JVM is the only runtime where the
@@ -88,14 +83,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.digest :as digest]
             [re-frame.schemas.storage :as storage]
-            ;; Per rf2-t0hq the default validator routes through the
-            ;; late-bind hook `:schemas/malli-validate`, which the
-            ;; `re-frame.schemas.malli` adapter ns publishes at load
-            ;; time. The reset-runtime fixture restores the default
-            ;; validator between tests, but loading the adapter once
-            ;; here ensures the digest's `run-printer` path resolves
-            ;; the canonical Malli-EDN serialiser rather than the
-            ;; soft-pass fallback.
+            ;; Explicit test dependency; the facade also loads this adapter.
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf])
   (:import [java.util.concurrent CountDownLatch]

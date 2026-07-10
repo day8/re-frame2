@@ -15,10 +15,8 @@
        §Default projector, the runtime ships a default projector mapping
        internal trace events to the locked four-key public-error shape
        (`:status :code :message :retryable?`). The schema-validation
-       failure category maps to a 400 :bad-request. The default-projector
-       fn proper isn't yet wired into the registrar (tracked as rf2-6528);
-       we test the *mapping contract* here as a pure fn so the contract
-       is locked even before the registry-side wiring lands.
+       failure category maps to a 400 :bad-request. These tests pin the pure
+       mapping contract independently of trace emission.
 
   These tests exercise schemas on the JVM via the plain-atom adapter —
   the conformance fixtures cover the dispatch-time integration; this
@@ -31,31 +29,13 @@
             [re-frame.late-bind]
             [re-frame.interop :as interop]
             [re-frame.schemas :as schemas]
-            ;; rf2-pk8ur public-surface printer tests need run-printer
-            ;; to assert the hot path observes the registered fn.
-            ;;
-            ;; rf2-btdpqn — the raw validator/explainer/printer atoms and the
-            ;; per-frame `schemas-by-frame` registry are no longer re-exported
-            ;; from the `re-frame.schemas` facade (rf2-l5r974 encapsulated-only
-            ;; posture). These are the schemas artefact's OWN white-box tests,
-            ;; which are EXEMPT from the public-facade ban: they reach the
-            ;; authoritative atoms through their HOME namespaces
-            ;; (`validator/validator-fn`, `storage/schemas-by-frame`) to assert
-            ;; the encapsulated setters/snapshot fns actually mutate the
-            ;; underlying state. That is legitimate internal testing, not
-            ;; public-facade use.
+            ;; White-box tests reach raw state through its owning namespace;
+            ;; callers outside this artefact use the encapsulated facade.
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.storage :as storage]
-            ;; Per rf2-t0hq the default validator routes through the
-            ;; late-bind hook `:schemas/malli-validate`, which the
-            ;; `re-frame.schemas.malli` adapter ns publishes at load
-            ;; time. Per rf2-qyfie the JVM `requiring-resolve`
-            ;; fallback was removed — the require is now the canonical
-            ;; opt-in on both runtimes; without it the default
-            ;; validator soft-passes (Spec 010 §Recommended soft-pass).
+            ;; Explicit test dependency; the facade also loads this adapter.
             [re-frame.schemas.malli]
-            ;; rf2-rbbmt dedup D3 — single-source the empty-set digest
-            ;; literal from the parity fixtures rather than re-pinning it.
+            ;; Reuse the shared empty-set digest fixture.
             [re-frame.schemas.digest-parity-fixtures :as digest-fixtures]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.registrar :as registrar]

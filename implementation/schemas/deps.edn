@@ -1,7 +1,4 @@
-;; day8/re-frame2-schemas — schema-attachment artefact (rf2-p7va,
-;; first per-feature split per rf2-5vjj Strategy B).
-;;
-;; Per Spec 010 §Schemas the schema-attachment surface
+;; Per Spec 010 §Schemas, the schema-attachment surface
 ;; (`reg-app-schema`, `app-schema-at`, `app-schemas`, the
 ;; validation hot-path entry points) ships as a separate Maven
 ;; artefact so apps that don't use schemas don't drag Malli (and
@@ -12,26 +9,21 @@
 ;;   {:deps {day8/re-frame2         {:mvn/version "..."}
 ;;           day8/re-frame2-schemas {:mvn/version "..."}}}
 ;;
-;; Schema implies validation (rf2-v96fh): requiring `re-frame.schemas`
+;; Requiring `re-frame.schemas`
 ;; itself `:require`s `re-frame.schemas.malli`, which publishes Malli's
 ;; validate / explain / humanize into the late-bind hook table at
-;; ns-load (rf2-t0hq). The default validator is therefore LIVE the moment
-;; a schema is registered — there is NO inert "registered a schema but it
-;; silently validates nothing" soft-pass state. An explicit
-;; `(:require [re-frame.schemas.malli])` at app-boot is harmless but no
-;; longer required. Same pattern on CLJS and the JVM — rf2-qyfie removed
-;; the JVM `requiring-resolve` fallback so the contract is symmetrical.
+;; namespace load. The default validator is therefore active when a schema
+;; is registered on both CLJS and the JVM.
 ;;
 ;; Apps that want schemas-as-inert-data without the Malli validation
 ;; surface call `(set-schema-validator! nil)` at boot, which disables every
 ;; validation site (Spec 010 §Worked example). The residual soft-pass arm
 ;; in `re-frame.schemas.validator` is the defensive fallback for a non-Malli
 ;; port that never bound the Malli hook (and for test harnesses that
-;; deliberately unbind it) — NOT the default state after a plain
+;; deliberately unbind it), not the default state after a plain
 ;; `(:require [re-frame.schemas])`.
 ;;
-;; Per Spec 006 §Adapter shipping convention (and the
-;; rf2-p7va extension to per-feature splits): this artefact depends
+;; Per Spec 006 §Adapter shipping convention, this artefact depends
 ;; on core; core never depends on this artefact. The cross-reference
 ;; from core to schemas (e.g. `re-frame.test-support`'s reset
 ;; fixture, `re-frame.core`'s `reg-app-schema` re-export) is wired
@@ -46,18 +38,16 @@
          ;; The schemas JVM test's reset-runtime fixture touches
          ;; `re-frame.flows/flows` (the reset matrix is defensive;
          ;; flows might not be on the classpath in production but is
-         ;; during development). Pull flows in as a test-only dep so
-         ;; the fixture loads cleanly. Per rf2-tfw3 — flows ships in
-         ;; `day8/re-frame2-flows`. Mirrors the pattern in
-         ;; core/deps.edn and routing/deps.edn.
+         ;; during development). Pull flows in as a test-only dependency so
+         ;; the fixture loads cleanly.
          :extra-deps  {day8/re-frame2-flows      {:local/root "../flows"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deployment.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

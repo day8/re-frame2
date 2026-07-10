@@ -1,146 +1,26 @@
 (ns re-frame.schemas.walker
-  "Per-slot flag walker for Malli EDN schemas (rf2-nwv63 / rf2-kj51z / rf2-oghml).
+  "Pure-data extractor for per-slot flags in Malli EDN schemas.
 
-  Per Spec 009 §Size elision in traces and Spec 010 §`:sensitive?`, the
-  schema-driven nomination path: any Malli slot carrying a per-slot flag
-  (`:large? true` or `:sensitive? true`) in its per-slot properties
-  (per Spec-Schemas §`:rf/app-schema-meta` — the per-slot metadata
-  vocabulary) is walked to a `{path declaration}` map with `:source
-  :schema`. Flags compose orthogonally — a slot may carry either or both,
-  and the consumer resolves the conflict at use time.
+  `:large?` and `:sensitive?` slot props are projected to
+  `{path declaration}` maps with `:source :schema`. Owner-local consumers use
+  these declarations for validation-failure and transient egress projection.
+  Schemas do not populate durable app-db classification; commit-plane effects
+  own that policy.
 
-  This file owns the **walker** that maps a registered schema's EDN form
-  to a `{path declaration}` map. It is a **pure-data extractor**; the
-  walker itself performs no runtime-db write.
+  The walker does not depend on Malli and does not ask the registered
+  validator to interpret a schema. It recognizes vector forms shaped as
+  `[op props? children...]`. Compiled schema values and registry references
+  are opaque, so their internal flags cannot be extracted. Registration warns
+  once for compiled or nested opaque values. Keyword registry references stay
+  silent because the framework cannot distinguish them from primitive keyword
+  schemas without violating the opaque-schema boundary.
 
-  ## EP-0015 §8 (rf2-d2r3um) — schema props do NOT feed app-db egress
-
-  These extractors NO LONGER populate the frame's app-db egress registry
-  under `[:rf.runtime/elision :declarations]` /
-  `[:rf.runtime/elision :sensitive-declarations]`. App-db egress
-  classification is declared by the **EP-0025 commit-plane classification
-  effects** — a `reg-event` returns `:sensitive` / `:large` alongside `:db`,
-  written `:source :effect` (Spec 015 §Data classification). The former
-  durable `:sensitive` / `:large {:app-db …}` *frame annotation* and the
-  public `add-marks` / `set-marks` app-db path-mark API are both REMOVED
-  (Spec 015 §3 / Privacy.md §Removed surfaces). Schemas describe **shape**,
-  not durable app-db egress policy, and the old
-  `re-frame.elision/populate-{,sensitive-}from-schemas!` bridge + its
-  `:elision/populate-from-schemas!` late-bind seam are REMOVED (see
-  `re-frame.schemas` §schema-walker hooks; Spec-Schemas §`:rf/runtime-db`
-  `:rf.runtime/elision`).
-
-  The extractors survive for their **owner-local** schema-prop consumers,
-  which read the `{path declaration}` map directly (NOT via the elision
-  runtime-db registry):
-
-    - the resource `:data-schema` classification
-      (`re-frame.resources.classification`, EP-0015 §6);
-    - the HTTP body-privacy projector
-      (`re-frame.http.privacy-body`);
-    - story-mcp's tool-egress projector;
-    - the schema-validation-FAILURE-trace redactor
-      (`re-frame.schemas.validate`, via `schema-sensitive-at?` /
-      `schema-has-sensitive?` / `schema-opaque?` / `sanitize-sensitive-path`)
-      — `:sensitive?` redacts the failing value before the
-      `:rf.error/schema-validation-failure` trace ships.
-
-  EP-0025 (rf2-398kql) — the machine `:data-schema`→marks redaction bridge
-  (EP-0005) is GONE. A machine's `:sensitive?` / `:large?` `:data`-slot props
-  no longer classify the machine's durable `:data` for trace / SSR egress;
-  durable machine `:data` classification rides the commit-plane classification
-  effects like every other app-db path (a `reg-event` returns `:sensitive` /
-  `:large` alongside `:db`, EP-0025, the sole durable app-db mechanism). The
-  `:data-schema` still VALIDATES, and its props
-  still drive the machine-data validation-FAILURE-trace redactor via the
-  `:where :machine-data` validation path — only the schema→MARKS classification
-  bridge is reversed.
-
-  The surviving consumers call the per-flag late-bind hooks
-  (`:schemas/extract-large-paths-from-schema` /
-  `:schemas/extract-sensitive-paths-from-schema`) registered by the outer
-  façade and apply the result within their own owner-local scope.
-
-  The walker is **pure data** — it doesn't import malli.core. Malli EDN
-  forms are vectors of the shape `[op props? children...]`; we pattern-
-  match on shape. Per Spec 010 §The `:schema` value is opaque to re-frame,
-  the framework MUST NOT call into the registered validator to introspect
-  schema structure — we walk the EDN ourselves. This means the walker
-  handles the **vector form** (`[:map [:k :string]]`) — the form
-  `(rf/reg-app-schema ...)` users write. Non-vector Malli forms (schema
-  objects, registry refs) are treated as opaque leaves; their internal
-  per-slot declarations are invisible to the walker (the same caveat
-  applies to Malli's own schema-walking when introspection goes through
-  `m/schema` ↔ raw EDN — round-tripping a registry ref loses the slot
-  metadata).
-
-  ## Discoverability caveat — non-vector forms (rf2-yaioz / rf2-mxs7a)
-
-  A user that registers a schema via a compiled `m/schema` value or a
-  registry reference and adds per-slot `:sensitive?` / `:large?` flags
-  inside that opaque value will see the walker **silently skip** them —
-  the validation-failure trace will not redact the sensitive slot. The
-  two opaque shapes differ in diagnostics:
-
-    - **Compiled / non-keyword opaque values** (a compiled `m/schema`
-      object, a map, any non-vector non-keyword form) **warn once per
-      process at registration time.** `reg-app-schema` /
-      `reg-app-schemas` emit `:rf.warning/schema-walker-opaque` (the
-      one-shot warn-once nudge owned by `re-frame.schemas.storage`,
-      pinned by `schemas_walker_opaque_warning_test`) naming the two
-      workable shapes below.
-
-    - **Keyword registry refs** (`:my/user-schema`) stay **silent by
-      design.** A bare keyword is a valid Malli schema in two flavours
-      — a primitive (`:int` / `:string`) and a registry ref — and the
-      predicate cannot cheaply tell them apart without a registry
-      consult, which Spec 010 §The `:schema` value is opaque to
-      re-frame forbids. A primitive keyword provably carries no
-      per-slot flags, so warning on every keyword would be a frequent
-      false positive to catch a rare registry-ref true positive
-      (rf2-ee38b.6); the keyword case is suppressed entirely.
-
-  The workable shape when per-slot flags need to apply:
-
-    1. **Register the vector form, not the compiled one.** Pass the
-       raw EDN `[op props? children...]` to `reg-app-schema` — the
-       walker can introspect the per-slot `:sensitive?` / `:large?`
-       flags directly.
-
-  > **No registration-meta fallback.** Earlier drafts named a
-  > handler/cofx/sub registration-level `:sensitive?` annotation as a
-  > coarse fallback for opaque schemas. That annotation has been REMOVED
-  > (per Spec 010 §`:sensitive?` and Spec 009 §`:sensitive?` registration
-  > metadata key, rf2-k0ew8n): sensitivity is path-targeted — a property
-  > of the data value at a path, not of the handler that touched it — and
-  > the validation redaction now consults ONLY the per-slot schema
-  > declaration. Registering an opaque value and adding handler-meta
-  > `:sensitive?` does NOT redact; the supported route is registering the
-  > vector form (or, for durable app-db egress, the EP-0025 commit-plane
-  > `:sensitive` / `:large` classification effects — a `reg-event` returns
-  > them alongside `:db`).
-
-  Example — vector form vs registry ref:
-
-    ;; Vector form — walker sees :sensitive? per-slot.
-    (rf/reg-app-schema [:user]
-      [:map
-       [:id    :int]
-       [:token {:sensitive? true} :string]])
-
-    ;; Registry ref — walker treats the schema as an opaque leaf;
-    ;; the per-slot :sensitive? inside `:my/user-schema` is invisible.
-    ;; The supported route is registering the vector form so the walker
-    ;; can introspect it (handler-meta :sensitive? is NOT a fallback).
-    (rf/reg-app-schema [:user] :my/user-schema)
-
-  The walker is parameterised on the per-slot flag key (`:large?` /
-  `:sensitive?`); both flags share identical structural recognition
-  (`:map` name-bearing, `:multi`/`:orn`/`:catn`/`:altn` dispatch-bearing,
-  positional combinators descend at the same base-path) so a single
-  traversal serves every per-slot annotation under
-  `:rf/app-schema-meta`. Future per-slot annotations (Spec-Schemas
-  reserves additional slots) compose as one-line registrations."
+  Register vector-form EDN when per-slot flags must be visible. Compiled and
+  nested opaque schemas fail closed in validation redaction; keyword registry
+  references remain flag-invisible and therefore require the vector form for
+  precise privacy declarations.
+  The traversal is parameterized by flag key so both supported flags share the
+  same operator and path semantics."
   (:require [re-frame.schemas.cache :as cache]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -155,7 +35,7 @@
   element of a child entry is a dispatch value, not an app-db path
   segment).
 
-  `:catn` is NOT here (rf2-4q681i): although its children carry NAME
+  `:catn` is not here: although its children carry name
   slots like `:orn`/`:altn`, Malli reports a `:catn` failure's `:in`
   segment as the element's INTEGER POSITION (`[1 :age]`), not the name —
   identical to `:cat`. So `:catn` is position-bearing (see
@@ -171,8 +51,8 @@
   per-element sibling precision: a per-position flag claims that exact
   index, not the shared base-path.
 
-    - `:tuple` (rf2-ss06u.4) — element `i` is `children[i]`, a bare schema.
-    - `:cat` / `:catn` (rf2-4q681i) — the regex sequence combinators that
+    - `:tuple` — element `i` is `children[i]`, a bare schema.
+    - `:cat` / `:catn` — regex sequence combinators that
       root event schemas (`[:cat [:= :id] PayloadSchema]`). `:cat`
       elements are bare schemas (`children[i]`); `:catn` elements are
       NAME-bearing entries (`[name props? schema]`) but Malli still
@@ -213,8 +93,8 @@
   and omitted when absent so the marker shape stays minimal. The
   `:source :schema` slot records schema provenance for the owner-local
   consumer (machine / resource `:data-schema`, HTTP body-privacy,
-  story-mcp) that reads the extracted map — NOT the (removed, EP-0015 §8)
-  app-db egress registry."
+  story-mcp) that reads the extracted map, not the durable app-db
+  classification registry."
   [flag-key props]
   (when (true? (get props flag-key))
     (cond-> {flag-key true
@@ -242,8 +122,7 @@
       slot props claims the parent path (the op's `base-path`), not a
       child path; dispatch values aren't path segments.
 
-    - `:tuple` / `:cat` / `:catn` children are POSITION-bearing
-      (`:tuple` rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i) — each element
+    - `:tuple` / `:cat` / `:catn` children are position-bearing: each element
       has its OWN heterogeneous schema, so element `i` descends at
       `(conj base-path i)`, the integer index being the discriminating
       segment (the positional analogue of a `:map` key). A `:sensitive?`
@@ -391,20 +270,13 @@
   Returned declarations carry `:source :schema` per Spec 009 so the
   owner-local consumer (machine / resource `:data-schema`, HTTP
   body-privacy, story-mcp) that reads this map can report schema
-  provenance for its wire-boundary elision. EP-0015 §8: this map does
-  NOT feed the app-db egress registry under `[:rf.runtime/elision
-  :declarations]` — app-db egress is frame-owned."
+  provenance for its wire-boundary elision. This map does not feed durable
+  app-db classification."
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
-;; `extract-sensitive-paths-from-schema` is the clearable-memo wrapper
-;; over the `:sensitive?` walk (rf2-17sqc shape; the factory lives in
-;; `re-frame.schemas.cache`, consolidated rf2-mse54). The cache is
-;; *clearable* (`clojure.core/memoize` exposes no clear hook) so a test
-;; that registers many distinct fresh schemas (the concurrency-stress
-;; harness) can reset the process-lifetime cache in fixture teardown.
-;; Behaviour for callers is byte-identical to the prior `memoize` form.
-;; See `re-frame.schemas.cache` for the boot-once invariant.
+;; The sensitive-path walk is memoized for boot-time schema reuse and
+;; clearable by fixtures that generate many distinct schemas.
 (let [[memo clear!]
       (cache/clearable-memo
         (fn [schema base-path]
@@ -423,22 +295,22 @@
             `redact-validation-tags`) to decide whether the failing slot's
             value MUST be redacted before the trace event ships.
 
-            Memoised by `(schema, base-path)` (rf2-y29nf): the failure-
-            branch call site (`schema-sensitive-at?`) re-walks the same
+            Memoised by `(schema, base-path)`: the failure branch
+            (`schema-sensitive-at?`) re-walks the same
             registered schema on every consecutive failure, and the walk
             is pure over immutable schema values. The cache is bounded by
             the (registered-schema, base-path) cardinality — schemas are
             registered once at app-boot, so steady-state cache size equals
             the registry size.
 
-            The memo is **clearable** for test isolation via
-            `clear-sensitive-paths-cache!` (rf2-17sqc)."
+            The memo is clearable for test isolation via
+            `clear-sensitive-paths-cache!`."
       :arglists '([schema base-path])}
     extract-sensitive-paths-from-schema memo)
 
   (def
-    ^{:doc "Reset the `extract-sensitive-paths-from-schema` memo cache
-            (rf2-17sqc). Test-support hook: the walker memo is process-
+    ^{:doc "Reset the `extract-sensitive-paths-from-schema` memo cache.
+            The walker memo is process-
             lifetime and bounded by the (registered-schema, base-path)
             cardinality in real apps (schemas register once at boot), so
             production never needs this — but a test that registers many
@@ -455,11 +327,9 @@
   schema. Per Spec 010 §`:sensitive?` — privacy in schema-validation
   error traces.
 
-  The schema-validation emit-sites ship the WHOLE registered slot's
-  value (not just a failing leaf) in the trace's `:value` / `:received`
-  / `:explain` slots; a sensitive child slot still leaks if the value
-  rides verbatim. Conservative redaction — when any slot in the schema
-  is sensitive, the whole trace's value-bearing slots are redacted.
+  Whole-payload trace slots can contain a conforming sensitive sibling, so
+  their redaction uses this schema-wide predicate. The app-db leaf value uses
+  the narrower `schema-sensitive-at?` decision.
 
   Returns boolean. Pure; same input always produces the same output."
   [schema]
@@ -471,14 +341,11 @@
   "True when the registered schema declares ANY slot `:large? true` —
   either the schema's container-level props, or a nested slot anywhere
   inside the schema. Per Spec 010 §`:large?` — schema-driven
-  size-elision nomination, the validation-failure size-safety arm
-  (rf2-vmhu4i).
+  size-elision nomination and validation-failure size-safety arm.
 
-  The mirror of `schema-has-sensitive?` on the OTHER per-slot flag. The
-  schema-validation emit-sites ship the WHOLE registered slot's value
-  verbatim in the value-bearing trace slots; a `:large?`-flagged slot
-  inside that value would ride the whole blob into a validation-failure
-  trace (an egress surface) unless the emit-site elides it. When this
+  The mirror of `schema-has-sensitive?` for size classification. Validation
+  traces include whole-payload slots, so a nested large value could make the
+  failure payload itself large. When this
   returns true the emit-site substitutes the `:rf.size/large-elided`
   size marker for the value-bearing slots — UNLESS the slot is ALSO
   sensitive, in which case sensitive wins (Spec 010 §Composition with
@@ -498,25 +365,21 @@
   §The `:schema` value is opaque to re-frame the walker MUST NOT call
   into the registered validator to introspect structure, so it walks the
   vector-form Malli EDN itself; a compiled `m/schema` value is an opaque
-  leaf and its internal per-slot `:sensitive?` / `:large?` flags are
-  invisible to the walk (rf2-u9bjgr).
+  leaf and its internal per-slot flags are invisible to the walk.
 
   A bare KEYWORD (`:int` / `:string` / a registry ref) is NOT opaque
   here: a primitive keyword provably carries no per-slot props, so the
   walker provably skips nothing — treating every keyword failure as
   fail-closed-sensitive would over-redact every plain scalar failure for
-  the rare registry-ref true positive (the same rf2-ee38b.6 false-positive
-  tradeoff the `:rf.warning/schema-walker-opaque` nudge already makes by
-  staying silent on keywords). Only genuinely opaque compiled values
+  the rare registry-ref true positive. Only genuinely opaque compiled values
   (which Malli DOES honour `:sensitive?` on for validation, but the
   walker cannot see) fail closed.
 
   Used by the validation-failure redaction path: an opaque schema's
   validation failure redacts FAIL-CLOSED (the walker cannot prove the
   value is non-sensitive, and an opaque compiled schema may carry a
-  `{:sensitive? true}` slot Malli honoured for the failure), per EP-0015's
-  central projection / fail-closed expectation for schema-validation
-  egress. The supported route to make per-slot flags VISIBLE (and avoid
+  `{:sensitive? true}` slot Malli honoured for the failure). The supported
+  route to make per-slot flags visible (and avoid
   the coarse whole-value fail-closed redaction) is registering the vector
   form, per the `:rf.warning/schema-walker-opaque` nudge.
 
@@ -542,78 +405,17 @@
     :else true))
 
 (defn schema-has-opaque-child?
-  "True when `schema` is itself opaque (`schema-opaque?`) OR contains, at
-  any depth BENEATH the root, a nested opaque child — a compiled
-  `m/schema` value, map, or other form the pure-data walker cannot
-  introspect for per-slot props — reachable by descending through
-  vector-form Malli EDN structure.
+  "True when the root is opaque or a vector-form schema contains an opaque
+  descendant at any depth. Redaction and registration warnings use this
+  recursive predicate so a compiled child cannot hide inside a walkable root.
 
-  Per rf2-hi0tf8: `schema-opaque?` alone classifies only the ROOT form.
-  A schema whose root IS introspectable vector-form EDN can still embed
-  an opaque child at a deeper slot — e.g. `[:map [:token (m/schema
-  [:string {:sensitive? true}])]]` — and the per-slot `:sensitive?` /
-  `:large?` flags Malli honours inside that nested compiled value are
-  exactly as invisible to `walk-flagged-schema` as a top-level opaque
-  schema's flags are (the walk's terminal `:else acc` bailout silently
-  skips it, contributing NO declaration). Every fail-closed
-  redaction / warning gate that used to OR in `schema-opaque?` to catch a
-  top-level opaque schema must use this recursive predicate instead, or
-  the nested case leaks fail-OPEN while the equivalent top-level shape
-  redacts.
+  Root functions and symbols are opaque and fail closed. The same values used
+  as nested schema tails are considered flag-free because their enclosing
+  entry is the only place slot props can occur, and the walker inspects that
+  entry before its tail. Treating ordinary predicate tails as opaque would
+  conservatively redact every schema that uses Malli's predicate shorthand.
 
-  BARE FUNCTIONS (`pos-int?`, `string?`, a `(fn [v] …)` literal, …) AND
-  BARE SYMBOLS (a `'pos-int?` reader form — Malli resolves a symbol
-  schema to the named fn/var, e.g. an EDN-sourced fixture that cannot
-  embed a live fn literal) are opaque to `schema-opaque?` and stay
-  opaque HERE too when they are the schema being checked directly — a
-  bare fn/symbol used AS THE WHOLE registered `:schema` (no wrapper at
-  all, e.g. `re-frame.flows`' `{:schema (fn [v] …)}`) has no sibling
-  `{props}` position anywhere in its registration shape, so there is
-  genuinely no way it could carry a `:sensitive?`/`:large?` flag except
-  by wrapping (`[:fn {:sensitive? true} pred]`, itself vector-form and
-  walkable) — `schema-opaque?`'s fail-closed root treatment is correct
-  and stays UNCHANGED here
-  (`flows_schema_validation_test/non-conforming-output-emits-violation-
-  but-still-writes` pins exactly this).
-
-  A bare fn/symbol reached as a NESTED TAIL, however — `[:map [:n
-  pos-int?]]`, the idiomatic Malli shorthand exercised throughout this
-  codebase's own conformance corpus and machine/resource schemas — IS
-  the deliberate divergence: it cannot itself carry a `{props}` map, but
-  unlike the root case it DOES have a sibling props position one level
-  up — the entry `[:n {:sensitive? true} pos-int?]` — which
-  `walk-flagged-schema` ALREADY captures before ever looking at the
-  tail (same provably-flag-free reasoning as the walker's keyword
-  exception, rf2-ee38b.6). Without this root/nested split, every
-  ordinary `pos-int?`/`string?`-style leaf anywhere in a schema would
-  fail closed and over-redact (confirmed against the
-  `:machine/data-schema-rollback` conformance fixture, whose EDN-sourced
-  `[:map [:n pos-int?]]` data-schema — `pos-int?` reads as a bare SYMBOL
-  via `clojure.edn/read-string`, Malli resolves it at validate-time —
-  must NOT redact `{:n 0}`); collapsing the two positions the OTHER way
-  (treating a nested fn/symbol as opaque too) would have been the
-  simpler implementation but breaks that corpus fixture, and collapsing
-  them by making the ROOT case non-opaque instead would break the flows
-  fixture above — the split is load-bearing, not incidental.
-
-  Descends via `children-of` — the same child-extraction `walk-flagged-
-  schema` uses for every op category. This works uniformly without
-  per-op branching because both the outer `[op props? children...]` form
-  and every child ENTRY shape it produces (`:map`/`:multi`/`:orn`/`:altn`
-  `[k props? tail]` pairs, `:catn` `[name props? schema]` triples,
-  `:tuple`/`:cat`/`:vector`/`:set`/… bare positional children) share the
-  identical position-0-discriminator / optional-position-1-props-map /
-  trailing-payload convention — `children-of` always peels off exactly
-  the props-carrying wrapper and hands back the descendable tail(s),
-  regardless of which op produced the entry. A pure existence check
-  doesn't need per-op path bookkeeping the way the flag walk does.
-
-  Not memoised (unlike `extract-sensitive-paths-from-schema`): every call
-  site is a validation-FAILURE emit path, not the per-dispatch hot path,
-  so re-walking on each failure is the same cost profile as the sibling
-  `schema-has-sensitive?` / `schema-has-large?` checks already pay there.
-
-  Returns boolean. Pure; same input always produces the same output."
+  Returns boolean. Pure."
   [schema]
   (or (schema-opaque? schema)
       (and (vector? schema) (pos? (count schema))
@@ -621,9 +423,8 @@
 
 (defn- prefix?
   "True when `prefix` is a prefix of `path` (or equal). Both are
-  indexed vectors compared element-wise. Single-pass: counts each
-  input once, no lazy-seq allocation (rf2-ikxb5 — call-site is the
-  hot `schema-sensitive-at?` `some` over `(keys decls)`)."
+  indexed vectors compared element-wise. Single-pass with no lazy-seq
+  allocation."
   [prefix path]
   (let [pn (count prefix)]
     (and (<= pn (count path))
@@ -643,12 +444,10 @@
 ;; app-db slot. Aligning the two coordinate systems means dropping the
 ;; collection-navigation segment that these ops contribute. `:map-of`
 ;; descends into its VALUE schema (child index 1); the homogeneous
-;; positional ops descend into their single element schema. Per rf2-g5auo
-;; — without this alignment a `:sensitive?` slot nested in a collection
-;; leaks verbatim.
+;; positional ops descend into their single element schema. Without this
+;; alignment a sensitive slot nested in a collection would not match.
 ;;
-;; `:tuple` / `:cat` / `:catn` are the membership outliers (`:tuple`
-;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i): they are kept in this set so
+;; `:tuple` / `:cat` / `:catn` are membership outliers: they are kept here so
 ;; `sanitize-sensitive-path` treats their integer index as a navigable
 ;; locator (KEEP, not scrub), but `align-in-path` handles them in their
 ;; OWN position-KEEPING branch ABOVE the generic index-drop branch — each
@@ -665,8 +464,7 @@
   indices / map-of keys) into the walker's index-free declaration-path
   coordinate system, walking `schema` in lockstep with `in-path`.
 
-  Per rf2-g5auo: the `:sensitive?` redaction lookup
-  (`schema-sensitive-at?`) compares `:in` against the walker's decl
+  `schema-sensitive-at?` compares `:in` against the walker's declaration
   paths via `prefix?`, but a collection index segment (`1` in
   `[1 :token]`, `\"a\"` in `[\"a\" :secret]`) blocks the element-wise
   match because the walker never emits index segments. Dropping each
