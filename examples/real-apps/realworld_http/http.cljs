@@ -176,7 +176,7 @@
                          :on-failure [:articles/load-failed]
                          :retry  rh/data-fetch-retry})]]}"
   [{:keys [method path body decode accept retry timeout-ms
-           on-success on-failure request-id abort-signal
+           on-success on-failure reply-to request-id abort-signal
            extra-headers]
     :or   {method :get
            decode :json}
@@ -194,6 +194,11 @@
                   accept       (assoc :accept accept)
                   request-id   (assoc :request-id request-id)
                   abort-signal (assoc :abort-signal abort-signal)
+                  ;; Reply addressing (Spec 014 §Reply addressing): `:reply-to`
+                  ;; is the unified spelling (one target for both branches),
+                  ;; `:on-success` / `:on-failure` the split sugar — pass
+                  ;; whichever the call site supplied straight through.
+                  (contains? args :reply-to)   (assoc :reply-to reply-to)
                   (contains? args :on-success) (assoc :on-success on-success)
                   (contains? args :on-failure) (assoc :on-failure on-failure))]
     out))

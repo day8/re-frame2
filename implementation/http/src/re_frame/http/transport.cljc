@@ -197,11 +197,12 @@
 (defn- warn-failure-swallowed!
   "rf2-rl5tt — surface a swallowed REAL failure once per runtime.
 
-  When a request fails and the caller passed an explicit `:on-failure
-  nil`, `build-reply-event` legitimately silences the reply (fire-and-
-  forget). But a NON-aborted failure (transport / 5xx / decode / accept /
-  timeout) routed into that silence is a real error the app never sees —
-  the anti-pattern the committed no-silent-swallow principle calls out.
+  When a request fails and its failure reply has no target — an explicit
+  `:on-failure nil`, or (post-rf2-et4c1s, the co-located default retired) a
+  failure branch left unaddressed — `build-reply-event` silences the reply
+  (fire-and-forget). But a NON-aborted failure (transport / 5xx / decode /
+  accept / timeout) routed into that silence is a real error the app never
+  sees — the anti-pattern the committed no-silent-swallow principle calls out.
   Emit a one-shot `:rf.warning/failure-swallowed` so the dropped failure
   is observable in dev / tooling.
 
@@ -218,23 +219,34 @@
                     :failure failure
                     :reason  (str "an HTTP request failed with `:kind "
                                   (pr-str (:kind failure))
-                                  "` but `:on-failure nil` silenced the "
-                                  "reply — the failure was dropped with no "
-                                  "handler. If the silence is intentional "
-                                  "(fire-and-forget telemetry), ignore this; "
-                                  "otherwise supply an `:on-failure` target.")}
+                                  "` but the failure reply had no target "
+                                  "(`:on-failure nil`, or the failure branch "
+                                  "was left unaddressed) — the failure was "
+                                  "dropped with no handler. If the silence is "
+                                  "intentional (fire-and-forget telemetry), "
+                                  "ignore this; otherwise supply an "
+                                  "`:on-failure` or `:reply-to` target.")}
                    (true? sensitive?)
                    {:frame frame}))))
 
 (defn- on-failure-silenced?
-  "True when the ctx carries an explicit `:on-failure nil` — the exact
-  condition under which `build-reply-event` silences a `:failure` reply
-  (`:supplied?` true with a `nil` `:value`). Mirrors the encoding-side
-  silence branch so the swallow-warning fires for precisely the replies
-  that get dropped."
+  "True when the ctx's failure reply has NO delivery target — `build-reply-
+  event` produces no event, so a NON-aborted failure routed here is dropped
+  with no handler. Two shapes silence a failure (rf2-et4c1s), mirroring
+  `build-reply-event`'s nil-producing branches so the swallow-warning fires
+  for precisely the replies that get dropped:
+
+   - explicit `:on-failure nil` (`:supplied?` true, `nil` `:value`) — the
+     documented fire-and-forget beacon; and
+   - an UNADDRESSED failure branch (`:supplied?` false) — the co-located
+     default was retired, so a request that addressed only its success
+     branch (`:on-success` / a success-only `:reply-to` is impossible — a
+     `:reply-to` seeds BOTH branches, so this is the `:on-success`-alone
+     case) has no failure target."
   [ctx]
   (let [explicit (:explicit-on-failure ctx)]
-    (and (:supplied? explicit) (nil? (:value explicit)))))
+    (or (not (:supplied? explicit))
+        (nil? (:value explicit)))))
 
 (defn- emit-reply-trace!
   "rf2-zqefg3.2 — emit a managed-async completion trace row built from the
