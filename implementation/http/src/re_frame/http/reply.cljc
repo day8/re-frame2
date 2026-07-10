@@ -30,10 +30,8 @@
       sanctioned second identity for process-global transport
       correlation; `transport-request-id` builds it.
 
-   2. **Canonical reply map** (`success-reply` / `failure-reply`; the
-      standalone `aborted-reply` mirrors the abort case for conformance
-      tests only and has no production caller — production lowers aborts
-      through `failure-reply`). The transport's success / failure / abort
+   2. **Canonical reply map** (`success-reply` / `failure-reply`). The
+      transport's success / failure / abort
       facts become a single `re-frame.reply`-conformant reply map with one
       closed `:status` (`:ok` / `:error` / `:cancelled`), `:value` on
       `:ok`, the classified `:rf.http/*` failure map riding verbatim
@@ -53,8 +51,7 @@
   `re-frame.reply/trace-summary` (which calls `re-frame.elision/
   elide-wire-value`) — never a family-private elider (Managed-Effects
   §Tracing)."
-  (:require [re-frame.privacy :as privacy]
-            [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -203,10 +200,8 @@
   the closed-set `:rf.http/*` failure map the transport classified.
 
   Status mapping (Managed-Effects §Status taxonomy):
-   - `:rf.http/aborted`  → `:status :cancelled` (this is the PRODUCTION abort
-     path — `dispatch-failure!` always lowers aborts through `failure-reply`;
-     the standalone `aborted-reply` builder produces the identical map but has
-     no production caller, existing only for conformance/lowering tests);
+   - `:rf.http/aborted`  → `:status :cancelled` (the PRODUCTION abort path —
+     `dispatch-failure!` always lowers aborts through `failure-reply`);
    - `:rf.http/timeout`  → `:status :error` + `:rf.reply/work-status :timed-out`
      (timeout is NOT a top-level status);
    - everything else     → `:status :error` + `:rf.reply/work-status :failed`.
@@ -226,22 +221,6 @@
              :status      :error
              :rf.reply/work-status (if (timed-out? failure) :timed-out :failed)
              :error       failure))))
-
-(defn aborted-reply
-  "Build the canonical `:status :cancelled` reply map for a cancelled HTTP
-  request (Managed-Effects §Cancellation). `failure` is the
-  `:rf.http/aborted` shape (`:kind` / `:reason` / `:request-id` /
-  `:actor-id`). Carries `:cancelled? true`, `:rf.reply/cancel-reason`, and the
-  abort failure under `:error` (Managed-Effects: `:error` MAY carry
-  compatibility failure data for `:status :cancelled`). `:rf.reply/work-status
-  :cancelled`."
-  [ctx failure]
-  (assoc (base-reply ctx)
-         :status        :cancelled
-         :rf.reply/work-status   :cancelled
-         :cancelled?    true
-         :rf.reply/cancel-reason (:reason failure)
-         :error         failure))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale suppression for HTTP supersession (Managed-Effects §Stale
@@ -378,12 +357,6 @@
 ;; elision/elide-wire-value` walker. Never a family-private elider.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private wire-slots
-  "Reply-map slots carrying user/wire data — redacted wholesale for a
-  per-call-sensitive request (Spec 014 §Privacy). Identity / correlation-
-  free facts ride verbatim. Mirrors `re-frame.reply`'s private slot set."
-  [:value :error :correlation :meta])
-
 (defn trace-reply
   "Build a DATA-ONLY trace summary of a canonical HTTP reply map for a
   managed-async trace row. The wire-bearing slots (`:value`, `:error`,
@@ -392,34 +365,25 @@
   `re-frame.reply/trace-summary`) — never a family-private elider
   (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
   `:rf.reply/work-kind`, `:rf.reply/work-status`, `:attempt`, `:rf.frame/id`,
-  `:completed-at`) ride verbatim.
+  `:completed-at`) ride verbatim. CORE owns the wire-bearing slot set — this
+  namespace no longer mirrors it.
 
   `opts`:
    - `:frame`      — the carried wire-egress frame (EP-0002); forwarded to
                      the elider so a known frame's policy applies and the
                      walker does not fail closed.
-   - `:sensitive?` — Spec 014 §Privacy per-call sensitivity. When true,
-                     EVERY wire slot is redacted to the framework sentinel
-                     BEFORE the shared walker runs (the coarse escape hatch
-                     for an ad-hoc sensitive request whose payload carries no
-                     schema marks), matching the existing `:rf.http/*`
-                     trace redaction posture. When false/absent the shared
-                     walker applies the frame's frame-declared
+   - `:sensitive?` — Spec 014 §Privacy per-call sensitivity. When true, the
+                     per-call policy is TRANSLATED into core's generic
+                     `:rf.privacy/force-redact-wire?` option, so CORE (the
+                     sole owner of the wire-bearing slot set) redacts EVERY
+                     wire slot to the framework sentinel before egress — the
+                     coarse escape hatch for an ad-hoc sensitive request whose
+                     payload carries no schema marks, matching the existing
+                     `:rf.http/*` trace redaction posture. When false/absent
+                     the shared walker applies the frame's frame-declared
                      `:sensitive?` / `:large?` app-db policy as usual."
   ([reply] (trace-reply reply nil))
   ([reply {:keys [sensitive?] :as opts}]
-   (let [;; Per-call sensitivity is the coarse escape hatch — redact every
-         ;; wire slot wholesale before the schema-policy walk (Spec 014
-         ;; §Privacy: a sensitive request redacts all payload slots).
-         reply (if sensitive?
-                 (reduce (fn [m slot]
-                           (if (contains? m slot)
-                             (assoc m slot privacy/redacted-sentinel)
-                             m))
-                         reply
-                         wire-slots)
-                 reply)]
-     ;; The shared walker still runs (the EP mandate): on a non-sensitive
-     ;; reply it applies the frame's frame-declared elision; on a
-     ;; pre-redacted one the sentinel passes through untouched.
-     (reply/trace-summary reply (dissoc opts :sensitive?)))))
+   (reply/trace-summary reply
+                        (cond-> (dissoc opts :sensitive?)
+                          sensitive? (assoc :rf.privacy/force-redact-wire? true)))))

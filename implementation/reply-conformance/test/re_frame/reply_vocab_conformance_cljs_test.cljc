@@ -242,7 +242,7 @@
     :work-head :rf.work/http
     :success   #(http-reply/success-reply http-ctx {:title "Welcome"})
     :error     #(http-reply/failure-reply http-ctx a-failure)
-    :cancel    #(http-reply/aborted-reply http-ctx an-abort)
+    :cancel    #(http-reply/failure-reply http-ctx an-abort)
     ;; HTTP supersession is the stale path (a same-:request-id supersede).
     ;; Pin the canonical stale shape via the REAL production helper
     ;; `re-frame.http.reply/suppress` (NOT the substrate directly with a
