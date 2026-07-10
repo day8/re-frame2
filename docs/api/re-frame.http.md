@@ -24,7 +24,8 @@ The verb helpers live in `re-frame.http`. The `:rf.http/managed` fx is keyword-a
   - `:accept` — accept fn.
   - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable subset `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Anything else raises `:rf.error/http-bad-retry-on` at dispatch.
   - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` opts out.
-  - `:on-success` / `:on-failure` — success / failure target events; event vector or nil. Any other value raises `:rf.error/http-bad-reply-target`.
+  - `:reply-to` — the unified reply target: one event vector for **both** the success and the failure reply (the app branches on `:status`). The same call-site key resources / mutations use.
+  - `:on-success` / `:on-failure` — the split routing sugar over `:reply-to`: success / failure target events; event vector or nil. Any other value raises `:rf.error/http-bad-reply-target`. Supplying **none** of `:reply-to` / `:on-success` / `:on-failure` raises `:rf.error/http-no-reply-target` at dispatch.
   - `:request-id` — for abort / supersede.
   - `:abort-signal` — optional (CLJS).
   - `:sensitive?` — see [Privacy and classification](#privacy-and-classification).
@@ -33,7 +34,7 @@ The verb helpers live in `re-frame.http`. The `:rf.http/managed` fx is keyword-a
 
 - **Kind**: fx
 - **Args**: request-id
-- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply is the canonical `{:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}` envelope. It is delivered per [Reply addressing](#reply-addressing): bare to an explicit `:on-failure`, or under `:rf/reply` for co-located addressing.
+- **Description**: Abort the in-flight request with the given `:request-id`. The aborted request's reply is the canonical `{:status :cancelled :cancel/reason :user :error {:kind :rf.http/aborted ...}}` envelope, appended to the request's reply target (`:reply-to` or `:on-failure`) per [Reply addressing](#reply-addressing).
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -79,12 +80,13 @@ Every reply is the one canonical reply envelope — a plain map keyed on a close
  :error  {:kind :rf.http/aborted …}}
 ```
 
-Where the payload lands depends on how the reply was addressed:
+Every request must address its reply; where the payload lands depends on how:
 
-- **Explicit `:on-success` / `:on-failure`** — pure routing sugar. Both receive the identical envelope appended as the last event-vector arg. A `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure).
-- **Default (co-located) addressing** — omit both targets. The same envelope is merged under `:rf/reply` into the originating message, and the result is re-dispatched as `[<originating-event-id> (assoc original-msg :rf/reply ...)]` back to the same handler. That handler reads the envelope at `:rf/reply` and branches on `(:status reply)`. The `:rf/reply` wrapper is the co-located form only; explicit targets get the bare envelope.
+- **Unified `:reply-to`** — one event vector for **both** the success and the failure reply, the canonical envelope appended as the last arg. A `:cart/load` handler sees `[:cart/load {:status :ok :value decoded-body …}]` (or the `:error` / `:cancelled` shape) and branches on `(:status reply)`. Ride request context along the prefix — `:reply-to [:cart/load ctx]` delivers `[:cart/load ctx <envelope>]`. The same call-site key resources / mutations use.
+- **Split `:on-success` / `:on-failure`** — pure routing sugar over `:reply-to`. Both receive the identical envelope appended as the last event-vector arg. A `:cart/loaded` handler sees `[:cart/loaded {:status :ok :value decoded-body …}]` and destructures it directly (`[_ {:keys [value]}]` for success, `[_ {:keys [error]}]` for failure).
 - **`:on-success nil` / `:on-failure nil`** — silences that side; no reply dispatch.
-- Any other non-vector value for either key raises `:rf.error/http-bad-reply-target`.
+- **Omitting all of `:reply-to` / `:on-success` / `:on-failure`** raises `:rf.error/http-no-reply-target` at dispatch — the co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha; the framework never silently addresses the reply.
+- Any other non-vector value for a reply-target key raises `:rf.error/http-bad-reply-target`.
 
 Both shapes are detailed in [Managed HTTP — Handling the reply](../async/http.md#handling-the-reply).
 
@@ -308,16 +310,17 @@ Test-support surface for driving the pipeline without the network: canned-reply 
 - **Description**: Synthesise the canonical success reply (`{:status :ok :value v}`) directly into `:fx`, for inline "stub THIS request" patterns.
   - `:value` defaults to `{:stubbed true}` when absent.
   - `:after-ms` (optional) — a positive value defers the reply via a `:dispatch-later` tick. Absent, `0`, or non-positive delivers immediately.
-  - Runs the frame's `:before` and `:after` interceptor chains around the synthesised reply, exactly like the real transport path. Reply addressing (`:on-success` / default co-located) applies as for `:rf.http/managed`.
+  - Runs the frame's `:before` and `:after` interceptor chains around the synthesised reply, exactly like the real transport path. Reply addressing (`:reply-to` / `:on-success`) applies as for `:rf.http/managed`; an unaddressed stub reply is silently dropped.
   - Registered at load of `re-frame.http.test-support`.
 - **Example**:
   ```clojure
   (rf/reg-event :counter/retry-recover
     (fn [_ _]
       {:fx [[:rf.http/managed-canned-success
-             {:request {:method :get :url "api/flaky"}
-              :decode  :json
-              :value   {:delta 5}}]]}))
+             {:request  {:method :get :url "api/flaky"}
+              :decode   :json
+              :value    {:delta 5}
+              :reply-to [:counter/retry-recover]}]]}))
   ```
 
 ### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
@@ -326,7 +329,7 @@ Test-support surface for driving the pipeline without the network: canned-reply 
 - **Description**: Synthesise the canonical failure reply directly into `:fx`.
   - `:kind` defaults to `:rf.http/transport`. `:tags` merge into the `:error` map.
   - An `:rf.http/aborted` kind yields `:status :cancelled`; every other kind yields `:status :error`.
-  - Supports the same optional `:after-ms` deferral, interceptor-chain behaviour, and reply addressing (`:on-failure` / default co-located) as `:rf.http/managed-canned-success`.
+  - Supports the same optional `:after-ms` deferral, interceptor-chain behaviour, and reply addressing (`:reply-to` / `:on-failure`) as `:rf.http/managed-canned-success`.
   - Registered at load of `re-frame.http.test-support`.
 - **Example**:
   ```clojure

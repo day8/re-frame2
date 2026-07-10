@@ -437,7 +437,7 @@ The verb helpers (`get` / `post` / `put` / `delete` / `patch` / `head` / `option
 
 ### Reply-payload shape
 
-Every reply lands as the **canonical uniform reply envelope** (rf2-ibksxg — one dialect, no `{:kind :success/:failure}` reshape): `{:status :ok :value v …}` on success, `{:status :error :error {:kind <:rf.http/*> …} …}` on failure, `{:status :cancelled :error {:kind :rf.http/aborted …} …}` on abort. Default reply addressing dispatches `[<originating-event-id> (assoc original-msg :rf/reply <envelope>)]` back to the same handler (branch on `(:status reply)`); explicit `:on-success` / `:on-failure` are pure routing sugar that append the identical envelope as the last event-vector arg. The direct reply-target spelling is `:rf/reply-to` framework-wide. Both shapes detailed in [014 §Reply payload shape](014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope).
+Every reply lands as the **canonical uniform reply envelope** (rf2-ibksxg — one dialect, no `{:kind :success/:failure}` reshape): `{:status :ok :value v …}` on success, `{:status :error :error {:kind <:rf.http/*> …} …}` on failure, `{:status :cancelled :error {:kind :rf.http/aborted …} …}` on abort. Reply addressing is explicit: **`:reply-to`** is the unified app-facing spelling — one event vector for both the success and the failure reply, the envelope appended as the last event-vector arg (the app branches on `(:status reply)`); the same `:reply-to` key resources / mutations use. `:on-success` / `:on-failure` are the split routing sugar over it — a named target per branch, both receiving the identical envelope. All lower to the one internal / normalized `:rf/reply-to` descriptor (a conformance surface, no longer an everyday spelling). Omitting **all** reply targets raises `:rf.error/http-no-reply-target` at dispatch — the co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha (rf2-et4c1s). Detailed in [014 §Reply addressing](014-HTTPRequests.md#reply-addressing) and [§Reply payload shape](014-HTTPRequests.md#reply-payload-shape--the-one-canonical-envelope).
 
 ### Failure categories (closed set)
 
@@ -776,7 +776,7 @@ Per [Spec-Schemas.md](Spec-Schemas.md), the spec's own runtime shapes are descri
 | `:rf.fx/spawn-args` | Args of `:rf.machine/spawn` fx (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx`) | 005 |
 | `:rf.fx/managed-args` | Args of `:rf.http/managed` fx (request envelope, decode, accept, retry, timeout-ms, on-success/on-failure, request-id, abort-signal) | 014 |
 | `:rf.fx/managed-abort-args` | Args of `:rf.http/managed-abort` fx (request-id) | 014 |
-| `:rf.http/reply` | Canonical reply envelope `{:status :ok :value v …}` / `{:status :error :error {:kind <:rf.http/*> …} …}` / `{:status :cancelled :error {:kind :rf.http/aborted …} …}` lands under `:rf/reply` (or appended to `:on-success`/`:on-failure`) | 014 |
+| `:rf.http/reply` | Canonical reply envelope `{:status :ok :value v …}` / `{:status :error :error {:kind <:rf.http/*> …} …}` / `{:status :cancelled :error {:kind :rf.http/aborted …} …}` appended to the reply target (`:reply-to` unified, or `:on-success`/`:on-failure` split sugar) | 014 |
 | `:rf/route-rank` | Structural-rank tuple for route-precedence sorting | 012 |
 | `:rf/pending-navigation` | Pending-navigation slot when `:can-leave` guard rejects | 012 |
 | `:rf/elision-registry` | Per-frame size-elision declaration registry in the reserved runtime-db child `[:rf.runtime/elision]` | 009 |
