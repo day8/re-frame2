@@ -1325,6 +1325,11 @@
   node-kind-specific error id."
   #{;; root-shape / pseudo-state
     :type :deep? :default-target :regions
+    ;; parallel-root region declaration order — the explicit registration
+    ;; contract (`parallel/normalise-region-order`); author-supplied OR derived
+    ;; and stamped once at registration. Root-only, but harmless on the set,
+    ;; exactly like `:regions`.
+    :region-order
     ;; compound / data / declaration blocks (root-only, but harmless on the set)
     :initial :states :data :schemas :internal-events
     :guards :actions :on-spawn-actions
