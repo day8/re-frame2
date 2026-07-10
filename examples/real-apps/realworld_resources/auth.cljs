@@ -317,8 +317,8 @@
               [:dispatch [:auth/ensure-session-feed]]]}))
 
     :record-error
-    ;; rf2-ibksxg — the appended HTTP reply is the canonical envelope; the
-    ;; classified `:rf.http/*` failure map rides under `:error` (was `:failure`).
+    ;; The appended HTTP reply is the canonical envelope; the classified
+    ;; `:rf.http/*` failure map rides under its `:error` key.
     (fn [{[_ {:keys [error]}] :event}]
       {:data {:error (rh/failure->message error)}})
 

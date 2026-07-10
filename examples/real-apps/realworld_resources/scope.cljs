@@ -2,7 +2,7 @@
   "The resource cache SCOPE for this app — the fail-closed leak boundary,
    written as a named resource-scope resolver (`reg-resource-scope`). See scope:
    ../../../docs/resources/glossary.md#scope, and the worked walkthrough in
-   ../../../docs/resources/how-to/add-auth.md.
+   ../../../docs/core/how-to/add-auth.md.
 
    Scope is the cache's tenant / user / permission boundary, and the cardinal
    rule is that it fails closed: a resource never silently falls back to a shared

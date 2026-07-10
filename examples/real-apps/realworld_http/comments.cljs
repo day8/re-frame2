@@ -52,7 +52,7 @@
 ;; the very same string. `:comment-form/submit` asks for it via
 ;; `:rf.cofx/requires` and reads it flat, staying pure and replayable. See the
 ;; coeffects guide:
-;; ../../../docs/core/concepts/effects-and-coeffects.md#two-grades-ambient-and-recordable
+;; ../../../docs/core/coeffects.md#two-grades-ambient-and-recordable
 (rf/reg-cofx :realworld/temp-comment-id
   {:recordable? true
    :doc "A replay-safe temp-id for an optimistically-posted comment."}

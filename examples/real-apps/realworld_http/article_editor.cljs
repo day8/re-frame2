@@ -99,9 +99,9 @@
 ;; lighter `:editor/reset` (slice wipe only), so no fresh flow registration
 ;; leaks on each visit.
 
-;; The 3-slot triple `[flow-id metadata derive-fn]` (rf2-bqstzr) — the exact
-;; shape both `reg-flow` and `:rf.fx/reg-flow` take, so `[:rf.fx/reg-flow
-;; can-submit-flow]` splats it straight through.
+;; This value uses the canonical `[flow-id metadata derive-fn]` triple shared by
+;; `reg-flow` and `:rf.fx/reg-flow`, so `[:rf.fx/reg-flow can-submit-flow]`
+;; passes the complete registration through unchanged.
 (def can-submit-flow
   [:editor/can-submit?
    {:doc    "True when the editor draft is both valid AND dirty (it differs from
@@ -555,12 +555,11 @@
 
 ;; ---- per-render-state subviews ----
 ;;
-;; Right now every render-mode just delegates to `editor-form`, and the form's
-;; own tag queries (`:editor/busy`, `:editor/can-delete`) sort out the
-;; in-form differences. So why four wrappers that all do the same thing? They
-;; give you one cheap, obvious hook per mode for the day you want
-;; mode-specific scaffolding — a full-page spinner, a bespoke load-error layout
-;; — without having to crack open the `case` branch to do it.
+;; Every render mode delegates to `editor-form`; its tag queries
+;; (`:editor/busy`, `:editor/can-delete`) handle the current in-form differences.
+;; The wrappers deliberately preserve one named extension point per mode for
+;; page-level scaffolding such as a full-page loader or a dedicated load-error
+;; layout, while keeping the root `case` stable.
 
 (reg-view ^{:doc "Lifecycle :idle / :submitting — the form being a form
                    (interactive, or busy mid-save)."}

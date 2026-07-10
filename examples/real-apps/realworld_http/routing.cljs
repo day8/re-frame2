@@ -136,12 +136,10 @@
 ;; Back/Forward — with zero per-door plumbing. See the routing guide on guards:
 ;; ../../../docs/routing/concepts.md#blocking-a-navigation
 ;;
-;; This is the whole reason `:can-enter` shipped: the auth gate used to be a
-;; hand-rolled interceptor that flattened all three nav events down to one
-;; `{:id :params}` target, skipped the protected handler, and stashed a bespoke
-;; `[:auth :return-to]` resume crumb — ~100 lines re-implementing what
-;; `:rf/pending-navigation` + `:rf.route/continue` already do. Now it's a guard
-;; sub plus one `:rf.route/entry-blocked` handler.
+;; The guard and `:rf.route/entry-blocked` handler share the framework's single
+;; pending-navigation path. That keeps target capture, cancellation, and resume
+;; semantics in routing rather than duplicating them for each navigation entry
+;; point.
 
 ;; The guard sub. `true` → OK to enter. It reads the durable `[:auth :user]`
 ;; presence (not the machine's `:authed` state), so a deep-link that arrives
@@ -160,8 +158,8 @@
 ;; handler turns that into a login redirect and stashes the target for the
 ;; post-login bounce-back. The auth machine's `:store-session` action
 ;; (auth.cljs) reads `[:auth :return-to]` on a successful login and navigates
-;; there — the SAME resume path the interceptor version used, minus the
-;; hand-rolled three-door flattening.
+;; there. Both the rejection and the eventual resume therefore remain ordinary,
+;; traceable routing events.
 ;;
 ;; The pending-nav slot carries `:rejecting-route` (the target route-id) and
 ;; `:requested-url`; we resolve the params off the URL so a deep-link like
@@ -180,7 +178,7 @@
 
 ;; This example might be served from a sub-path — a host staging lots of demos
 ;; side by side could mount it at /realworld/ — even though on its own it'd
-;; live at /. `with-base-path` (rf2-g8pbwg) is a STRATEGY COMBINATOR: it wraps
+;; live at /. `with-base-path` is a strategy combinator: it wraps
 ;; the default history strategy so the base path is stripped off every
 ;; inbound URL and re-added to every outbound one, at the framework's four
 ;; egress/ingress consult points (Spec 012 §URL strategies) — so the whole
@@ -188,8 +186,7 @@
 ;; owned `/`. Declared as this app's `:url-strategy` on the URL-owning frame
 ;; in core.cljs; the frame's `:url-bound? true` creation installs the
 ;; base-path-aware popstate listener AND does the first-load URL→state sync
-;; automatically — there is no hand-rolled listener or explicit install call
-;; here any more.
+;; automatically, so this namespace needs no separate listener or install call.
 (def url-strategy
   (routing/with-base-path routing/history-url-strategy "/realworld"))
 

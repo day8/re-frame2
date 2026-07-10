@@ -255,8 +255,8 @@
 ;; ============================================================================
 ;;
 ;; The dev orchestrator serves this example under `/realworld-resources/`, but
-;; the routes above are written as if it owned `/`. `with-base-path`
-;; (rf2-g8pbwg) wraps the default history strategy so that prefix is
+;; the routes above are written as if it owned `/`. `with-base-path` wraps the
+;; default history strategy so that prefix is
 ;; stripped/re-added automatically at the framework's four egress/ingress
 ;; consult points (Spec 012 §URL strategies). Declared as this app's
 ;; `:url-strategy` on the URL-owning frame in core.cljs; the frame's
