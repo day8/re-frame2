@@ -457,8 +457,51 @@ function createHarnessCleanup(opts = {}) {
   };
 }
 
+// fs.statSync that swallows every error (missing path, ENOTDIR, a non-string
+// argument) into `null`, so a caller can branch on existence/type without a
+// try/catch at the call site.
+function statOrNull(target) {
+  try {
+    return fs.statSync(target);
+  } catch (_) {
+    return null;
+  }
+}
+
+// Human-readable diagnostic for each structured owned-readiness failure, so a
+// caller's log surfaces WHY the gate refused (a foreign tree, a tokenless
+// responder, an early child exit, or a plain timeout), not merely that it did.
+// The 'timeout' wording is preserved verbatim — it is the only outcome the
+// unowned path could ever produce, and callers/tests key on it.
+function ownedReadinessFailureDiagnostic(result, port, timeoutMs) {
+  switch (result.reason) {
+    case 'token-mismatch':
+      return (
+        `Refusing to run on :${port}: a foreign server answered but its ` +
+        `/${TOKEN_FILE_BASENAME} does not match this run's ownership token ` +
+        `(got ${JSON.stringify(result.got)}). The assets being served are NOT ` +
+        `the tree this run staged — a stale/sibling listener won the port.`
+      );
+    case 'token-never-served':
+      return (
+        `http-server became reachable on :${port} but never served this run's ` +
+        `/${TOKEN_FILE_BASENAME} within ${timeoutMs}ms; the served asset tree ` +
+        `may be inconsistent.`
+      );
+    case 'child-exited':
+      return (
+        `http-server exited before it became ready on :${port} ` +
+        `(likely a lost port bind or a failed start).`
+      );
+    case 'timeout':
+    default:
+      return `http-server did not become reachable on :${port} within ${timeoutMs}ms.`;
+  }
+}
+
 // Compose the canonical local-http-server lifecycle: shell-free spawn, tracked
-// teardown, early-exit detection, optional bounded output capture, readiness,
+// teardown, early-exit detection, optional bounded output capture, OWNED
+// readiness (ownership-token verification — reachability alone is never proof),
 // and failure diagnostics. Callers retain only command-specific work.
 //
 // The argv is fixed policy: `-a <host>` (loopback by default, NOT
@@ -475,7 +518,11 @@ function createHarnessCleanup(opts = {}) {
 //   - httpServerBin (required) — the resolved http-server bin path. Callers
 //                 resolve it themselves (usually lazily) so this module never
 //                 hard-depends on the http-server package being installed.
-//   - root       (required) — the directory to serve.
+//   - root       (required) — the directory to serve. MUST exist and be a
+//                 directory: a per-run ownership token is published under it
+//                 before spawn, and a missing/non-directory root fails loudly
+//                 (throws) before any browser work — a gate against a missing
+//                 asset tree is never valid.
 //   - port       (required) — the resolved, already-free port to bind.
 //   - host       — bind address (default '127.0.0.1').
 //   - cwd        — spawn cwd (where node_modules / http-server resolves).
@@ -506,9 +553,12 @@ function createHarnessCleanup(opts = {}) {
 //
 // Returns { server, ready, output, isDown }:
 //   - server  — the tracked ChildProcess (for the caller's own waits).
-//   - ready   — true once reachable; false on early-exit/timeout (the caller
-//               returns its non-zero verdict; the canonical diagnostics have
-//               already been printed).
+//   - ready   — true ONLY once the responder on `port` served this run's
+//               ownership token; false for EVERY non-owned outcome — a foreign
+//               responder (token-mismatch), a tokenless one (token-never-served),
+//               an early child exit (child-exited), or a timeout. The caller
+//               returns its non-zero verdict; the canonical reason-specific
+//               diagnostics have already been printed.
 //   - output  — the captured line buffer (empty unless captureOutput).
 //   - isDown  — () => boolean; the live server-exited flag.
 async function startLocalHttpServer(opts = {}) {
@@ -529,6 +579,39 @@ async function startLocalHttpServer(opts = {}) {
     log = (msg) => console.error(msg),
     failureTailLines = 40,
   } = opts;
+
+  // Owned readiness is the DEFAULT lifecycle (rf2-3fc89f.14): a local browser
+  // gate must proceed only after proving the responder on `port` serves THIS
+  // run's staged root — never a foreign/stale asset tree that squatted the port
+  // during the non-atomic resolveServePort()->spawn handoff. Fail loudly BEFORE
+  // any spawn if the staging root is missing or not a directory; a gate against
+  // a missing asset tree is never valid, and silently proceeding is how a stale
+  // build passes a browser check.
+  const rootStat = statOrNull(root);
+  if (!rootStat || !rootStat.isDirectory()) {
+    throw new Error(
+      `startLocalHttpServer: staging root does not exist or is not a ` +
+        `directory: ${JSON.stringify(root)}. Refusing to start a browser gate ` +
+        `against a missing asset tree.`,
+    );
+  }
+
+  // Publish the per-run ownership token under `root` BEFORE spawn, so
+  // http-server serves it the moment it starts serving the directory. Register
+  // its concurrency-safe `remove` for teardown — it only unlinks OUR token, so
+  // an overlapping run against the same root is never clobbered.
+  const published = publishOwnershipToken(root);
+  if (!published) {
+    // root passed the stat above but vanished before the token write (a
+    // teardown race). Still refuse loudly rather than fall back to unowned
+    // readiness.
+    throw new Error(
+      `startLocalHttpServer: staging root vanished before the ownership token ` +
+        `could be published: ${JSON.stringify(root)}.`,
+    );
+  }
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   const args = [
     httpServerBin,
@@ -577,13 +660,20 @@ async function startLocalHttpServer(opts = {}) {
   const aborted = () =>
     down || (typeof isAborted === 'function' && isAborted());
 
-  const ready = await waitForHttpReady(port, Date.now() + readyTimeoutMs, {
-    isAborted: aborted,
-  });
-  if (!ready || aborted()) {
-    log(
-      `http-server did not become reachable on :${port} within ${readyTimeoutMs}ms.`,
-    );
+  // Readiness WITH ownership-token verification (rf2-84gzw / rf2-gkf9 shared
+  // primitive): reachability alone is NOT proof — a foreign responder that won
+  // the port race would answer the liveness probe and yield a false green.
+  // Accept ready:true ONLY when the responder serves this run's token; return
+  // ready:false for every other structured outcome, with a reason-specific
+  // diagnostic.
+  const result = await waitForOwnedHttpReady(
+    port,
+    token,
+    Date.now() + readyTimeoutMs,
+    { isAborted: aborted },
+  );
+  if (!result.ok) {
+    log(ownedReadinessFailureDiagnostic(result, port, readyTimeoutMs));
     for (const line of output.slice(-failureTailLines)) log(line);
     return { server, ready: false, output, isDown };
   }

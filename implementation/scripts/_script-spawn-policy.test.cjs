@@ -213,14 +213,15 @@ for (const [base, dir] of GATE_LAUNCHERS) {
 // window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
 // (the JS-regex `[^]`-any-char gotcha).
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
-// Ownership-token launchers compose the http-server argv inline
-// http-server argv inline (they publish + verify a per-run /.rf-harness-token
-// via waitForOwnedHttpReady, a handshake startLocalHttpServer does not yet
-// own). Each serves its bundle on loopback only (readiness probe + headless
-// browser both hit 127.0.0.1), so a future edit dropping the explicit
-// `-a 127.0.0.1` would silently re-expose the bundle on 0.0.0.0 and trip no
-// test. Tokenless launchers delegate this policy to startLocalHttpServer and
-// are covered by the caller-use guard below.
+// These launchers compose the http-server argv inline: they publish + verify a
+// per-run /.rf-harness-token via waitForOwnedHttpReady directly, rather than
+// routing through startLocalHttpServer. (startLocalHttpServer now performs that
+// same owned-readiness handshake by default for ITS callers — rf2-3fc89f.14 —
+// but these three don't call it.) Each serves its bundle on loopback only
+// (readiness probe + headless browser both hit 127.0.0.1), so a future edit
+// dropping the explicit `-a 127.0.0.1` would silently re-expose the bundle on
+// 0.0.0.0 and trip no test. startLocalHttpServer callers delegate this policy
+// to the shared owner and are covered by the caller-use guard below.
 const IMPL_LOOPBACK_LAUNCHERS = [
   ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
   ['check-story-static.cjs', SCRIPTS_DIR],
