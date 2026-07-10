@@ -1,5 +1,5 @@
 (ns re-frame.mcp-conformance.indicator-field-test
-  "Cross-MCP indicator-field conformance (rf2-6m8tq).
+  "Cross-MCP indicator-field ROUTING conformance (rf2-6m8tq, rf2-tdn6oi).
 
   Pins the MUST-level contract from
   [Spec 009 §Indicator field on tool responses][1] and
@@ -10,43 +10,46 @@
     `:dropped-sensitive` count. Both slots are unqualified keys. Omit
     when zero.
 
+  ## Scope — routing + no-inline-emission ONLY
+
+  This file pins that every tree-walking tool ROUTES its envelope through
+  the ONE centralised emit-path, and that no tool inlines the slot
+  literals to bypass it. It deliberately does NOT re-test the helper's
+  behaviour or re-declare the slot schemas — those have single owners
+  (rf2-tdn6oi deduplication):
+
+  - Helper SEMANTICS (the omit-when-zero `cond->`, value pass-through,
+    canonical vocab-key usage) — owned by
+    `re-frame.mcp-base.envelope/with-indicators` and its direct unit
+    tests in `tools/mcp-base/test/re_frame/mcp_base/envelope_test.clj`.
+  - Slot SCHEMAS (`DroppedSensitive` / `ElidedLarge`, `pos-int?`) plus
+    their positive-fixture conformance AND the present-zero rejection —
+    owned by `wire_vocab/schemas.clj` + `wire_vocab_test.clj`.
+
+  What this file OWNS — the centralised single-emit-path guarantee (per
+  audit `ai/findings/refactor-audit-tools-re-frame2-pair-mcp-2026-05-14.md`
+  §TE8):
+
+    Every re-frame2-pair-mcp tool that walks a tree-typed payload routes
+    its envelope through the centralised `wire/with-indicators` helper;
+    pair-mcp's `wire.cljs` re-exports and delegates to the mcp-base
+    canonical helper; and no re-frame2-pair-mcp source inlines the slot
+    literals outside the whitelisted helper/descriptor files.
+
   Sibling to [`wire_vocab_test.clj`](wire_vocab_test.clj) — that file
   pins the **wire MARKER** vocabulary (`:rf.mcp/*` / `:rf.size/*`
-  namespaced shapes). This file pins the **envelope SLOT** vocabulary
+  namespaced shapes) AND owns the **envelope SLOT** schemas
   (`:dropped-sensitive` / `:elided-large` unqualified scalar counters).
   The two vocabularies compose on every tool response: the markers
   populate values inside the payload, the slots summarise suppression
   totals on the envelope.
 
-  Coverage gap closed (per audit `ai/findings/refactor-audit-tools-re-frame2-pair-mcp-2026-05-14.md`
-  §TE8):
-
-  - (a) Every tool that walks a tree-typed payload routes its envelope
-        through a single emit-path (the centralised
-        `wire/with-indicators` helper). This file grep-pins the
-        catalogue of tree-walking tools and asserts each routes through
-        the helper.
-  - (b) The slot is omitted when the count is zero, included when the
-        count is positive. This file replicates the helper's semantics
-        as a pure-Clojure simulation (the helper itself is CLJS; the
-        same `cond->` shape is reproduced here, then exercised against
-        a fixture grid).
-  - (c) The slot's value matches the count handed in. The simulation
-        asserts identity-preservation.
-
-  ## Why pure-Clojure simulation (not live-server)
-
-  The helper (`tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs`)
-  is CLJS — it can't be `require`d from a JVM test. The contract is
-  tiny enough (one `cond->` with two arms) that a pure-Clojure
-  reproduction inside this test is the right shape: the test is the
-  contract's redundant copy, divergence trips the grep step (the
-  helper-source pin below).
+  ## Why source-text pins (not live-server)
 
   The alternative — exercising the contract through a live
   re-frame2-pair-mcp/story-mcp server — is the job of `test/end-to-end-*.js`
   (protocol conformance) and the live-re-frame2-pair-overflow path (runtime
-  cap-trigger conformance). This file's gate is at the wire-shape
+  cap-trigger conformance). This file's gate is at the wire-routing
   layer, same posture as `wire_vocab_test.clj`.
 
   [1]: ../../../spec/009-Instrumentation.md#size-elision-in-traces
@@ -54,7 +57,6 @@
   (:require [clojure.java.io :as io]
             [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [malli.core      :as m]
             [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
@@ -64,153 +66,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Contract — the canonical envelope-slot vocabulary.
-;;
-;; Both slots are unqualified keywords (per Conventions §Cross-MCP
-;; indicator-field vocabulary — they ride alongside tool-shaped
-;; payloads where the tool's slot vocabulary is unqualified by
-;; convention). Values are non-negative integers (`0` never appears —
-;; the omit-when-zero rule turns 0 into "key absent").
-;; ---------------------------------------------------------------------------
-
-(def ^:private DroppedSensitive
-  "Envelope shape with the `:dropped-sensitive` slot present and
-  positive."
-  [:map {:closed false} [:dropped-sensitive pos-int?]])
-
-(def ^:private ElidedLarge
-  "Envelope shape with the `:elided-large` slot present and positive."
-  [:map {:closed false} [:elided-large pos-int?]])
-
-;; ---------------------------------------------------------------------------
-;; Helper simulation. Pure-Clojure mirror of
-;; `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs/with-indicators`
-;; — byte-identical in semantics (the two-arm omit-when-zero `cond->`).
-;; The canonical CLJS source is pinned verbatim by
-;; `helper-source-shape-matches-simulation` below (the grep step), so it
-;; isn't re-pasted here. If the CLJS helper drifts, that grep trips; if
-;; the contract drifts (e.g. "omit when zero" → "always include"), the
-;; fixture grid below trips.
-;; ---------------------------------------------------------------------------
-
-(defn- with-indicators
-  "Pure-Clojure mirror of `wire/with-indicators`. Splice the two
-  indicator-field slots onto an envelope, honouring the omit-when-zero
-  rule."
-  [envelope {:keys [dropped elided]}]
-  (cond-> envelope
-    (pos? (or dropped 0)) (assoc :dropped-sensitive dropped)
-    (pos? (or elided  0)) (assoc :elided-large      elided)))
-
-;; ---------------------------------------------------------------------------
-;; Fixture grid. Pins the contract's three axes:
-;;
-;;   (b) omit when zero
-;;   (b) include when positive
-;;   (c) value passes through unchanged
-;;
-;; Each row is `[label dropped-in elided-in expected-envelope-delta]`.
-;; `expected-envelope-delta` is the EXACT map the slot-splice MUST
-;; produce on top of the empty envelope `{}`. Drift in the helper's
-;; semantics (e.g. a future "include zero as `:dropped-sensitive 0`"
-;; regression) trips this grid.
-;; ---------------------------------------------------------------------------
-
-(def ^:private fixture-grid
-  [;; --- both zero — no slots, envelope unchanged ----------------------
-   {:label    "neither slot present when both counts are zero"
-    :dropped  0
-    :elided   0
-    :expected {}}
-
-   ;; --- both nil — defensive — treated as zero -------------------------
-   {:label    "neither slot present when both counts are nil"
-    :dropped  nil
-    :elided   nil
-    :expected {}}
-
-   ;; --- dropped only ---------------------------------------------------
-   {:label    "only :dropped-sensitive present when only dropped > 0"
-    :dropped  3
-    :elided   0
-    :expected {:dropped-sensitive 3}}
-
-   {:label    "only :dropped-sensitive present when elided is nil"
-    :dropped  1
-    :elided   nil
-    :expected {:dropped-sensitive 1}}
-
-   ;; --- elided only ----------------------------------------------------
-   {:label    "only :elided-large present when only elided > 0"
-    :dropped  0
-    :elided   2
-    :expected {:elided-large 2}}
-
-   {:label    "only :elided-large present when dropped is nil"
-    :dropped  nil
-    :elided   7
-    :expected {:elided-large 7}}
-
-   ;; --- both positive --------------------------------------------------
-   {:label    "both slots present when both counts > 0"
-    :dropped  4
-    :elided   11
-    :expected {:dropped-sensitive 4 :elided-large 11}}
-
-   ;; --- large counts pass through verbatim -----------------------------
-   {:label    "counts preserved verbatim (no coercion / clamping)"
-    :dropped  10000
-    :elided   99999
-    :expected {:dropped-sensitive 10000 :elided-large 99999}}])
-
-;; ---------------------------------------------------------------------------
-;; Gate (b) + (c) — semantic contract: omit-when-zero AND
-;; value-passes-through.
-;; ---------------------------------------------------------------------------
-
-(deftest indicator-helper-semantics
-  (doseq [{:keys [label dropped elided expected]} fixture-grid]
-    (testing label
-      (let [result (with-indicators {} {:dropped dropped :elided elided})]
-        (is (= expected result)
-            (str "Helper result mismatch for " label
-                 " — got " (pr-str result)
-                 ", expected " (pr-str expected)))))))
-
-(deftest indicator-helper-preserves-envelope-shape
-  ;; The helper MUST be additive — it splices slots onto an existing
-  ;; envelope without dropping its own keys. Critical because every
-  ;; tool calls `(with-indicators <full-envelope> indicators)` where
-  ;; `<full-envelope>` carries the tool's own keys (`:ok?`,
-  ;; `:snapshot`, `:epochs`, ...).
-  (let [envelope {:ok? true :snapshot {:foo :bar} :extra "string"}
-        result   (with-indicators envelope {:dropped 1 :elided 2})]
-    (is (= true (:ok? result)))
-    (is (= {:foo :bar} (:snapshot result)))
-    (is (= "string" (:extra result)))
-    (is (= 1 (:dropped-sensitive result)))
-    (is (= 2 (:elided-large result)))))
-
-;; ---------------------------------------------------------------------------
-;; Schema gate — when present, the slots conform to the canonical
-;; envelope shape (open map, `pos-int?` value). A regression that
-;; serialised the count as a string or as `0` would trip here.
-;; ---------------------------------------------------------------------------
-
-(deftest indicator-fixtures-conform-to-canonical-schema
-  (doseq [{:keys [label expected]} fixture-grid
-          :when (contains? expected :dropped-sensitive)]
-    (testing (str "dropped-sensitive schema — " label)
-      (is (m/validate DroppedSensitive expected)
-          (str "Fixture " expected " failed DroppedSensitive schema"))))
-  (doseq [{:keys [label expected]} fixture-grid
-          :when (contains? expected :elided-large)]
-    (testing (str "elided-large schema — " label)
-      (is (m/validate ElidedLarge expected)
-          (str "Fixture " expected " failed ElidedLarge schema")))))
-
-;; ---------------------------------------------------------------------------
-;; Gate (a) — tree-walking-tool routing pin.
+;; Tree-walking-tool routing pin.
 ;;
 ;; The catalogue below lists every re-frame2-pair-mcp tool that walks a
 ;; tree-typed payload (per Spec 009:1411 — "one MUST-level row per
@@ -269,52 +125,27 @@
              "without indicator counts."))))
 
 ;; ---------------------------------------------------------------------------
-;; Helper-source pin — the simulation above MUST stay byte-faithful
-;; with the canonical helper. We grep the helper source for the
-;; canonical `cond->` shape; a rename / re-implementation surfaces here
-;; so the reviewer updates the simulation alongside the helper.
-;;
-;; The canonical helper was HOISTED out of pair-mcp into the shared
-;; `mcp-base.envelope` namespace (rf2-ee38b.19) so the single emit-path
-;; the spec mandates lives in one CLJC place the conformance gate can
-;; test directly, and so both servers in the pair re-export the same
-;; rule. The hoisted form keys the splice off `vocab/dropped-sensitive-key`
-;; / `vocab/elided-large-key` (the canonical keyword literals defined
-;; once in `mcp-base.vocab`) rather than re-spelling the bare keywords;
-;; that vocab pin is covered by `slot_name_test.clj`. pair-mcp's
-;; `wire.cljs` now keeps a thin re-export `with-indicators` so the
-;; per-tool call-sites still read `wire/with-indicators` (the
-;; `every-tree-walking-tool-routes-through-the-helper` pin above).
+;; Pair-mcp delegation pin — the per-tool call-sites read
+;; `wire/with-indicators` (the pair-local namespace the tools already
+;; require), but the RULE BODY lives ONCE in mcp-base. The canonical helper
+;; was HOISTED out of pair-mcp into the shared `mcp-base.envelope`
+;; namespace (rf2-ee38b.19) so the single emit-path the spec mandates lives
+;; in one CLJC place — and its semantics are unit-tested directly there
+;; (`envelope_test.clj`), not re-simulated here. pair-mcp's `wire.cljs`
+;; keeps a thin re-export `with-indicators` that delegates to the base, so
+;; the per-tool call-sites still read `wire/with-indicators` (the routing
+;; pin above) while the omit-when-zero MUST stays centralised. This pin
+;; asserts that re-export still exists and still delegates — a regression
+;; that re-inlined the rule (forking the emit-path across servers) trips
+;; here. The story-mcp delegation pin is the sibling
+;; `story-mcp-routes-envelope-through-the-centralised-helper` in
+;; `wire_vocab_test.clj`.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private helper-source-rel
-  "tools/mcp-base/src/re_frame/mcp_base/envelope.cljc")
 
 (def ^:private pair-mcp-reexport-rel
   "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs")
 
-(deftest helper-source-shape-matches-simulation
-  (let [src (fx/read-source helper-source-rel)]
-    (testing "canonical helper defines `with-indicators`"
-      (is (str/includes? src "(defn with-indicators")
-          (str "`with-indicators` defn missing from " helper-source-rel)))
-    (testing "helper guards :dropped-sensitive on pos? dropped"
-      (is (str/includes? src "(pos? (or dropped 0)) (assoc vocab/dropped-sensitive-key dropped)")
-          (str "Canonical omit-when-zero shape for `:dropped-sensitive` "
-               "drifted from the simulation in this file. If you changed "
-               "the helper, update the simulation here in lockstep.")))
-    (testing "helper guards :elided-large on pos? elided"
-      (is (str/includes? src "(pos? (or elided  0)) (assoc vocab/elided-large-key      elided)")
-          (str "Canonical omit-when-zero shape for `:elided-large` "
-               "drifted from the simulation in this file. If you changed "
-               "the helper, update the simulation here in lockstep.")))))
-
 (deftest pair-mcp-wire-re-exports-the-canonical-helper
-  ;; The per-tool call-sites read `wire/with-indicators` (the pair-local
-  ;; namespace they already require); the rule body lives in mcp-base.
-  ;; This pins that the re-export still exists and delegates to the base
-  ;; — a regression that re-inlined the rule (forking the emit-path)
-  ;; trips here.
   (let [src (fx/read-source pair-mcp-reexport-rel)]
     (testing "pair-mcp wire.cljs re-exports `with-indicators`"
       (is (str/includes? src "(defn with-indicators")
@@ -451,6 +282,6 @@
 ;; surface to pin here. If a future MCP server reintroduces a
 ;; tree-walking surface, extend `tree-walking-tool-sources` and
 ;; `inline-emit-whitelist` above (or add a parallel pair) to cover
-;; it; the helper-source pin and the re-frame2-pair-mcp gates are the live
-;; reference.
+;; it; the re-frame2-pair-mcp gates + the mcp-base helper unit tests are
+;; the live reference.
 ;; ---------------------------------------------------------------------------

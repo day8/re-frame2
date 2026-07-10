@@ -1195,8 +1195,11 @@
 ;; Conformance contract:
 ;;
 ;; 1. Schema-level: both envelope slots validate as
-;;    `[:map {:closed false} [<slot> nat-int?]]`. Fixtures sourced from
-;;    each emitting server.
+;;    `[:map {:closed false} [<slot> pos-int?]]` — a PRESENT slot is
+;;    always a positive count (the omit-when-zero MUST turns a zero into
+;;    an absent key, so a present `0` is a rejected regression, pinned by
+;;    `envelope-indicator-present-zero-rejected` below). Fixtures sourced
+;;    from each emitting server.
 ;; 2. Source-text pin: every server in `:envelope-emitters` carries
 ;;    BOTH the `:dropped-sensitive` literal AND the `:elided-large`
 ;;    literal (parity — one without the other is the round-2 audit
@@ -1277,6 +1280,29 @@
           (str "Fixture " fixture-name " for " slot
                " failed schema validation:\n"
                (me/humanize (m/explain schema fixture-value)))))))
+
+(deftest envelope-indicator-present-zero-rejected
+  ;; The negative counterpart to `envelope-indicator-fixtures-conform`
+  ;; (which pins that the positive fixtures are ACCEPTED). The
+  ;; omit-when-zero MUST (Conventions §Cross-MCP indicator-field
+  ;; vocabulary / Spec 009 §Indicator field on tool responses) says a ZERO
+  ;; count is OMITTED — the slot key never appears on the wire. The
+  ;; production emit-path (`re-frame.mcp-base.envelope/with-indicators`)
+  ;; enforces exactly that (`(pos? (or count 0))`), so a PRESENT
+  ;; `:dropped-sensitive 0` / `:elided-large 0` can only be a regression
+  ;; that bypassed the helper. The canonical schema is `pos-int?`
+  ;; (rf2-tdn6oi) precisely so it REJECTS the present-zero shape rather
+  ;; than blessing it — the schema must not be looser than the
+  ;; omit-when-zero production contract (the pre-fix `nat-int?` accepted a
+  ;; present zero, the accepts-zero bug this pins the fix for).
+  (doseq [{:keys [slot schema]} envelope-indicator-slots]
+    (testing (str "present-zero " slot " ⇒ schema REJECTS (omit-when-zero, not zero-emit)")
+      (is (not (m/validate schema {slot 0}))
+          (str "Canonical schema for " slot " ACCEPTED a present zero {" slot " 0} — "
+               "the omit-when-zero MUST means a zero count is OMITTED, never "
+               "emitted as `" slot " 0`. The schema must be `pos-int?` (not "
+               "`nat-int?`) so a helper-bypassing present-zero regression fails "
+               "conformance.")))))
 
 (def ^:private envelope-emitter-source-files
   "Source files that carry the envelope-slot emit sites per server.
