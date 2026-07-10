@@ -346,24 +346,41 @@
   remaining teardown race: nil means the frame disappeared before the write
   landed, while any non-nil changed-key set, including empty, is a successful
   live-frame write. Failure is reported before telemetry, listener fan-out, or
-  a synthetic epoch can claim success."
+  a synthetic epoch can claim success.
+
+  The coherent read (`fs-before`), the physical write, and the synthetic-epoch
+  bookkeeping run under the frame's `:drain-lock` (`serialize-tool-write!`), so
+  no event transition can interleave between the `fs-before` read and the
+  write's own re-read. `fs-after` is therefore the EXACT value installed — the
+  synthetic `:frame-state-before` / `:frame-state-after` describe the physical
+  transition, and a concurrent event's update to an omitted partition is never
+  lost or silently reverted (rf2-3fc89f.4). A replace invoked reentrantly from
+  the active drainer refuses with `:rf.epoch/replace-during-drain`."
   [frame-id fs-after-fn write-fn]
-  (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
-    (if (= :fail outcome)
-      (do (tool-pair/emit-precondition-failure! op tags)
-          false)
-      (let [;; Record the same coherent whole-frame value the write installs.
-            ;; Nil means teardown won the post-liveness race; an empty set is
-            ;; still a successful no-op write against a live frame.
-            fs-before (frame/frame-state-value frame-id)
-            fs-after  (fs-after-fn fs-before)
-            changed   (write-fn)]
-        (if (nil? changed)
-          (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
-                                                    {:kind :frame :frame frame-id})
+  (tool-pair/serialize-tool-write!
+    frame-id
+    :rf.epoch/replace-during-drain
+    {:frame frame-id}
+    (fn []
+      (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
+        (if (= :fail outcome)
+          (do (tool-pair/emit-precondition-failure! op tags)
               false)
-          (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
-              true))))))
+          (let [;; Record the same coherent whole-frame value the write installs.
+                ;; Read under the drain lock so the write's own re-read (which
+                ;; preserves omitted partitions) sees this same state — fs-after
+                ;; then equals the installed value. Nil means teardown won the
+                ;; post-liveness race; an empty set is still a successful no-op
+                ;; write against a live frame.
+                fs-before (frame/frame-state-value frame-id)
+                fs-after  (fs-after-fn fs-before)
+                changed   (write-fn)]
+            (if (nil? changed)
+              (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
+                                                        {:kind :frame :frame frame-id})
+                  false)
+              (do (record-synthetic-replace-epoch! frame-id fs-before fs-after)
+                  true))))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the partial frame-state patch once preconditions have passed.

@@ -499,6 +499,64 @@
      :tags    {:kind  :frame
                :frame frame-id}}))
 
+;; ---- drain serialization for tool writes ----------------------------------
+;;
+;; The precondition validators (`check-restore-preconditions!` /
+;; `check-replace-frame-state-preconditions!`) read the router's `:in-drain?` /
+;; `:in-sync-drain?` flags, but that read and the subsequent coherent
+;; read → optional reconcile → physical write → success bookkeeping are a
+;; TOCTOU pair: a drain that STARTS on another thread after validation and
+;; before the write can interleave between a handler's `db` read and its
+;; commit. The tool write then splices into the middle of an event transition —
+;; a non-linearizable result — while still returning `true` and emitting
+;; success telemetry (rf2-3fc89f.4). For a partial `replace-frame-state!` the
+;; same window also lets the recorded synthetic `:frame-state-before` /
+;; `:frame-state-after` (computed from a pre-interleave read) diverge from the
+;; value the write actually installed.
+;;
+;; The fix routes the WHOLE state-sensitive operation — not just the final
+;; container call — through the core single-drainer `:drain-lock` via
+;; `frame/call-serialized-with-drain!` (Spec 002 §Single drainer per frame; the
+;; SAME primitive the flows lifecycle ops use). Under that lock no event
+;; transition can run concurrently, so the tool write holds ONE serial position
+;; relative to any drain: its coherent read and its physical write see the same
+;; frame-state, and the recorded synthetic epoch describes exactly the
+;; transition installed.
+;;
+;; REENTRANCY. A restore/replace invoked from the frame's ACTIVE drainer (a
+;; tool write issued mid-cascade from an event handler) must NOT run: it would
+;; either self-deadlock re-taking `:drain-lock` or, worse, splice a
+;; non-linearizable write into the in-flight transition (`call-serialized-with-
+;; drain!`'s reentrant branch runs the thunk DIRECTLY — correct for the flows
+;; ops, wrong for a tool write). So we refuse the reentrant case up front with
+;; the documented during-drain op, returning `false` and recording nothing.
+;; `frame/in-drain?` is the same `:in-drain?` thread marker the pre-lock
+;; precondition `drain-in-flight?` reads, so this also closes the gap between
+;; the (separate) precondition call and this write. On CLJS — single-threaded —
+;; a mid-drain call is likewise refused here (no deadlock); a top-level call
+;; takes the uncontended lock and runs.
+
+(defn serialize-tool-write!
+  "Run `op` — the coherent liveness-check → read → (reconcile) → physical
+  write → success-bookkeeping thunk of a Tool-Pair state write — serialized
+  against `frame-id`'s event drain through the core `:drain-lock`
+  (`frame/call-serialized-with-drain!`), so the whole operation is mutually
+  exclusive with any event transition (no validate-then-write TOCTOU).
+
+  `op` is `(fn [] <boolean>)` returning the operation's own result (it still
+  owns the destroyed-frame liveness recheck and its `false` returns).
+
+  A call from the frame's ACTIVE drainer (a reentrant mid-cascade tool write)
+  is REFUSED here — `during-drain-op` is emitted with `during-drain-tags` and
+  `false` is returned, `op` never runs — mirroring the pre-lock
+  `drain-in-flight?` precondition and avoiding both self-deadlock and a
+  non-linearizable mid-transition splice."
+  [frame-id during-drain-op during-drain-tags op]
+  (if (frame/in-drain? frame-id)
+    (do (emit-precondition-failure! during-drain-op during-drain-tags)
+        false)
+    (frame/call-serialized-with-drain! frame-id op)))
+
 ;; ---- runtime-db subsystem reconcile on restore ----------------------------
 ;;
 ;; Epoch restore installs the captured frame-state WHOLESALE — it does not run
@@ -654,47 +712,60 @@
   closes the remaining teardown race: nil means no write, while a non-nil set,
   including empty, is success. Only the success branch emits restore telemetry,
   re-anchors post-settle attribution, commits deferred subsystem traces, and
-  cancels host-transient work from the abandoned timeline."
+  cancels host-transient work from the abandoned timeline.
+
+  The whole liveness-check → reconcile → write → bookkeeping runs under the
+  frame's `:drain-lock` (`serialize-tool-write!`), so no event transition can
+  interleave between the reconcile's read and the physical install — the
+  restore holds one serial position relative to any drain (rf2-3fc89f.4). A
+  restore invoked reentrantly from the active drainer refuses with
+  `:rf.epoch/restore-during-drain` rather than deadlocking or splicing."
   [frame-id epoch]
-  (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
-    (if (= :fail outcome)
-      (do (emit-precondition-failure! op tags)
-          false)
-      (let [;; Whole `:frame-state-after` is the only restore source.
-            frame-state-target (:frame-state-after epoch)
-            ;; Reconcile runtime subsystems before the atomic install,
-            ;; the same way SSR hydration reconciles its installed slice — so a
-            ;; mid-flight captured snapshot does not install stranded
-            ;; `:loading` / `:fetching` entries pointing at vanished attempts,
-            ;; and a pre-restore reply cannot write stale data into a restored
-            ;; entry.
-            ;; Thread the restored epoch's causal time
-            ;; (`:committed-at` = the committing token's `:rf.cofx`
-            ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
-            ;; mutation instance's durable `:settled-at` from a replay-stable
-            ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
-            frame-state-target (reconcile-runtime-db-on-restore
-                                 frame-id frame-state-target (:committed-at epoch))
-            ;; Write both partitions through the one physical frame container.
-            ;; Nil means the frame was destroyed after the liveness check; a
-            ;; non-nil changed-key-set (even empty) means the write landed.
-            changed (frame/replace-frame-state! frame-id frame-state-target)]
-        (if (nil? changed)
-          (do (emit-precondition-failure! :rf.error/no-such-handler
-                                          {:kind :frame :frame frame-id})
+  (serialize-tool-write!
+    frame-id
+    :rf.epoch/restore-during-drain
+    {:frame frame-id :rf.epoch/id (:epoch-id epoch)}
+    (fn []
+      (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
+        (if (= :fail outcome)
+          (do (emit-precondition-failure! op tags)
               false)
-          (do (trace/emit! :rf.epoch :rf.epoch/restored
-                           {:frame       frame-id
-                            :rf.epoch/id (:epoch-id epoch)})
-              ;; Restore triggers no ordinary event, so explicitly anchor its
-              ;; repaint/subscription/unmount back-fill to the restored epoch.
-              (state/set-last-settled-epoch! frame-id (:epoch-id epoch))
-              ;; Deferred subsystem success traces are valid only after install.
-              (commit-resources-restore-traces! frame-state-target)
-              ;; Host timers and HTTP handles are not frame state; cancel the
-              ;; abandoned timeline only after the new state is installed.
-              (quiesce-orphaned-async-host-work! frame-id)
-              true))))))
+          (let [;; Whole `:frame-state-after` is the only restore source.
+                frame-state-target (:frame-state-after epoch)
+                ;; Reconcile runtime subsystems before the atomic install,
+                ;; the same way SSR hydration reconciles its installed slice — so a
+                ;; mid-flight captured snapshot does not install stranded
+                ;; `:loading` / `:fetching` entries pointing at vanished attempts,
+                ;; and a pre-restore reply cannot write stale data into a restored
+                ;; entry.
+                ;; Thread the restored epoch's causal time
+                ;; (`:committed-at` = the committing token's `:rf.cofx`
+                ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
+                ;; mutation instance's durable `:settled-at` from a replay-stable
+                ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
+                frame-state-target (reconcile-runtime-db-on-restore
+                                     frame-id frame-state-target (:committed-at epoch))
+                ;; Write both partitions through the one physical frame container.
+                ;; Under the drain lock the container's re-read matches the value
+                ;; installed. Nil means the frame was destroyed after the liveness
+                ;; check; a non-nil changed-key-set (even empty) means it landed.
+                changed (frame/replace-frame-state! frame-id frame-state-target)]
+            (if (nil? changed)
+              (do (emit-precondition-failure! :rf.error/no-such-handler
+                                              {:kind :frame :frame frame-id})
+                  false)
+              (do (trace/emit! :rf.epoch :rf.epoch/restored
+                               {:frame       frame-id
+                                :rf.epoch/id (:epoch-id epoch)})
+                  ;; Restore triggers no ordinary event, so explicitly anchor its
+                  ;; repaint/subscription/unmount back-fill to the restored epoch.
+                  (state/set-last-settled-epoch! frame-id (:epoch-id epoch))
+                  ;; Deferred subsystem success traces are valid only after install.
+                  (commit-resources-restore-traces! frame-state-target)
+                  ;; Host timers and HTTP handles are not frame state; cancel the
+                  ;; abandoned timeline only after the new state is installed.
+                  (quiesce-orphaned-async-host-work! frame-id)
+                  true))))))))
 
 ;; ---- replace-frame-state! preconditions ------------------------------------
 ;;
