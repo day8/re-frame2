@@ -56,7 +56,7 @@ data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
 
 Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the registry id keyword (`(namespace id)` / `(name id)`). Either coord segment may be the literal `?` for programmatic `reg-view*` calls that bypassed the macro path. Non-DOM roots (Fragment `:<>`, `:>` interop, fn-component head) are exempt — pair tools fall back to `(rf/handler-meta :view id)` for those.
 
-`preload/re_frame2_pair/runtime.cljs` `parse-rf2-coord` returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). Verified by `tests/runtime/parse_rf2_coord_test.clj`.
+`preload/re_frame2_pair/runtime.cljs` `parse-rf2-coord` returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). It is a canonical alias of `re-frame.source-coords/parse-source-coord`, whose behaviour is verified by `implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 
 > **Compatibility note.** Tool-Pair.md declares the attribute's value format opaque to consumers — re-frame2-pair parses it pragmatically so the DOM-to-source bridge can be useful, but skill consumers MUST NOT depend on the parsed shape's stability across re-frame2 versions. If the format shifts, update the parser (and these tests) in one place.
 

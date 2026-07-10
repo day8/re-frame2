@@ -9,38 +9,68 @@ surfaces — a minimal Reagent + shadow-cljs build that preloads
 `re-frame2-pair.runtime` and renders a counter. See `tests/fixture/README.md`
 for run instructions.
 
-## 1. Runtime unit tests (`tests/runtime/`)
+## 1. Runtime unit tests — two halves
 
-**Status: partial — pure helpers covered.**
+The runtime preload's testable logic is split so that BEHAVIOUR is tested
+against the **exact shipped code** rather than a copied mirror (rf2-etsj8p):
 
-`tests/runtime/*.clj` cover the pure fns in
-`preload/re_frame2_pair/runtime.cljs` via bb-mirrored copies of the
-parser logic. A representative sample (see `tests/runtime/` for the
-full, growing set):
+- The genuinely-pure decision logic lives in a shipped preload namespace,
+  `preload/re_frame2_pair/pure.cljc` (`re-frame2-pair.pure`) — the cascade /
+  consequence projections, the multi-frame operating-frame resolver, the
+  id-validation core, the streaming queue transforms (routing / eviction /
+  drain), the epoch timing + matcher, the snapshot-scope resolver, and the
+  orient assembler. `re-frame2-pair.runtime` `:require`s it and delegates,
+  threading the live session gates (raw-state posture, privacy posture,
+  operating frame, `frame-ids`) in as arguments.
 
-- `parse_rf2_coord_test.clj` — `parse-rf2-coord`
-- `parse_view_id_test.clj` — `parse-view-id` (`data-rf-view` reader)
-- `app_db_reset_test.clj` — `app-db-reset!` failure-mode envelopes
-- `multi_frame_test.clj` — operating-frame resolution
-- `preload_sentinel_test.clj` — session-sentinel shape
-- `snapshot_test.clj` — coarse-grained `snapshot-state` composer
-- `watch_op_modes_test.clj` — watch-op predicate dispatch
+### 1a. Pure-core CLJS node-test (`tests/fixture/`, build `:pure-test`)
 
-The shadow-cljs `node-test` harness (planned) will exercise the `.cljs`
-source in place once wired up. Until then, the bb mirrors are the
-canonical drift-detector.
+**Status: the behaviour gate.** A shadow-cljs `:node-test` build in the Pair
+fixture compiles `re-frame2-pair.pure` (on the `../../preload` source path) and
+the tests at `tests/fixture/test/re_frame2_pair/pure_test.cljs`, running them
+under Node. These exercise the EXACT pure fns the runtime delegates to — no
+mirror — so the covered matrices (multi-frame ambiguity, redaction, streaming
+eviction/timing, read-sub validation, snapshot/orient, cascade outcome, and the
+hash-cache bedrock invariant) test the shipped preload directly.
 
-**To run (once set up):**
+**To run:**
 
 ```bash
-shadow-cljs compile test
-node out/test.js
+cd tests/fixture
+npm install          # one-time (shadow-cljs)
+npm run test:pure    # shadow-cljs compile pure-test && node target/pure-test.js
 ```
 
-Failing points to flag on first run:
+> **CI note (rf2-etsj8p):** the `skills-structural` job currently runs only the
+> Babashka `tests/runtime/*_test.clj` loop. Wiring the `:pure-test` build into
+> CI needs a new step (JDK + Node + shadow-cljs, `cd skills/re-frame2-pair/tests/fixture
+> && npm ci && npm run test:pure`) in `.github/workflows/test.yml` — a HOT-ZONE
+> file, sequenced by the mayor rather than edited here.
 
-- ~~`parse-rf2-coord` assumes a `'<ns>|<file>:<line>:<col>'` shape for `data-rf2-source-coord`.~~ Resolved 2026-05-09: parser updated to the canonical `<ns>:<handler-id>:<line>:<col>` shape per Spec 006 §Source-coord annotation. Bb-runnable tests at `tests/runtime/parse_rf2_coord_test.clj` until the shadow-cljs harness lands.
-- `parse-rc-src` assumes a `"file:line"` or `"file:line:column"` format for `data-rc-src`. Real re-com attribute format needs verification.
+### 1b. Structural (AST) pins (`tests/runtime/*.clj`, Babashka)
+
+**Status: the wiring gate.** These parse `runtime.cljs` and pin its *wiring* —
+not copied behaviour. They cover: the runtime→`pure` delegations and live-gate
+injection (`pure_delegation_test.clj`); framework-boundary wiring the runtime
+must keep (`app_db_reset_test.clj` → `rf/replace-frame-state!`,
+`dom_readback_redaction_test.clj` → `rf/project-egress`,
+`registrar_describe_test.clj` → `strip-fns` / `:handler-fn` hygiene,
+`frame_registrar_test.clj`, `dispatch_consequence_test.clj`); and the load-time
+sentinel (`preload_sentinel_test.clj`). `watch_op_modes_test.clj` pins the
+retained `scripts/ops.clj` bash-transport predicate logic (not the preload).
+
+**To run:**
+
+```bash
+for f in tests/runtime/*_test.clj; do bb "$f"; done
+```
+
+The retired Babashka *behaviour mirrors* (app-db hash, cascade outcome/redaction,
+multi-frame, read-sub, sub-cache, streaming, snapshot, orient,
+source-coord/view parse) were DELETED: their behaviour is now tested against the
+shipped `pure.cljc` in §1a, and the source-coord/view parsers are canonical
+core aliases (`re-frame.source-coords/*`) covered by
+`implementation/core/test/re_frame/source_coords_cljs_test.cljs`.
 
 ## 2. Bash-shim integration (`tests/shim/`) — retained harness only
 
