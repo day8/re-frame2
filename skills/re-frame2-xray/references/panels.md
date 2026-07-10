@@ -15,7 +15,7 @@ chrome / palette tokens / density in
 declaratively via `reg-l4-tab!` `:order`, rendered by `shell.cljs`
 (Dynamic) / `static/shell.cljs` (Static). Live Dynamic `:order` values:
 Epoch `-1` · app-db `1` · Views `2` · Trace `3` · Machine `4` · Routes `6`
-· Resources `7` · Graph `8` · Modules `9` — nine in all (`:order 5`
+· Resources `7` · Graph `8` · Frames `9` — nine in all (`:order 5`
 unallocated). The authoritative inventory (`focus.cljc`'s `valid-panels`
 def) + the build-time cross-check that guards it live in
 [`../evals/README.md` §Keeping the tab inventory in sync](../evals/README.md).
@@ -27,10 +27,13 @@ The two-mode model (Dynamic event-spine 4-layer chrome · Static registry
 covered in [`SKILL.md` §Two modes](../SKILL.md#two-modes). This leaf is
 the per-panel tour: the 9 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
-restate: **no cross-epoch L4 panels** — every Dynamic L4 tab is a lens on
-the one focused epoch; aggregate signal lives on L2 badges only (§021
-§1.2 — binding). There is **no Issues tab** — issues surface inline (see
-§Issues — not a Dynamic tab below).
+restate: **no cross-epoch L4 panels** — no Dynamic L4 tab shows an
+*aggregate across epochs*; aggregate signal lives on L2 badges only (§021
+§1.2 — binding). That is distinct from data *scope*: most Dynamic tabs are
+focused-epoch lenses, but **Graph** and **Frames** are Dynamic-shell browse
+surfaces scoped to the process-global registry / observed frame, not the
+focused epoch (see §Scope model below). There is **no Issues tab** — issues
+surface inline (see §Issues — not a Dynamic tab below).
 
 ### L2 timeline grammar
 
@@ -64,10 +67,26 @@ Implementation lives at
 [`panels/l2_timeline.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/l2_timeline.cljc)
 + [`panels/issues_ribbon_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/issues_ribbon_helpers.cljc).
 
-### Scope rule — every L4 panel is focused-epoch-scoped
+### Scope model — three authority axes (not a uniform epoch scope)
 
-Every L4 panel answers "what happened in **this** epoch?" — through its
-own lens. Cross-epoch signals belong on L2 badges, never inside L4.
+"Dynamic" is the 4-layer *shell*, not a guarantee that every panel is
+focused-epoch data. Each Dynamic tab reads one of three scopes:
+
+| Scope | Tabs | Picking an epoch in L2… |
+|---|---|---|
+| **Focused epoch** — event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
+| **Observed frame** — live frame state | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
+| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · Resources (static registry) | does nothing; identical for every epoch (global catalogues read the same in every frame) |
+
+**Graph and Frames are the Dynamic-shell exceptions** — they sit in the
+Dynamic chrome but do not compose off the focused epoch:
+`derivation_graph.cljs` scopes by projection mode (Declared = the
+process-global registrar over `xray-contributors`; Realized =
+`live-derivation-graph` for the observed `:rf.xray/target-frame`), and
+`module_view.cljs` enumerates the process-global live-frame registry
+(`re-frame.live-frame`) directly, not the focused epoch. What IS binding is
+that no Dynamic L4 tab shows a *cross-epoch aggregate*; cross-epoch signal
+lives on L2 badges.
 
 ### Inspection vs Rewind
 
@@ -83,8 +102,8 @@ projection alone — is the owning home in chrome.md §Time-travel
 
 Nine Dynamic tabs, left-to-right by `:order` (mnemonics
 `e a v t m r s g u`): **Epoch · app-db · Views · Trace · Machine · Routes ·
-Resources · Graph · Modules.** First six are core spine lenses (§018 §5 +
-§021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`), **Modules**
+Resources · Graph · Frames.** First six are core spine lenses (§018 §5 +
+§021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`), **Frames**
 (`:order 9`) are the cross-feature lenses, each self-registered through
 `reg-l4-tab!` (`panels/resources.cljs`, `panels/derivation_graph.cljs`,
 `panels/module_view.cljs`). Internal tab ids (`:epoch :app-db :views
@@ -582,19 +601,18 @@ implementation at
 [`panels/derivation_graph.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph.cljs)
 + [`panels/derivation_graph_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph_helpers.cljc).
 
-### Modules — cross-feature · mnem `u` · `:order 9`
+### Frames — cross-feature · mnem `u` · `:order 9`
 
 Question: **Which images load which frames, and how do those frames
-resolve their registrations?** (Rendered tab-bar label **Frames** — that
-is the literal `:label` `reg-l4-tab!` registers, per `module_view.cljs` +
-spec/026 §5 Tab registration; this skill and the spec call it the
-**Modules** / module-view tab conceptually; internal tab id `:module-view`.) Xray's UI
-over the EP-0023 **`image -> frame -> event
-stream`** public model — the structural counterpart to the Graph tab (Graph
-is the per-fact derivation/process view; Modules is the per-frame
-installation + image-provenance view). Registered at `:order 9`, after the
-Graph tab (`:order 8`), keeping the cross-feature runtime-structure tabs
-adjacent.
+resolve their registrations?** (Tab-bar label **Frames** — the literal
+`:label` `reg-l4-tab!` registers, per `module_view.cljs` + spec/026 §5 Tab
+registration. Internal tab id `:module-view` — the id is not a user
+contract; route users to the **Frames** tab.) Xray's UI over the EP-0023
+**`image -> frame -> event stream`** public model — the structural
+counterpart to the Graph tab (Graph is the per-fact derivation/process
+view; Frames is the per-frame installation + image-provenance view).
+Registered at `:order 9`, after the Graph tab (`:order 8`), keeping the
+cross-feature runtime-structure tabs adjacent.
 
 The panel is the **FRAMES** view (§026 §8) — each live frame as an
 **execution context** carrying its **resolved image** (the generation's
@@ -609,12 +627,12 @@ The projection runs through the pure
 each frame carrying its resolved image generation).
 
 > **`:module-view` is an L4-only registry tab — no standalone mount
-> facade.** Like the Graph tab, Modules registers through `reg-l4-tab!`
-> but exposes **no** `mount-*!` facade (it is **not** in `panel-enum`,
-> which carries only the standalone-mountable surface) — it is a
-> shell-internal tab, focusable via `focus!` / the command palette but not
+> facade.** Like the Graph tab, the Frames tab registers through
+> `reg-l4-tab!` but exposes **no** `mount-*!` facade (it is **not** in
+> `panel-enum`, which carries only the standalone-mountable surface) — it is
+> a shell-internal tab, focusable via `focus!` / the command palette but not
 > independently mountable the way the other seven Dynamic panels are.
-> Route users to **open the Modules tab**; do not tell them to call a
+> Route users to **open the Frames tab**; do not tell them to call a
 > `mount-module-view!` — there isn't one.
 
 **Does not compose off an `:rf.xray/*` app-db slot.** Images and frames
@@ -688,8 +706,14 @@ Static opens the Machines registry browse).
 | **Flows** | `f` | "What flows are registered?" The flows catalogue. | [`static/flows/panel.cljs`](../../../tools/xray/src/day8/re_frame2_xray/static/flows/panel.cljs) |
 | **Interceptors** | `i` | "What interceptors run, and in what order?" Pure-browse lens over the interceptor chains. | [`static/interceptors/panel.cljs`](../../../tools/xray/src/day8/re_frame2_xray/static/interceptors/panel.cljs) |
 
-The L1 frame picker is mode-independent — registries are frame-scoped, so
-pick the frame whether you're in Dynamic or Static (the picker's full
+The L1 frame picker is mode-independent, but registries are **not** blanket
+frame-scoped: the definition catalogues are process-global (the registrar is
+shared across every frame, Spec 001) and the picker scopes only the
+per-frame *live* projections each tab adds — machine snapshots, the flows
+registry, the app-db-schema side-table, the current-route slice (see
+`static/shell.cljs`). Pick the frame — whether you're in Dynamic or Static —
+to move those per-frame projections; the definition catalogues read the same
+regardless (the picker's full
 contract — single-frame collapse, tool-frames-hidden-by-default, the
 transient-not-persisted pin — lives in
 [`chrome.md` §L1 frame picker](chrome.md#l1-frame-picker)). The mode choice
@@ -724,7 +748,7 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
 - **No peer Subscriptions L4 tab.** The reactive cascade surfaces inline
  in Views + the app-db hover popover, not as its own Dynamic tab. (The
  Dynamic set is open through the `reg-l4-tab!` seam — Resources, Graph,
- and Modules each register their own cross-feature tab — but there is
+ and Frames each register their own cross-feature tab — but there is
  no separate Subs lens.)
 - **No Chrome A11y tab.** A11y dogfooding is Story's domain.
 - **No standalone Dynamic "Machines Canvas" tab** — the spine-INDEPENDENT

@@ -86,10 +86,10 @@ signal, colour is never alone):
 | Routes | `r` | `🌐` | `:yellow` |
 | Resources | `s` | — | (family-tinted rows; no single stripe) |
 | Graph | `g` | — | `:magenta` (violet — the algebra lens) |
-| Modules *(tab labelled **Frames**)* | `u` | — | (family-tinted rows; no single stripe) |
+| Frames *(internal id `:module-view`)* | `u` | — | (family-tinted rows; no single stripe) |
 
 Nine Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
-slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Modules**
+slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Frames**
 `:order 9` are the three cross-feature lenses, each self-registered
 through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
 the Epoch tab is the "what happened" surface (issues detail:

@@ -16,7 +16,7 @@ description: >
  [data-rf-xray-host] / full-screen canvas", "Xray machine inspector",
  "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
  tab", "Xray derivation/process graph", "where does this value come
- from in Xray", "Xray Resources tab", "Xray Modules tab", "Xray
+ from in Xray", "Xray Resources tab", "Xray Frames tab", "Xray
  module-view", "what images/frames are installed in Xray", "which image
  loaded this frame", "how does this frame resolve its registrations",
  and similar.
@@ -108,16 +108,23 @@ already-structured runtime.
 Xray runs in one of two modes at a time, flipped by the L1 mode pill or
 the `Cmd/Ctrl+Shift+M` chord:
 
-- **Dynamic** — the event-coupled spine (4-layer chrome: L1 ribbon · L2
- event list · L3 tab bar · L4 detail). Every tab is a *lens on the one
- focused event* — pick an event in the L2 list and every tab rebinds.
- "What happened in **this** epoch?". 9 tabs (core 6 + cross-feature
- Resources + Graph + Modules).
+- **Dynamic** — the event-spine *shell* (4-layer chrome: L1 ribbon · L2
+ event list · L3 tab bar · L4 detail). *Most* tabs are a *lens on the one
+ focused event* — pick an event in the L2 list and they rebind ("what
+ happened in **this** epoch?") — but Dynamic names the shell mode, **not** a
+ guarantee that every panel is focused-epoch data: **Graph** and **Frames**
+ are Dynamic-shell browse surfaces that read the process-global registry /
+ the observed frame and do **not** rebind when you pick an epoch (see the
+ **scope matrix** below). 9 tabs (core 6 + cross-feature Resources + Graph +
+ Frames).
 - **Static** — event-INDEPENDENT browse of what's *registered* (3-layer
- chrome, no L2 spine). Every tab is a registry catalogue **for the picked
- frame** — a frame draws its registrations from its resolved image (the
- EP-0023 `image -> frame` model). "What exists?", not "what just
- happened?". 5 tabs.
+ chrome, no L2 spine). Static is **mixed-scope**: the definition catalogues
+ (events / subs / routes / interceptors / machine definitions) are
+ **process-global** — the registrar is shared across every frame (Spec 001)
+ — while the L1 frame picker scopes only the genuinely per-frame *live*
+ projections each tab adds (machine snapshots, the flows registry, the
+ app-db-schema side-table, the current-route slice). "What exists?", not
+ "what just happened?". 5 tabs.
 
 Inspect a *single dispatch* → Dynamic; browse the *whole registry* →
 Static. For an AI agent surface against the running app, use
@@ -191,15 +198,39 @@ mode answers it* — Dynamic (one dispatch) or Static (the whole registry)
 — then route to the tab. For per-tab layout, iconography, stripe tokens,
 and "open it when…" depth see [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — 9 lenses on the focused event
+### Dynamic mode — the event-spine shell (9 tabs)
 
-The L3 tab bar holds **9 lenses on the focused event**, left-to-right
-(mnemonics `e a v t m r s g u`): **Epoch · app-db · Views · Trace ·
-Machine · Routes · Resources · Graph · Modules** — the core 6 spine lenses
-(spec/018 §5 + spec/021 §9.1) plus the cross-feature Resources / Graph /
-Modules. Every tab answers "what happened in **this** epoch?"; cross-epoch
-signal lives on the L2 timeline (badges + stripes). There is **no Issues
-tab** (see *Where issues surface now* below).
+The L3 tab bar holds **9 tabs**, left-to-right (mnemonics `e a v t m r s g
+u`): **Epoch · app-db · Views · Trace · Machine · Routes · Resources ·
+Graph · Frames** — the core 6 spine lenses (spec/018 §5 + spec/021 §9.1)
+plus the cross-feature Resources / Graph / Frames. *Most* answer "what
+happened in **this** epoch?"; the exceptions are **Graph** and **Frames**,
+which read the process-global registry / observed frame and do **not**
+rebind to the focused epoch (see the scope matrix below). Cross-epoch signal
+lives on the L2 timeline (badges + stripes); no Dynamic tab shows a
+cross-epoch *aggregate*. There is **no Issues tab** (see *Where issues
+surface now* below).
+
+#### Scope matrix — what each Dynamic tab actually reads
+
+"Dynamic" names the 4-layer *shell*, not a uniform data scope. Three
+authority axes:
+
+| Scope | Tabs | Picking an epoch in L2… |
+|---|---|---|
+| **Focused epoch** — the event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
+| **Observed frame** — live frame state, not the epoch | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
+| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · Resources (static registry) | does nothing; identical for every epoch (and the global catalogues read the same in every frame) |
+
+**Graph and Frames are the Dynamic-shell exceptions.** Graph reads the
+process-global registrar (Declared projection) or the observed frame's
+runtime-db (Realized projection); **Frames** enumerates the process-global
+live-frame registry (the EP-0023 `image -> frame` model) and does not
+compose off the focused epoch. Resources is a mix — a process-global
+resource registry plus the observed frame's live cache/ledger; the
+per-epoch mutation- and scope-resolution evidence it also surfaces is drawn
+from the trace stream. So "select an epoch and Graph/Frames update" is
+**false** — only the six focused-epoch lenses rebind.
 
 Each row below is the one-line purpose + when-to-open; **depth for every
 tab lives in [`references/panels.md`](references/panels.md)** under the
@@ -214,8 +245,8 @@ matching § heading.
 | **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation for the focused event; BLANK when the event had no machine activity. To browse a machine's **full topology cold** (picker + zoom / pan / fit), use **Static mode**'s Machines tab. (Singular **Machine**; tab id `:machines`.) Depth: panels.md §Machine. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routes** | `r` · `🌐` · yellow | Focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input ranking every registered route, with `◉ TO` / `◇ FROM` overlay markers; silent when no routes registered. (Display label **Routes**; tab id `:routing`.) Depth: panels.md §Routes. | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016) — static resource registry, per-frame live instances (state · owners · freshness), the in-flight work ledger, the scope-resolution timeline, and the EP-0016 mutation-completion evidence (`:reply-to` continuations · descriptor-level scoped-invalidation). **Read-only**, redaction-aware; decoupled (no `:require` on the resources artefact). Depth: panels.md §Resources. | "Where's my server state, what owns it, is it stale?" / "What's in flight?" / "Did my mutation's `:reply-to` fire and invalidate the right scopes?" |
-| **Graph** | `g` · cross-feature (violet) | Xray's UI over the **EP-0014 derivation/process graph** — every declared fact + process across all five families (subscriptions, flows, resources, routes, machines) as one node-and-edge graph over the frame fold. A per-panel **Declared ↔ Realized** projection toggle (a Graph-local control, **NOT** the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab) flips registration-derived vs observed. Depth (incl. the authority-axis + internal-accessor caveats): panels.md §Graph. | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families |
-| **Modules** *(tab-bar label **Frames** · `:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame`** model — the **FRAMES** view: each live frame as an execution context carrying its resolved image (`[kind id]` descriptors) + how it resolves `(kind id)` lookups. L4-only registry tab (focusable, **no** standalone `mount-*!` facade — there is no `mount-module-view!`). Depth: panels.md §Modules. | "What frames exist, and which image loaded each?" / "How does this frame resolve its registrations?" |
+| **Graph** | `g` · cross-feature (violet) | Xray's UI over the **EP-0014 derivation/process graph** — every declared fact + process across all five families (subscriptions, flows, resources, routes, machines) as one node-and-edge graph over the frame fold. **Reads the process-global registrar (Declared) or the observed frame (Realized), not the focused epoch.** A per-panel **Declared ↔ Realized** projection toggle (a Graph-local control, **NOT** the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab) flips registration-derived vs observed. Depth (incl. the authority-axis + internal-accessor caveats): panels.md §Graph. | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families |
+| **Frames** *(internal id `:module-view` · `:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame`** model — each live frame as an execution context carrying its resolved image (`[kind id]` descriptors) + how it resolves `(kind id)` lookups. **Registry-wide, not epoch-coupled** — enumerates the process-global live-frame registry; picking an epoch does not rebind it. L4-only registry tab (focusable, **no** standalone `mount-*!` facade — there is no `mount-module-view!`). Depth: panels.md §Frames. | "What frames exist, and which image loaded each?" / "How does this frame resolve its registrations?" |
 
 #### Where issues surface now (no Issues tab)
 
@@ -226,12 +257,17 @@ pink-wash; **cross-epoch watcher** → the `:rf.xray/issues-ribbon` signal
 (auto-open-on-error). Detail: [`references/panels.md` §Issues](references/panels.md).
 (A11y is **not** a Xray tab — it is Story's domain, `re-frame.story.ui.chrome-a11y`.)
 
-### Static mode — 5 registry-browse tabs
+### Static mode — 5 registry-browse tabs (mixed-scope)
 
-**5 catalogue lenses** over what's *registered* in the picked frame
-(mnemonics mode-scoped — `m` here opens the Static Machines browse, not the
-Dynamic instance-inspector). Order per spec/007-UX-IA.md §Static mode:
-**Machines · Routes · Schemas · Flows · Interceptors**.
+**5 catalogue lenses** over what's *registered* (mnemonics mode-scoped —
+`m` here opens the Static Machines browse, not the Dynamic
+instance-inspector). Order per spec/007-UX-IA.md §Static mode:
+**Machines · Routes · Schemas · Flows · Interceptors**. **Mixed-scope:** the
+definition catalogues are **process-global** (the registrar is shared across
+every frame, Spec 001); the L1 frame picker scopes only the per-frame *live*
+projections each tab adds — machine snapshots, the flows registry, the
+app-db-schema side-table, the current-route slice (`static/shell.cljs`). It
+is **not** true that a picked frame owns all its registrations.
 
 > **The browse axis is `image -> frame`, full stop** — no realm / app /
 > module browse dimension; image assembly + frame isolation are the whole
@@ -246,8 +282,9 @@ Dynamic instance-inspector). Order per spec/007-UX-IA.md §Static mode:
 | **Interceptors** | `i` | Pure-browse lens over the registered interceptor chains — "what runs, and in what order?" |
 
 When a user asks "where do I see **all** my registered machines / routes /
-schemas / flows / interceptors?" the answer is **Static mode** — Dynamic
-tabs only ever show the focused event.
+schemas / flows / interceptors?" the answer is **Static mode** — the
+focused-epoch Dynamic lenses show one event, not the registry (the Graph and
+Frames browse tabs aside).
 
 ### Where familiar panels' content lives (these are not separate tabs)
 
