@@ -48,32 +48,20 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.flows.registry :as registry]
-            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.test-support :as test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
-;; ---- per-test reset (mirrors flows_concurrency_stress_test.clj) -----------
+;; ---- per-test reset -------------------------------------------------------
+;;
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter + ambient `:rf/default` scope) is owned by
+;; `make-reset-runtime-fixture`; EP-0002 — `:rf/default` is bound so the
+;; ambient `reg-flow` calls in the bodies below carry a frame stamp.
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
-  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
-  ;; ordinary frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- await! [^CountDownLatch latch where]
   (is (.await latch 30 TimeUnit/SECONDS)

@@ -24,31 +24,21 @@
   boundary collapses repeated subtrees on egress."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            ;; Loading `re-frame.flows` wires the `:flows/run-flows-on-db`
+            ;; late-bind hook this test exercises (the post-flow t2 path);
+            ;; the tests register flows via the `rf/reg-flow` facade.
+            [re-frame.flows]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]))
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-last-inputs!)
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  ;; EP-0002: reg-flow is context-required frame-local — an ambient call
-  ;; under no scope raises :rf.error/no-frame-context. Pin :rf/default (an
-  ;; ordinary frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter + ambient `:rf/default` scope) is owned by
+;; `make-reset-runtime-fixture`; EP-0002 — `:rf/default` is bound so the
+;; ambient `reg-flow` / `dispatch-sync` calls in the bodies below carry a
+;; frame stamp.
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- collect-traces!
   [id]

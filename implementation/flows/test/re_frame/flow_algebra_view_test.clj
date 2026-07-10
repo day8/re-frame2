@@ -24,33 +24,20 @@
   `re-frame.core/flow-algebra-view` public facade export."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace]))
 
-;; Mirrors the flows_test.clj fixture so each deftest starts from a clean
-;; registrar / frames / flows state, with a :rf/default frame established
-;; and `*current-frame*` pinned so the ambient `reg-flow` calls in the
-;; bodies below carry a scope stamp (EP-0002 — reg-flow is context-required
-;; frame-local).
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (flows/reset-last-inputs!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr :reload)
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
-    (test-fn)))
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter) is owned by `make-reset-runtime-fixture`, with a
+;; `:rf/default` frame established and bound as the ambient scope so the
+;; ambient `reg-flow` calls in the bodies below carry a scope stamp
+;; (EP-0002 — reg-flow is context-required frame-local).
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; The five fixed classifications EVERY flow algebra node carries
 ;; (Derivations §Worked equivalence — the flow column: the canonical

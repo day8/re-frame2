@@ -40,33 +40,27 @@
             [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
-;; Mirrors `flows_trace_test.clj`'s fixture: clean registrar / frames / flows /
-;; last-inputs, a live plain-atom substrate, and a flow-only trace recorder.
+;; The standard runtime reset (registrar baseline + frames + flows/schemas +
+;; plain-atom adapter + ambient `:rf/default` scope) is owned by
+;; `make-reset-runtime-fixture`. Layered AROUND it, a small concern-specific
+;; fixture installs a flow-op-type trace recorder for the body to assert
+;; against — the standard reset already cleared every trace listener, so the
+;; recorder starts clean and is torn down in its own `finally`.
 
 (def ^:dynamic ^:private *captured* nil)
 
-(defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (flows/reset-last-inputs!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002: reg-flow is context-required frame-local — an ambient call under
-  ;; no scope raises :rf.error/no-frame-context. Pin :rf/default (an ordinary
-  ;; frame) as the established scope for the body.
-  (frame/ensure-default-frame!)
+(defn- with-flow-trace-recorder
+  "Bind `*captured*` and record every `:flow`-op-type trace event for the
+  duration of one test; unregister the recorder afterwards."
+  [test-fn]
   (let [captured (atom [])]
-    (binding [*captured*            captured
-              frame/*current-frame* :rf/default]
+    (binding [*captured* captured]
       (trace/register-listener!
         ::flow-trace-recorder
         (fn [ev]
@@ -77,7 +71,9 @@
         (finally
           (trace/unregister-listener! ::flow-trace-recorder))))))
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  with-flow-trace-recorder)
 
 (defn- by-op
   "Captured flow-trace events with `:operation` = `op`, in capture order."
