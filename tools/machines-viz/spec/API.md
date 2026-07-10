@@ -168,6 +168,19 @@ reflect ONLY real, occupiable states (rf2-3lrl2q — pre-fix only
 these common default-path features over-reported its state count by +1
 per anchor/marker).
 
+This exclusion is the SINGLE `chart.layout/semantic-counts` helper
+(rf2-5fm165): given a projected graph (`project-definition` output) or a
+raw definition, it returns `{:state-count :transition-count :region-count}`
+— `:state-count` = occupiable states (`(remove synthetic-node? nodes)`, the
+predicate that folds together the exclusions above), `:transition-count` =
+every projected edge (machine-level / parallel-root / region-`:on-done`
+fallbacks included — they are real transitions), `:region-count` =
+`:region?` containers. The chart root reads it for its own
+`data-node-count` / `data-edge-count` / `data-region-count` + aria-label,
+and downstream tools (Xray's Dynamic / Static topology summaries) read the
+SAME helper so a wrapper's summary and the chart it mounts agree by
+construction — no per-tool recount.
+
 ### Container sizing — `:style {:width :height}` from ELK (rf2-a64bi)
 
 BOTH region containers (above) AND compound containers receive a

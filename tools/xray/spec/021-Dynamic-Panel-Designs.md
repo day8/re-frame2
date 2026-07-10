@@ -1069,7 +1069,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | License | MIT |
 | Bundle cost | ~50-80KB gzipped depending on which xyflow submodules are imported |
 | Mount mechanic | xyflow is a React component; Xray is Reagent. Use Reagent's React-component interop (`reagent/adapt-react-class` or `[:>` syntax) to mount xyflow inside the Xray Machines-panel Reagent component. |
-| Adapter layer | The live render path is the shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.chart`), mounted via the Xray-side `panels/machine_canvas.cljs` wrapper (rf2-gpzb4 — 2026-05-21 the SVG renderer gave way to xyflow). The original design's standalone `tools/xray/src/.../machines/xyflow_adapter.cljs` ns was never created; a self-contained, JVM-portable pure projector + palette catalogue survive off the live path as a unit-tested fallback at `panels/machines/topology.cljs` (`project`) + `panels/machines/xyflow_style.cljs`. |
+| Adapter layer | The live render path is the shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.chart`), mounted via the Xray-side `panels/machine_canvas.cljs` wrapper (rf2-gpzb4 — 2026-05-21 the SVG renderer gave way to xyflow). machines-viz `chart.layout/project-definition` is the SOLE topology projector (rf2-5fm165); the original design's standalone `machines/xyflow_adapter.cljs` ns was never created, and the former Xray-local fallback projector + palette catalogue (`panels/machines/topology.cljs` `project` + `panels/machines/xyflow_style.cljs`) were DELETED — they had no live-render-path consumer. Xray's only derived need, the topology-summary node/transition counts, routes through `chart.layout/semantic-counts`. |
 
 **Visual conventions to recreate (Stately reference, Xray palette):**
 
@@ -5547,15 +5547,17 @@ ring so the active node reads as the Stately/xstate convention the Figma
 fixes; it animates via `rf-xray-machine-pulse-active` (the accent
 counterpart of the green `rf-xray-machine-pulse`).
 
-**Parallel-machine node-ids are region-qualified (rf2-uo0rc.4).** The
-projector walks EVERY region of a `:parallel` machine, projecting each
-region's states under a path prefixed with the region-id — region `:a`'s
-`:idle` is path `[:a :idle]`, region `:b`'s `:idle` is `[:b :idle]`.
-Because `chart.layout/node-id` is injective on the path, same-named
-cross-region states mint **distinct** node-ids rather than colliding onto
-one node (which previously merged/mis-targeted the xyflow graph). The
-region segment is also what makes the grouping addressable when the
-`:region` container node-kind is surfaced.
+**Parallel-machine node-ids are region-scoped (rf2-wnzha).** The sole
+projector (machines-viz `chart.layout/project-definition`) walks EVERY
+region of a `:parallel` machine, preserving each state's IN-REGION `:path`
+verbatim (region `:a`'s `:idle` keeps path `[:idle]`) plus a `:region`
+tag, and minting a REGION-SCOPED node-id via `chart.layout/region-scoped-id`
+(region `:a`'s `:idle` → `"region__a__idle"`, region `:b`'s →
+`"region__b__idle"`). Because the region-scoped id is injective over
+region + in-region path, same-named cross-region states mint **distinct**
+node-ids rather than colliding onto one node (which previously
+merged/mis-targeted the xyflow graph). Each region also surfaces a
+synthetic `:region?` container node so the grouping is addressable.
 
 #### §17.4.3 Edge styles
 
@@ -5569,13 +5571,13 @@ Edge label: `:micro` (`~10px`) JetBrains Mono in `:text-secondary`,
 rendered inline on the edge (xyflow's `label` prop), not in a side
 legend.
 
-**Transition kinds projected onto edges (rf2-ezqpm).** The topology
-projection at `tools/xray/src/.../panels/machines/topology.cljs`
-inspects all three first-class transition-source slots a state node
+**Transition kinds projected onto edges (rf2-ezqpm).** The sole topology
+projector — machines-viz `chart.layout/project-definition` (rf2-5fm165)
+— inspects all three first-class transition-source slots a state node
 may carry (Spec 005). Each emits its own edge; the edge style table
 above applies uniformly to all three kinds (their distinction is
 encoded in the label glyph, not the stroke). The label conventions
-match `machines-viz/chart.layout/event-segment` (rf2-a2b55, the single
+come from `machines-viz/chart.layout/event-segment` (rf2-a2b55, the single
 source of truth for the Stately graph-view glyphs):
 
 | Slot | Edge label segment | Edge data flags | Spec |
@@ -5611,99 +5613,49 @@ the edge id keeps every branch addressable in xyflow.
 
 #### §17.4.5 Xray-palette token integration into xyflow style props
 
-Sketched in §6.0. **NOTE (drift reconcile, rf2-r1u79d):** the live
-Machines panel renders through the shared machines-viz `MachineChart`,
-which carries its OWN Stately-style node/edge styling — the catalogue
-below is NOT the live styling source. It survives as the self-contained,
-JVM-portable **fallback** palette at
-`tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs`
-(unit-tested, off the hot path), paired with the
-`panels/machines/topology.cljs` `project` projector. The originally-
-designed standalone `xyflow_adapter.cljs` ns (§6.0 / §17.5) was never
-created.
+Sketched in §6.0. **machines-viz is the SOLE topology projector +
+styling source (rf2-5fm165).** The live Machines panel renders through
+the shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.
+chart`), which carries its OWN Stately-style node/edge styling. The
+node-shape (§17.4.2) and edge-style (§17.4.3) tables above are the visual
+CONTRACT machines-viz implements — they are no longer duplicated in an
+Xray-local catalogue.
 
-```clojure
-;; tools/xray/src/day8/re_frame2_xray/panels/machines/xyflow_style.cljs
-;; The single source of truth for the FALLBACK projector's xyflow
-;; visual props (the live panel styles through machines-viz MachineChart).
+The former self-contained, JVM-portable Xray-local **fallback** — the
+`panels/machines/topology.cljs` `project` projector (+ `node-kind` /
+`edge-kind` / grid layout) and the `panels/machines/xyflow_style.cljs`
+palette catalogue — was DELETED (rf2-5fm165): it had NO live-render-path
+consumer (the live panel styles through machines-viz), imported
+machines-viz `chart.layout` itself (so it was never an isolation
+boundary), and only duplicated logic machines-viz already owns. The
+originally-designed standalone `xyflow_adapter.cljs` ns (§6.0 / §17.5)
+was never created either.
 
-(ns day8.re-frame2-xray.panels.machines.xyflow-style
-  (:require [day8.re-frame2-xray.theme.tokens
-             :refer [tokens mono-stack type-scale duration-css with-alpha]]))
-
-(def node-style
-  {:standard {:background    (:bg-2 tokens)
-              :border        (str "1px solid " (:border-default tokens))
-              :border-radius "6px"
-              :color         (:text-primary tokens)
-              :font-family   mono-stack
-              :font-size     (:body-tight type-scale)
-              :padding       "6px 10px"}
-   :final    {:background    (:bg-2 tokens)
-              :border        (str "2px solid " (:green tokens))
-              :box-shadow    (str "inset 0 0 0 1px " (:bg-2 tokens))
-              :border-radius "6px"
-              :color         (:text-primary tokens)
-              :font-family   mono-stack
-              :font-size     (:body-tight type-scale)
-              :padding       "6px 10px"}
-   ;; Figma reconcile (rf2-ad7zx.10 · §6.2 Case C): the TO/current state
-   ;; is a mode-accent DOUBLE-CIRCLE, not a green single ring.
-   :current  {:width         "64px"  :height "64px"
-              :border-radius "50%"   ; circle, not rounded-rect
-              :background    (with-alpha :accent 10)
-              :border        (str "3px solid " (:accent tokens))
-              ;; concentric double-ring: inner gap + inner ring
-              :box-shadow    (str "inset 0 0 0 3px " (:bg-1 tokens) ", "
-                                  "inset 0 0 0 5px " (:accent tokens))
-              :color         (:accent tokens)
-              :font-family   mono-stack
-              :font-weight   600
-              :animation     (str "rf-xray-machine-pulse-active "
-                                  (duration-css 1200)
-                                  " ease-in-out infinite")}
-   ;; FROM state — dashed/dim circle (source of the focused transition).
-   :from     {:width         "64px"  :height "64px"
-              :border-radius "50%"
-              :background    "transparent"
-              :border        (str "2px dashed " (:text-tertiary tokens))
-              :color         (:text-tertiary tokens)
-              :font-family   mono-stack}
-   ;; `active (compound)` container bounding the focused FROM/TO pair.
-   :compound {:background    "transparent"
-              :border        (str "2px dashed " (:border-default tokens))
-              :border-radius "8px"
-              :color         (:text-tertiary tokens)
-              :font-family   mono-stack
-              :font-size     (:micro type-scale)}
-   :region   {:background    "transparent"
-              :border        (str "1px dashed " (:border-default tokens))
-              :border-radius "8px"}})
-
-(def edge-style
-  {:registered          {:stroke       (:text-tertiary tokens)
-                         :stroke-width 1
-                         :stroke-dasharray "4 4"}
-   :registered-traversed {:stroke      (:text-tertiary tokens)
-                          :stroke-width 1}
-   :fired-this-epoch    {:stroke       (:accent tokens)  ; the single GitHub-blue accent
-                         :stroke-width 2}})  ; + xyflow :animated true
-
-(def edge-label-style
-  {:fill        (:text-secondary tokens)
-   :font-family mono-stack
-   :font-size   (:micro type-scale)})
-```
+The ONE derived value Xray still needs from the topology — the semantic
+node / transition counts the Dynamic / Static topology summaries stamp as
+`:data-node-count` / `:data-edge-count` — now routes through
+machines-viz `chart.layout/semantic-counts` (the SAME helper the chart
+root uses for its own `data-node-count` / `data-edge-count` / aria-label),
+so the summary and the chart it wraps agree by construction. The state
+count excludes synthetic layout chrome (region / root-container /
+machine-root / parallel-root nodes + `:history?` pseudo-states, per
+`chart.layout/synthetic-node?`); the transition count includes
+machine-level / parallel-root / region-`:on-done` fallback edges (real
+transitions the deleted Xray-local projector silently dropped).
 
 The `rf-xray-machine-pulse` keyframe (the green legacy pulse) and the
 `rf-xray-machine-pulse-active` keyframe (the mode-accent double-circle
-pulse the `:current` node now uses per the Figma reconcile · rf2-ad7zx.10)
-both live in the existing `theme/global_styles motion-css` block — added
-alongside the existing diff-flash + fade keyframes per the same
-`prefers-reduced-motion` collapsing mechanic. The active keyframe
-re-states the concentric inner-gap + inner-ring on every stop (box-shadow
-sets the whole property each frame) and rides `--rf-xray-accent` so the
-halo tracks the mode (orange Dynamic / cyan Static).
+pulse per the Figma reconcile · rf2-ad7zx.10) live in the existing
+`theme/global_styles motion-css` block — alongside the diff-flash + fade
+keyframes under the same `prefers-reduced-motion` collapsing mechanic.
+They remain the spec/021 §6.2 Case C / §17.4.2 active-state pulse
+contract; the deleted `xyflow_style.cljs` was their in-tree applicator, so
+wiring them onto the live machines-viz current-state node is now an open
+follow-on (the keyframes are retained pending that wiring, not deleted).
+The active keyframe re-states the concentric inner-gap + inner-ring on
+every stop (box-shadow sets the whole property each frame) and rides
+`--rf-xray-accent` so the halo tracks the mode (orange Dynamic / cyan
+Static).
 
 ### §17.5 Follow-on bead candidates (visual layer)
 
@@ -5712,16 +5664,19 @@ pass implies. Format: title + 2-line description + dependencies.
 Mayor reviews + files these alongside the structural per-panel beads
 already drafted in §13.
 
-- **DONE (superseded · rf2-gpzb4)** — *Xray: xyflow integration adapter
-  — re-frame2 machine spec → xyflow JSON.* Shipped NOT as the originally-
-  sketched standalone `machines/xyflow_adapter.cljs` ns, but via the
-  shared machines-viz `MachineChart` (`day8.re-frame2-machines-viz.chart`
-  — xyflow + **elkjs** layout) wrapped by Xray's `panels/machine_canvas.
-  cljs`. The pure projector + palette catalogue (`panels/machines/
-  topology.cljs` `project` + `panels/machines/xyflow_style.cljs`) survive
-  off the live path as a unit-tested JVM-portable fallback. xyflow +
-  elkjs are machines-viz `devDependency`s (bundle-isolated from
-  production).
+- **DONE (superseded · rf2-gpzb4; deduped · rf2-5fm165)** — *Xray: xyflow
+  integration adapter — re-frame2 machine spec → xyflow JSON.* Shipped NOT
+  as the originally-sketched standalone `machines/xyflow_adapter.cljs` ns,
+  but via the shared machines-viz `MachineChart`
+  (`day8.re-frame2-machines-viz.chart` — xyflow + **elkjs** layout) wrapped
+  by Xray's `panels/machine_canvas.cljs`. machines-viz
+  `chart.layout/project-definition` is the sole projector; the former
+  Xray-local fallback projector + palette catalogue (`panels/machines/
+  topology.cljs` `project` + `panels/machines/xyflow_style.cljs`) were
+  DELETED (rf2-5fm165 — no live-render-path consumer), and Xray's only
+  derived need (topology-summary counts) routes through
+  `chart.layout/semantic-counts`. xyflow + elkjs are machines-viz
+  `devDependency`s (bundle-isolated from production).
 
 - **rf2-?????** — *Xray: edn-inspector renderer component — lazy tree
   + inline diff + keyword accent + clickable paths.* New ns

@@ -1223,25 +1223,22 @@
             ;; keys embed `parsed`) recompute. A changed `:definition`
             ;; reparses once here and busts every downstream cache.
             parsed     (parse-topology! definition)
-            ;; Exclude synthetic parallel-region container nodes (zone
-            ;; chrome, not states), the synthetic ROOT-CONTAINER frame (the
-            ;; named box wrapping the whole machine — structural chrome, not
-            ;; a state), the synthetic MACHINE-ROOT / PARALLEL-ROOT anchor
-            ;; chips (minted for a machine-level / parallel-root `:on` /
-            ;; `:after` / `:on-done` fallback — routing chrome, not an
-            ;; occupiable state), and `:history?` pseudo-states (Spec 005
-            ;; history states are NEVER occupiable) from the state count +
-            ;; aria-label. rf2-3lrl2q — pre-fix only `:region?` /
-            ;; `:root-container?` were excluded, so any machine using a
-            ;; top-level `:on` fallback, a parallel-root `:on`/`:after`/
-            ;; `:on-done`, or a `:type :history` node over-reported its
-            ;; `data-node-count` / aria-label by +1 per anchor.
-            n-states   (count (remove #(or (:region? %) (:root-container? %)
-                                           (:machine-root? %) (:parallel-root? %)
-                                           (:history? %))
-                                      (:nodes parsed)))
-            n-regions  (count (filter :region? (:nodes parsed)))
-            n-trans    (count (:edges parsed))
+            ;; The semantic counts (state / transition / region) come from
+            ;; the SINGLE `layout/semantic-counts` helper (rf2-5fm165) so the
+            ;; chart root's `data-node-count` / `data-edge-count` / aria-label
+            ;; and Xray's Dynamic / Static topology summaries agree by
+            ;; construction. The state count excludes synthetic layout chrome
+            ;; (parallel-region containers, the ROOT-CONTAINER frame, the
+            ;; MACHINE-ROOT / PARALLEL-ROOT anchor chips minted for a
+            ;; machine-level / parallel-root `:on` / `:after` / `:on-done`
+            ;; fallback) and `:history?` pseudo-states (Spec 005 history
+            ;; states are NEVER occupiable) — see `layout/synthetic-node?`.
+            ;; rf2-3lrl2q — pre-exclusion any machine using a top-level `:on`
+            ;; fallback, a parallel-root `:on`/`:after`/`:on-done`, or a
+            ;; `:type :history` node over-reported by +1 per anchor.
+            {n-states  :state-count
+             n-regions :region-count
+             n-trans   :transition-count} (layout/semantic-counts parsed)
             ;; Resolve the density map ONCE so the ELK pass sizes container
             ;; `elk.padding` from the active density's title-strip + body-
             ;; pad constants. `chart-for-density` maps nil → regular and

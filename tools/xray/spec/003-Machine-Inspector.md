@@ -1108,11 +1108,14 @@ MachineChart primitive lives in its own tool jar; per the rf2-gpzb4
 xyflow migration (2026-05-21) it now renders via **xyflow + elkjs**
 (hierarchical-layered layout, custom Stately/xstate-style nodes + edges
 + arrowheads) — the prior host-side ELK+SVG layout/render is gone.
-Xray's own pure-data topology projector (`panels/machines/topology.cljs`
-— initial markers, compound nesting, self-loops, `event [guard] / action`
-labels, parallel regions; JVM-portable + unit-tested) survives as a
-self-contained fallback projection but is no longer the hot render path.
-Xray is a **consumer** of that primitive: the panel surface
+machines-viz `chart.layout/project-definition` is the SOLE topology
+projector (rf2-5fm165): the former Xray-local pure-data projector
+(`panels/machines/topology.cljs` `project` + `panels/machines/
+xyflow_style.cljs`) was DELETED — it had no live-render-path consumer and
+only duplicated logic machines-viz owns. Xray's one remaining derived need,
+the topology-summary node/transition counts, routes through
+`chart.layout/semantic-counts`. Xray is a **consumer** of that primitive:
+the panel surface
 (`panels/machine_canvas.cljs` + `panels/machines/topology_view.cljs`)
 imports the machines-viz chart API **directly**
 (`day8.re-frame2-machines-viz.chart/MachineChart`) — post the xyflow

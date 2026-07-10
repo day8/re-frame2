@@ -125,8 +125,8 @@
 
 (deftest state-count-compound-includes-nested-substates
   (testing "compound substates are counted, not omitted (rf2-6nx8y)"
-    ;; :unauth + :authed + (:browsing + :paying) = 4 — the same node
-    ;; count topology/parse-definition emits for this definition.
+    ;; :unauth + :authed + (:browsing + :paying) = 4 — the same occupiable-
+    ;; state count machines-viz `semantic-counts` emits for this definition.
     (let [row (h/project-row :m/compound
                              {:initial :unauth
                               :states  {:unauth {:on {:login :authed}}

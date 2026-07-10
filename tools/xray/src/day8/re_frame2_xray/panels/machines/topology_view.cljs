@@ -25,11 +25,11 @@
   `mv-chart/MachineChart` so the blank-state (Case-B) topology gets the
   SAME elkjs hierarchical-layered layout, sized state nodes, arrowheads,
   and Controls chrome as the focused-event chart — the Stately/xstate
-  look. The pure `topology/project` projector + its deterministic grid
-  layout (`topology/grid-positions`) are NOT on this render path; they
-  survive as a self-contained, JVM-portable fallback projection +
-  style catalogue (still unit-tested), but the live view never hands
-  their output to React.
+  look. `machines-viz` is the SOLE topology projector (rf2-5fm165); the
+  node / transition counts this wrapper stamps as `:data-node-count` /
+  `:data-edge-count` come from the SAME `chart-layout/semantic-counts`
+  the live chart uses for its own `data-node-count` / `data-edge-count`,
+  so the summary and the chart it wraps agree by construction.
 
   ## current-state overlay
 
@@ -58,9 +58,9 @@
   directly — the parent panel is responsible for pulling the
   definition + traces off the substrate and passing them in. Keeps
   the view testable in isolation."
-  (:require [day8.re-frame2-machines-viz.context-shape :as context-shape]
+  (:require [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
+            [day8.re-frame2-machines-viz.context-shape :as context-shape]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
-            [day8.re-frame2-xray.panels.machines.topology :as topology]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
@@ -215,11 +215,17 @@
         ;; absent. Surfaces as a data attribute so tests + downstream
         ;; views can assert the empty-state shape.
         no-transition-this-epoch? (empty? fired-ids)
-        ;; rf2-5qsxo — node/edge counts come straight off the pure
-        ;; `parse-definition` (no positions/styling needed just to count)
-        ;; so the data attributes downstream tests assert still hold while
-        ;; the actual render now flows through the elkjs chart.
-        {:keys [nodes edges]} (topology/parse-definition definition)]
+        ;; rf2-5fm165 — the semantic node / transition counts come from the
+        ;; SAME `chart-layout/semantic-counts` the live MachineChart uses for
+        ;; its own `data-node-count` / `data-edge-count`, so this wrapper's
+        ;; summary and the chart it mounts agree by construction. The state
+        ;; count excludes synthetic layout chrome (region / root-container /
+        ;; machine-root / parallel-root nodes + `:history?` pseudo-states);
+        ;; the transition count includes machine-level / parallel-root /
+        ;; region-`:on-done` fallbacks (real transitions the pre-rf2-5fm165
+        ;; xray-local fallback projector silently dropped).
+        {:keys [state-count transition-count]}
+        (chart-layout/semantic-counts (chart-layout/project-definition definition))]
     (cond
       (nil? definition)
       [:div {:data-testid (str testid "-no-definition")
@@ -231,7 +237,7 @@
                      :border-radius "6px"}}
        "Machine definition is not introspectable — no topology to render."]
 
-      (empty? nodes)
+      (zero? state-count)
       [:div {:data-testid (str testid "-empty")
              :data-machine-id (str machine-id)
              :style {:padding "16px"
@@ -242,8 +248,8 @@
       [:div {:data-testid testid
              :data-machine-id (str machine-id)
              :data-current-state (when cur-path (pr-str cur-path))
-             :data-node-count (str (count nodes))
-             :data-edge-count (str (count edges))
+             :data-node-count (str state-count)
+             :data-edge-count (str transition-count)
              :data-no-transition-this-epoch (str no-transition-this-epoch?)
              :data-current-state-source (cond
                                           current-state-path "explicit"
