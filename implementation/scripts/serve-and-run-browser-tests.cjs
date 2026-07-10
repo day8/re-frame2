@@ -23,7 +23,6 @@
  * instead of waiting out the full readiness timeout.
  */
 
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { enforcePolicy, DEFAULT_OUT_ROOT } = require('./_path-policy.cjs');
@@ -31,6 +30,7 @@ const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
   isValidExplicitPort,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   waitForOwnedHttpReady,
@@ -85,7 +85,6 @@ try {
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 const cleanup = createHarnessCleanup();
-cleanup.addCleanup(removeOwnershipToken);
 cleanup.installSignalHandlers();
 
 // shadow-cljs's :browser-test target generates an index.html with an empty
@@ -110,50 +109,33 @@ function ensureMountPoint() {
   }
 }
 
-// Server ownership token (rf2-gkf9). The readiness probe and the
-// teardown path both verify that the server reachable on `port` is the
-// one this orchestrator spawned. We do this by:
+// Server ownership token (rf2-gkf9). The readiness probe and the teardown
+// path both verify that the server reachable on `port` is the one this
+// orchestrator spawned:
 //
-//   1. Generating a per-run nonce.
-//   2. Writing it to a sentinel file under the served root BEFORE
-//      spawning http-server (so the file is published as soon as
-//      http-server starts serving the directory).
-//   3. The readiness probe fetches `/.rf-harness-token` and compares
-//      the body to the nonce — only then do we treat the server as
-//      "ours" and proceed to the Playwright runner.
-//   4. On teardown we tear down the PID we spawned and unlink the
-//      sentinel file regardless of test outcome.
+//   1. publishOwnershipToken(ROOT) generates a per-run nonce and writes it
+//      to a sentinel file under the served root BEFORE spawning http-server
+//      (so the file is published the moment http-server serves the dir).
+//   2. The readiness probe fetches `/.rf-harness-token` and compares the
+//      body to the nonce — only then do we treat the server as "ours" and
+//      proceed to the Playwright runner.
+//   3. On teardown the returned `remove` unlinks the sentinel, but only if
+//      it still holds THIS run's token (so an overlapping run's newer token
+//      is never destroyed).
 //
 // This positively defeats two failure modes:
 //   - An unrelated http-server (or any HTTP listener) on the same port
 //     gives a 200 to `/` but does NOT have our sentinel — we fail fast
 //     instead of running tests against the wrong asset tree.
-//   - A stale http-server child from a previous aborted run that
-//     re-bound the port between resolveServePort() and our spawn — same
-//     detection: its sentinel won't match this run's nonce.
+//   - A stale http-server child from a previous aborted run that re-bound
+//     the port between resolveServePort() and our spawn — same detection:
+//     its sentinel won't match this run's nonce.
 //
-// The probe/token-fetch/owned-readiness mechanics live in the shared
-// local-browser-harness.cjs (waitForOwnedHttpReady + fetchToken); this
-// script only owns the per-run token write/cleanup + the launcher
+// The entire token lifecycle (nonce generation + write + concurrency-safe,
+// idempotent cleanup) plus the probe/token-fetch/owned-readiness mechanics
+// live in the shared local-browser-harness.cjs (publishOwnershipToken +
+// waitForOwnedHttpReady + fetchToken); this script only owns the launcher
 // diagnostics.
-const TOKEN_PATH = path.join(ROOT, TOKEN_FILE_BASENAME);
-
-function writeOwnershipToken() {
-  // Don't write if the target dir doesn't exist yet — let the script
-  // error out elsewhere with a clearer message.
-  if (!fs.existsSync(ROOT)) return null;
-  const token = crypto.randomBytes(16).toString('hex');
-  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
-  return token;
-}
-
-function removeOwnershipToken() {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
-  } catch (_) {
-    // best-effort cleanup; do not let teardown bookkeeping fail the run.
-  }
-}
 
 // Resolve the port to use via the shared harness primitive
 // (local-browser-harness.cjs), honouring $BROWSER_TEST_PORT first, then
@@ -192,13 +174,16 @@ async function resolvePort() {
 
   // Publish the per-run ownership token (rf2-gkf9) before spawning
   // http-server so the file is visible the moment the server starts
-  // serving the directory. Cleaned up unconditionally in the finally
-  // path below.
-  const token = writeOwnershipToken();
-  if (!token) {
+  // serving the directory. The returned `remove` (idempotent, only unlinks
+  // our own token) is registered for teardown here rather than at module
+  // load because it isn't known until the token is written.
+  const published = publishOwnershipToken(ROOT);
+  if (!published) {
     console.error(`Asset root missing: ${ROOT}. Did shadow-cljs compile run?`);
     process.exit(1);
   }
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   const port = await resolvePort();
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);

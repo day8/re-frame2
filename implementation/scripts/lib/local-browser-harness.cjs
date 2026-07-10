@@ -1,9 +1,12 @@
 'use strict';
 
 const { spawn, spawnSync } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const net = require('net');
+const path = require('path');
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -81,6 +84,57 @@ async function resolveServePort(preferredPort, opts = {}) {
 // caller treats "no token yet" as "keep polling" and a present-but-wrong
 // token as a foreign server. (rf2-84gzw / rf2-gkf9 ownership handshake.)
 const TOKEN_FILE_BASENAME = '.rf-harness-token';
+
+// Publish a per-run server-ownership token under `root` (rf2-gkf9 /
+// rf2-pgppmu). Writes a fresh 16-byte hex nonce to
+// `${root}/.rf-harness-token` so http-server publishes it the moment it
+// starts serving `root`, and the readiness handshake (waitForOwnedHttpReady
+// + fetchToken) can positively distinguish THIS run's server from a
+// port-squatter or a stale server from an aborted run.
+//
+// Owns the WRITE side of the handshake (fetchToken/waitForOwnedHttpReady own
+// the read side), so the five browser-harness launchers no longer each carry
+// a bespoke crypto/write/unlink copy of this lifecycle.
+//
+// Returns `null` when `root` does not exist yet — the caller decides how to
+// report the missing asset root (each launcher prints its own diagnostic and
+// exits). Otherwise returns `{ token, remove }`:
+//   - `token`  — the nonce to pass as waitForOwnedHttpReady's expectedToken.
+//   - `remove` — idempotent, best-effort teardown. It unlinks the sentinel
+//                ONLY when the file still holds THIS run's token. An
+//                overlapping run against the SAME root may have re-published
+//                its own token over ours between our write and our teardown;
+//                unlinking unconditionally there would destroy the NEWER
+//                run's sentinel (a cross-run teardown race that would let the
+//                newer run's owned-readiness handshake spuriously fail).
+//                Reading the file and matching our nonce first makes
+//                concurrent teardown safe. It never throws — teardown
+//                bookkeeping must not fail the run — and no-ops on a second
+//                call.
+function publishOwnershipToken(root) {
+  if (!fs.existsSync(root)) return null;
+  const tokenPath = path.join(root, TOKEN_FILE_BASENAME);
+  const token = crypto.randomBytes(16).toString('hex');
+  fs.writeFileSync(tokenPath, token, 'utf8');
+
+  let removed = false;
+  function remove() {
+    if (removed) return;
+    removed = true;
+    try {
+      // Only OUR sentinel is ours to unlink. If a newer overlapping run has
+      // already replaced the content with its own nonce, leave it be.
+      if (fs.readFileSync(tokenPath, 'utf8').trim() === token) {
+        fs.unlinkSync(tokenPath);
+      }
+    } catch (_) {
+      // best-effort: the file is already gone, unreadable, or was
+      // concurrently replaced — nothing of ours to clean up.
+    }
+  }
+
+  return { token, remove };
+}
 
 function fetchToken(port, opts = {}) {
   const host = opts.host || '127.0.0.1';
@@ -435,6 +489,7 @@ module.exports = {
   isValidExplicitPort,
   probeHttp,
   probeTargetFromBaseUrl,
+  publishOwnershipToken,
   resolveServePort,
   sleep,
   spawnHarnessProcess,

@@ -328,6 +328,51 @@ for (const base of CONSOLIDATED_LAUNCHERS) {
   });
 }
 
+// rf2-pgppmu — ownership-token lifecycle consolidation guard. All five
+// browser-harness launchers that publish a per-run /.rf-harness-token now
+// delegate the token generate/write + idempotent, concurrency-safe cleanup
+// to the shared publishOwnershipToken(root) in local-browser-harness.cjs
+// (which already owns the read side: fetchToken + waitForOwnedHttpReady).
+// Pin that: none may keep a bespoke writeOwnershipToken/removeOwnershipToken
+// pair or a token-only `require('crypto')`, and each must consume the shared
+// helper. A future edit re-introducing a local copy — the exact
+// five-implementations-in-one-surface drift the bead removed — trips here.
+// (Scanned over stripped source so a comment naming the old symbols is not a
+// false positive.)
+const TOKEN_LIFECYCLE_LAUNCHERS = [
+  'serve-and-run-browser-tests.cjs',
+  'check-story-static.cjs',
+  'serve-and-run-reagent-slim-smoke.cjs',
+  'serve-and-run-tenant-switcher-testbed.cjs',
+  'serve-and-run-xray-feature-gate.cjs',
+];
+const PUBLISH_TOKEN_RE = /\bpublishOwnershipToken\b/;
+const LOCAL_TOKEN_DEFN_RES = [
+  /function\s+writeOwnershipToken\b/,
+  /function\s+removeOwnershipToken\b/,
+];
+const CRYPTO_REQUIRE_RE = /require\(\s*['"]crypto['"]\s*\)/;
+for (const base of TOKEN_LIFECYCLE_LAUNCHERS) {
+  test(`${base}: delegates its ownership-token lifecycle to the shared helper (rf2-pgppmu)`, () => {
+    const code = stripComments(
+      fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8'),
+    );
+    assert.match(code, PUBLISH_TOKEN_RE,
+      `${base} must publish its ownership token via the shared ` +
+        `publishOwnershipToken(root) from ./lib/local-browser-harness.cjs.`);
+    for (const re of LOCAL_TOKEN_DEFN_RES) {
+      assert.doesNotMatch(code, re,
+        `${base} defines a local ownership-token lifecycle fn that now lives ` +
+          `in ./lib/local-browser-harness.cjs (publishOwnershipToken) — import ` +
+          `it instead of keeping a bespoke copy (rf2-pgppmu consolidation).`);
+    }
+    assert.doesNotMatch(code, CRYPTO_REQUIRE_RE,
+      `${base} still imports 'crypto' — the per-run token nonce now comes ` +
+        `from the shared publishOwnershipToken; drop the token-only crypto ` +
+        `import (rf2-pgppmu).`);
+  });
+}
+
 // stripComments sanity: it must remove a forbidden token that appears
 // only in a comment, but keep one that appears in real code. Guards the
 // gate itself against false-negatives (a comment masking a live spawn)

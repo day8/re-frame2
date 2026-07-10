@@ -41,7 +41,6 @@
 'use strict';
 
 const { spawnSync } = require('child_process');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -51,6 +50,7 @@ const {
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   waitForOwnedHttpReady,
@@ -77,15 +77,15 @@ const cleanup = createHarnessCleanup({
 });
 cleanup.addCleanup(() => {
   diagnostics.add('Tearing down story-static http-server.');
-  removeOwnershipToken();
 });
 cleanup.installSignalHandlers();
 
 // Per rf2-o38lb: ownership-token sentinel, same shape as
-// serve-and-run-browser-tests.cjs. The basename + the probe/token-fetch/
-// owned-readiness mechanics come from the shared local-browser-harness.cjs;
-// this script only owns the per-run token write/cleanup.
-const TOKEN_PATH = path.join(OUT_DIR, TOKEN_FILE_BASENAME);
+// serve-and-run-browser-tests.cjs. The whole token lifecycle (nonce +
+// write + concurrency-safe idempotent cleanup) and the probe/token-fetch/
+// owned-readiness mechanics come from the shared local-browser-harness.cjs
+// (publishOwnershipToken + waitForOwnedHttpReady); this script only owns the
+// per-run launcher diagnostics.
 
 function addChunk(diagnostics, prefix, chunk, stream = 'stdout') {
   const normalized = String(chunk || '').replace(/\r\n/g, '\n');
@@ -182,21 +182,6 @@ async function resolvePort(diagnostics) {
       );
     },
   });
-}
-
-function writeOwnershipToken() {
-  if (!fs.existsSync(OUT_DIR)) return null;
-  const token = crypto.randomBytes(16).toString('hex');
-  fs.writeFileSync(TOKEN_PATH, token, 'utf8');
-  return token;
-}
-
-function removeOwnershipToken() {
-  try {
-    if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
-  } catch (_) {
-    // best-effort cleanup
-  }
 }
 
 async function smokeTest(baseUrl, diagnostics) {
@@ -343,13 +328,17 @@ async function smokeTest(baseUrl, diagnostics) {
     process.exit(1);
   }
 
-  // 3. Publish the ownership token BEFORE spawning http-server.
-  const token = writeOwnershipToken();
-  if (!token) {
+  // 3. Publish the ownership token BEFORE spawning http-server. The
+  //    returned `remove` (idempotent, only unlinks our own token) is
+  //    registered for teardown now that the token exists.
+  const published = publishOwnershipToken(OUT_DIR);
+  if (!published) {
     console.error(`Asset root missing: ${OUT_DIR}`);
     flushDiagnostics(diagnostics);
     process.exit(1);
   }
+  const { token, remove } = published;
+  cleanup.addCleanup(remove);
 
   // 4. Pick a port and serve.
   const port = await resolvePort(diagnostics);

@@ -3,8 +3,11 @@
 
 const assert = require('assert/strict');
 const crypto = require('crypto');
+const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
+const path = require('path');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
@@ -13,6 +16,7 @@ const {
   isPortFree,
   isValidExplicitPort,
   probeTargetFromBaseUrl,
+  publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
   terminateProcessTree,
@@ -487,6 +491,121 @@ test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)'
     );
   } finally {
     server.close();
+  }
+});
+
+// rf2-pgppmu — the shared ownership-token lifecycle. The five browser-
+// harness launchers (check-story-static, serve-and-run-browser-tests,
+// reagent-slim smoke, tenant-switcher testbed, Xray feature gate) each used
+// to carry a bespoke crypto/write/unlink copy of this. They now delegate to
+// publishOwnershipToken(root) here. These tests pin its contract:
+// creation, basename/content, missing-root null, idempotent cleanup,
+// cleanup-error suppression, and the concurrency crux — a stale run's remove
+// must NOT delete a newer run's replacement token.
+function mkTmpRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-token-'));
+}
+
+test('publishOwnershipToken creates the sentinel and returns {token, remove} (rf2-pgppmu)', () => {
+  const root = mkTmpRoot();
+  try {
+    const published = publishOwnershipToken(root);
+    assert.ok(published, 'expected {token, remove} for an existing root');
+    assert.equal(typeof published.token, 'string');
+    assert.ok(published.token.length > 0, 'token must be a non-empty nonce');
+    assert.equal(typeof published.remove, 'function');
+    assert.ok(
+      fs.existsSync(path.join(root, TOKEN_FILE_BASENAME)),
+      'the sentinel file must exist on disk after publish',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publishOwnershipToken writes the token to the canonical basename with matching content (rf2-pgppmu)', () => {
+  const root = mkTmpRoot();
+  try {
+    const { token } = publishOwnershipToken(root);
+    const tokenPath = path.join(root, TOKEN_FILE_BASENAME);
+    // Basename is exactly the shared constant (the value the readiness
+    // handshake fetches at `/${TOKEN_FILE_BASENAME}`).
+    assert.equal(path.basename(tokenPath), '.rf-harness-token');
+    // On-disk content equals the returned token verbatim (this is what
+    // waitForOwnedHttpReady compares the fetched body against).
+    assert.equal(fs.readFileSync(tokenPath, 'utf8'), token);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publishOwnershipToken returns null for a missing root (caller-controlled policy) (rf2-pgppmu)', () => {
+  const missing = path.join(os.tmpdir(), `rf2-token-missing-${crypto.randomBytes(6).toString('hex')}`);
+  assert.equal(fs.existsSync(missing), false, 'precondition: root must not exist');
+  // null (not a throw) so each launcher keeps its own "asset root missing"
+  // diagnostic + exit code.
+  assert.equal(publishOwnershipToken(missing), null);
+  assert.equal(
+    fs.existsSync(path.join(missing, TOKEN_FILE_BASENAME)),
+    false,
+    'must not create the root or the sentinel',
+  );
+});
+
+test('publishOwnershipToken remove() deletes the sentinel and is idempotent (rf2-pgppmu)', () => {
+  const root = mkTmpRoot();
+  try {
+    const { remove } = publishOwnershipToken(root);
+    const tokenPath = path.join(root, TOKEN_FILE_BASENAME);
+    assert.ok(fs.existsSync(tokenPath), 'precondition: sentinel exists');
+    remove();
+    assert.equal(fs.existsSync(tokenPath), false, 'remove() must unlink our sentinel');
+    // Second call is a no-op and must not throw (idempotent cleanup).
+    assert.doesNotThrow(() => remove());
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('publishOwnershipToken remove() suppresses cleanup errors (rf2-pgppmu)', () => {
+  const root = mkTmpRoot();
+  const { remove } = publishOwnershipToken(root);
+  // Yank the whole root (and its sentinel) out from under the returned
+  // cleanup — a readFileSync/unlinkSync inside remove() would now throw.
+  // Best-effort teardown must swallow it, never failing the run.
+  fs.rmSync(root, { recursive: true, force: true });
+  assert.doesNotThrow(() => remove());
+});
+
+test('publishOwnershipToken remove() preserves a newer overlapping run\'s replacement token (rf2-pgppmu)', () => {
+  const root = mkTmpRoot();
+  try {
+    // Run A publishes.
+    const runA = publishOwnershipToken(root);
+    const tokenPath = path.join(root, TOKEN_FILE_BASENAME);
+    // Run B (an overlapping run against the SAME root) re-publishes, replacing
+    // the sentinel content with its own nonce.
+    const runB = publishOwnershipToken(root);
+    assert.notEqual(runA.token, runB.token, 'the two runs must have distinct nonces');
+    assert.equal(fs.readFileSync(tokenPath, 'utf8'), runB.token);
+    // Run A now tears down. It must NOT delete B's sentinel — unlinking here
+    // would make B's owned-readiness handshake spuriously fail (the
+    // concurrency crux).
+    runA.remove();
+    assert.ok(
+      fs.existsSync(tokenPath),
+      'stale run A\'s remove() must not unlink the newer run B\'s sentinel',
+    );
+    assert.equal(
+      fs.readFileSync(tokenPath, 'utf8'),
+      runB.token,
+      'the surviving sentinel must still hold run B\'s token',
+    );
+    // B's own remove() correctly cleans up its sentinel.
+    runB.remove();
+    assert.equal(fs.existsSync(tokenPath), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
