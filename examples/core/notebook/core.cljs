@@ -165,7 +165,7 @@
   ;; clicked. We must therefore detect the scheme against a copy with every
   ;; ASCII control + space char removed; otherwise a control-char-broken
   ;; scheme fails the anchored regex, is misclassified as scheme-LESS, and is
-  ;; waved through as a live `<a href>` — the allowlist bypass rf2-9tllom.
+  ;; incorrectly allowed as a live `<a href>`.
   ;; Stripping [\x00-\x20\x7f] is a *superset* of what the browser drops, so
   ;; we can never under-detect a scheme the browser would go on to resolve;
   ;; the anchored regex + `:else nil` then default-DENY anything not

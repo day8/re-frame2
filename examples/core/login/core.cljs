@@ -289,7 +289,7 @@
       :record-error
       ;; Remember what went wrong (for the UI) and tick the attempt
       ;; counter up by one (for the retry guard).
-      ;; rf2-ibksxg — the classified failure map rides under :error.
+      ;; The classified failure map rides under :error.
       (fn [{data :data [_ {:keys [error]}] :event}]
         {:data (-> data
                    (update :attempts inc)

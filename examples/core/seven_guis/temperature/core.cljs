@@ -8,8 +8,8 @@
    to show a stale value.
 
    re-frame2 sidesteps the whole thing. Keep *one* canonical temperature in
-   app-db and *one* event that writes it. Both inputs read from that single
-   value through subscriptions and write back through that single event. The
+   app-db. Both inputs read from that value through subscriptions, and each
+   field has one edit event that converts its input into the canonical unit. The
    fields never speak to each other, so they can't fight. The trap simply
    never opens.
 
