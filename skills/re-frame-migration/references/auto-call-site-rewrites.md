@@ -39,22 +39,37 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 
 ### M-1 — Off-contract `re-frame.*` namespace requires
 
-**M-1 is a PRINCIPLE, not a fixed enumeration.** re-frame2's compatibility commitment covers the **public surface** only — every other `re-frame.*` namespace is off-contract and a require of one is an M-1 site. The public surface is:
+**M-1 is a PRINCIPLE, not a fixed enumeration.** re-frame2's compatibility commitment covers the **public surface** only — every other `re-frame.*` namespace is off-contract and a require of one is an M-1 site.
+
+#### The M-1 public-surface exceptions
+
+This is the **single, canonical allowlist** of `re-frame.*` namespaces the M-1 scan must **leave in place** (never flag as a site). [`breaking-changes.md`](breaking-changes.md) and [`inventory-and-plan.md`](inventory-and-plan.md) link here rather than restating a subset; the invert-filter below and this list are kept in step. The public surface is:
 
 - **`re-frame.core`** — the public façade. The single import for application code (`[re-frame.core :as rf]`).
+- **`re-frame.adapter.<substrate>`** — the published substrate-adapter namespaces (`re-frame.adapter.reagent` / `re-frame.adapter.uix` / `re-frame.adapter.helix`), the adapter-tier public surface (`spec/api-manifest-metadata.edn`). **M-38 rewrites *into* it and M-40 boot *requires* it**, so it is on-contract — never an M-1 site. (M-38 renames the v1 `re-frame.substrate.<name>` require to this destination; that destination must survive the scan, not be flagged by it.)
 - **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http.managed` / `re-frame.http`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http.test-support`.
-- **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it. **`re-frame.std-interceptors` is NOT preserved** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
+- **`re-frame.interop`** (JVM interop) — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave it.
+- **`re-frame.spec`** — the namespace is **NOT renamed**; its alias is preserved for back-compat. M-54 renames the `:spec` metadata *key* to `:schema` — it does **not** touch the `re-frame.spec` *namespace* (see [`auto-cross-cutting.md` §M-54](auto-cross-cutting.md#m-54--schema-vocabulary-unification-spec--schema) / [`MIGRATION.md` §M-54](../../../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema)). Leave the require in place; reach the schema boundary-validator by its framework ref `:rf.schema/at-boundary`, never by rewriting the require away.
 
-Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** a public surface in v2 — it does not exist as a v2 namespace; a v1 `re-frame.alpha` require is removed by **M-23**, not M-1. The internals that an `:enumerate-the-list` sweep tends to miss include `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, **`re-frame.utils`**, `re-frame.loggers`, `re-frame.interceptor`, `re-frame.fx`, `re-frame.cofx`, `re-frame.spec` (reach the interceptor through `re-frame.core` instead). `re-frame.utils` in particular is a classic surprise: a v1 app that used `re-frame.utils/map-vals` sails through an enumerated sweep and only fails later with `The required namespace "re-frame.utils" is not available` — *after* the obvious db/router/subs/events/registrar requires are cleared, so it reads as a regression rather than a known M-1 site.
+**`re-frame.std-interceptors` is NOT on the surface** — it is off-contract, and its v1 helpers (`unwrap` / `debug` / `trim-v` / `on-changes` / `enrich` / `after`) are removed under M-21, so a require of it is itself an M-1 site and each helper call site is an M-21 / M-19 / M-70 rewrite.
+
+Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** a public surface in v2 — it does not exist as a v2 namespace; a v1 `re-frame.alpha` require is removed by **M-23**, not M-1. The internals that an `:enumerate-the-list` sweep tends to miss include `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, **`re-frame.utils`**, `re-frame.loggers`, `re-frame.interceptor`, `re-frame.fx`, `re-frame.cofx` (reach these through `re-frame.core` instead). `re-frame.utils` in particular is a classic surprise: a v1 app that used `re-frame.utils/map-vals` sails through an enumerated sweep and only fails later with `The required namespace "re-frame.utils" is not available` — *after* the obvious db/router/subs/events/registrar requires are cleared, so it reads as a regression rather than a known M-1 site.
 
 **Grep all off-contract requires up front** so the migrator fixes them in one pass, not one compile error at a time (the "march the wall" effect — each fix reveals the next missing-namespace error). The skill's only shell verb is `rg` (SKILL.md `allowed-tools`):
 
 ```bash
 # Every re-frame.* require that is NOT on the public surface.
-# Stage 1: broad-scan every re-frame.* require. Stage 2: invert-filter out
-# core + the preserved/feature namespaces. Each surviving line is an M-1 site.
+# Stage 1: broad-scan every re-frame.* require. Stage 2: invert-filter out the
+# public-surface exceptions above (core + adapter + feature artefacts + interop +
+# the preserved spec ns). Each surviving line is an M-1 site.
+# The alternation mirrors "The M-1 public-surface exceptions" list — keep the two
+# in step. `adapter\b` exempts all three published adapters (M-38/M-40 destination);
+# `http\b` covers re-frame.http / .http.managed / .http.test-support (the \b fires at
+# the following dot); `spec\b` exempts the preserved re-frame.spec (M-54). Private
+# re-frame.db / .utils / .router / .subs / .registrar / .loggers are NOT listed, so
+# they survive and ARE flagged.
 rg -n '\[\s*re-frame\.[a-z-]+' . \
-  | rg -v '\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|http|http-managed|http-test-support|ssr|epoch|test-support)\b'
+  | rg -v '\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|http|ssr|epoch|test-support|spec)\b'
 ```
 
 (**Do not** reach for an inline negative-lookahead — `rg -n '\[\s*re-frame\.(?!core\b|…)…'` — in the *default* engine: ripgrep's default Rust `regex` engine rejects look-around and exits non-zero *before scanning* with "look-around … is not supported", so the M-1 inventory silently produces nothing and reads as a false-clean sweep. The broad-scan-then-invert-filter form above works on **any** ripgrep build; an equivalent single-command form needs `rg -P`/`--pcre2`, which only works on a ripgrep compiled with PCRE2. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)

@@ -53,6 +53,20 @@ still-live `:on-error` *surfaces* (a machine `:spawn :on-error` transition, a
 route `:on-error` lifecycle event), which are NOT frame-level recovery policies.
 The skill legitimately mentions all of those in their corrected forms.
 
+A fourth, structurally different guard (rf2-3fc89f.35) rides the same gate:
+
+  * **M-1 classifier — the executable off-contract-namespace sweep must exempt
+    every public destination and flag the private internals.** The skill ships a
+    two-stage `rg` broad-scan + invert-filter (auto-call-site-rewrites.md) whose
+    survivors it calls M-1 sites. An earlier filter omitted `adapter` and `spec`,
+    so `re-frame.adapter.reagent` (the skill's OWN M-38/M-40 boot destination) and
+    the M-54-preserved `re-frame.spec` survived and were wrongly flagged — the
+    skill diagnosing its own required import as off-contract. This guard extracts
+    the leaf's own invert-filter and runs it over representative requires, plus
+    pins the exceptions-definition anchor, the breaking-changes / inventory links
+    to it, the kickoff `ls-tree`/`rg` allowance, and the M-22 Type-A label. See
+    `m1_classifier_problems()` / `m1_anchor_problems()`.
+
 Scan surface: the user-facing migration-skill leaves (SKILL.md + references/*.md)
 PLUS the migration corpus the skill treats as source of truth
 (migration/from-re-frame-v1/README.md), since the review found the same drift in
@@ -263,6 +277,186 @@ def line_problems(line: str) -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------------------
+# M-1 public-namespace classifier + kickoff / slicing anchors (rf2-3fc89f.35).
+#
+# A second, structurally distinct defect class the M-11/M-13 line-scanner above
+# cannot see: the migration skill's *executable* M-1 inventory — the two-stage
+# `rg` broad-scan + invert-filter in auto-call-site-rewrites.md — must EXEMPT
+# every documented public destination (re-frame.core, the
+# re-frame.adapter.<substrate> tier that M-38 rewrites into and M-40 boot
+# requires, the per-feature artefacts, re-frame.interop, and the M-54-preserved
+# re-frame.spec) while still FLAGGING the private internals (re-frame.db /
+# .utils / .router / .subs / .registrar / .loggers). An invert-filter that drops
+# `adapter` / `spec` diagnoses the skill's OWN boot namespace as off-contract and
+# can direct a routine migration to remove its required import, then fail
+# compile/boot (rf2-3fc89f.35).
+#
+# This guard runs the skill's OWN documented invert-filter — extracted verbatim
+# from the leaf, not a hand-kept copy — against representative require lines and
+# asserts the classification, so re-dropping `adapter`/`spec` is a build failure.
+# It also pins the prose anchors the fix introduced (the single exceptions
+# definition + its inbound links, the kickoff `ls-tree`/`rg` allowance, the M-22
+# Type-A classification) so they cannot silently rot back.
+# ---------------------------------------------------------------------------
+
+AUTO_CALL_SITE_MD = SKILL_DIR / "references" / "auto-call-site-rewrites.md"
+BREAKING_CHANGES_MD = SKILL_DIR / "references" / "breaking-changes.md"
+INVENTORY_PLAN_MD = SKILL_DIR / "references" / "inventory-and-plan.md"
+KICKOFF_MD = SKILL_DIR / "references" / "kickoff-prompt.md"
+
+M1_EXCEPTIONS_HEADING = "#### The M-1 public-surface exceptions"
+M1_EXCEPTIONS_ANCHOR = (
+    "auto-call-site-rewrites.md#the-m-1-public-surface-exceptions"
+)
+
+# The M-1 scan MUST flag these (private / off-contract internals — they survive
+# the invert-filter).
+M1_FLAG_NSES = [
+    "re-frame.db", "re-frame.utils", "re-frame.router", "re-frame.subs",
+    "re-frame.events", "re-frame.registrar", "re-frame.loggers",
+    "re-frame.interceptor", "re-frame.fx", "re-frame.cofx",
+    "re-frame.std-interceptors",
+]
+# The M-1 scan MUST NOT flag these (the public-surface exceptions — the
+# invert-filter removes them).
+M1_EXEMPT_NSES = [
+    "re-frame.core",
+    "re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.adapter.helix",
+    "re-frame.spec", "re-frame.interop",
+    "re-frame.schemas", "re-frame.machines", "re-frame.routing", "re-frame.flows",
+    "re-frame.http", "re-frame.http.managed", "re-frame.http.test-support",
+    "re-frame.ssr", "re-frame.epoch", "re-frame.test-support",
+]
+
+# Extract the documented rg patterns. The broad-scan line ends `' . \` (space-dot);
+# the invert line is the unique `rg -v '…re-frame…'`. Anchoring the broad-scan on
+# the trailing ` .` skips the prose look-around counter-example further down.
+_M1_BROAD_RE = re.compile(r"rg -n '([^']*re-frame[^']*)' \.")
+_M1_INVERT_RE = re.compile(r"rg -v '([^']*re-frame[^']*)'")
+
+
+def _require_line(ns: str) -> str:
+    return f"  (:require [{ns} :as x])"
+
+
+def _extract_m1_patterns(text: str):
+    """Compile the leaf's documented broad-scan + invert-filter as Python regexes.
+    Returns (broad, invert, error-or-None)."""
+    mb = _M1_BROAD_RE.search(text)
+    mv = _M1_INVERT_RE.search(text)
+    if not mb or not mv:
+        return None, None, (
+            "could not locate the documented M-1 two-stage `rg` broad-scan / "
+            "invert-filter in auto-call-site-rewrites.md — the executable M-1 "
+            "inventory shape drifted; a migration can no longer run it."
+        )
+    try:
+        return re.compile(mb.group(1)), re.compile(mv.group(1)), None
+    except re.error as exc:  # pragma: no cover - defends against a mangled edit
+        return None, None, f"documented M-1 rg pattern is not a valid regex: {exc}"
+
+
+def _classify(line: str, broad: re.Pattern, invert: re.Pattern) -> str:
+    """Mirror the documented two-stage sweep: a re-frame.* require that survives
+    the invert-filter is an M-1 site ('flag'); one the filter removes is 'exempt'."""
+    if not broad.search(line):
+        return "not-a-require"
+    return "exempt" if invert.search(line) else "flag"
+
+
+def m1_classifier_problems() -> list[str]:
+    """Run the skill's own invert-filter over representative requires."""
+    if not AUTO_CALL_SITE_MD.is_file():
+        return [f"SETUP: M-1 leaf missing: {AUTO_CALL_SITE_MD.relative_to(REPO_ROOT)}"]
+    broad, invert, err = _extract_m1_patterns(_slurp(AUTO_CALL_SITE_MD))
+    if err:
+        return [f"M1-CLASSIFIER-SETUP: {err}"]
+    problems: list[str] = []
+    for ns in M1_FLAG_NSES:
+        if _classify(_require_line(ns), broad, invert) != "flag":
+            problems.append(
+                f"M1-FALSE-NEGATIVE: the documented M-1 invert-filter EXEMPTS the "
+                f"private/off-contract `{ns}` — it must survive the filter and be "
+                f"flagged as an M-1 site."
+            )
+    for ns in M1_EXEMPT_NSES:
+        if _classify(_require_line(ns), broad, invert) != "exempt":
+            problems.append(
+                f"M1-FALSE-POSITIVE: the documented M-1 invert-filter FLAGS the "
+                f"public-surface `{ns}` — the skill would tell a migration its own "
+                f"required destination is off-contract. Add it to the invert-filter "
+                f"alternation AND the exceptions list (rf2-3fc89f.35)."
+            )
+    return problems
+
+
+def m1_anchor_problems() -> list[str]:
+    """Pin the prose anchors the rf2-3fc89f.35 fix introduced."""
+    problems: list[str] = []
+
+    # 1. The single canonical exceptions definition + its linkable anchor, naming
+    #    the three surfaces the pre-fix incomplete subset dropped.
+    if AUTO_CALL_SITE_MD.is_file():
+        acs = _slurp(AUTO_CALL_SITE_MD)
+        if M1_EXCEPTIONS_HEADING not in acs:
+            problems.append(
+                "M1-ANCHOR-MISSING: auto-call-site-rewrites.md no longer defines "
+                f"the `{M1_EXCEPTIONS_HEADING}` section the other leaves link to."
+            )
+        for token in (
+            "re-frame.adapter", "re-frame.spec", "re-frame.interop", "re-frame.core",
+        ):
+            if token not in acs:
+                problems.append(
+                    f"M1-EXCEPTIONS-INCOMPLETE: the M-1 leaf no longer names "
+                    f"`{token}` as a public-surface exception."
+                )
+    else:
+        problems.append("SETUP: auto-call-site-rewrites.md missing.")
+
+    # 2. breaking-changes + inventory-and-plan link to the definition rather than
+    #    restating an incomplete subset.
+    for path in (BREAKING_CHANGES_MD, INVENTORY_PLAN_MD):
+        if path.is_file() and M1_EXCEPTIONS_ANCHOR not in _slurp(path):
+            problems.append(
+                f"M1-NO-LINK-TO-DEFINITION: {path.name} does not link to "
+                f"`{M1_EXCEPTIONS_ANCHOR}` — it likely restates an incomplete "
+                f"public-surface subset instead of the single definition."
+            )
+
+    # 3. Kickoff prompt: the required read-only `ls-tree` + `rg` are permitted, the
+    #    stale "only commands you run yourself" line is gone, and M-22 is not Type B.
+    if KICKOFF_MD.is_file():
+        k = _slurp(KICKOFF_MD)
+        if "ls-tree" not in k:
+            problems.append(
+                "KICKOFF-NO-LSTREE: kickoff-prompt.md omits the `ls-tree` "
+                "structural-identity check SKILL.md cardinal rule 5 requires."
+            )
+        if re.search(r"`rg`", k) is None:
+            problems.append(
+                "KICKOFF-NO-RG: kickoff-prompt.md no longer notes that the session "
+                "runs the codebase `rg` inventories itself."
+            )
+        if re.search(r"only command[s]?\b[^.\n]*\byourself", k, re.IGNORECASE):
+            problems.append(
+                "KICKOFF-ONLY-COMMANDS: kickoff-prompt.md still says the provenance "
+                "checks are the ONLY commands the session runs — that forbids the "
+                "required read-only `rg`/`ls-tree` reads (contradicts cardinal rule 5)."
+            )
+        if re.search(r"M-22[^.\n]*Type\s*B", k, re.IGNORECASE):
+            problems.append(
+                "KICKOFF-M22-TYPEB: kickoff-prompt.md labels M-22 as Type B — M-22 "
+                "(reg-view keyword-shape rewrite) is Type A / mechanical "
+                "(MIGRATION.md; breaking-changes.md)."
+            )
+    else:
+        problems.append("SETUP: kickoff-prompt.md missing.")
+
+    return problems
+
+
 def find_drift(files: list[Path]) -> tuple[list[str], int]:
     problems: list[str] = []
     lines_checked = 0
@@ -294,18 +488,22 @@ def run(*, verbose: bool, ci: bool) -> int:
 
     files = _scanned_files()
     problems, lines_checked = find_drift(files)
+    problems.extend(m1_classifier_problems())
+    problems.extend(m1_anchor_problems())
 
     if verbose:
         print(
-            f"migration M-11/M-13 contract-drift guard: scanned {len(files)} "
-            f"files ({lines_checked} lines)."
+            f"migration contract-drift guard: scanned {len(files)} files "
+            f"({lines_checked} lines) + ran the M-1 classifier over "
+            f"{len(M1_FLAG_NSES) + len(M1_EXEMPT_NSES)} representative requires."
         )
 
     if not problems:
         if verbose:
             print(
-                "contract-drift: no plain-fn-inherits-frame (M-11) or "
-                "moved-to-frame-level-:on-error (M-13) drift found."
+                "contract-drift: no plain-fn-inherits-frame (M-11), "
+                "moved-to-frame-level-:on-error (M-13), or M-1 classifier / "
+                "kickoff-anchor drift found."
             )
         return 0
 
@@ -315,8 +513,9 @@ def run(*, verbose: bool, ci: bool) -> int:
     print(
         f"\ncontract-drift: {len(problems)} drift issue(s) — the migration skill "
         "is the agent's source of truth for what breaks; align M-11 (plain fns "
-        "DON'T inherit the provider frame) and M-13 (no frame-level `:on-error` "
-        "recovery policy) to the shipped spec / runtime contract."
+        "DON'T inherit the provider frame), M-13 (no frame-level `:on-error` "
+        "recovery policy), and the M-1 classifier (public destinations exempt, "
+        "private internals flagged) / kickoff anchors to the shipped contract."
     )
     return 1
 
@@ -444,6 +643,46 @@ def _self_test() -> int:
         "explicit `{:frame :rf/default}` opt.",
         dirty=False, label="B11 explicit :rf/default target (correct)",
     )
+
+    # --- M-1 classifier fixtures (rf2-3fc89f.35) --------------------------------
+    # Exercise the classifier logic against the CORRECTED invert-filter (adapters
+    # + spec exempt, privates flagged) and the PRE-FIX buggy filter (missing
+    # adapter/spec) — the latter proving the guard detects the regression.
+    good_broad = re.compile(r"\[\s*re-frame\.[a-z-]+")
+    good_invert = re.compile(
+        r"\[\s*re-frame\.(adapter|core|interop|schemas|machines|routing|flows|"
+        r"http|ssr|epoch|test-support|spec)\b"
+    )
+    bad_invert = re.compile(  # the exact pre-fix filter — no `adapter`, no `spec`
+        r"\[\s*re-frame\.(core|interop|schemas|machines|routing|flows|"
+        r"http|http-managed|http-test-support|ssr|epoch|test-support)\b"
+    )
+
+    def m1_expect(ns: str, pattern: re.Pattern, want: str, label: str) -> None:
+        nonlocal failures
+        got = _classify(_require_line(ns), good_broad, pattern)
+        if got != want:
+            print(f"SELF-TEST FAIL ({label}): {ns} classified {got!r}, want {want!r}")
+            failures += 1
+
+    # Corrected filter: public destinations exempt (incl. the M-38/M-40 adapters
+    # + the M-54 spec ns), private internals flagged (incl. the router/routing +
+    # interop/interceptor near-miss edges).
+    for ns in (
+        "re-frame.core", "re-frame.adapter.reagent", "re-frame.adapter.uix",
+        "re-frame.adapter.helix", "re-frame.spec", "re-frame.interop",
+        "re-frame.routing", "re-frame.http.managed", "re-frame.test-support",
+    ):
+        m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
+    for ns in (
+        "re-frame.db", "re-frame.utils", "re-frame.router", "re-frame.registrar",
+        "re-frame.loggers", "re-frame.interceptor", "re-frame.std-interceptors",
+    ):
+        m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
+    # Pre-fix buggy filter MUST misclassify the adapters + spec as flagged — this
+    # is the exact rf2-3fc89f.35 false-positive the corrected filter removes.
+    for ns in ("re-frame.adapter.reagent", "re-frame.adapter.uix", "re-frame.spec"):
+        m1_expect(ns, bad_invert, "flag", f"M1-regression-detected {ns}")
 
     if failures:
         print(f"self-test: {failures} failure(s).")
