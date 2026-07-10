@@ -169,6 +169,99 @@
   (is (= [:ok 'nope] (args/read-edn-arg "nope(" :missing :invalid))))
 
 ;; ---------------------------------------------------------------------------
+;; parse-event-arg — the shared event-vector parse seam (rf2-tcp7za).
+;;
+;; `dispatch` and `dispatch-dry-run` used to each carry a byte-for-byte copy
+;; of this parser; they now both route through `args/parse-event-arg`,
+;; passing only their distinct missing-value hint. This is where the
+;; EXHAUSTIVE parse matrix lives — nil / blank / unreadable / map / keyword
+;; / list / symbol / scalar / vector inputs and the parsed-type
+;; classification. The tool suites keep only the narrow integration
+;; assertions (distinct hint + no-eval-on-error).
+;;
+;; The parser is the SECURITY GATE: a host-form source string
+;; (`"(println :pwn)"`) reads as a list and is rejected as
+;; `:not-an-event-vector` — never spliced into the runtime eval as code.
+;; ---------------------------------------------------------------------------
+
+(def ^:private dispatch-hint
+  "usage: dispatch {event '[:ev/id ...]' [sync true] [trace true] [frame :foo] [fx-overrides {...}] [interceptor-overrides {...}]}")
+
+(deftest parse-event-arg-missing-uses-caller-hint-verbatim
+  ;; nil / blank / whitespace → :missing-event, and the caller-specific
+  ;; hint rides through as DATA. This is the ONLY arm that consults the
+  ;; hint — the distinct dispatch / dispatch-dry-run usage strings differ
+  ;; here and nowhere else.
+  (doseq [blank [nil "" "   " "\t\n"]]
+    (let [[tag env] (args/parse-event-arg blank dispatch-hint)]
+      (is (= :err tag) (str (pr-str blank) " is a missing event"))
+      (is (false? (:ok? env)))
+      (is (= :missing-event (:reason env)))
+      (is (= dispatch-hint (:hint env))
+          "the caller's missing-value hint is threaded through verbatim"))))
+
+(deftest parse-event-arg-missing-hint-is-caller-data
+  ;; Two callers with two hints get two envelopes that differ ONLY in the
+  ;; hint — proving the hint is caller-supplied data, not baked into the
+  ;; parser. (This is what lets dispatch and dispatch-dry-run keep distinct
+  ;; missing-event hints from one shared parser.)
+  (let [[_ a] (args/parse-event-arg nil "hint-A")
+        [_ b] (args/parse-event-arg nil "hint-B")]
+    (is (= "hint-A" (:hint a)))
+    (is (= "hint-B" (:hint b)))
+    (is (= (dissoc a :hint) (dissoc b :hint))
+        "everything but the hint is identical across callers")))
+
+(deftest parse-event-arg-unreadable-is-invalid-event-edn
+  ;; A reader failure (unbalanced brackets, lone reader macro) → the
+  ;; :invalid-event-edn reason, distinct from :missing / :not-a-vector.
+  (doseq [bad ["[:foo" "{:k" "#" "(((" "]"]]
+    (let [[tag env] (args/parse-event-arg bad dispatch-hint)]
+      (is (= :err tag) (str (pr-str bad) " fails to read"))
+      (is (= :invalid-event-edn (:reason env)))
+      (is (= bad (:event env)) "the offending raw string is echoed for a corrective retry"))))
+
+(deftest parse-event-arg-non-vector-shapes-classified
+  ;; Valid EDN of the WRONG shape → :not-an-event-vector with a
+  ;; :parsed-type classification the agent can act on. Host-form source is
+  ;; the headline case (`"(println :pwn)"` reads as a list) — the security
+  ;; gate that keeps arbitrary CLJS out of the runtime eval.
+  (doseq [[in kind] [["{:id :foo}"       :map]
+                     [":cart/checkout"   :keyword]
+                     ["(println :pwn)"   :list]
+                     ["some-symbol"      :symbol]
+                     ["42"               :scalar]
+                     ["\"a string\""     :scalar]]]
+    (let [[tag env] (args/parse-event-arg in dispatch-hint)]
+      (is (= :err tag) (str (pr-str in) " is not a vector"))
+      (is (= :not-an-event-vector (:reason env)))
+      (is (= kind (:parsed-type env)) (str (pr-str in) " classified as " kind))
+      (is (= in (:event env))))))
+
+(deftest parse-event-arg-accepts-vectors
+  ;; The happy path — a vector reads back as DATA (not source). Bare,
+  ;; with-payload, and the empty vector all pass; whitespace is trimmed
+  ;; before the read.
+  (is (= [:ok [:cart/checkout]] (args/parse-event-arg "[:cart/checkout]" dispatch-hint)))
+  (is (= [:ok [:cart/add {:sku "abc"}]]
+         (args/parse-event-arg "[:cart/add {:sku \"abc\"}]" dispatch-hint)))
+  (is (= [:ok []] (args/parse-event-arg "[]" dispatch-hint)))
+  (is (= [:ok [:cart/checkout]] (args/parse-event-arg "  [:cart/checkout]  " dispatch-hint))
+      "leading/trailing whitespace trimmed before read"))
+
+(deftest parse-event-arg-non-missing-envelope-independent-of-hint
+  ;; Byte-equivalence: for every NON-missing input the envelope is
+  ;; IDENTICAL regardless of the missing-hint (the hint is consulted only
+  ;; on the missing arm). This is precisely why dispatch and
+  ;; dispatch-dry-run yield byte-equivalent envelopes for unreadable / map
+  ;; / keyword / list / vector inputs even though they advertise different
+  ;; usage hints.
+  (doseq [in ["(println :pwn)" ":kw" "{:a 1}" "[:foo" "[:ok]" "42"]]
+    (is (= (args/parse-event-arg in "hint-A")
+           (args/parse-event-arg in "hint-B"))
+        (str "envelope for " (pr-str in) " is independent of the missing-hint"))))
+
+;; ---------------------------------------------------------------------------
 ;; parse-filter-arg — the streaming filter map. Returns the tagged
 ;; `[:ok m]` / `[:err :invalid-filter-edn]` shape (mirroring
 ;; `read-edn-arg`) so a bad filter EDN surfaces as an honest

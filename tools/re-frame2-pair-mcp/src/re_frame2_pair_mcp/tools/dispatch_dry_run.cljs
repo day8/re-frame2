@@ -109,51 +109,21 @@
   dispatch/replay would supply. A malformed `cofx` (non-map / unreadable
   / non-integer `:rf/time-ms`) short-circuits to an honest isError before
   the eval, the same `args/parse-cofx` gate `dispatch` carries."
-  (:require [cljs.reader]
-            [clojure.string :as str]
-            [re-frame2-pair-mcp.tools.args :as args]
+  (:require [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
-(defn- parse-event-edn
-  "Mirror `dispatch.cljs/parse-event-edn` — same vector contract, same
-  failure reasons. Kept inline here so the dry-run surface owns its
-  parser; cross-tool sharing of the parser would entangle two
-  separately-evolving surfaces."
-  [event-str]
-  (let [trimmed (some-> event-str str/trim)]
-    (cond
-      (or (nil? trimmed) (str/blank? trimmed))
-      [:err {:ok? false :reason :missing-event
-             :hint "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [fx-overrides {...}] [cofx '{:rf/time-ms ...}']}"}]
+;; The `event`-arg EDN/vector parse is the shared `args/parse-event-arg`
+;; seam — byte-identical to `dispatch` bar the missing-value hint (dry-run
+;; advertises a different opt set). See its docstring for the
+;; why-EDN-not-source security rationale; the call site below preserves the
+;; parse's position ahead of the nREPL eval and the privacy gates.
 
-      :else
-      (let [parsed (try
-                     (cljs.reader/read-string trimmed)
-                     (catch :default _e
-                       ::reader-fail))]
-        (cond
-          (= ::reader-fail parsed)
-          [:err {:ok? false :reason :invalid-event-edn
-                 :event event-str
-                 :hint "event must be an EDN-readable vector, e.g. \"[:cart/checkout]\""}]
-
-          (not (vector? parsed))
-          [:err {:ok? false :reason :not-an-event-vector
-                 :event event-str
-                 :parsed-type (cond
-                                (map? parsed)      :map
-                                (keyword? parsed)  :keyword
-                                (symbol? parsed)   :symbol
-                                (sequential? parsed) :list
-                                :else              :scalar)
-                 :hint "event must be a vector, e.g. \"[:cart/checkout {:reason :user}]\""}]
-
-          :else
-          [:ok parsed])))))
+(def ^:private missing-event-hint
+  "usage: dispatch-dry-run {event '[:ev/id ...]' [frame :foo] [fx-overrides {...}] [cofx '{:rf/time-ms ...}']}")
 
 (defn- redact-fx-args-src
   "CLJS source for a fn that FAIL-CLOSES the `:would-fire-effects[*]
@@ -304,7 +274,7 @@
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
-        [tag payload] (parse-event-edn event-str)]
+        [tag payload] (args/parse-event-arg event-str missing-event-hint)]
     (cond
       ;; Reject an invalid fx-overrides target up front so a
       ;; string stub can't silently defeat the no-fx-execute guarantee.
