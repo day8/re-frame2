@@ -6,7 +6,7 @@ It is the same feature as [`examples/core/login/`](../../../core/login/) — the
 
 > **Swap the rendering library and almost nothing else moves.**
 
-You can see exactly how little moves in `core.cljs` itself, which draws the dividing line as a literal `SUBSTRATE BOUNDARY` comment. Above it is the half that knows nothing about what renders the app — identical, id for id, to its Reagent and UIx siblings. Below it is the only code that does the rendering: the Helix part, `defnc` components that read [subscriptions](../../../../docs/core/glossary.md#subscription) through a hook. That split between the two halves of the app is what makes re-frame2 substrate-agnostic. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../../docs/core/glossary.md#substrate). Almost none of them do.
+You can see exactly how little moves by reading the file split. The half that knows nothing about what renders the app lives in one substrate-free namespace, `login.model` ([`examples/core/login/model.cljs`](../../../core/login/model.cljs)) — the single owner that this example and its Reagent and UIx siblings all `:require` unchanged. This `core.cljs` holds only the code that does the rendering: the Helix part, `defnc` components that read [subscriptions](../../../../docs/core/glossary.md#subscription) through a hook, plus the mount. That split between the two halves of the app is what makes re-frame2 substrate-agnostic. Read the three side by side and you see exactly which layers move when you switch [substrate](../../../../docs/core/glossary.md#substrate). Almost none of them do — because the model isn't just equivalent across the three, it is literally the same file.
 
 ## What this demonstrates
 
@@ -32,9 +32,10 @@ You can see exactly how little moves in `core.cljs` itself, which draws the divi
 - **The machine, the schemas, and the HTTP run unchanged.** This is the payoff.
   The [state machine](../../../../docs/machines/glossary.md#machine), the Malli
   [schemas](../../../../docs/core/glossary.md#schema), and the managed-HTTP
-  [effect](../../../../docs/core/glossary.md#effect) are the same registrations as
-  the Reagent example: same `:auth.login/*` ids, same transition table, same
-  canned stub. The login flow dispatches the same wrapped, credential-free
+  [effect](../../../../docs/core/glossary.md#effect) are not merely the same as
+  the Reagent example — they are the *same source*, the shared `login.model`:
+  same `:auth.login/*` ids, same transition table, same canned stub. The login
+  flow dispatches the same wrapped, credential-free
   [event](../../../../docs/core/glossary.md#event) into the machine
   (`[:auth.login/flow [:auth.login/submit]]` — the form issues the request and
   the machine never sees the password), the machine computes the same
@@ -56,42 +57,48 @@ You can see exactly how little moves in `core.cljs` itself, which draws the divi
 
 ## Why this shape
 
-This example exists to prove substrate parity, and it does so by being a
-deliberate, near-exact copy. Pair it with
+This example exists to prove substrate parity, and it does so by importing the
+one model unchanged. Pair it with
 [`examples/core/login/`](../../../core/login/) (the reference) and
 [`examples/substrates/uix/login/`](../../uix/login/) (the UIx twin) and the three
-make an apples-to-apples comparison: identical registries, three view layers,
-one moving part.
+make an apples-to-apples comparison: **one shared model**, three view layers, one
+moving part.
 
-### The substrate boundary — same model, three view layers
+### The substrate boundary — one shared model, three view layers
 
-`core.cljs` carries the `SUBSTRATE BOUNDARY` divider, and it is worth reading
-literally. *Above* the line is the **substrate-agnostic artefact layer**: the
-Malli schemas, the `:auth.login.demo/managed-stub` effect, the
-`:auth.login/flow` state machine (a named `auth-login-machine` def passed to
-`reg-machine` — the exact shape all three substrates use), the form-slice
-events, and the named subs. None of it names a substrate. None of it could tell you whether Reagent, UIx, or
-Helix sits downstream. *Below* the line is the **only** substrate-specific code
-in the file: the Helix `defnc` views and the mount.
+The dividing line is a file split, not a comment. The **substrate-agnostic
+artefact layer** lives in its own namespace, `login.model`
+([`examples/core/login/model.cljs`](../../../core/login/model.cljs)): the Malli
+schemas, the `:auth.login.demo/managed-stub` effect, the `:auth.login/flow` state
+machine (a named `auth-login-machine` def passed to `reg-machine`), the form-slice
+events, the named subs, and the shared frame config. None of it names a
+substrate. None of it could tell you whether Reagent, UIx, or Helix sits
+downstream. This `core.cljs` holds the **only** substrate-specific code: the
+Helix `defnc` views and the mount.
 
-That artefact layer is **duplicated** across all three login examples. The
-shared ids make the demonstration readable in place: the same machine, schemas,
-and HTTP stub drive Reagent `reg-view`, UIx `defui`, and Helix `defnc`. That is
-the comparison which shows the [Spec 005 machine](../../../../spec/005-StateMachines.md),
+That artefact layer is **shared** — one namespace, imported unchanged by all
+three login examples. The same machine, schemas, and HTTP stub drive Reagent
+`reg-view`, UIx `defui`, and Helix `defnc`. That is the comparison which shows the
+[Spec 005 machine](../../../../spec/005-StateMachines.md),
 [Spec 010 schemas](../../../../spec/010-Schemas.md), and
 [Spec 014 managed-HTTP](../../../../spec/014-HTTPRequests.md) surfaces are
-substrate-agnostic. A shared substrate-neutral namespace could preserve renderer
-isolation, but keeping the model local makes each `:browser` build readable on
-its own and preserves the direct three-way comparison. The bundle-isolation
-gate scans the smaller counter builds; the login builds are compile-gated.
+substrate-agnostic — and because there is one copy, not three, there is nothing
+to drift. The bundle-isolation gate (`npm run test:bundle-isolation`) now scans
+the login builds too and proves each carries only its own substrate, which is
+what proves the shared `login.model` pulls in no renderer.
 
 ## Files
 
 ```
 login/
-  core.cljs    — schemas + fx + machine + events + subs + defnc views + mount.
+  core.cljs    — the Helix HALF: defnc views + use-subscribe + mount.
   index.html   — minimal host page.
 ```
+
+The substrate-free half — schemas, fx, machine, events, subs, frame config — is
+not in this folder: it is the shared
+[`login.model`](../../../core/login/model.cljs) namespace this `core.cljs`
+`:require`s.
 
 ## How to run
 

@@ -96,17 +96,31 @@ dataflow.
 
 #### Exception 2 — the cross-substrate Reagent/UIx/Helix id share
 
-The Reagent, UIx, and Helix counter/login triplets share their event, sub, fx,
+The Reagent, UIx, and Helix **counter** triplet shares its event, sub, fx,
 machine, and schema ids, proving one dataflow across three reactive substrates.
+Each counter carries its own copy of that dataflow, deliberately kept in step.
+
+The **login** triplet takes the same idea one step further: rather than three
+copies of the `:auth.login/*` dataflow, the three login examples all `:require`
+**one** substrate-free model namespace,
+[`login.model`](core/login/model.cljs) — the single owner of every shared
+`auth.login` schema, fx, machine, event, and sub (rf2-ppbvav). So the ids aren't
+merely *shared*, they're registered from *one source*; each `core.cljs` adds only
+its substrate-specific views + mount. That removes the drift risk of duplication
+outright — there is no second copy to diverge.
 
 Both are safe because each side is a **separate standalone build** that never
 shares a JS runtime, and the bundle-isolation gates
 (`npm run test:bundle-isolation`, `npm run test:reagent-slim:bundle-isolation`)
-keep those builds split. Views are never shared — each substrate's views carry
-their own namespace. If two of these examples were ever co-loaded into one frame
-image, the shared ids must be disambiguated first (distinct `:images` per frame,
-or prefixed stems); a naive co-load fails loud at frame creation rather than
-clobbering silently.
+keep those builds split. `test:bundle-isolation` now scans the three login
+builds too (`check-login-bundle-isolation.cjs`): each login `main.js` carries
+**only its own substrate** — the UIx login bundle has no Reagent or Helix code —
+which is exactly what proves the shared `login.model` drags in no view library or
+adapter. Views are never shared — each substrate's views carry their own
+namespace. If two of these examples were ever co-loaded into one frame image, the
+shared ids must be disambiguated first (distinct `:images` per frame, or prefixed
+stems); a naive co-load fails loud at frame creation rather than clobbering
+silently.
 
 ## Adding a tested example
 

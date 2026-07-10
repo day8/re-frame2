@@ -122,7 +122,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private good-creds
-  "Credentials the demo would accept (they mirror `login.core/good-password`).
+  "Credentials the demo would accept (they mirror `login.model/good-password`).
    The story driver types them into the draft and submits through the real form
    path; the canned-success stub doesn't even look at them, it just answers
    `:ok`."
