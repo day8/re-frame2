@@ -17,7 +17,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/fx.cljc` — `do-fx`, `:fx-overrides` resolution (id-redirect + fn-value branches), per-call vs per-frame merge.
 - `implementation/core/src/re_frame/events.cljc` + `router.cljc` — event-state cycle, effect-shape policing.
 - `implementation/core/src/re_frame/subs.cljc` — sub graph, layered subs, dynamic args; `subscribe-once` / `compute-sub` (facade-exported non-reactive reads).
-- `implementation/core/src/re_frame/test_support.cljc` — `make-reset-runtime-fixture`, `dispatch-sequence`, `assert-path-equals` / `assert-db-equals`.
+- `implementation/core/src/re_frame/test_support.cljc` — `make-reset-runtime-fixture`, `snapshot-registrar` / `restore-registrar!`, `assert-path-equals`, `poll-until`.
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
 - `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
 - `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.

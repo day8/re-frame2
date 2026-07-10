@@ -88,21 +88,17 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | Surface | Shape |
 |---|---|
 | `ts/make-reset-runtime-fixture` | `(opts?)` → fixture-fn for `(use-fixtures :each ...)` |
-| `ts/with-fresh-registrar` | `(body-fn)` — registrar snapshot/restore bracket |
-| `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore |
-| `ts/dispatch-sequence` | `(events)` / `(events opts)` — sync-drain each, `:after-each` hook |
-| `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals` |
-| `ts/assert-db-equals` | `(expected-db)` / `(expected-db opts)` — companion full-db form |
+| `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore; compose in a `try` / `finally` for an ad-hoc bracket |
+| `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals`; full-db check → `(is (= expected-db (rf/app-db-value f)))` |
+| `ts/poll-until` | `(pred)` / `(pred opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
+| fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
 
 ## View tests — `re-frame.test-helpers` (see `cross-cutting/testing.md`)
 
-The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-testid`; the single-frame e2e trio brackets a fresh frame and stashes the root view.
+The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-testid`. The single-frame e2e shape composes `ts/make-reset-runtime-fixture` (`:adapter` + `:init-fn`) with these walkers and `ts/poll-until` — no bespoke fixture macro.
 
 | Surface | Shape |
 |---|---|
-| `h/with-app-fixture` | macro: `(opts body+)` / `(opts frame-id body+)` — opts `:install` `:root-view` `:root-view-args` `:frame-config`; brackets a fresh single frame |
-| `h/expect-text` | `(testid expected)` (stashed root view) / `(tree testid expected)` — asserts `:data-testid` node text via `clojure.test/is` |
-| `h/wait-until` | `(pred)` / `(pred opts)` / `(testid expected)` / `(testid expected opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
 | `h/find-by-testid` / `h/find-all-by-testid` / `h/find-by-testid-prefix` | `(tree testid)` → hiccup node(s) |
 | `h/text-content` / `h/invoke-handler` | `(node)` → text · `(node event-key & args)` → calls the handler under `event-key` (e.g. `:on-click`) |
 | `h/testid` | `(testid)` / `(testid attrs)` — attrs-fragment authoring helper for view call sites |

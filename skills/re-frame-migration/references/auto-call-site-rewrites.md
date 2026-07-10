@@ -152,7 +152,7 @@ Same for `uix` / `helix` variants.
 (:require [re-frame.test-support :as rf-test])
 ```
 
-`dispatch-sequence` keeps its v1 name; `assert-state` is split into `assert-path-equals` + `assert-db-equals` per **M-62** (the fn-side mirrors the `:rf.assert/*` Story event-family). `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
+`assert-state` maps to `assert-path-equals` per **M-62** (the fn-side mirrors the `:rf.assert/path-equals` Story event); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
 Also: drop `day8/re-frame-test` from the Maven coords.
 
 ### M-52 — `run-test-sync` removed
@@ -172,9 +172,11 @@ Also: drop `day8/re-frame-test` from the Maven coords.
 body...
 
 ;; AD-HOC ALTERNATIVE — one-off bracket without converting the ns to use a :each fixture
-(ts/with-fresh-registrar
-  (fn []
-    body...))
+(let [snap (ts/snapshot-registrar)]
+  (try
+    body...
+    (finally
+      (ts/restore-registrar! snap))))
 ```
 
 v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.

@@ -985,7 +985,7 @@ Substrate-internal dispatch sites stamp their own specific `:source` kind so the
 | `:http` | `re-frame.http_encoding/dispatch-reply-via-late-bind!` | managed-HTTP reply settle — `:on-success` / `:on-failure` cascade entry |
 | `:router` | `re-frame.routing` internal dispatches | routing-internal cascade (route-link click, on-match-error). |
 | `:ssr-hydration` | hydration boot site | the `:rf/hydrate` cascade per Spec 011 |
-| `:test` | `re-frame.test_support/dispatch-sequence` | test-harness opt-in |
+| `:test` | test-harness dispatch (`dispatch-sync`, opt-in) | test-harness opt-in |
 | `:tool` | tooling adapters (Xray controls, Story play scripts, pair-MCP write surface) | tool-issued dispatch. |
 | `:websocket` | application-level websocket adapters | reserved closed-set slot; apps opt in. |
 
