@@ -78,7 +78,7 @@
 ;;    :suppress          {...}               ;; optional data-only gates
 ;;    :dispatch-stale?   false               ;; framework test/tool opt-in only
 ;;    ::post             (fn [event] event)  ;; the composed event-transform
-;;    ::stale-authority  true}               ;; framework/tool capability marker
+;;    ::stale-authority  <capability object>};; framework/tool capability (opaque)
 ;;
 ;; `::post` is the functor's accumulator: a pure event→event transform that
 ;; `complete` applies AFTER appending the reply map. It is namespaced-private
@@ -87,12 +87,17 @@
 ;; continuation, exactly the role Elm's `Cmd.map` plays. Identity target
 ;; carries no `::post` (treated as identity); composition composes them.
 ;;
-;; `::stale-authority` is the framework/tool CAPABILITY marker for stale
-;; delivery (Managed-Effects §The reply target: `:dispatch-stale?` is
-;; "restricted to framework test and tool targets"). It is namespaced-private
-;; — only framework/tool code reaches it (via `with-stale-authority`); an app
-;; target built from `:rf/reply-to` data cannot name it, so it cannot grant
-;; itself stale-delivery authority. Like `::post`, it is EPHEMERAL: it rides a
+;; `::stale-authority` carries the framework/tool stale-delivery CAPABILITY
+;; (Managed-Effects §The reply target: `:dispatch-stale?` is "restricted to
+;; framework test and tool targets"). Authority is PROVENANCE, not a truthy
+;; field: the slot's VALUE must be the one opaque, non-serializable
+;; `stale-delivery-capability` object, compared by IDENTITY (`identical?`). The
+;; namespaced KEY is NOT the access-control boundary — a keyword can always be
+;; re-spelled — the unforgeable CAPABILITY VALUE is. An app/EDN/wire-authored
+;; target built from `:rf/reply-to` data can spell the key and set it to `true`
+;; (or any datum), but it cannot obtain, spell, serialize, or reconstruct the
+;; capability object, so `suppress` never treats it as authorised — it FAILS
+;; LOUD instead. Like `::post`, the capability is EPHEMERAL: it rides a
 ;; normalized target while a family/tool assembles a continuation and MUST NOT
 ;; be serialized into an effect map or a durable reply target.
 ;;
@@ -108,12 +113,35 @@
 
 (def ^:private stale-authority-key ::stale-authority)
 
+;; The opaque, provenance-bearing stale-delivery CAPABILITY. A `deftype`
+;; instance is a plain host object with NO EDN reader tag: it is `=` to nothing
+;; but itself, does not round-trip through `pr-str` → `read-string`, cannot be
+;; sent over the wire, and cannot be spelled in `:rf/reply-to` data. So the ONLY
+;; way a target carries it is for framework/tool code to attach the SAME
+;; process-held instance via `with-stale-authority`; authority is decided by
+;; `identical?` against that instance, never by truthiness of a serializable
+;; field. This closes the forgery an app/EDN/wire target attempts by writing
+;; `{:re-frame.reply/stale-authority true}` — `true` is not the capability.
+(deftype StaleDeliveryCapability [])
+
+(def ^:private stale-delivery-capability
+  "The single process instance authorising stale delivery (see
+  `StaleDeliveryCapability`). Provenance-bearing, opaque, non-serializable,
+  compared by IDENTITY. Held `^:private`, never a `re-frame.core` façade export,
+  and stripped by `durable-target` before a target could become durable, so it
+  can neither be persisted nor reconstructed from durable/EDN/wire data. The
+  framework/tool seam `with-stale-authority` is the sole way it reaches a
+  target; the public app-target surface (`:rf/reply-to` data) cannot obtain it."
+  (->StaleDeliveryCapability))
+
 (def ^:private ephemeral-target-keys
   "The namespaced-private slots a normalized target may carry while in-flight
   that MUST NOT survive into a durable target: the functor accumulator
-  (`::post`, a fn) and the stale-delivery capability marker
-  (`::stale-authority`). `durable-target` strips these; their presence makes a
-  target non-data-only."
+  (`::post`, a fn) and the stale-delivery capability (`::stale-authority`, the
+  opaque `stale-delivery-capability` object). `durable-target` strips these;
+  their presence makes a target non-data-only. Stripping the capability is a
+  belt-and-braces guarantee — it is also non-serializable, so a durable/EDN
+  round-trip could not reconstruct it even if it were left in place."
   #{post-key stale-authority-key})
 
 (defn descriptor?
@@ -258,7 +286,7 @@
 (defn target->short-form
   "Project a normalized target back to its public short form when it has no
   non-default descriptor fields (no `:suppress`, no `:dispatch-stale?`, no
-  accumulated `::post`, no `::stale-authority`, `:delivery :append`).
+  accumulated `::post`, no `::stale-authority` capability, `:delivery :append`).
   Otherwise returns the descriptor unchanged. Lets a family expose the bare
   vector publicly while using the descriptor internally (Managed-Effects: \"A
   family MAY expose only the short vector form publicly while using the
@@ -359,36 +387,50 @@
 ;; Stale-delivery authority — the framework/tool capability (Managed-Effects
 ;; §The reply target). `:dispatch-stale?` is "restricted to framework test and
 ;; tool targets"; the substrate is pure and has no caller-identity context, so
-;; the restriction is enforced STRUCTURALLY by a namespaced-private capability
-;; marker that only framework/tool code can attach. An app target built from
-;; `:rf/reply-to` data cannot name `::stale-authority`, so it cannot grant
-;; itself stale delivery — and `suppress` fails LOUD if it tries.
+;; the restriction is enforced by an unforgeable, provenance-bearing CAPABILITY:
+;; the opaque `stale-delivery-capability` object, compared by IDENTITY. Only
+;; framework/tool code can attach it (via `with-stale-authority`, holding the
+;; process instance). An app target built from `:rf/reply-to` data — or any
+;; EDN/wire datum — cannot obtain, spell, serialize, or reconstruct that object,
+;; so it cannot grant itself stale delivery; `suppress` fails LOUD if it tries.
+;; This is NOT a keyword-namespacing access-control claim (a keyword can be
+;; re-spelled): the boundary is the identity of the capability VALUE.
 ;; ---------------------------------------------------------------------------
 
 (defn with-stale-authority
-  "Stamp a reply `target` as a FRAMEWORK/TOOL target authorised to opt into
-  stale delivery via `:dispatch-stale? true` (Managed-Effects §The reply
-  target). Returns the normalized descriptor carrying the namespaced-private
-  `::stale-authority` capability marker.
+  "Attach the FRAMEWORK/TOOL stale-delivery CAPABILITY to a reply `target`,
+  authorising it to opt into stale delivery via `:dispatch-stale? true`
+  (Managed-Effects §The reply target). Returns the normalized descriptor
+  carrying the opaque `stale-delivery-capability` object under
+  `::stale-authority`.
 
-  This is the ONLY way `:dispatch-stale? true` is honoured: `suppress` throws
-  on a target that sets `:dispatch-stale? true` WITHOUT this marker (an app
-  target cannot reach the private key, so it cannot grant itself the
-  capability). Framework test/tool callers wrap their target with this helper;
-  app code — which builds a target from public `:rf/reply-to` data — never
-  does, and so an app reply is never delivered stale.
+  This is the ONLY way `:dispatch-stale? true` is honoured: `suppress` grants
+  delivery only when the target carries THIS exact capability object
+  (`identical?`), and throws on a target that sets `:dispatch-stale? true`
+  WITHOUT it. The capability is provenance-bearing — opaque, non-serializable,
+  identity-compared — so it cannot be forged from data: an app/EDN/wire target
+  can write `{:re-frame.reply/stale-authority true}` but `true` is not the
+  capability. Framework test/tool callers wrap their target with this helper;
+  app code — which builds a target from public `:rf/reply-to` data — cannot,
+  and so an app reply is never delivered stale.
 
-  Like `::post`, the marker is EPHEMERAL: it rides an in-flight normalized
+  FRAMEWORK/TOOL-INTERNAL. `re-frame.reply` is not a `re-frame.core` façade
+  export, so this seam is unreachable from the public app API; the public
+  app-target constructor (`:rf/reply-to` data) has no path to the capability.
+
+  Like `::post`, the capability is EPHEMERAL: it rides an in-flight normalized
   target and MUST NOT be serialized into an effect map or a durable target
-  (`durable-target` strips it)."
+  (`durable-target` strips it; it is non-serializable regardless)."
   [target]
-  (assoc (normalize-target target) stale-authority-key true))
+  (assoc (normalize-target target) stale-authority-key stale-delivery-capability))
 
 (defn stale-authority?
-  "True when `target` carries the framework/tool `::stale-authority`
-  capability marker (set via `with-stale-authority`)."
+  "True when `target` carries the framework/tool stale-delivery capability —
+  i.e. its `::stale-authority` slot is IDENTICAL to `stale-delivery-capability`
+  (set via `with-stale-authority`). A forged truthy datum under the same key is
+  NOT the capability, so this returns false for it."
   [target]
-  (true? (get (normalize-target target) stale-authority-key)))
+  (identical? stale-delivery-capability (get (normalize-target target) stale-authority-key)))
 
 ;; ---------------------------------------------------------------------------
 ;; Host-handle detection — the shared data-only walker (Managed-Effects §The
@@ -480,21 +522,24 @@
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —
 ;; the reply-target-as-data contract). A normalized target may carry the
-;; ephemeral, non-data slots `::post` (a fn) and `::stale-authority` (a
-;; capability) WHILE IN-FLIGHT, but a target that can become DURABLE (a stored
-;; continuation, a ledger row, a replay log) MUST be data-only. These helpers
-;; make that boundary explicit and fail LOUD rather than letting a
-;; non-serializable function or a capability marker leak into durable reply
-;; data.
+;; ephemeral, non-data slots `::post` (a fn) and `::stale-authority` (the opaque
+;; stale-delivery capability) WHILE IN-FLIGHT, but a target that can become
+;; DURABLE (a stored continuation, a ledger row, a replay log) MUST be
+;; data-only. These helpers make that boundary explicit and fail LOUD rather
+;; than letting a non-serializable function or the capability object leak into
+;; durable reply data.
 ;; ---------------------------------------------------------------------------
 
 (defn data-only-target?
   "True when `target` is DATA-ONLY — safe to persist into a durable reply
-  target. False when it carries an ephemeral, non-data slot: the functor
-  accumulator `::post` (an arbitrary fn) or the `::stale-authority` capability
-  marker. (The public data fields `:event` / `:delivery` / `:suppress` /
-  `:dispatch-stale?` are all data and pass.) A nil target is data-only
-  (nothing to persist)."
+  target. False when the `::post` (an arbitrary fn) or `::stale-authority` slot
+  is present: the check is KEY PRESENCE, so it rejects both the genuine opaque
+  `stale-delivery-capability` object AND a forged truthy `::stale-authority`
+  datum an app/EDN target might spell — either way that slot is stripped by
+  `durable-target` and never rides durable data (and the forged datum grants no
+  authority regardless — `suppress` compares by identity). The public data
+  fields `:event` / `:delivery` / `:suppress` / `:dispatch-stale?` are all data
+  and pass. A nil target is data-only (nothing to persist)."
   [target]
   (let [d (normalize-target target)]
     (not (some #(contains? d %) ephemeral-target-keys))))
@@ -749,11 +794,15 @@
 
   AUTHORITY (Managed-Effects §The reply target — `:dispatch-stale?` is
   \"restricted to framework test and tool targets\"). `:dispatch-stale? true`
-  is honoured ONLY when the target also carries the framework/tool
-  `::stale-authority` capability marker (stamped via `with-stale-authority`).
-  An APP target — built from public `:rf/reply-to` data, which has no way to
-  name the namespaced-private marker — cannot grant itself stale delivery: if
-  it sets `:dispatch-stale? true` WITHOUT authority this FAILS LOUD (throws
+  is honoured ONLY when the target also carries the framework/tool stale-delivery
+  CAPABILITY — its `::stale-authority` slot IDENTICAL to the opaque, non-
+  serializable `stale-delivery-capability` object (attached via
+  `with-stale-authority`). Authority is PROVENANCE, not a truthy field: the
+  check is `identical?`, so a forged `{:re-frame.reply/stale-authority true}`
+  (or any datum an app/EDN/wire target can spell) is NOT authority. An APP
+  target — built from public `:rf/reply-to` data, which cannot obtain or
+  reconstruct the capability object — cannot grant itself stale delivery: if it
+  sets `:dispatch-stale? true` WITHOUT the capability this FAILS LOUD (throws
   `ex-info` `:rf.reply/unauthorized-stale-delivery`) rather than silently
   delivering a stale envelope to app state. The default (no `:dispatch-stale?`)
   is non-delivery for every target, app or framework.
@@ -790,11 +839,17 @@
    (let [reason   (or (:rf.reply/stale-reason extra) :rf.reply/correlation-mismatch)
          d        (when target (normalize-target target))
          wants?   (true? (:dispatch-stale? d))
-         authorised? (true? (get d stale-authority-key))
+         ;; Authority is PROVENANCE, not truthiness: the slot must hold the ONE
+         ;; opaque, non-serializable capability object, compared by identity. A
+         ;; forged `{:re-frame.reply/stale-authority true}` — the datum an
+         ;; app/EDN/wire target can spell — is NOT `identical?` to it, so it
+         ;; grants nothing. Only `with-stale-authority` (framework/tool only)
+         ;; attaches the real capability.
+         authorised? (identical? stale-delivery-capability (get d stale-authority-key))
          ;; FAIL LOUD: a target asking for stale delivery without the
          ;; framework/tool capability is an app target overreaching. The
-         ;; substrate is pure (no caller identity), so the marker IS the
-         ;; authority — its absence means "not framework/tool".
+         ;; substrate is pure (no caller identity), so the unforgeable
+         ;; capability IS the authority — its absence means "not framework/tool".
          _        (when (and wants? (not authorised?))
                     (throw (reply-error
                              :rf.reply/unauthorized-stale-delivery

@@ -114,9 +114,11 @@ A descriptor form is available for framework internals and future public surface
 | `:event` | yes | Event-vector prefix to complete. |
 | `:delivery` | no | `:append` by default — the reply map is appended as the final argument. Compatibility adapters may use other delivery internally to preserve an older public event shape. `:append` is the only public delivery mode; a new mode requires a recorded ruling justified by public migration need, not effect-family preference. |
 | `:suppress` | no | Data-only gates that MUST still match before the reply is delivered ([§Stale suppression](#stale-suppression)). |
-| `:dispatch-stale?` | no | `false` by default. Framework tests/tools MAY opt into receiving stale envelopes; app targets MUST NOT. Restricted to framework test and tool targets. |
+| `:dispatch-stale?` | no | `false` by default. Framework tests/tools MAY opt into receiving stale envelopes; app targets MUST NOT. Restricted to framework test and tool targets. This flag is a **request**, never the authority: an app/EDN/wire-authored target can spell it, so setting it alone never authorises delivery (see below). |
 
 A family MAY expose only the short vector form publicly while using the descriptor form internally.
+
+**Stale-delivery authority is a provenance-bearing capability, not a data field.** Because `:dispatch-stale?` is ordinary reply-target data an app/EDN/wire author can spell, it cannot itself carry the framework-test/tool restriction. The restriction is enforced by an **unforgeable capability**: an opaque, non-serializable token compared by **identity**, held only by framework/tool code and unreachable from any public app-target constructor (`:rf/reply-to` data). A reply target's stale outcome is delivered ONLY when the target both requests it (`:dispatch-stale? true`) **and** carries that exact capability. An app-authored target's stale result is therefore **always non-delivering**; a target that requests stale delivery *without* the capability — including one that forges a truthy authority field of any spelling — MUST fail loud (`:rf.error/reply-unauthorized-stale-delivery`), never deliver. The capability MUST never be persisted into a durable target and MUST never be accepted from, or reconstructable through, EDN/wire data or a round-trip. A namespaced keyword is **not** an access-control boundary — the identity of the capability value is.
 
 ### The reply map
 
@@ -175,7 +177,7 @@ The reply `:status` vocabulary is **closed**:
  :error  {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012}}
 ```
 
-**Stale wins over the natural completion status for delivery purposes.** A late successful, partial, or failed completion for a superseded attempt is not `:ok`/`:partial`/`:error`; it is `:stale`/`:suppressed` in the ledger and trace, and the app target is not dispatched unless `:dispatch-stale?` is explicitly set for a test/tool target.
+**Stale wins over the natural completion status for delivery purposes.** A late successful, partial, or failed completion for a superseded attempt is not `:ok`/`:partial`/`:error`; it is `:stale`/`:suppressed` in the ledger and trace, and the app target is not dispatched. Delivery of a stale envelope is honoured only for a framework-test/tool target that both requests it (`:dispatch-stale? true`) and carries the unforgeable stale-delivery capability ([§The reply target](#the-reply-target)); an app-authored target's stale result is always non-delivering, and an unauthorised opt-in fails loud rather than delivering.
 
 ### Work-id correlation
 

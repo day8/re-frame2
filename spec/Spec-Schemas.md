@@ -3148,13 +3148,20 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
   ;; and future public surfaces needing explicit delivery options. The
   ;; runtime appends the reply map as the final event argument on :append
   ;; (the only public delivery mode). :suppress carries data-only stale
-  ;; gates; :dispatch-stale? (framework test/tool targets only) opts into
-  ;; receiving stale envelopes. The framework/tool AUTHORITY for stale
-  ;; delivery is a namespaced-private capability marker (not a public field
-  ;; here) stamped via re-frame.reply/with-stale-authority — an app target
-  ;; built from this public data cannot name it, so :dispatch-stale? true
-  ;; without authority FAILS LOUD (:rf.reply/unauthorized-stale-delivery)
-  ;; rather than delivering a stale envelope to app state. Per
+  ;; gates; :dispatch-stale? (framework test/tool targets only) REQUESTS
+  ;; receiving stale envelopes — it is a request, never the authority. The
+  ;; framework/tool AUTHORITY for stale delivery is a PROVENANCE-bearing
+  ;; capability: an opaque, non-serializable token compared by IDENTITY (not
+  ;; any field spellable here), attached only by framework/tool code via
+  ;; re-frame.reply/with-stale-authority and unreachable from this public
+  ;; app-target data. An app/EDN/wire target built from this data cannot
+  ;; obtain, spell, serialize, or reconstruct the capability, so
+  ;; :dispatch-stale? true without it FAILS LOUD
+  ;; (:rf.reply/unauthorized-stale-delivery) rather than delivering a stale
+  ;; envelope to app state — a forged truthy authority field is not the
+  ;; capability. The capability is stripped by durable-target and never rides
+  ;; durable/EDN/wire data. A namespaced keyword is NOT an access-control
+  ;; boundary; the identity of the capability value is. Per
   ;; [Managed-Effects §The reply target].
   [:or
    [:vector :any]                                            ;; short form: an event-vector prefix [:event-id arg …]
@@ -3162,7 +3169,7 @@ The canonical shape every managed *async* surface — HTTP ([014](014-HTTPReques
     [:event           [:vector :any]]                        ;; the event-vector prefix to complete
     [:delivery        {:optional true} [:enum :append]]      ;; :append is the only PUBLIC delivery mode
     [:suppress        {:optional true} :map]                 ;; data-only gates that must still match before delivery
-    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool opt-in to stale delivery; app targets MUST NOT set it (enforced: needs the framework-private stale-authority capability)
+    [:dispatch-stale? {:optional true} :boolean]]])          ;; framework test/tool REQUEST for stale delivery; app targets MUST NOT set it (authority is the unforgeable identity-compared stale-delivery capability, never this field)
 ```
 
 `:rf/reply-map` and `:rf/reply-target` are the schema ids for `ReplyMap` and `ReplyTarget`. The closed `:status` taxonomy, the value/error conventions per status (`:value` on `:ok`/`:partial`; `:error` with a family `:kind` on `:error`/`:partial`; `:rf.reply/cancel-reason` on `:cancelled`; `:stale? true` + `:rf.reply/stale-reason` and no `:value` on `:stale`), the work-identity correlation rule (one attempt has one work id — no `:stale-key` synonym, per [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)), and the data-only invariant are all owned normatively by [Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope); this catalogue carries the shape. The `:error` envelope on a `:status :error`/`:partial` reply carries the closed `:rf.http/*` (or family-specific) failure-map shapes owned by the per-family spec. A `:status :stale` reply's `:rf.reply/work-status` is `:suppressed` and the linked `WorkLedger` row (above) reaches `:suppressed` — the reply target and a ledger row are the same fact, the ledger's `:reply-to` being this target made durable.
