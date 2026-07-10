@@ -175,10 +175,12 @@
 
 ;; ---- build-reply-event — Spec 014 §Reply addressing -----------------------
 ;;
-;; The four branches: explicit nil (silenced), explicit vector (append
-;; payload), default/omitted (back to originator with :rf/reply merged),
-;; and — per rf2-smqkq — an explicitly supplied non-vector non-nil value
-;; (malformed) which must throw rather than silently default-merge.
+;; The branches: explicit nil (silenced), explicit vector (append payload),
+;; NOT-supplied (nil — the co-located default was retired pre-alpha,
+;; rf2-et4c1s; a wholly-unaddressed request fails loud upstream at
+;; `validate-reply-target!`, so an unsupplied branch reaching here is the
+;; partial-addressing silence case), and — per rf2-smqkq — an explicitly
+;; supplied non-vector non-nil value (malformed) which must throw.
 
 ;; rf2-ibksxg — build-reply-event is payload-shape-agnostic; it appends /
 ;; merges whatever reply map it is given. The payload is now the CANONICAL
@@ -206,20 +208,21 @@
                 :explicit-on   {:supplied? true :value [:items/loaded 7]}
                 :reply-payload reply-payload}))))))
 
-(deftest build-reply-event-default-merges-into-originator
-  (testing "omitted handler routes back to the originating event-id with
-            :rf/reply merged into the original message map"
-    (is (= [:items/load {:page 1 :rf/reply reply-payload}]
-           (encoding/build-reply-event
-             {:origin-event  [:items/load {:page 1}]
-              :explicit-on   {:supplied? false :value nil}
-              :reply-payload reply-payload})))
-    (testing "a non-map original message yields a fresh {:rf/reply ...} map"
-      (is (= [:items/load {:rf/reply reply-payload}]
-             (encoding/build-reply-event
-               {:origin-event  [:items/load]
-                :explicit-on   {:supplied? false :value nil}
-                :reply-payload reply-payload}))))))
+(deftest build-reply-event-unsupplied-is-nil
+  (testing "rf2-et4c1s — an UNSUPPLIED branch (:supplied? false) yields nil
+            (no event dispatched): the co-located default (reply merged
+            under :rf/reply back to the originating event) was retired
+            pre-alpha. A wholly-unaddressed request fails loud upstream at
+            validate-reply-target!; an unsupplied branch reaching here is
+            the partial-addressing silence case."
+    (is (nil? (encoding/build-reply-event
+                {:origin-event  [:items/load {:page 1}]
+                 :explicit-on   {:supplied? false :value nil}
+                 :reply-payload reply-payload})))
+    (is (nil? (encoding/build-reply-event
+                {:origin-event  [:items/load]
+                 :explicit-on   {:supplied? false :value nil}
+                 :reply-payload reply-payload})))))
 
 (deftest build-reply-event-non-vector-explicit-throws
   (testing "rf2-smqkq — an explicitly supplied non-vector non-nil reply

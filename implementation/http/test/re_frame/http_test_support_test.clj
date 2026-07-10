@@ -80,11 +80,11 @@
         ;; canned handler body, which calls dispatch-reply-via-late-bind!.
         ((registrar/handler :fx :rf.http/managed-canned-success)
          {:frame :rf/default :event [:t/load]}
-         {:value {:ok true}})
+         {:value {:ok true} :reply-to [:t/load]})
         (is (= 1 (count @dispatched))
             "immediate canned-success delegated to the canned handler body (one reply dispatch)")
-        (is (= :ok (-> @dispatched first first (nth 1) :rf/reply :status))
-            "the synthesised reply is the canned handler's success envelope")
+        (is (= :ok (-> @dispatched first first (nth 1) :status))
+            "the synthesised reply is the canned handler's success envelope (appended last arg)")
         (finally
           (late-bind/set-fn! :router/dispatch! original))))))
 

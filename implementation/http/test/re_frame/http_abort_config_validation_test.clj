@@ -139,7 +139,8 @@
             :rf.error/http-bad-abort-config (the removed guard)"
     (let [ex (call-managed! {:request      base-request
                              :request-id   :article/load
-                             :abort-signal signal-stub})]
+                             :abort-signal signal-stub
+                             :reply-to     [:no-op]})]
       (is (not (bad-abort-config-throw? ex))
           "dual-source config must NOT be rejected at the dispatch site")
       (is (nil? ex)
@@ -150,7 +151,8 @@
             (a compound vector id here)"
     (let [ex (call-managed! {:request      base-request
                              :request-id   [:articles :load "hello"]
-                             :abort-signal signal-stub})]
+                             :abort-signal signal-stub
+                             :reply-to     [:no-op]})]
       (is (not (bad-abort-config-throw? ex)))
       (is (nil? ex)))))
 
