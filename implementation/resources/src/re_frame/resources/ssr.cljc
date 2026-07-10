@@ -105,21 +105,13 @@
 ;;
 ;; Freshness is computed from the entry's DURABLE absolute timestamps
 ;; (`:stale-at` / `:invalidated-at`) against a supplied clock — never from
-;; trusting a timer fired on time (Spec 016 §Stale and GC scheduling). The
-;; SAME derivation the subs layer uses, lifted here so the server projection
-;; metadata and the client refetch decision agree.
-
-(defn entry-stale?
-  "True iff `entry` is stale against `clock-ms`: it has been explicitly
-  invalidated (`:invalidated-at` set) OR its `:stale-after-ms` window has
-  elapsed (`:stale-at` set and `clock-ms >= :stale-at`). Freshness is
-  ORTHOGONAL to load status (a `:loaded` entry may be stale). Per Spec 016
-  §Status semantics."
-  [entry clock-ms]
-  (boolean
-    (and entry
-         (or (some? (:invalidated-at entry))
-             (when-let [sa (:stale-at entry)] (>= clock-ms sa))))))
+;; trusting a timer fired on time (Spec 016 §Stale and GC scheduling). SSR
+;; reads the CANONICAL `state/entry-stale?` (which explicitly owns the
+;; staleness derivation for the subs projection, the SSR projection, AND the
+;; stale-timer re-check) so the server projection metadata and the client
+;; refetch decision agree with the subs layer — there is no SSR-private copy
+;; to drift (rf2-dv4uj1). SSR keeps only its own policy EXPLANATION of what a
+;; stale entry means for projection / hydration near each call site below.
 
 ;; ---- per-entry sensitivity / size classification (Spec 016 clause 4) ------
 ;;
@@ -344,7 +336,7 @@
         ;;     `:serialize` key rides verbatim and its per-slot params are
         ;;     registry-projected below.
         [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
-        stale?      (entry-stale? entry clock-ms)
+        stale?      (state/entry-stale? entry clock-ms)
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
         ;; serialized fresh entries do NOT (no double-fetch).
@@ -1581,7 +1573,7 @@
   (let [usable? (hydrated-data-usable? entry)]
     (cond
       (not usable?)                true            ;; metadata-only / redacted / error
-      (entry-stale? entry clock-ms) true           ;; stale-while-revalidate
+      (state/entry-stale? entry clock-ms) true           ;; stale-while-revalidate
       :else                         false)))       ;; fresh + usable data → no dup-fetch
 
 (defn hydrate-refetch-plan
@@ -1629,7 +1621,7 @@
                                                  ;; large-omission one (rf2-fopuj9).
                                                  (= privacy/redacted-sentinel (:data entry)) :metadata-only
                                                  (nil? (:data entry))         :no-data
-                                                 (entry-stale? entry clock-ms) :stale
+                                                 (state/entry-stale? entry clock-ms) :stale
                                                  :else                         :metadata-only)})))
                        entries)]
      (doseq [{:keys [resource-id reason] resource-key :resource/key} plan]
