@@ -57,9 +57,10 @@
             [re-frame.interceptor-registry :as icpt-reg]
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens type-scale mono-stack sans-stack]]))
+             :refer [tokens mono-stack sans-stack]]))
 
 ;; ---- pure helpers --------------------------------------------------------
 
@@ -206,14 +207,6 @@
      :filtered?    (not= (count rows) (count filtered))
      :query        query}))
 
-;; ---- header --------------------------------------------------------------
-
-(defn- header
-  []
-  ;; Spacer only — the panel carries no name heading.
-  [:div {:data-testid "rf-xray-static-interceptors-header"
-         :style       {:padding "4px 16px"}}])
-
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
@@ -236,26 +229,16 @@
 ;; ---- row -----------------------------------------------------------------
 
 (defn- interceptor-row
+  ;; Non-interactive catalogue entry (no row-level dispatch); the shared
+  ;; `catalogue-row` owns the `role=listitem` `li` chrome.
   [{:keys [id ref? authored arg factory? before? after? default? chain-count
            doc] :as _row}]
   (let [id-text (pr-str id)
         row-id  (if (and (> (count id-text) 0) (= \: (first id-text)))
                   (subs id-text 1)
                   id-text)]
-    ;; List semantics. Interceptor rows are non-interactive catalogue
-    ;; entries (no row-level dispatch), so `role=listitem` is the right
-    ;; shape rather than `role=button`.
-    [:li {:data-testid (str "rf-xray-static-interceptors-row-" row-id)
-          :role        "listitem"
-          :style       {:display       "block"
-                        :padding       "6px 12px"
-                        :font-family   mono-stack
-                        :font-size     "12px"
-                        :color         (:text-primary tokens)
-                        :background    "transparent"
-                        :border-left   "2px solid transparent"
-                        :border-radius "2px"
-                        :line-height   "18px"}}
+    (catalogue/catalogue-row
+     {:testid (str "rf-xray-static-interceptors-row-" row-id)}
      [:div {:style {:display     "flex"
                     :align-items "baseline"
                     :gap         "8px"}}
@@ -329,7 +312,7 @@
                       :font-family sans-stack
                       :font-style  "italic"
                       :font-size   "11px"}}
-        doc])]))
+        doc]))))
 
 ;; ---- root view -----------------------------------------------------------
 
@@ -341,37 +324,16 @@
   []
   (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])
         {:keys [silent? interceptors total filtered? query]} data]
-    [:section {:data-testid "rf-xray-static-interceptors"
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      (:body type-scale)}}
-     (header)
-     (cond
-       silent?
-       (search-box/empty-state "rf-xray-static-interceptors" "interceptor")
-
-       :else
-       [:<>
-        (search-box query total filtered?)
-        (if (empty? interceptors)
-          (search-box/empty-filtered "rf-xray-static-interceptors" "interceptor" query)
-          (into [:ul {:data-testid "rf-xray-static-interceptors-list"
-                      :role        "list"
-                      :style       {:list-style     "none"
-                                    :margin         "8px 0 0 0"
-                                    :padding        "0 8px"
-                                    :flex           1
-                                    :overflow       "auto"
-                                    :display        "flex"
-                                    :flex-direction "column"
-                                    :gap            "2px"}}]
-                (for [row interceptors]
-                  ^{:key (pr-str (:id row))}
-                  [interceptor-row row])))])]))
+    (catalogue/catalogue-panel
+     {:testid     "rf-xray-static-interceptors"
+      :noun       "interceptor"
+      :query      query
+      :silent?    silent?
+      :rows       interceptors
+      :search     (search-box query total filtered?)
+      :row-render (fn [row]
+                    ^{:key (pr-str (:id row))}
+                    [interceptor-row row])})))
 
 ;; ---- production value source ---------------------------------------------
 ;;
