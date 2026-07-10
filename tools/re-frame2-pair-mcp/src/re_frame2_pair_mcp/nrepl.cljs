@@ -352,6 +352,23 @@
   `:pending` is `{id resolve-fn}` for in-flight requests. `:closed?` is
   set when the socket terminates so subsequent calls re-open.
 
+  ## Single-flight connection ownership
+
+  `:generation` is a monotonic counter bumped on every connect attempt (and
+  by `close!`); it is the *authority token* for the connection. Socket
+  handlers (`attach-handlers!`) capture the generation they were wired for
+  and mutate conn state only while they still own it — a socket superseded
+  by a newer connect (or by `close!`) reads `owns?` false and can neither
+  fold bytes into the shared framing buffer nor flip `:closed?` on the live
+  connection.
+
+  `:connecting` is the in-flight-connect record `{:promise :socket :gen
+  :resolve :reject}` (or nil when no connect is in progress). It makes
+  `connect!` single-flight: the first caller opens the socket; every
+  concurrent caller awaits the same `:promise`, so exactly one
+  `net/createConnection` runs and exactly one socket is published per
+  transition.
+
   `:probed-builds` is the set of build-ids for which the re-frame2-pair runtime
   preload has been confirmed live on this socket generation.
   Cleared by `close!` (operator-initiated teardown) and reborn empty
@@ -389,14 +406,47 @@
          :pending           {}
          :closed?           true
          :session           nil
+         :generation        0
+         :connecting        nil
          :probed-builds     #{}
          :resolved-build-id nil
          :build-alias       {}}))
 
+(defn- owns?
+  "True when `gen` is still the conn's current connection generation — i.e.
+  the socket/handler tagged with `gen` is the authoritative one. A socket
+  superseded by a newer connect (or by `close!`, which bumps the
+  generation) reads false and MUST NOT mutate shared conn state
+  (framing buffer, `:socket`, `:closed?`, `:pending`)."
+  [conn-atom gen]
+  (= gen (:generation @conn-atom)))
+
+(defn- destroy-socket!
+  "Abandon a superseded / orphaned socket so it can never feed the current
+  connection. Prefers `.destroy` (drops the connection immediately); falls
+  back to `.end` for minimal fakes. Best-effort — teardown of a half-open
+  socket may throw, which we swallow."
+  [^js sock]
+  (try
+    (cond
+      (fn? (j/get sock :destroy)) (j/call sock :destroy)
+      (fn? (j/get sock :end))     (j/call sock :end)
+      :else                       nil)
+    (catch :default _ nil)))
+
 (defn attach-handlers!
-  "Wire up `data` / `error` / `close` on the freshly-connected socket.
-  Resolves pending requests on matching `:done` status; logs errors;
-  marks the conn closed on disconnect.
+  "Wire up `data` / `error` / `close` on the freshly-connected socket for
+  connection generation `gen`. Resolves pending requests on matching
+  `:done` status; logs errors; marks the conn closed on disconnect.
+
+  ## Ownership-aware — only the authoritative generation mutates state
+
+  Every callback first checks `owns?`: a socket superseded by a newer
+  connect (or torn down by `close!`, which bumps the generation) reads
+  false and does nothing. This is what makes the connection single-flight
+  safe end-to-end — a losing/stale socket can neither fold its bytes into
+  the shared framing buffer (so frames from two socket generations are
+  never concatenated) nor flip `:closed?` on the live connection.
 
   The `data` handler folds the incoming chunk into the buffer AND
   splits off any complete frames in a single `swap!` — two-swap
@@ -405,6 +455,10 @@
   but not yet the trimmed trailer, double-decoding the same frame.
   One atomic swap closes that window.
 
+  The 2-arity defaults `gen` to the conn's CURRENT generation — the shape
+  the transport tests attach with (no reconnect in play). Production
+  `connect!` passes the generation it captured for the socket.
+
   Public (not `defn-`) so `nrepl_test.cljs` can drive the data-folding
   + pending-id dispatch with a fake socket — feeding synthetic chunks
   and asserting pending handlers fire — without opening a real TCP
@@ -412,34 +466,43 @@
   method that records the callback per event name; see the test's
   `fake-socket` helper. This mirrors the `decode-all-frames`
   public-for-test precedent above."
-  [conn-atom ^js socket]
-  (j/call socket :on "data"
-    (fn [chunk]
-      (let [frames* (atom nil)
-            _       (swap! conn-atom
-                           (fn [c]
-                             (let [buf'           (js/Buffer.concat
-                                                    #js [(or (:buf c) (js/Buffer.alloc 0))
-                                                         chunk])
-                                   [frames rest'] (decode-all-frames buf')]
-                               (reset! frames* frames)
-                               (assoc c :buf rest'))))]
-        (doseq [frame (array-seq @frames*)]
-          (let [id      (j/get frame "id")
-                resolve (get (:pending @conn-atom) id)]
-            (when resolve
-              ;; Accumulate fields into the pending result. Each pending
-              ;; entry holds {:result (atom result-map) :resolve fn}.
-              ;; For brevity we store a single resolve fn that merges
-              ;; via a per-call atom — see send-eval! below.
-              (resolve frame)))))))
-  (j/call socket :on "error"
-    (fn [err]
-      (log! "socket error:" (.-message err))
-      (swap! conn-atom assoc :closed? true)))
-  (j/call socket :on "close"
-    (fn [_]
-      (swap! conn-atom assoc :closed? true))))
+  ([conn-atom socket] (attach-handlers! conn-atom socket (:generation @conn-atom)))
+  ([conn-atom ^js socket gen]
+   (j/call socket :on "data"
+     (fn [chunk]
+       ;; A superseded generation's late `data` must NOT touch the shared
+       ;; framing buffer — otherwise bytes from two TCP streams concatenate
+       ;; into one bencode buffer and corrupt frame assembly.
+       (when (owns? conn-atom gen)
+         (let [frames* (atom nil)
+               _       (swap! conn-atom
+                              (fn [c]
+                                (let [buf'           (js/Buffer.concat
+                                                       #js [(or (:buf c) (js/Buffer.alloc 0))
+                                                            chunk])
+                                      [frames rest'] (decode-all-frames buf')]
+                                  (reset! frames* frames)
+                                  (assoc c :buf rest'))))]
+           (doseq [frame (array-seq @frames*)]
+             (let [id      (j/get frame "id")
+                   resolve (get (:pending @conn-atom) id)]
+               (when resolve
+                 ;; Accumulate fields into the pending result. Each pending
+                 ;; entry holds {:result (atom result-map) :resolve fn}.
+                 ;; For brevity we store a single resolve fn that merges
+                 ;; via a per-call atom — see send-eval! below.
+                 (resolve frame))))))))
+   (j/call socket :on "error"
+     (fn [err]
+       ;; A stale socket's error must not mark the LIVE connection closed.
+       (when (owns? conn-atom gen)
+         (log! "socket error:" (.-message err))
+         (swap! conn-atom assoc :closed? true))))
+   (j/call socket :on "close"
+     (fn [_]
+       ;; Likewise a stale socket's late close must not flip the live conn.
+       (when (owns? conn-atom gen)
+         (swap! conn-atom assoc :closed? true))))))
 
 (defn connect!
   "Open the persistent socket. Returns a Promise resolving to the
@@ -475,30 +538,72 @@
   `__re_frame2_pair_runtime` marker lives in the browser's CLJS heap,
   which a JVM-side socket drop does not destroy (only a page reload
   does, and a page reload leaves the JVM nREPL socket — hence
-  `:closed?` — untouched). A negative probe re-runs downstream anyway."
+  `:closed?` — untouched). A negative probe re-runs downstream anyway.
+
+  ## Single-flight
+
+  Concurrent callers (two simultaneous first ops, say) must NOT each open a
+  socket. The first caller into the `:else` branch claims the `:connecting`
+  slot and bumps `:generation`; every concurrent caller returns that same
+  in-flight Promise. So exactly one `net/createConnection` runs and exactly
+  one socket is published per transition; nREPL then multiplexes the
+  concurrent ops by id over that one socket. A candidate that comes up after
+  it has been superseded (a newer connect, or a `close!`) is destroyed
+  rather than published."
   [conn-atom]
-  (let [{:keys [socket closed?]} @conn-atom]
-    (if (and socket (not closed?))
+  (let [{:keys [socket closed? connecting]} @conn-atom]
+    (cond
+      ;; Fast path — a healthy socket is already open.
+      (and socket (not closed?))
       (js/Promise.resolve conn-atom)
-      (js/Promise.
-        (fn [resolve reject]
-          (let [{:keys [host port]} @conn-atom
-                sock (net/createConnection #js {:host host :port port})]
-            (j/call sock :on "connect"
-              (fn []
-                ;; Transport-only: swap in the live socket, clear the
-                ;; closed flag, and reset the framing buffer. The build-id
-                ;; caches are deliberately PRESERVED across a same-port
-                ;; reopen — see the fn docstring for why and for where the
-                ;; genuine-different-build reset lives.
+
+      ;; Single-flight — a connect for THIS conn is already in progress;
+      ;; await the same Promise instead of opening a second socket.
+      (some? connecting)
+      (:promise connecting)
+
+      :else
+      (let [gen  (inc (:generation @conn-atom))
+            d    #js {}
+            p    (js/Promise. (fn [resolve reject]
+                                (set! (.-resolve d) resolve)
+                                (set! (.-reject d) reject)))
+            {:keys [host port]} @conn-atom
+            sock (net/createConnection #js {:host host :port port})]
+        ;; Claim the in-flight slot + bump the generation BEFORE wiring the
+        ;; socket callbacks, so a late `connect`/`error` can tell whether it
+        ;; is still the authoritative generation. Held synchronously, so a
+        ;; concurrent `connect!` in the same tick sees `:connecting` and
+        ;; awaits `p` rather than opening its own socket.
+        (swap! conn-atom assoc :generation gen
+               :connecting {:promise p :socket sock :gen gen
+                            :resolve (.-resolve d) :reject (.-reject d)})
+        (j/call sock :on "connect"
+          (fn []
+            (if (owns? conn-atom gen)
+              (do
+                ;; Transport-only publish: swap in the live socket, clear the
+                ;; closed flag + in-flight slot, and reset the framing buffer.
+                ;; The build-id caches are deliberately PRESERVED across a
+                ;; same-port reopen — see the fn docstring for why and for
+                ;; where the genuine-different-build reset lives.
                 (swap! conn-atom assoc :socket sock :closed? false
-                       :buf (js/Buffer.alloc 0))
-                (attach-handlers! conn-atom sock)
-                (resolve conn-atom)))
-            (j/call sock :once "error"
-              (fn [err]
-                (swap! conn-atom assoc :closed? true)
-                (reject err)))))))))
+                       :buf (js/Buffer.alloc 0) :connecting nil)
+                (attach-handlers! conn-atom sock gen)
+                ((.-resolve d) conn-atom))
+              ;; Superseded before we came up (a newer connect or a `close!`
+              ;; bumped the generation). Abandon this socket so it never
+              ;; feeds the current framing buffer, and settle our waiter onto
+              ;; the authoritative conn (send-op! re-reads `:socket`, so a
+              ;; nil-socket after close! reconnects/errors cleanly).
+              (do (destroy-socket! sock)
+                  ((.-resolve d) conn-atom)))))
+        (j/call sock :once "error"
+          (fn [err]
+            (when (owns? conn-atom gen)
+              (swap! conn-atom assoc :closed? true :connecting nil))
+            ((.-reject d) err)))
+        p))))
 
 (defn close!
   "Close the persistent socket. Idempotent. Drops the per-socket probe
@@ -506,12 +611,34 @@
   Also drops `:resolved-build-id` — the cached default for
   tool calls without an explicit `:build` arg — and `:build-alias`,
   the forgiving suffix→canonical resolution cache — so a
-  reconnect doesn't carry a stale build-id from the previous session."
+  reconnect doesn't carry a stale build-id from the previous session.
+
+  ## Operator teardown cannot be undone by a late candidate
+
+  `close!` bumps `:generation`, so any still-attached socket handlers AND
+  any in-flight connect's late `connect` callback read as superseded and
+  refuse to mutate conn state — a candidate that comes up after teardown is
+  destroyed, never published. It also tears down an in-flight candidate
+  socket and rejects its waiter so a caller blocked on the connect Promise
+  settles promptly rather than hanging."
   [conn-atom]
-  (when-let [^js sock (:socket @conn-atom)]
-    (try (.end sock) (catch :default _ nil)))
-  (swap! conn-atom assoc :socket nil :closed? true :pending {}
-         :probed-builds #{} :resolved-build-id nil :build-alias {}))
+  (let [{:keys [socket connecting]} @conn-atom]
+    (when socket
+      (try (.end ^js socket) (catch :default _ nil)))
+    ;; Tear down an in-flight candidate so it can't come up behind us.
+    (when-let [^js insock (:socket connecting)]
+      (destroy-socket! insock))
+    (swap! conn-atom (fn [c]
+                       (-> c
+                           (assoc :socket nil :closed? true :pending {}
+                                  :connecting nil
+                                  :probed-builds #{} :resolved-build-id nil
+                                  :build-alias {})
+                           (update :generation (fnil inc 0)))))
+    ;; Settle any waiter blocked on the in-flight connect (it will re-read a
+    ;; nil `:socket` and reconnect on the next call).
+    (when-let [rej (:reject connecting)]
+      (rej (js/Error. "nREPL connection closed during connect — retry to reconnect")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Op send / receive — multiplex by request id.
