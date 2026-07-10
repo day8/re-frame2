@@ -7,12 +7,12 @@ And, specifically, how to read `re-frame2` code.
 ---
 
 > A note on names:
->   - `Clojure` a language which runs on the JVM.
->   - `ClojureScript` a language which runs in the browser.
+>   - `Clojure` — a language which runs on the JVM.
+>   - `ClojureScript` — a language which runs in the browser.
 >
 > They are essentially the same language but our focus here is on `ClojureScript`.
 >
-> There is also `Closure` — [a library](https://clojurescript.org/reference/google-closure-library) originally written by Google, but now packaged as part of `ClojureScript`. Mentioned once, here, for completeness but otherwise ignored for our purposes.  
+> There is also `Closure` — [a library](https://clojurescript.org/reference/google-closure-library) originally written by Google, but now packaged as part of `ClojureScript`. Mentioned once, here, for completeness, but otherwise ignored for our purposes.
 
 ---
 I have good news: you are going to be **surprised and delighted at the simplicity of the syntax**.
@@ -156,7 +156,7 @@ inc
 {inc 5}
 ```
 
-Nearly anything can be a map key including a function. Seldom useful, but possible.
+Nearly anything can be a map key, including a function. Seldom useful, but possible.
 
 ## Evaluating Lists
 
@@ -659,7 +659,7 @@ In a functional language, creating functions is a big deal. You'll be using `def
 ---
 ## `let`
 
-This is another special form you'll be using  _a lot_.
+This is another special form you'll be using _a lot_.
 
 ```cljs
 ;; a let form has two parts:
@@ -1024,7 +1024,7 @@ you'll have experienced before in other languages.
 Wait, rewrite my code? How is that even possible?
 
 Well, in ClojureScript your **code is data**.
-It is just arrangements of data literals put into text file, involving mostly lists, symbols and vectors.
+It is just arrangements of data literals put into a text file, involving mostly lists, symbols and vectors.
 This property means a function can take your code (which is just data, remember),  and compute new data, which is new code.
 And **that** is how a macro rewrites your code - it is a function that runs at compile time - it takes your code as a data structure and computes a new data structure (new code).
 
@@ -1232,7 +1232,7 @@ evaluates to `{:value 0}`. Now the same thing with destructuring — still using
 
 ```cljs
 (let [a-map         {:db {:value 0} :event [:inc]}
-      {:keys [db]}  a-map]  ;; <-- desctructuring is used to obtain the :db value from the map
+      {:keys [db]}  a-map]  ;; <-- destructuring is used to obtain the :db value from the map
   db)
 ```
 
@@ -1249,7 +1249,7 @@ evaluates to `2` — first element is `a`, second is `b`.
 
 ### In function parameters
 
-Here is destructuing used within arguments with a `defn`. 
+Here is destructuring used in the arguments of a `defn`:
 
 ```cljs
 (defn my-fn 
@@ -1257,10 +1257,12 @@ Here is destructuing used within arguments with a `defn`.
   db)
 ```
 
-Now call the funtion with a map argument, containing the key `:db`:
+Now call the function with a map argument containing the key `:db`:
 ```cljs
 (my-fn  {:db {:value 0 :other 1}})
 ```
+
+which evaluates to `{:value 0 :other 1}` — the value at `:db`, bound to the local `db`.
 
 
 ## Summary
@@ -1276,6 +1278,6 @@ We have learned:
   - data structures themselves can be used as functions (`(:key m)`, `(m :key)`)
   - threading macros `->` and `->>` reshape deeply-nested calls into top-to-bottom pipelines
   - immutable data — every change is a new value; old values are untouched
-  - destructuring binds local names to values inside maps and vectors when you bind them (re-frame2 handlers do this a lot)
+  - destructuring binds local names to values inside maps and vectors (re-frame2 handlers do this a lot)
 
 We've looked at ClojureScript through a lens which makes it easier to understand Reagent and re-frame2.
