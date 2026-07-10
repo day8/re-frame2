@@ -4,6 +4,10 @@ You've met `:on-success` on [HTTP requests](http.md), `:reply-to` on mutations, 
 
 **The takeaway, up front: in re-frame2 a continuation is data, not a closure.** The rest of the page earns that sentence. We'll first see the one move that makes it true, then see — concretely — what `await` was quietly costing you, and finally what you get to do once the continuation is a value you can hold in your hand.
 
+!!! tip "Just want the `.then`/`.catch`/`.finally` translation?"
+
+    [Coming from Promises](coming-from-promises.md) is the quick mapping table — this page is the *why* it points back to.
+
 ## Start with the one move
 
 Here is the [effect map](../core/glossary.md#effect-map) an [event handler](../core/glossary.md#event-handler) returns to ask for an HTTP request. Watch where the *result* is supposed to go:

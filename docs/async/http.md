@@ -103,6 +103,10 @@ So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled`
 
 Every request **addresses its reply** — there is no implicit default. There are two **equal** ways to do it — pick by fit, not correctness.
 
+??? info "Coming from Promises?"
+
+    `:on-success` / `:on-failure` are `.then` / `.catch`; a single `:reply-to` handler that branches on `:status` is the `.finally`-plus-both-branches shape (a `let` above a `case`). [Coming from Promises](coming-from-promises.md) maps the whole triad — including why there is no `:on-finally`.
+
 ### Two handlers with :on-success / :on-failure
 
 Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the canonical reply appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical envelope, they just route it to two named handlers:
