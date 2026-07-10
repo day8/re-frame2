@@ -53,74 +53,77 @@
 (defn get
   "Spec 014 helper — build a GET `[:rf.http/managed args-map]` fx vector.
 
-  Single-arity form is the minimal call: just the URL.
+  `args` merges into the canonical args map (top-level merge; `:request`
+  itself is merged with `{:method :get :url url}`). Caller-supplied
+  `:method` and `:url` under `:request` are overwritten by the helper.
 
-  Multi-arity form merges `args` into the canonical args map (top-level
-  merge; `:request` itself is merged with `{:method :get :url url}`).
-  Caller-supplied `:method` and `:url` under `:request` are overwritten
-  by the helper.
+  `args` MUST address the reply: supply `:reply-to`, `:on-success`, or
+  `:on-failure` (rf2-et4c1s — an unaddressed request fails loud at dispatch
+  with `:rf.error/http-no-reply-target`). `{:reply-to nil}` is the explicit
+  fire-and-forget spelling. There is no one-argument arity: a URL-only call
+  would build an effect guaranteed to fail its own boundary validation
+  (rf2-3fc89f.9), so the args map is required.
 
   Example:
-    {:fx [(rf.http/get \"/api/items\")
-          (rf.http/get \"/api/items\" {:on-success [:items/loaded]})
+    {:fx [(rf.http/get \"/api/items\" {:on-success [:items/loaded]})
           (rf.http/get \"/api/items\"
                        {:on-success [:items/loaded]
                         :retry      retry-policy
                         :decode     ItemListSchema})]}"
-  ([url]      (build :get url {}))
-  ([url args] (build :get url args)))
+  [url args] (build :get url args))
 
 (defn post
   "Spec 014 helper — build a POST `[:rf.http/managed args-map]` fx vector.
 
-  Pass `:body` under `:request` (and optionally `:request-content-type
-  :json` to JSON-encode a clj coll, per Spec 014 §Body encoding):
+  `args` is required and MUST address the reply (`:reply-to` /
+  `:on-success` / `:on-failure`; `{:reply-to nil}` for explicit
+  fire-and-forget). Pass `:body` under `:request` (and optionally
+  `:request-content-type :json` to JSON-encode a clj coll, per Spec 014
+  §Body encoding):
 
     (rf.http/post \"/api/items\"
                   {:request    {:body new-item
                                 :request-content-type :json}
                    :on-success [:items/created]})"
-  ([url]      (build :post url {}))
-  ([url args] (build :post url args)))
+  [url args] (build :post url args))
 
 (defn put
   "Spec 014 helper — build a PUT `[:rf.http/managed args-map]` fx vector.
 
-  Same shape as `post`; PUT semantics. See Spec 014 §The args map."
-  ([url]      (build :put url {}))
-  ([url args] (build :put url args)))
+  Same shape as `post`; PUT semantics. `args` is required and MUST address
+  the reply. See Spec 014 §The args map."
+  [url args] (build :put url args))
 
 (defn delete
   "Spec 014 helper — build a DELETE `[:rf.http/managed args-map]` fx vector.
 
-  Single-arity: just the URL. Multi-arity: merge `args` into the
-  canonical envelope. Example:
+  `args` is required and MUST address the reply (`:reply-to` /
+  `:on-success` / `:on-failure`). Example:
 
     (rf.http/delete \"/api/items/42\"
                     {:on-success [:items/removed 42]})"
-  ([url]      (build :delete url {}))
-  ([url args] (build :delete url args)))
+  [url args] (build :delete url args))
 
 (defn patch
   "Spec 014 helper — build a PATCH `[:rf.http/managed args-map]` fx vector.
 
-  Same shape as `post` / `put`; PATCH semantics."
-  ([url]      (build :patch url {}))
-  ([url args] (build :patch url args)))
+  Same shape as `post` / `put`; PATCH semantics. `args` is required and
+  MUST address the reply."
+  [url args] (build :patch url args))
 
 (defn head
   "Spec 014 helper — build a HEAD `[:rf.http/managed args-map]` fx vector.
 
   HEAD requests typically don't carry `:decode` since the response has
-  no body; the caller can still set `:on-success` / `:on-failure` to
-  branch on status."
-  ([url]      (build :head url {}))
-  ([url args] (build :head url args)))
+  no body; the caller MUST still set `:on-success` / `:on-failure` (or
+  `:reply-to`) to address the reply and branch on status. `args` is
+  required."
+  [url args] (build :head url args))
 
 (defn options
   "Spec 014 helper — build an OPTIONS `[:rf.http/managed args-map]` fx
   vector. Rarely needed from user code (browsers issue OPTIONS as CORS
   preflight automatically), but provided for symmetry with the other
-  verbs and the rare case of explicit capability discovery."
-  ([url]      (build :options url {}))
-  ([url args] (build :options url args)))
+  verbs and the rare case of explicit capability discovery. `args` is
+  required and MUST address the reply."
+  [url args] (build :options url args))

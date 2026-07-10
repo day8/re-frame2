@@ -321,7 +321,7 @@ The canonical `[:rf.http/managed {:request {:method :get :url …} …}]` vector
 (rf.http/get "/api/items" {:on-success [:items/loaded]})
 ```
 
-Every verb is there — `rf.http/get` / `post` / `put` / `delete` / `patch` / `head` / `options` — each in a one-arg (`url`) and two-arg (`url args`) form. The helper pins `:method` and `:url`; everything else in the args map (`:decode`, `:retry`, `:on-success`, and the `:request` sub-keys like `:body` and `:headers`) passes straight through:
+Every verb is there — `rf.http/get` / `post` / `put` / `delete` / `patch` / `head` / `options` — each taking `url` and a required `args` map (`{:reply-to nil}` is the explicit fire-and-forget spelling; an unaddressed request fails loud with `:rf.error/http-no-reply-target`). The helper pins `:method` and `:url`; everything else in the args map (`:decode`, `:retry`, `:on-success`, and the `:request` sub-keys like `:body` and `:headers`) passes straight through:
 
 ```clojure
 (rf/reg-event :comment/create

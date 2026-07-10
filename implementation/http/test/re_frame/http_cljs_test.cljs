@@ -70,10 +70,11 @@
         (aset js/globalThis "location" orig)))))
 
 (deftest get-helper-shape
-  (testing "(rf.http/get url) produces [:rf.http/managed {:request {:method :get :url url}}]"
+  (testing "(rf.http/get url {:reply-to nil}) produces [:rf.http/managed {:request {:method :get :url url} :reply-to nil}] — rf2-3fc89f.9 the URL-only arity is gone; args map required"
     (is (= [:rf.http/managed
-            {:request {:method :get :url "/api/items"}}]
-           (rf.http/get "/api/items")))))
+            {:request  {:method :get :url "/api/items"}
+             :reply-to nil}]
+           (rf.http/get "/api/items" {:reply-to nil})))))
 
 (deftest post-helper-shape
   (testing "(rf.http/post url args) merges :request body with helper's verb + url"
@@ -89,12 +90,12 @@
                           :on-success [:item/created]})))))
 
 (deftest put-delete-patch-head-options-shapes
-  (testing "every verb pins the right :method"
-    (is (= :put     (-> (rf.http/put     "/x") second :request :method)))
-    (is (= :delete  (-> (rf.http/delete  "/x") second :request :method)))
-    (is (= :patch   (-> (rf.http/patch   "/x") second :request :method)))
-    (is (= :head    (-> (rf.http/head    "/x") second :request :method)))
-    (is (= :options (-> (rf.http/options "/x") second :request :method)))))
+  (testing "every verb pins the right :method (args map required — rf2-3fc89f.9)"
+    (is (= :put     (-> (rf.http/put     "/x" {:reply-to nil}) second :request :method)))
+    (is (= :delete  (-> (rf.http/delete  "/x" {:reply-to nil}) second :request :method)))
+    (is (= :patch   (-> (rf.http/patch   "/x" {:reply-to nil}) second :request :method)))
+    (is (= :head    (-> (rf.http/head    "/x" {:reply-to nil}) second :request :method)))
+    (is (= :options (-> (rf.http/options "/x" {:reply-to nil}) second :request :method)))))
 
 (deftest top-level-keys-pass-through
   (testing ":decode, :accept, :retry, :timeout-ms, :request-id, :abort-signal pass through"
@@ -1118,4 +1119,454 @@
             (.catch (fn [e]
                       (restore)
                       (is false (str "rf2-065xo — unexpected: " e))
+                      (done))))))))
+
+;; ---- rf2-3fc89f.9 — lifecycle-owned external AbortSignal cancellation ------
+;;
+;; The external `:abort-signal` is a REQUEST-lifecycle cancellation source. It
+;; must route to whichever canonical handle owns the CURRENT phase (live-fetch
+;; or sleeping-backoff) through that handle's `:abort-fn :user`, flipping the
+;; same `:aborted?` / `:finalised?` precedence cells `:rf.http/managed-abort` /
+;; supersede / actor-destroy use — and DETACH on ownership transfer + every
+;; terminal path so a shared / parent controller never accumulates
+;; completed-attempt listeners. The pre-fix binding wired the signal only to an
+;; attempt-local `internal-controller`, so it bypassed abort precedence (a
+;; settled success could still land), never cancelled a sleeping backoff, and
+;; leaked its `{once:true}` listener on ordinary completion.
+
+;; ---- (a) binding-helper unit contract (fake AbortSignal / EventTarget) -----
+
+(defn- fake-abort-signal
+  "A minimal AbortSignal / EventTarget stand-in that RECORDS its live 'abort'
+  listeners so a test can prove they are attached / detached. Supports exactly
+  the surface `bind-external-abort!` / `detach-external-abort!` touch:
+  `.-aborted`, `.addEventListener`, `.removeEventListener`, plus a test-only
+  `:fire!` (dispatch to current listeners) and `:pre-abort!` (mark aborted
+  WITHOUT dispatching, to model an already-aborted signal). `:listener-count`
+  reports how many listeners are currently attached."
+  []
+  (let [listeners (atom [])
+        sig       (js-obj)]
+    (aset sig "aborted" false)
+    ;; The binding calls `.addEventListener signal "abort" listener` with
+    ;; exactly type + listener (no options), so a fixed 2-arg fn suffices.
+    (aset sig "addEventListener"
+          (fn [_type f] (swap! listeners conj f)))
+    (aset sig "removeEventListener"
+          (fn [_type f]
+            (swap! listeners (fn [ls] (vec (remove #(identical? % f) ls))))))
+    {:signal         sig
+     :listener-count (fn [] (count @listeners))
+     :pre-abort!     (fn [] (aset sig "aborted" true))
+     :fire!          (fn []
+                       (aset sig "aborted" true)
+                       (doseq [f @listeners] (f #js {})))}))
+
+(deftest external-abort-binding-attaches-one-listener-and-routes-to-current-handle
+  (testing "rf2-3fc89f.9 — `bind-external-abort!` attaches exactly ONE listener
+  on a non-aborted signal; firing the signal invokes the bound `cancel!`."
+    (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
+          binding (transport-cljs/make-external-abort signal)
+          fired   (atom [])]
+      (is (some? binding) "a binding is created for a non-nil signal")
+      (transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :phase-1)))
+      (is (= 1 (listener-count)) "exactly one listener attached")
+      (is (empty? @fired) "cancel! not yet called — signal has not aborted")
+      (fire!)
+      (is (= [:phase-1] @fired) "firing the signal invokes the bound cancel!"))))
+
+(deftest external-abort-rebind-detaches-prior-phase-listener
+  (testing "rf2-3fc89f.9 — rebinding on phase-ownership transfer DETACHES the
+  prior phase's listener (never a second concurrent listener) and routes the
+  signal to the NEW phase handle's cancel!."
+    (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
+          binding (transport-cljs/make-external-abort signal)
+          fired   (atom [])]
+      (transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :live-fetch)))
+      (is (= 1 (listener-count)))
+      ;; ownership transfer live-fetch → backoff
+      (transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :backoff)))
+      (is (= 1 (listener-count)) "still exactly one listener — the old one was detached")
+      (fire!)
+      (is (= [:backoff] @fired)
+          "the signal routes to the CURRENT (backoff) handle, not the stale live-fetch one"))))
+
+(deftest external-abort-detach-is-idempotent-and-removes-listener
+  (testing "rf2-3fc89f.9 — `detach-external-abort!` removes the listener and is
+  idempotent (a shared/parent signal retains no listener after terminal)."
+    (let [{:keys [signal listener-count]} (fake-abort-signal)
+          binding (transport-cljs/make-external-abort signal)]
+      (transport-cljs/bind-external-abort! binding (fn [] nil))
+      (is (= 1 (listener-count)))
+      (transport-cljs/detach-external-abort! binding)
+      (is (= 0 (listener-count)) "listener detached")
+      (transport-cljs/detach-external-abort! binding)
+      (is (= 0 (listener-count)) "detach is idempotent — no throw, still zero"))))
+
+(deftest external-abort-already-aborted-fires-synchronously-attaches-nothing
+  (testing "rf2-3fc89f.9 — binding an ALREADY-aborted signal fires cancel!
+  synchronously and attaches NO listener (the caller then short-circuits)."
+    (let [{:keys [signal listener-count pre-abort!]} (fake-abort-signal)
+          binding (transport-cljs/make-external-abort signal)
+          fired   (atom [])]
+      (pre-abort!)
+      (transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :sync)))
+      (is (= [:sync] @fired) "cancel! fired synchronously for an already-aborted signal")
+      (is (= 0 (listener-count)) "no listener attached — nothing to leak"))))
+
+(deftest external-abort-nil-signal-is-a-noop
+  (testing "rf2-3fc89f.9 — a nil `:abort-signal` yields a nil binding; bind /
+  detach are no-ops (the common no-external-signal request path)."
+    (is (nil? (transport-cljs/make-external-abort nil)))
+    (is (nil? (transport-cljs/bind-external-abort! nil (fn [] (is false "must not fire")))))
+    (is (nil? (transport-cljs/detach-external-abort! nil)))))
+
+;; ---- (b) end-to-end: fetch stub whose body promise the test controls -------
+
+(defn- with-controlled-body-fetch
+  "Stub `js/fetch` to resolve a 200 Response whose HEADERS resolve immediately
+  but whose `.text()` body reader returns a promise the TEST settles via the
+  returned `:resolve-body!`. `read-fired` is set true the moment `.text()` is
+  invoked (the framework has received the Response and is mid-finalisation,
+  reading the body). Models the acceptance-2 window: host promise about to
+  fulfil, framework not yet finalised. Returns `{:restore :resolve-body!}`."
+  [read-fired]
+  (let [orig         (.-fetch js/globalThis)
+        body-resolve (atom nil)
+        resp #js {:ok         true
+                  :status     200
+                  :statusText ""
+                  :headers    #js {:forEach (fn [cb] (cb "application/json" "content-type"))}
+                  :text       (fn []
+                                (reset! read-fired true)
+                                (js/Promise. (fn [res _] (reset! body-resolve res))))}]
+    (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
+    {:restore       (fn [] (set! (.-fetch js/globalThis) orig))
+     :resolve-body! (fn [txt] (@body-resolve txt))}))
+
+(defn- next-macrotask
+  "A promise that resolves on the next `setTimeout 0` macrotask — used to let
+  every queued microtask (handle-response! → finalise-*) drain so a
+  suppressed second reply would have landed if the fix were wrong."
+  []
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve 0))))
+
+(deftest cljs-external-abort-after-settle-before-finalise-cancels-once
+  (testing "rf2-3fc89f.9 acceptance 2 — an external signal that fires after the
+  host body promise fulfils but BEFORE framework finalisation reclassifies the
+  in-flight success to exactly one `:rf.http/aborted :reason :user` reply; no
+  success/decode/status/accept outcome lands (pre-fix the settled success won)."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [replies    (atom [])
+            read-fired (atom false)
+            {:keys [restore resolve-body!]} (with-controlled-body-fetch read-fired)
+            controller (js/AbortController.)]
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue/ext
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/x"}
+                    :decode     :json
+                    :abort-signal (.-signal controller)
+                    :request-id :ext
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/ext] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(when @read-fired true)
+              {:timeout-ms 2000 :label "cljs body reader reached"})
+            (.then (fn [_]
+                     ;; Host body promise fulfils, THEN the external signal fires
+                     ;; synchronously in the same turn — before handle-response!.
+                     (resolve-body! "{\"ok\":true}")
+                     (.abort controller)
+                     (test-support/poll-until
+                       #(seq @replies)
+                       {:timeout-ms 2000 :label "cljs external-abort cancel reply"})))
+            ;; Drain remaining microtasks so a wrongly-dispatched success would surface.
+            (.then (fn [_] (next-macrotask)))
+            (.then (fn [_]
+                     (is (= 1 (count @replies))
+                         "exactly one reply — the settled success is suppressed by abort precedence")
+                     (let [reply (first @replies)]
+                       (is (= :cancelled (:status reply)))
+                       (is (= :rf.http/aborted (get-in reply [:error :kind]))
+                           "the external signal flips the same precedence cell → :rf.http/aborted")
+                       (is (= :user (get-in reply [:error :reason]))))
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the live-fetch handle is cleared")
+                     (restore)
+                     (done)))
+            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+
+(deftest cljs-external-abort-during-backoff-cancels-retry-and-does-not-reinvoke-thunk
+  (testing "rf2-3fc89f.9 acceptance 3 — an external signal that fires while the
+  request sleeps in the backoff window cancels the pending retry immediately
+  (timer cleared, registry emptied, one :rf.http/aborted :reason :user reply);
+  attempt N+1 is never issued and the per-attempt body thunk is not re-invoked."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [fetch-count (atom 0)
+            thunk-calls (atom 0)
+            replies     (atom [])
+            backoff-ms  80
+            controller  (js/AbortController.)
+            orig        (.-fetch js/globalThis)
+            resp        (fake-response {:status 500 :content-type "application/json"
+                                        :text-val "boom"})]
+        (set! (.-fetch js/globalThis)
+              (fn [_url _init] (swap! fetch-count inc) (js/Promise.resolve resp)))
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url    "/always-500"
+                                 :method :post
+                                 ;; per-attempt body thunk — counts invocations so
+                                 ;; "not re-invoked after cancel" is observable.
+                                 :body   (fn [] (swap! thunk-calls inc) "payload")}
+                    :decode     :json
+                    :retry      {:on           #{:rf.http/http-5xx}
+                                 :max-attempts 5
+                                 :backoff      {:base-ms backoff-ms :factor 1 :max-ms backoff-ms}}
+                    :abort-signal (.-signal controller)
+                    :request-id :race
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(let [handle (get (registry/in-flight-snapshot) :race)]
+                 (and (= 1 @fetch-count)
+                      (some? handle)
+                      ;; backoff handle is distinguishable by the ABSENCE of the
+                      ;; live-fetch handle's :finalised? cell.
+                      (nil? (:finalised? handle))))
+              {:timeout-ms 2000 :label "cljs backoff sleeping (external)"})
+            (.then (fn [_]
+                     (is (= 1 @thunk-calls) "attempt 1 invoked the body thunk exactly once")
+                     ;; External signal fires squarely inside the backoff window.
+                     (.abort controller)
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the registry is cleared the instant the external signal cancels the backoff")
+                     (test-support/poll-until
+                       #(seq @replies)
+                       {:timeout-ms 2000 :label "cljs external abort reply"})))
+            (.then (fn [_]
+                     (let [reply (first @replies)]
+                       (is (= :cancelled (:status reply)))
+                       (is (= :rf.http/aborted (get-in reply [:error :kind])))
+                       (is (= :user (get-in reply [:error :reason]))))
+                     ;; Wait past the original backoff deadline: prove the timer
+                     ;; was cancelled (no attempt N+1, thunk not re-invoked).
+                     (js/Promise. (fn [resolve _] (js/setTimeout resolve (+ backoff-ms 120))))))
+            (.then (fn [_]
+                     (is (= 1 @fetch-count)
+                         "the retry MUST NOT fetch after an external abort during the backoff window")
+                     (is (= 1 @thunk-calls)
+                         "the per-attempt body thunk MUST NOT be re-invoked after cancellation")
+                     (is (= 1 (count @replies))
+                         "exactly one reply — the cancelled retry produced no second outcome")
+                     (set! (.-fetch js/globalThis) orig)
+                     (done)))
+            (.catch (fn [e]
+                      (set! (.-fetch js/globalThis) orig)
+                      (is false (str "rf2-3fc89f.9 — unexpected: " e))
+                      (done))))))))
+
+(deftest cljs-already-aborted-signal-short-circuits-attempt-setup
+  (testing "rf2-3fc89f.9 acceptance 3 — a request whose `:abort-signal` is
+  ALREADY aborted before attempt setup dispatches one :rf.http/aborted
+  :reason :user reply WITHOUT running the body thunk or issuing any fetch."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [replies     (atom [])
+            thunk-calls (atom 0)
+            controller  (js/AbortController.)
+            ;; fetch must never be reached — the abort short-circuits setup.
+            restore     (with-failing-fetch)]
+        (.abort controller)                     ;; pre-aborted BEFORE dispatch
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue/pre-aborted
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url    "/x"
+                                 :method :post
+                                 :body   (fn [] (swap! thunk-calls inc) "payload")}
+                    :decode     :json
+                    :abort-signal (.-signal controller)
+                    :request-id :pre
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/pre-aborted] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(seq @replies)
+              {:timeout-ms 2000 :label "cljs pre-aborted reply"})
+            (.then (fn [_] (next-macrotask)))
+            (.then (fn [_]
+                     (is (= 1 (count @replies)) "exactly one reply")
+                     (let [reply (first @replies)]
+                       (is (= :cancelled (:status reply)))
+                       (is (= :rf.http/aborted (get-in reply [:error :kind])))
+                       (is (= :user (get-in reply [:error :reason]))))
+                     (is (= 0 @thunk-calls)
+                         "the body thunk was NEVER invoked — attempt setup short-circuited")
+                     (is (empty? (registry/in-flight-snapshot)))
+                     (restore)
+                     (done)))
+            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+
+(deftest cljs-external-abort-racing-supersede-suppression-authoritative
+  (testing "rf2-3fc89f.9 acceptance 4 — when a same-id supersede WINS the race,
+  suppression stays authoritative: the superseded request delivers NO app reply
+  even though its external signal ALSO fires afterwards (once-only CAS)."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [replies-1  (atom [])
+            read-fired (atom false)
+            {:keys [restore]} (with-controlled-body-fetch read-fired)
+            controller (js/AbortController.)]
+        (rf/reg-event :reply/recorder-1 (fn [_ [_ p]] (swap! replies-1 conj p) {}))
+        (rf/reg-event :reply/recorder-2 (fn [_ _] {}))
+        (rf/reg-event :issue/one
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:url "/one"} :decode :json
+                    :abort-signal (.-signal controller)
+                    :request-id :dup
+                    :on-failure [:reply/recorder-1]
+                    :on-success [:reply/recorder-1]}]]}))
+        (rf/reg-event :issue/two            ;; same :request-id → supersedes :dup
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:url "/two"} :decode :json
+                    :request-id :dup
+                    :on-failure [:reply/recorder-2]
+                    :on-success [:reply/recorder-2]}]]}))
+        (rf/dispatch-sync [:issue/one] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(when @read-fired true)
+              {:timeout-ms 2000 :label "cljs request-1 in flight"})
+            (.then (fn [_]
+                     ;; Supersede FIRST (request 2 replaces request 1) …
+                     (reset! read-fired false)
+                     (rf/dispatch-sync [:issue/two] {:frame :rf/default})
+                     ;; … then the external signal fires — request 1 already
+                     ;; superseded + its listener detached, so this is a no-op.
+                     (.abort controller)
+                     (next-macrotask)))
+            (.then (fn [_] (next-macrotask)))
+            (.then (fn [_]
+                     (is (empty? @replies-1)
+                         "the superseded request delivered NO app reply — supersede suppression is authoritative even though the external signal fired")
+                     (restore)
+                     (done)))
+            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+
+(deftest cljs-external-abort-racing-managed-abort-single-outcome
+  (testing "rf2-3fc89f.9 acceptance 4 — an external signal and a
+  :rf.http/managed-abort fired against the SAME in-flight request route through
+  the one canonical handle; the once-only CAS yields exactly one :cancelled
+  outcome regardless of which fires first."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [replies    (atom [])
+            read-fired (atom false)
+            {:keys [restore]} (with-controlled-body-fetch read-fired)
+            controller (js/AbortController.)]
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request {:url "/x"} :decode :json
+                    :abort-signal (.-signal controller)
+                    :request-id :both
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/reg-event :do/managed-abort
+          (fn [_ _] {:fx [[:rf.http/managed-abort :both]]}))
+        (rf/dispatch-sync [:issue] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(when @read-fired true)
+              {:timeout-ms 2000 :label "cljs both-sources in flight"})
+            (.then (fn [_]
+                     ;; External signal wins; the managed-abort fx then finds a
+                     ;; handle whose once-only CAS is already spent → no-op.
+                     (.abort controller)
+                     (rf/dispatch-sync [:do/managed-abort] {:frame :rf/default})
+                     (test-support/poll-until
+                       #(seq @replies)
+                       {:timeout-ms 2000 :label "cljs single cancel reply"})))
+            (.then (fn [_] (next-macrotask)))
+            (.then (fn [_]
+                     (is (= 1 (count @replies))
+                         "exactly one terminal outcome despite two cancellation sources")
+                     (is (= :cancelled (:status (first @replies))))
+                     (is (= :user (get-in (first @replies) [:error :reason])))
+                     (is (empty? (registry/in-flight-snapshot)))
+                     (restore)
+                     (done)))
+            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+
+(deftest cljs-external-abort-listener-detached-on-natural-success-and-failure
+  (testing "rf2-3fc89f.9 acceptance 5 — after a NATURAL success and a natural
+  terminal failure that share ONE signal, no completed-attempt listeners
+  accumulate: the binding detaches on every terminal path."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (frame/ensure-default-frame!)
+      (http-managed/clear-all-in-flight!)
+      (let [{:keys [signal listener-count]} (fake-abort-signal)
+            replies (atom [])
+            orig    (.-fetch js/globalThis)]
+        (rf/reg-event :reply/recorder (fn [_ [_ p]] (swap! replies conj p) {}))
+        (rf/reg-event :issue
+          (fn [_ [_ url]]
+            {:fx [[:rf.http/managed
+                   {:request {:url url} :decode :json
+                    :abort-signal signal        ;; ONE shared signal for both requests
+                    :request-id :shared
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        ;; --- request 1: natural SUCCESS (200) ---
+        (set! (.-fetch js/globalThis)
+              (fn [_url _init]
+                (js/Promise.resolve (fake-response {:status 200 :content-type "application/json"
+                                                    :text-val "{\"ok\":true}"}))))
+        (rf/dispatch-sync [:issue "/ok"] {:frame :rf/default})
+        (-> (test-support/poll-until
+              #(seq @replies) {:timeout-ms 2000 :label "cljs shared-signal success reply"})
+            (.then (fn [_]
+                     (is (= :ok (:status (first @replies))))
+                     (is (= 0 (listener-count))
+                         "the success terminal detached the external listener — none accumulates")
+                     ;; --- request 2: natural FAILURE (500, no retry) ---
+                     (reset! replies [])
+                     (set! (.-fetch js/globalThis)
+                           (fn [_url _init]
+                             (js/Promise.resolve (fake-response {:status 500 :content-type "application/json"
+                                                                 :text-val "boom"}))))
+                     (rf/dispatch-sync [:issue "/fail"] {:frame :rf/default})
+                     (test-support/poll-until
+                       #(seq @replies) {:timeout-ms 2000 :label "cljs shared-signal failure reply"})))
+            (.then (fn [_]
+                     (is (= :error (:status (first @replies))))
+                     (is (= :rf.http/http-5xx (get-in (first @replies) [:error :kind])))
+                     (is (= 0 (listener-count))
+                         "the failure terminal also detached — a shared signal retains no completed-attempt listeners")
+                     (set! (.-fetch js/globalThis) orig)
+                     (done)))
+            (.catch (fn [e]
+                      (set! (.-fetch js/globalThis) orig)
+                      (is false (str "rf2-3fc89f.9 — unexpected: " e))
                       (done))))))))
