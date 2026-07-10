@@ -25,12 +25,12 @@
 
                   Thread one is the DRAFT — the email and password being typed.
                   That's application state, so it lives in app-db under the
-                  `:auth.login/draft` slice: read through the `:auth.login/draft`
-                  sub, written through the `:auth.login/edit-field` event. The
+                  `:walkthrough.login/draft` slice: read through the `:walkthrough.login/draft`
+                  sub, written through the `:walkthrough.login/edit-field` event. The
                   inputs are CONTROLLED off it — `:value` comes from the sub,
                   `:on-change` dispatches an edit-field event — and on submit we
                   read the draft back out of the sub and hand it to the machine
-                  via :auth.login/flow → :auth.login/submit.
+                  via :walkthrough.login/flow → :walkthrough.login/submit.
 
                   Thread two is STATUS — busy? locked? — and that belongs to the
                   machine, not the slice (docs/core/how-to/build-a-form.md). The
@@ -40,29 +40,29 @@
                   line touches exactly zero views
                   (docs/machines/glossary.md#state-tag)."}
           login-form []
-  (let [busy?   @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-        locked? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])
-        draft   @(subscribe [:auth.login/draft])
-        err     @(subscribe [:auth.login/error])]
+  (let [busy?   @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/busy])
+        locked? @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])
+        draft   @(subscribe [:walkthrough.login/draft])
+        err     @(subscribe [:walkthrough.login/error])]
     [:form.login-form
      {:data-testid "login-form"
       :on-submit (fn [e]
                    (.preventDefault e)
                    (when-not (or busy? locked?)
-                     (dispatch [:auth.login/flow
-                                [:auth.login/submit draft]])))}
+                     (dispatch [:walkthrough.login/flow
+                                [:walkthrough.login/submit draft]])))}
      [:input  {:type        "email"
                :placeholder "Email"
                :data-testid "login-email"
                :value       (:email draft)
                :disabled    (or busy? locked?)
-               :on-change   #(dispatch [:auth.login/edit-field :email (.. % -target -value)])}]
+               :on-change   #(dispatch [:walkthrough.login/edit-field :email (.. % -target -value)])}]
      [:input  {:type        "password"
                :placeholder "Password"
                :data-testid "login-password"
                :value       (:password draft)
                :disabled    (or busy? locked?)
-               :on-change   #(dispatch [:auth.login/edit-field :password (.. % -target -value)])}]
+               :on-change   #(dispatch [:walkthrough.login/edit-field :password (.. % -target -value)])}]
      [:button {:type "submit"
                :data-testid "login-submit"
                :disabled (or busy? locked?)}
@@ -72,8 +72,8 @@
         [:p.error err]
         [:button {:type "button"
                   :data-testid "login-dismiss"
-                  :on-click #(dispatch [:auth.login/flow
-                                         [:auth.login/dismiss]])}
+                  :on-click #(dispatch [:walkthrough.login/flow
+                                         [:walkthrough.login/dismiss]])}
          "Dismiss"]])]))
 
 (rf/reg-view ^{:doc "A little banner up top that names the machine's current state —
@@ -82,7 +82,7 @@
                   so a test can assert the lockout transition without squinting
                   at pixels."}
           status-banner []
-  (let [state @(subscribe [:auth.login/state])]
+  (let [state @(subscribe [:walkthrough.login/state])]
     [:div.banner
      [:span "State: "]
      [:strong.state {:data-testid "state-banner"
@@ -96,7 +96,7 @@
    [:p "Too many failed attempts. Contact support to unlock."]])
 
 (rf/reg-view root-view []
-  (let [locked? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/locked])]
+  (let [locked? @(rf/subscribe [:rf.machine/has-tag? :walkthrough.login/flow :auth/locked])]
     [:div.app
      [:h1 "State-machines walkthrough — login lockout"]
      [status-banner]
@@ -143,6 +143,6 @@
     (rdc/render @react-root
                 [rf/frame-provider {:id              :rf/default
                                     :doc             "State-machines walkthrough demo frame."
-                                    :fx-overrides    {:rf.http/managed :auth.login/canned-failure}
-                                    :initial-events  [[:auth.login/initialise-form]]}
+                                    :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
+                                    :initial-events  [[:walkthrough.login/initialise-form]]}
                  [root-view]])))
