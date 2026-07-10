@@ -30,6 +30,7 @@
             [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.egress :as egress]
+            [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.recorder :as recorder-tool]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -3598,6 +3599,58 @@
                    (story/explain-run-result s)))
           (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
             (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-iapjh7: ONE lifecycle execution owner for both consumers
+;;
+;; `run-variant` (tools.testing) + `preview-variant` (tools.dev) share the
+;; `tools.lifecycle` execution owner — blocking invocation, timeout
+;; blocking, and ONE canonical exception normalization. A synchronous
+;; throw / timeout produces the SAME canonical error outcome for BOTH,
+;; routed through `story/run-result` (not a hand-mint), with the
+;; `:lifecycle :error` loader-state + `:frame` preserved.
+;; ---------------------------------------------------------------------------
+
+(deftest lifecycle-error-outcome-is-canonical
+  (testing "error-outcome routes a throw through story/run-result — canonical
+            shape, :status :error, every .4 evidence slot filled to [], plus
+            the preserved :lifecycle :error + :frame slots"
+    (let [outcome (lifecycle/error-outcome :story.some/variant
+                                           (ex-info "boom" {}))]
+      (is (= :error (:status outcome)) "the run-failed record aggregates to :error")
+      (is (= :error (:lifecycle outcome)) "loader-state :error is preserved (preview reads it)")
+      (is (= :story.some/variant (:frame outcome)) "the frame is preserved (run reads it)")
+      (is (story/valid-run-result? outcome)
+          (str "the error outcome conforms to the frozen RunResult schema; "
+               (story/explain-run-result outcome)))
+      (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
+        (is (= [] (get outcome k)) (str k " is filled to [] — never an absent/nil slot")))
+      (is (= :error (-> outcome :assertions first :status))
+          "the run-failed assertion record itself carries :error"))))
+
+(deftest lifecycle-error-outcome-surfaced-by-both-consumers
+  ;; A synchronous throw out of `story/run-variant` must surface the SAME
+  ;; canonical :error outcome through BOTH tools' real wire pipelines — the
+  ;; drift-proofing this refactor buys (preview no longer hand-mints a
+  ;; partial map; it shares the owner). `preview-variant` additionally keeps
+  ;; the `:lifecycle :error` slot it projects.
+  (with-clean-frame [vid :story.button/primary]
+    ;; Prime a live frame — the throw is reachable only after phase-0
+    ;; allocation, which resolves unconditionally on every other internal error.
+    (invoke "run-variant" {:variant-id "story.button/primary"})
+    (with-redefs [story/run-variant
+                  (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
+      (doseq [tool ["run-variant" "preview-variant"]]
+        (testing (str tool " surfaces the canonical :error verdict via the shared owner")
+          (let [r (invoke tool {:variant-id "story.button/primary"})
+                s (:structuredContent r)]
+            (is (success? r))
+            (is (= :error (:status s)) (str tool " ⇒ :error"))
+            (is (= :error (-> s :assertions first :status))
+                (str tool " carries the :rf.error/run-failed record")))))
+      (testing "preview-variant additionally preserves the :lifecycle :error loader-state"
+        (let [s (:structuredContent (invoke "preview-variant" {:variant-id "story.button/primary"}))]
+          (is (= :error (:lifecycle s))))))))
 
 (deftest read-failures-strips-sensitive-assertion-records-by-default
   (testing "an assertion record stamped :sensitive? true is dropped at egress"

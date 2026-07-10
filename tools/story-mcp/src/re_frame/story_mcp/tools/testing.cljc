@@ -26,10 +26,10 @@
   `:app-db` / `:assertions` slots through
   `re-frame.story-mcp.tools.egress`."
   (:require [re-frame.story :as story]
-            [re-frame.story.async :as async]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.egress :as egress]
+            [re-frame.story-mcp.tools.lifecycle :as lifecycle]
             [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]))
 
@@ -93,35 +93,17 @@
     (fn [vk _body]
       (or (targs/run-opts-shape-error arguments)
           (let [opts     (targs/read-run-opts vk arguments)
-                timeout  (targs/resolve-timeout-ms arguments)
-                outcome  (try
-                           (async/deref-blocking (story/run-variant vk opts) timeout)
-                           (catch Throwable e
-                             ;; A throw / timeout never produced a unified
-                             ;; result; assemble ONE through the SAME canonical
-                             ;; `story/run-result` boundary a settled run emits
-                             ;; (spec/017 §Run result) rather than hand-mint a
-                             ;; partial map — a hand-mint omitting the six `.4`
-                             ;; evidence slots (`:schema-violations` / `:warnings`
-                             ;; / `:effects` / `:sub-runs` / `:renders` /
-                             ;; `:narrative`) reads them back as an ABSENT key,
-                             ;; i.e. nil, which then projects RAW through
-                             ;; `egress/scrub-rendered` below and ships a bare
-                             ;; `nil` on the wire — failing the frozen
-                             ;; `[:sequential :any]` schema every OTHER run
-                             ;; outcome satisfies (rf2-5r6j96). `run-result`
-                             ;; against an empty tape fills every evidence slot
-                             ;; to `[]`, so the projection always has a
-                             ;; sequential to walk — one vocabulary, no
-                             ;; special-case error-branch shape for agents OR
-                             ;; the schema to carve out.
-                             (story/run-result
-                               {:variant/id vk
-                                :assertions [(story/assertion-record
-                                               {:assertion :rf.error/run-failed
-                                                :passed?   false
-                                                :error     true
-                                                :reason    (ex-message e)})]})))
+                ;; Blocking invocation + timeout + canonical exception
+                ;; normalization are owned by `tools.lifecycle` — the ONE
+                ;; execution owner `preview-variant` shares, so their catch
+                ;; paths cannot drift (the error outcome always routes through
+                ;; `story/run-result`, filling the six `.4` evidence slots to
+                ;; `[]` so the wire projection never ships a bare nil for an
+                ;; absent slot, rf2-5r6j96). Everything AFTER the outcome —
+                ;; projection, egress, indicator counts, wire shaping — stays
+                ;; run-variant-specific, below.
+                outcome  (lifecycle/run-variant-blocking
+                           vk opts (targs/resolve-timeout-ms arguments))
                 incl?    (targs/include-sensitive? arguments)
                 raw-db   (:app-db outcome)
                 [assertions dropped] (egress/scrub-assertions+count (:assertions outcome) incl?)
