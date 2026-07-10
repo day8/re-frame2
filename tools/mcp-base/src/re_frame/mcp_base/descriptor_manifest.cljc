@@ -408,3 +408,102 @@
          :added   (vec (sort (set/difference gen-names com-names)))
          :removed (vec (sort (set/difference com-names gen-names)))
          :changed changed}))))
+
+;; ---------------------------------------------------------------------------
+;; Drift-report formatting — PURE, platform-neutral report lines.
+;;
+;; The two server generators previously each carried a byte-identical
+;; `row-slot-deltas` (with a copy of the governed-slot vector) and an
+;; identical added / removed / changed / malformed traversal over a
+;; `check` result — the diagnostic body the maintainer reads when a
+;; drift-check trips. That duplication drifts: a governed slot added to
+;; `descriptor->row` had to be mirrored into two report vectors, and any
+;; wording tweak had to be applied twice or the two servers would report
+;; the same drift differently. This section centralises the shared
+;; diagnostic: the governed-slot vector, the per-row slot-delta helper,
+;; and a pure formatter that turns a `check` result + the consumer's
+;; wording into the report lines. It adds NO I/O — no file lookup, no
+;; output channel, no process exit. Each server keeps its own file
+;; lookup, stdout/stderr binding, OK-path wording, and exit codes, and
+;; supplies the two strings that legitimately differ per server (the
+;; regenerate command + the missing-file header).
+;; ---------------------------------------------------------------------------
+
+(def governed-slots
+  "The catalogue-row slots (every row slot EXCEPT `:name`, whose entering
+  / leaving the catalogue is the `:added` / `:removed` diff) whose
+  per-tool drift the manifest governs, in canonical report order. A tool
+  present in BOTH the committed and regenerated manifests but differing
+  in any of these is a `:changed` row; `row-slot-deltas` names which of
+  them moved. Shared so the two server generators report the SAME
+  governed surface (they previously duplicated this vector)."
+  [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens])
+
+(defn row-slot-deltas
+  "Seq of `[slot old-val new-val]` for the `governed-slots` that differ
+  between a tool's committed `old` row and regenerated `new` row — names
+  exactly which governed slots drifted so a descriptor-only change is
+  actionable without a manual whole-manifest diff."
+  [old new]
+  (for [slot governed-slots
+        :let [o (get old slot)
+              n (get new slot)]
+        :when (not= o n)]
+    [slot o n]))
+
+(defn drift-report-lines
+  "PURE formatter — no I/O, no file lookup, no process exit. Given a
+  `check` result map for a DRIFTED manifest (the `:added` / `:removed` /
+  `:changed` / `:missing-file?` shape `check` returns) and the two
+  consumer-specific wording strings, return the vector of printable
+  report lines. The caller prints them on its own stdout/stderr channel
+  and owns the OK path + exit code — this fn is side-effect-free.
+
+  `wording` supplies the two strings that legitimately differ per server:
+
+      :regenerate-line   — the `Regenerate with: <command>` hint (each
+                           server names its own regenerate command).
+      :missing-file-line — the header printed when the committed file is
+                           absent (`:missing-file?` true); each server
+                           names its own regenerate command inline.
+
+  When the file exists but drifted, the header is the shared
+  `manifest differs` line. The added / removed / changed / malformed
+  body is byte-identical across servers, so it lives here verbatim:
+
+  - `:added`   — tools the registry has that the committed file lacks
+                 (a new / renamed tool). A missing-file result reports
+                 EVERY generated tool as added (the whole catalogue is
+                 absent), so the added block also renders the full tool
+                 list under the missing-file header.
+  - `:removed` — tools in the committed file the registry no longer has.
+  - `:changed` — existing tools whose catalogue row drifted; each row is
+                 named, then its `row-slot-deltas` are printed one per
+                 line as `<slot>: <old> -> <new>`.
+  - malformed  — when all three are empty the tool set is identical but
+                 the committed file is structurally broken or its
+                 banner / meta drifted (regenerate)."
+  [{:keys [added removed changed missing-file?]}
+   {:keys [regenerate-line missing-file-line]}]
+  (vec
+   (concat
+    [(if missing-file?
+       missing-file-line
+       "DRIFT: generated manifest differs from tool-descriptors.edn.")
+     regenerate-line]
+    (when (seq added)
+      (cons "  Tools the registry has that the committed file lacks (new/renamed tool):"
+            (map #(str "    + " %) added)))
+    (when (seq removed)
+      (cons "  Tools in the committed file the registry no longer has (removed/renamed tool):"
+            (map #(str "    - " %) removed)))
+    (when (seq changed)
+      (cons "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
+            (mapcat (fn [{nm :name :keys [old new]}]
+                      (cons (str "    ~ " nm)
+                            (map (fn [[slot o n]]
+                                   (str "        " (name slot) ": " (pr-str o) " -> " (pr-str n)))
+                                 (row-slot-deltas old new))))
+                    changed)))
+    (when (and (empty? added) (empty? removed) (empty? changed))
+      ["  (tool set identical; the committed file is structurally broken or its provenance banner/meta drifted — regenerate)"]))))

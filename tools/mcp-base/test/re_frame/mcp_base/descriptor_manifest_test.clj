@@ -355,3 +355,136 @@
           crlf    (str/replace lf-edn "\n" "\r\n")
           res     (dm/check m lf-edn crlf)]
       (is (true? (:ok? res)) "LF-normalised comparison ignores line-ending style"))))
+
+;; ---------------------------------------------------------------------------
+;; Drift-report formatting — the shared, pure diagnostic body both server
+;; generators print when a drift-check trips (rf2-cbgc40). Previously each
+;; generator carried a byte-identical copy of the governed-slot vector +
+;; the added / removed / changed / malformed traversal; centralising it
+;; here pins the ONE report surface both servers share, with the two
+;; per-server strings (regenerate command + missing-file header) injected.
+;; ---------------------------------------------------------------------------
+
+(def ^:private wording
+  {:regenerate-line   "Regenerate with: <server command>"
+   :missing-file-line "DRIFT: <file> does not exist. Run: <server command>"})
+
+(deftest governed-slots-is-every-row-slot-except-name
+  ;; The governed-slot vector must stay in lockstep with the row shape:
+  ;; every slot descriptor->row emits EXCEPT :name (whose add/remove is
+  ;; the :added/:removed diff). A slot added to the row but not here would
+  ;; silently escape :changed reporting.
+  (let [row-slots (set (keys (dm/descriptor->row (first sample-descriptors))))]
+    (is (= (disj row-slots :name) (set dm/governed-slots))
+        "governed-slots = row slots minus :name")
+    (is (= [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens]
+           dm/governed-slots)
+        "canonical report order is stable")))
+
+(deftest row-slot-deltas-names-only-drifting-slots-in-canonical-order
+  (let [old {:description "d" :input-keys ["event"] :gated-input-keys []
+             :required ["event"] :output? false :annotations [] :typicalTokens 300}
+        new (assoc old :input-keys ["event" "force"] :typicalTokens 999)]
+    (is (= [[:input-keys ["event"] ["event" "force"]]
+            [:typicalTokens 300 999]]
+           (dm/row-slot-deltas old new))
+        "only the two drifting slots, in governed-slots order")
+    (is (= [] (dm/row-slot-deltas old old))
+        "identical rows → no deltas")))
+
+(deftest drift-report-lines-missing-file
+  ;; A missing committed file: check reports EVERY generated tool as
+  ;; :added; the report leads with the consumer's missing-file header,
+  ;; then the regenerate line, then the full tool list.
+  (let [res   {:ok? false :added ["alpha" "beta"] :removed [] :changed [] :missing-file? true}
+        lines (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: <file> does not exist. Run: <server command>"
+            "Regenerate with: <server command>"
+            "  Tools the registry has that the committed file lacks (new/renamed tool):"
+            "    + alpha"
+            "    + beta"]
+           lines))))
+
+(deftest drift-report-lines-added
+  (let [res   {:ok? false :added ["beta"] :removed [] :changed []}
+        lines (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  Tools the registry has that the committed file lacks (new/renamed tool):"
+            "    + beta"]
+           lines)
+        "an existing (non-missing) file uses the shared differs header")))
+
+(deftest drift-report-lines-removed
+  (let [res   {:ok? false :added [] :removed ["beta"] :changed []}
+        lines (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  Tools in the committed file the registry no longer has (removed/renamed tool):"
+            "    - beta"]
+           lines))))
+
+(deftest drift-report-lines-changed-per-slot
+  ;; A changed row prints the tool name, then one line per drifting
+  ;; governed slot as `<slot>: <pr-str old> -> <pr-str new>`.
+  (let [old   {:description "d" :input-keys ["event"] :gated-input-keys []
+               :required ["event"] :output? false :annotations [] :typicalTokens 300}
+        new   (assoc old :input-keys ["event" "force"] :typicalTokens 999)
+        res   {:ok? false :added [] :removed []
+               :changed [{:name "alpha" :old old :new new}]}
+        lines (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
+            "    ~ alpha"
+            "        input-keys: [\"event\"] -> [\"event\" \"force\"]"
+            "        typicalTokens: 300 -> 999"]
+           lines))))
+
+(deftest drift-report-lines-structurally-broken-committed
+  ;; An unparseable committed file: check cannot read its rows, so every
+  ;; generated tool is reported as :added (whole catalogue absent) with no
+  ;; :changed — the report lists them all under the differs header.
+  (let [m     (dm/build-manifest :test sample-descriptors)
+        edn   (dm/render-edn m)
+        res   (dm/check m edn "this is not { valid edn")
+        lines (dm/drift-report-lines res wording)]
+    (is (false? (:ok? res)))
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  Tools the registry has that the committed file lacks (new/renamed tool):"
+            "    + alpha"
+            "    + beta"]
+           lines))))
+
+(deftest drift-report-lines-malformed-fallback
+  ;; Tool set identical but the byte comparison failed (banner / meta
+  ;; drift): added / removed / changed are all empty, so the fallback
+  ;; hint fires instead of an empty body.
+  (let [res   {:ok? false :added [] :removed [] :changed []}
+        lines (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  (tool set identical; the committed file is structurally broken or its provenance banner/meta drifted — regenerate)"]
+           lines))))
+
+(deftest drift-report-lines-end-to-end-from-check
+  ;; The formatter consumes a real `check` result unchanged: alpha gains
+  ;; an input key, beta is dropped → one :changed + one :removed reported
+  ;; together in canonical block order (added, removed, changed).
+  (let [committed-m   (dm/build-manifest :test sample-descriptors)
+        committed-edn (dm/render-edn committed-m)
+        alpha+        (assoc-in (second sample-descriptors)
+                                [:inputSchema :properties :force] {:type "boolean"})
+        gen-m         (dm/build-manifest :test [alpha+]) ; alpha changed, beta removed
+        gen-edn       (dm/render-edn gen-m)
+        res           (dm/check gen-m gen-edn committed-edn)
+        lines         (dm/drift-report-lines res wording)]
+    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
+            "Regenerate with: <server command>"
+            "  Tools in the committed file the registry no longer has (removed/renamed tool):"
+            "    - beta"
+            "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):"
+            "    ~ alpha"
+            "        input-keys: [\"event\"] -> [\"event\" \"force\"]"]
+           lines))))
