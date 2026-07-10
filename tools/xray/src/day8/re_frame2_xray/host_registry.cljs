@@ -1,10 +1,9 @@
 (ns day8.re-frame2-xray.host-registry
-  "Host-app registry reads that survive Xray running in its OWN image-loaded
-  frame (EP-0023 §Xray Beside The Target).
+  "Host-app registry reads for Xray's image-loaded frame.
 
   ## Why this exists
 
-  Xray seats in its OWN image-loaded `:rf/xray` frame
+  Xray runs in its own image-loaded `:rf/xray` frame
   (`image_view_reads/seat-xray-frame!` → `rf/make-frame {:id :rf/xray :images
   [(xray-image)]}`). When a `:rf.xray/*` subscription RECOMPUTES, the framework
   binds the registrar resolution to that frame's sealed image generation for the
@@ -12,21 +11,21 @@
   `re-frame.live-frame/call-with-frame-resolution` around every subscribe build
   targeting an image-loaded frame). So a bare `(rf/registrations :route)` /
   `(rf/handler-meta :event id)` call INSIDE a sub computation resolves through
-  Xray's OWN image resolver — which selects ONLY Xray's `:rf.xray/*` namespaces
+  Xray's image resolver — which selects only Xray's `:rf.xray/*` namespaces
   (`xray-image`'s `:select-ns :include`), NOT the host app's registrations. The
-  inspector would then see only its OWN handlers / routes / resources, never the
-  HOST app's — the Routing panel renders an empty route table, the palette lists
+  inspector would then see only its own handlers, routes, and resources, never the
+  host app's — the Routing panel renders an empty route table, the palette lists
   only Xray's own handlers, the Resources panel loses the host's resource
   registry.
 
   This is correct framework behaviour (a frame resolves its own image), and
   exactly the wrong thing for an INSPECTOR: Xray reads the registry of the
-  INSPECTED app — the process-global registrar — not its own image's resolver.
+  inspected app — the process-global registrar — not its own image's resolver.
 
   ## The mechanism
 
   The process-global registrar atom (`re-frame.registrar/kind->id->metadata`) is
-  read DIRECTLY, BYPASSING any bound `*generation*`. A TOOL reads the owning
+  read directly, bypassing any bound `*generation*`. A tool reads the owning
   `re-frame.registrar` namespace directly, just as it already reads
   `re-frame.frame` / `re-frame.live-frame` (bundle isolation forbids
   `implementation/` requiring from `tools/`, not the reverse). The process-global

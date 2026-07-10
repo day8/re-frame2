@@ -1,22 +1,20 @@
 (ns day8.re-frame2-xray.mount
-  "DOM-side mount machinery for the Xray shell. Per rf2-tijr Option C +
-  spec/007-UX-IA.md §The default landing view:
+  "DOM-side lifecycle for Xray's inline, overlay, and pop-out shells.
 
   - The preload auto-opens the shell into the app-provided
     `[data-rf-xray-host]` layout host once the substrate adapter is
     ready. This is true inline layout: Xray participates in normal
     flex/grid flow on the right, and the app stays visible/clickable to
     the left.
-  - Subsequent presses toggle the container's `display` between
-    `block` and `none` (a CSS-only show/hide; per the spec a re-mount
-    would discard internal state and miss the <80ms toggle target).
+  - Subsequent toggles change CSS visibility without remounting, so
+    panel state and focus survive hide/show cycles.
   - All state is `defonce`-guarded so shadow-cljs `:after-load` does
     not re-attach listeners or re-mount the shell.
 
   ## Why we use the substrate adapter's render fn
 
-  Per rf2-tijr Xray is substrate-agnostic: the host may be running
-  Reagent, UIx, or Helix. The substrate adapter's `:render` slot is
+  Xray is substrate-agnostic: the host may be running Reagent, UIx, or
+  Helix. The substrate adapter's `:render` slot is
   the canonical mount path (`rf/render render-tree mount-point opts`);
   every adapter's impl produces an unmount fn on first call. Xray
   calls that path so the shell mounts via the adapter the host
@@ -29,21 +27,15 @@
   contains no production-elision logic of its own — the call-site
   gate is sufficient.
 
-  ## Lazy `:rf/xray` frame registration (rf2-in6l2)
+  ## Lazy `:rf/xray` frame registration
 
   The Xray shell wraps every panel in `[rf/frame-provider {:frame
   :rf/xray} …]` and every panel is `reg-view`-wrapped so subscribes
   resolve through the React-context tier to the named frame. For that
-  routing to land in the *registered* `:rf/xray` frame (not chain-
-  resolve to `:rf/default`), the frame must exist — and the preload
-  can't register it because the preload runs before the host's
-  `rf/init!` has installed a substrate adapter, and `reg-frame` writes
-  trace events that need a running adapter to be reactive (per rf2-e9s81
-  the preload-time `reg-frame :rf/xray` path is the one that produced
-  the iw5ym regression). The first Ctrl+Shift+C keypress fires AFTER
-  `rf/init!`, so `open!` is the canonical place to call `reg-frame` —
-  the call is idempotent (surgical update on re-register) so subsequent
-  toggles are no-ops on this axis."
+  routing to land in the registered `:rf/xray` frame, the frame must
+  exist. The preload runs before the host installs a substrate adapter,
+  so first mount performs registration and seeding after adapter
+  readiness. The operation is idempotent."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
             [day8.re-frame2-xray.config :as config]
@@ -70,13 +62,8 @@
   ;;    :unmount   (fn [] ...)         ; substrate adapter unmount fn
   ;;    :visible?  <boolean>
   ;;    :mode      <:inline|:overlay>}
-  ;; Per rf2-zkfiz Q1-8 the `:mode` enumeration is exactly the two
-  ;; values written by `open!` (`:inline`) and `open-overlay!`
-  ;; (`:overlay`). The popout shell lives in `popout-state` below
-  ;; with `:mode :popout` — the two singletons do NOT share a `:mode`
-  ;; vocabulary. Earlier shapes carried a `:docked` variant (the
-  ;; body-padding dock surface); that mode was removed under
-  ;; rf2-sbfb7 together with the `dock!` / `undock!` API.
+  ;; The in-page singleton uses `:inline` or `:overlay`. Pop-out state is
+  ;; tracked separately and always uses `:popout`.
   ;; Nil before first mount; never re-allocated across reloads thanks
   ;; to defonce.
   (atom nil))
@@ -84,10 +71,7 @@
 (defonce ^:private popout-state
   ;; Optional second-window mount. Shape mirrors mount-state plus
   ;; `:window`, `:ok?`, `:overlay-node`, and `:watchdog-id`. The
-  ;; opener runtime remains the source of truth. Per rf2-zkfiz Q1-8
-  ;; the `:mode` slot is always `:popout` — the popout never
-  ;; participates in the `mount-state` `:inline`/`:overlay`
-  ;; enumeration above. Per rf2-h3ekl the `:overlay-node` slot holds
+  ;; opener runtime remains the source of truth. The `:overlay-node` slot holds
   ;; the opener-gone overlay element (sibling to the shell root) and
   ;; `:watchdog-id` holds the setInterval token that polls
   ;; `window.opener.closed`.
@@ -100,8 +84,7 @@
   (atom {:started? false :attempts 0}))
 
 (declare ensure-xray-frame!)
-;; rf2-czcg5 — `install-fx!` (below) registers `:rf.xray.fx/popout-shell`
-;; whose handler calls `popout!`, which is defined later in this ns.
+;; `install-fx!` registers a handler that calls this later definition.
 (declare popout!)
 
 (defn mounted?
@@ -131,11 +114,11 @@
 
 (defn- remove-stale-root!
   "Defensive cleanup before a fresh mount allocates `#rf-xray-root`.
-  The singleton `mount-state` precludes coexistence today (both
+  The singleton `mount-state` precludes coexistence (both
   `open!` and `open-overlay!` short-circuit when the singleton is
   populated), but the DOM id remains a single shared name across
-  `:inline` and `:overlay` modes. Per rf2-zkfiz Q1-4 the create fns
-  evict any orphaned node first so a stale `#rf-xray-root` left
+  `:inline` and `:overlay` modes. Create functions evict any orphaned
+  node first so a stale `#rf-xray-root` left
   behind by a partially-failed teardown cannot survive into a fresh
   mount cycle. No-op when the document has no such node."
   []
@@ -188,7 +171,7 @@
   (reset! diagnostic-state {:ok? true :reason :auto-open-disabled})
   nil)
 
-;; ---- layout-host display snapshot (rf2-4itwg) ----------------------------
+;; ---- layout-host display snapshot ---------------------------------------
 ;;
 ;; Toggle-off must collapse the layout host's flex/grid slot too, not just
 ;; hide the mount root. The previous `display:none` on `#rf-xray-root`

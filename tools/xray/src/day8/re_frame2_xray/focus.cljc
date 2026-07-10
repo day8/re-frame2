@@ -1,28 +1,10 @@
 (ns day8.re-frame2-xray.focus
-  "Host-facing focus API for an embedded Xray surface (rf2-crtmq).
+  "Host-facing focus API for an already-mounted Xray surface.
 
-  ## What this owns
-
-  A small, **data-shaped focus command** a host (Story) sends to focus
-  an already-embedded Xray surface onto a specific panel + epoch +
-  event-bundle + app-db path — driven from a narrative beat, a failed
-  assertion, a canvas inspect command, or a docs/test link.
-
-  This is the channel the StoryUI decision register
-  (`ai/findings/StoryUI/06-open-decisions.md` §D3 \"Story-To-Xray Focus
-  API\") settled on: a small one-way focus command, NOT a broad two-way
-  embedding protocol.
-
-  ## The ownership boundary (load-bearing)
-
-  - **Story owns the narrative / action** — it constructs the command
-    (which panel, which epoch, which path) and the `:source` provenance
-    (which variant / assertion / beat triggered it), then calls
-    `focus!`.
-  - **Xray owns the diagnostic state + panel semantics** — it receives
-    the command and routes it to the canonical `:rf.xray/*` spine / tab
-    / path / frame events. Xray decides what \"focus the app-db panel on
-    epoch 42 at path [:checkout :state]\" *means*.
+  A host supplies a small data command naming an observed frame, panel,
+  epoch or event bundle, app-db path, and optional opaque provenance.
+  The host owns the intent; Xray owns how that intent maps onto its frame,
+  spine, tab, and path events.
 
   No second Xray runtime model is introduced. Every field in the
   command maps to an EXISTING canonical write surface:
@@ -35,20 +17,13 @@
   | `:dispatch-id` | `:rf.xray/focus-event <id> <frame>` | `spine.cljs` |
   | `:path`        | `:rf.xray/focus-slice-path <path>` | `app_db_diff_events.cljs` |
 
-  This namespace is a thin composer over those events — it adds no new
-  app-db slots, no new spine model, no new panel state. It mirrors the
-  posture of `day8.re-frame2-xray.runtime` (the MCP read/mutate seam):
-  a clean, host-agnostic, data-in / data-out façade over surfaces that
-  already exist.
+  This namespace only composes those events. It adds no app-db slots,
+  spine model, or panel state.
 
   ## Separate from open-full-Xray
 
-  Mounting / opening / popping-out the whole Xray shell stays in
-  `mount.cljs` (`open!` / `open-overlay!` / `popout!`). This namespace
-  is purely *focus-a-panel-on-a-beat* — it assumes the Xray surface is
-  already embedded (Story mounts it via the locked render-shell
-  contract). Per §D3 rule: \"opening/pop-out of the full Xray shell is
-  current; focusing a panel/beat/path is [the new surface].\"
+  Mounting, opening, and popping out the shell remain in `mount.cljs`.
+  This API assumes a host has already mounted Xray.
 
   ## Command shape (the contract)
 
@@ -70,7 +45,7 @@
   a beat that only cares about \"show me the trace\" sends
   `{:panel :trace}`.
 
-  The `:source` map is host-agnostic provenance. §D3's worked shape:
+  The `:source` map is host-agnostic provenance. For example:
 
       {:kind        :story/assertion
        :variant/id  :story.checkout/form/submitted
@@ -81,16 +56,12 @@
   it likes there. This is what makes the command host-agnostic: the
   channel carries Story's intent without Xray knowing it's Story.
 
-  ## Pure core + thin CLJS shell
-
   `focus-command->dispatches` is a pure, `.cljc`, JVM-runnable
   translation from a command map to the ordered vector of event
   vectors. The CLJS `focus!` fn (below, reader-conditional) resolves
   the Xray frame and fires them via `re-frame.core/dispatch`. The pure
   core is what the test corpus drives; the CLJS shell is the runtime
   glue.
-
-  ## Why ordered dispatches
 
   The events are dispatched in a fixed order — `:frame` FIRST (so the
   per-frame epoch ring is re-seeded before any epoch / event-bundle pin
@@ -118,7 +89,7 @@
 ;; rejects a typo'd panel with a useful diagnostic rather than silently
 ;; selecting a tab that renders the unknown-tab stub.
 ;;
-;; ## Single source of truth: the live L4 tab registry (rf2-1sddi6 / rf2-7ed9ms)
+;; ## Single source of truth: the live L4 tab registry
 ;;
 ;; `valid-panels` below MIRRORS the live Dynamic L4 tab registry
 ;; (`panel-registry/tab-ids-for-mode :dynamic`) — the SAME inventory the
@@ -149,20 +120,13 @@
   label is. Host callers who prefer the display-noun spelling can pass
   `:routes` (normalised to `:routing` via `panel-aliases`).
 
-  History: the Issues tab was removed per rf2-gbz39 (Option (c) —
-  issues surface inline in the Epoch + the L2 event-row pink-wash + the
-  always-on issues ribbon signal), so `:issues` is no longer a
-  focusable panel. `:derivation-graph` (EP-0014 prop-3, rf2-9ett2d) and
-  `:module-view` (EP-0013, rf2-wtg9z4) are the runtime-structure tabs.
-
   This set MIRRORS `panel-registry/tab-ids-for-mode :dynamic` (the live
-  registry) — see the ns comment above; a cross-check test fails the
-  build if they drift (rf2-1sddi6 / rf2-7ed9ms)."
+  registry); a cross-check test fails the build if they drift."
   #{:epoch :app-db :views :trace :machines :routing
     :resources :derivation-graph :module-view})
 
 ;; ---------------------------------------------------------------------------
-;; Host-friendly panel aliases (rf2-7ed9ms finding 1)
+;; Host-friendly panel aliases
 ;; ---------------------------------------------------------------------------
 ;;
 ;; A host (Story beat, docs link, assertion) naturally reaches for the
@@ -199,7 +163,7 @@
   `:rf.xray/*` event vectors. JVM-runnable; no re-frame runtime,
   no app-db. The CLJS `focus!` fn fires these in order.
 
-  `command` is the §D3 shape (every field optional):
+  Every command field is optional:
 
       {:frame :checkout
        :panel :app-db

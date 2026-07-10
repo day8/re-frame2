@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.drop-in
-  "Drop-in mode for non-re-frame2 hosts (v1.1).
+  "Trace-source adapter for hosts that do not emit re-frame2 traces.
 
   Xray's primary integration is as a dev-tool inside a re-frame2 app:
   the host's `re-frame.trace/emit!` calls fan trace events out to
@@ -14,7 +14,7 @@
   state-machine harness — anything that can produce events shaped
   per [`spec/Spec-Schemas.md` §`:rf/trace-event`](../../../../spec/Spec-Schemas.md#rftrace-event)
   — can plug into Xray by attaching its trace source here. The
-  panels (Event detail, Trace, App-db diff, machine inspector, …)
+  panels (Epoch, Trace, App-db diff, Machine, ...)
   light up against the host's events exactly as they would against a
   native re-frame2 event-bundle.
 
@@ -76,7 +76,7 @@
   - It does NOT change Xray's ingest filters: the privacy gate
     still suppresses `:sensitive? true` events unless the host has
     opted in via `(xray-config/configure! {:rf.xray/egress-profile
-    :rf.egress/local-raw})` — the EP-0015 trusted-local reveal grain.
+    :rf.egress/local-raw})`.
   - It does NOT mutate the host's state. The host owns its event
     source; the drop-in is a one-way pump from there into Xray's
     buffer.

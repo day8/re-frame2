@@ -1,59 +1,19 @@
 (ns day8.re-frame2-xray.install
-  "Side-effect-free Xray install helpers (rf2-5w06uu).
+  "Load-inert install primitives shared by manual and preload startup.
 
-  This namespace holds the *callable* install primitives Xray's two
-  install paths share — the trace/epoch collector registrations and
-  the browser-API export installer — WITHOUT performing any work at
-  namespace-load time. Loading this ns is inert; the side-effects fire
-  only when a caller invokes one of the helpers below.
+  Requiring this namespace performs no installation. `core/init!` calls
+  these functions explicitly; `preload` calls them from its dev-only boot
+  block. This separation lets a manual host require and configure Xray
+  before any listeners, browser globals, keybindings, or mounts exist.
 
-  ## Why this split exists
-
-  Before rf2-5w06uu the foundation registrations lived in
-  `day8.re-frame2-xray.preload`, whose top-level
-  `(when interop/debug-enabled? …)` boot block runs them on load. But
-  the user-facing facade `day8.re-frame2-xray.core` requires `preload`
-  to reach `init!`'s registration helpers — so a host that chose the
-  *manual* `require core → configure! → init!` path got the full
-  preload behaviour (settings load, handler/collector registration,
-  browser globals, keybinding attach, auto-open) merely by requiring
-  `core`, defeating `configure!`-before-auto-open ordering and boot
-  flags like `:rf.xray/auto-open? false`.
-
-  Splitting the inert helpers here lets:
-
-  - `core` require *this* ns (load-inert) instead of `preload`, so
-    requiring the manual facade no longer fires preload side-effects.
-  - `preload` require this ns and call these helpers from its
-    side-effecting boot block — the zero-config `:devtools/preloads`
-    path keeps auto-installing exactly as before.
-
-  ## Production posture
-
-  As with the preload, the registration/install work is no-op-safe in
-  production: the trace surface elides via `interop/debug-enabled?`,
-  the browser-API export guards on `js/window`, and the framework's
-  epoch listener registration is itself a no-op when the epoch artefact
-  is absent. But the right answer is still to keep Xray out of
-  production builds via shadow-cljs's `:dev`-only `:devtools` block."
+  The helpers register the trace and epoch collectors and expose the
+  browser launch API. Each operation is idempotent; the browser export is
+  a no-op without `js/window`, and the preload owns the debug-build gate."
   (:require [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            ;; rf2-qwm0a / rf2-rfid2x — the public-tooling listener
-            ;; surface (`register-listener!` etc.) lives in the
-            ;; per-stream HOME namespaces for production-DCE reasons.
-            ;; Per the Tool-Pair §"Facade vs home-namespace verb — the
-            ;; DCE tier rule": canonical devtools attach via the home
-            ;; verbs, NOT the `re-frame.core` facade, because a tool
-            ;; preload MUST NOT require `re-frame.core` into a
-            ;; production build. Xray's trace-collector targets
-            ;; `re-frame.trace.tooling/register-listener!` and its
-            ;; epoch-collector targets
-            ;; `re-frame.epoch/register-epoch-listener!` directly. The
-            ;; two consumers of this ns (preload + core) are both
-            ;; dev-only, so these requires are excluded from production
-            ;; bundles. `re-frame.epoch` is a hard Xray dep (deps.edn),
-            ;; so the artefact is always present in an Xray build.
+            ;; Listener registration uses each stream's home namespace so
+            ;; the dev-only tooling surface remains independently elidable.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch :as epoch]
             [day8.re-frame2-xray.mount :as mount]
@@ -70,11 +30,7 @@
   (atom false))
 
 (defonce ^:private epoch-cb-registered?
-  ;; Idempotency sentinel for the epoch-callback registration. Same
-  ;; rationale as `trace-cb-registered?`. Phase 3 (rf2-t53ze) — the
-  ;; Time Travel panel needs a per-settle pump from
-  ;; `re-frame.epoch/register-epoch-listener!` into Xray's app-db so the
-  ;; scrubber's subscriptions re-fire when the framework appends an epoch.
+  ;; The Time Travel panel needs one per-settle pump into Xray's app-db.
   (atom false))
 
 (defn register-trace-collector!
@@ -100,27 +56,10 @@
   `:rf.xray/epoch-history` sub then re-fires off the standard
   app-db-write reactive path.
 
-  ## Pre-mount guard (rf2-1barg)
-
-  The preload runs at app boot but `:rf/xray` is lazy-registered by
-  `mount.cljs/open!` on the first Ctrl+Shift+C keypress. Host
-  dispatches that fire BEFORE the user opens Xray would otherwise
-  flow through this cb and dispatch into a frame that doesn't yet
-  exist — the runtime would emit `:rf.error/frame-destroyed` and the
-  record would be lost. The `frame/frame :rf/xray` guard makes
-  pre-mount cbs a silent no-op; `ensure-xray-frame!` seeds the
-  panel's `:epoch-history` slot with the framework's current
-  `(rf/epoch-history target)` snapshot at first open, so the
-  pre-mount window's records still surface.
-
-  Idempotent via the `epoch-cb-registered?` sentinel. Registers via the
-  epoch home verb `re-frame.epoch/register-epoch-listener!` (canonical
-  devtools attach via the home-namespace verbs, per [Tool-Pair §Facade
-  vs home-namespace verb — the DCE tier rule]; the `re-frame.core`
-  facade is not required into this dev-only namespace). `re-frame.epoch`
-  is a hard Xray dependency, so the artefact is always on the classpath
-  in an Xray build; the whole foundation block is `debug-enabled?`-gated
-  so the registration is elided in production regardless."
+  Before the `:rf/xray` frame is mounted, the callback deliberately does
+  nothing. First mount seeds history from the framework ring, so records
+  produced during that window are still visible. Idempotent via the
+  `epoch-cb-registered?` sentinel."
   []
   (when (compare-and-set! epoch-cb-registered? false true)
     (epoch/register-epoch-listener! :rf.xray/epoch-collector

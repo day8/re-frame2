@@ -26,11 +26,10 @@ two modes: a **9-tab Dynamic detail panel** (event-coupled) and a
 **5-tab Static mode** (registry browse). The tabs are *presentation* of
 an already-structured runtime.
 
-AI agent access to Xray's surfaces flows through
-`tools/re-frame2-pair-mcp/` against the framework-published Xray
-runtime API at `day8.re-frame2-xray.runtime` — per rf2-hvl1g a
-dedicated xray-mcp jar is unnecessary; agents read the same trace bus
-+ epoch history + registrar Xray itself reads.
+AI agent access uses `tools/re-frame2-pair-mcp/` and the browser-side
+accessors in `day8.re-frame2-xray.runtime`. There is no separate Xray
+MCP artefact: agents and the human-facing panel read the same trace,
+epoch, and registrar data.
 
 ## Headline experiences
 
@@ -41,7 +40,7 @@ Selecting an event in the L2 event list moves a single spine sub
 event*. Time-travel is the spine itself — the events-ribbon nav cluster
 plus the event list are the scrubber; there is no bottom rail. Issues are
 not a tab — they surface inline in the Epoch panel, the L2 event-row
-pink-wash, and the always-on issues ribbon signal (per rf2-gbz39).
+pink-wash, and the always-on issues ribbon signal.
 
 ### Dynamic mode — the 9 tabs (lenses on the focused event)
 
@@ -230,11 +229,9 @@ force-disable in dev.
 
 ### MCP (Xray as an agent surface)
 
-Per rf2-hvl1g there is no dedicated `xray-mcp` jar. AI agents reach
-Xray's surfaces through `tools/re-frame2-pair-mcp/`, which can read
-the framework-published Xray runtime API on
-`day8.re-frame2-xray.runtime` (the same trace bus + epoch history +
-registrar Xray's chrome reads).
+AI agents reach Xray through `tools/re-frame2-pair-mcp/`, which evaluates
+the browser-side accessors in `day8.re-frame2-xray.runtime`. See
+[`spec/API.md`](./spec/API.md) for the accessor contract.
 
 ## Spec
 
@@ -336,81 +333,13 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. Running shell with the full two-mode chrome (9-tab Dynamic
-detail panel + 5-tab Static mode), one wired keybinding
-(`Ctrl+Shift+C` toggle), default true-inline mount under
-`[data-rf-xray-host]`, programmatic pop-out via `(xray/popout!)`,
-and a frame-isolated `:rf/xray` registrar.
-Spec corpus landed via rf2-1lls (2026-05-12). The test coverage matrix
-at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
-tracks per-surface status: most rows are `covered` (unit/helper/view
-tier plus a browser-level path), while several newer rows are `partial`
-— some unit/helper/view or smoke coverage exists, but the deterministic
-browser feature path or failure path is still missing (see the matrix
-for the live per-row status). The 20-event/load re-check is **not
-default CI**; it is an occasional pre-commit / explicit pre-PR gate for
-Xray-heavy work.
+Pre-alpha. The full 9-tab Dynamic shell, 5-tab Static catalogue,
+true-inline and overlay launch modes, same-origin pop-out, command palette,
+global shortcuts, and frame-isolated `:rf/xray` state are implemented.
 
-Browser testbeds live under `tools/xray/testbeds/` —
-`two_frame_isolation`, `standard_epochs`, `routes_epochs`, `machine_epochs`,
-`edn_inspector`, `feature_matrix`, `panel_gallery` — covering the canonical
-multi-frame isolation surface
-(`two_frame_isolation`: one app · two frames · Counter / Machine
-(websocket) / Routing / Async&errors tabs navigated as routes ·
-per-frame trace / events / issues / cascades · Xray target-frame
-round-trip; built from the shared `testdeck/` modules), the
-deliberately-simple single-frame driving surface (`standard_epochs`,
-rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
-a shared baseline counter + exercising exactly one more feature, so
-clicking top-to-bottom completely exercises any one Xray panel —
-Epoch / App-db / Views / Trace + the inline issue surfacing (Epoch
-issue blocks · L2 event-row wash · issues ribbon signal; the standalone
-Issues tab was removed per rf2-gbz39); no tabs, no routing, no
-machines/SSR; supersedes the old `step_deck`. App-db coverage here is
-the scalar bump + a flow-derived slot; the rich App-db DIFF shapes
-— added / removed-to-empty / changed (diff-mode-3) — moved to the
-`edn_inspector` deck per rf2-jmcjm, where they drive the App-db panel
-directly), the routing sibling
-(`routes_epochs`, rf2-5crg4: the same numbered-button shape — one frame ·
-baseline-bump per press · one more ROUTING feature per rung — aimed
-squarely at the Routing panel, so clicking top-to-bottom completely
-exercises its Current route · Navigation this epoch · Route table
-sections; served on port 8032), the state-machine sibling
-(`machine_epochs`, rf2-w06op: the same numbered-button shape — one frame ·
-baseline-bump per press · one more MACHINE feature per rung (start ·
-transition · entry/exit actions · guard allowed/blocked · transition-
-with-effect · ignored event · parallel regions · transition history ·
-multiple machines) — aimed squarely at the Machine Inspector
-(`rf-xray-machine-inspector`), so clicking top-to-bottom completely
-exercises its topology highlight · focused-transition lens · guards /
-actions · snapshot drill-in · transition history · parallel-region
-surfaces; owns its own `:door/main` + `:traffic/light` machines and does
-NOT touch the `deep_machine` gate substrate; served on port 8033), the
-edn-inspector sibling (`edn_inspector`, rf2-74u2s → rf2-1niob: the same
-numbered-button shape — one frame · baseline-bump per press — where each
-button DISPATCHES a real app-db change at a meaningful path, and the Xray
-sidecar mounted INLINE on the right shows it via the EPOCH (db-before /
-after) + APP-DB (the diff) panels, both of which render their CLJS values
-through the edn-inspector
-(`day8.re-frame2-xray.views.edn-inspector`) — so the inspector is
-demonstrated through its PRIMARY use case, the panels, not a standalone
-widget. An 8-rung ladder, each rung writing one inspector-stressing shape:
-large collection → elision · deeply nested → path render/collapse · the
-three App-db diff ops (added / removed-to-empty per rf2-8pfkk / changed
-diff-mode-3) · :rf/redacted sentinel · :rf.size/large-elided sentinel
-(Spec 015) · mixed types + #uuid/#inst tagged literals. The inline shell
-mounts from the deck's `run` via the public
-`day8.re-frame2-xray.core/init!` + `open!` (the manual alternative to the
-`:preloads` wiring) so no shadow-cljs.edn edit is needed; served on port
-8034), the deterministic
-feature-matrix sweep across panels + shell + launch modes + redaction
-+ 20-event load, the Panel-view gallery, and the performance probe.
-
-Agent access to Xray's surfaces flows through
-`tools/re-frame2-pair-mcp/` against the framework-published Xray
-runtime API on `day8.re-frame2-xray.runtime` (per rf2-hvl1g — no
-dedicated xray-mcp jar).
-
-Next: alpha cut once the browser feature gate from
 [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
-lands as default CI and the `0.0.1.alpha` Clojars publish is wired.
+is the live source for per-surface coverage. Browser fixtures under
+`testbeds/` exercise multi-frame isolation, epoch/routing/machine ladders,
+the EDN inspector, panel gallery, feature matrix, and performance probes.
+The matrix, rather than this README, records which paths are covered,
+partial, deferred, or intentionally run outside default CI.

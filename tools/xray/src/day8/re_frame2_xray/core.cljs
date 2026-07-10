@@ -29,16 +29,6 @@
   `registry`, ...) remaining as the *internal* seams Xray's own code
   reads. Hosts never need to know which file holds which fn.
 
-  ## Pre-alpha posture
-
-  Every surface this facade exposes is wired end-to-end — no
-  TBD-impl stubs, no documented-warning-emit placeholders. `init!`,
-  `load-theme`, the mount/config re-exports, and the frame picker
-  all route through their respective backing surfaces (the persisted
-  Settings shape, the theme module's CSS-swap site, the mount
-  layer's singleton guards). Future opt-keys that don't yet have a
-  backing surface land here only after their machinery does.
-
   ## What this namespace deliberately does NOT expose
 
   Per `spec/API.md` §What this doesn't expose, the facade carries no
@@ -54,15 +44,8 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.focus :as focus]
-            ;; Require the INERT install-helper ns, NOT the
-            ;; side-effecting `day8.re-frame2-xray.preload`. Loading
-            ;; `preload` runs its top-level boot block (settings load,
-            ;; handler/collector registration, browser globals,
-            ;; keybinding attach, auto-open); requiring this facade to
-            ;; reach the MANUAL `init!`/`configure!` API must NOT fire
-            ;; full preload behaviour before the host's `configure!`
-            ;; can win. `install` is load-inert; the side-effects fire
-            ;; only when `init!` (below) calls them.
+            ;; Manual startup must remain inert until `init!`, allowing
+            ;; the host to call `configure!` first.
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.keybinding :as keybinding]
             [day8.re-frame2-xray.mount :as mount]
@@ -132,7 +115,7 @@
        :density      :compact           ;; / :cosy   (settings persist)
        :buffer-depths {:epoch 50}}      ;; per-frame ring depth
 
-  EP-0002 — the inspected-host opt is `:target-frame`, distinct from
+  The inspected-host opt is `:target-frame`, distinct from
   Xray's OWN frame (`:own-frame`, the `:rf/xray` shell frame where the
   chrome's app-db lives — a fixed singleton, not a per-call opt).
   Omitting `:target-frame` leaves the inspected target UNSELECTED — the
@@ -171,20 +154,12 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
-   ;; Install the browser-API exports on
-   ;; `window.day8.re_frame2_xray.*` (same call the preload's boot
-   ;; block makes). The palette pop-out fx + the Settings panel-position
-   ;; effect late-bind their mount calls through these exports to break
-   ;; the `mount → shell → palette/settings → mount` require cycle (see
-   ;; palette/events §mount-popout! + settings/effects §late-bind). The
-   ;; manual `init!` path must install the exports so those late-bound
-   ;; actions (palette Ctrl+Enter pop-out, Settings panel-position →
-   ;; fullscreen / back-to-inline, fullscreen, right-rail) fire under it
-   ;; just as they do under the preload path. Idempotent: re-exports
-   ;; the same fn values.
+   ;; The palette and Settings effects resolve mount operations through
+   ;; these globals to avoid a mount/shell require cycle. Manual and
+   ;; preload startup therefore install the same exports.
    (install/install-browser-api-exports!)
    (keybinding/attach!)
-   ;; EP-0002 — select the explicit inspected TARGET frame in
+   ;; Select the explicit inspected target frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker
    ;; / mount discovery policy chooses); never a `:rf/default` fallback.
    (when target-frame
@@ -209,7 +184,7 @@
   scrubber / app-db / machine-inspector panels are observing — or
   **`nil` when UNSELECTED**.
 
-  EP-0002 — the inspected target starts UNSELECTED and is
+  The inspected target starts unselected and is
   selected by host config (`init! {:target-frame …}` / `set-target-
   frame!`), the frame picker, or the mount-time discovery policy. It is
   NOT defaulted to `:rf/default`: `:rf/default` is an ordinary id, never
@@ -232,7 +207,7 @@
   `:rf.xray/target-frame` sub and every dependent panel re-fire on the
   standard reactive path.
 
-  EP-0002 — `nil` resets the target to UNSELECTED (the panels render
+  `nil` resets the target to unselected (the panels render
   their no-frame-selected state and the picker prompts a choice). The
   inspected target is never absence-repaired to the ordinary
   `:rf/default` id (Spec 002 §Frame target resolution).
@@ -296,20 +271,13 @@
 ;; sessions that want to flip one knob without writing the full map.
 
 (def configure!
-  "Top-level Xray configuration. Every key lives under the
-  `:rf.xray/*` reserved namespace (the `:rf.<tool>/*` convention for
-  re-frame2 tools' boot-time config). The on-box reveal grain is
-  per-tool (EP-0015 issue 7): there is NO single cross-tool toggle.
-
-    `{:rf.xray/editor <kw>}`                — 'Open in editor' preference.
-    `{:rf.xray/layout-host-selector <css>}` — true-inline layout host selector.
-    `{:rf.xray/auto-open? <bool>}`          — default true-inline auto-open.
-    `{:rf.xray/egress-profile <kw>}`        — on-box dev-UI egress profile
-       (`:rf.egress/local-redacted` default / `:rf.egress/local-raw`
-       trusted-local reveal opt-in — EP-0015 per-(tool,frame) grain).
-
-  Future phases extend with theme / buffer keys. Hosts typically call
-  once at boot, before Xray auto-opens. Returns nothing."
+  "Top-level Xray boot configuration. Keys live under the `:rf.xray/*`
+  reserved namespace and cover editor integration, layout and launch,
+  keybindings, egress, persisted settings defaults, filters, render
+  policy, trace sampling, and logging. See
+  `day8.re-frame2-xray.config/configure!` for the complete key inventory
+  and precedence rules. Hosts normally call this once before Xray
+  auto-opens. Returns nothing."
   config/configure!)
 
 (def set-auto-open!
