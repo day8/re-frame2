@@ -27,7 +27,7 @@
  *
  * What this gate does (STATIC — no browser, no Playwright)
  * -------------------------------------------------------
- * It walks every tracked example index.html and, for each:
+ * It walks every example host page present under examples/ and, for each:
  *
  *   1. RESOLVES every local asset reference (link href, script src,
  *      img/source/video src, each `srcset`/`imagesrcset` candidate, a
@@ -99,7 +99,7 @@
  *      asset (see ALLOWLIST, the page-opt-out projection of the shared
  *      examples asset/exception manifest). The TodoMVC stylesheet opt-out is
  *      encoded in that manifest: it is exempt from style.css (it links the
- *      vendored TodoMVC base.css + index.css) but STILL required to carry the
+ *      npm-staged TodoMVC base.css + index.css) but STILL required to carry the
  *      shared favicon + OG card.
  *
  *   3. Asserts the social-preview (og:image) target is a RASTER, never an SVG:
@@ -117,9 +117,10 @@
  *      (a) EXISTENCE: the required _shared files are present on disk (incl. the
  *          og.png raster + its og.svg source art) and structure.css remains
  *          reachable from style.css's @import.
- *      (b) OG RASTER BYTES: og.png actually decodes as a PNG (signature + IHDR)
- *          at the documented 1200x630 dimensions — a renamed SVG/text file or a
- *          wrong-size export fails, not just a missing file (rf2-mon7tz).
+ *      (b) OG RASTER HEADER: og.png has the PNG signature and an IHDR declaring
+ *          the documented 1200x630 dimensions — a renamed SVG/text file or a
+ *          wrong-size export fails, not just a missing file (rf2-mon7tz). This
+ *          is a header check, not a full pixel decode or CRC validation.
  *      (c) OG SOURCE-ART PALETTE: og.svg carries no retired / sub-AA colour
  *          literal as a live paint value, so the re-exported card cannot drift
  *          back below the shared palette's accessibility decisions (rf2-y82dk9).
@@ -680,11 +681,12 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const OG_PNG_WIDTH = 1200;
 const OG_PNG_HEIGHT = 630;
 
-// Validate that `data` is a decodable PNG whose IHDR declares the expected
+// Validate that `data` has a PNG signature and an IHDR declaring the expected
 // dimensions. Returns { ok, width, height, reason }. A spec-conformant PNG
 // always opens with the 8-byte signature immediately followed by the IHDR
 // chunk (length=13, type='IHDR', then width:uint32be, height:uint32be), so
-// reading the dimensions needs no full decoder — just the first 24 bytes.
+// reading the dimensions needs no full decoder — just the first 24 bytes. This
+// intentionally does not validate later chunks, CRCs, or decoded pixel data.
 // Accepts a Buffer or coerces a string fixture to one (latin1 preserves bytes).
 function validatePng(data, expectedWidth = OG_PNG_WIDTH, expectedHeight = OG_PNG_HEIGHT) {
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'latin1');
@@ -1110,7 +1112,10 @@ function scanPage(io, indexAbsPath, opts = {}) {
   //    og:image and render no large preview card — a failure mode invisible to
   //    a pure "the referenced file exists" check. (rf2-lr4am3)
   for (const og of extractOgImageRefs(html)) {
-    if (isExternalRef(og)) continue; // a hosted absolute URL is the page's call
+    // Remote targets are governed separately by the direct-HTML network
+    // allowlist. Their URL suffix is not reliable evidence of the response
+    // media type, so this source-file extension check applies only to local refs.
+    if (isExternalRef(og)) continue;
     const ext = path.extname(og).toLowerCase();
     if (!SOCIAL_PREVIEW_RASTER_EXTS.has(ext)) {
       errors.push(

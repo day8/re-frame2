@@ -6,6 +6,12 @@
  * buffered browser diagnostics plus Story-specific context: feature,
  * phase, URL, active variant, active mode, and browser console/page
  * errors. See docs/quiet-tests.md.
+ *
+ * The serving orchestrator injects STORY_FEATURE_LOAD_BASE_URL. A direct run
+ * defaults to 127.0.0.1:8031; STORY_FEATURE_LOAD_TIMEOUT_MS controls each
+ * navigation/spec timeout, and STORY_FEATURE_LOAD_SPEC filters spec basenames.
+ * Every selected module must export a string `url` and a `run(page)` function
+ * (`name` and `context(page)` are optional diagnostic metadata).
  */
 
 const path = require('path');

@@ -24,7 +24,7 @@
  *
  * What this gate does (STATIC — no browser, no Playwright, no compile)
  * -------------------------------------------------------------------
- * It walks every tracked Clojure(Script) source in the stock-Reagent buckets and
+ * It walks every Clojure(Script) source present in the stock-Reagent buckets and
  * FAILS if any of them requires a slim-substrate namespace:
  *
  *   - `reagent2.*`                    (the slim substrate's user-facing import)

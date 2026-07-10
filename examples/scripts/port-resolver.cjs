@@ -1,11 +1,12 @@
 /*
  * Shared port-resolution mechanism for the example/Story orchestrators.
  *
- * Two sibling orchestrators each need to pick a free TCP port and serve
- * `implementation/out/examples` on it:
+ * Two resolver policies serve the runners that host
+ * `implementation/out/examples` on a free TCP port:
  *
- *   - examples-port.cjs            — the adapter-smoke orchestrator.
- *   - story-feature-load-port.cjs  — the Story feature-load + play-script
+ *   - examples-port.cjs            — the adapter-smoke orchestrator and the
+ *                                    standalone-example development server.
+ *   - story-feature-load-port.cjs  — the Story feature-load and play-script
  *                                    gates.
  *
  * Both want IDENTICAL contention handling — a loopback bind-and-release
@@ -56,8 +57,9 @@ function makeParseExplicitPort(envVarName, { actionable = false } = {}) {
 }
 
 // Bind-and-release probe on 127.0.0.1 (by default). Resolves true when
-// the port is free, false when it is taken (any bind error —
-// EADDRINUSE on Mac/Linux, EACCES for a dual-stack listener on Windows).
+// the port is free and false when it cannot be bound. The latter includes
+// EADDRINUSE on Mac/Linux and EACCES for a dual-stack listener on Windows;
+// callers intentionally treat every bind failure as "unavailable".
 function canListen(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const server = net.createServer();

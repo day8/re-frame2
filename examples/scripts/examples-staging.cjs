@@ -12,6 +12,10 @@
  * staging rather than re-implementing an ad hoc copy. One source of truth for
  * "what lands in an example's output dir".
  *
+ * The Story feature-load and play-script runners also consume the path-guarded
+ * cleanStageDirs helper, but stage their testbed-specific HTML themselves; they
+ * do not use the standalone-example asset manifest.
+ *
  * This module ALSO derives the standalone-example manifest (build id ->
  * output dir + source folder + index.html) directly from shadow-cljs.edn, so
  * the dev runner has no hardcoded build->folder table that could drift. The
@@ -36,7 +40,7 @@ const SHARED_SRC = path.join(EXAMPLES_ROOT, '_shared');
 // ---------------------------------------------------------------------------
 
 // Minimal recursive copy. Each file overwrites the destination
-// unconditionally so repeat runs pick up re-compiled bundles.
+// unconditionally so repeat runs pick up current shared assets.
 function copyDirRecursive(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {

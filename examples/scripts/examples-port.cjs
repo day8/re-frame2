@@ -1,6 +1,7 @@
 /*
- * Port resolver for the adapter-smoke orchestrator
- * (serve-and-run-adapter-smokes.cjs).
+ * Port resolver shared by the adapter-smoke orchestrator
+ * (`implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs`) and
+ * the standalone-example development server (`serve-example.cjs`).
  *
  * Why this exists (rf2-0u6ce). The orchestrator used to hard-bind
  * 0.0.0.0:8030. But 8030 is ALSO claimed by the top-level :dev-http map
