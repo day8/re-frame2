@@ -161,17 +161,10 @@
 ;; so the assembly site names the SHAPE (type tag, key SET, length) —
 ;; never the values.
 
-(defn- spec-summary
-  "Value-FREE diagnostic for a rejected machine `spec`: type tag plus —
-  for a map — the top-level key SET, parallel?, and child counts."
-  [spec]
-  (if (map? spec)
-    (cond-> {:type     :map
-             :keys     (vec (sort-by str (keys spec)))
-             :parallel (= :parallel (:type spec))}
-      (map? (:states spec))  (assoc :state-count  (count (:states spec)))
-      (map? (:regions spec)) (assoc :region-count (count (:regions spec))))
-    {:type (cond (nil? spec) :nil (vector? spec) :vector :else :value)}))
+;; rf2-egupfk — the rejected-spec summary is the SHARED
+;; `grammar/definition-summary` (value-free structural facts only), so all
+;; three emitters emit the same diagnostic shape. SCXML stashes it under its
+;; own `:spec-summary` ex-data key.
 
 (defn- input-summary
   "Value-FREE diagnostic for a rejected SCXML `input`: type + length."
@@ -822,37 +815,34 @@
   ;; `<transition>`) and `:type :choice` / `:choice` → `:always` (A5,
   ;; surfaces the candidate `<transition>`s). The runtime drives the same
   ;; lowered forms. Idempotent + nil-safe.
-  (let [machine-spec (g/desugar-grammar machine-spec)]
-  (cond
-    (= :parallel (:type machine-spec))
-    (let [{:keys [regions]} machine-spec]
-      (when-not (and (map? regions) (seq regions))
-        (error/throw-error!
-          :scxml/invalid-spec
-          'machines-viz/spec->scxml
+  ;; rf2-egupfk — route the shape check through the SHARED
+  ;; `grammar/valid-definition?` so SCXML agrees with the AI-generate + Mermaid
+  ;; emitters: a KEYWORD `:initial` per the machine contract, and parallel
+  ;; region bodies each a valid state tree (pre-fix SCXML accepted malformed
+  ;; regions the other two rejected). SCXML keeps its own `:scxml/invalid-spec`
+  ;; id + the parallel-vs-flat message / recovery split below.
+  (let [machine-spec (g/desugar-grammar machine-spec)
+        parallel?    (g/parallel-definition? machine-spec)]
+    (when-not (g/valid-definition? machine-spec)
+      (error/throw-error!
+        :scxml/invalid-spec
+        'machines-viz/spec->scxml
+        (if parallel?
           (str "SCXML export: a parallel machine spec requires a non-empty "
-               ":regions map; add :regions to the parallel spec.")
-          {:recovery :supply-non-empty-regions
-           ;; rf2-8nzxib — value-FREE; never the raw spec (its :data
-           ;; slot can carry live runtime values).
-           :extra    {:spec-summary (spec-summary machine-spec)}}))
-      (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-           (str/join "\n" (emit-parallel machine-spec 0))))
-
-    (and (:initial machine-spec) (map? (:states machine-spec)) (seq (:states machine-spec)))
+               ":regions map, and each region must carry a keyword :initial + "
+               "a non-empty :states map; fix the parallel spec.")
+          (str "SCXML export: a machine spec must carry a keyword :initial + a "
+               "non-empty :states map, or :type :parallel + :regions. Provide "
+               "one of those shapes."))
+        {:recovery (if parallel? :supply-non-empty-regions :supply-a-valid-machine-spec)
+         ;; rf2-8nzxib — value-FREE; never the raw spec (its :data slot can
+         ;; carry live runtime values).
+         :extra    {:spec-summary (g/definition-summary machine-spec)}}))
     (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-         (str/join "\n" (emit-flat-or-compound machine-spec 0)))
-
-    :else
-    (error/throw-error!
-      :scxml/invalid-spec
-      'machines-viz/spec->scxml
-      (str "SCXML export: a machine spec must carry :initial + a non-empty "
-           ":states map, or :type :parallel + :regions. Provide one of "
-           "those shapes.")
-      {:recovery :supply-a-valid-machine-spec
-       ;; rf2-8nzxib — value-FREE; never the raw spec.
-       :extra    {:spec-summary (spec-summary machine-spec)}}))))
+         (str/join "\n"
+                   (if parallel?
+                     (emit-parallel machine-spec 0)
+                     (emit-flat-or-compound machine-spec 0))))))
 
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we

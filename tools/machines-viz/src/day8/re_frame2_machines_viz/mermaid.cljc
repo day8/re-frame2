@@ -1013,38 +1013,12 @@
                ;; only; no sibling target).
                (render-parallel-on-done-note on-done)))))
 
-(defn- valid-state-tree?
-  [{:keys [initial states]}]
-  (and initial
-       (map? states)
-       (seq states)))
-
-(defn- parallel-definition?
-  [definition]
-  (= :parallel (:type definition)))
-
-(defn- valid-parallel-definition?
-  [{:keys [regions] :as definition}]
-  (and (parallel-definition? definition)
-       (map? regions)
-       (seq regions)
-       (every? valid-state-tree? (vals regions))))
-
-(defn- definition-summary
-  "EP-0015 / Spec 015 §exception-path residual (rf2-8nzxib) — a
-  value-FREE diagnostic for an invalid `definition`. A definition can
-  carry a `:data` slot holding live runtime values, and projection
-  cannot walk `ex-data` after the fact, so the thrown error reports only
-  STRUCTURAL facts: the top-level key SET, parallel?, and child counts —
-  never the `:data` values."
-  [definition]
-  (if (map? definition)
-    (cond-> {:type     :map
-             :keys     (vec (sort-by str (keys definition)))
-             :parallel (parallel-definition? definition)}
-      (map? (:states definition))  (assoc :state-count  (count (:states definition)))
-      (map? (:regions definition)) (assoc :region-count (count (:regions definition))))
-    {:type (cond (nil? definition) :nil (vector? definition) :vector :else :value)}))
+;; rf2-egupfk — the definition-shape validators + value-free summary are the
+;; SHARED grammar helpers (`grammar/valid-definition?` / `parallel-definition?`
+;; / `definition-summary`), so all three emitters agree on which definitions
+;; are projectable (keyword `:initial`, well-formed parallel regions) and on
+;; the value-free error diagnostic. Mermaid keeps only its surface-specific
+;; error id (`:mermaid/invalid-definition`) + message below.
 
 (defn emit
   "Emit a Mermaid `stateDiagram-v2` string for `definition`.
@@ -1080,23 +1054,21 @@
    ;; candidate edges). Bind once so BOTH the validation block and the
    ;; render below see the lowered form.
    (let [definition (g/desugar-grammar definition)
-         parallel?  (parallel-definition? definition)]
-     (when-not (if parallel?
-                 (valid-parallel-definition? definition)
-                 (valid-state-tree? definition))
+         parallel?  (g/parallel-definition? definition)]
+     (when-not (g/valid-definition? definition)
        (error/throw-error!
          :mermaid/invalid-definition
          'machines-viz.mermaid/emit
          (if parallel?
            (str "Mermaid export: a parallel definition must carry a non-empty "
-                ":regions map, and each region must carry :initial + a "
-                "non-empty :states map. Provide those.")
-           (str "Mermaid export: a definition must carry :initial + a "
-                "non-empty :states map. Provide those."))
+                ":regions map, and each region must carry a keyword :initial + "
+                "a non-empty :states map. Provide those.")
+           (str "Mermaid export: a definition must carry a keyword :initial + "
+                "a non-empty :states map. Provide those."))
          {:recovery :supply-a-valid-definition
           ;; rf2-8nzxib — value-FREE; never the raw definition (its
           ;; :data slot can hold live runtime values).
-          :extra    {:definition-summary (definition-summary definition)}}))
+          :extra    {:definition-summary (g/definition-summary definition)}}))
      (let [body (if parallel?
                   (render-parallel-body definition header-comment?)
                   (render-flat-or-compound-body definition header-comment?))]

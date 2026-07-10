@@ -24,6 +24,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
+            [day8.re-frame2-machines-viz.ai-generate :as ai]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-machines-viz.scxml :as scxml]))
@@ -524,3 +525,172 @@
           "the error terminal reconstructs :error? true")
       (is (nil? (get-in back [:states :ok :error?]))
           "the success terminal carries no :error? bit"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-egupfk — the three emitters agree on DEFINITION-SHAPE VALIDATION.
+;;
+;; Pre-fix each emitter hand-rolled its own `valid-state-tree?` / parallel
+;; check and the copies had DRIFTED:
+;;
+;;   - SCXML accepted MALFORMED PARALLEL REGION BODIES (a region with no
+;;     `:initial` / `:states`, or a nil region) that AI + Mermaid rejected —
+;;     it checked only `(and (map? regions) (seq regions))`, never that each
+;;     region was itself a valid state tree.
+;;   - AI required a KEYWORD `:initial` (the machine contract — Spec 005
+;;     §Transition table grammar: state ids are keywords) while Mermaid +
+;;     SCXML accepted ANY TRUTHY `:initial` (a string / number slipped
+;;     through).
+;;
+;; The fix routes all three through the SHARED `grammar/valid-definition?`
+;; (adopting the STRICT reading: keyword `:initial`, well-formed regions), so
+;; a definition is accepted by ALL THREE or rejected by ALL THREE. Each keeps
+;; its surface-specific error id (`:ai-generate/invalid-spec` /
+;; `:mermaid/invalid-definition` / `:scxml/invalid-spec`).
+
+(defn- ai-rejects?
+  "True when the AI emitter rejects `definition` (its resolver returns the
+  definition verbatim as EDN, so the parse succeeds and only the shape
+  validation can reject)."
+  [definition]
+  (try
+    (ai/generate-machine "x" {:resolver (constantly (pr-str definition))})
+    false
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ true)))
+
+(defn- mermaid-rejects? [definition]
+  (try (mermaid/emit definition) false
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ true)))
+
+(defn- scxml-rejects? [definition]
+  (try (scxml/spec->scxml definition) false
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ true)))
+
+(def malformed-parallel-region-body-machine
+  "THE SCXML drift repro: a parallel root whose region :a carries NO
+  `:initial` / `:states` (an empty region body). Pre-fix SCXML emitted it
+  happily; AI + Mermaid rejected it. Now all three reject."
+  {:type :parallel :regions {:a {}}})
+
+(def nil-parallel-region-machine
+  "A parallel root with a nil region body — the more degenerate SCXML-drift
+  shape."
+  {:type :parallel :regions {:a nil}})
+
+(def region-missing-states-machine
+  {:type :parallel :regions {:a {:initial :x}}})
+
+(def region-non-keyword-initial-machine
+  {:type :parallel :regions {:a {:initial "x" :states {:x {}}}}})
+
+(def non-keyword-initial-machine
+  "THE AI drift repro: a flat machine whose `:initial` is a STRING, not a
+  keyword. Pre-fix AI rejected it (keyword? guard) while Mermaid + SCXML
+  accepted it (truthy `:initial`). Now all three reject."
+  {:initial "a" :states {:a {}}})
+
+(def numeric-initial-machine
+  {:initial 42 :states {:a {}}})
+
+(def invalid-definitions
+  "Definitions EVERY emitter must reject (post-fix agreement)."
+  [nil
+   42
+   "not-a-machine"
+   [:a :b]
+   {:not-a-machine 42}
+   {:initial :a}                                   ;; missing :states
+   {:initial :a :states {}}                        ;; empty :states
+   non-keyword-initial-machine                     ;; AI-drift
+   numeric-initial-machine
+   {:type :parallel}                               ;; missing :regions
+   {:type :parallel :regions {}}                   ;; empty :regions
+   malformed-parallel-region-body-machine          ;; SCXML-drift
+   nil-parallel-region-machine
+   region-missing-states-machine
+   region-non-keyword-initial-machine])
+
+(def valid-definitions
+  "Definitions EVERY emitter must accept (post-fix agreement)."
+  [{:initial :a :states {:a {}}}
+   {:initial :a :states {:a {:on {:go :b}} :b {:final? true}}}
+   {:type :parallel :regions {:a {:initial :x :states {:x {}}}}}
+   {:type :parallel :regions {:a {:initial :x :states {:x {}}}
+                              :b {:initial :y :states {:y {}}}}}])
+
+(deftest all-three-emitters-reject-the-same-invalid-definitions
+  (testing "rf2-egupfk — AI, Mermaid, AND SCXML reject every malformed
+            definition identically (the previously-divergent shapes now
+            agree)"
+    (doseq [d invalid-definitions]
+      (let [a (ai-rejects? d)
+            m (mermaid-rejects? d)
+            s (scxml-rejects? d)]
+        (is (true? a) (str "AI must reject "      (pr-str d)))
+        (is (true? m) (str "Mermaid must reject " (pr-str d)))
+        (is (true? s) (str "SCXML must reject "   (pr-str d)))
+        (is (= a m s) (str "all three must AGREE on rejecting " (pr-str d)))))))
+
+(deftest all-three-emitters-accept-the-same-valid-definitions
+  (testing "rf2-egupfk — AI, Mermaid, AND SCXML accept every well-formed
+            definition identically"
+    (doseq [d valid-definitions]
+      (let [a (ai-rejects? d)
+            m (mermaid-rejects? d)
+            s (scxml-rejects? d)]
+        (is (false? a) (str "AI must accept "      (pr-str d)))
+        (is (false? m) (str "Mermaid must accept " (pr-str d)))
+        (is (false? s) (str "SCXML must accept "   (pr-str d)))
+        (is (= a m s) (str "all three must AGREE on accepting " (pr-str d)))))))
+
+(deftest scxml-now-rejects-malformed-parallel-region-bodies
+  (testing "rf2-egupfk — SCXML (the pre-fix LAX emitter) now rejects a
+            parallel region body with no :initial/:states, matching AI +
+            Mermaid (pre-fix SCXML emitted it)"
+    (is (scxml-rejects? malformed-parallel-region-body-machine)
+        "SCXML rejects the empty region body it used to accept")
+    (is (scxml-rejects? nil-parallel-region-machine))
+    (is (scxml-rejects? region-missing-states-machine))
+    (is (scxml-rejects? region-non-keyword-initial-machine))
+    ;; Still throws the SCXML-surface id (not the AI/Mermaid ids).
+    (let [d (try (scxml/spec->scxml malformed-parallel-region-body-machine) nil
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :scxml/invalid-spec (:rf.error/id d))
+          "SCXML keeps its surface-specific error id"))))
+
+(deftest all-three-now-reject-non-keyword-initial
+  (testing "rf2-egupfk — Mermaid + SCXML (the pre-fix LAX emitters) now
+            reject a non-keyword :initial, matching AI (the machine contract:
+            state ids are keywords)"
+    (doseq [d [non-keyword-initial-machine numeric-initial-machine]]
+      (is (mermaid-rejects? d) (str "Mermaid now rejects " (pr-str d)))
+      (is (scxml-rejects? d)   (str "SCXML now rejects "   (pr-str d)))
+      (is (ai-rejects? d)      (str "AI still rejects "    (pr-str d))))
+    ;; Each keeps its surface-specific error id.
+    (let [md (try (mermaid/emit non-keyword-initial-machine) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
+          sd (try (scxml/spec->scxml non-keyword-initial-machine) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (= :mermaid/invalid-definition (:rf.error/id md)))
+      (is (= :scxml/invalid-spec (:rf.error/id sd))))))
+
+(deftest invalid-definition-summaries-stay-value-free-across-emitters
+  (testing "rf2-egupfk — the shared value-free summary excludes the raw
+            :data slot in every emitter's thrown error (a malformed
+            definition can carry live runtime values under :data)"
+    (let [secret "cross-emitter-secret-42"
+          ;; Malformed (empty :states) but carries a secret :data slot.
+          bad    {:initial :a :states {} :data {:token secret}}
+          leaks? (fn [d] (some #(and (string? %) (str/includes? % secret))
+                               (tree-seq coll? seq d)))
+          md     (try (mermaid/emit bad) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
+          sd     (try (scxml/spec->scxml bad) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
+          ad     (try (ai/generate-machine "x" {:resolver (constantly (pr-str bad))}) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
+      (is (some? (:definition-summary md)) "mermaid carries a value-free summary")
+      (is (some? (:spec-summary sd))       "scxml carries a value-free summary")
+      (is (some? (:spec-summary ad))       "ai carries a value-free summary")
+      (is (not (leaks? md)) "mermaid summary omits the :data secret")
+      (is (not (leaks? sd)) "scxml summary omits the :data secret")
+      (is (not (leaks? ad)) "ai summary omits the :data secret"))))
