@@ -64,7 +64,6 @@
             ["@modelcontextprotocol/sdk/server/index.js" :as mcp-server]
             ["@modelcontextprotocol/sdk/server/stdio.js" :as mcp-stdio]
             ["@modelcontextprotocol/sdk/types.js" :as mcp-types]
-            ["fs" :as fs]
             ["path" :as node-path]))
 
 (def ^:const server-name    "re-frame2-pair-mcp")
@@ -227,18 +226,6 @@
                      (js/Promise.reject
                        (js/Error. (str "elicitation returned unexpected action: " action))))))))))
 
-(defn- read-port-file*
-  "Read the port file at `path`. Returns an int or nil (missing /
-  unreadable / non-numeric content). Mirrors `nrepl/read-port-file` but
-  kept local so a future test seam doesn't have to thread through the
-  transport ns."
-  [path]
-  (try
-    (let [content (str/trim (.toString (.readFileSync fs path)))
-          n       (js/parseInt content 10)]
-      (when-not (js/isNaN n) n))
-    (catch :default _ nil)))
-
 (defn- new-conn-for-port [port]
   (log! "nREPL port =" port)
   (nrepl/make-conn port "127.0.0.1"))
@@ -381,7 +368,7 @@
                     (js/Promise.reject e))))
 
       :else
-      (let [current-port (when port-file (read-port-file* port-file))]
+      (let [current-port (when port-file (nrepl/read-port-file port-file))]
         (cond
           ;; The cached file vanished — shadow shut down. Force re-discovery.
           (and port-file (nil? current-port))

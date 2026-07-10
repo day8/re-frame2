@@ -228,6 +228,31 @@
         (is (nil? (nrepl/read-port-from-fs)))))))
 
 ;; ---------------------------------------------------------------------------
+;; `read-port-file` — the single transport-owned port-file primitive
+;; (rf2-y8aszh). `server.cljs/ensure-connection!` re-reads the cached port
+;; file through THIS fn (its byte-for-byte `read-port-file*` copy was
+;; deleted). Pin the primitive's contract directly: an int for numeric
+;; content (whitespace-trimmed), nil for missing / non-numeric.
+;; ---------------------------------------------------------------------------
+
+(deftest read-port-file-parses-trims-and-fails-soft
+  (testing "the public transport primitive: int on numeric content, trimmed; nil on missing / non-numeric"
+    (with-fs-stub! nil
+      (read-returning "the/port" "  6789  \n")
+      (fn []
+        (is (= 6789 (nrepl/read-port-file "the/port"))
+            "numeric content read + trimmed to an int")))
+    (with-fs-stub! nil
+      (read-returning "the/port" "not-a-number")
+      (fn []
+        (is (nil? (nrepl/read-port-file "the/port"))
+            "non-numeric content → nil (isNaN guard), never a NaN port")))
+    (with-fs-stub! nil throwing-read
+      (fn []
+        (is (nil? (nrepl/read-port-file "gone/port"))
+            "a missing / unreadable file → nil, not a throw")))))
+
+;; ---------------------------------------------------------------------------
 ;; --port-file explicit override. The 1-arity `read-port-from-fs` takes an
 ;; explicit, cwd-independent path that wins over BOTH the env var and the
 ;; relative file-scan candidates. nil/blank ⇒ falls through to the normal
