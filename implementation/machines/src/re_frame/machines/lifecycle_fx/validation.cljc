@@ -328,10 +328,10 @@
                ":type :parallel requires a non-empty :regions map")))
     ;; The parallel root's `:on-done` must not carry an in-machine `:target`
     ;; in ANY form (root-only parallel has no flat sibling to land on).
-    ;; Normalise EVERY value-form `:on-done` admits — mirroring
-    ;; `transition/normalise-candidates` (the runtime grammar the
-    ;; parallel-root `apply-on-done-action` resolves through) — to its
-    ;; candidate map(s), then reject if any candidate declares `:target`.
+    ;; Normalise EVERY value-form `:on-done` admits via the SHARED
+    ;; `grammar/candidate-maps` (the ONE owner — rf2-tu5psi — the same grammar
+    ;; the runtime parallel-root `apply-on-done-action` resolves through), then
+    ;; reject if any candidate declares `:target`.
     ;;
     ;; This covers every target-bearing form: a bare-keyword target
     ;; (`:on-done :next`), a vector-path target (`:on-done [:next]`), a map
@@ -342,20 +342,10 @@
     ;; and moves nowhere — a SILENT STALL in the all-final configuration. Per
     ;; the loud-failure posture, every target-bearing form is rejected loudly
     ;; at registration. Action / fx-only `:on-done` (no `:target`) stays
-    ;; accepted.
+    ;; accepted. A malformed shape (grammar nil) degrades to no candidates.
     (when (contains? machine :on-done)
       (let [on-done (:on-done machine)
-            ;; Mirror transition/normalise-candidates: keyword → {:target kw};
-            ;; vector-of-maps → as-is; any other vector → {:target vec};
-            ;; map → [map]; nil/other → no target-bearing candidate.
-            cands   (cond
-                      (keyword? on-done) [{:target on-done}]
-                      (and (vector? on-done)
-                           (seq on-done)
-                           (every? map? on-done)) on-done
-                      (vector? on-done)  [{:target on-done}]
-                      (map? on-done)     [on-done]
-                      :else              [])]
+            cands   (or (grammar/candidate-maps on-done) [])]
         (when (some #(contains? % :target) cands)
           (throw (validation-error
                    :rf.error/machine-parallel-on-done-target
@@ -383,8 +373,8 @@
     ;; transition (the timer-driven analog of the root `:on` ancestor
     ;; fallback), so a non-region-qualified root `:after` target is rejected
     ;; with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword.
-    ;; `candidates-of` is the shared `:on` / `:after` value-form normaliser
-    ;; (mirroring `transition/normalise-candidates`).
+    ;; `candidates-of` is the SHARED `:on` / `:after` value-form normaliser —
+    ;; the ONE owner `grammar/candidate-maps` (rf2-tu5psi), malformed → `[]`.
     (let [region-names (set (keys (:regions machine)))
           declared?    (fn [t] (contains? region-names t))
           bad-target!  (fn [slot target]
@@ -416,14 +406,7 @@
                              (bad-target! slot target))
                            ;; bare keyword / any other shape — no flat sibling
                            :else (bad-target! slot target)))
-          candidates-of (fn [v]
-                          (cond
-                            (nil? v)                       [{}]
-                            (keyword? v)                   [{:target v}]
-                            (and (vector? v) (every? map? v) (seq v)) v
-                            (vector? v)                    [{:target v}]
-                            (map? v)                       [v]
-                            :else                          []))]
+          candidates-of (fn [v] (or (grammar/candidate-maps v) []))]
       (doseq [[_event v] (:on machine)
               cand        (candidates-of v)]
         (check-one! ":on" (:target cand)))
@@ -933,30 +916,20 @@
              {:state state-key}))))
 
 (defn- always-entries
-  "Normalise a state-node's `:always` slot to a vector of entry maps,
-  through the SAME shared candidate grammar `:on` / `:after` resolve
-  (`grammar/transition-value-form` — rf2-0k0f3x): a bare keyword desugars
-  to `{:target <kw>}`, a vector-target to `{:target <vec>}`, a single map
-  is the one-element case, and a guarded candidate-vector passes through
-  unchanged. Mirrors `transition/normalise-candidates`'s arms minus the
-  throw (a malformed value is caught elsewhere — the runtime normaliser
-  throws `:rf.error/machine-bad-always` at the first macrostep; this
-  validation-side walker just needs SOME vector to iterate, so an
-  unrecognised shape degrades to the empty vector rather than choking a
-  registration-time walk that isn't the throw's designated surface).
-  Absent `:always` — the key is missing, OR present with an explicit nil
-  value — yields the empty vector (no ancestor-blocking use case for
-  `:always`, unlike `:on` / `:after`'s nil-is-forbidden-transition form)."
+  "Normalise a state-node's `:always` slot to a vector of entry maps through
+  the SHARED `grammar/candidate-maps` (the ONE owner — rf2-tu5psi). Absent
+  `:always` — the key missing, OR present with an explicit nil value — yields
+  the empty vector (no ancestor-blocking use case for `:always`, unlike `:on`
+  / `:after`'s nil-is-forbidden-transition form), so the nil is gated BEFORE
+  the shared normaliser (which maps nil to `[{}]`). A malformed value degrades
+  to `[]` (the runtime normaliser throws `:rf.error/machine-bad-always` at the
+  first macrostep; this registration-side walker just needs SOME vector to
+  iterate — it is not the throw's designated surface)."
   [state-node]
   (let [a (:always state-node)]
     (if (nil? a)
       []
-      (case (grammar/transition-value-form a)
-        :keyword          [{:target a}]
-        :candidate-vector a
-        :vec-target       [{:target a}]
-        :map              [a]
-        :other            []))))
+      (or (grammar/candidate-maps a) []))))
 
 (defn- always-self-loop?
   "True iff an `:always` entry's `:target` resolves to its own declaring

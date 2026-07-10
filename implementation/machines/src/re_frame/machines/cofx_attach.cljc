@@ -225,16 +225,18 @@
 ;; so an inline `:rf.cofx/requires` cannot hide on a slot value.
 
 (defn- always-entries
-  "Normalise a state-node's `:always` slot to a vector of entry maps
-  through the SAME shared candidate grammar `candidate-maps` below
-  resolves for `:on` / `:after` / `:on-done` (`grammar/transition-value-
-  form` — rf2-0k0f3x): a bare keyword desugars to `{:target <kw>}`, a
-  vector-target to `{:target <vec>}`, a single map is the one-element
-  case, a guarded candidate-vector passes through unchanged, and an
-  unrecognised shape degrades to `[]` (the runtime normaliser is the
-  throw's designated surface — `:rf.error/machine-bad-always`). Absent
-  `:always` (missing key, or present with nil) → `[]`. Mirrors
-  `validation/always-entries`.
+  "Normalise a state-node's `:always` slot to a vector of entry maps through
+  the SHARED `grammar/candidate-maps` (the ONE owner — rf2-tu5psi). Two
+  caller-specific policies stay HERE, not in the shared normaliser:
+
+    1. the optional `:always` nil semantics — an absent `:always` (missing
+       key, OR present with nil) yields `[]` (no ancestor-blocking, unlike
+       `:on` / `:after`'s nil-is-forbidden-transition form), so the nil is
+       gated BEFORE the shared normaliser (which would map nil to `[{}]`);
+    2. a malformed shape degrades to `[]` (the runtime normaliser is the
+       throw's designated surface — `:rf.error/machine-bad-always`).
+
+  Mirrors `validation/always-entries`.
 
   A `:type :choice` transient node carries its candidate vector under
   `:choice`, NOT `:always` — the choice lowers to `:always` only at
@@ -243,17 +245,13 @@
   IDENTICAL `:always` cascade the runtime settles it into, treat a choice
   node's `:choice` vector as its `:always` candidates here; validation
   guarantees a choice node never ALSO declares `:always` (a reserved key), so
-  there is no ambiguity."
+  there is no ambiguity. This choice-node source selection likewise stays at
+  the caller — the shared normaliser sees only the resolved slot value."
   [node]
   (let [a (if (choice/choice-node? node) (:choice node) (:always node))]
     (if (nil? a)
       []
-      (case (grammar/transition-value-form a)
-        :keyword          [{:target a}]
-        :candidate-vector a
-        :vec-target       [{:target a}]
-        :map              [a]
-        :other            []))))
+      (or (grammar/candidate-maps a) []))))
 
 (defn- walk-nodes-with-path
   "Yield `[absolute-path node]` pairs for every state node, recursing
@@ -332,18 +330,12 @@
 
 (defn- candidate-maps
   "Normalise a transition-slot value to its candidate maps (each carrying
-  `:guard` / `:action` / `:target`). Mirrors `transition/normalise-
-  candidates` shape-wise via the shared `grammar/transition-value-form`, but
-  does NOT throw — a malformed shape (caught by `validation`) contributes no
-  candidates here."
+  `:guard` / `:action` / `:target`) via the SHARED `grammar/candidate-maps`
+  (the ONE owner — rf2-tu5psi), mapping the malformed form (grammar returns
+  nil) to NO candidates: `validation` is the designated throw surface, so a
+  malformed shape contributes nothing to the static ensure-set here."
   [v]
-  (case (grammar/transition-value-form v)
-    :nil              [{}]
-    :keyword          [{:target v}]
-    :candidate-vector v
-    :vec-target       [{:target v}]
-    :map              [v]
-    :other            []))
+  (or (grammar/candidate-maps v) []))
 
 (defn- node-at
   "Root→leaf descent into `machine`'s `:states` (or a region body's).

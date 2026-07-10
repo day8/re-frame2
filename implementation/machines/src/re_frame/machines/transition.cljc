@@ -740,31 +740,31 @@
   (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`,
   `:always` → `machine-bad-always`).
 
-  Discriminates on `grammar/transition-value-form` — the SHARED form
-  recogniser the registration target validator (`validation/candidate-
-  targets`) also builds on — so the runtime normaliser and the
+  Delegates the value-form → candidate-maps mapping to the SHARED
+  `grammar/candidate-maps` (the ONE owner — rf2-tu5psi), which returns nil
+  for the malformed form so THIS runtime caller keeps its slot-specific error
+  taxonomy (`bad-value-id`) while the static cofx / validation walkers degrade
+  malformed input to `[]`. `grammar/candidate-maps` builds on the same
+  `grammar/transition-value-form` recogniser the registration target validator
+  (`grammar/candidate-targets`) also uses, so the runtime normaliser and the
   registration walker can never drift on what shapes the grammar admits."
   [v bad-value-id]
-  (case (grammar/transition-value-form v)
-    ;; A nil VALUE (the key is present with value nil) is the
-    ;; forbidden-transition / internal no-op form — unify
-    ;; with the empty-map single-candidate `[{}]`.
-    :nil              [{}]
-    :keyword          [{:target v}]
-    :candidate-vector v
-    :vec-target       [{:target v}]
-    :map              [v]
-    :other            (throw (machine-error
-                               bad-value-id
-                               (str "A transition slot carried a malformed value "
-                                    (pr-str v) " — a transition value must be a target "
-                                    "state keyword, a target vector path, a candidate map "
-                                    "(`{:target … :guard … :action …}`), a vector of "
-                                    "candidate maps, or nil (a forbidden / internal no-op). "
-                                    "Fix the offending `:on` / `:after` / `:always` / "
-                                    ":on-done` / :on-error` clause on the machine registration.")
-                               {:value v
-                                :slot  bad-value-id}))))
+  (or (grammar/candidate-maps v)
+      ;; `grammar/candidate-maps` returns nil ONLY for the malformed
+      ;; (`:other`) form — every recognised form (incl. the `:nil`
+      ;; forbidden-transition / internal no-op → `[{}]`) yields a candidate
+      ;; vector. This runtime caller maps that nil to its slot-specific throw.
+      (throw (machine-error
+               bad-value-id
+               (str "A transition slot carried a malformed value "
+                    (pr-str v) " — a transition value must be a target "
+                    "state keyword, a target vector path, a candidate map "
+                    "(`{:target … :guard … :action …}`), a vector of "
+                    "candidate maps, or nil (a forbidden / internal no-op). "
+                    "Fix the offending `:on` / `:after` / `:always` / "
+                    ":on-done` / :on-error` clause on the machine registration.")
+               {:value v
+                :slot  bad-value-id}))))
 
 (defn- candidate-vector-form?
   "True iff `v` is the multi-candidate VECTOR form (`[{…} {…}]`) — the
