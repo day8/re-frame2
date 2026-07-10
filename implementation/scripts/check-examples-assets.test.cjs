@@ -39,9 +39,7 @@ const {
   isExampleHostPage,
   isExternalRef,
   isNetworkRef,
-  extractHtmlRefs,
-  extractAssetRefs,
-  extractOgImageRefs,
+  extractHtmlReferenceInventory,
   parseSrcset,
   extractCssImports,
   extractCssUrls,
@@ -431,20 +429,6 @@ function fullIo(overrides = {}) {
 
 // ---- extraction primitives ----------------------------------------------
 
-it('extractHtmlRefs picks up link/script/og:image refs, de-duped', () => {
-  const refs = extractHtmlRefs(goodHtml());
-  assert.ok(refs.includes('_shared/img/favicon.svg'));
-  assert.ok(refs.includes('_shared/css/style.css'));
-  assert.ok(refs.includes('_shared/img/og.png'));
-  assert.ok(refs.includes('main.js'));
-});
-
-it('extractHtmlRefs strips ?query and #hash for on-disk resolution', () => {
-  const refs = extractHtmlRefs('<link href="a.css?v=2"><link href="b.css#x">');
-  assert.ok(refs.includes('a.css'));
-  assert.ok(refs.includes('b.css'));
-});
-
 it('extractCssImports handles url() and bare-string @import forms', () => {
   const imports = extractCssImports(
     "@import url('a.css'); @import \"b.css\"; @import url(c.css);",
@@ -471,39 +455,6 @@ it('isNetworkRef flags only http(s)/protocol-relative — not data:/mailto:/#fra
   assert.ok(!isNetworkRef('tel:+123'));
   assert.ok(!isNetworkRef('#frag'));
   assert.ok(!isNetworkRef('_shared/css/style.css'));
-});
-
-// ---- direct-HTML asset-ref tagging (rf2-bf4vdy) -------------------------
-
-it('extractAssetRefs tags script src, asset link href, img/media src, og:image', () => {
-  const html = [
-    '<script src="https://cdn.example.com/sdk.js"></script>',
-    '<link rel="stylesheet" href="https://cdn.example.com/x.css">',
-    '<link rel="icon" href="_shared/img/favicon.svg">',
-    '<img src="https://img.example.com/hero.png">',
-    '<video src="//media.example.com/clip.mp4"></video>',
-    '<meta property="og:image" content="https://og.example.com/card.png">',
-  ].join('\n');
-  const tagged = extractAssetRefs(html);
-  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
-  assert.ok(byRef['https://cdn.example.com/sdk.js'].includes('script'));
-  assert.ok(byRef['https://cdn.example.com/x.css'].includes('link'));
-  assert.ok(byRef['_shared/img/favicon.svg'].includes('link'));
-  assert.ok(byRef['https://img.example.com/hero.png'].includes('img'));
-  assert.ok(byRef['//media.example.com/clip.mp4'].includes('video'));
-  assert.strictEqual(byRef['https://og.example.com/card.png'], 'og:image');
-});
-
-it('extractAssetRefs does NOT treat an <a href> or rel=canonical as an asset', () => {
-  const html = [
-    '<a href="https://example.com/docs">docs</a>',
-    '<link rel="canonical" href="https://example.com/page">',
-    '<link rel="alternate" href="https://example.com/rss">',
-  ].join('\n');
-  const refs = extractAssetRefs(html).map((t) => t.ref);
-  assert.ok(!refs.includes('https://example.com/docs'), 'anchors are navigation, not assets');
-  assert.ok(!refs.includes('https://example.com/page'), 'rel=canonical is metadata, not an asset');
-  assert.ok(!refs.includes('https://example.com/rss'), 'rel=alternate is metadata, not an asset');
 });
 
 // ---- srcset + video poster refs (rf2-arkvq8) ----------------------------
@@ -548,48 +499,196 @@ it('parseSrcset tolerates extra whitespace and stray commas', () => {
   );
 });
 
-it('extractHtmlRefs picks up srcset / imagesrcset candidates + video poster', () => {
-  const refs = extractHtmlRefs(
-    [
+// ---------------------------------------------------------------------------
+// HTML reference inventory (rf2-6a3rgx) — the SINGLE extraction pass. ONE
+// table-driven suite replaces the three former per-extractor matrices
+// (extractHtmlRefs / extractAssetRefs / extractOgImageRefs), each of which had
+// to be taught every new shape independently. Every supported shape is asserted
+// once against extractHtmlReferenceInventory's three views:
+//   - localRefs : broad on-disk-resolution candidates (generic href handling)
+//   - assets    : the tagged LOAD-TIME fetch subset (network policy input)
+//   - ogImages  : the social-preview targets (raster contract input)
+// Coverage: quoting (double/single/unquoted), attribute order, query/hash
+// stripping, srcset, imagesrcset, <video> poster, navigation-vs-asset, og:image
+// (incl. content-before-property), and de-duplication.
+// ---------------------------------------------------------------------------
+
+// All `source` strings an asset ref was tagged with (a ref carried by more than
+// one origin — e.g. an icon <link> AND an og:image meta — keeps each).
+const assetSources = (assets, ref) => assets.filter((a) => a.ref === ref).map((a) => a.source);
+
+const INVENTORY_CASES = [
+  {
+    name: 'quoting/order/OG — link + script + og:image in document bucket order',
+    html: goodHtml(),
+    localExact: [
+      '_shared/img/favicon.svg',
+      '_shared/css/style.css',
+      'main.js',
+      '_shared/img/og.png',
+    ],
+    assetSourceIncludes: {
+      'main.js': 'script',
+      '_shared/img/favicon.svg': 'link',
+      '_shared/css/style.css': 'link',
+    },
+    assetSourceExact: { '_shared/img/og.png': 'og:image' },
+    ogExact: ['_shared/img/og.png'],
+  },
+  {
+    name: 'query/hash stripped for on-disk resolution',
+    html: '<link rel="stylesheet" href="a.css?v=2"><link rel="icon" href="b.css#x">',
+    localExact: ['a.css', 'b.css'],
+    localExcludes: ['a.css?v=2', 'b.css#x'],
+  },
+  {
+    name: 'single-quoted attribute values',
+    html: "<link rel='icon' href='_shared/img/favicon.svg'>",
+    localIncludes: ['_shared/img/favicon.svg'],
+    assetSourceIncludes: { '_shared/img/favicon.svg': 'link' },
+  },
+  {
+    name: 'unquoted values (HTML5, rf2-3dzb6h) — script src + rel=stylesheet href',
+    html: '<script src=main.js></script><link rel=stylesheet href=base.css>',
+    localIncludes: ['main.js', 'base.css'],
+    assetSourceIncludes: { 'main.js': 'script', 'base.css': 'link' },
+  },
+  {
+    name: 'unquoted REMOTE script src + protocol-relative link href tagged (rf2-3dzb6h)',
+    html:
+      '<script src=https://cdn.evil/x.js></script>\n' +
+      '<link rel=stylesheet href=//cdn.evil/x.css>',
+    assetSourceIncludes: { 'https://cdn.evil/x.js': 'script', '//cdn.evil/x.css': 'link' },
+  },
+  {
+    name: 'srcset / imagesrcset candidates + <video> poster, local (rf2-arkvq8)',
+    html: [
       '<img srcset="_shared/img/hero-320.png 320w, _shared/img/hero-640.png 640w">',
       '<source srcset="_shared/img/pic@2x.png 2x">',
       '<link rel="preload" as="image" imagesrcset="_shared/img/pre-1.png 1x">',
       '<video poster="_shared/img/poster.png"><source src="clip.mp4"></video>',
     ].join('\n'),
-  );
-  for (const ref of [
-    '_shared/img/hero-320.png',
-    '_shared/img/hero-640.png',
-    '_shared/img/pic@2x.png',
-    '_shared/img/pre-1.png',
-    '_shared/img/poster.png',
-  ]) {
-    assert.ok(refs.includes(ref), `expected ${ref} in refs, got: ${refs.join(', ')}`);
-  }
-});
-
-it('extractHtmlRefs does NOT treat data-srcset / data-poster (lazy-load) as refs', () => {
-  const refs = extractHtmlRefs(
-    '<img data-srcset="lazy.png 2x" data-poster="lazy-poster.png">',
-  );
-  assert.ok(!refs.includes('lazy.png'), 'data-srcset must not be read as a srcset');
-  assert.ok(!refs.includes('lazy-poster.png'), 'data-poster must not be read as a poster');
-});
-
-it('extractAssetRefs tags srcset candidates, imagesrcset, and the video poster', () => {
-  const tagged = extractAssetRefs(
-    [
+    localIncludes: [
+      '_shared/img/hero-320.png',
+      '_shared/img/hero-640.png',
+      '_shared/img/pic@2x.png',
+      '_shared/img/pre-1.png',
+      '_shared/img/poster.png',
+    ],
+    assetSourceIncludes: {
+      '_shared/img/hero-320.png': 'srcset',
+      '_shared/img/pre-1.png': 'imagesrcset',
+    },
+    assetSourceExact: { '_shared/img/poster.png': '<video poster>' },
+  },
+  {
+    name: 'remote srcset / imagesrcset / poster tagged with their origin (rf2-arkvq8)',
+    html: [
       '<img srcset="https://img.example.com/a-320.png 320w, https://img.example.com/a-640.png 640w">',
       '<link rel="preload" as="image" imagesrcset="https://img.example.com/pre.png 1x">',
       '<video poster="https://img.example.com/still.png"></video>',
     ].join('\n'),
-  );
-  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
-  assert.ok(byRef['https://img.example.com/a-320.png'].includes('srcset'));
-  assert.ok(byRef['https://img.example.com/a-640.png'].includes('srcset'));
-  assert.ok(byRef['https://img.example.com/pre.png'].includes('imagesrcset'));
-  assert.strictEqual(byRef['https://img.example.com/still.png'], '<video poster>');
-});
+    assetSourceIncludes: {
+      'https://img.example.com/a-320.png': 'srcset',
+      'https://img.example.com/a-640.png': 'srcset',
+      'https://img.example.com/pre.png': 'imagesrcset',
+    },
+    assetSourceExact: { 'https://img.example.com/still.png': '<video poster>' },
+  },
+  {
+    name: 'data-src / data-srcset / data-poster lazy-load hooks are NOT references',
+    html: '<img data-src="lazy.jpg" data-srcset="lazy.png 2x" data-poster="lazy-poster.png">',
+    localExact: [],
+    assetExcludes: ['lazy.jpg', 'lazy.png', 'lazy-poster.png'],
+  },
+  {
+    name: 'navigation — <a href> + rel=canonical/alternate are local refs but NOT assets',
+    html: [
+      '<a href="https://example.com/docs">docs</a>',
+      '<link rel="canonical" href="https://example.com/page">',
+      '<link rel="alternate" href="https://example.com/rss">',
+    ].join('\n'),
+    localIncludes: [
+      'https://example.com/docs',
+      'https://example.com/page',
+      'https://example.com/rss',
+    ],
+    assetExcludes: [
+      'https://example.com/docs',
+      'https://example.com/page',
+      'https://example.com/rss',
+    ],
+  },
+  {
+    name: 'og:image content-BEFORE-property is order-independent (rf2-cnu7qy)',
+    html: '<meta content="_shared/img/og.png" property="og:image">',
+    ogExact: ['_shared/img/og.png'],
+    localIncludes: ['_shared/img/og.png'],
+    assetSourceExact: { '_shared/img/og.png': 'og:image' },
+  },
+  {
+    name: 'og:image content-first REMOTE card is tagged (rf2-cnu7qy)',
+    html: '<meta content="https://og.example.com/card.png" property="og:image">',
+    ogExact: ['https://og.example.com/card.png'],
+    localIncludes: ['https://og.example.com/card.png'],
+    assetSourceExact: { 'https://og.example.com/card.png': 'og:image' },
+  },
+  {
+    name: 'dedup — a repeated src collapses to one local ref and one asset',
+    html: '<img src="x.png"><img src="x.png">',
+    localExact: ['x.png'],
+    assetSourceExact: { 'x.png': '<img src>' },
+  },
+  {
+    name: 'dedup — same ref from distinct origins keeps BOTH tagged assets',
+    html:
+      '<link rel="icon" href="_shared/img/og.png">' +
+      '<meta property="og:image" content="_shared/img/og.png">' +
+      '<meta property="og:image" content="_shared/img/og.png">',
+    localExact: ['_shared/img/og.png'],
+    ogExact: ['_shared/img/og.png'],
+    // (source, ref) de-dup: the icon-link and og:image origins are distinct, so
+    // both survive; the duplicate og meta collapses.
+    assetSourceSet: { '_shared/img/og.png': ['<link rel="icon" href>', 'og:image'] },
+  },
+];
+
+for (const c of INVENTORY_CASES) {
+  it(`inventory — ${c.name}`, () => {
+    const { localRefs, assets, ogImages } = extractHtmlReferenceInventory(c.html);
+    if (c.localExact) assert.deepStrictEqual(localRefs, c.localExact, 'localRefs');
+    for (const r of c.localIncludes || []) {
+      assert.ok(localRefs.includes(r), `localRefs must include '${r}', got: ${localRefs.join(', ')}`);
+    }
+    for (const r of c.localExcludes || []) {
+      assert.ok(!localRefs.includes(r), `localRefs must NOT include '${r}', got: ${localRefs.join(', ')}`);
+    }
+    if (c.ogExact) assert.deepStrictEqual(ogImages, c.ogExact, 'ogImages');
+    for (const [ref, sub] of Object.entries(c.assetSourceIncludes || {})) {
+      const srcs = assetSources(assets, ref);
+      assert.ok(
+        srcs.length === 1 && srcs[0].includes(sub),
+        `asset '${ref}' must be tagged with a single source containing '${sub}', got: ${JSON.stringify(srcs)}`,
+      );
+    }
+    for (const [ref, src] of Object.entries(c.assetSourceExact || {})) {
+      assert.deepStrictEqual(assetSources(assets, ref), [src], `asset '${ref}' exact source`);
+    }
+    for (const [ref, srcs] of Object.entries(c.assetSourceSet || {})) {
+      assert.deepStrictEqual(
+        assetSources(assets, ref).sort(),
+        [...srcs].sort(),
+        `asset '${ref}' source set`,
+      );
+    }
+    for (const r of c.assetExcludes || []) {
+      assert.ok(
+        !assets.some((a) => a.ref === r),
+        `assets must NOT include '${r}', got: ${JSON.stringify(assets)}`,
+      );
+    }
+  });
+}
 
 it('TEETH: a missing LOCAL srcset candidate is reported (rf2-arkvq8)', () => {
   // The page references two responsive candidates; the 640w one is absent on
@@ -1466,11 +1565,6 @@ it('TEETH: a stale exemption (page DOES reference the exempt asset) is flagged',
 
 // ---- TEETH: social-preview RASTER contract (rf2-lr4am3) -----------------
 
-it('extractOgImageRefs returns the og:image content value(s)', () => {
-  const refs = extractOgImageRefs(goodHtml());
-  assert.deepStrictEqual(refs, ['_shared/img/og.png']);
-});
-
 it('TEETH: an SVG og:image is flagged as a non-raster social-preview asset', () => {
   // The exact pre-fix failure mode: the file exists, every required-asset
   // check passes, but the og:image is an SVG that scrapers will not render.
@@ -1983,7 +2077,7 @@ it('LIVE: no real example page ships an SVG (or otherwise non-raster) og:image',
   const offenders = [];
   for (const idx of realIndexes) {
     const html = fs.readFileSync(idx, 'utf8');
-    for (const og of extractOgImageRefs(html)) {
+    for (const og of extractHtmlReferenceInventory(html).ogImages) {
       if (isExternalRef(og)) continue;
       const ext = path.extname(og).toLowerCase();
       if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
@@ -2229,25 +2323,6 @@ it('the build-output main.js is never resolved on disk', () => {
 // SVG/remote card was INVISIBLE to the raster contract, disk resolution, and the
 // network policy.
 
-it('rf2-cnu7qy: extractOgImageRefs sees a content-BEFORE-property og:image', () => {
-  assert.deepStrictEqual(
-    extractOgImageRefs('<meta content="_shared/img/og.png" property="og:image">'),
-    ['_shared/img/og.png'],
-  );
-});
-
-it('rf2-cnu7qy: extractHtmlRefs + extractAssetRefs see a content-first og:image', () => {
-  const html = '<meta content="https://og.example.com/card.png" property="og:image">';
-  assert.ok(extractHtmlRefs(html).includes('https://og.example.com/card.png'));
-  const tagged = extractAssetRefs(html);
-  assert.strictEqual(
-    Object.fromEntries(tagged.map((t) => [t.ref, t.source]))[
-      'https://og.example.com/card.png'
-    ],
-    'og:image',
-  );
-});
-
 it('TEETH rf2-cnu7qy: a content-first REMOTE og:image is REJECTED (was invisible)', () => {
   const html = goodHtml().replace(
     '<meta property="og:image" content="_shared/img/og.png">',
@@ -2279,22 +2354,6 @@ it('TEETH rf2-cnu7qy: a content-first SVG og:image trips the raster contract', (
 // HTML5 permits unquoted attribute values. The old quoted-only regexes missed
 // `<script src=main.js>` / `<link href=//cdn…>`, so an unquoted forbidden remote
 // dep shipped green and an unquoted broken local ref was never resolved on disk.
-
-it('rf2-3dzb6h: extractHtmlRefs reads an unquoted src/href', () => {
-  const refs = extractHtmlRefs('<script src=main.js></script><link href=base.css>');
-  assert.ok(refs.includes('main.js'));
-  assert.ok(refs.includes('base.css'));
-});
-
-it('rf2-3dzb6h: extractAssetRefs tags an unquoted remote script src + link href', () => {
-  const tagged = extractAssetRefs(
-    '<script src=https://cdn.evil/x.js></script>\n' +
-      '<link rel=stylesheet href=//cdn.evil/x.css>',
-  );
-  const byRef = Object.fromEntries(tagged.map((t) => [t.ref, t.source]));
-  assert.ok(byRef['https://cdn.evil/x.js'] && byRef['https://cdn.evil/x.js'].includes('script'));
-  assert.ok(byRef['//cdn.evil/x.css'] && byRef['//cdn.evil/x.css'].includes('link'));
-});
 
 it('TEETH rf2-3dzb6h: an unquoted remote <script src> is REJECTED (was invisible)', () => {
   const html = goodHtml().replace(

@@ -336,8 +336,10 @@ function listExampleIndexHtml(root = EXAMPLES_ROOT, { io = fs } = {}) {
 
 // ---------------------------------------------------------------------------
 // Reference extraction. We hand-roll focused regexes rather than pull in an
-// HTML/CSS parser — the only shapes we read are attribute-quoted hrefs/srcs,
-// the og:image meta content, and CSS @import url(...) targets.
+// HTML/CSS parser — the only shapes we read are href/src (quoted or unquoted)
+// attributes, srcset/imagesrcset candidate lists, a <video> poster, the
+// og:image meta content, and CSS @import / url(...) targets. Each page's HTML is
+// tokenized ONCE by extractHtmlReferenceInventory below (rf2-6a3rgx).
 // ---------------------------------------------------------------------------
 
 // True for references the resolver does not check on disk: absolute URLs
@@ -427,14 +429,28 @@ function parseSrcset(value) {
 // regardless of the value's quoting. HTML attribute order is insignificant
 // (rf2-cnu7qy) and HTML5 permits unquoted values (`<script src=main.js>`), so
 // the value form is one of: "double" | 'single' | bare-unquoted. The unquoted
-// form ends at the first whitespace / `>` / quote / `=` (rf2-3dzb6h). Returns
-// null when the attribute is absent.
+// form ends at the first whitespace / `>` / quote / `=` (rf2-3dzb6h). The name
+// match is BOUNDARY-SAFE (a `-`/word char may not immediately precede it), so a
+// `data-src` / `data-poster` / `aria-*` lazy-load hook is never misread as the
+// bare `src`/`poster` attribute. Returns null when the attribute is absent.
 function attr(tag, name) {
   const m = tag.match(
-    new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>"'=]+))`, 'i'),
+    new RegExp(`(?<![-\\w])${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>"'=]+))`, 'i'),
   );
   if (!m) return null;
   return m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] != null ? m[4] : null;
+}
+
+// Read a srcset / imagesrcset candidate list off a tag. QUOTED only — a
+// candidate list carries spaces and commas, so there is no meaningful unquoted
+// form — and boundary-safe like attr() so a `data-srcset` lazy-load hook is not
+// misread (rf2-arkvq8). Returns the raw attribute value, or null when absent.
+function srcsetAttr(tag, name) {
+  const m = tag.match(
+    new RegExp(`(?<![-\\w])${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i'),
+  );
+  if (!m) return null;
+  return m[2] != null ? m[2] : m[3];
 }
 
 // Strip CSS block comments `/* … */` from a source before scanning it for live
@@ -445,15 +461,32 @@ function stripCssComments(css) {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
-// Extract every ASSET-BEARING reference from an index.html's source, TAGGED
-// with the element/attribute it came from, so the direct-HTML network policy
-// (rf2-bf4vdy) can distinguish a remote asset fetch (rejected) from harmless
-// navigation/metadata (exempt). Returns [{ ref, source }] — `ref` is the
-// query/hash-stripped target, `source` a human-readable origin (e.g.
-// `<script src>`, `<link rel=stylesheet href>`, `<img src>`, `og:image`).
-// Order-preserving; de-duplicated on (ref, source).
+// Build the page's complete HTML reference inventory in ONE pass over its tags
+// (rf2-6a3rgx). Every supported reference shape — a quoted OR unquoted attribute
+// (rf2-3dzb6h), each srcset/imagesrcset candidate + a <video> poster
+// (rf2-arkvq8), and an order-independent og:image meta (rf2-cnu7qy) — is
+// tokenized EXACTLY ONCE here, replacing the three competing extractors that
+// each re-parsed the same HTML and had to be taught every new shape separately.
+// Returns three views over the single walk:
 //
-// What counts as asset-bearing:
+//   {
+//     localRefs,   // string[]  — every LOCAL-RESOLUTION candidate the page names
+//     assets,      // [{ ref, source }] — the tagged LOAD-TIME asset subset
+//     ogImages,    // string[]  — the og:image content value(s)
+//   }
+//
+// localRefs is the broad "resolve it on disk / is the required asset present?"
+// view: generic href/src on ANY element (so an <a href> or a rel="canonical"
+// still lands here — the generic local-href handling — filtered later by
+// isExternalRef) plus every srcset/imagesrcset candidate, the <video> poster,
+// and the og:image content. Query/hash-stripped, de-duplicated, in document
+// order (href/src, then srcset/imagesrcset candidates, then poster, then
+// og:image).
+//
+// assets is the subset that is an ACTUAL load-time fetch, TAGGED with a
+// human-readable origin so the direct-HTML network policy (rf2-bf4vdy) can
+// distinguish a remote asset fetch (rejected) from harmless navigation/metadata
+// (exempt). What counts as asset-bearing:
 //   - <script src=...>                          (always a fetch)
 //   - <link rel="<asset rel>" href=...>         (stylesheet/preload/icon/…)
 //   - <link ... imagesrcset=...>                (responsive preload candidates)
@@ -462,139 +495,115 @@ function stripCssComments(css) {
 //   - <video poster=...>                        (poster-still image fetch)
 //   - <meta property="og:image" content=...>    (social-preview fetch)
 // An <a href> / a <link rel="canonical"> / any non-asset element href is pure
-// navigation and is intentionally NOT returned. srcset/imagesrcset each expand
-// to their candidate URLs; the poster is a single image fetch (rf2-arkvq8).
-function extractAssetRefs(html) {
-  const out = [];
-  const seen = new Set();
-  const push = (raw, source) => {
-    if (!raw) return;
-    const clean = raw.split(/[?#]/)[0].trim();
-    if (!clean) return;
-    const key = `${source} ${clean}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push({ ref: clean, source });
+// navigation and is intentionally absent from `assets`. De-duplicated on
+// (source, ref); element order (scripts, links, media, og). assets ⊆ localRefs
+// as ref-sets — every load-time asset is also a local candidate.
+//
+// ogImages is the social-preview target the raster contract (rf2-lr4am3)
+// checks. De-duplicated, document order.
+function extractHtmlReferenceInventory(html) {
+  const clean = (raw) => (raw == null ? null : raw.split(/[?#]/)[0].trim());
+
+  // localRefs is assembled from ordered buckets so its document order is stable
+  // regardless of how the shapes interleave across elements; the final de-dup
+  // keeps each ref's first occurrence.
+  const hrefSrc = [];
+  const srcsetRefs = [];
+  const posterRefs = [];
+  const ogRefs = [];
+  // assets keeps element order (scripts, then links, then media, then og), each
+  // source's refs in read order.
+  const scriptAssets = [];
+  const linkAssets = [];
+  const mediaAssets = [];
+  const ogAssets = [];
+
+  const addRef = (bucket, raw) => {
+    const c = clean(raw);
+    if (c) bucket.push(c);
   };
+  const addAsset = (bucket, raw, source) => {
+    const c = clean(raw);
+    if (c) bucket.push({ ref: c, source });
+  };
+  const mediaEls = new Set(['img', 'source', 'video', 'audio', 'track']);
 
-  // <script src=...> — always an asset fetch.
-  for (const m of html.matchAll(/<script\b[^>]*>/gi)) {
-    const src = attr(m[0], 'src');
-    if (src) push(src, '<script src>');
-  }
-
-  // <link rel="..." href=...> — asset-bearing only for the rels above. A
-  // `<link rel="preload" as="image" imagesrcset=...>` also carries a responsive
-  // candidate list (like <img srcset>) and often has NO href, so imagesrcset is
-  // handled independently of the href/rel gate (rf2-arkvq8).
-  for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+  for (const m of html.matchAll(/<([a-zA-Z][a-zA-Z0-9:-]*)[^>]*>/g)) {
     const tag = m[0];
-    const rel = (attr(tag, 'rel') || '').toLowerCase().trim();
-    const tokens = rel.split(/\s+/).filter(Boolean);
-    const isAsset = tokens.some((t) => ASSET_LINK_RELS.has(t));
-    const href = attr(tag, 'href');
-    if (href && isAsset) push(href, `<link rel="${rel || '(none)'}" href>`);
-    const imagesrcset = attr(tag, 'imagesrcset');
-    if (imagesrcset) {
-      for (const u of parseSrcset(imagesrcset)) {
-        push(u, `<link rel="${rel || '(none)'}" imagesrcset>`);
+    const el = m[1].toLowerCase();
+
+    // Generic local-resolution refs off EVERY element (preserves the broad
+    // local-href handling: an <a href> / rel="canonical" href lands here too).
+    addRef(hrefSrc, attr(tag, 'href'));
+    addRef(hrefSrc, attr(tag, 'src'));
+    for (const u of parseSrcset(srcsetAttr(tag, 'srcset') || '')) addRef(srcsetRefs, u);
+    for (const u of parseSrcset(srcsetAttr(tag, 'imagesrcset') || '')) addRef(srcsetRefs, u);
+    addRef(posterRefs, attr(tag, 'poster'));
+
+    // Tagged load-time asset shapes — categorize ONLY the actual fetches.
+    if (el === 'script') {
+      addAsset(scriptAssets, attr(tag, 'src'), '<script src>');
+    } else if (el === 'link') {
+      const rel = (attr(tag, 'rel') || '').toLowerCase().trim();
+      const label = rel || '(none)';
+      const isAsset = rel.split(/\s+/).filter(Boolean).some((t) => ASSET_LINK_RELS.has(t));
+      // A `<link rel="preload" as="image" imagesrcset=...>` carries a responsive
+      // candidate list (like <img srcset>) and often has NO href, so imagesrcset
+      // is asset-bearing independently of the href/rel gate (rf2-arkvq8).
+      if (isAsset) addAsset(linkAssets, attr(tag, 'href'), `<link rel="${label}" href>`);
+      for (const u of parseSrcset(srcsetAttr(tag, 'imagesrcset') || '')) {
+        addAsset(linkAssets, u, `<link rel="${label}" imagesrcset>`);
+      }
+    } else if (mediaEls.has(el)) {
+      addAsset(mediaAssets, attr(tag, 'src'), `<${el} src>`);
+      if (el === 'img' || el === 'source') {
+        for (const u of parseSrcset(srcsetAttr(tag, 'srcset') || '')) {
+          addAsset(mediaAssets, u, `<${el} srcset>`);
+        }
+      }
+      if (el === 'video') addAsset(mediaAssets, attr(tag, 'poster'), '<video poster>');
+    } else if (el === 'meta') {
+      // Order-independent: a `content`-before-`property` og:image meta is
+      // equally valid and must be seen (rf2-cnu7qy).
+      if ((attr(tag, 'property') || '').toLowerCase() === 'og:image') {
+        const content = clean(attr(tag, 'content'));
+        if (content) {
+          ogRefs.push(content);
+          ogAssets.push({ ref: content, source: 'og:image' });
+        }
       }
     }
   }
 
-  // <img|source|video|audio|track src=...> — media fetch. <img>/<source> also
-  // carry a `srcset` candidate list and <video> a `poster` still, each a
-  // load-time image fetch (rf2-arkvq8).
-  for (const m of html.matchAll(/<(img|source|video|audio|track)\b[^>]*>/gi)) {
-    const tag = m[0];
-    const el = m[1].toLowerCase();
-    const src = attr(tag, 'src');
-    if (src) push(src, `<${el} src>`);
-    if (el === 'img' || el === 'source') {
-      const srcset = attr(tag, 'srcset');
-      if (srcset) for (const u of parseSrcset(srcset)) push(u, `<${el} srcset>`);
+  const dedupe = (list) => {
+    const seen = new Set();
+    const out = [];
+    for (const v of list) {
+      if (!seen.has(v)) {
+        seen.add(v);
+        out.push(v);
+      }
     }
-    if (el === 'video') {
-      const poster = attr(tag, 'poster');
-      if (poster) push(poster, '<video poster>');
-    }
-  }
-
-  // <meta property="og:image" content=...> — social-preview fetch.
-  for (const og of extractOgImageRefs(html)) {
-    push(og, 'og:image');
-  }
-
-  return out;
-}
-
-// Extract every asset reference from an index.html's source: <link href>,
-// <script src>, and the og:image <meta content>. Order-preserving,
-// de-duplicated. Query/hash suffixes are stripped for on-disk resolution.
-function extractHtmlRefs(html) {
-  const refs = [];
-  const push = (raw) => {
-    if (!raw) return;
-    const clean = raw.split(/[?#]/)[0].trim();
-    if (clean && !refs.includes(clean)) refs.push(clean);
+    return out;
   };
-  // href=... / src=... on <link> (and any element — anchors are in-page or
-  // external and get filtered by isExternalRef downstream). Double-quoted,
-  // single-quoted, AND bare unquoted values (`<script src=main.js>`), since
-  // HTML5 permits the unquoted form (rf2-3dzb6h).
-  for (const m of html.matchAll(
-    /\b(?:href|src)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
-  )) {
-    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
-  }
-  // srcset / imagesrcset candidate lists (<img>/<source> + preload <link>) —
-  // each candidate URL must resolve on disk like a plain src (rf2-arkvq8). The
-  // negative lookbehind keeps a `data-srcset` (lazy-load) attribute out.
-  for (const m of html.matchAll(
-    /(?<![-\w])(?:imagesrcset|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi,
-  )) {
-    for (const u of parseSrcset(m[2] != null ? m[2] : m[3])) push(u);
-  }
-  // <video poster="..."> — the poster still resolves on disk like a src
-  // (rf2-arkvq8). The lookbehind excludes a `data-poster` attribute; the
-  // unquoted alternative mirrors href/src (rf2-3dzb6h).
-  for (const m of html.matchAll(
-    /(?<![-\w])poster\s*=\s*("([^"]*)"|'([^']*)'|([^\s>"'=]+))/gi,
-  )) {
-    push(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4]);
-  }
-  // <meta property="og:image" content="..."> — ORDER-INDEPENDENT. HTML
-  // attribute order is insignificant, so a `content`-before-`property` meta is
-  // equally valid and must be seen (rf2-cnu7qy). Scan each <meta> tag and read
-  // its attributes positionally via the shared order-independent attr helper,
-  // rather than a single regex that hard-codes property-before-content.
-  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = m[0];
-    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
-    push(attr(tag, 'content'));
-  }
-  return refs;
-}
+  const dedupeAssets = (list) => {
+    const seen = new Set();
+    const out = [];
+    for (const a of list) {
+      const key = `${a.source} ${a.ref}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(a);
+      }
+    }
+    return out;
+  };
 
-// Extract the og:image content value(s) specifically — the social-preview
-// target a link-preview scraper would fetch. Used to enforce the raster
-// contract (an SVG og:image renders no preview card). Query/hash stripped.
-function extractOgImageRefs(html) {
-  const out = [];
-  // ORDER-INDEPENDENT: HTML attribute order is insignificant, so a
-  // `content`-before-`property` og:image meta is valid and MUST be visible to
-  // the raster contract + the network policy (rf2-cnu7qy). Scan each <meta> tag
-  // and read `property`/`content` positionally via the shared attr helper
-  // instead of a single regex that requires property-before-content.
-  for (const m of html.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = m[0];
-    if ((attr(tag, 'property') || '').toLowerCase() !== 'og:image') continue;
-    const raw = attr(tag, 'content');
-    if (!raw) continue;
-    const clean = raw.split(/[?#]/)[0].trim();
-    if (clean && !out.includes(clean)) out.push(clean);
-  }
-  return out;
+  return {
+    localRefs: dedupe([...hrefSrc, ...srcsetRefs, ...posterRefs, ...ogRefs]),
+    assets: dedupeAssets([...scriptAssets, ...linkAssets, ...mediaAssets, ...ogAssets]),
+    ogImages: dedupe(ogRefs),
+  };
 }
 
 // Extract local @import targets from a CSS source. Handles both
@@ -1290,7 +1299,11 @@ function scanPage(io, indexAbsPath, opts = {}) {
     return { relIndex, errors, refs: [] };
   }
 
-  const refs = extractHtmlRefs(html);
+  // ONE parse per page (rf2-6a3rgx): the single inventory pass yields every view
+  // this scan needs — the broad local-resolution refs (steps 1-2), the tagged
+  // load-time asset refs (step 0 network policy), and the og:image refs (step 3
+  // raster contract) — so the page's HTML is tokenized exactly once.
+  const { localRefs: refs, assets, ogImages } = extractHtmlReferenceInventory(html);
   const pageDir = path.dirname(indexAbsPath);
   const seenCss = new Set();
 
@@ -1302,7 +1315,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
   //    allowlisted with a reason (fail-closed — EXTERNAL_HTML_REF_ALLOWLIST).
   //    Only http(s)/protocol-relative refs are network deps; data: URIs are
   //    inlined and pure navigation (#fragment / mailto: / a-href) is exempt.
-  for (const { ref, source } of extractAssetRefs(html)) {
+  for (const { ref, source } of assets) {
     if (!isNetworkRef(ref)) continue;
     if (Object.prototype.hasOwnProperty.call(externalHtmlRefAllowlist, ref)) continue;
     errors.push(
@@ -1367,7 +1380,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
   //    scrapers (Facebook / X / LinkedIn / Slack / Discord) ignore an SVG
   //    og:image and render no large preview card — a failure mode invisible to
   //    a pure "the referenced file exists" check. (rf2-lr4am3)
-  for (const og of extractOgImageRefs(html)) {
+  for (const og of ogImages) {
     // Remote targets are governed separately by the direct-HTML network
     // allowlist. Their URL suffix is not reliable evidence of the response
     // media type, so this source-file extension check applies only to local refs.
@@ -1727,9 +1740,7 @@ module.exports = {
   isExampleHostPage,
   isExternalRef,
   isNetworkRef,
-  extractHtmlRefs,
-  extractAssetRefs,
-  extractOgImageRefs,
+  extractHtmlReferenceInventory,
   parseSrcset,
   extractCssImports,
   extractCssUrls,
