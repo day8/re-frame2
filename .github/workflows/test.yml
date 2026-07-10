@@ -169,6 +169,21 @@ jobs:
       - name: Verify migration skill M-11/M-13 contract wording
         run: python scripts/check_skill_migration_contract_drift.py --verbose --ci
 
+      # O-16 / O-17 router-leaf drift guard (rf2-rccvda). The re-frame-migration
+      # skill's O-16 (routing) / O-17 (nested routing) leaves are thin ROUTERS —
+      # they resolve the caller to the forced-framed full-owner companion leaf
+      # rather than re-teaching the whole surface. If a leaf silently stops being
+      # a thin router (drops the redirect, or grows a competing full teaching), or
+      # its companion stops being the forced-framed owner, the migration guidance
+      # forks. This guard pins the router→companion shape for both pairs. Wired
+      # here (rf2-pxxbjk) — it previously ran on-demand only. Self-test first
+      # (proves it fires on the drift shapes), then the live scan asserts clean.
+      - name: Self-test the O-16/O-17 router-leaf drift guard
+        run: python scripts/check_skill_migration_o1617_router_drift.py --self-test
+
+      - name: Verify migration O-16/O-17 leaves stay thin routers
+        run: python scripts/check_skill_migration_o1617_router_drift.py --verbose --ci
+
       # Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must
       # keep Spec 015 (Data Classification — v1-required, rides the 009 emission
       # boundary) INSIDE the core-complete gate. Catches the drift where an entry
@@ -285,6 +300,46 @@ jobs:
 
       - name: Verify skill eval-packaging docs agree with package.json files
         run: python scripts/check_skill_eval_packaging.py --verbose --ci
+
+      # Eval-docs drift guard (rf2-r2xswa; generalised rf2-xw7ra9). Each packaged
+      # skill's eval harness README carries a hand-maintained coverage table,
+      # total count, and per-axis breakdowns that silently fall behind evals.json
+      # (the re-frame2 harness once had a 7th eval while the README still said
+      # "Six evals …"; the re-frame2-improver harness read 26/10 while prose said
+      # "9 behavioural"). The gate is multi-target — it scans every eval harness.
+      # It ran in the local pre-checkin spine (scripts/test-fast-pr.sh) but not in
+      # CI, so a contributor skipping the local spine could land eval-doc drift
+      # (rf2-pxxbjk). Self-test first (proves it fires on count/name/tally drift),
+      # then the live scan asserts each README agrees with its JSON.
+      - name: Self-test the eval-docs drift guard
+        run: python scripts/check_skill_eval_docs.py --self-test
+
+      - name: Verify skill eval-docs match evals.json
+        run: python scripts/check_skill_eval_docs.py --verbose --ci
+
+      # Xray tab-inventory drift guard (rf2-3fc89f.41). The re-frame2-xray skill
+      # enumerates the Dynamic-tab inventory that must match the live tool's tab
+      # set; a tab added/removed/renamed in the tool without the skill update (or
+      # vice-versa) forks the agent's mental model of the inspector. This guard
+      # pins the two in lockstep. Wired here (rf2-pxxbjk) — it previously ran
+      # on-demand only. Self-test first (proves it fires on the drift shapes),
+      # then the live scan asserts the tab inventory is in sync.
+      - name: Self-test the Xray tab-inventory drift guard
+        run: python scripts/check_skill_xray_tab_inventory_drift.py --self-test
+
+      - name: Verify re-frame2-xray tab inventory matches the tool
+        run: python scripts/check_skill_xray_tab_inventory_drift.py --verbose --ci
+
+      # SKILL-REDIRECT.md anchor-coupling guard (rf2-o2qrj). SKILL-REDIRECT.md is
+      # the single coupling point for deep-dive routing from the AI skills; leaf
+      # files cite its bullet labels (e.g. `SKILL-REDIRECT.md -> *EP - Frames
+      # (002)*`). A rename/restructure of a bullet label leaves every leaf
+      # citation stale silently. This guard asserts every leaf reference resolves
+      # to a real bullet label. Its docstring designates it a CI gate, but it was
+      # never wired (rf2-pxxbjk). Pure stdlib, no self-test flag (a single
+      # bidirectional scan); silent on success.
+      - name: Verify SKILL-REDIRECT.md leaf-anchor references resolve
+        run: python scripts/check_skill_redirect_anchors.py
 
       # EP-0007 §Enforcement retired-spelling gate (rf2-ziak6w). EP-0007 rule 2
       # ("no stable accepted synonyms") gets the no-floor-lint treatment "where
@@ -3103,6 +3158,79 @@ jobs:
           done
 
   # ---------------------------------------------------------------------------
+  # re-frame2-pair SHIPPED-preload pure-core node-test (rf2-etsj8p / rf2-pxxbjk).
+  #
+  # The `@day8/re-frame2-pair` npm package ships a `preload/` carrying
+  # `re_frame2_pair/runtime.cljs`, which delegates its heavy lifting to the
+  # PURE `re-frame2-pair.pure` core (cascade / consequence projections, the
+  # multi-frame resolver, id-validation, the streaming-queue transforms, the
+  # epoch timing + matcher, the snapshot scope resolver, the orient assembler).
+  # The fixture at `skills/re-frame2-pair/tests/fixture/` compiles a
+  # `:node-test` build (`pure-test`) that exercises those EXACT shipped fns —
+  # not a Babashka mirror that could drift from the shipped code (rf2-etsj8p).
+  # It ran on-demand only; wired here so a regression in the preload's pure
+  # core blocks the PR. Gated on `skills_structural` — the surface that fires
+  # for BOTH the preload (`skills/re-frame2-pair/*`) and the fixture
+  # (`skills/re-frame2-pair/tests/fixture/*`), so a pure-fn change is covered.
+  #
+  # `:deps true` routes the fixture's classpath through its deps.edn
+  # (core + reagent + epoch as `:local/root`), so shadow-cljs shells out to
+  # `clojure` for classpath resolution — hence JDK + Clojure CLI + Node. The
+  # fixture has no package-lock.json (a dev-only fixture, deps pinned exactly
+  # in package.json), so `npm install` — not `npm ci` — bootstraps shadow-cljs.
+  # ---------------------------------------------------------------------------
+  re-frame2-pair-fixture-pure:
+    name: re-frame2-pair shipped-preload pure-core node-test (rf2-etsj8p)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: skills/re-frame2-pair/tests/fixture
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      # The fixture resolves core + reagent + epoch as `:local/root` entries, so
+      # a cold-cache run pulls every transitive dep (Reagent, Malli, …) before
+      # shadow-cljs can compile. Same cache shape as mcp-conformance-re-frame2-pair.
+      - name: Cache Maven / gitlibs (fixture pure-test deps)
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-re-frame2-pair-fixture-${{ hashFiles('skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-re-frame2-pair-fixture-
+            ${{ runner.os }}-cljs-
+
+      # No package-lock.json (dev-only fixture) — `npm install` bootstraps the
+      # pinned shadow-cljs + react devDeps.
+      - name: Install fixture deps (shadow-cljs)
+        run: npm install --no-audit --no-fund
+
+      - name: Run shipped-preload pure-core node-test
+        run: npm run test:pure
+
+  # ---------------------------------------------------------------------------
   # docs/cljs live-cell playground (rf2-ee38b.22).
   #
   # docs/tools/playground is the roll-your-own CM6 + Scittle + re-frame2-SCI
@@ -3343,6 +3471,7 @@ jobs:
       - mcp-conformance-story
       - mcp-conformance-wire-vocab
       - skills-structural
+      - re-frame2-pair-fixture-pure
       - tools-playground
     steps:
       # `needs.*.result` is the spread of every dependency's final result.
