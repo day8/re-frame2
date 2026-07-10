@@ -400,7 +400,7 @@
       (let [reg (snapshot-elision-reg)]
         (is (contains? (:sensitive-declarations reg) abs-token)
             "sensitive `:data` path lowered to the ABSOLUTE snapshot path at boot")
-        (is (= :machine (get-in reg [:sensitive-declarations abs-token :source]))
+        (is (some #(= :machine (:source %)) (get-in reg [:sensitive-declarations abs-token]))
             "lowered under :source :machine")
         (is (contains? (:declarations reg) abs-blob)
             "large `:data` path lowered at boot"))
@@ -460,7 +460,7 @@
               reg       (snapshot-elision-reg)]
           (is (contains? (:sensitive-declarations reg) abs-token)
               "the spawned instance's :data :token lowered at spawn (per-instance)")
-          (is (= :machine (get-in reg [:sensitive-declarations abs-token :source])))
+          (is (some #(= :machine (:source %)) (get-in reg [:sensitive-declarations abs-token])))
           ;; egress redacts the spawned instance's declared slot
           (let [out (classification/project-trace-event
                       {:operation :rf.machine/snapshot-updated
@@ -519,25 +519,26 @@
         (fn [{:keys [db]} _]
           {:db db :sensitive [abs-token]}))
       (rf/dispatch-sync [:rf.machine-redaction/app-classify-token])
-      (is (= :effect (get-in (snapshot-elision-reg)
-                             [:sensitive-declarations abs-token :source]))
+      (is (contains? (get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])
+                     {:source :effect})
           "precondition: the app's :source :effect classification is standing")
-      ;; Booting the singleton lowers the machine declaration at the SAME path.
-      ;; The machine SET must NOT clobber the app's :source :effect claim.
+      ;; Booting the singleton runs the machine lowering at the SAME path. The
+      ;; machine's own claim never CLOBBERS the app's effect claim — the effect
+      ;; owner survives the boot (multi-owner registry, rf2-wdm1vg).
       (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (is (= :effect (get-in (snapshot-elision-reg)
-                             [:sensitive-declarations abs-token :source]))
-          "the machine SET did NOT clobber the app's :source :effect claim")
-      ;; Destroy the actor. The DROP must be source-scoped — it must NOT remove
-      ;; the app's :source :effect entry.
+      (is (contains? (get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])
+                     {:source :effect})
+          "the machine boot did NOT clobber the app's :source :effect claim")
+      ;; Destroy the actor. The source-scoped drop removes only the machine's own
+      ;; owner — it must NOT remove the app's :source :effect entry.
       (rf/reg-event :rf.machine-redaction/destroy-coupled
         (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
       (rf/dispatch-sync [:rf.machine-redaction/destroy-coupled])
       (let [reg (snapshot-elision-reg)]
         (is (contains? (:sensitive-declarations reg) abs-token)
             "the path is STILL classified after destroy — the app's claim survives")
-        (is (= :effect (get-in reg [:sensitive-declarations abs-token :source]))
-            "the surviving entry is the app's :source :effect, not the machine's"))
+        (is (contains? (get-in reg [:sensitive-declarations abs-token]) {:source :effect})
+            "the app's :source :effect owner survives the actor teardown"))
       ;; And egress still redacts — the fail-open is sealed.
       (let [out  (classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
@@ -545,3 +546,49 @@
             "the value stays REDACTED at egress — the teardown did not un-redact it")
         (is (not (.contains (pr-str out) "secret-jwt"))
             "no secret leaks through the post-destroy egress")))))
+
+(deftest machine-and-effect-claims-union-and-remove-independently
+  (testing "rf2-wdm1vg — a machine's lowered :data claim and an app effect claim
+            on the SAME absolute snapshot path UNION (both owners retained), and
+            each removes INDEPENDENTLY: the effect clear leaves the machine claim
+            standing; the actor destroy leaves the effect claim standing. Both
+            keep the path redacted while any owner claims it."
+    (let [mid       :rf.machine-redaction/union-single
+          abs-token [:rf.runtime/machines :snapshots mid :data :token]
+          owners    #(get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])]
+      (rf/reg-machine mid
+        {:sensitive [[:data :token]]
+         :initial   :anon
+         :data      {:token nil :retries 0}
+         :states    {:anon {:on {:login :authed}} :authed {}}})
+      ;; Machine boots FIRST → its own claim lands at the absolute snapshot path.
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      (is (some #(= :machine (:source %)) (owners))
+          "the machine's own claim is standing after boot")
+      ;; An app effect ALSO classifies the same absolute path (Spec 015 L149) →
+      ;; UNION: both owners now claim the path.
+      (rf/reg-event :rf.machine-redaction/union-classify
+        (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
+      (is (contains? (owners) {:source :effect})
+          "the effect claim UNIONS in alongside the machine claim")
+      (is (some #(= :machine (:source %)) (owners))
+          "the machine claim is retained through the effect SET")
+      ;; The effect CLEAR removes ONLY the effect owner — the machine survives.
+      (rf/reg-event :rf.machine-redaction/union-clear
+        (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/union-clear])
+      (is (not (contains? (owners) {:source :effect}))
+          "the effect owner is removed by its source-scoped clear")
+      (is (some #(= :machine (:source %)) (owners))
+          "the machine claim SURVIVES the effect clear — the path stays classified")
+      ;; Re-add the effect, then DESTROY the actor — the effect survives the
+      ;; source-scoped actor teardown (the reverse independent-removal leg).
+      (rf/dispatch-sync [:rf.machine-redaction/union-classify])
+      (rf/reg-event :rf.machine-redaction/union-destroy
+        (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
+      (rf/dispatch-sync [:rf.machine-redaction/union-destroy])
+      (is (contains? (owners) {:source :effect})
+          "the effect claim SURVIVES the actor destroy — no fail-open")
+      (is (not (some #(= :machine (:source %)) (owners)))
+          "the machine's own owner is dropped by the source-scoped teardown"))))
