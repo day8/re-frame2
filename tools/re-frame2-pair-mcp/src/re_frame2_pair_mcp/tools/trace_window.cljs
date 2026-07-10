@@ -28,7 +28,6 @@
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.cursor :as cursor]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
@@ -64,7 +63,7 @@
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
-        mode      (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
+        mode      (args/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         dedup?    (args/parse-bool-arg raw-args :dedup)
         limit     (cursor/parse-limit-arg (wire/arg raw-args :limit))
         cursor-in (cursor/decode-cursor (wire/arg raw-args :cursor))]

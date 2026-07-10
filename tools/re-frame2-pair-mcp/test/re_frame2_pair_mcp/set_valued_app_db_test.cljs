@@ -25,9 +25,9 @@
   nREPL runtime response so the test exercises the real client-side wire
   pipeline (`run-wire-pipeline`) that processes the runtime's reply."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.summary :as summary]
             [re-frame2-pair-mcp.tools.source-uri :as source-uri]
@@ -103,7 +103,7 @@
   (testing "de-dupe-eq pools a repeated set and expand restores it exactly"
     (let [s #{:door/locked}
           payload (vec (repeat 5 {:tags s :mirror s}))
-          wrapped (dedup/dedup-value payload true)
+          wrapped (base-dedup/dedup-value payload true)
           restored (tu/dedup-expand wrapped)]
       (is (= payload restored)))))
 

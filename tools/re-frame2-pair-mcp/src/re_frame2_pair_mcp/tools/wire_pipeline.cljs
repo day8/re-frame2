@@ -104,9 +104,10 @@
   resolution). Readers tracing a `:kind :snapshot-map` payload
   land here first (orchestrator + ordering invariant) and then
   jump to `snapshot-pipeline` for the slice-level transforms."
-  (:require [re-frame.mcp-base.elision :as base-elision]
+  (:require [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.diff-encode :as base-diff]
+            [re-frame.mcp-base.elision :as base-elision]
             [re-frame2-pair-mcp.config :as config]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]
             [re-frame2-pair-mcp.tools.source-uri :as source-uri]))
@@ -176,8 +177,8 @@
   envelope."
   [epochs {:keys [incl? mode dedup?]}]
   (let [[kept dropped] (sensitive/strip-sensitive epochs incl?)
-        encoded        (dedup/diff-encode-epochs kept mode)
-        deduped        (dedup/dedup-value encoded dedup?)
+        encoded        (base-diff/diff-encode-epochs kept mode)
+        deduped        (base-dedup/dedup-value encoded dedup?)
         ;; :elided-large counts upstream-pre-elided markers per
         ;; Spec 009 §Indicator field — shared by
         ;; `trace-window` and `watch-epochs`.

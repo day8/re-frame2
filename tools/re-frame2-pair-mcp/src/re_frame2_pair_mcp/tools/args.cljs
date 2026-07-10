@@ -464,6 +464,21 @@
   [raw]
   (base-args/parse-mode raw :summary #{:summary :full}))
 
+(defn parse-epochs-mode
+  "Normalise the `epochs-mode` MCP arg — the diff-encoded epoch slice
+  toggle. `:diff` (default) replaces each `:db-after` with a structural
+  diff against its `:db-before`; `:full` ships the verbatim pair.
+  Unrecognised values fall back to `:diff` (the budget-sensitive
+  default). Delegates to `re-frame.mcp-base.args/parse-mode`.
+
+  Lives here alongside the other MCP-arg normalisers (`parse-mode-arg`,
+  `parse-frames-arg`, …) rather than beside the diff-encode transform:
+  the transform itself is the cross-MCP `re-frame.mcp-base.diff-encode`
+  surface consumers require directly, and this is purely wire-arg
+  coercion."
+  [raw]
+  (base-args/parse-mode raw :diff #{:diff :full}))
+
 (defn parse-modes-arg
   "Normalise the per-slice `modes` MCP arg into a `{<slice-keyword>
   <mode-keyword>}` map. Accepts a JS object, a CLJS map, or nil.

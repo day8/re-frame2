@@ -38,6 +38,7 @@
   Keeping them here lets the streaming-loop body read top-down without
   bouncing between two files when the state shape changes."
   (:require [applied-science.js-interop :as j]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
@@ -45,7 +46,6 @@
             [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
@@ -651,7 +651,7 @@
                             dedup?
                             {:tick         (:tick s')
                              :cascade?     cascade?
-                             :dedup-events (dedup/dedup-value evts dedup?)
+                             :dedup-events (base-dedup/dedup-value evts dedup?)
                              :ev-dropped   ev-dropped
                              :by-dropped   by-dropped
                              :ov-reason    ov-reason
