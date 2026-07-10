@@ -582,6 +582,160 @@
                        (first (get-in @*history-state* [:listeners "popstate"])))
           "the duplicate's registration did not tear down + reinstall the incumbent's listener"))))
 
+;; =========================================================================
+;; rf2-3fc89f.11: URL-listener RECONCILIATION on ownership TRANSFER
+;; =========================================================================
+;;
+;; When URL ownership transfers between frames — the incumbent owner is
+;; DESTROYED, or RELINQUISHES its binding by re-registering `:url-bound? false`
+;; — while another live `:url-bound? true` claimant remains, the browser
+;; URL-change listener must REBIND to the new owner's strategy. Before the fix
+;; the destroy path removed the incumbent's listener and installed nothing (a
+;; live successor was left with ZERO browser listeners), and the re-registration
+;; opt-out path left the incumbent's stale listener in place (a history→hash
+;; handoff kept `popstate` and never installed `hashchange`). The single
+;; strategy-aware `reconcile-url-listener!` op, invoked after post-registration
+;; claim changes AND after destroyed-owner claim removal, establishes exactly
+;; one matching listener (or none).
+
+(deftest url-ownership-transfer-on-destroy-rebinds-listener-cljs-rf2-3fc89f-11
+  (testing "rf2-3fc89f.11: destroying the URL owner rebinds the browser listener
+            to the live successor claimant — exactly one popstate listener,
+            url-owner resolves to B, and Back drives B's route slice (the bug
+            left ZERO listeners after the destroy)"
+    (rf/reg-route :hist/home     {} "/")
+    (rf/reg-route :hist/cart     {} "/cart")
+    (rf/reg-route :hist/checkout {} "/checkout")
+    ;; A first-claims the URL (history strategy) → owns + installs popstate. B is
+    ;; a later live :url-bound? true claimant (a losing duplicate the registry
+    ;; retains and orders AFTER A).
+    (rf/reg-frame :owner/a {:url-bound? true})
+    (rf/reg-frame :owner/b {:url-bound? true})
+    (is (= :owner/a (routing/url-owner-frame-id))
+        "A is the first-claimed URL owner")
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+        "A's popstate listener installed automatically on create")
+
+    ;; Destroy A: ownership transfers to the live claimant B; the listener rebinds.
+    (rf/destroy-frame! :owner/a)
+    (is (= :owner/b (routing/url-owner-frame-id))
+        "ownership resolved to the surviving claimant B")
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+        "exactly one popstate listener remains, rebound to B (was ZERO under the bug)")
+
+    ;; B owns the URL now: forward nav pushes, Back drives B's slice through the
+    ;; rebound listener.
+    (rf/dispatch-sync [:rf.route/navigate :hist/cart]     {:frame :owner/b})
+    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :owner/b})
+    (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
+        "B, the new owner, drives outbound pushState")
+    (.back (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/cart
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/b)) [:rf.runtime/routing :current])))
+        "Back drove the NEW owner B's slice to /cart via the rebound popstate listener")))
+
+(deftest url-ownership-transfer-on-destroy-cross-strategy-rebinds-cljs-rf2-3fc89f-11
+  (testing "rf2-3fc89f.11: when the successor uses a DIFFERENT strategy,
+            destroying the owner tears the old popstate down and installs the
+            successor's hashchange — a hashchange updates B from the
+            hash-decoded path"
+    (rf/reg-route :hist/home   {} "/")
+    (rf/reg-route :hist/active {} "/active")
+    ;; A = history owner (popstate); B = hash claimant (hashchange).
+    (rf/reg-frame :owner/a {:url-bound? true})
+    (rf/reg-frame :owner/b {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (is (= :owner/a (routing/url-owner-frame-id)))
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+        "A installed a popstate listener")
+    (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
+        "no hashchange listener yet — A is a history owner")
+
+    (rf/destroy-frame! :owner/a)
+    (is (= :owner/b (routing/url-owner-frame-id))
+        "ownership resolved to the hash claimant B")
+    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+        "the history owner's popstate listener was torn down on transfer")
+    (is (= 1 (count (get-in @*history-state* [:listeners "hashchange"])))
+        "the successor's hash strategy installed exactly one hashchange listener")
+
+    ;; Move the browser hash to #/active; the rebound hashchange listener decodes
+    ;; #/active → /active and updates B.
+    (.pushState js/globalThis.window.history nil "" "#/active")
+    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
+    (is (= :hist/active
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/b)) [:rf.runtime/routing :current])))
+        "the rebound hashchange listener decoded #/active → /active and drove B")))
+
+(deftest url-ownership-transfer-on-reregistration-cross-strategy-cljs-rf2-3fc89f-11
+  (testing "rf2-3fc89f.11: when the incumbent HISTORY owner opts OUT via
+            re-registration (:url-bound? false) while a live HASH claimant B
+            remains, the listener rebinds to B's hashchange strategy WITHOUT B
+            re-registering — a history→hash handoff must not keep the stale
+            popstate"
+    (rf/reg-route :hist/home   {} "/")
+    (rf/reg-route :hist/active {} "/active")
+    (rf/reg-frame :owner/a {:url-bound? true})   ;; history owner, popstate
+    (rf/reg-frame :owner/b {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (is (= :owner/a (routing/url-owner-frame-id)))
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
+    (is (empty? (get-in @*history-state* [:listeners "hashchange"])))
+
+    ;; A opts out; B (hash) becomes owner without re-registering.
+    (rf/reg-frame :owner/a {:url-bound? false})
+    (is (= :owner/b (routing/url-owner-frame-id))
+        "ownership fell through to the still-bound hash claimant B")
+    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+        "A's stale popstate listener was torn down (history→hash handoff)")
+    (is (= 1 (count (get-in @*history-state* [:listeners "hashchange"])))
+        "B's hash strategy installed exactly one hashchange listener")
+
+    (.pushState js/globalThis.window.history nil "" "#/active")
+    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
+    (is (= :hist/active
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/b)) [:rf.runtime/routing :current])))
+        "the rebound hashchange listener drove B from the hash-decoded path")))
+
+(deftest same-owner-strategy-change-rewires-once-cljs-rf2-3fc89f-11
+  (testing "rf2-3fc89f.11 (preserve): re-registering the SAME owner with a
+            changed :url-strategy rewires exactly once — the history popstate is
+            torn down, exactly one hashchange installed, no double listener"
+    (rf/reg-route :hist/home   {} "/")
+    (rf/reg-route :hist/active {} "/active")
+    (rf/reg-frame :owner/a {:url-bound? true})   ;; history → popstate
+    (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
+    ;; Same owner re-registers with the hash strategy (hot-reload strategy swap).
+    (rf/reg-frame :owner/a {:url-bound? true :url-strategy routing/hash-url-strategy})
+    (is (= :owner/a (routing/url-owner-frame-id))
+        "A is still the owner across the strategy change")
+    (is (empty? (get-in @*history-state* [:listeners "popstate"]))
+        "the old history popstate listener was torn down")
+    (is (= 1 (count (get-in @*history-state* [:listeners "hashchange"])))
+        "exactly one hashchange listener installed — rewired once, not stacked")
+    (.pushState js/globalThis.window.history nil "" "#/active")
+    (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
+    (is (= :hist/active
+           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :owner/a)) [:rf.runtime/routing :current])))
+        "the rewired hashchange listener drives the same owner A")))
+
+(deftest destroying-non-owner-leaves-incumbent-listener-untouched-cljs-rf2-3fc89f-11
+  (testing "rf2-3fc89f.11 (preserve): reconciliation on a NON-owner frame
+            destroy leaves the incumbent owner's listener instance untouched —
+            owner unchanged → no tear-down + reinstall, no stacking"
+    (rf/reg-route :hist/home {} "/")
+    (rf/reg-frame :owner/a {:url-bound? true})       ;; owner, popstate
+    (rf/reg-frame :owner/b {:url-bound? true})       ;; losing duplicate (claimed after A)
+    (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))]
+      (is (some? incumbent) "A's popstate listener is installed")
+      ;; Destroy the NON-owner duplicate B — A keeps the URL.
+      (rf/destroy-frame! :owner/b)
+      (is (= :owner/a (routing/url-owner-frame-id))
+          "A is still the owner after the non-owner B is destroyed")
+      (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
+          "the incumbent's popstate listener instance was NOT torn down + reinstalled")
+      (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
+          "still exactly one popstate listener — no stacking"))))
+
 ;; ---- rf2-9vgyp7: first-load / deep-link route hydration at frame create ----
 ;;
 ;; The URL-owning frame's LIFECYCLE (rf2-g8pbwg) drives the initial URL sync: a
