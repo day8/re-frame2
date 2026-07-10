@@ -540,8 +540,20 @@
   ;; `Authorization` header onto outbound managed requests. Order matters:
   ;; register it before the frame's `:initial-events` run, so it's already on
   ;; duty when session-restore fires its first authenticated request.
-  (rf/reg-http-interceptor :realworld/bearer-auth
-                           {:before bearer-auth-interceptor})
+  ;;
+  ;; HTTP-interceptor registration is context-required frame-local (EP-0002 /
+  ;; Spec 014 §Middleware): each frame owns its own middleware chain, so the
+  ;; registration has to name the frame it belongs to. A bare top-level
+  ;; `reg-http-interceptor` under no frame scope raises the always-on
+  ;; `:rf.error/no-frame-context` and installs nothing. We scope it to the app
+  ;; frame (`:rf/default` — the same id the `frame-provider` below ensures)
+  ;; with `with-frame`, so the interceptor lands on the chain the app's managed
+  ;; requests actually run under. The frame need not exist yet — the chain is
+  ;; keyed by frame-id and consulted when the first request fires. See the auth
+  ;; how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-seam
+  (rf/with-frame :rf/default
+    (rf/reg-http-interceptor :realworld/bearer-auth
+                             {:before bearer-auth-interceptor}))
   ;; Hang the conformance accessor on the window for the external RealWorld
   ;; suite. Test seam, not a pattern — see install-conduit-debug! above.
   (install-conduit-debug! :rf/default)

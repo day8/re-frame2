@@ -260,8 +260,20 @@
   ;; `:initial-events` dispatch. Timing matters: session-restore fires an
   ;; authenticated `GET /user` the moment the JWT is hydrated, so the header has
   ;; to be wired up before `:auth/initialise` runs at frame creation (below).
-  (rf/reg-http-interceptor :realworld/bearer-auth
-                           {:before bearer-auth-interceptor})
+  ;;
+  ;; HTTP-interceptor registration is context-required frame-local (EP-0002 /
+  ;; Spec 014 §Middleware): each frame owns its own middleware chain, so the
+  ;; registration must name the frame it belongs to. A bare top-level
+  ;; `reg-http-interceptor` under no frame scope raises the always-on
+  ;; `:rf.error/no-frame-context` and installs nothing. We scope it to
+  ;; `app-frame` (the same id the `frame-provider` below ensures) with
+  ;; `with-frame`, so the interceptor lands on the chain this app's resources /
+  ;; mutations actually lower onto. The frame need not exist yet — the chain is
+  ;; keyed by frame-id and consulted when the first managed request fires. See
+  ;; the auth how-to: ../../../docs/core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-seam
+  (rf/with-frame app-frame
+    (rf/reg-http-interceptor :realworld/bearer-auth
+                             {:before bearer-auth-interceptor}))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

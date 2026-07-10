@@ -120,6 +120,72 @@
             "the server saw the Authorization header the interceptor injected")
         (finally (stop-server! srv))))))
 
+;; ---- 1a. rf2-9ynwvx — reg within with-frame installs; bare reg fails closed
+;;
+;; The RealWorld example apps (examples/real-apps/realworld_{http,resources})
+;; registered the bearer-auth interceptor with a BARE top-level
+;; `(reg-http-interceptor id {:before …})` in their boot `run` — no ambient
+;; frame scope, no `:frame` override — which raises the always-on
+;; `:rf.error/no-frame-context` (EP-0002 context-required frame-local) and
+;; installs NOTHING, so every authenticated request silently lost its
+;; `Authorization` header. The fix scopes the registration to the app frame
+;; with `(with-frame :rf/default …)`. This test pins BOTH halves of that
+;; contract end-to-end — the fixture's ambient `*current-frame* :rf/default`
+;; masks the bare-call raise, so we strip it with `binding … nil`:
+;;   (a) a bare reg under no scope fails closed and installs nothing;
+;;   (b) `(with-frame :rf/default …)` installs on the frame's chain AND the
+;;       `:before` reaches the wire — an authenticated request carries the
+;;       `Authorization` header the interceptor stamped.
+
+(deftest reg-within-with-frame-installs-and-header-reaches-wire-rf2-9ynwvx
+  (testing "rf2-9ynwvx — bare reg under no scope raises + installs nothing; a
+            (with-frame :rf/default …) registration lands the Authorization
+            header on the wire (the RealWorld example bearer-auth fix)"
+    (let [seen-auth (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (reset! seen-auth (header-of ex "Authorization"))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        ;; (a) reproduce the example bug: bare reg under NO ambient scope
+        ;; fails closed and installs nothing.
+        (binding [frame/*current-frame* nil]
+          (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
+                              {:before identity})
+                            nil
+                            (catch clojure.lang.ExceptionInfo e e))]
+            (is (some? thrown)
+                "a bare reg-http-interceptor under no frame scope must throw")
+            (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+                "the throw is the always-on :rf.error/no-frame-context")
+            (is (empty? (http-managed/interceptors-snapshot :rf/default))
+                "nothing was installed on the :rf/default chain"))
+          ;; (b) the fix: with-frame supplies the frame context, so the reg
+          ;; installs on :rf/default even under no ambient scope.
+          (rf/with-frame :rf/default
+            (rf/reg-http-interceptor :realworld/bearer-auth
+              {:before (fn [ctx]
+                         (assoc-in ctx [:request :headers "Authorization"]
+                                   "Token stub.demo.jwt"))})))
+        (is (= [:realworld/bearer-auth]
+               (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+            "with-frame scoped the reg onto the app frame's chain (the fix)")
+        ;; (c) an authenticated request from that frame carries the header the
+        ;; interceptor stamped — proving the fix actually decorates the wire.
+        (rf/reg-event :load
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/secured")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:load])
+        (await-reply! #(some? (:reply %)) 5000)
+        (is (= "Token stub.demo.jwt" @seen-auth)
+            "the with-frame-registered interceptor stamped Authorization on the wire")
+        (finally (stop-server! srv))))))
+
 ;; ---- 2. multi-interceptor chain order -------------------------------------
 
 (deftest multi-interceptor-runs-in-registration-order

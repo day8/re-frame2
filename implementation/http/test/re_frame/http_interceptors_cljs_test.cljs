@@ -73,6 +73,45 @@
                (:rf.error/id (ex-data thrown)))
             "the throw is the always-on :rf.error/no-frame-context — no :rf/default floor")))))
 
+;; ---- 1b. rf2-9ynwvx — reg within with-frame installs; bare reg fails closed
+;;
+;; The RealWorld example apps (examples/real-apps/realworld_{http,resources})
+;; registered the bearer-auth interceptor with a BARE top-level
+;; `(reg-http-interceptor id {:before …})` in their boot `run` — no ambient
+;; frame scope, no `:frame` — which raises the always-on
+;; `:rf.error/no-frame-context` (EP-0002 context-required frame-local) and
+;; installs NOTHING, silently dropping the Authorization header from every
+;; authenticated request. The fix scopes the reg to the app frame with
+;; `with-frame`. This pins both halves of that contract on the registration
+;; surface (the fixture's ambient `*current-frame* :rf/default` masks the
+;; bare-call raise, so we strip it): (a) a bare reg under no scope fails
+;; closed and installs nothing; (b) `(with-frame f (reg-http-interceptor …))`
+;; installs on f's chain even when f was never `reg-frame`d — the example
+;; registers before the frame-provider ensures the frame.
+
+(deftest reg-http-interceptor-bare-fails-closed-with-frame-installs-rf2-9ynwvx
+  (testing "rf2-9ynwvx — a bare reg under no ambient scope raises
+            :rf.error/no-frame-context and installs nothing; a
+            (with-frame f …) reg installs on f's chain (the RealWorld fix)"
+    (binding [frame/*current-frame* nil]
+      ;; (a) reproduce the example bug: bare reg with no scope fails closed.
+      (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
+                          {:before (fn [c] c)})
+                        nil
+                        (catch :default e e))]
+        (is (some? thrown) "bare reg under no ambient scope must throw")
+        (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+            "the throw is the always-on :rf.error/no-frame-context — nothing installed")
+        (is (empty? (http-managed/interceptors-snapshot :realworld/app))
+            "no slot landed on the app-frame chain"))
+      ;; (b) the fix: with-frame supplies the frame context, so the reg lands
+      ;; on :realworld/app's chain even though it was never `reg-frame`d.
+      (rf/with-frame :realworld/app
+        (rf/reg-http-interceptor :realworld/bearer-auth {:before (fn [c] c)}))
+      (is (= [:realworld/bearer-auth]
+             (mapv :id (http-managed/interceptors-snapshot :realworld/app)))
+          "with-frame scoped the reg onto the app frame's chain (the example fix)"))))
+
 ;; ---- 2. registration order is preserved -----------------------------------
 
 (deftest registration-order-preserved
