@@ -48,7 +48,6 @@
   (:require [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.shell :as shell]
@@ -94,28 +93,17 @@
   host/tool can verify the streamed root against the payload. `:head-hash`
   (optional) is the SEPARATE client-reconstructible head-model hash,
   stamped as `data-rf-head-hash` on `<head>` — omitted when nil."
-  [head-html {:keys [html-attrs body-attrs lang app-element-id render-hash head-hash]
-              :or   {lang "en" app-element-id "app"}}]
-  (let [attr-bag (shell/html-attr-bag html-attrs lang)]
-    (str "<!DOCTYPE html>"
-         "<html" (html/attr-string attr-bag) ">"
-         "<head"
-         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
-         ">"
-         "<meta charset=\"utf-8\">"
-         (or head-html "")
-         "</head>"
-         "<body" (html/attr-string body-attrs) ">"
-         ;; rf2-7x0qk — `:app-element-id` is an attribute-value position;
-         ;; escape through `html/escape-attr` (same split as the non-
-         ;; streaming `default-html-shell`). `:head` stays raw (content
-         ;; position). rf2-9fw2de — the `data-rf-render-hash` value is an
-         ;; 8-char hex (canonical-EDN FNV) so it needs no escaping, but it
-         ;; only emits when supplied (`:emit-hash?` true).
-         "<div id=\"" (html/escape-attr app-element-id) "\""
-         (when render-hash
-           (str " data-rf-render-hash=\"" render-hash "\""))
-         ">")))
+  [head-html {:keys [render-hash] :as opts}]
+  ;; rf2-od9fet — a DELEGATE over the single-source `shell/document-prefix`
+  ;; (shared verbatim with the non-streaming `default-html-shell`). The
+  ;; streaming path preserves the optional `data-rf-render-hash` marker on
+  ;; the `#app` root — it passes `:render-hash` explicitly (the
+  ;; non-streaming shell passes nil, so its root carries no marker). Every
+  ;; other envelope decision (doctype, `<html>`/`<body>` attr bags,
+  ;; charset, head fragment, `:head-hash` marker, `:app-element-id`
+  ;; escaping) lives in the shared renderer, so the two response modes
+  ;; cannot silently diverge on the security-load-bearing escaping.
+  (shell/document-prefix head-html render-hash opts))
 
 (defn default-streaming-suffix
   "The shell suffix flushed after the final-payload chunk. Emits the
@@ -132,17 +120,14 @@
   all of which already belonged outside `#app`, mirroring the non-streaming
   `default-html-shell` (which emits the payload script + bootstrap + body-end
   after `</div>`)."
-  [{:keys [body-end script-src]
-    :or   {script-src "/main.js"}}]
-  (str (when script-src
-         ;; rf2-7x0qk — `:script-src` is an attribute-value position;
-         ;; escape through `html/escape-attr` (same split as the non-
-         ;; streaming `default-html-shell`). `:body-end` stays raw
-         ;; (content position).
-         (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
-       (or body-end "")
-       "</body>"
-       "</html>"))
+  [opts]
+  ;; rf2-od9fet — a DELEGATE over the single-source `shell/document-suffix`
+  ;; (shared verbatim with the non-streaming `default-html-shell`). The
+  ;; app-root `</div>` moved to the shell chunk (rf2-z9dduj), so this is
+  ;; purely the bootstrap `<script src=…>` (`:script-src`, escape-attr'd),
+  ;; the raw `:body-end` content hook, and the `</body></html>` close —
+  ;; all single-sourced with the non-streaming shell's suffix.
+  (shell/document-suffix opts))
 
 ;; ---- shell phase (request thread, BEFORE the head commits) --------------
 ;;

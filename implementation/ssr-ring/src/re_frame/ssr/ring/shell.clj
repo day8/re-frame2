@@ -72,6 +72,107 @@
        (html/escape-edn-script-body payload-edn)
        "</script>"))
 
+;; ---- single-source document envelope (prefix + suffix) --------------------
+;;
+;; rf2-od9fet — the doctype / `<html>` / `<head>` / open-`<body>` /
+;; open-`#app-div` PREFIX and the bootstrap-`<script>` / `:body-end` /
+;; document-close SUFFIX are each assembled in EXACTLY ONE place here.
+;; Both the non-streaming `default-html-shell` (which sandwiches
+;; body-html + `</div>` + the shared `payload-script-tag` between them)
+;; and the streaming delegates (`re-frame.ssr.ring.streaming`'s
+;; `default-streaming-prefix` / `default-streaming-suffix`, which flush
+;; the two halves around the resolved-continuation chunks) compose these
+;; renderers, so the two response modes CANNOT drift on the doctype,
+;; `<html>`/`<body>` attribute bags, charset, head fragment, head-hash
+;; marker, `#app` id/escaping, bootstrap script, or closing tags. That
+;; matters because the envelope carries security-load-bearing escaping
+;; (the `escape-attr` attribute-value split, rf2-7x0qk) — a fix or shape
+;; change made in one mode would previously have to be mirrored by hand
+;; in the other.
+
+(defn document-prefix
+  "Render the document PREFIX shared by the non-streaming shell and the
+  streaming prefix (rf2-od9fet): `<!DOCTYPE html>` through the OPEN
+  `<div id=\"…\">` app-root element, inclusive.
+
+  `render-hash` is an EXPLICIT argument (not read from `opts`) because it
+  is the one piece the two modes disagree on: the non-streaming
+  `default-html-shell` passes `nil` (its `#app` root carries no
+  `data-rf-render-hash` — the marker is a streaming-only wire signal),
+  while the streaming prefix passes its body-only structural hash when
+  `:emit-hash?` is set, stamping `data-rf-render-hash` on the streamed
+  root. When `render-hash` is nil the attribute is omitted entirely (no
+  value needs no escaping — the hash is an 8-char hex FNV output).
+
+  `head-html` is the resolved `<head>` fragment (a content position,
+  injected raw). `opts` carries the `:html-attrs` / `:body-attrs` bags
+  (stamped via the shared `attr-string` serialiser), the `:lang`
+  fallback (resolved through `html-attr-bag`), the `:app-element-id`
+  (an attribute-value position, `escape-attr`'d per the rf2-7x0qk split),
+  and the optional `:head-hash` (the SEPARATE client-reconstructible
+  head-model hash stamped as `data-rf-head-hash` on `<head>`, omitted
+  when nil)."
+  [head-html render-hash
+   {:keys [html-attrs body-attrs lang app-element-id head-hash]
+    :or   {app-element-id "app"
+           lang           "en"}}]
+  (let [attr-bag (html-attr-bag html-attrs lang)]
+    (str "<!DOCTYPE html>"
+         "<html" (html/attr-string attr-bag) ">"
+         "<head"
+         ;; rf2-1oxjxk — the SEPARATE client-reconstructible head-model
+         ;; hash, distinct from the body's data-rf-render-hash on #app.
+         ;; Omitted when nil (no value needs no escaping — an 8-char hex
+         ;; FNV output, same shape as the render-hash marker).
+         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
+         ">"
+         "<meta charset=\"utf-8\">"
+         (or head-html "")
+         "</head>"
+         "<body" (html/attr-string body-attrs) ">"
+         ;; rf2-7x0qk — `:app-element-id` lands INSIDE a double-quoted
+         ;; attribute value, so it is escaped through `html/escape-attr`
+         ;; (escapes `&` + `"`, lossless + position-correct). The
+         ;; trusted-string raw-injection contract applies only to the two
+         ;; CONTENT-position opts (`:head` / `:body-end`); an
+         ;; attribute-value position has a single correct escape, so even
+         ;; a benign quote-bearing value can't break out of the attribute.
+         ;; See `validate-trusted-shell-opts!` for the split.
+         "<div id=\"" (html/escape-attr app-element-id) "\""
+         ;; rf2-1oxjxk — the body-only structural `data-rf-render-hash`
+         ;; marker. Non-streaming passes nil (no marker on #app);
+         ;; streaming passes it when `:emit-hash?` is set. An 8-char hex
+         ;; FNV output, so it needs no escaping.
+         (when render-hash
+           (str " data-rf-render-hash=\"" render-hash "\""))
+         ">")))
+
+(defn document-suffix
+  "Render the document SUFFIX shared by the non-streaming shell and the
+  streaming suffix (rf2-od9fet): the bootstrap `<script src=…>` (when a
+  `:script-src` is in play), the raw `:body-end` content hook, and the
+  `</body></html>` document close.
+
+  The app-root `</div>` and the hydration-payload `<script>` are NOT
+  emitted here — they sit BEFORE the suffix (the non-streaming shell
+  writes `</div>` + `payload-script-tag` between the prefix and this
+  suffix; the streaming writer closes `</div>` at the end of the shell
+  chunk and streams the `__rf_payload` after the continuations,
+  rf2-z9dduj). `:script-src` is an attribute-value position, escaped
+  through `html/escape-attr` (the same rf2-7x0qk split as
+  `:app-element-id` in the prefix); `:body-end` stays raw (content
+  position)."
+  [{:keys [body-end script-src]
+    :or   {script-src "/main.js"}}]
+  (str (when script-src
+         ;; rf2-7x0qk — `:script-src` is an attribute-value position;
+         ;; escape through `html/escape-attr` (same split as the prefix's
+         ;; `:app-element-id`). `:body-end` stays raw (content position).
+         (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
+       (or body-end "")
+       "</body>"
+       "</html>"))
+
 (defn default-html-shell
   "The default HTML envelope. Returns a string wrapping the rendered
   body in a minimal-but-runnable document. Override via `:html-shell`
@@ -143,39 +244,16 @@
   `:rf.error/ssr-trusted-shell-opt-invalid`); the content trust
   itself is the caller's. Audit rf2-asmj1 R12 / cluster rf2-sljs1 /
   rf2-o6ndb."
-  [body-html payload-edn
-   {:keys [head html-attrs body-attrs body-end script-src app-element-id lang head-hash]
-    :or   {app-element-id  "app"
-           script-src      "/main.js"
-           lang            "en"}}]
-  (let [attr-bag (html-attr-bag html-attrs lang)]
-    (str "<!DOCTYPE html>"
-         "<html" (html/attr-string attr-bag) ">"
-         "<head"
-         ;; rf2-1oxjxk — the SEPARATE client-reconstructible head-model
-         ;; hash, distinct from the body's data-rf-render-hash on #app.
-         ;; Omitted when nil (no value needs no escaping — an 8-char hex
-         ;; FNV output, same shape as the render-hash marker).
-         (when head-hash (str " data-rf-head-hash=\"" head-hash "\""))
-         ">"
-         "<meta charset=\"utf-8\">"
-         (or head "")
-         "</head>"
-         "<body" (html/attr-string body-attrs) ">"
-         ;; rf2-7x0qk — `:app-element-id` and `:script-src` land INSIDE
-         ;; double-quoted attribute values, so they are escaped through
-         ;; `html/escape-attr` (escapes `&` + `"`, lossless + position-
-         ;; correct). The trusted-string raw-injection contract applies
-         ;; only to the two CONTENT-position opts (`:head` / `:body-end`);
-         ;; an attribute-value position has a single correct escape, so
-         ;; even a benign quote-bearing value can't break out of the
-         ;; attribute. See `validate-trusted-shell-opts!` for the split.
-         "<div id=\"" (html/escape-attr app-element-id) "\">" body-html "</div>"
-         ;; Shared id-pinned, `</script>`-escaped payload <script>
-         ;; (rf2-7ksyr) — same helper the streaming final chunk uses.
-         (payload-script-tag payload-edn)
-         (when script-src
-           (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
-         (or body-end "")
-         "</body>"
-         "</html>")))
+  [body-html payload-edn {:keys [head] :as opts}]
+  ;; rf2-od9fet — composed from the single-source `document-prefix` /
+  ;; `document-suffix` renderers (shared verbatim with the streaming
+  ;; delegates). The non-streaming `#app` root carries NO
+  ;; `data-rf-render-hash` marker, so `render-hash` is nil here; the
+  ;; body, its closing `</div>`, and the shared id-pinned,
+  ;; `</script>`-escaped `payload-script-tag` (rf2-7ksyr — same helper the
+  ;; streaming final chunk uses) sit between the prefix and the suffix.
+  (str (document-prefix head nil opts)
+       body-html
+       "</div>"
+       (payload-script-tag payload-edn)
+       (document-suffix opts)))
