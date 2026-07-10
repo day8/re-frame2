@@ -12,16 +12,13 @@
 
 re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md](../../spec/005-StateMachines.md)): the boot sequence is modelled as an explicit FSM whose `:states` correspond to phases of the flow, whose `:on` maps consume the same HTTP-completion events the async-flow's `:when :events` watched for, and whose `:final?` states correspond to the async-flow's `:halt?` termination. The machine snapshot lives at `[:rf.runtime/machines :snapshots <id>]` in the frame's runtime-db partition (per Spec 005), so it inherits revertibility, SSR hydration, Tool-Pair time-travel, and trace-stream visibility — none of which the v1 add-on offered.
 
-## Why the rewrite is opt-in
+## Acting is forced; the conversion path is the opt-in part
 
-`day8.re-frame/async-flow-fx` is an **add-on lib** with a separate Maven coordinate; nothing in re-frame's core surface depends on it, and nothing in re-frame2 breaks when a project keeps using it. A v1 codebase can in principle:
+`day8.re-frame/async-flow-fx` 0.4.0 **calls the removed `re-frame.core/console`**, so the add-on namespace **fails to compile the moment `day8/re-frame2` is on the classpath** — re-frame2 ships no `console` symbol and **no back-compat shim** (pre-alpha posture: these v1 add-ons are superseded, not propped up). It does **not** keep working against v2, and there is no "drop in re-frame2 and keep the flows you didn't convert" plan — the project does not compile until the add-on is gone. So removal-or-conversion is a **forced compile-gate pre-step** (surfaced at the post-[M-0](README.md#m-0-bump-the-dependency-coordinate-to-day8re-frame2) compile gate, not deferrable to "modernise later"), independent of whether the app has converted its own call sites.
 
-1. **Keep `day8.re-frame/async-flow-fx` 0.4.0 for the flows you don't convert** — but this is *not* cost-free under EP-0018. The engine itself registers its `:async-flow` fx through `reg-fx` and observes events through a `register-listener!`-style hook (both preserved or with a v2-canonical equivalent), so the lib still loads. But the **handlers that return `:async-flow`** — and the success/failure handlers the flow watches — are your `reg-event-fx` handlers, and `reg-event-fx` is **removed** in v2 (a throwing stub naming `reg-event` — see [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)). Those migrate to the one public `reg-event` regardless; the `:async-flow` effect they return inside `:fx` is unchanged.
-2. Migrate flow-by-flow to `reg-machine` as part of broader v2 modernisation.
+What is **opt-in** is only the *choice of path*: the operator picks whether to **convert** each flow to `reg-machine` (this rule) or **remove** the add-on outright — but not *whether* to act. This is an O-rule because that path choice, and the semantic FSM rewrite it entails, need operator judgment: the migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the FSM shape is a re-thinking of the rule-set, not a structural lift. (The surrounding `reg-event-fx` handlers that returned `:async-flow` — and the success/failure handlers the flow watched — migrate to the one public `reg-event` under EP-0018 / [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018) whichever path is chosen; the `:async-flow` effect they returned inside `:fx` is unchanged.)
 
-The rule is opt-in (O-rule, not M-rule) because (1) remains valid for the engine itself once the surrounding handlers are on `reg-event`. The migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the rewrite is semantic (the FSM shape is a re-thinking of the rule-set, not a structural lift).
-
-The agent SHOULD recommend (2) when the codebase is otherwise adopting re-frame2 idioms — machine snapshots in the frame's runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) integrate with every other v2 surface (trace, epoch, schemas, SSR, 10x / Xray); async-flow's internal atom (or per-flow `:db-path`) is opaque to all of them.
+The agent SHOULD recommend **conversion** when the codebase is otherwise adopting re-frame2 idioms — machine snapshots in the frame's runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) integrate with every other v2 surface (trace, epoch, schemas, SSR, 10x / Xray); async-flow's internal atom (or per-flow `:db-path`) is opaque to all of them.
 
 ## Detection
 
@@ -132,6 +129,19 @@ What changed:
 - **`:halt?` becomes `:final?`.** Two terminal states (`:ready`, `:failed`) sit at the bottom of the FSM; reaching either fires auto-destroy and clears `[:rf.runtime/machines :snapshots :app/boot]` from runtime-db.
 - **The fetchers (`:user/fetcher`, `:site-prefs/fetcher`) are themselves small machines.** In the async-flow shape, the user is responsible for the actual HTTP — the flow only observes the success/failure events the user's event handlers (under v2, `reg-event` — EP-0018) dispatch. In the machine shape, each fetcher is a `reg-machine` whose `:final?` state's `:output-key` reports the loaded payload back to the parent via `:on-all-complete`. The agent surfaces this as a follow-on rewrite — each fetcher is a separate per-flow decision.
 
+## Retarget the producers — the #1 silent-stall hazard
+
+async-flow watches the **global** router: a rule awaiting `:config-loaded` fires when *anyone* dispatches `[:config-loaded]`. A machine does **not** — it is an event handler addressed by its id, and **only observes events dispatched to its address** `[<machine-id> <event-vec>]` (per [005 §Spawning — dynamic actors](../../spec/005-StateMachines.md#spawning--dynamic-actors)). So mapping the `:when` / `:seen-*` events onto the machine's `:on` keys is only **half** the conversion. The other half is rewriting every **producer** of those awaited events — the HTTP `:on-success` / `:on-failure`, the existing completion handler, whatever dispatched the plain global event — to dispatch the **addressed** form: `[:app/boot [:config-loaded payload]]`, `[:app/boot [:fetch-failed err]]`.
+
+Skip this and the converted boot / login / wizard compiles, starts, and then **hangs silently** on its first await — the spinner never clears, with **no error** (a plain `[:config-loaded]` resolves to a *separate* `:config-loaded` handler, or to `:rf.error/no-such-handler`, and never reaches the machine). This is the **#1 silent-failure mode of machine conversion** in a non-trivial app: nothing in the compile or the trace tells you a producer was missed.
+
+The producers are **scattered, not co-located**: the `:async-flow` declaration lives in one `boot` / `init` namespace while its awaited events are produced across many namespaces, each with its own HTTP completion — and one event (`[:session-expired]`, `[:fetch-failed]`) is often awaited by several flows at once. So the retarget is a **wiring pass over the whole producer graph**, not a local edit. Before converting, enumerate it: for each awaited event, grep every site that dispatches it (`rg "\[:config-loaded"`) and record the file / handler it lives in. Then decide per site —
+
+- **Re-address** it to `[<machine-id> …]` when the machine is the event's sole consumer.
+- **Bridge** it when the event must stay public for other listeners: keep the global producer and add a one-line re-dispatch handler — `(rf/reg-event :config-loaded (fn [_ ev] {:fx [[:dispatch (into [:app/boot] [ev])]]}))` — or model the await as a spawned child actor whose completion the runtime routes back to the parent.
+
+Treat any awaited event you cannot trace to its producers as a **blocker** — an unretargeted producer is the silent stuck-boot, shipped. On a partitioned / incremental migration a producer's file is frequently converted **before** the consuming machine's await exists, so it ships in the plain global form — correct for its own file, un-addressed for a machine that is not there yet. Closing that ordering gap needs a deliberate **reconcile pass**: once the consuming machine lands, revisit every producer converted before its await existed and re-address or bridge it.
+
 ## Mapping notes for each async-flow concept
 
 ### `:first-dispatch`
@@ -195,7 +205,7 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 ## Out of scope
 
-- **`day8.re-frame/async-flow-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-async-flow-fx` artefact. Operators who want to keep using the v1 add-on continue depending on `day8/re-frame-async-flow-fx` 0.4.0 as before; the *fx registration surface* the engine itself uses (`reg-fx`, plus `register-listener!`-style observation) is preserved, so the `:async-flow` fx still loads. The handlers that **return** `:async-flow` and the success/failure handlers the flow watches are your `reg-event-fx` handlers, and `reg-event-fx` is removed under EP-0018 ([M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) — they migrate to the one public `reg-event` regardless of whether you keep the add-on.
+- **`day8.re-frame/async-flow-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-async-flow-fx` artefact, and the v1 add-on **cannot stay**: it calls the removed `re-frame.core/console`, so it **fails to compile** on v2 (see [§Acting is forced](#acting-is-forced-the-conversion-path-is-the-opt-in-part) above) — removal-or-conversion is forced, not optional. The surrounding handlers that **return** `:async-flow` — and the success/failure handlers the flow watches — are your `reg-event-fx` handlers, and `reg-event-fx` is removed under EP-0018 ([M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)); they migrate to the one public `reg-event` whichever path you pick.
 
 - **The migration agent does not auto-detect "the right machine shape" from the rule-set.** Determining whether N rules are best expressed as N states, as `:spawn-all` children, or as `:always` guards is a design call the operator owns. The agent presents the rule-set and the candidate translation; the operator approves, edits, or skips.
 
@@ -208,5 +218,6 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 When the agent applies this rule:
 
 - The migration report lists every `:async-flow` call site it found, whether the operator approved the rewrite, and the new machine id.
+- **Every producer retargeted (or bridged)** is listed: for each awaited event, the handler / fx whose dispatch was re-addressed to `[<machine-id> …]`, or the bridge handler added when the global event had to stay public. An unretargeted producer is a silent stuck-boot — call out any you could not locate so the operator can find them.
 - If the `day8.re-frame/async-flow-fx` dep is no longer referenced (all flows migrated), the agent flags the dep for removal in the same report; the operator confirms before the dep is dropped.
 - Each escalation case from above is listed with file/line, the specific reason it escalated, and the agent's recommended path forward.
