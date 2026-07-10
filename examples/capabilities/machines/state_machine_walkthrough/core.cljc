@@ -96,7 +96,13 @@
     :lock-account
     (fn [_]
       {:fx [[:rf.http/managed
-             {:request {:method :post :url "/api/auth/lock"}}]]})
+             ;; Fire-and-forget: the account is already locked in the UI, so
+             ;; both reply branches are silenced (`nil`). Every managed request
+             ;; must address its reply (Spec 014 §Reply addressing) — silencing
+             ;; is the explicit choice, not an omission.
+             {:request    {:method :post :url "/api/auth/lock"}
+              :on-success nil
+              :on-failure nil}]]})
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
