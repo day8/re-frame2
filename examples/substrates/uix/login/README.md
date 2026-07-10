@@ -13,10 +13,13 @@ the pixels. Here that's **UIx** instead of Reagent.
 
 Everything below the [view](../../../../docs/core/glossary.md#view) layer stays
 the same — the same schemas, the same machine, the same named subscriptions,
-the same canned HTTP stub, with the same ids and shapes. Only the views are
-written differently. That's the idea worth taking away: swapping the renderer
-changes almost nothing. So this is a clear place to see where the substrate
-boundary falls, and how little sits on the substrate side of it.
+the same canned HTTP stub — because it is *literally* the same source. All of it
+lives in one substrate-free namespace, `login.model`
+([`examples/core/login/model.cljs`](../../../core/login/model.cljs)), which this
+example `:require`s and the Reagent and Helix twins import unchanged. Only the
+views are written differently. That's the idea worth taking away: swapping the
+renderer changes almost nothing. So this is a clear place to see where the
+substrate boundary falls, and how little sits on the substrate side of it.
 
 That is the whole point of re-frame2's
 [adapter](../../../../docs/core/glossary.md#adapter) design: your events,
@@ -25,16 +28,16 @@ React-family library renders them. Same model, swap the renderer, get UIx.
 
 ## What this demonstrates
 
-- **The substrate boundary, drawn in one file.** Above the boundary is the
-  substrate-agnostic model: Malli [schemas](../../../../docs/core/glossary.md#schema)
-  on the login credentials, the event vector, and the machine's `:data` slot;
-  the `:auth.login/flow`
-  [machine](../../../../docs/machines/glossary.md#machine); the form-slice
-  events and five named
-  [subscriptions](../../../../docs/core/glossary.md#subscription); and the demo
-  HTTP stub. None of it names a substrate. Below the boundary is the *only*
-  substrate-specific code: the [views](../../../../docs/core/glossary.md#view) and
-  the mount. The Reagent twin runs the identical model — same ids, same shapes,
+- **The substrate boundary, drawn as a file split.** The substrate-agnostic
+  model lives in its own namespace, `login.model`: Malli
+  [schemas](../../../../docs/core/glossary.md#schema) on the login credentials,
+  the event vector, and the machine's `:data` slot; the `:auth.login/flow`
+  [machine](../../../../docs/machines/glossary.md#machine); the form-slice events
+  and five named [subscriptions](../../../../docs/core/glossary.md#subscription);
+  and the demo HTTP stub. None of it names a substrate. This `core.cljs` holds
+  the *only* substrate-specific code: the
+  [views](../../../../docs/core/glossary.md#view) and the mount. The Reagent and
+  Helix twins `:require` the identical `login.model` — literally the same source,
   different renderer.
 
 - **`defui` + the `use-subscribe` hook, in place of Reagent's deref.** A Reagent
@@ -87,26 +90,35 @@ siblings — [`examples/core/login/`](../../../core/login/) is the reference,
 schemas, the machine, the subs, and the HTTP stub are the same in all three; the
 view layer is the only thing that differs. Three renderers, one model.
 
-The model is duplicated across the three logins on purpose so each example is
-self-contained and the parity comparison remains local. The bundle-isolation
-gate proves the renderer boundary on the smaller counter builds — a UIx-only
-counter `main.js` carries no Reagent code — while the login builds are
-compile-gated. A shared substrate-neutral model could preserve isolation, but it
-would hide the direct comparison this example is meant to teach.
+"One model" is meant literally: the three logins **share** the one substrate-free
+`login.model` namespace, rather than each carrying its own copy. That is the
+strongest form of parity — the comparison holds the model constant not by keeping
+three copies in step, but by there being only one. It also removes the drift risk
+of duplication: there is no second copy to diverge. The bundle-isolation gate
+(`npm run test:bundle-isolation`) now scans the login builds too and proves each
+carries **only its own substrate** — the UIx login `main.js` has no Reagent or
+Helix code — which is exactly what proves the shared `login.model` drags in no
+renderer.
 
-One mechanical note: the namespace here is `uix.login.core`, not `login.core` —
-the `substrates/uix/` folder becomes the namespace prefix, so this example
-doesn't collide with `examples/core/login/` on the classpath. Three examples
-that share the same `:auth.login/*` ids still need distinct namespaces to sit
-on one classpath together.
+One mechanical note: the *view* namespace here is `uix.login.core`, not
+`login.core` — the `substrates/uix/` folder becomes the namespace prefix, so this
+example's views don't collide with `examples/core/login/` on the classpath. The
+shared model, by contrast, is one namespace (`login.model`) all three import; only
+the substrate-specific view/mount namespaces need distinct prefixes to sit on one
+classpath together.
 
 ## Files
 
 ```
 login/
-  core.cljs    — schema + events + subs + machine + defui views + mount.
+  core.cljs    — the UIx HALF: defui views + use-subscribe + mount.
   index.html   — minimal host page.
 ```
+
+The substrate-free half — schemas, machine, events, subs, HTTP stub, frame
+config — is not in this folder: it is the shared
+[`login.model`](../../../core/login/model.cljs) namespace this `core.cljs`
+`:require`s.
 
 ## How to run
 

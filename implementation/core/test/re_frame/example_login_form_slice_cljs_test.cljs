@@ -1,17 +1,17 @@
 (ns re-frame.example-login-form-slice-cljs-test
-  "Framework-tree regression for the login example's FORM SLICE + password
-   PRIVACY — the `:auth.login/*` events at examples/core/login/core.cljs
-   (mirrored into examples/substrates/{uix,helix}/login). rf2-t83ail + the
-   password-classification fix rf2-3fc89f.33.
+  "Framework-tree regression for the login feature's FORM SLICE + password
+   PRIVACY — the `:auth.login/*` events owned by examples/core/login/model.cljs,
+   the substrate-free model shared across the Reagent/UIx/Helix login examples
+   (rf2-ppbvav). rf2-t83ail + the password-classification fix rf2-3fc89f.33.
 
    These belong in the framework test tree, NOT under examples/ (examples stay
-   test-free per rf2-8cevm). The ns requires the example's production source
-   (`login.core`) so its events / subs / machine / schemas register at ns-load,
-   then drives them directly. It runs under the consolidated `:node-test` CLJS
-   build (`../examples/core` is on its source-paths) — the only runtime where
-   `login.core`'s ns-load + durable handlers actually execute. Sibling of
-   `re-frame.login-cljs-test` (which pins the MACHINE's `[:schemas :data]`
-   boundary); this ns pins the SLICE + egress-privacy half.
+   test-free per rf2-8cevm). The ns requires the login feature's substrate-free
+   model owner (`login.model`) so its events / subs / machine / schemas register
+   at ns-load, then drives them directly. It runs under the consolidated
+   `:node-test` CLJS build (`../examples/core` is on its source-paths) — the only
+   runtime where `login.model`'s ns-load + durable handlers actually execute.
+   Sibling of `re-frame.login-cljs-test` (which pins the MACHINE's
+   `[:schemas :data]` boundary); this ns pins the SLICE + egress-privacy half.
 
    THE PASSWORD CROSSES THREE OBSERVATION BOUNDARIES, each classified by its own
    owner (docs/core/how-to/keep-secrets-out-of-traces.md). This ns is the
@@ -50,11 +50,11 @@
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
-            ;; login.core pulls these transitively; require here so the ns is
+            ;; login.model pulls these transitively; require here so the ns is
             ;; self-sufficient (mirrors re-frame.login-cljs-test).
             [re-frame.schemas]
             [re-frame.machines]
-            [login.core])
+            [login.model])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each

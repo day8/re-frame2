@@ -1,14 +1,16 @@
 (ns re-frame.login-cljs-test
   "Regression: the login example's `:auth.login/flow` machine attaches a
-   `[:schemas :data]` schema (`login.core/AuthLoginData`) that validates the
+   `[:schemas :data]` schema (`login.model/AuthLoginData`) that validates the
    snapshot's `:data` slot at the `:where :machine-data` boundary
    (rf2-t5ky67 issue 2 / Spec 005 §Schema validation).
 
    The fixture fns live HERE (the adapter test tree), not under
    examples/core/login/ — the example source stays test-free per the
-   locked test-free-examples policy (rf2-8cevm). The ns requires the
-   example's production source (`login.core`) so its machine / events /
-   schemas register at ns-load, then exercises the MACHINE directly.
+   locked test-free-examples policy (rf2-8cevm). The ns requires the login
+   feature's substrate-free model owner (`login.model`, the ONE owner of the
+   `auth.login` registrations shared across the Reagent/UIx/Helix login
+   examples — rf2-ppbvav) so its machine / events / schemas register at ns-load,
+   then exercises the MACHINE directly.
 
    Post rf2-3fc89f.33 the machine is credential-free: `submit-form` owns the
    (sensitive) HTTP request, and the machine receives only signals —
@@ -36,11 +38,11 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             ;; The schemas Malli adapter publishes the registered validator
-            ;; the `:where :machine-data` boundary routes through; login.core
+            ;; the `:where :machine-data` boundary routes through; login.model
             ;; pulls it transitively, require here so the ns is self-sufficient.
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
-            [login.core])
+            [login.model])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
@@ -96,14 +98,14 @@
   (testing "the login machine carries AuthLoginData on its [:schemas :data] slot"
     (let [meta (machines/machine-meta :auth.login/flow)]
       (is (some? meta) "machine-meta resolves the registered login machine")
-      (is (= login.core/AuthLoginData (get-in meta [:schemas :data]))
-          "the [:schemas :data] schema round-trips as login.core/AuthLoginData")))
+      (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
+          "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))
   (testing "AuthLoginData validates the :data slot only (rejects a non-string :error)"
-    (is (true?  (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts 0 :error nil})))
-    (is (true?  (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts 1 :error "Login failed."})))
-    (is (false? (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts 0 :error {:not "a string"}}))
+    (is (true?  (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error nil})))
+    (is (true?  (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 1 :error "Login failed."})))
+    (is (false? (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error {:not "a string"}}))
         "a non-string :error fails the data-slot schema")
-    (is (false? (schemas/validate-with-registered-fn login.core/AuthLoginData {:attempts "x" :error nil}))
+    (is (false? (schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
         "a non-int :attempts fails the data-slot schema")))
 
 ;; ---------------------------------------------------------------------------

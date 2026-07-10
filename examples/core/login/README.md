@@ -6,7 +6,9 @@ Most other examples in this tree show one idea on its own — a subscription, a 
 
 Read this when you've seen the smaller examples and you want to know how the pieces fit.
 
-Everything in the feature shares one prefix: `:auth.login/*`. The machine, the events, the subscriptions — all of it. (The registered views are the one exception: their ids come from the file's namespace, e.g. `:login.core/root-view`.) That prefix marks the unit you'd lift into its own folder in a real codebase (more on that below). Here it's one file, kept compact so you — or an AI reading it — can take in the whole feature at once.
+Everything in the feature shares one prefix: `:auth.login/*`. The machine, the events, the subscriptions — all of it. (The registered views are the one exception: their ids come from the file's namespace, e.g. `:login.core/root-view`.) That prefix marks the unit you'd lift into its own folder in a real codebase (more on that below).
+
+The whole substrate-free half of that feature — the machine, schemas, events, subs, demo HTTP stub, and frame config — lives in one place: [`model.cljs`](model.cljs), the namespace `login.model`. It is the **single owner** of the `auth.login` dataflow. This `core.cljs` and its two twins ([UIx](../../substrates/uix/login/), [Helix](../../substrates/helix/login/)) each `:require` that model and add only their own views + mount. So the model you read below lives once, not three times — one owner, three view layers.
 
 ## What this demonstrates
 
@@ -32,7 +34,7 @@ The whole flow is one transition table, registered with `reg-machine` under the 
 
 - **Registered views.** `login-form`, `locked-panel`, `login-banner`, and `root-view` are all registered with `reg-view`. The form is a **controlled** [Pattern-Forms](../../../spec/Pattern-Forms.md) view. It holds no view-local state. The email/password **draft** lives in the app-db slice at `[:auth :login-form]`; each input's `:value` reads it through the `:auth.login/draft` subscription, and `:on-change` dispatches an edit event (`:auth.login/edit-field` for the email, `:auth.login/edit-password` for the secret). (`reg-view` auto-injects `dispatch` and `subscribe`, bound to the render-time frame, so they survive async callbacks.)
 
-- **The form's draft is application state, not view state.** This is the Pattern-Forms *machine + slice* split. The **slice** at `[:auth :login-form]` owns the **draft**, projected via subscriptions and changed via the standard form events (`initialise-form` / `edit-field` / `edit-password` / `submit-form` / `reset-form`). The **machine** owns submit/auth status. On submit, the draft is validated against `Credentials`, the login request is issued, and the machine is nudged with a credential-free signal. The slice, events, and subscriptions are identical across the Reagent, UIx, and Helix variants; only the view syntax differs.
+- **The form's draft is application state, not view state.** This is the Pattern-Forms *machine + slice* split. The **slice** at `[:auth :login-form]` owns the **draft**, projected via subscriptions and changed via the standard form events (`initialise-form` / `edit-field` / `edit-password` / `submit-form` / `reset-form`). The **machine** owns submit/auth status. On submit, the draft is validated against `Credentials`, the login request is issued, and the machine is nudged with a credential-free signal. The slice, events, and subscriptions live once in `login.model` and drive the Reagent, UIx, and Helix views unchanged; only the view syntax differs.
 
 - **Tags, not boolean subs.** Three states carry tags — `:auth/busy` on `:submitting`, `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`. Views ask the question by tag — `@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])` to disable inputs while a request is in flight — instead of listing exact state names. *Ask, don't tell*: add a second busy state later, and the views don't change.
 
@@ -48,17 +50,20 @@ The password **never enters the machine** — `:submit-form` sends the request a
 
 ## Why this shape
 
-This is the **canonical cross-substrate base**. The exact same login feature — same machine, same schemas, same HTTP stub — is mirrored 1:1 as [`examples/substrates/uix/login/`](../../substrates/uix/login/) and [`examples/substrates/helix/login/`](../../substrates/helix/login/). Only the view layer differs. That's deliberate: it makes the three substrate variants a clean apples-to-apples comparison, where the only moving part is the rendering library. (Per Decision 7 — the curated example set — in Spec 006's UIx and Helix substrate sections.)
+This is the **canonical cross-substrate base**. The exact same login feature — the same `login.model` machine, schemas, and HTTP stub — is imported by [`examples/substrates/uix/login/`](../../substrates/uix/login/) and [`examples/substrates/helix/login/`](../../substrates/helix/login/). Only the view layer differs. That's deliberate: it makes the three substrate variants a clean apples-to-apples comparison, where the only moving part is the rendering library — held against a model that is not merely *equal* across the three but *literally the same source*. (Per Decision 7 — the curated example set — in Spec 006's UIx and Helix substrate sections.)
 
 The substrate here is **stock Reagent** (not reagent-slim). This is the reference example, so it sits on the reference substrate. If it's the stock-vs-slim *contrast* you want, that's a different pair: `counter` / `counter_slim_and_fast`.
 
-**A note on layout (this is example layout, not production layout).** In a real codebase this single file would split along the seams the `:auth.login/*` slice already implies — `login/schema.cljc | events.cljs | subs.cljs | views.cljs | machines.cljs`. Here it's one file on purpose, so you can read it whole.
+**A note on layout (this is example layout, not production layout).** The substrate-free half already lives in its own file, `model.cljs` — the seam a real codebase draws first. In a larger app you'd split `model.cljs` further along the seams the `:auth.login/*` slice implies — `login/schema.cljc | events.cljs | subs.cljs | machines.cljs`. Here the model is one file so you can read it whole; each `core.cljs` keeps only the views + mount.
 
 ## Files
 
 ```
 login/
-  core.cljs            — schema + events + subs + views + machine + mount.
+  model.cljs           — THE substrate-free owner: schema + fx + machine +
+                         events + subs + frame config. Shared, id for id, by
+                         all three login examples (Reagent / UIx / Helix).
+  core.cljs            — the Reagent HALF: reg-view views + adapter init + mount.
   index.html           — minimal host page (the live app).
   stories.cljs         — Story showcase: variants covering every reachable
                          :auth.login/flow state (auxiliary; see below).
@@ -66,7 +71,7 @@ login/
   stories.index.html   — host page for the Story-showcase build.
 ```
 
-The three `stories*` files are an **intentionally auxiliary Story showcase** layered over this example (build `:examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources `login.core`'s real machine, schemas, and views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase *this* worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
+The three `stories*` files are an **intentionally auxiliary Story showcase** layered over this example (build `:examples/login-with-stories`). It's not a second example, and it isn't tool-owned. The login form's view-states make a natural variant set, so the showcase sources the real login dataflow (the `login.model` machine and schemas) and `login.core`'s real views and turns every reachable login state into a Story variant. The Xray preload is wired in, so the auth-submit cascade is inspectable. They live here, rather than under `tools/story/testbeds/`, because they showcase *this* worked example end to end; the tool-owned Story testbeds at [`tools/story/testbeds/`](../../../tools/story/testbeds/) stay catalogued with the tool. See [How to run](#how-to-run) for the showcase command.
 
 ## How to run
 
