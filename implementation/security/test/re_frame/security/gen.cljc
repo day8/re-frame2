@@ -219,3 +219,137 @@
   `:rf.size/large-elided`)."
   [v]
   (and (map? v) (contains? v :rf.size/large-elided)))
+
+;; ---------------------------------------------------------------------------
+;; Nested-sensitive schema generator (rf2-iu6fqv) - lifted verbatim from the
+;; two redaction-security suites (schema-redaction + validation-invariant),
+;; which each hand-copied a structurally identical recursive generator: it
+;; wraps a `:sensitive?` sentinel-bearing LEAF slot in a random tower of
+;; collection/map combinators and plants a TYPE MISMATCH at the leaf, forcing a
+;; validation failure that carries the sentinel. Every framework redaction
+;; boundary must then scrub the sentinel from the emitted trace. Consolidating
+;; here removes the maintenance-only risk of one copy gaining an arm (a new
+;; leak class) its sibling silently misses.
+;;
+;; The two callers differed ONLY in (1) the sentinel string, (2) the maximum
+;; nesting depth, and (3) the ORDER of two arms (`:tuple` / `:map-of-key`) in
+;; the wrapper vector - a harmless historical drift: the SET of eleven arms,
+;; each arm's built shape, and the leak-free property are identical; only the
+;; seed->shape draw mapping differs. So the generator takes `sentinel`, the
+;; `arms` vector, and `max-depth` as parameters and each caller passes its own,
+;; keeping each suite's generated shapes byte-identical (a failing draw still
+;; reproduces from its recorded seed).
+;;
+;; The eleven wrapper arms and WHY each exists (which egress leak class it pins):
+;;   :map          - name the sensitive slot under a random key
+;;   :vector       - element schema (value is a 1-element vector)
+;;   :sequential   - as :vector, over a sequential coll
+;;   :map-of       - string-keyed; the sensitive slot is the VALUE
+;;   :map-of-key   - rf2-gocef0 / rf2-6ijdgh: the sentinel is planted AS the key
+;;                   under a `:sensitive?` key schema. Malli reports the failing
+;;                   key VALUE verbatim as the :in segment, so the walker's
+;;                   :map-of key-scrub branch must scrub it from :path / :reason.
+;;                   inner-val ALSO carries the sentinel at the leaf, so BOTH the
+;;                   key AND the value must redact.
+;;   :tuple        - sensitive slot at element 1 (an int filler sits at 0)
+;;   :set          - rf2-ss06u.1: a :set wraps a navigable MAP carrying the
+;;                   sensitive slot; Malli reports the element VALUE as the :in
+;;                   segment, so the failing element would ride verbatim in :path
+;;                   absent the sanitiser.
+;;   :and :or :multi :orn - rf2-ss06u.2: transparent single-child wrappers
+;;                   align-in-path cannot resolve. The sensitivity sits on a
+;;                   CONSUMED ANCESTOR (the named :map slot); the failing leaf
+;;                   lives under the wrapper. Absent the prefix-carry fix the
+;;                   leftover subtree shows no sensitivity and the value leaks.
+;; The leaf is a `:sensitive? :string` slot whose value is the sentinel wrapped
+;; in a vector (WRONG type), so `:string` fails and the redaction path fires.
+;; ---------------------------------------------------------------------------
+
+(def ^:private gen-sensitive-key
+  "Random slot key for the nested-sensitive generator's `:map`-family arms."
+  (gen-elem [:auth :token :secret :pw :ssn :payload :inner :node :a :b]))
+
+(defn- sensitive-shape
+  "Generator returning `[schema db-value]` with a `sentinel`-bearing
+  `:sensitive?` leaf wrapped in up to `depth` random collection/map layers
+  drawn from `arms`. `depth` bounds recursion. See the block comment above for
+  each arm."
+  [sentinel arms depth]
+  (if (<= depth 0)
+    ;; Leaf: a sensitive :string slot whose value is the WRONG type (the
+    ;; sentinel wrapped in a vector - fails :string, so the failure trace
+    ;; would carry the sentinel verbatim absent redaction).
+    (fn [rng]
+      [[[:string {:sensitive? true}] [sentinel]] rng])
+    (fn [rng]
+      (let [[wrap rng1] (rand-nth rng arms)
+            [[inner-schema inner-val] rng2] ((sensitive-shape sentinel arms (dec depth)) rng1)]
+        (case wrap
+          :map
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            [[[:map [k inner-schema]] {k inner-val}] rng3])
+
+          :vector
+          [[[:vector inner-schema] [inner-val]] rng2]
+
+          :sequential
+          [[[:sequential inner-schema] [inner-val]] rng2]
+
+          :map-of
+          [[[:map-of :string inner-schema] {"k" inner-val}] rng2]
+
+          ;; The sensitive slot is the :map-of KEY (not the value); the sentinel
+          ;; is planted AS the key. BOTH the key and the leaf value carry the
+          ;; sentinel; both must redact.
+          :map-of-key
+          [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-val}] rng2]
+
+          :tuple
+          ;; sensitive slot is element 1; element 0 is an int filler.
+          [[[:tuple :int inner-schema] [0 inner-val]] rng2]
+
+          ;; A :set wraps a MAP carrying the sensitive inner slot (so the set
+          ;; element is a navigable map) under a random key.
+          :set
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            [[[:set [:map [k inner-schema]]] #{{k inner-val}}] rng3])
+
+          ;; Transparent single-child wrappers: the WRAPPER slot is the
+          ;; sensitive container (props on the named :map slot) so the
+          ;; sensitivity is on a CONSUMED ANCESTOR; the failing leaf lives
+          ;; under the :and/:or/:multi/:orn.
+          :and
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            [[[:map [k {:sensitive? true} [:and inner-schema]]] {k inner-val}] rng3])
+
+          :or
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            [[[:map [k {:sensitive? true} [:or inner-schema]]] {k inner-val}] rng3])
+
+          :multi
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            ;; :multi needs a dispatch; wrap the inner under a single branch
+            ;; keyed by a fixed dispatch value carried in the value map.
+            [[[:map [k {:sensitive? true}
+                     [:multi {:dispatch :rf2/d}
+                      [:x [:map [:rf2/d :keyword] [:v inner-schema]]]]]]
+              {k {:rf2/d :x :v inner-val}}] rng3])
+
+          :orn
+          (let [[k rng3] (gen-sensitive-key rng2)]
+            [[[:map [k {:sensitive? true} [:orn [:x inner-schema]]]] {k inner-val}] rng3]))))))
+
+(defn nested-sensitive-generator
+  "Generator drawing `[schema db-value]` where a `sentinel`-bearing
+  `:sensitive?` slot lives at a random `1..max-depth`-deep nesting built from
+  the wrapper keywords in `arms`. A type mismatch at the leaf forces a
+  validation failure carrying the sentinel; the redaction boundary under test
+  must scrub it from every emitted trace slot.
+
+  Parameterized (not hard-coded) so the two redaction-security suites share one
+  implementation while each keeps its own sentinel, wrapper-arm order, and depth
+  range - see the block comment above for the historical arm-order drift."
+  [sentinel arms max-depth]
+  (fn [rng]
+    (let [[depth rng1] (next-int rng max-depth)]
+      ((sensitive-shape sentinel arms (inc depth)) rng1))))

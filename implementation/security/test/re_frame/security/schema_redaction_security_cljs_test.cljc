@@ -89,125 +89,23 @@
 ;; ---------------------------------------------------------------------------
 ;; Recursive generator - build [schema db] where a :sensitive? scalar slot
 ;; lives at an arbitrary collection/map nesting depth, with the sentinel
-;; planted at that slot but a TYPE MISMATCH forcing a validation failure.
-;;
-;; Each layer wraps the inner [schema value] in one of:
-;;   :map     - name the slot with a random key
-;;   :vector  - element schema (value becomes a 1-or-2 element vector)
-;;   :sequential
-;;   :map-of  - string-keyed
-;;   :tuple   - sensitive slot at a random tuple index
-;; The leaf is a :sensitive? :string slot whose value is the sentinel as a
-;; NON-string (a vector wrapping it) so :string fails and the redaction path
-;; fires.
+;; planted at that slot but a TYPE MISMATCH forcing a validation failure. The
+;; recursive walk, the eleven wrapper arms, and the leaf are shared with the
+;; validation-invariant suite via `gen/nested-sensitive-generator` (rf2-iu6fqv;
+;; see that fn for each arm's rationale). This suite keeps its own sentinel and
+;; passes its own wrapper-arm order + a 1..6 depth, so its generated shapes are
+;; byte-identical to before (a failing draw still reproduces from its seed).
+;; The `:tuple`-before-`:map-of-key` order below is this suite's historical draw
+;; order, preserved deliberately - see the shared block comment on the drift.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private gen-key
-  (gen/gen-elem [:auth :token :secret :pw :ssn :payload :inner :node :a :b]))
-
-(defn- gen-shape
-  "Generator returning `[schema db-value]`. `depth` bounds recursion."
-  [depth]
-  (if (<= depth 0)
-    ;; Leaf: a sensitive :string slot whose value is the WRONG type (the
-    ;; sentinel wrapped in a vector - fails :string, so the failure trace
-    ;; would carry the sentinel verbatim absent redaction).
-    (fn [rng]
-      [[[:string {:sensitive? true}] [sentinel]] rng])
-    (fn [rng]
-      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :tuple
-                                           ;; rf2-gocef0 / rf2-6ijdgh — the
-                                           ;; sensitive :map-of KEY class. Every
-                                           ;; other :map-of shape here puts the
-                                           ;; sensitive slot in the VALUE; this
-                                           ;; arm plants the sentinel AS the key
-                                           ;; under a `:sensitive?` key schema, so
-                                           ;; Malli reports the secret verbatim as
-                                           ;; the :in KEY segment and the walker's
-                                           ;; :map-of key-scrub branch must scrub
-                                           ;; it from :path / :reason.
-                                           :map-of-key
-                                           ;; rf2-ss06u.1 / rf2-ss06u.2 — the
-                                           ;; set-element-value `:path` leak
-                                           ;; and the consumed-ancestor
-                                           ;; transparent-wrapper leaks. These
-                                           ;; reach align-in-path's :else
-                                           ;; fallback (or carry the element
-                                           ;; value into :path for :set).
-                                           :set :and :or :multi :orn])
-            [[inner-schema inner-val] rng2] ((gen-shape (dec depth)) rng1)]
-        (case wrap
-          :map
-          (let [[k rng3] (gen-key rng2)]
-            [[[:map [k inner-schema]] {k inner-val}] rng3])
-
-          :vector
-          [[[:vector inner-schema] [inner-val]] rng2]
-
-          :sequential
-          [[[:sequential inner-schema] [inner-val]] rng2]
-
-          :map-of
-          [[[:map-of :string inner-schema] {"k" inner-val}] rng2]
-
-          ;; rf2-gocef0 / rf2-6ijdgh — the sensitive slot is the :map-of KEY
-          ;; (not the value): [:map-of [:string {:sensitive? true}] inner], the
-          ;; sentinel planted AS the key. Malli reports the failing key VALUE
-          ;; verbatim as the :in segment, so `sanitize-sensitive-path`'s
-          ;; :map-of key-scrub branch must scrub it from :path / :reason — the
-          ;; one collection-navigation-segment-carries-the-secret sibling this
-          ;; tier pinned for its neighbours (:set element, :tuple) but not
-          ;; itself. inner-val ALSO carries the sentinel at the leaf, so BOTH
-          ;; the key AND the value must redact.
-          :map-of-key
-          [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-val}] rng2]
-
-          :tuple
-          ;; sensitive slot is element 1; element 0 is an int filler.
-          [[[:tuple :int inner-schema] [0 inner-val]] rng2]
-
-          ;; rf2-ss06u.1 — a :set wraps a MAP carrying the sensitive inner
-          ;; slot (so the set element is a navigable map, mirroring the bead
-          ;; repro) under a random key. Malli reports the element VALUE as the
-          ;; :in segment, so the failing element (incl. the sentinel) would
-          ;; ride verbatim in :path absent the sanitiser.
-          :set
-          (let [[k rng3] (gen-key rng2)]
-            [[[:set [:map [k inner-schema]]] #{{k inner-val}}] rng3])
-
-          ;; rf2-ss06u.2 — transparent single-child wrappers that
-          ;; align-in-path cannot resolve. We make the WRAPPER slot the
-          ;; sensitive container (props on the named :map slot) so the
-          ;; sensitivity is on a CONSUMED ANCESTOR; the failing leaf lives
-          ;; under the :and/:or/:multi/:orn. Absent the prefix-carry fix the
-          ;; leftover subtree shows no sensitivity and the value leaks.
-          :and
-          (let [[k rng3] (gen-key rng2)]
-            [[[:map [k {:sensitive? true} [:and inner-schema]]] {k inner-val}] rng3])
-
-          :or
-          (let [[k rng3] (gen-key rng2)]
-            [[[:map [k {:sensitive? true} [:or inner-schema]]] {k inner-val}] rng3])
-
-          :multi
-          (let [[k rng3] (gen-key rng2)]
-            ;; :multi needs a dispatch; wrap the inner under a single branch
-            ;; keyed by a fixed dispatch value carried in the value map.
-            [[[:map [k {:sensitive? true}
-                     [:multi {:dispatch :rf2/d}
-                      [:x [:map [:rf2/d :keyword] [:v inner-schema]]]]]]
-              {k {:rf2/d :x :v inner-val}}] rng3])
-
-          :orn
-          (let [[k rng3] (gen-key rng2)]
-            [[[:map [k {:sensitive? true} [:orn [:x inner-schema]]]] {k inner-val}] rng3]))))))
 
 (def ^:private gen-nested-sensitive
   "Draw a `[schema db-value]` with a sentinel-bearing :sensitive? slot at a
   random 1..6-deep collection/map nesting."
-  (fn [rng]
-    (let [[depth rng1] (gen/next-int rng 6)]
-      ((gen-shape (inc depth)) rng1))))
+  (gen/nested-sensitive-generator
+    sentinel
+    [:map :vector :sequential :map-of :tuple :map-of-key :set :and :or :multi :orn]
+    6))
 
 ;; ---------------------------------------------------------------------------
 ;; End-to-end harness - register the schema, validate the failing db,
