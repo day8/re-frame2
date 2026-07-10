@@ -82,7 +82,7 @@
   A failing assertion means the underlying algorithm drifted; the
   spec wording must update in lockstep."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
 ;; ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- measure
-  "Apply `dedup/dedup-value` to `payload`, count `pr-str` bytes before
+  "Apply `base-dedup/dedup-value` to `payload`, count `pr-str` bytes before
   and after, and return a measurement map for logging + assertion.
 
   Returns `{:label .. :events .. :raw-bytes .. :deduped-bytes ..
@@ -199,7 +199,7 @@
   (the 'Nx compression' the spec quotes)."
   [label events payload]
   (let [raw-bytes     (count (pr-str payload))
-        wrapped       (dedup/dedup-value payload true)
+        wrapped       (base-dedup/dedup-value payload true)
         deduped-bytes (count (pr-str wrapped))
         ratio         (if (pos? deduped-bytes)
                         (/ raw-bytes deduped-bytes 1.0)

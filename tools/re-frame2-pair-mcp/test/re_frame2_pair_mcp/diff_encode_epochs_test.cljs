@@ -5,10 +5,11 @@
   epoch slice), every `:rf/epoch-record` shipped over the wire has
   its `:db-after` replaced with a path-keyed structural diff against
   its own `:db-before` by default. The transform lives in
-  `re-frame.mcp-base.diff-encode` at the cross-MCP boundary; the
-  re-frame2-pair-mcp aliases (`tools.dedup/diff-encode-epochs`,
-  `tools.dedup/parse-epochs-mode`) re-export the surface and the
-  snapshot pipeline composes them via
+  `re-frame.mcp-base.diff-encode` at the cross-MCP boundary — consumers
+  require it DIRECTLY (rf2-ywkiss removed the `tools.dedup` pass-through
+  facade); the `epochs-mode` wire-arg normaliser lives in
+  `re-frame2-pair-mcp.tools.args/parse-epochs-mode` and the snapshot
+  pipeline composes the transform via
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`.
 
   Tests pin the public surfaces directly:
@@ -18,7 +19,7 @@
   `re-frame.mcp-base.diff-encode/decode-db-after`,
   `re-frame.mcp-base.diff-encode/diff-encode-epochs`,
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`,
-  `tools.dedup/parse-epochs-mode`. A rename or signature change
+  `tools.args/parse-epochs-mode`. A rename or signature change
   surfaces as a failing test rather than silent contract drift.
 
   Live end-to-end coverage runs against a real shadow-cljs build
@@ -26,7 +27,7 @@
   transforms and the round-trip property."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.mcp-base.diff-encode :as diff]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]))
 
 ;; ---------------------------------------------------------------------------
@@ -350,22 +351,22 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-epochs-mode-default-is-diff
-  (is (= :diff (dedup/parse-epochs-mode nil))))
+  (is (= :diff (args/parse-epochs-mode nil))))
 
 (deftest parse-epochs-mode-strings-accepted
-  (is (= :diff (dedup/parse-epochs-mode "diff")))
-  (is (= :full (dedup/parse-epochs-mode "full"))))
+  (is (= :diff (args/parse-epochs-mode "diff")))
+  (is (= :full (args/parse-epochs-mode "full"))))
 
 (deftest parse-epochs-mode-keywords-accepted
-  (is (= :diff (dedup/parse-epochs-mode :diff)))
-  (is (= :full (dedup/parse-epochs-mode :full))))
+  (is (= :diff (args/parse-epochs-mode :diff)))
+  (is (= :full (args/parse-epochs-mode :full))))
 
 (deftest parse-epochs-mode-unknown-falls-back-to-diff
   ;; Least-surprise on the budget-sensitive default: an unrecognised
   ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (= :diff (dedup/parse-epochs-mode "garbage")))
-  (is (= :diff (dedup/parse-epochs-mode 42)))
-  (is (= :diff (dedup/parse-epochs-mode :other))))
+  (is (= :diff (args/parse-epochs-mode "garbage")))
+  (is (= :diff (args/parse-epochs-mode 42)))
+  (is (= :diff (args/parse-epochs-mode :other))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-size impact: 10-epoch window with a 1MB app-db, single-key

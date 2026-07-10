@@ -53,8 +53,8 @@
   iterating on the per-pipeline arm. A separate runner would
   duplicate the deps wiring for no information gain."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.elision :as base-elision]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
 ;; ---------------------------------------------------------------------------
@@ -261,7 +261,7 @@
                         :db-before big-map
                         :db-after  (assoc big-map :touched i)}))
         label   "dedup-value (50 epochs / 1K-key shared :db-before)"
-        samples (bench-times 20 #(dedup/dedup-value epochs true))]
+        samples (bench-times 20 #(base-dedup/dedup-value epochs true))]
     (report-line label samples)
     (is (< (median samples) 5000)
         (str "50-epoch dedup median MUST stay under 5s on representative shapes  "
@@ -274,7 +274,7 @@
                   :db-before big-map
                   :db-after  (assoc big-map :touched 1)}]
         label   "dedup-value (1 epoch / 1K-key :db-before)"
-        samples (bench-times 50 #(dedup/dedup-value epochs true))]
+        samples (bench-times 50 #(base-dedup/dedup-value epochs true))]
     (report-line label samples)
     (is (< (median samples) 500)
         (report-str label samples))))

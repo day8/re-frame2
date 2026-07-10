@@ -20,8 +20,9 @@
   than through the live nREPL eval boundary (covered by the
   stdio-roundtrip harness)."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.mcp-base.dedup :as base-dedup]
+            [re-frame.mcp-base.diff-encode :as base-diff]
             [re-frame.mcp-base.elision :as base-elision]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
 (defn- large-marker
@@ -70,8 +71,8 @@
   (testing "the deduped payload genuinely pools the 3 equal markers — proving the fix is load-bearing"
     (let [marker  (large-marker [:slot])
           epochs  (vec (for [n (range 3)] (epoch-with-marker n marker)))
-          encoded (dedup/diff-encode-epochs epochs :diff)
-          deduped (dedup/dedup-value encoded true)]
+          encoded (base-diff/diff-encode-epochs epochs :diff)
+          deduped (base-dedup/dedup-value encoded true)]
       ;; Walking `deduped` returns 1 here (the undercount); walking
       ;; `encoded` — the pipeline's choice — returns the correct 3.
       (is (= 1 (base-elision/count-elided-markers deduped))

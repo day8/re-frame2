@@ -14,7 +14,6 @@
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.elision :as elision]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
@@ -35,7 +34,7 @@
                       (args/parse-bool-arg raw-args :include-sensitive)
                       false)
         path        (args/parse-path-arg (wire/arg raw-args :path))
-        mode        (dedup/parse-epochs-mode (wire/arg raw-args :epochs-mode))
+        mode        (args/parse-epochs-mode (wire/arg raw-args :epochs-mode))
         ;; Global lazy-summary mode: `:summary` (default)
         ;; replaces every rich slice with a tree-summary marker;
         ;; `:full` ships the full payload. Per-slice override via

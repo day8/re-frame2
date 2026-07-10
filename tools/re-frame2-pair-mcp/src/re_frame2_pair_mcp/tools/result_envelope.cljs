@@ -19,8 +19,9 @@
       re-parse.
 
   The project's wire-SIZE machinery — elision, dedup, the
-  token-budget cap (`re-frame.mcp-base.*`, `tools.elision`,
-  `tools.dedup`, `tools.cap`) — handles payload size; this namespace is
+  token-budget cap (`re-frame.mcp-base.*` — incl. the shared
+  `re-frame.mcp-base.dedup` encode step —, `tools.elision`,
+  `tools.cap`) — handles payload size; this namespace is
   the wire-FIDELITY/typing layer and composes ON TOP of elision:
   the runtime-side wrap classifies the value, and the elision walker (if
   the caller routes through it) still runs over the `:value` payload —

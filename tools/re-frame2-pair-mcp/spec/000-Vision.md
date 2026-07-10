@@ -98,7 +98,7 @@ src tree carries further concern ns — `resource_controls`, `source_uri`,
 | Precheck (early-exit gates)   | `tools/precheck.cljs`             |
 | Cache (per-session response)  | `cache.cljs`                      |
 | Cap (token-budget pipeline)   | `tools/cap.cljs`                  |
-| Dedup (structural)            | `tools/dedup.cljs`                |
+| Dedup (structural)            | `re-frame.mcp-base.dedup` (required directly) |
 | Elision (size-bounded leaves) | `tools/elision.cljs`              |
 | Sensitive (privacy filter)    | `tools/sensitive.cljs`            |
 | Cursor (pagination)           | `tools/cursor.cljs`               |

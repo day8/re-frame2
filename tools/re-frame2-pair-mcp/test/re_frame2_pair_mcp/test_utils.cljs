@@ -29,9 +29,9 @@
 
   ## `dedup-expand`
 
-  The inverse of `tools.dedup/dedup-value`, useful to assert round-trip
-  exactness against an MCP-shaped wire payload without growing the
-  production surface. The agent host reconstructs locally via
+  The inverse of `re-frame.mcp-base.dedup/dedup-value`, useful to assert
+  round-trip exactness against an MCP-shaped wire payload without growing
+  the production surface. The agent host reconstructs locally via
   `de-dupe.core/expand`; the MCP server never calls the inverse, so the
   helper lives here, signalling \"test-only\" by location.
 
@@ -187,8 +187,9 @@
         (.finally (fn [] (restore-freshness! stub orig))))))
 
 (defn dedup-expand
-  "Reverse `tools.dedup/dedup-value`. Given a value possibly wrapped in
-  the `:rf.mcp/dedup-table` marker, reconstruct the original structure
+  "Reverse `re-frame.mcp-base.dedup/dedup-value`. Given a value possibly
+  wrapped in the `:rf.mcp/dedup-table` marker, reconstruct the original
+  structure
   via `de-dupe.core/expand`. Idempotent on already-expanded values
   (returns the input unchanged when the wrapper isn't present)."
   [v]
