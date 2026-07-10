@@ -30,11 +30,11 @@ Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :nam
 > clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' \
 >         -Tnew create :template day8/re-frame2-template :name acme/my-app
 > ```
-> (or just follow this skill's manual seven-step path). The published
+> (or just follow this skill's manual six-step path). The published
 > invocation is forward-correct and will work once the repo split and first
 > release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
 
-The two routes are complementary, not redundant, and run by different actors: the **template** is a user-run `clojure -Tnew create …` command; **this skill** executes the manual seven-step scaffold instead (its `allowed-tools` deliberately exclude `-Tnew`). When it steers you toward the generator it hands you the command to run — see [`SKILL.md` cardinal rule 5](SKILL.md). Both routes land on the same canonical scaffold.
+The two routes are complementary, not redundant, and run by different actors: the **template** is a user-run `clojure -Tnew create …` command; **this skill** executes the manual scaffold instead (its `allowed-tools` deliberately exclude `-Tnew`). When it steers you toward the generator it hands you the command to run — see [`SKILL.md` cardinal rule 5](SKILL.md). Both routes land on the same canonical scaffold.
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
@@ -43,7 +43,7 @@ The two routes are complementary, not redundant, and run by different actors: th
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
 Either way you end up at the same canonical shape — the skill walks the
-seven-step path manually and lands on the template's day-one scaffold
+six-step path manually and lands on the template's day-one scaffold
 (core + Reagent adapter + schemas + Xray, `init` entry symbol); the
 template performs the same steps for you in one command. After the
 counter mounts, the same handoff to `re-frame2` / `re-frame2-pair`
@@ -51,15 +51,14 @@ applies.
 
 ## What it covers
 
-The canonical seven-step greenfield path:
+The canonical six-step greenfield path:
 
 1. Discover the current re-frame2 VERSION (the eleven artefacts ship in lockstep; Xray rides the same line).
 2. Add the day-one deps to `deps.edn` — `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
 3. Add `react`, `react-dom`, `shadow-cljs` to `package.json`. Run `npm install`.
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
-5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`.
-6. Write the first counter — registered event, registered sub, `reg-view`-defined view, mount.
-7. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
+5. Write `src/your_app/core.cljs` — the whole counter in one file: `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`, and the registered event + sub + `reg-view` view + schema. (first-counter.md is the sole copy-complete source; entry-namespace.md explains the boot lifecycle.)
+6. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
 
 ## What it deliberately does NOT cover
 
@@ -98,7 +97,7 @@ skills/re-frame2-setup/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the seven-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 
@@ -145,9 +144,9 @@ The skill's description auto-matches when you talk about starting a new re-frame
 
 ### What happens
 
-Claude reads `SKILL.md` and walks the seven-step path. For each step, it reads the matching `references/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns skeleton, the counter source).
+Claude reads `SKILL.md` and walks the six-step path. For each step, it reads the matching `references/` leaf only if the step needs depth (which is most of them, since the leaves carry the actual concrete shapes — `deps.edn` entries, `shadow-cljs.edn`, the entry-ns boot lifecycle, the copy-complete counter source).
 
-When all seven steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
+When all six steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
 
 ## Cross-link
 

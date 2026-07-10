@@ -16,7 +16,7 @@ The same four pillars as the `re-frame2` skill, scoped to greenfield bootstrap:
 
 1. **Correctness — recipes over explanations.** Walks through the exact deps, the exact `shadow-cljs.edn` shape, the exact entry-namespace contract. The author copies the recipe; doesn't re-derive it. **Q14 lock applies: NO verification module** — the author runs the build; the skill doesn't.
 2. **Idiomaticness — verified against `examples/core/counter/` and the canonical artefacts.** The first-counter shape mirrors `examples/core/counter/core.cljs` trimmed for greenfield. Dep coords match what `day8/re-frame2` ships.
-3. **Context economy — `SKILL.md` is a router; four one-level-deep leaves carry the depth.** SKILL.md walks the seven-step canonical path; leaves carry per-step depth.
+3. **Context economy — `SKILL.md` is a router; four one-level-deep leaves carry the depth.** SKILL.md walks the six-step canonical path; leaves carry per-step depth.
 4. **Assume training knowledge.** The author knows `deps.edn`, `npm`, `shadow-cljs`, what a Reagent component is. The skill teaches only the **re-frame2-specific wiring** — which artefacts to add, the `rf/init!` contract, the order of operations between adapter install and React mount.
 
 ## 3. Locked decisions
@@ -68,7 +68,7 @@ SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-fr
 ### In scope
 
 - Authors starting a new directory (or an existing CLJS project) that needs re-frame2 wiring.
-- The seven canonical steps: discover versions → `deps.edn` → `package.json` → `shadow-cljs.edn` → entry ns → first counter → run.
+- The six canonical steps: discover versions → `deps.edn` → `package.json` → `shadow-cljs.edn` → `core.cljs` (entry ns + first counter, one file) → run.
 - Reagent v2 as the default substrate.
 - Troubleshooting the common build failures (SKILL.md's Troubleshooting section: missing `.cljs` namespace vs missing npm React, missing `rf/init!`, missing `<div id="app">`, `:init-fn` mismatch, Xray host missing, and more).
 
@@ -85,7 +85,7 @@ SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-fr
 
 ```
 skills/re-frame2-setup/
-├── SKILL.md                       (router; the seven-step canonical path)
+├── SKILL.md                       (router; the six-step canonical path)
 ├── README.md                      (human-facing intro)
 ├── LICENSE                        (MIT)
 ├── package.json                   (npm metadata)

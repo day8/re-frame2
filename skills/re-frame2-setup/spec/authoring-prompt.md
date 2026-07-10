@@ -43,15 +43,14 @@ A self-contained prompt that re-authors the `re-frame2-setup` skill from this `s
 >
 > *Every reference leaf follows the family leaf-size discipline — ≤250 lines AND ≤16 KB (target ~150 lines / ~10 KB; see `skills/README.md` §Leaf size discipline). `entry-namespace.md` runs slightly over on bytes because it carries the CI-pinned UIx/Helix greenfield recipe (the `check_skill_setup_counter_drift.py` guard pins those snippets to that file, so it can't be split). SKILL.md is the router (under Anthropic's 500-line ceiling). All leaves are one level deep.*
 >
-> *SKILL.md walks the seven canonical steps:*
+> *SKILL.md walks the six canonical steps:*
 >
 > *1. Discover the current artefact VERSION.*
 > *2. Add deps to `deps.edn`.*
 > *3. Add npm deps to `package.json`.*
 > *4. Write `shadow-cljs.edn`.*
-> *5. Write the entry namespace with `(rf/init! reagent-adapter/adapter)` before any render. Exported entry symbol is `init` (matches the generator template).*
-> *6. Write the first counter (schema + event + sub + reg-view + mount; the whole-app-db schema attaches frame-locally at boot under `with-frame`, matching the generator).*
-> *7. Run it and verify.*
+> *5. Write `core.cljs` — the whole counter in one file: `(rf/init! reagent-adapter/adapter)` before any render, exported `init` entry symbol (matches the generator template), and schema + event + sub + reg-view + mount (the whole-app-db schema attaches frame-locally at boot under `with-frame`, matching the generator). first-counter.md is the sole copy-complete source; entry-namespace.md explains the boot lifecycle.*
+> *6. Run it and verify.*
 >
 > *Cardinal rules to bake in (these go in SKILL.md):*
 >

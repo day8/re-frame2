@@ -1,10 +1,10 @@
 # Entry namespace
 
-The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at. This file is where re-frame2 wires up to the substrate (Reagent) and to the DOM.
+The **boot lifecycle** of `your-app/core.cljs` — the entry namespace shadow-cljs's `:init-fn` points at, where re-frame2 wires up to the substrate (Reagent) and to the DOM. The **sole copy-complete `core.cljs`** you write lives in [`first-counter.md` §The whole file](first-counter.md); this leaf explains the boot ceremony that file performs (and the substrate deltas for a UIx / Helix greenfield) so you understand each line rather than pasting it blind.
 
 ## Contents
 
-- The skeleton
+- The entry-namespace lifecycle
 - Order of operations
 - Why `rf/init!` exists (and why it's explicit)
 - The Reagent root pattern (`defonce` + `rdc/create-root`)
@@ -14,44 +14,18 @@ The canonical shape of `your-app/core.cljs` — the entry namespace shadow-cljs'
 
 ---
 
-## The skeleton
+## The entry-namespace lifecycle
 
-```clojure
-(ns your-app.core
-  (:require [reagent.dom.client       :as rdc]
-            [re-frame.core            :as rf]
-            [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+The entry namespace is the top of `core.cljs` — the `ns` form, a `defonce` React-root atom, and the exported `init` fn shadow-cljs calls. It is the mount half of the one copy-complete counter in [`first-counter.md`](first-counter.md) (§The whole file; counter-specific mount notes in §Mount), not a file you write separately. Reading that `init` top to bottom, it does four things, in order — full contract in §Order of operations below:
 
-;; -- mount point ------------------------------------------------------------
+1. `(rf/init! reagent-adapter/adapter)` — install the Reagent adapter (no frame yet).
+2. `(rf/reg-frame :rf/default {})` — register the app frame (a surgical, hot-reload-safe update).
+3. `(rf/with-frame :rf/default …)` — under a live frame scope, attach the frame-local schema and `(rf/dispatch-sync [:counter/initialise])` to seed app-db (the reset boundary).
+4. `(rdc/render …)` — mount the tree wrapped in `[rf/frame-provider {:frame :rf/default} …]` so every bare `dispatch` / `subscribe` under it resolves against `:rf/default`.
 
-;; Namespace load does no DOM work — the root is created lazily inside init.
-(defonce react-root (atom nil))
+`defonce` guards the React root so a save doesn't create a second one (§The Reagent root pattern). shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after **each** hot reload, so `init` IS the re-render path — no separate `^:dev/after-load` hook, and the `dispatch-sync` seed in step 3 is what re-seeds demo state on every reload. Events / subs / views live above the mount point in `core.cljs`, or in their own namespaces for anything larger (§Where everything else goes).
 
-;; -- entry ------------------------------------------------------------------
-
-;; shadow-cljs's :browser target re-runs :init-fn (init) after EACH hot
-;; reload, so init IS the re-render path — no separate ^:dev/after-load hook.
-(defn ^:export init []
-  (rf/init! reagent-adapter/adapter)             ;; install the Reagent adapter (no frame yet)
-  (rf/reg-frame :rf/default {})                   ;; register the app frame (surgical hot-reload update)
-  (rf/with-frame :rf/default                      ;; under a live frame scope:
-    (rf/dispatch-sync [:your-app/initialise]))    ;;   seed app-db synchronously — the reset boundary
-  (when-let [el (and (exists? js/document)
-                     (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    ;; frame-provider's {:frame …} SCOPE shape scopes the already-registered
-    ;; :rf/default frame into the tree (it creates / destroys nothing).
-    (rdc/render @react-root
-                [rf/frame-provider {:frame :rf/default}
-                 [counter-app]])))
-```
-
-That's the whole entry namespace. Events / subs / views go above the mount point — in this file for a tiny app, or in their own namespaces (`your-app.events` / `.subs` / `.views`) `:require`d here for anything larger.
-
-`counter-app` is the top-level registered view. `:rf/default` is the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; you register it with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (see §Order of operations). Any id works — keep it consistent across `reg-frame`, `with-frame`, and the provider.
+`counter-app` is the top-level registered view. `:rf/default` is the generator template's frame id — under EP-0002 (the carried-frame invariant) it is **not** auto-registered; you register it with `reg-frame` and scope it at the root with `frame-provider`'s `{:frame …}` SCOPE-only shape (§Order of operations). Any id works — keep it consistent across `reg-frame`, `with-frame`, and the provider.
 
 The entry symbol is `init`, matching the generator template's `:init-fn {{namespace}}.core/init`. (The repo's `examples/core/counter/core.cljs` names its entry fn `run` and uses a different boot shape — the lazy-root + `frame-provider {:id … :initial-events …}` ENSURE form; see [`boot-and-mount-an-app.md`](../../../docs/core/how-to/boot-and-mount-an-app.md). Pick any entry-symbol name and keep `:init-fn` pointing at it; this skill uses `init`.)
 
@@ -80,7 +54,7 @@ Three consequences:
 
 ## The Reagent root pattern (`defonce` + `rdc/create-root`)
 
-The skeleton holds the React root in a `defonce` atom, created lazily inside `init`. Two contractual bits:
+The entry ns holds the React root in a `defonce` atom, created lazily inside `init`. Two contractual bits:
 
 - **`defonce`** — `core.cljs` reloads on every save; without `defonce`, each reload calls `create-root` again on the same DOM node and React 19 complains loudly (or silently mounts two fighting roots). `defonce` creates the root exactly once per page load.
 - **`(js/document.getElementById "app")`** — must match the `id` in `index.html`. Mismatch here is the most common cause of a blank page with no console error.
