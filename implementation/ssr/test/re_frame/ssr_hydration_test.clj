@@ -48,7 +48,8 @@
             [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.payload-policy :as payload-policy]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -111,15 +112,6 @@
   (cond-> payload
     (and (map? payload) (:rf/response payload))
     (update :rf/app-db assoc :server-response (:rf/response payload))))
-
-(defn- capture-traces!
-  "Run f under a trace listener; return the captured event vector."
-  [f]
-  (let [traces (atom [])
-        cb-id  (gensym "::ssr-hydration-capture-")]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (rf/unregister-listener! :trace cb-id)))
-    @traces))
 
 ;; ===========================================================================
 ;; spec.cjs §(2)+(3) → hydrated marker + seeded state from payload
@@ -233,24 +225,22 @@
     (register-baseline-handlers!)
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
-          payload      (materialise-response baseline-payload)
-          traces       (capture-traces!
-                         (fn []
-                           (rf/dispatch-sync [:rf/hydrate payload]
-                                             {:frame client-frame})))
-          skipped      (filter #(= :rf.ssr/compatibility-check-skipped
-                                   (:operation %))
-                               traces)]
-      (is (seq skipped)
-          (str "expected at least one :rf.ssr/compatibility-check-skipped "
-               "trace (the baseline surface registers no "
-               ":rf2/runtime-version hook); saw operations: "
-               (pr-str (mapv :operation traces))))
-      (let [ev (first skipped)]
-        (is (= :rf.ssr/check-version (-> ev :tags :check))
-            "tag :check identifies the originating compatibility-check fx")
-        (is (= 1 (-> ev :tags :expected))
-            "tag :expected carries the payload's :rf/version verbatim")))))
+          payload      (materialise-response baseline-payload)]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+        (let [skipped (filter #(= :rf.ssr/compatibility-check-skipped
+                                  (:operation %))
+                              @traces)]
+          (is (seq skipped)
+              (str "expected at least one :rf.ssr/compatibility-check-skipped "
+                   "trace (the baseline surface registers no "
+                   ":rf2/runtime-version hook); saw operations: "
+                   (pr-str (mapv :operation @traces))))
+          (let [ev (first skipped)]
+            (is (= :rf.ssr/check-version (-> ev :tags :check))
+                "tag :check identifies the originating compatibility-check fx")
+            (is (= 1 (-> ev :tags :expected))
+                "tag :expected carries the payload's :rf/version verbatim")))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(7) → NO mismatch trace on the baseline
@@ -278,26 +268,24 @@
           ;; from "absent because no schema-digest".
           payload      (-> baseline-payload
                            (assoc :rf/schema-digest "test-digest-abc")
-                           materialise-response)
-          traces       (capture-traces!
-                         (fn []
-                           (rf/dispatch-sync [:rf/hydrate payload]
-                                             {:frame server-frame})))
-          skipped-checks
-          (filter (fn [ev]
-                    (and (= :rf.fx/skipped-on-platform (:operation ev))
-                         (#{:rf.ssr/check-version :rf.ssr/check-schema-digest}
-                          (-> ev :tags :rf.fx/id))))
-                  traces)]
-      (is (empty? skipped-checks)
-          (str "expected zero :rf.fx/skipped-on-platform traces for the two "
-               ":rf.ssr/check-* fxs on a :server-platform :rf/hydrate; saw: "
-               (pr-str (mapv (juxt :operation #(-> % :tags :rf.fx/id))
-                             skipped-checks))))
-      ;; Sanity: the handler still landed the app-db swap + metadata —
-      ;; the gate skipped only the check-fx dispatches, not the rest.
-      (is (= 7 (rf/subscribe-once [:count] {:frame server-frame}))
-          ":rf/app-db still applied on the server-side run"))))
+                           materialise-response)]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate payload] {:frame server-frame})
+        (let [skipped-checks
+              (filter (fn [ev]
+                        (and (= :rf.fx/skipped-on-platform (:operation ev))
+                             (#{:rf.ssr/check-version :rf.ssr/check-schema-digest}
+                              (-> ev :tags :rf.fx/id))))
+                      @traces)]
+          (is (empty? skipped-checks)
+              (str "expected zero :rf.fx/skipped-on-platform traces for the two "
+                   ":rf.ssr/check-* fxs on a :server-platform :rf/hydrate; saw: "
+                   (pr-str (mapv (juxt :operation #(-> % :tags :rf.fx/id))
+                                 skipped-checks))))
+          ;; Sanity: the handler still landed the app-db swap + metadata —
+          ;; the gate skipped only the check-fx dispatches, not the rest.
+          (is (= 7 (rf/subscribe-once [:count] {:frame server-frame}))
+              ":rf/app-db still applied on the server-side run"))))))
 
 (deftest hydration-on-client-platform-still-dispatches-check-fxs
   (testing "Per rf2-7bcn0 (counter-test to the server-side skip): on a
@@ -310,23 +298,21 @@
     (register-baseline-handlers!)
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-basic client frame"
                                        :platform :client})
-          payload      (materialise-response baseline-payload)
-          traces       (capture-traces!
-                         (fn []
-                           (rf/dispatch-sync [:rf/hydrate payload]
-                                             {:frame client-frame})))
-          skipped (filter #(= :rf.ssr/compatibility-check-skipped
-                              (:operation %))
-                          traces)]
-      ;; Same trace as hydration-baseline-emits-compatibility-check-skipped-trace —
-      ;; the fx STILL fires on the client frame because no
-      ;; :rf2/runtime-version hook is registered. Asserts the
-      ;; rf2-7bcn0 gate did NOT over-skip on :client.
-      (is (seq skipped)
-          (str "on :client the :rf.ssr/check-version fx still fires and "
-               "emits :rf.ssr/compatibility-check-skipped (no runtime-"
-               "version hook registered); saw operations: "
-               (pr-str (mapv :operation traces)))))))
+          payload      (materialise-response baseline-payload)]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+        (let [skipped (filter #(= :rf.ssr/compatibility-check-skipped
+                                  (:operation %))
+                              @traces)]
+          ;; Same trace as hydration-baseline-emits-compatibility-check-skipped-trace —
+          ;; the fx STILL fires on the client frame because no
+          ;; :rf2/runtime-version hook is registered. Asserts the
+          ;; rf2-7bcn0 gate did NOT over-skip on :client.
+          (is (seq skipped)
+              (str "on :client the :rf.ssr/check-version fx still fires and "
+                   "emits :rf.ssr/compatibility-check-skipped (no runtime-"
+                   "version hook registered); saw operations: "
+                   (pr-str (mapv :operation @traces)))))))))
 
 (deftest hydration-baseline-no-mismatch-trace-when-server-hash-nil
   (testing "Migrated from testbeds/ssr_basic/spec.cjs assertion #13.
@@ -341,21 +327,20 @@
           payload      (materialise-response baseline-payload)]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
 
-      (let [traces (capture-traces!
-                     (fn []
-                       ;; Simulate the testbed's post-render
-                       ;; verify-hydration! call. The resolved tree is
-                       ;; opaque here — we pass a synthetic 8-hex
-                       ;; "client hash" to mirror the call shape; the
-                       ;; nil server-hash on the metadata block makes
-                       ;; the call a no-op regardless of the client
-                       ;; value (Spec 011 — `(when (and server-hash
-                       ;; client-hash ...) ...)` short-circuits).
-                       (ssr/verify-hydration! client-frame "abcdef01")))]
-        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+      (with-trace-recorder! [traces]
+        ;; Simulate the testbed's post-render
+        ;; verify-hydration! call. The resolved tree is
+        ;; opaque here — we pass a synthetic 8-hex
+        ;; "client hash" to mirror the call shape; the
+        ;; nil server-hash on the metadata block makes
+        ;; the call a no-op regardless of the client
+        ;; value (Spec 011 — `(when (and server-hash
+        ;; client-hash ...) ...)` short-circuits).
+        (ssr/verify-hydration! client-frame "abcdef01")
+        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
             (str "no :rf.ssr/hydration-mismatch on the baseline (server-"
                  "hash was nil); saw: "
-                 (pr-str (mapv :operation traces))))))))
+                 (pr-str (mapv :operation @traces))))))))
 
 ;; ===========================================================================
 ;; rf2-gro94 — fail CLOSED on a malformed / untrusted hydration payload
@@ -391,10 +376,8 @@
         ;; it SURVIVES (was not replaced by the malformed payload).
         (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
         (rf/dispatch-sync [::inc] {:frame client-frame})  ;; count 0 → 1
-        (let [traces (capture-traces!
-                       (fn []
-                         (rf/dispatch-sync [:rf/hydrate bad-payload]
-                                           {:frame client-frame})))]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [:rf/hydrate bad-payload] {:frame client-frame})
           (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT replace the client :title (fail closed)"))
@@ -404,10 +387,10 @@
           (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
               (str (pr-str bad-payload)
                    " must NOT stash hydration metadata (rejected, not applied)"))
-          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
               (str (pr-str bad-payload)
                    " must emit :rf.error/malformed-hydration-payload; saw: "
-                   (pr-str (mapv :operation traces)))))))))
+                   (pr-str (mapv :operation @traces)))))))))
 
 (deftest wellformed-hydration-payload-still-applies-through-router
   (testing "rf2-gro94 — the fail-closed guard is precise: a well-formed
@@ -417,25 +400,22 @@
             neither emits the malformed diagnostic."
     (register-baseline-handlers!)
     ;; (a) full server slice → replaces app-db, no diagnostic.
-    (let [client-frame (frame/make-anon-frame-record! {:doc "client frame a" :platform :client})
-          traces       (capture-traces!
-                         (fn []
-                           (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 7 :title "seeded"}}]
-                                             {:frame client-frame})))]
-      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "server slice installed")
-      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame})))
-      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
-          "no malformed diagnostic on a well-formed payload"))
+    (let [client-frame (frame/make-anon-frame-record! {:doc "client frame a" :platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 7 :title "seeded"}}]
+                          {:frame client-frame})
+        (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "server slice installed")
+        (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame})))
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+            "no malformed diagnostic on a well-formed payload")))
     ;; (b) map payload with no app-db slice → existing client data survives.
     (let [client-frame (frame/make-anon-frame-record! {:doc "client frame b" :platform :client})]
       (rf/dispatch-sync [::set-title "kept"] {:frame client-frame})
-      (let [traces (capture-traces!
-                     (fn []
-                       (rf/dispatch-sync [:rf/hydrate {:rf/version 1}]
-                                         {:frame client-frame})))]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate {:rf/version 1}] {:frame client-frame})
         (is (= "kept" (rf/subscribe-once [:title] {:frame client-frame}))
             "no-slice payload preserves the existing client slice")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
             "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
 
 ;; ===========================================================================
@@ -486,40 +466,38 @@
         (rf/dispatch-sync [::inc] {:frame client-frame})       ;; count 0 → 1
         (rf/dispatch-sync [::seed-runtime] {:frame client-frame})
         (let [bad-payload {:rf/app-db   {:count 99 :title "would-replace"}
-                           :rf/runtime-db bad-rt}
-              traces (capture-traces!
-                       (fn []
-                         (rf/dispatch-sync [:rf/hydrate bad-payload]
-                                           {:frame client-frame})))]
-          ;; app-db partition unchanged — the valid :rf/app-db slice must
-          ;; NOT land because the runtime-db slice made the payload malformed.
-          (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
-              (str (pr-str bad-rt)
-                   " runtime-db slice must NOT let the app-db slice replace :title"))
-          (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
-              (str (pr-str bad-rt)
-                   " runtime-db slice must NOT let the app-db slice replace :count"))
-          ;; runtime-db partition unchanged — seeded machine snapshot survives.
-          (is (= {:m {:value :idle}}
-                 (rf/subscribe-once [:machine-snapshots] {:frame client-frame}))
-              (str (pr-str bad-rt)
-                   " must leave the runtime-db partition (machine snapshot) unchanged"))
-          ;; no hydration metadata stashed (rejected, not applied).
-          (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
-              (str (pr-str bad-rt)
-                   " must NOT stash hydration metadata (rejected, not applied)"))
-          ;; the malformed diagnostic fires.
-          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
-              (str (pr-str bad-rt)
-                   " must emit :rf.error/malformed-hydration-payload; saw: "
-                   (pr-str (mapv :operation traces))))
-          ;; no compatibility-check fxs fire on the rejected path.
-          (is (not-any? #(#{:rf.ssr/version-mismatch
-                            :rf.ssr/schema-digest-mismatch
-                            :rf.ssr/compatibility-check-skipped}
-                          (:operation %)) traces)
-              (str (pr-str bad-rt)
-                   " must NOT fire compatibility-check fxs on the rejected path")))))))
+                           :rf/runtime-db bad-rt}]
+          (with-trace-recorder! [traces]
+            (rf/dispatch-sync [:rf/hydrate bad-payload] {:frame client-frame})
+            ;; app-db partition unchanged — the valid :rf/app-db slice must
+            ;; NOT land because the runtime-db slice made the payload malformed.
+            (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
+                (str (pr-str bad-rt)
+                     " runtime-db slice must NOT let the app-db slice replace :title"))
+            (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
+                (str (pr-str bad-rt)
+                     " runtime-db slice must NOT let the app-db slice replace :count"))
+            ;; runtime-db partition unchanged — seeded machine snapshot survives.
+            (is (= {:m {:value :idle}}
+                   (rf/subscribe-once [:machine-snapshots] {:frame client-frame}))
+                (str (pr-str bad-rt)
+                     " must leave the runtime-db partition (machine snapshot) unchanged"))
+            ;; no hydration metadata stashed (rejected, not applied).
+            (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
+                (str (pr-str bad-rt)
+                     " must NOT stash hydration metadata (rejected, not applied)"))
+            ;; the malformed diagnostic fires.
+            (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+                (str (pr-str bad-rt)
+                     " must emit :rf.error/malformed-hydration-payload; saw: "
+                     (pr-str (mapv :operation @traces))))
+            ;; no compatibility-check fxs fire on the rejected path.
+            (is (not-any? #(#{:rf.ssr/version-mismatch
+                              :rf.ssr/schema-digest-mismatch
+                              :rf.ssr/compatibility-check-skipped}
+                            (:operation %)) @traces)
+                (str (pr-str bad-rt)
+                     " must NOT fire compatibility-check fxs on the rejected path"))))))))
 
 (deftest wellformed-runtime-db-slice-still-installs-through-router
   (testing "rf2-g00l2t — the runtime-db guard is precise: a well-formed map
@@ -532,24 +510,21 @@
     ;; (a) map runtime-db slice → installs the runtime-db partition.
     (let [client-frame (frame/make-anon-frame-record! {:doc "rt-ok client frame" :platform :client})
           payload {:rf/app-db     {:count 7 :title "seeded"}
-                   :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home}}}}
-          traces  (capture-traces!
-                    (fn []
-                      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})))]
-      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
-      (is (= {:route-id :home} (rf/subscribe-once [:route-current] {:frame client-frame}))
-          "the runtime-db route slice rode the payload and installed")
-      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
-          "no malformed diagnostic on a well-formed two-partition payload"))
+                   :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home}}}}]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+        (is (= 7 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
+        (is (= {:route-id :home} (rf/subscribe-once [:route-current] {:frame client-frame}))
+            "the runtime-db route slice rode the payload and installed")
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+            "no malformed diagnostic on a well-formed two-partition payload")))
     ;; (b) wholly-absent :rf/runtime-db key → no-server-runtime fallback.
-    (let [client-frame (frame/make-anon-frame-record! {:doc "rt-absent client frame" :platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}]
-                                       {:frame client-frame})))]
-      (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
-      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
-          "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))
+    (let [client-frame (frame/make-anon-frame-record! {:doc "rt-absent client frame" :platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}] {:frame client-frame})
+        (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
+            "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed")))))
 
 ;; ===========================================================================
 ;; rf2-1qem4q — the retired plain :app-db hydration alias stays DEAD
@@ -580,11 +555,10 @@
       ;; SURVIVES (was not replaced by the :app-db-keyed payload).
       (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
       (rf/dispatch-sync [::inc] {:frame client-frame})  ;; count 0 → 1
-      (let [traces (capture-traces!
-                     (fn []
-                       (rf/dispatch-sync
-                         [:rf/hydrate {:app-db {:count 99 :title "legacy"}}]
-                         {:frame client-frame})))]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync
+          [:rf/hydrate {:app-db {:count 99 :title "legacy"}}]
+          {:frame client-frame})
         (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
             "the plain :app-db key did NOT replace :count (alias stays dead —
              the 99 from {:app-db {…}} must not land)")
@@ -594,10 +568,10 @@
         (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
             "no hydration metadata stashed — the :rf/render-hash / :rf/version
              keys are absent, so the no-slice payload installs no metadata")
-        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
             (str "a {:app-db {…}} payload is a map with no :rf/app-db key — the "
                  "legitimate client-only no-slice fallback, NOT malformed; saw: "
-                 (pr-str (mapv :operation traces))))))))
+                 (pr-str (mapv :operation @traces))))))))
 
 ;; ===========================================================================
 ;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
@@ -695,17 +669,16 @@
           payload       (build-server-payload
                           client-frame {:count 7 :title "seeded"}
                           "server00"                 ;; != the client tree hash
-                          {:version 1 :payload [:count :title]})
-          traces        (capture-traces!
-                          (fn []
-                            (ssr/hydrate!
-                              {:frame          client-frame
-                               :payload        payload
-                               :render-tree-fn (fn [] [:div.app [:span "client-render"]])})))]
-      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
-               "'server00' != client render-tree hash); saw: "
-               (pr-str (mapv :operation traces)))))))
+                          {:version 1 :payload [:count :title]})]
+      (with-trace-recorder! [traces]
+        (ssr/hydrate!
+          {:frame          client-frame
+           :payload        payload
+           :render-tree-fn (fn [] [:div.app [:span "client-render"]])})
+        (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+            (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
+                 "'server00' != client render-tree hash); saw: "
+                 (pr-str (mapv :operation @traces))))))))
 
 (deftest boot-hydrate-verify-step-silent-on-matching-render
   (testing "rf2-lq2ou: when the client render-tree hash MATCHES the server
@@ -724,19 +697,18 @@
           payload       (build-server-payload
                           client-frame {:count 7 :title "seeded"}
                           matched-hash
-                          {:version 1 :payload [:count :title]})
-          traces        (capture-traces!
-                          (fn []
-                            (ssr/hydrate!
-                              {:frame          client-frame
-                               :payload        payload
-                               :render-tree-fn (fn [] client-tree)})))]
-      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
-               (pr-str (mapv :operation traces))))
-      ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
-      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-          ":rf/hydrate still applied the seeded slice"))))
+                          {:version 1 :payload [:count :title]})]
+      (with-trace-recorder! [traces]
+        (ssr/hydrate!
+          {:frame          client-frame
+           :payload        payload
+           :render-tree-fn (fn [] client-tree)})
+        (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
+            (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
+                 (pr-str (mapv :operation @traces))))
+        ;; Sanity: the seed still landed (the verify step doesn't gate hydrate).
+        (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
+            ":rf/hydrate still applied the seeded slice")))))
 
 ;; ===========================================================================
 ;; rf2-acjknb — EP-0002: hydrate! requires :frame; payload :rf/frame-id is
@@ -828,35 +800,33 @@
       (let [payload {:rf/frame-id    :some/other-frame
                      :rf/app-db      {:count 42 :title "wrong-frame slice"}
                      :rf/runtime-db  {:rf.runtime/machines {:snapshots {:m :installed}}}
-                     :rf/render-hash "deadbeef"}
-            traces  (capture-traces!
-                      (fn []
-                        (rf/dispatch-sync [:rf/hydrate payload]
-                                          {:frame client-frame})))]
-        ;; app-db partition untouched (fail closed).
-        (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
-            "app-db :count survives — the wrong-frame slice was NOT installed")
-        (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
-            "app-db :title survives — the wrong-frame slice was NOT installed")
-        ;; runtime-db partition untouched (no hydration metadata, no machine
-        ;; snapshots from the rejected payload).
-        (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
-            "no hydration metadata stashed — the runtime-db partition is left unchanged")
-        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
-                          [:rf.runtime/machines :snapshots]))
-            "the payload's runtime-db slice did NOT land — runtime-db untouched")
-        ;; the structured mismatch surfaced, carrying the two frames.
-        (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
-                                          (:operation %))
-                                      traces))]
-          (is (some? mismatch)
-              (str "must emit :rf.error/hydration-frame-id-mismatch; saw: "
-                   (pr-str (mapv :operation traces))))
-          (when mismatch
-            (is (= client-frame (-> mismatch :tags :target-frame))
-                ":target-frame is the dispatch target frame")
-            (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
-                ":payload-frame-id is the payload's (server) frame stamp")))))))
+                     :rf/render-hash "deadbeef"}]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+          ;; app-db partition untouched (fail closed).
+          (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
+              "app-db :count survives — the wrong-frame slice was NOT installed")
+          (is (= "pre-hydration" (rf/subscribe-once [:title] {:frame client-frame}))
+              "app-db :title survives — the wrong-frame slice was NOT installed")
+          ;; runtime-db partition untouched (no hydration metadata, no machine
+          ;; snapshots from the rejected payload).
+          (is (false? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
+              "no hydration metadata stashed — the runtime-db partition is left unchanged")
+          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
+                            [:rf.runtime/machines :snapshots]))
+              "the payload's runtime-db slice did NOT land — runtime-db untouched")
+          ;; the structured mismatch surfaced, carrying the two frames.
+          (let [mismatch (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                            (:operation %))
+                                        @traces))]
+            (is (some? mismatch)
+                (str "must emit :rf.error/hydration-frame-id-mismatch; saw: "
+                     (pr-str (mapv :operation @traces))))
+            (when mismatch
+              (is (= client-frame (-> mismatch :tags :target-frame))
+                  ":target-frame is the dispatch target frame")
+              (is (= :some/other-frame (-> mismatch :tags :payload-frame-id))
+                  ":payload-frame-id is the payload's (server) frame stamp"))))))))
 
 ;; ===========================================================================
 ;; rf2-7qbxbm / rf2-mrtis6 census B5 — the always-on corpus leg of the
@@ -892,39 +862,40 @@
           ;; the corpus-listener stand-in (the off-box shipper) records the
           ;; ALWAYS-ON union record.
           corpus       (atom [])
-          _            (rf/register-listener! :errors ::b5-corpus
-                         (fn [record] (swap! corpus conj record)))
           payload      {:rf/frame-id    :secret/other-frame
                         :rf/app-db      {:count 42}
-                        :rf/render-hash "deadbeef"}
-          dev-traces   (capture-traces!
-                         (fn []
-                           (rf/dispatch-sync [:rf/hydrate payload]
-                                             {:frame client-frame})))]
+                        :rf/render-hash "deadbeef"}]
+      ;; The :errors (always-on) corpus listener is a DIFFERENT observation
+      ;; stream from the :trace bus the shared recorder brackets — it stays a
+      ;; direct register/unregister (this test exercises that surface).
+      (rf/register-listener! :errors ::b5-corpus
+        (fn [record] (swap! corpus conj record)))
       (try
-        (let [record   (first (filter #(= :rf.error/hydration-frame-id-mismatch
-                                          (:error %))
-                                      @corpus))
-              dev-trace (first (filter #(= :rf.error/hydration-frame-id-mismatch
-                                           (:operation %))
-                                       dev-traces))]
-          (is (some? record)
-              (str "the frame-id-mismatch fanned out on the ALWAYS-ON axis; "
-                   "saw: " (pr-str (mapv :error @corpus))))
-          (when record
-            (testing "the ALWAYS-ON corpus record redacts the untrusted payload value"
-              (is (= :rf/redacted (:payload-frame-id record))
-                  (str ":payload-frame-id is redacted on the always-on record "
-                       "(routed through project-egress); got "
-                       (pr-str (:payload-frame-id record))))
-              (is (not= :secret/other-frame (:payload-frame-id record))
-                  "the raw deserialised payload frame-id does NOT ride the corpus record")
-              (is (not (re-find #"secret/other-frame" (pr-str record)))
-                  "no raw :secret/other-frame value survives anywhere in the corpus record")))
-          (when dev-trace
-            (testing "the dev trace (DCE'd in production) keeps the raw value for local fidelity"
-              (is (= :secret/other-frame (-> dev-trace :tags :payload-frame-id))
-                  "the dev-trace tags carry the raw payload frame-id (the leak is off-box, not local)"))))
+        (with-trace-recorder! [dev-traces]
+          (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+          (let [record   (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                            (:error %))
+                                        @corpus))
+                dev-trace (first (filter #(= :rf.error/hydration-frame-id-mismatch
+                                             (:operation %))
+                                         @dev-traces))]
+            (is (some? record)
+                (str "the frame-id-mismatch fanned out on the ALWAYS-ON axis; "
+                     "saw: " (pr-str (mapv :error @corpus))))
+            (when record
+              (testing "the ALWAYS-ON corpus record redacts the untrusted payload value"
+                (is (= :rf/redacted (:payload-frame-id record))
+                    (str ":payload-frame-id is redacted on the always-on record "
+                         "(routed through project-egress); got "
+                         (pr-str (:payload-frame-id record))))
+                (is (not= :secret/other-frame (:payload-frame-id record))
+                    "the raw deserialised payload frame-id does NOT ride the corpus record")
+                (is (not (re-find #"secret/other-frame" (pr-str record)))
+                    "no raw :secret/other-frame value survives anywhere in the corpus record")))
+            (when dev-trace
+              (testing "the dev trace (DCE'd in production) keeps the raw value for local fidelity"
+                (is (= :secret/other-frame (-> dev-trace :tags :payload-frame-id))
+                    "the dev-trace tags carry the raw payload frame-id (the leak is off-box, not local)")))))
         (finally
           (rf/unregister-listener! :errors ::b5-corpus))))))
 

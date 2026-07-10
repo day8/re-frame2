@@ -12,7 +12,7 @@
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (defn- reset+reg-test-handlers
   "Reset the runtime via the canonical fixture, then re-register the
@@ -25,16 +25,6 @@
       (test-fn))))
 
 (use-fixtures :each reset+reg-test-handlers)
-
-(defn- with-trace-capture
-  "Capture every emitted trace event into `coll-atom` during `(body-fn)`.
-  Removes the listener on exit so test isolation holds."
-  [coll-atom body-fn]
-  (let [k (str (gensym "streaming-test-cb"))]
-    (trace/register-listener! k (fn [ev] (swap! coll-atom conj ev)))
-    (try (body-fn)
-         (finally
-           (trace/unregister-listener! k)))))
 
 (rf/reg-event :rf.test/noop (fn [{:keys [db]} _] {:db db}))
 (rf/reg-event :rf.test/seed-db (fn [{:keys [db]} [_ new-db]] {:db new-db}))
@@ -198,32 +188,30 @@
           ;; bug by manually `(assoc … :fallback [:p "Loading…"])`; with
           ;; the manual assoc removed, an empty fallback on failure (the
           ;; bug) would surface here as a "" :html.
-          entry  (first continuations)
-          captured (atom [])
-          result (with-trace-capture captured
-                   #(streaming/render-continuation fid entry))]
-      (is (= [:p "Loading…"] (:fallback entry))
-          "record-continuation! stored the declared :fallback on the entry")
-      (is (:failed? result) ":failed? truthy")
-      (is (nil? (:delta result)) "delta omitted on failure")
-      (is (= "<p>Loading…</p>" (:html result))
-          "declared fallback hiccup materialised in place (not empty)")
-      (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                @captured)
-          ":rf.ssr/suspense-boundary-failed trace emitted"))))
+          entry  (first continuations)]
+      (with-trace-recorder! [captured]
+        (let [result (streaming/render-continuation fid entry)]
+          (is (= [:p "Loading…"] (:fallback entry))
+              "record-continuation! stored the declared :fallback on the entry")
+          (is (:failed? result) ":failed? truthy")
+          (is (nil? (:delta result)) "delta omitted on failure")
+          (is (= "<p>Loading…</p>" (:html result))
+              "declared fallback hiccup materialised in place (not empty)")
+          (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                    @captured)
+              ":rf.ssr/suspense-boundary-failed trace emitted"))))))
 
 (deftest duplicate-id-emits-trace-and-keeps-last
   (testing "Two boundaries with the same :id emit :rf.error/suspense-boundary-duplicate-id"
     (let [tree [:div
                 [:rf/suspense-boundary {:id :dup :fallback [:p "first"]} [:p "first body"]]
-                [:rf/suspense-boundary {:id :dup :fallback [:p "second"]} [:p "second body"]]]
-          captured (atom [])
-          {:keys [continuations]}
-          (with-trace-capture captured #(streaming/render-shell tree))]
-      (is (= 1 (count continuations)) "only one continuation survives dedup")
-      (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                @captured)
-          ":rf.error/suspense-boundary-duplicate-id trace emitted"))))
+                [:rf/suspense-boundary {:id :dup :fallback [:p "second"]} [:p "second body"]]]]
+      (with-trace-recorder! [captured]
+        (let [{:keys [continuations]} (streaming/render-shell tree)]
+          (is (= 1 (count continuations)) "only one continuation survives dedup")
+          (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
+                    @captured)
+              ":rf.error/suspense-boundary-duplicate-id trace emitted"))))))
 
 ;; ===========================================================================
 ;; rf2-yvc0t7 — duplicate detection keys on the WIRE id, not the raw :id
@@ -247,58 +235,56 @@
             templates carry the same wire id attribute"
     (let [tree [:div
                 [:rf/suspense-boundary {:id :a :fallback [:p "first"]} [:p "first body"]]
-                [:rf/suspense-boundary {:id ":a" :fallback [:p "second"]} [:p "second body"]]]
-          captured (atom [])
-          {:keys [continuations shell-html]}
-          (with-trace-capture captured #(streaming/render-shell tree))]
-      ;; The wire surface: both boundaries stamp the SAME wire id, so the
-      ;; client cannot tell them apart — the collision is real.
-      (is (= 2 (count (re-seq (re-pattern (str wire/attr-suspense-id "=\":a\""))
-                              shell-html)))
-          "both fallback templates stamp the same wire id `:a` — the
-           collision the client would face")
-      ;; The fix: dedup collapses the colliding ids to a single
-      ;; continuation (the old raw-:id grouping left two).
-      (is (= 1 (count continuations))
-          "only one continuation survives dedup on the wire id")
-      ;; Last-write-wins: the surviving entry is the SECOND (string `:a`)
-      ;; registration.
-      (is (= ":a" (:id (first continuations)))
-          "last-write-wins keeps the LAST registration (the string id)")
-      (is (= [:p "second"] (:fallback (first continuations)))
-          "the surviving entry carries the last registration's :fallback")
-      ;; The documented programmer-error trace fires.
-      (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                    (:operation %))
-                                @captured)]
-        (is (= 1 (count dup-traces))
-            ":rf.error/suspense-boundary-duplicate-id fires once for the
-             colliding pair")
-        (when-let [ev (first dup-traces)]
-          (is (= ":a" (get-in ev [:tags :id]))
-              "the trace reports the colliding WIRE id")
-          (is (= 2 (get-in ev [:tags :count]))
-              ":count reports the colliding cardinality")
-          (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
-              ":raw-ids surfaces the distinct raw ids that collided")
-          (is (= :last-write-wins (:recovery ev))
-              ":recovery names the applied policy"))))))
+                [:rf/suspense-boundary {:id ":a" :fallback [:p "second"]} [:p "second body"]]]]
+      (with-trace-recorder! [captured]
+        (let [{:keys [continuations shell-html]} (streaming/render-shell tree)]
+          ;; The wire surface: both boundaries stamp the SAME wire id, so the
+          ;; client cannot tell them apart — the collision is real.
+          (is (= 2 (count (re-seq (re-pattern (str wire/attr-suspense-id "=\":a\""))
+                                  shell-html)))
+              "both fallback templates stamp the same wire id `:a` — the
+               collision the client would face")
+          ;; The fix: dedup collapses the colliding ids to a single
+          ;; continuation (the old raw-:id grouping left two).
+          (is (= 1 (count continuations))
+              "only one continuation survives dedup on the wire id")
+          ;; Last-write-wins: the surviving entry is the SECOND (string `:a`)
+          ;; registration.
+          (is (= ":a" (:id (first continuations)))
+              "last-write-wins keeps the LAST registration (the string id)")
+          (is (= [:p "second"] (:fallback (first continuations)))
+              "the surviving entry carries the last registration's :fallback")
+          ;; The documented programmer-error trace fires.
+          (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                        (:operation %))
+                                    @captured)]
+            (is (= 1 (count dup-traces))
+                ":rf.error/suspense-boundary-duplicate-id fires once for the
+                 colliding pair")
+            (when-let [ev (first dup-traces)]
+              (is (= ":a" (get-in ev [:tags :id]))
+                  "the trace reports the colliding WIRE id")
+              (is (= 2 (get-in ev [:tags :count]))
+                  ":count reports the colliding cardinality")
+              (is (= [:a ":a"] (get-in ev [:tags :raw-ids]))
+                  ":raw-ids surfaces the distinct raw ids that collided")
+              (is (= :last-write-wins (:recovery ev))
+                  ":recovery names the applied policy"))))))))
 
 (deftest distinct-wire-ids-are-not-deduped
   (testing "rf2-yvc0t7 guard: boundaries with genuinely distinct wire ids
             (the common keyword case) are NOT collapsed"
     (let [tree [:div
                 [:rf/suspense-boundary {:id :a :fallback [:p "fa"]} [:p "ba"]]
-                [:rf/suspense-boundary {:id :b :fallback [:p "fb"]} [:p "bb"]]]
-          captured (atom [])
-          {:keys [continuations]}
-          (with-trace-capture captured #(streaming/render-shell tree))]
-      (is (= 2 (count continuations))
-          "distinct wire ids both survive — no false collapse")
-      (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                               (:operation %))
-                           @captured))
-          "no duplicate-id trace for distinct ids"))))
+                [:rf/suspense-boundary {:id :b :fallback [:p "fb"]} [:p "bb"]]]]
+      (with-trace-recorder! [captured]
+        (let [{:keys [continuations]} (streaming/render-shell tree)]
+          (is (= 2 (count continuations))
+              "distinct wire ids both survive — no false collapse")
+          (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                   (:operation %))
+                               @captured))
+              "no duplicate-id trace for distinct ids"))))))
 
 (deftest build-final-payload-shape
   (testing "Final payload carries the canonical :rf/hydration-payload shape"

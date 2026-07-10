@@ -27,14 +27,9 @@
             [re-frame.frame :as frame]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
-
-(defn- collect-traces! [id]
-  (let [acc (atom [])]
-    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
-    acc))
 
 ;; ---- shape 1: event payload (the sanitized fact rides :event) -------------
 
@@ -88,29 +83,28 @@
   (testing "a PROVIDED recordable request fact absent from the token fails
             LOUDLY with :rf.error/missing-required-cofx — NOT a silent
             fall-back to get-request / nil (the strict-replay contract)"
-    (let [server-frame (frame/make-anon-frame-record! {:platform :server})
-          traces       (collect-traces! ::missing)]
-      (rf/reg-cofx :auth.session/user
-        {:recordable? true :provided? true
-         :doc "Sanitized session user, stamped by the SSR host adapter."})
-      (rf/reg-event :auth/server-init-strict
-        {:platforms        #{:server}
-         :rf.cofx/requires [:auth.session/user]}
-        (fn [{:keys [db auth.session/user]} _]
-          {:db (assoc db :auth/user user)}))
-      ;; Host did NOT stamp :auth.session/user — the provided fact is absent.
-      (let [ex (try (rf/dispatch-sync [:auth/server-init-strict] {:frame server-frame})
-                    nil
-                    (catch clojure.lang.ExceptionInfo e e))]
-        (rf/unregister-listener! :trace ::missing)
-        (is (some? ex) "dispatch threw rather than silently delivering nil")
-        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
-            "the throw is :rf.error/missing-required-cofx (fail-closed)")
-        (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
-            "a :rf.error/missing-required-cofx error trace was emitted")
-        ;; And no durable write landed.
-        (is (nil? (:auth/user (frame/frame-app-db-value server-frame)))
-            "no durable app-db slice was written from a missing provided fact")))))
+    (let [server-frame (frame/make-anon-frame-record! {:platform :server})]
+      (with-trace-recorder! [traces]
+        (rf/reg-cofx :auth.session/user
+          {:recordable? true :provided? true
+           :doc "Sanitized session user, stamped by the SSR host adapter."})
+        (rf/reg-event :auth/server-init-strict
+          {:platforms        #{:server}
+           :rf.cofx/requires [:auth.session/user]}
+          (fn [{:keys [db auth.session/user]} _]
+            {:db (assoc db :auth/user user)}))
+        ;; Host did NOT stamp :auth.session/user — the provided fact is absent.
+        (let [ex (try (rf/dispatch-sync [:auth/server-init-strict] {:frame server-frame})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex) "dispatch threw rather than silently delivering nil")
+          (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+              "the throw is :rf.error/missing-required-cofx (fail-closed)")
+          (is (seq (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces))
+              "a :rf.error/missing-required-cofx error trace was emitted")
+          ;; And no durable write landed.
+          (is (nil? (:auth/user (frame/frame-app-db-value server-frame)))
+              "no durable app-db slice was written from a missing provided fact"))))))
 
 ;; ---- contrast: the ambient :rf.server/request value is NOT recorded -------
 
