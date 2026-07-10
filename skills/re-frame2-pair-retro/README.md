@@ -25,7 +25,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `README.md` — this human-facing intro
 - `references/analysis-lenses.md` — friction taxonomy and prioritization prompts (re-frame2-aware)
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against
-- `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
+- `references/issue-template.md` — the Pair-retro issue structure (routing, title patterns, body skeleton, target/optional-label policy); it links [`../shared/issue-filing.md`](../shared/issue-filing.md) for the generic shell-safety filing mechanics rather than restating them
 - `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation, and — like `evals/` — **excluded from the npm `files` array by design** (repo-maintenance artifacts that run from a full clone, not material a packaged consumer re-runs; `npm pack --dry-run` lists no `spec/` or `evals/` files, mirroring the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills)
 - `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, also excluded from the npm package `files` array

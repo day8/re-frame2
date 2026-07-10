@@ -33,7 +33,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ├── references/
 > │ ├── analysis-lenses.md (nine root-cause lenses)
 > │ ├── known-frictions.md (recurring pain patterns)
-> │ ├── issue-template.md (GitHub-issue-body template + redaction)
+> │ ├── issue-template.md (Pair-retro issue structure — routing / title patterns / body skeleton / optional-label policy; LINKS the shared filing recipe for generic mechanics)
 > │ └── working-style.md (diagnostic-posture rules; the SHIPPED operational home of design.md §8)
 > └── spec/
 > ├── design.md
@@ -44,6 +44,8 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *Keep each reference focused and self-contained, and keep SKILL.md compact — well under Anthropic's 500-line ceiling.*
 >
 > ***Preserve the shipped load paths.** `SKILL.md` MUST cross-link `references/working-style.md` (the diagnostic-posture rules) and `references/issue-template.md` — both are packaged `references/` leaves that load during normal operation. Do NOT relegate the diagnostic-posture rules back into `spec/`: `spec/` is excluded from the npm package / plugin bundle and is not loaded during normal operation, so a `SKILL.md → spec/design.md §8` link breaks in every packaged / plugin / vendored install. `.claude-plugin/plugin.json` and `agents/openai.yaml` are shipped slice files — keep them in the package `files` array. `evals/evals.json` (the trigger fixtures) is a re-authoring slice too — keep it on disk so the description-optimisation loop can score the activation boundary — but, like `spec/`, it is a **repo-maintenance artifact deliberately excluded from the npm `files` array** (it runs from a full clone, not from a packaged consumer's install); do NOT add `evals/` to `files`. This matches the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills.*
+>
+> ***Do not duplicate the shared filing recipe.** The generic issue-filing mechanics — search-before-file, the `Write`-tool + body-file path (a fresh OS-temp file), the safe-alphabet `--title` / `--search` rule, redaction, the explicit-approval gate, and the `bd`-never tracker boundary — are owned once by `skills/shared/issue-filing.md`. `references/issue-template.md` MUST **link** that shared recipe, not restate it: the template carries ONLY the Pair-retro-specific content (the pair-tool-vs-framework routing, the title patterns, the target/optional-label policy, and the issue-body skeleton). Do NOT re-inline the temp-path examples, the worked `gh issue create --body-file` / `gh issue list --search` commands, the title/search shell-safety threat model, or the generic filing checklist. `SKILL.md` §Filing improvements is the canonical statement of the optional-label rule; `issue-template.md` keeps the operational label-degrade steps beside the routing it owns. The shared-recipe drift test (`skills/shared/tests/retro_protocol_test.clj`) fails if the copy regenerates.*
 >
 > *SKILL.md walks the six-step analysis workflow:*
 >
@@ -80,7 +82,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *- **L3 — Route the fix to the right layer.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool). The tool-vs-framework distinction is carried primarily in the title + body; a `pair-mcp` label optionally reinforces tool-side friction **only when the repo defines it**. **Labels are optional, never a filing precondition** — `gh issue create` fails the whole command on an unknown `--label`, so detect with `gh label list`, pass only present labels, and fall back to a no-label `gh issue create`. There is no separate `re-frame2-pair` repo. Skills file GitHub issues against that repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
 > *- **L10 — No internal `bd`/`rf2-XXXX` ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
-> *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. The body is composed to a **fresh, per-filing temp file in the host OS's temp directory** with the `Write` tool (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX — never a fixed `/tmp/issue-body.md`) and passed via `--body-file`, never inline interpolation of transcript-derived text.*
+> *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. The body is composed to a **fresh, per-filing temp file in the host OS's temp directory** with the `Write` tool (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX — never a fixed `/tmp/issue-body.md`) and passed via `--body-file`, never inline interpolation of transcript-derived text. This mechanic is **owned once** by `skills/shared/issue-filing.md`; `issue-template.md` links it rather than restating it (see the "Do not duplicate the shared filing recipe" note above).*
 >
 > *Frontmatter — the `description` is "pushy" but conversational. Trigger phrases: "how could re-frame2-pair better support my workflow", "retrospective on a debugging session", "concrete improvement ideas for re-frame2-pair", "draft an issue for re-frame2-pair". The description discriminates against the live-app `re-frame2-pair` skill and the authoring `re-frame2` skill.*
 >
@@ -111,7 +113,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 ## When to re-author
 
 - A new common friction pattern emerges (3+ retros surface it) and the existing taxonomy doesn't fit → add a new analysis lens (and update `references/analysis-lenses.md` accordingly), then refresh SKILL.md's step 4 framing.
-- The issue-filing process changes (e.g. the `gh issue create` flow, label scheme, or repo routing) → re-derive `references/issue-template.md`.
+- The issue-filing process changes → route by *what* changed. A change to the **generic** shell-safety flow (`gh issue create` / `gh issue list --search`, the body-file path, redaction, the approval gate) belongs in the shared owner `skills/shared/issue-filing.md`, never re-inlined into the template. Only a change to the **Pair-retro-specific** label scheme, repo routing, title patterns, or body skeleton → re-derive `references/issue-template.md`.
 - A new feedback channel becomes load-bearing → update L3 routing and `references/issue-template.md`.
 - Anthropic skill conventions change materially → reauthor against the new conventions.
 
