@@ -60,6 +60,14 @@
 ;; lifecycle machine, the login app's events / subs, the canonical
 ;; `:rf.assert/*` handlers) survive the snapshot; per-test registrations
 ;; roll back. Map-form fixture is needed for cljs.test's async bodies.
+;;
+;; This ns deliberately stays on this hand-rolled reset (story/clear-all! +
+;; register-all! + the ns-load source-store baseline restore below) rather
+;; than `make-reset-runtime-fixture` — the async story tests need the
+;; map-form fixture the composed Story fixture does not yet expose. See
+;; `counter_with_stories/stories_cljs_test`'s fixture header for the full
+;; cluster-wide rationale (rf2-y90h6h / rf2-vyzqca) and DO NOT re-attempt a
+;; corpus "one-idiom" migration without addressing every point there.
 
 (def ^:private registrar-snapshot (atom nil))
 

@@ -35,6 +35,20 @@
   (:require-macros [re-frame.core :refer [with-frame]]))
 
 ;; ---- fixtures -------------------------------------------------------------
+;;
+;; DO NOT migrate this fixture onto `make-reset-runtime-fixture` (rf2-vyzqca
+;; / rf2-y90h6h). This ns is NOT a story test (EP-0025 elision, no variants)
+;; and `:require`s ONLY `counter-with-stories.elision-demo` — NOT the sibling
+;; `counter-with-stories.{events,subs,stories}` app slices. So a
+;; `make-reset-runtime-fixture` here captures its source-store baseline from
+;; THIS ns's require chain, which MISSES the counter app descriptors, and
+;; then restores the SHARED process-global source store to that incomplete
+;; baseline on teardown — dropping `:counter/initialise` / `:count` for the
+;; sibling `stories_cljs_test`'s variant-frame images and breaking 16
+;; run-order-coupled tests (the exact regression rf2-vyzqca / #5578 hit and
+;; reverted). This ns therefore stays on a plain registrar snapshot/restore
+;; that leaves the accumulated source store untouched. See
+;; `stories_cljs_test`'s fixture header for the cluster-wide rationale.
 
 (def ^:private registrar-snapshot (atom nil))
 
