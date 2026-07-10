@@ -68,7 +68,6 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
-            [re-frame.elision :as elision]
             [re-frame.epoch :as epoch]
             [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
@@ -4680,118 +4679,6 @@
       (is (= :try-reset (:event-id (first @seen)))
           "the lone listener invocation is for the outer cascade, not
            a synthetic reset-rejection record"))))
-
-;; ---- rf2-mrsck: per-leaf smoke tests --------------------------------------
-;;
-;; Per the cluster prompt and Mike's 2026-05-16 convention: every impl
-;; commit ships per-leaf smoke tests in the same commit. The full
-;; coverage matrix lives in rf2-vq5o0; these smokes pin the
-;; load-bearing slot for each new piece (the rollup, the projected
-;; helper, the finite default) so a regression that nukes the
-;; mechanism fails this file rather than waiting for rf2-vq5o0's
-;; deeper sweep.
-
-(deftest smoke-sensitive-rollup-default-false
-  (testing "rf2-mrsck — :rf.epoch/sensitive? is false on records whose
-            cascade involves no sensitive paths and no sensitive handlers"
-    (rf/reg-frame :test/main {})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (let [r (last (rf/epoch-history :test/main))]
-      (is (false? (:rf.epoch/sensitive? r))
-          "non-sensitive cascade — rollup reads false"))))
-
-(deftest smoke-sensitive-rollup-false-from-handler-meta-removed
-  (testing "Handler-meta `:sensitive?` annotation has been removed —
-            the rollup no longer reflects a handler-level stamp.
-            Path-marked classification (schema-slot `:sensitive?`)
-            is the v2 mechanism."
-    (rf/reg-frame :test/main {})
-    (rf/reg-event :secret-write
-                     {:sensitive? true}   ;; stored, no longer consulted
-                     (fn [{:keys [db]} _] {:db (assoc db :token "shhh")}))
-    (rf/dispatch-sync [:secret-write] {:frame :test/main})
-
-    (let [r (last (rf/epoch-history :test/main))]
-      (is (false? (:rf.epoch/sensitive? r))
-          "rollup reads false — handler-meta annotation no longer stamps"))))
-
-(deftest smoke-projected-record-redacts-and-keeps-bookkeeping
-  (testing "rf2-mrsck — projected-record routes :db-before / :db-after /
-            :trigger-event / :trace-events through elide-wire-value with
-            off-box defaults; bookkeeping slots and structured projections
-            pass through unchanged"
-    (rf/reg-frame :test/main {})
-    ;; EP-0025: durable app-db classification rides the commit-plane
-    ;; classification effects. Declare the `[:auth :password]` sensitive path
-    ;; through `elision/apply-classification-effects` (`:source :effect`) — it
-    ;; populates [:rf.runtime/elision :sensitive-declarations] directly (the
-    ;; same registry write a `reg-event` returning `:sensitive` performs),
-    ;; pinning the smoke against the elision walker contract.
-    (frame/swap-runtime-db! :test/main
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]]
-                       {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw       (last (rf/epoch-history :test/main))
-          projected (epoch/projected-record raw)]
-      (is (= "topsecret" (get-in raw [:db-after :auth :password]))
-          "raw record carries the unredacted password (in-process)")
-      (is (seq (re-frame.elision/sensitive-declarations :test/main))
-          "elision registry populated for :test/main")
-      (is (= :rf/redacted
-             (get-in projected [:db-after :auth :password]))
-          "projected record substitutes :rf/redacted for the sensitive slot")
-      (is (= (:epoch-id raw) (:epoch-id projected))
-          ":epoch-id passes through")
-      (is (= (:event-id raw) (:event-id projected))
-          ":event-id passes through")
-      (is (= (:outcome raw)  (:outcome projected))
-          ":outcome passes through")
-      (is (= (:sub-runs raw) (:sub-runs projected))
-          "structured :sub-runs slot passes through unchanged")
-      (is (= (:effects raw)  (:effects projected))
-          "structured :effects slot passes through unchanged")
-      (is (true? (:rf.epoch/sensitive? raw))
-          "schema-derived rollup also fires when a sensitive path
-           resolves to a non-nil leaf in :db-after"))))
-
-(deftest smoke-projected-history-projects-each-record
-  (testing "rf2-mrsck — projected-history walks the ring once and
-            returns the projected vector"
-    (rf/reg-frame :test/main {})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)
-          ph      (epoch/projected-history :test/main)]
-      (is (= (count history) (count ph))
-          "projected-history returns one element per ring record")
-      (is (every? map? ph) "each element is a map")
-      (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
-          ":epoch-id ordering matches the raw ring"))))
-
-(deftest smoke-projected-record-handles-nil-input
-  (testing "rf2-mrsck — projected-record returns nil for non-map input
-            (a missing-epoch lookup)"
-    (is (nil? (epoch/projected-record nil)))
-    (is (nil? (epoch/projected-record :not-a-map)))))
-
-(deftest smoke-trace-events-keep-fixture-override
-  (testing "rf2-wmki8 — the TEST FIXTURE forces :trace-events-keep 5 (a
-            keep<depth OVERRIDE so the elision path is reachable with a
-            handful of dispatches), NOT the shipped runtime default. This
-            asserts the fixture's override value, deliberately distinct
-            from the shipped default of 50 (see
-            `shipped-trace-events-keep-default-is-50` for the real
-            default)."
-    (is (= 5 (:trace-events-keep (epoch/current-config)))
-        "fixture OVERRIDE — see the :init-fn configure! call; NOT the shipped default")))
 
 (deftest shipped-trace-events-keep-default-is-50
   (testing "rf2-wmki8 — the SHIPPED runtime default :trace-events-keep is
