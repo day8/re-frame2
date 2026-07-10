@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet.shadow-node-cli
   "Pure CLI-arg parsing for the `:node-test` runner
-  `re-frame.test-quiet.shadow-node` (rf2-vespg).
+  `re-frame.test-quiet.shadow-node`.
 
   Lives apart from the runner so it can be unit-pinned: the runner ns
   carries `{:dev/always true}` and expands `shadow.test.env/get-test-data`
@@ -17,7 +17,7 @@
 
 (defn parse-args
   "Parse shadow-node CLI args into
-  `{:test-syms [..] :help? :list? :unknown-args [..]}` (flags present
+  `{:test-syms [..] :help :list :unknown-args [..]}` (flags present
   only when set; `:unknown-args` present only when an arg was unknown).
 
    - `--help` / `--list` set their boolean flag.
@@ -28,8 +28,8 @@
    - any other arg is collected into `:unknown-args` (in input order)
      and otherwise ignored.  This parser is PURE — it does not print:
      the real CLI path (`shadow-node/execute-cli`) reports the
-     unknowns, so a contract test can pin the parse result without
-     leaking a non-summary line on a green run (rf2-spzkgo)."
+      unknowns, so a contract test can pin the parse result without
+      leaking a non-summary line on a green run."
   [args]
   (reduce
     (fn [opts arg]
@@ -52,7 +52,7 @@
     args))
 
 (defn unmatched-selectors
-  "The subset of `test-syms` that matched NO var in `matched-vars`.
+  "The subset of `test-syms` that matched no var in `matched-vars`.
 
   `matched-vars` is the seq `find-matching-test-vars` returns — each var
   carries `{:ns :name}` metadata.  A simple symbol (namespace selector)
@@ -63,9 +63,9 @@
 
   Pure (no `shadow.test.env` dependency) so it can be unit-pinned here
   rather than from the `:dev/always` runner ns, which forms a compile
-  cycle.  This is the guard against a `--test=<typo>` false green
-  (rf2-lbo79.1): a selection that matches nothing must be rejected, not
-  reported as a 0-test SUCCESS."
+  cycle. This guards against a `--test=<typo>` false green: a selection
+  that matches nothing must be rejected, not
+  reported as a 0-test success."
   [test-syms matched-vars]
   (let [matched-ns  (->> matched-vars (map (comp :ns meta)) set)
         matched-fqn (->> matched-vars

@@ -1,6 +1,6 @@
 (ns re-frame.test-quiet-runner-contract-test
   "Subprocess contract pin for the JVM entry point
-  `re-frame.test-quiet.runner/-main` (rf2-vespg).
+  `re-frame.test-quiet.runner/-main`.
 
   The stdout-line-count pin in `re-frame.test-quiet-pin-test` drives a
   green sub-suite through `clojure.test/run-tests` directly — it never
@@ -27,12 +27,10 @@
    - RED:   exit 1; the per-ns `Testing <ns>` banner + the `FAIL`
      block + `expected:`/`actual:` lines are present (diagnostic
      output survives the `*out*` swap via `with-test-out`); the
-     discovery banner is STILL absent (swallowed unconditionally, not
-     replayed on red — the documented capture-and-replay was
-     unreachable and the docs now match this).
+     discovery banner is still absent.
    - ERROR: exit 1; the `ERROR in` block + the thrown message reach
      stdout.
-   - STDERR BUFFER (rf2-nrk066): a GREEN run that emits expected
+   - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
      keeps it.  This is the JVM counterpart to the CLJS node runner's
@@ -77,36 +75,25 @@
   "Shared ceiling for a drained subprocess.  A correctly-exiting child
   returns in well under a second; this generous bound makes a wedged
   child FAIL with a structured `:timed-out?` diagnostic instead of
-  hanging the whole JVM suite (rf2-8dfq5j.3)."
+  hanging the whole JVM suite."
   60000)
 
 (def ^:private force-kill-reap-timeout-ms
-  "Bounded ceiling to wait for a force-killed child to actually be REAPED
-  after `destroyForcibly` (rf2-5m8ocd, porting rf2-16n94y).  `Process.
-  destroyForcibly` only *requests* forced termination — the JDK docs
-  explicitly allow the child to remain alive briefly after the call and
-  direct callers that need termination to have COMPLETED to `waitFor`.
-  Without this wait the timeout branch could return `:timed-out? true`
-  while the OS had not yet reaped the child, so a caller checking
-  `.isAlive` immediately (the `drain-process-kills-and-flags-a-hanging-child`
-  contract below) lost the reap race on a loaded CI runner — a residual
-  intermittent test-quiet flake.  A SIGKILLed child is normally reaped in
-  milliseconds; this generous bound only bites a pathologically
-  unkillable child, and even then keeps the helper bounded (well under
-  the outer 30s contract-test guard and the CI job timeout).  Reached
-  ONLY on the exceptional timeout branch — the fast `done?` path that the
-  ~24 real subprocesses take is untouched."
+  "Bounded wait after `destroyForcibly`. The JDK only requests forced
+  termination, so the timeout path gives the OS time to reap an ordinary
+  child before returning. A pathological child may still outlive this
+  secondary ceiling; the helper remains bounded either way."
   10000)
 
 (defn- drain-process
   "Drain `proc`'s stdout AND stderr concurrently, then `waitFor` UNDER A
   TIMEOUT.  Returns {:exit :out :err :timed-out?}.  The concurrent drain
-  is what `run-runner` relies on to avoid the pipe deadlock (rf2-spzkgo);
+  is what `run-runner` relies on to avoid a pipe deadlock;
   this helper is the shared primitive every subprocess path uses, so the
   deadlock regression proves the EXACT drain order the real harness
   ships.
 
-  The timeout/kill policy lives HERE (rf2-8dfq5j.3) so EVERY subprocess
+  The timeout/kill policy lives here so every subprocess
   test inherits fail-fast behaviour: on expiry the child is force-killed
   (`destroyForcibly`), the drain threads are interrupted, and the result
   carries `:timed-out? true` plus whatever stdout/stderr drained before
@@ -125,10 +112,8 @@
          ;; the drain threads so neither this helper nor the futures hang.
          (.destroyForcibly proc)
          ;; `destroyForcibly` only REQUESTS termination; block (bounded)
-         ;; until the OS has actually reaped the child before returning, so
-         ;; `:timed-out? true` never races ahead of the real kill and a
-         ;; caller's immediate `.isAlive` check is reliable (rf2-5m8ocd,
-         ;; porting rf2-16n94y).
+         ;; for the OS to reap an ordinary child before returning. The wait
+         ;; remains bounded for a pathological child.
          (.waitFor proc force-kill-reap-timeout-ms
                    java.util.concurrent.TimeUnit/MILLISECONDS)
          (future-cancel out-f)
@@ -158,7 +143,7 @@
         proc     (-> (ProcessBuilder. ^java.util.List cmd)
                      (.redirectErrorStream false)
                      (.start))]
-    ;; Drain stdout AND stderr CONCURRENTLY (rf2-spzkgo): with separate
+    ;; Drain stdout and stderr concurrently: with separate
     ;; pipes, slurping stdout fully and only THEN reading stderr can
     ;; deadlock — a child that fills the stderr pipe blocks on write (so
     ;; it never closes stdout / exits), while the parent blocks on stdout
@@ -205,19 +190,18 @@
               (str "green stdout must carry the summary line; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Exact green stdout shape — no banner-leading-blank leak (rf2-khecvs).
+;; Exact green stdout shape.
 ;;
 ;; cognitect's banner is `\nRunning tests in #{...}\n` — it opens with a
 ;; BLANK LINE.  Dropping only the `Running tests in #{...}` text left that
 ;; leading newline behind, so a green real `-main` run started with TWO
-;; blank lines before the summary (the banner's leak + clojure.test's own
-;; leading `\n` on the `:summary` line). The line-count pins counted only
-;; NON-blank lines, so they were false-green for this.  This pin asserts
-;; the EXACT line shape: a single leading blank, then the two summary
+;; The filter must remove the banner's leading newline while preserving
+;; clojure.test's own leading `\n` on the `:summary` line. This pin asserts
+;; the exact line shape: a single leading blank, then the two summary
 ;; lines, and no `Running tests in` text anywhere.
 
 (deftest green-runner-exact-shape
-  (testing "a green real -main run has no leaked banner-leading blank line (rf2-khecvs)"
+  (testing "a green real -main run has no leaked banner-leading blank line"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "exact_green_fixture_test" "exact-green-fixture-test"
@@ -232,17 +216,15 @@
           (is (not (str/includes? out "Running tests in"))
               (str "no part of the discovery banner — not even its text —"
                    " may reach stdout; got:\n" out))
-          ;; The CORE of rf2-khecvs: the first line is the summary's own
-          ;; single leading blank; the SECOND line is already the `Ran`
-          ;; line. Pre-fix, line 0 AND line 1 were both blank (the banner's
-          ;; leaked leading newline sat above the summary's own).
+          ;; The first line is the summary's own leading blank; the second
+          ;; line is already the `Ran` line.
           (is (str/blank? (nth lines 0 nil))
               (str "the canonical summary opens with one leading blank;"
                    " got lines:\n" (pr-str lines)))
           (is (str/starts-with? (str (nth lines 1 "")) "Ran ")
               (str "the SECOND line must be the `Ran ...` summary — a"
                    " second leading blank means the banner's leading"
-                   " newline leaked (rf2-khecvs); got lines:\n"
+                   " newline leaked; got lines:\n"
                    (pr-str lines)))
           ;; And the full non-blank shape is exactly the canonical two.
           (let [non-blank (remove str/blank? lines)]
@@ -305,14 +287,13 @@
                    " captured stdout:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Exit-code integrity for failures that ESCAPE clojure.test's counters —
-;; rf2-jmrdhn.
+;; Exit-code integrity for failures that escape clojure.test's counters.
 ;;
 ;; `red-runner-contract` / `error-runner-contract` above pin the COUNTED
 ;; paths (a failing `is`, a throwing `is`) — clojure.test tallies those and
-;; cognitect exits 1 from the tally.  But the false-green trap the bead
-;; closes is a failure that clojure.test NEVER counts, so a naive runner
-;; could print/emit the problem yet exit 0.  Two such cases exist on the JVM
+;; cognitect exits 1 from the tally. Failures that clojure.test never counts
+;; still propagate out of `-main` and must produce a nonzero process exit.
+;; Two such cases exist on the JVM
 ;; and MUST still exit non-zero:
 ;;   - a namespace that THROWS at load time (cognitect `require`s it during
 ;;     discovery, so the throw is outside any `is`/report);
@@ -322,7 +303,7 @@
 ;; pins that no counter-escaping failure can slip out GREEN.
 
 (deftest namespace-load-throw-exits-nonzero
-  (testing "a test ns that throws at LOAD time exits non-zero (uncounted failure; rf2-jmrdhn)"
+  (testing "a test ns that throws at load time exits nonzero"
     (with-fixture-dir
       (fn [dir]
         (write-raw-fixture! dir "load_throw_test"
@@ -342,7 +323,7 @@
           ;; failure, but it MUST still fail the process.
           (is (not (zero? exit))
               (str "a namespace that throws at load time must exit NON-ZERO"
-                   " even though clojure.test never counts it (rf2-jmrdhn);"
+                   " even though clojure.test never counts it;"
                    " got exit " exit "\n--- stdout ---\n" out
                    "\n--- stderr ---\n" err))
           (is (str/includes? (str out err) "LOAD-THROW-MARKER")
@@ -351,7 +332,7 @@
                    "\n--- stderr ---\n" err)))))))
 
 (deftest once-fixture-throw-exits-nonzero
-  (testing "a :once fixture that throws exits non-zero (uncounted failure; rf2-jmrdhn)"
+  (testing "a :once fixture that throws exits nonzero"
     (with-fixture-dir
       (fn [dir]
         (write-raw-fixture! dir "fixture_throw_test"
@@ -369,36 +350,29 @@
           (is (not (zero? exit))
               (str "a :once fixture that throws must exit NON-ZERO even though"
                    " its exception is never tallied as a test error"
-                   " (rf2-jmrdhn); got exit " exit "\n--- stdout ---\n" out
+                   "; got exit " exit "\n--- stdout ---\n" out
                    "\n--- stderr ---\n" err))
           (is (str/includes? (str out err) "FIXTURE-THROW-MARKER")
               (str "the fixture exception message must surface; got"
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
 
 ;; ----------------------------------------------------------------------
-;; Nested-run banner correctness — rf2-8n97n.1 (mislabel) + .2 (orphan).
+;; Nested-run banner correctness.
 ;;
 ;; A `deftest` that nests a `run-tests` over a sibling namespace and then
 ;; fails must still print `Testing <OUTER-ns>` above its own FAIL block.
-;; Pre-fix, a single mutable "current ns" cell — clobbered by the nested
-;; run's `:begin-test-ns` — produced one of two broken outputs:
-;;   .1 MISLABEL: the OUTER failure printed under `Testing <INNER-ns>`;
-;;   .2 ORPHAN:   when the nested run was itself RED, the inner :fail set
-;;                the printed-flag, so the OUTER failure printed with NO
-;;                banner at all.
-;; The fix derives the banner ns from the FAILING var's metadata, so the
-;; banner always matches the var that failed regardless of nesting.
+;; Deriving the banner namespace from the failing var prevents the nested
+;; run's `:begin-test-ns` from mislabelling or orphaning the outer failure.
 ;;
 ;; These run through the REAL `-main` with source-ordered real deftest
 ;; vars (the inner suite nests BEFORE the outer assertion in source
-;; order), so they are immune to the ns-interns hashmap-ordering artifact
-;; that made an earlier ad-hoc repro look "correct".  The inner suite is
+;; order), so they do not depend on `ns-interns` hash-map ordering. The inner suite is
 ;; named `*-suite` (not `*-test`) so cognitect's default discovery skips
 ;; it as a top-level ns — it is exercised only via the outer's nested
 ;; `run-tests` — and the run is pinned to the outer ns with `-n`.
 
 (deftest nested-green-then-outer-fail-banner
-  (testing "outer fail after a GREEN nested run names the OUTER ns (rf2-8n97n.1)"
+  (testing "outer fail after a green nested run names the outer namespace"
     (with-fixture-dir
       (fn [dir]
         (write-raw-fixture! dir "nested_green_inner_suite"
@@ -421,19 +395,18 @@
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? out "FAIL in (outer-fails-after-green)")
               (str "the outer FAIL block must reach stdout; got:\n" out))
-          ;; The CORE of rf2-8n97n.1: the banner above the OUTER failure
-          ;; must name the OUTER ns, not the inner one the nested run
-          ;; entered last.
+          ;; The outer failure must use the outer banner, not the namespace
+          ;; most recently entered by the nested run.
           (is (str/includes? out "Testing probe.nested-green-outer-test")
               (str "the outer FAIL must carry its OWN ns banner"
-                   " (rf2-8n97n.1 mislabel); got:\n" out))
+                   "; got:\n" out))
           (is (not (str/includes? out "Testing probe.nested-green-inner-suite"))
               (str "a GREEN nested run must stay silent — its inner ns"
                    " banner must NOT appear (and must not be borrowed by"
                    " the outer failure); got:\n" out)))))))
 
 (deftest nested-red-then-outer-fail-banner
-  (testing "outer fail after a RED nested run keeps BOTH banners correct (rf2-8n97n.2)"
+  (testing "outer fail after a red nested run keeps both banners correct"
     (with-fixture-dir
       (fn [dir]
         (write-raw-fixture! dir "nested_red_inner_suite"
@@ -465,12 +438,11 @@
           ;; reads for the banner ns.
           (is (str/includes? out "inner-fails) (nested_red_inner_suite.clj")
               (str "the inner FAIL block must reach stdout; got:\n" out))
-          ;; The CORE of rf2-8n97n.2: pre-fix the inner :fail set the
-          ;; printed-flag, orphaning the outer failure (NO banner). The
-          ;; outer FAIL must now carry its OWN ns banner.
+          ;; The inner failure must not mark the outer namespace's banner as
+          ;; already printed.
           (is (str/includes? out "Testing probe.nested-red-outer-test")
               (str "the outer FAIL must carry its OWN ns banner, not be"
-                   " orphaned (rf2-8n97n.2); got:\n" out))
+                   " orphaned; got:\n" out))
           (is (str/includes? out "FAIL in (outer-fails-after-red)")
               (str "the outer FAIL block must reach stdout; got:\n" out))
           ;; Order pin: the outer banner appears AFTER the inner FAIL
@@ -482,7 +454,7 @@
                    " the OUTER failure, not the inner); got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Nested-run failure-tally + exit-code soundness — rf2-8n97n.3.
+;; Nested-run failure tally and exit-code soundness.
 ;;
 ;; The behaviour is currently SOUND (the quiet layer never overrides
 ;; :summary/:pass and counts :fail/:error exactly once); this pins it so a
@@ -494,7 +466,7 @@
 ;; the whole propagation path.
 
 (deftest nested-green-outer-fail-is-counted
-  (testing "an outer FAIL after a GREEN nested run propagates to summary + exit 1 (rf2-8n97n.3a)"
+  (testing "an outer failure after a green nested run propagates to summary and exit 1"
     (with-fixture-dir
       (fn [dir]
         (write-raw-fixture! dir "tally_green_inner_suite"
@@ -521,7 +493,7 @@
                    " (the green nested run adds nothing); got:\n" out)))))))
 
 (deftest nested-inner-fail-does-not-leak-to-outer
-  (testing "an inner FAIL the outer IGNORES does not leak into the outer tally/exit (rf2-8n97n.3b)"
+  (testing "an ignored inner failure does not leak into the outer tally or exit"
     (with-fixture-dir
       (fn [dir]
         ;; The outer deftest nests a RED run but makes NO failing
@@ -552,7 +524,7 @@
                    " failure must not leak into it; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; test-ns-hook failure banner — rf2-g92dsm.
+;; test-ns-hook failure banner.
 ;;
 ;; The quiet reporter suppresses `:begin-test-ns` and derives the failure
 ;; banner ns from `*testing-vars*` (the failing var).  But a namespace's
@@ -560,13 +532,13 @@
 ;; place of `test-all-vars`) — runs OUTSIDE `test-var`, so a bare failing
 ;; assertion inside it reports with an EMPTY `*testing-vars*`: the
 ;; var-derived ns is nil and the failure printed with NO banner, violating
-;; the failure-banner contract.  The fix maintains a begin/end ns stack and
+;; the failure-banner contract. A begin/end namespace stack
 ;; falls back to the innermost open ns when no failing var is in scope.
 ;; This pin drives the REAL `-main` against a fixture whose `test-ns-hook`
 ;; fails, and asserts the ns banner is present above the FAIL block.
 
 (deftest test-ns-hook-failure-gets-ns-banner
-  (testing "a failing test-ns-hook (no test-var in scope) still prints its ns banner (rf2-g92dsm)"
+  (testing "a failing test-ns-hook with no test var still prints its namespace banner"
     (with-fixture-dir
       (fn [dir]
         ;; `test-ns-hook` TAKES PRECEDENCE over test-all-vars, so the bare
@@ -588,13 +560,12 @@
           (is (= 1 exit)
               (str "the failing test-ns-hook must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; The CORE of rf2-g92dsm: pre-fix `failing-ns` was nil (no var in
-          ;; scope) so print-banner! no-op'd and the FAIL had no heading. The
-          ;; ns-stack fallback must now supply the banner.
+          ;; With no failing var in scope, the namespace stack supplies the
+          ;; banner.
           (is (str/includes? out "Testing probe.ns-hook-fail-test")
               (str "a failing test-ns-hook must still carry its ns banner —"
                    " the var-derived ns is nil, so the ns-stack fallback must"
-                   " supply it (rf2-g92dsm); got:\n" out))
+                   " supply it; got:\n" out))
           (is (str/includes? out "FAIL in")
               (str "the FAIL block must reach stdout; got:\n" out))
           (is (and (str/includes? out "expected:")
@@ -604,16 +575,10 @@
               (str "the failing summary must reach stdout; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Diagnostics-survive contract — rf2-lbo79.2.
+;; Diagnostics-survive contract.
 ;;
-;; The wrapper used to bind `*out*` to a blanket SINK for the whole
-;; delegated `cognitect.test-runner/-main` call, which silenced far more
-;; than the discovery banner: `-H` usage text, CLI parse-error
-;; diagnostics, and bare `(println ...)` from tests/fixtures all
-;; vanished. The fix swaps the sink for a line-precise filter that drops
-;; ONLY the `Running tests in #{...}` banner; everything else reaches the
-;; real stdout. These subprocess pins prove the misuse paths are no
-;; longer opaque while the green-path banner stays quiet.
+;; The line-precise filter drops only `Running tests in #{...}`. Help,
+;; parse-error diagnostics, and test output must still reach stdout.
 
 (deftest help-flag-prints-usage
   (testing "-H prints cognitect usage and exits 0 (was swallowed by the old *out* sink)"
@@ -648,7 +613,7 @@
               (str "cognitect prints usage after the parse error; got:\n" out)))))))
 
 (deftest test-stdout-survives-on-green
-  (testing "bare (println ...) from a passing test reaches stdout; banner stays quiet (rf2-lbo79.2)"
+  (testing "bare test output reaches stdout while the banner stays quiet"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "stdout_green_fixture_test" "stdout-green-fixture-test"
@@ -669,7 +634,7 @@
               (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Banner-prefix precision — rf2-pjlx6.1.
+;; Banner-prefix precision.
 ;;
 ;; The filter must drop ONLY cognitect's own banner, which always renders
 ;; as `Running tests in #{...}` (the directory set is always a set: it
@@ -680,7 +645,7 @@
 ;; line survives while the real discovery banner is still swallowed.
 
 (deftest banner-lookalike-diagnostic-survives
-  (testing "a test line beginning 'Running tests in ' but NOT the banner survives (rf2-pjlx6.1)"
+  (testing "a test line beginning 'Running tests in ' but not the banner survives"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "lookalike_fixture_test" "lookalike-fixture-test"
@@ -703,22 +668,18 @@
                    " must STILL be swallowed; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Banner-prefix OVERDROP — rf2-14nojy.2.
+;; Banner-prefix overdrop guard.
 ;;
-;; The earlier prefix-precision fix (rf2-pjlx6.1) still dropped a line as
-;; soon as it reached the EXACT prefix `Running tests in #{`, swallowing
-;; everything to the newline.  cognitect prints the banner with `println`,
-;; so the real banner is the WHOLE line and stops at the set literal's
-;; closing `}` — but a user/fixture diagnostic that merely SHARES that
-;; prefix and carries trailing content, e.g.
+;; cognitect's banner is the whole line and stops at the set literal's
+;; closing `}`. A user/fixture diagnostic may share that prefix and carry
+;; trailing content, for example
 ;; `Running tests in #{:fixture :phase} MARKER`, was silently overdropped
-;; even though it is not the banner.  The fix treats a full-prefix match as
-;; a CANDIDATE and confirms it at the newline: drop only when the remainder
-;; is a balanced set literal followed by nothing but whitespace.  This pins
-;; that the overdrop line now SURVIVES while the real banner stays absent.
+;; The filter therefore treats a full-prefix match as a candidate and drops
+;; it only when the remainder is a balanced set literal followed by
+;; whitespace.
 
 (deftest banner-prefix-overdrop-survives
-  (testing "a line starting EXACTLY 'Running tests in #{' with trailing content survives (rf2-14nojy.2)"
+  (testing "a line starting exactly 'Running tests in #{' with trailing content survives"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "overdrop_fixture_test" "overdrop-fixture-test"
@@ -729,19 +690,18 @@
           (is (zero? exit)
               (str "the overdrop suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; The CORE of rf2-14nojy.2: a fixture line sharing the EXACT
-          ;; banner prefix but carrying trailing content after the set
-          ;; literal must NOT be swallowed.
+          ;; A fixture line with trailing content after the set literal is
+          ;; not the banner and must be forwarded.
           (is (str/includes? out "Running tests in #{:fixture :phase} OVERDROP-MARKER")
               (str "a fixture line that starts exactly 'Running tests in #{'"
                    " but has trailing content after the set literal is NOT"
-                   " the banner and must survive (rf2-14nojy.2 overdrop);"
+                   " the banner and must survive;"
                    " got:\n" out))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
 
 (deftest real-banner-still-dropped-alongside-overdrop-lookalike
-  (testing "the real `Running tests in #{...}` discovery banner is STILL dropped (rf2-14nojy.2 negative control)"
+  (testing "the real `Running tests in #{...}` discovery banner is still dropped"
     (with-fixture-dir
       (fn [dir]
         ;; A clean green fixture: the ONLY `Running tests in #{...}` line on
@@ -762,27 +722,21 @@
               (str "no part of the banner may reach stdout; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Banner EXACT-SHAPE overdrop — rf2-m8dbb9.
+;; Exact-shape banner overdrop guard.
 ;;
-;; The rf2-14nojy.2 fix above forwards a banner-shaped line that carries
-;; TRAILING content after the set literal, but a user/fixture line whose
-;; WHOLE text exactly matches the banner — `Running tests in #{:fixture}`
-;; with no trailing marker — was still indistinguishable from cognitect's
-;; own banner and silently overdropped, contradicting the pass-through
-;; stdout contract.  cognitect prints its banner via
+;; A user/fixture line can exactly match `Running tests in #{:fixture}`.
+;; cognitect prints its banner via
 ;; `(format "\nRunning tests in %s" dirs)`, so the genuine banner is ALWAYS
 ;; opened by a leading blank line; a bare `(println "Running tests in
-;; #{:fixture}")` is not.  The fix requires that held leading blank before
-;; dropping a banner-shaped line, so an exact-shape user line printed with
-;; no preceding blank survives while the real banner stays absent.
+;; #{:fixture}")` is not. Requiring that held leading blank distinguishes
+;; the runner banner from an exact-shape user line.
 
 (deftest banner-exact-shape-user-line-survives
-  (testing "an exact-shape `Running tests in #{...}` user line (no trailing marker, no leading blank) survives (rf2-m8dbb9)"
+  (testing "an exact-shape banner user line without a leading blank survives"
     (with-fixture-dir
       (fn [dir]
-        ;; A bare `println` of the EXACT banner shape — no trailing content,
-        ;; no preceding blank line. Pre-fix this was swallowed wholesale; it
-        ;; must now reach stdout because it lacks the banner's leading blank.
+        ;; A bare `println` of the exact banner shape lacks the banner's
+        ;; leading blank and must reach stdout.
         (write-fixture! dir "exact_shape_fixture_test" "exact-shape-fixture-test"
                         (str "(deftest an-exact-shape-test"
                              " (println \"Running tests in #{:fixture}\")"
@@ -791,19 +745,17 @@
           (is (zero? exit)
               (str "the exact-shape suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; The CORE of rf2-m8dbb9: a fixture line whose WHOLE text matches
-          ;; the banner shape but is emitted with no leading blank is NOT the
-          ;; banner and must survive.
+          ;; Exact text without the held leading blank is not the banner.
           (is (str/includes? out "Running tests in #{:fixture}")
               (str "an exact-shape user line `Running tests in #{:fixture}`"
                    " printed via bare println (no leading blank) is NOT the"
-                   " cognitect banner and must survive (rf2-m8dbb9); got:\n"
+                   " cognitect banner and must survive; got:\n"
                    out))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
 
 (deftest real-banner-still-dropped-alongside-exact-shape-user-line
-  (testing "the real banner is STILL dropped even when a fixture also prints an exact-shape line (rf2-m8dbb9 negative control)"
+  (testing "the real banner is still dropped alongside an exact-shape user line"
     (with-fixture-dir
       (fn [dir]
         ;; The fixture prints an exact-shape line of its own; cognitect's
@@ -828,30 +780,20 @@
                    " dropped; got " hits " occurrences:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Blank-led banner-shape OVER-DROP after the real banner — rf2-6nrk8x.
+;; Blank-led banner shape after the real banner.
 ;;
-;; The rf2-m8dbb9 fix drops a banner-shaped line only when it is preceded
-;; by a held leading blank — but it applied that rule to EVERY blank-led
-;; `Running tests in #{...}` line, not just cognitect's one discovery
-;; banner.  cognitect prints its banner exactly ONCE (via `println`, before
-;; any test runs), so a test that ITSELF prints a blank line then
-;; banner-shaped text — `(println)` then `(println "Running tests in
-;; #{:fixture}")` — matched the same shape and was silently swallowed as a
-;; phantom SECOND banner, losing valid diagnostic stdout and violating the
-;; pass-through contract.  The fix latches `banner-dropped?` when the real
-;; banner is dropped and forwards every later blank-led banner-shaped line.
-;; This pin drives the REAL `-main`: the fixture's blank-led banner-shape
-;; line must survive while cognitect's genuine banner is still dropped.
+;; cognitect prints its banner once, before tests run. `banner-dropped?`
+;; ensures a later user line with the same blank-led shape is forwarded
+;; rather than treated as a second discovery banner.
 
 (deftest blank-led-banner-shape-user-line-survives
-  (testing "a test's own blank-line-then-banner-shape stdout survives after the real banner is dropped (rf2-6nrk8x)"
+  (testing "a test's blank-led banner-shaped output survives after the real banner"
     (with-fixture-dir
       (fn [dir]
         ;; The fixture prints a blank line IMMEDIATELY followed by an
         ;; exact-shape banner line carrying a keyword-set body (distinct from
-        ;; cognitect's own `#{"<dir>"}` string-set banner). Pre-fix, the held
-        ;; leading blank + balanced-set shape made the filter overdrop it as a
-        ;; second banner; post-fix the `banner-dropped?` latch forwards it.
+        ;; cognitect's own `#{"<dir>"}` string-set banner). The latch forwards
+        ;; this later line.
         (write-fixture! dir "blank_led_banner_fixture_test" "blank-led-banner-fixture-test"
                         (str "(deftest a-blank-then-banner-test"
                              " (println)"
@@ -861,12 +803,12 @@
           (is (zero? exit)
               (str "the fixture is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; The CORE of rf2-6nrk8x: the test's OWN blank-led banner-shape
+          ;; The test's own blank-led banner-shape
           ;; line is genuine stdout and must reach the real stdout.
           (is (str/includes? out "Running tests in #{:user-diagnostic}")
               (str "a test's blank-line-then-banner-shape stdout must survive"
                    " once cognitect's one banner has already been dropped"
-                   " (rf2-6nrk8x over-drop); got:\n" out))
+                   "; got:\n" out))
           ;; cognitect's genuine banner renders the DIR set as a string set —
           ;; `#{\"<dir>\"}` — so `Running tests in #{\"` uniquely identifies
           ;; it. Its absence proves the real banner was STILL dropped (the
@@ -881,18 +823,17 @@
               (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Unterminated-partial survival across System/exit — rf2-pjlx6.2.
+;; Unterminated partial survival across System/exit.
 ;;
 ;; cognitect exits straight from the computed fail/error counts, so the
 ;; wrapper's `finally` flush never runs on the test path.  A bare
 ;; `(print ...)` with no trailing newline AND no explicit flush must still
 ;; reach stdout: the filter forwards non-banner text eagerly (it only ever
 ;; holds back a live banner-prefix candidate) and `-main` registers a JVM
-;; shutdown hook that flushes the filtering writer.  Pre-fix, such a
-;; partial sat in the wrapper's line buffer and was lost at exit.
+;; shutdown hook that flushes any held candidate.
 
 (deftest unterminated-partial-survives-exit
-  (testing "a bare (print ...) with no newline/flush reaches stdout before System/exit (rf2-pjlx6.2)"
+  (testing "a bare print with no newline or flush reaches stdout before System/exit"
     (with-fixture-dir
       (fn [dir]
         ;; No trailing newline, no (flush) — the worst case the finding
@@ -913,7 +854,7 @@
               (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
-;; Central stderr buffer + red replay — rf2-nrk066.
+;; Central stderr buffer + red replay.
 ;;
 ;; The JVM runner buffers everything written to `*err*` (and `System/err`)
 ;; during the delegated run into a bounded ring, then:
@@ -930,12 +871,11 @@
 ;; just before the runner exits).
 
 (deftest green-run-buffers-and-drops-expected-stderr
-  (testing "a GREEN run that writes expected stderr stays quiet — the warning is buffered, not leaked (rf2-nrk066)"
+  (testing "a green run that writes expected stderr stays quiet"
     (with-fixture-dir
       (fn [dir]
-        ;; A passing test that emits an expected warning to *err* — exactly
-        ;; the class warning-heavy suites used to wrap in a private *err*
-        ;; sink. With the central buffer it must be DROPPED on green.
+        ;; A passing test emits an expected warning to *err*. The central
+        ;; buffer must drop it on green.
         (write-fixture! dir "green_warn_fixture_test" "green-warn-fixture-test"
                         (str "(deftest a-warning-but-passing-test"
                              " (binding [*out* *err*]"
@@ -949,13 +889,13 @@
           ;; so it appears on NEITHER stdout NOR stderr.
           (is (not (str/includes? (str out err) "EXPECTED-WARN-MARKER-GREEN"))
               (str "an expected stderr warning on a GREEN run must be buffered"
-                   " and dropped — not leaked to stdout or stderr (rf2-nrk066);"
+                   " and dropped - not leaked to stdout or stderr;"
                    " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
 
 (deftest red-run-replays-buffered-stderr
-  (testing "a RED run replays the buffered stderr context to real stderr (rf2-nrk066)"
+  (testing "a red run replays buffered stderr context to real stderr"
     (with-fixture-dir
       (fn [dir]
         ;; A test that emits a diagnostic to *err* and then FAILS. The
@@ -978,18 +918,18 @@
           ;; stderr) so the failing run keeps the diagnostic context.
           (is (str/includes? err "EXPECTED-WARN-MARKER-RED")
               (str "the buffered stderr must be REPLAYED on a RED run"
-                   " (rf2-nrk066); got\n--- stdout ---\n" out
+                   "; got\n--- stdout ---\n" out
                    "\n--- stderr ---\n" err))
           (is (str/includes? err "buffered stderr replayed because the run was RED")
               (str "the replay must be labelled so it is distinguishable from"
                    " the reporter's own output; got stderr:\n" err)))))))
 
 ;; ----------------------------------------------------------------------
-;; Subprocess-harness pipe-deadlock regression — rf2-spzkgo.
+;; Subprocess-harness pipe-deadlock guard.
 ;;
 ;; The harness drains a child's stdout and stderr on separate threads
-;; (see `drain-process` / `run-runner`).  Pre-fix it slurped stdout to
-;; EOF and only THEN read stderr: a child that fills the stderr pipe
+;; (see `drain-process` / `run-runner`). A sequential stdout-then-stderr
+;; drain deadlocks when a child fills the stderr pipe
 ;; buffer (~64 KB on most OSes) blocks on its stderr write before
 ;; closing stdout, so the parent — still blocked on stdout EOF — never
 ;; reaches the stderr drain or `waitFor`, and both hang forever.
@@ -1006,7 +946,7 @@
   (* 1024 1024))
 
 (deftest harness-does-not-deadlock-on-large-stderr
-  (testing "a child flooding stderr while exiting nonzero is drained without deadlock (rf2-spzkgo)"
+  (testing "a child flooding stderr while exiting nonzero is drained without deadlock"
     (with-fixture-dir
       (fn [dir]
         ;; The child program is written to a FILE rather than passed via
@@ -1043,7 +983,7 @@
             (is (not= ::timed-out result)
                 (str "the harness deadlocked: a >pipe-buffer stderr flood with a"
                      " sequential (stdout-then-stderr) drain hangs forever"
-                     " (rf2-spzkgo) — it must drain both streams concurrently"))
+                     " - it must drain both streams concurrently"))
             (when (not= ::timed-out result)
               (let [{:keys [exit out err timed-out?]} result]
                 (is (false? timed-out?)
@@ -1061,7 +1001,7 @@
                          " bytes, expected >= " big-stderr-bytes))))))))))
 
 ;; ----------------------------------------------------------------------
-;; Shared drain timeout/kill policy — rf2-8dfq5j.3.
+;; Shared drain timeout/kill policy.
 ;;
 ;; `drain-process` carries the timeout/kill policy so EVERY subprocess
 ;; path (the real `run-runner`, the deadlock regression, future helpers)
@@ -1072,7 +1012,7 @@
 ;; cannot silently reintroduce an unbounded hang.
 
 (deftest drain-process-kills-and-flags-a-hanging-child
-  (testing "a child that never exits is force-killed and flagged timed-out (rf2-8dfq5j.3)"
+  (testing "a child that never exits is force-killed and flagged timed out"
     (with-fixture-dir
       (fn [dir]
         ;; A child that blocks forever with no output and no exit path —
@@ -1095,7 +1035,7 @@
                 result   (deref result-f 30000 ::outer-timeout)]
             (is (not= ::outer-timeout result)
                 (str "the helper itself hung: `drain-process` must enforce its"
-                     " own `.waitFor` timeout and return promptly (rf2-8dfq5j.3)"))
+                     " own `.waitFor` timeout and return promptly"))
             (when (not= ::outer-timeout result)
               (is (true? (:timed-out? result))
                   (str "a never-exiting child must be flagged `:timed-out? true`;"
@@ -1108,7 +1048,7 @@
             (.destroyForcibly proc)))))))
 
 ;; ----------------------------------------------------------------------
-;; Stderr ring is BOUNDED — front-trim keeps the newest cap — rf2-hd3t77.
+;; Stderr ring is bounded: front trimming keeps the newest characters.
 ;;
 ;; `stderr-buffer-cap` is 256 KB and `buffering-stderr-writer` front-trims
 ;; (`(.delete sb 0 (- n cap))`) so the ring retains the NEWEST `cap`
@@ -1124,7 +1064,7 @@
 ;; marker happened to be absent.
 
 (deftest stderr-ring-front-trims-to-newest-cap-on-red
-  (testing "an *err* flood past the 256 KB cap keeps the NEWEST cap chars, drops the oldest (rf2-hd3t77)"
+  (testing "an *err* flood past the 256K-character cap keeps the newest characters"
     (with-fixture-dir
       (fn [dir]
         ;; ~600 KB of filler (2000 lines x ~300 chars) brackets a HEAD
@@ -1150,12 +1090,12 @@
           ;; NEWEST retained: the tail marker written last survives the ring.
           (is (str/includes? err "TAIL-MARKER-NEWEST-MUST-SURVIVE")
               (str "the NEWEST bytes must be retained by the front-trim ring"
-                   " (rf2-hd3t77); tail marker missing. stderr length="
+                   "; tail marker missing. stderr length="
                    (count err)))
           ;; OLDEST dropped: the head marker written first is trimmed away.
           (is (not (str/includes? err "HEAD-MARKER-OLDEST-MUST-BE-DROPPED"))
               (str "the OLDEST bytes must be front-trimmed once past the "
-                   cap "-char cap (rf2-hd3t77); the head marker leaked, so"
+                   cap "-char cap; the head marker leaked, so"
                    " the ring either did not trim or trimmed the WRONG end."
                    " stderr length=" (count err)))
           ;; BOUNDED: the replay is ~cap + the fixed label, NOT the full
@@ -1163,28 +1103,20 @@
           ;; front-trim, (count err) would be ~600 KB.
           (is (< (count err) (+ cap 4096))
               (str "the replayed stderr must be bounded to ~" cap " chars +"
-                   " the replay label (rf2-hd3t77); an unbounded ring would"
+                   " the replay label; an unbounded ring would"
                    " replay the whole ~600 KB flood. got " (count err)
                    " chars")))))))
 
 ;; ----------------------------------------------------------------------
-;; Raw `System.err` bridge is buffered too — rf2-hd3t77.
+;; Raw `System.err` bridge is buffered too.
 ;;
 ;; `-main` swaps `System/setErr` for a `PrintStream` over an
 ;; `OutputStream` proxy that routes raw `System.err` bytes into the SAME
-;; ring as `*err*` (runner.clj sys-bridge), with a documented restore in
-;; the `finally`.  Both existing stderr pins write via
-;; `(binding [*out* *err*] (println ...))` — i.e. through the `*err*`
-;; `PrintWriter`, NEVER raw `System/err` — so the bridge OutputStream and
-;; its `write(byte[],off,len)` decoding arity were entirely unexercised
-;; and the docstring claim "a library that writes System.err directly is
-;; buffered too" was unbacked.  These two pins write via
-;; `(.println System/err ...)` (the bridge's multi-byte arity) and assert
-;; the raw-`System.err` payload is buffered+dropped on green / replayed on
-;; red — exactly the `*err*`-path contract, now proven for the raw path.
+;; ring as `*err*`. These pins write via `(.println System/err ...)` and
+;; assert the raw payload is dropped on green and replayed on red.
 
 (deftest raw-system-err-buffered-and-dropped-on-green
-  (testing "a GREEN run that writes RAW System.err stays quiet — the bridge buffers + drops it (rf2-hd3t77)"
+  (testing "a green run drops raw System.err through the bridge"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "raw_syserr_green_fixture_test" "raw-syserr-green-fixture-test"
@@ -1200,13 +1132,13 @@
           ;; from BOTH streams (proving the bridge, not just the *err* path).
           (is (not (str/includes? (str out err) "RAW-SYSERR-MARKER-GREEN"))
               (str "a raw System.err write on a GREEN run must be buffered by"
-                   " the setErr bridge and dropped — not leaked (rf2-hd3t77);"
+                   " the setErr bridge and dropped - not leaked;"
                    " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
 
 (deftest raw-system-err-replayed-on-red
-  (testing "a RED run replays RAW System.err context via the setErr bridge (rf2-hd3t77)"
+  (testing "a red run replays raw System.err through the bridge"
     (with-fixture-dir
       (fn [dir]
         (write-fixture! dir "raw_syserr_red_fixture_test" "raw-syserr-red-fixture-test"
@@ -1223,7 +1155,7 @@
           ;; bridge into the ring, is REPLAYED to real stderr on red.
           (is (str/includes? err "RAW-SYSERR-MARKER-RED")
               (str "a raw System.err write must be buffered by the setErr"
-                   " bridge and REPLAYED on a RED run (rf2-hd3t77); got"
+                   " bridge and replayed on a red run; got"
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? err "buffered stderr replayed because the run was RED")
               (str "the replay must be labelled; got stderr:\n" err)))))))

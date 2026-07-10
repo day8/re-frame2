@@ -8,12 +8,12 @@
   so a test ns requiring the runner directly forms a compile cycle — the
   same reason `re-frame.test-quiet.shadow-node-cli` is factored out.  This
   helper has no such dependency, so `re-frame.test-quiet-shadow-node-cljs-test`
-  can pin the memory bound directly.")
+  can pin the entry-count and backing-vector bound directly.")
 
 (def warn-buffer-cap
-  "Bounded warning ring size.  Caps memory + replay volume on a red run
-  while keeping enough recent context to explain a failure (the newest
-  `warn-buffer-cap` warnings are retained; older ones are dropped)."
+  "Bounded warning-call count. The newest `warn-buffer-cap` calls are
+  retained and older ones are dropped. Individual warning arguments remain
+  unbounded, so this is not a byte-size limit."
   256)
 
 (defn bound-conj
@@ -23,12 +23,12 @@
   The trimmed window is MATERIALISED into a fresh vector rather than
   returned as a `subvec`.  This is the whole point of the helper: a
   ClojureScript `Subvec` shares — and thereby RETAINS — its entire
-  underlying vector via `.-v`, and `conj`-ing onto a `Subvec` grows that
+  underlying vector via `.-v`, and `conj` on a `Subvec` grows that
   underlying vector rather than the window.  So trimming with `subvec`
   alone would keep every discarded warning (and its arg vectors) alive
-  until process exit, silently defeating the bound (rf2-6emzlh).  `into
+  until process exit, silently defeating the bound. `into
   []` copies only the window into a new `PersistentVector`, dropping the
-  discarded head so memory stays bounded to `cap` entries."
+  discarded head so retained entry count stays bounded to `cap`."
   ([buf x] (bound-conj buf x warn-buffer-cap))
   ([buf x cap]
    (let [buf' (conj buf x)

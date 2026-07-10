@@ -10,27 +10,26 @@
   CLJS `defmethod`s install at load time.  By the time shadow's
   `run-all-tests` walks namespaces, the overrides are in place.
 
-  Also installs a BUFFERING `js/console.warn` stub so first-time
+  Also installs a buffering `js/console.warn` stub so first-time
   runtime warnings (`reg-view non-DOM root`, `reagent-slim
-  keyword-on-non-HTML-prop`, etc.) don't leak to test stdout on the
-  SUCCESS path — but are NOT lost on a RED run.  The stub holds back
-  warning text in a bounded ring (`warn-buffer`) instead of discarding
+  keyword-on-non-HTML-prop`, etc.) don't leak to test output on the
+  success path but are not lost on a red run. The stub holds back
+  warning calls in a bounded-entry ring (`warn-buffer`) instead of discarding
   it; the `:end-run-tests` reporter replays that buffer to stderr when
   the run fails or errors, so a failing CLJS run keeps the diagnostic
   context that may explain the failure.  Green runs stay quiet (the
   buffer is simply dropped at the green exit).
 
-  BUFFER SCOPE — `console.warn` ONLY (and the asymmetry with the JVM).
+  Buffer scope: `console.warn` only.
   This stub captures `console.warn` and nothing else: `console.error` and
   direct `process.stderr.write` are NOT buffered and pass straight
   through.  That is deliberate — `console.warn` is the channel re-frame2's
   expected first-run warnings travel on, while a `console.error` is a real
   error worth surfacing immediately even on the green path.  This makes the
-  CLJS scope NARROWER than the JVM runner
-  (`re-frame.test-quiet.runner`), which buffers the WHOLE stderr side
-  (`*err*` + a `System/err` bridge).  The buffer/drop-on-green/
-  replay-on-red POLICY is the same on both runtimes; only the captured
-  scope differs (rf2-22s58s / rf2-nrk066).
+  CLJS scope narrower than the JVM runner (`re-frame.test-quiet.runner`),
+  which buffers the test thread's `*err*` plus a process-global `System/err`
+  bridge. The drop-on-green/replay-on-red policy is the same; only the
+  captured scope differs.
 
   Tests that assert warning content all use the local
   `with-captured-console-warn` pattern — they save `(.-warn js/console)`,
@@ -64,9 +63,9 @@
 (defn- buffer-warning!
   "Append `args` (one `console.warn` call's arguments) to the bounded
   ring via `warn-buffer/bound-conj`, which caps the ring to the newest
-  `warn-buffer/warn-buffer-cap` entries and MATERIALISES the trimmed
+  `warn-buffer/warn-buffer-cap` entries and materialises the trimmed
   window into a fresh vector — so discarded warnings are not retained via
-  a shared `subvec` backing (rf2-6emzlh)."
+  a shared `subvec` backing."
   [args]
   (swap! warn-buffer wb/bound-conj args))
 
@@ -76,9 +75,10 @@
   from the `:end-run-tests` reporter ONLY on a red run, restoring the
   diagnostic context the green-path quieting withheld.
 
-  Each buffered arg is replayed VERBATIM.
+  Buffered argument values are rendered through `println`, not replayed
+  through native `console.warn`; their formatting semantics therefore differ.
 
-  SYNCHRONOUS WRITE (rf2-4co7oo). The replay writes to fd 2 via
+  The replay writes synchronously to fd 2 via
   `fs.writeSync`, NOT `js/process.stderr.write`.  On POSIX a pipe-backed
   `process.stderr` is ASYNCHRONOUS, and the `:end-run-tests` reporter calls
   `js/process.exit 1` IMMEDIATELY after this returns — `process.exit` forces
@@ -87,9 +87,7 @@
   could be TRUNCATED before it reached captured CI output, dropping the tail
   of the diagnostic context the ns docstring promises a red run keeps.
   `fs.writeSync` blocks until the bytes reach the fd, so the exit cannot drop
-  them.  This matches the JVM runner, whose blocking `PrintWriter` over
-  `System.err` is likewise synchronous (Windows dev-box pipe writes are
-  synchronous too, which is why the bug is CI-only)."
+  them. This matches the JVM runner's blocking stderr replay."
   []
   (let [buffered @warn-buffer]
     (when (seq buffered)
@@ -101,15 +99,15 @@
           (doseq [args buffered]
             (apply println "[test-quiet] console.warn:" args)))))))
 
-;; The stub carries a `re-frame.test-quiet/silenced` marker property so it
-;; is IDENTIFIABLE: a contract test can assert the live `console.warn` is
+;; The stub carries an `rf-test-quiet-silenced` marker property so a
+;; contract test can assert the live `console.warn` is
 ;; this stub (and so fail if a regression leaves native `console.warn` —
 ;; which has no such marker — in place), without requiring this
 ;; `:dev/always` ns (which would form a compile cycle).
 (when (and (exists? js/console)
            (fn? (.-warn js/console)))
-  ;; Return `nil` (like native `console.warn`) so callers that observe the
-  ;; return value see no behavioural change from the buffering.
+  ;; `nil` is the local stub contract. Native `console.warn` returns
+  ;; JavaScript `undefined`; callers must not use either return value.
   (let [stub (fn [& args] (buffer-warning! (vec args)) nil)]
     (set! (.-rf-test-quiet-silenced stub) true)
     (set! (.-warn js/console) stub)))
@@ -121,14 +119,11 @@
 ;; buffered `console.warn` diagnostics (the green-path stub withheld
 ;; them) so a failing run keeps the context that may explain it.
 ;;
-;; EXIT-CODE INTEGRITY (rf2-jmrdhn). This defmethod is the ONLY thing that
+;; Exit-code integrity: this defmethod is the only thing that
 ;; turns a RED cljs.test summary into a non-zero node exit, so two hazards
-;; must never let a failing run go out the door GREEN:
-;;   1. The red replay is DIAGNOSTIC-ONLY. If `replay-buffered-warnings!`
-;;      threw, the old `(do (replay…) (js/process.exit 1))` never reached
-;;      the `exit 1` — the throw propagated out of the reporter and node
-;;      could unwind to a 0 exit. The replay is wrapped so a throw in it can
-;;      never SWALLOW the red exit.
+;; must never let a failing run exit green:
+;;   1. Red replay is diagnostic-only. It is wrapped so a replay exception
+;;      cannot prevent the nonzero exit.
 ;;   2. Reaching a GREEN exit is the ONLY way `main` clears the seeded
 ;;      failure exit code (`execute-cli` sets `process.exitCode = 1` before
 ;;      running). So a run that executes tests but never dispatches THIS
@@ -148,13 +143,13 @@
         (js/process.exit 1))))
 
 (defn- seed-failure-exit!
-  "Seed the node process's exit code to FAILURE just before a test run
-  begins.  The ONLY path that clears it back to 0 is a confirmed GREEN
+  "Seed the node process's exit code to failure just before a test run
+  begins. The only path that clears it back to 0 is a confirmed green
   `:end-run-tests` (which `js/process.exit 0`s — see that defmethod's
   EXIT-CODE INTEGRITY note).  So a run that starts tests but never reaches a
   green summary — a torn-down async run, or a reporter env that never
   dispatches our exit defmethod — drains the event loop and exits with this
-  seeded 1 rather than a silent false-green (rf2-jmrdhn).  It is a no-op on
+  seeded 1 rather than a silent false-green. It is a no-op on
   the normal green/red paths, where the `:end-run-tests` defmethod calls
   `js/process.exit` and overrides it."
   []
@@ -185,18 +180,12 @@
                          (contains? test-var-syms (symbol ns name)))))))))
 
 (defn execute-cli [{:keys [test-syms help list unknown-args] :as _opts}]
-  ;; Unknown args are a FATAL parse error (rf2-14nojy.1): the pure
+  ;; Unknown args are a fatal parse error. The pure
   ;; `cli/parse-args` collects them into `:unknown-args` (without printing,
   ;; so it can be unit-pinned without leaking a non-summary line on a green
-  ;; run; rf2-spzkgo). Pre-fix `execute-cli` merely PRINTED them and then
-  ;; fell through — so a mistyped focused-run such as the space-separated
-  ;; `--test missing.ns` (both tokens unknown, no `--test=` selector) or a
-  ;; misspelled flag like `--tests=foo` ran NO requested tests, dropped into
-  ;; the `:else` `run-all-tests` branch, and exited GREEN if the full suite
-  ;; was green — a focused-run false green of the same class the
-  ;; `--test=<missing>` guard (rf2-lbo79.1) closes. Reject unknown args here:
-  ;; print them and `js/process.exit` NONZERO before running anything. This
-  ;; runs ahead of `--help`/`--list`, so those stay clean successful
+  ;; run). Reject unknown args here: print them and `js/process.exit`
+  ;; nonzero before running anything. This check runs ahead of
+  ;; `--help`/`--list`, so those stay clean successful
   ;; non-test commands ONLY when no unknown arg accompanies them.
   (when (seq unknown-args)
     (doseq [arg unknown-args]
@@ -221,11 +210,9 @@
       (seq test-syms)
       (let [test-vars (find-matching-test-vars test-syms)
             unmatched (cli/unmatched-selectors test-syms test-vars)]
-        ;; A `--test=` selection that matches NO test var must NOT be a
-        ;; false green: shadow's `run-test-vars` over an empty set reports
-        ;; a 0-test SUCCESS and the `:end-run-tests` defmethod exits 0, so
-        ;; a typo in `--test=<selector>` would silently "pass" with zero
-        ;; tests run (rf2-lbo79.1).  Reject any unmatched selector — print
+        ;; A `--test=` selection that matches no test var must not be a
+        ;; false green: `run-test-vars` over an empty set reports a 0-test
+        ;; success. Reject any unmatched selector: print
         ;; the offenders and exit nonzero before running anything.
         (if (seq unmatched)
           (do
