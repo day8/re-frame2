@@ -59,74 +59,48 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             ;; Loading the Malli adapter publishes the
             ;; `:schemas/malli-validate` late-bind hook the default
             ;; validator routes through (Spec 010 §Recommended soft-pass /
             ;; rf2-t0hq); without it `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
-            [re-frame.ssr :as ssr]
-            [re-frame.ssr.error-listener :as error-listener]
-            [re-frame.ssr.head :as head]
-            [re-frame.ssr.request :as request]
-            [re-frame.ssr.response :as response]
-            [re-frame.trace :as trace]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 ;;
-;; Mirrors `re-frame.ssr.test-fixture/reset-runtime` (registrar wipe + all
-;; per-frame side-channel atoms + ns-load-time reloads of routing / ssr /
-;; ssr.head / machines so their registrations resurrect after clear-all!),
-;; and ADDS what the trace-order assertions here need: an error-listener
-;; clear (the error-emit registry is a `defonce` atom that survives test
-;; re-runs) and an all-trace recorder bound per test.
+;; rf2-kufxxe — COMPOSE from the canonical `re-frame.ssr.test-fixture/
+;; reset-runtime` (registrar wipe + every per-frame SSR side-channel atom +
+;; the ns-load-time reloads of routing / ssr / ssr.head / machines + the
+;; ambient `:rf/default` frame) rather than duplicate it. This suite adds
+;; only the three genuine deltas its trace-order assertions need:
+;;
+;;   1. schema-validator restoration — the flow-schema-rollback tests install
+;;      a Malli app-db validator (`reg-app-schema`); reset it before the test
+;;      AND in a `finally` so a validator from one test cannot leak into the
+;;      next (the canonical fixture clears per-frame schemas but not the
+;;      global validator fn).
+;;   2. error-emitter listener cleanup — the error-emit registry is a
+;;      `defonce` atom that survives test re-runs (rf2-bacs4); clear it so a
+;;      listener registered by one test does not leak into the next.
+;;   3. a fixture-wide all-trace recorder — bracketed by the canonical
+;;      `with-trace-recorder!` (rf2-64iuw) and bound to `*captured*` so the
+;;      `ops` / `by-op` helpers below read the full captured event stream.
 
 (def ^:dynamic ^:private *captured* nil)
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (schemas/reset-schema-validator!)
-  (reset! request/request-slots {})
-  (reset! response/response-slots {})
-  (reset! error-listener/pending-error-traces {})
-  (reset! head/head-snapshots {})
-  (flows/reset-last-inputs!)
-  ;; The error-emit listener registry is a `defonce` atom that survives
-  ;; test re-runs (per rf2-bacs4) — clear so a listener registered by one
-  ;; test does not leak into the next.
-  (error-emit/clear-error-listeners!)
-  (rf/init! ssr/adapter)
-  ;; clear-all! wiped the ns-load-time registrations of these artefacts;
-  ;; :reload re-evaluates the ns-body so the machine fxs, :rf.route/*
-  ;; handlers, :rf.server/* fxs, the head hooks, and the :rf/hydrate
-  ;; handler all resurrect between tests.
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.ssr.head :reload)
-  (require 're-frame.machines :reload)
-  ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
-  ;; framework operation + registration surfaces require a carried frame
-  ;; stamp. Register `:rf/default` + pin it as the body's ambient scope
-  ;; (the carried-invariant equivalent of `(with-frame :rf/default …)`);
-  ;; explicit `{:frame …}` opts / inner `with-frame` still win.
-  (rf/reg-frame :rf/default {})
-  (let [captured (atom [])]
-    (binding [*captured* captured]
-      (trace/register-listener!
-        ::flow-integration-recorder
-        (fn [ev] (swap! captured conj ev)))
-      (try
-        (rf/with-frame :rf/default
-          (test-fn))
-        (finally
-          (trace/unregister-listener! ::flow-integration-recorder)
-          (schemas/reset-schema-validator!))))))
+  (tf/reset-runtime
+    (fn []
+      (schemas/reset-schema-validator!)
+      (error-emit/clear-error-listeners!)
+      (with-trace-recorder! [captured]
+        (binding [*captured* captured]
+          (try
+            (test-fn)
+            (finally
+              (schemas/reset-schema-validator!))))))))
 
 (use-fixtures :each reset-runtime)
 
