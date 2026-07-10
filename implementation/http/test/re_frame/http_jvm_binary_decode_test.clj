@@ -101,11 +101,11 @@
               (write-bytes! ex 200 "application/octet-stream" raw-bytes)))]
       (try
         (rf/reg-event :blob/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/bin")}
+                     {:reply-to [:blob/load msg] :request {:url (str "http://127.0.0.1:" port "/bin")}
                       :decode  :blob}]]})))
         (rf/dispatch-sync [:blob/load {}])
         (let [db    (await-reply! #(some? (:reply %)))
@@ -125,11 +125,11 @@
               (write-bytes! ex 200 "application/octet-stream" raw-bytes)))]
       (try
         (rf/reg-event :ab/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/bin")}
+                     {:reply-to [:ab/load msg] :request {:url (str "http://127.0.0.1:" port "/bin")}
                       :decode  :array-buffer}]]})))
         (rf/dispatch-sync [:ab/load {}])
         (let [db    (await-reply! #(some? (:reply %)))
@@ -149,11 +149,11 @@
               (write-bytes! ex 200 "text/plain; charset=ISO-8859-1" latin1-bytes)))]
       (try
         (rf/reg-event :text/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request {:url (str "http://127.0.0.1:" port "/t")}
+                     {:reply-to [:text/load msg] :request {:url (str "http://127.0.0.1:" port "/t")}
                       :decode  :text}]]})))
         (rf/dispatch-sync [:text/load {}])
         (let [db (await-reply! #(some? (:reply %)))]
@@ -217,11 +217,11 @@
                             (.getBytes "{\"ok\":true}" "UTF-8"))))]
       (try
         (rf/reg-event :slow/load
-          (fn [{:keys [db]} [_ msg]]
-            (if-let [reply (:rf/reply msg)]
+          (fn [{:keys [db]} [_ msg reply]]
+            (if reply
               {:db (assoc db :reply reply)}
               {:fx [[:rf.http/managed
-                     {:request    {:url (str "http://127.0.0.1:" port "/slow")}
+                     {:reply-to [:slow/load msg] :request    {:url (str "http://127.0.0.1:" port "/slow")}
                       :decode     :json
                       :timeout-ms 50}]]})))
         (rf/dispatch-sync [:slow/load {}])

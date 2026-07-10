@@ -71,8 +71,8 @@
 (deftest helper-get-routes-through-managed
   (testing "(rf.http/get ...) in :fx is indistinguishable from a hand-written :rf.http/managed entry"
     (rf/reg-event :items/load
-      (fn [{:keys [db]} [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
           (case (:status reply)
             :ok    {:db (assoc db :items (:value reply))}
             :error {:db (assoc db :error (:error reply))})
@@ -125,7 +125,7 @@
     ;; This is a pure-fn assertion that supplements the integration tests above
     ;; (the request-id end-to-end behaviour is covered by http-managed-test).
     (is (= [:rf.http/managed
-            {:request    {:method :put
+            {:reply-to [:items/load msg] :request    {:method :put
                           :url    "/api/items/42"
                           :body   {:title "updated"}
                           :request-content-type :json}
@@ -140,8 +140,8 @@
 (deftest helper-get-minimal-default-reply-addressing
   (testing "(rf.http/get url) — no extra args; reply lands back at originating handler"
     (rf/reg-event :ping
-      (fn [{:keys [db]} [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
           {:db (assoc db :pong (:value reply))}
           {:fx [(rf.http/get "/api/ping")]})))
     (rf/dispatch-sync [:ping]
@@ -157,7 +157,7 @@
                  :max-attempts 4
                  :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}]
       (is (= [:rf.http/managed
-              {:request {:method :get :url "/api/items"}
+              {:reply-to [:ping msg] :request {:method :get :url "/api/items"}
                :retry   retry
                :decode  :json}]
              (rf.http/get "/api/items" {:retry retry :decode :json}))))))

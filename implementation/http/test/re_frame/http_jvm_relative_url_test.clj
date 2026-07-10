@@ -119,11 +119,11 @@
             request never reaches a live socket; the failure names the fix
             rather than surfacing the JDK's opaque rejection."
     (rf/reg-event :jvm-relative/load
-      (fn [{:keys [db]} [_ msg]]
-        (if-let [reply (:rf/reply msg)]
+      (fn [{:keys [db]} [_ msg reply]]
+        (if reply
           {:db (assoc db :reply reply)}
           {:fx [[:rf.http/managed
-                 {:request {:method :get :url "/api/items"}
+                 {:reply-to [:jvm-relative/load msg] :request {:method :get :url "/api/items"}
                   :decode  :json}]]})))
     (rf/dispatch-sync [:jvm-relative/load])
     (let [db (await-reply! #(some? (:reply %)) 5000)]
