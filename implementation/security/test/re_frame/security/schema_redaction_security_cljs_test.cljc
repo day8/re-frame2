@@ -40,8 +40,8 @@
             ;; it the default validator soft-passes and no failure fires.
             [re-frame.schemas.malli]
             [re-frame.schemas :as schemas]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
+            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
             [re-frame.security.gen :as gen]))
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
@@ -217,11 +217,8 @@
 (defn- failure-trace
   [schema db]
   (rf/reg-app-schema [:root] schema)
-  (let [traces (atom [])
-        kw     (keyword "rf2-3cfvt" (name (gensym "listen")))]
-    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
+  (with-trace-recorder! [traces]
     (schemas/validate-app-schema! {:root db} :root/bad)
-    (trace-tooling/unregister-listener! kw)
     #?(:clj (schemas/clear-sensitive-paths-cache!))
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))

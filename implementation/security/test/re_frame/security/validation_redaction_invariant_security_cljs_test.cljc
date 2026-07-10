@@ -72,8 +72,8 @@
             [re-frame.flows]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
+            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
             [re-frame.security.gen :as gen]))
 
 ;; Reset per-test so app-schema registrations don't bleed across cases.
@@ -119,10 +119,8 @@
   attached; return the first trace event whose `:operation` is `op` (or nil if
   none fired)."
   [op f]
-  (let [traces (atom [])
-        kw     (keyword "rf2-o69h5" (name (gensym "listen")))]
-    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (trace-tooling/unregister-listener! kw)))
+  (with-trace-recorder! [traces]
+    (f)
     #?(:clj (schemas/clear-sensitive-paths-cache!))
     (first (filter #(= op (:operation %)) @traces))))
 
@@ -522,47 +520,44 @@
         (rf/reg-event :cofx/uses-generated-secret
           {:rf.cofx/requires [:cofx/generated-secret]}
           (fn [_ _] {}))
-        (let [thrown    (atom nil)
-              all       (atom [])
-              kw        (keyword "rf2-0mjgx6" (name (gensym "listen")))]
-          (trace-tooling/register-listener! kw (fn [ev] (swap! all conj ev)))
-          (try
-            ;; Do NOT supply the fact on the token — the generator runs at
-            ;; processing-start under the router's :live default, produces the
-            ;; failing value, and the schema check throws cofx-value-invalid.
-            (rf/dispatch-sync [:cofx/uses-generated-secret])
-            (catch #?(:clj clojure.lang.ExceptionInfo
-                      :cljs cljs.core/ExceptionInfo) e
-              (reset! thrown e))
-            (finally (trace-tooling/unregister-listener! kw)))
-          ;; (a) NO :rf.cofx/generated trace leaks the sentinel (the prior
-          ;;     pre-validation emit). It is acceptable for the op to be absent
-          ;;     entirely (validation aborts before the emit) — the invariant is
-          ;;     that NONE that DID fire carry the secret.
-          (let [generated (filter #(= :rf.cofx/generated (:operation %)) @all)]
-            (doseq [g generated]
-              (is (not (contains-sentinel? g))
-                  (str "the sentinel leaked on a :rf.cofx/generated trace BEFORE "
-                       "validation redacted it: " (pr-str (:tags g))))))
-          ;; (b) The redacted cofx-value-invalid trace IS present and clean.
-          (let [inv (first (filter #(= :rf.error/cofx-value-invalid (:operation %)) @all))]
-            (is (some? inv) ":rf.error/cofx-value-invalid trace fired")
-            (when inv
-              (is (true? (:sensitive? inv)) "cofx-value-invalid :sensitive? stamp")
-              (is (= :rf/redacted (-> inv :tags :value)) "cofx-value-invalid :value redacted")
-              (is (not (contains-sentinel? inv))
-                  (str "the sentinel leaked into the cofx-value-invalid trace: "
-                       (pr-str (:tags inv))))))
-          ;; (c) The thrown ex-data redacts too.
-          (is (some? @thrown) "dispatch threw cofx-value-invalid")
-          (when-let [d (some-> @thrown ex-data)]
-            (is (= :rf.error/cofx-value-invalid (:rf.error/id d)))
-            (is (= :rf/redacted (:value d)) "ex-data :value redacted")
-            (is (not (contains-sentinel? d))
-                (str "the sentinel leaked into the thrown ex-data: " (pr-str d))))
-          ;; (d) The sentinel appears NOWHERE across the WHOLE captured stream.
-          (is (not (contains-sentinel? @all))
-              "the generated sentinel must not appear anywhere in the trace stream"))))))
+        (let [thrown (atom nil)]
+          (with-trace-recorder! [all]
+            (try
+              ;; Do NOT supply the fact on the token — the generator runs at
+              ;; processing-start under the router's :live default, produces the
+              ;; failing value, and the schema check throws cofx-value-invalid.
+              (rf/dispatch-sync [:cofx/uses-generated-secret])
+              (catch #?(:clj clojure.lang.ExceptionInfo
+                        :cljs cljs.core/ExceptionInfo) e
+                (reset! thrown e)))
+            ;; (a) NO :rf.cofx/generated trace leaks the sentinel (the prior
+            ;;     pre-validation emit). It is acceptable for the op to be absent
+            ;;     entirely (validation aborts before the emit) — the invariant is
+            ;;     that NONE that DID fire carry the secret.
+            (let [generated (filter #(= :rf.cofx/generated (:operation %)) @all)]
+              (doseq [g generated]
+                (is (not (contains-sentinel? g))
+                    (str "the sentinel leaked on a :rf.cofx/generated trace BEFORE "
+                         "validation redacted it: " (pr-str (:tags g))))))
+            ;; (b) The redacted cofx-value-invalid trace IS present and clean.
+            (let [inv (first (filter #(= :rf.error/cofx-value-invalid (:operation %)) @all))]
+              (is (some? inv) ":rf.error/cofx-value-invalid trace fired")
+              (when inv
+                (is (true? (:sensitive? inv)) "cofx-value-invalid :sensitive? stamp")
+                (is (= :rf/redacted (-> inv :tags :value)) "cofx-value-invalid :value redacted")
+                (is (not (contains-sentinel? inv))
+                    (str "the sentinel leaked into the cofx-value-invalid trace: "
+                         (pr-str (:tags inv))))))
+            ;; (c) The thrown ex-data redacts too.
+            (is (some? @thrown) "dispatch threw cofx-value-invalid")
+            (when-let [d (some-> @thrown ex-data)]
+              (is (= :rf.error/cofx-value-invalid (:rf.error/id d)))
+              (is (= :rf/redacted (:value d)) "ex-data :value redacted")
+              (is (not (contains-sentinel? d))
+                  (str "the sentinel leaked into the thrown ex-data: " (pr-str d))))
+            ;; (d) The sentinel appears NOWHERE across the WHOLE captured stream.
+            (is (not (contains-sentinel? @all))
+                "the generated sentinel must not appear anywhere in the trace stream")))))))
 
 (deftest valid-recordable-cofx-schema-path-unaffected
   (testing "rf2-hdi6wr (c) — a recordable reg-cofx whose value CONFORMS to its

@@ -78,13 +78,15 @@
             ;; fx, so a synthetic cofx suffices.
             [re-frame.routing.navigate :as navigate]
             [re-frame.routing.registry :as registry]
-            [re-frame.test-support :as test-support]
+            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
             ;; SITE 1 drives the REAL production emit (`trace/emit-error!`),
             ;; not direct `classification/project-trace-event` — so the test proves the
             ;; full envelope production actually ships, including the top-level
-            ;; `:sensitive?` hoist the MCP egress gate reads (rf2-md2wn0).
+            ;; `:sensitive?` hoist the MCP egress gate reads (rf2-md2wn0). The
+            ;; shared `with-trace-recorder!` brackets the trace-tooling listener
+            ;; the helpers capture off.
             [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.security.gen :as gen]))
 
 ;; Reset per-test so route + mark + app-schema registrations don't bleed.
@@ -187,12 +189,8 @@
   `:sensitive?` hoist. This is the production path; nothing routes around
   the reported gap."
   [tags]
-  (let [traces (atom [])
-        kw     (keyword "rf2-md2wn0" (name (gensym "machine-ex")))]
-    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
-    (try
-      (trace/emit-error! :rf.error/machine-action-exception tags)
-      (finally (trace-tooling/unregister-listener! kw)))
+  (with-trace-recorder! [traces]
+    (trace/emit-error! :rf.error/machine-action-exception tags)
     (first (filter #(= :rf.error/machine-action-exception (:operation %))
                    @traces))))
 
@@ -437,17 +435,13 @@
   the `:params`-schema reject short-circuits before any push/scroll fx."
   [params-schema]
   (rf/reg-route :sec/route {:params params-schema} "/doc/:doc")
-  (let [traces (atom [])
-        kw     (keyword "rf2-zsm03" (name (gensym "nav")))]
-    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
-    (try
-      ;; :doc must be a value the schema rejects (schema wants :int). The
-      ;; sentinel rides as the offending param value.
-      ;; The frame stamp reaches the event context under :rf.frame/id
-      ;; (rf2-1m6rf1 — the bare :frame coeffect is retired).
-      (navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
-                                 [:rf.route/navigate :sec/route {:doc sentinel}])
-      (finally (trace-tooling/unregister-listener! kw)))
+  (with-trace-recorder! [traces]
+    ;; :doc must be a value the schema rejects (schema wants :int). The
+    ;; sentinel rides as the offending param value.
+    ;; The frame stamp reaches the event context under :rf.frame/id
+    ;; (rf2-1m6rf1 — the bare :frame coeffect is retired).
+    (navigate/navigate-handler {:db {} :rf.frame/id :rf/default}
+                               [:rf.route/navigate :sec/route {:doc sentinel}])
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
