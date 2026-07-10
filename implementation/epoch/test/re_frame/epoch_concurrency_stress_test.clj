@@ -1,17 +1,7 @@
 (ns re-frame.epoch-concurrency-stress-test
-  "Per rf2-rd7a7 — JVM concurrency stress coverage for the epoch surface.
-  Mirrors rf2-1gpx8's machine-actor stress pattern
-  (`machine_actor_concurrency_stress_test.clj`) and rf2-35rgj's router
-  stress pattern (`concurrency_stress_test.clj`) but targets the epoch
-  recorder / listener / ring-buffer paths.
-
-  The deterministic epoch suite (`epoch_test.clj`, including the recent
-  PR #1167 additions: rf2-1294f / rf2-i0rl9 / rf2-kl5p1 / rf2-7kxxx, plus
-  the multi-listener observed-frames pin rf2-s60jx, the capture-buffer
-  cross-contamination pin rf2-5qbus, the boundary-validation pin
-  rf2-douii, and the halted-cascade pin rf2-v0jwt) covers correctness
-  single-shot. None of those tests fires the epoch surface from multiple
-  threads — under contention the three documented hot paths
+  "JVM concurrency stress coverage for epoch recorder, listener, and ring paths.
+  Deterministic tests cover the same contracts in isolation. Under contention,
+  the three hot paths
   (`settle!`/`record!`, the `register-epoch-listener!`/`unregister-epoch-listener!`
   listener registry, and the per-frame ring buffer) are reached
   concurrently and must hold the same invariants.
@@ -99,19 +89,12 @@
 
   ## Stress dial
 
-  Defaults: 8 threads × 5000 iters per scenario (matches rf2-1gpx8 /
-  rf2-35rgj / rf2-ynk7). Env-overridable via `RF2_RD7A7_STRESS_ITERS`.
+  Defaults: 8 threads × 5000 iterations per scenario. Override with
+  `RF2_RD7A7_STRESS_ITERS`.
   Scenario 1's wall-clock at the default is ~10-20s on a 4-core CI box;
   scenarios 2 and 3 are similar (each pins one frame so the per-frame
-  drain serialisation throttles wall-clock). The 5x deflake the bead
-  mandates runs all three scenarios five times — total ~3-5 min for
-  the suite at default iters.
-
-  ## 5x deflake protocol
-
-  Per the bead, this file MUST pass 5 consecutive `clojure -M:test`
-  runs. The pinned wall-clock budget per run is ~60-90s; 5 runs ≈
-  5-7 min — viable for a green-gate check before pushing."
+  drain serialisation throttles wall-clock). Five consecutive runs take roughly
+  5-7 minutes."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
@@ -653,7 +636,7 @@
 ;;     real (currently-present) epoch-id, and `back-fill-sub-run!` a uniquely-
 ;;     tagged row onto it.
 ;;
-;; Invariant (snapshot consistency): EVERY back-filled row that the fix accepts
+;; Invariant (snapshot consistency): every accepted back-filled row
 ;; (the target was still present at splice time) lands on the epoch whose
 ;; `:epoch-id` matches the tag the row carries — NEVER on a positional
 ;; neighbour. After the run we walk the final ring and assert no surviving

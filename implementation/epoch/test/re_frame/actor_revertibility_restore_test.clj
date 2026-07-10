@@ -1,37 +1,14 @@
 (ns re-frame.actor-revertibility-restore-test
-  "Per rf2-a2sn1 — the genuine end-to-end `restore-epoch!` repros for the
-  dynamically-spawned-actor revertibility leak (Goal 2).
+  "End-to-end actor-liveness restore coverage.
 
-  These are the two live repros the bead pinned as the acceptance bar,
-  run against the REAL epoch `restore-epoch!` path (the epoch artefact
-  test-deps machines):
+  Machine snapshots live in the runtime-db partition, and actor liveness is
+  derived from snapshot presence. Restoring whole frame state must therefore:
 
-    rewind-past-spawn  — register/spawn an actor, restore-epoch! to BEFORE
-                         it existed; assert NO orphaned handler survives
-                         (the `{:handler-survived-restore? true}` leak is
-                         closed) and a dispatch to the gone actor is a
-                         clean :rf.error/no-such-handler.
+    - remove an actor when rewinding to before its spawn;
+    - revive lazy resolution when rewinding to before its destroy.
 
-    rewind-past-destroy (the key fix) — spawn → destroy → restore-epoch! to
-                         when it was alive; assert a dispatch to the actor
-                         now RESOLVES via the lazy resolver and drives a
-                         transition (NOT :rf.error/no-such-handler).
-
-  Before the fix, a spawned actor's liveness lived in the registrar
-  (outside the frame value), so `restore-epoch!` could not revert it. After
-  the fix (LAZY-RESOLVER), spawn/destroy are pure frame-state writes and an
-  actor's liveness IS its snapshot's presence in the (revertible) runtime-db
-  partition — so `restore-epoch!` reverts it perfectly.
-
-  EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
-  partition state at `[:rf.runtime/machines :snapshots <id>]`; the epoch now
-  captures the whole frame-state (`:frame-state-before/-after`, decision #2)
-  and `restore-epoch!` reinstalls both partitions via `replace-frame-state!`,
-  so reverting a spawn / destroy reverts the runtime-db liveness. These three
-  end-to-end repros (deferred by rf2-vzld77) are re-enabled here.
-
-  Spec: [Spec 005 §Spawning §Liveness is derived from app-db] and
-  [000-Vision Goal 2 — Frame state revertibility]."
+  The tests use the public restore path and real machine dispatch so registrar
+  state cannot mask a non-revertible actor lifecycle."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
@@ -119,7 +96,7 @@
         (is (true? ok?) "restore-epoch! to the pre-spawn epoch succeeded")
         (is (nil? (snapshot :rev/child#1))
             "rewind-past-spawn: the actor's snapshot is gone")
-        ;; The repro's headline assertion — inverted to the post-fix value.
+        ;; Restore preserves the original child id.
         (is (nil? (registrar/lookup :event :rev/child#1))
             "{:handler-survived-restore? false} — NO orphaned handler
              survives the revert")

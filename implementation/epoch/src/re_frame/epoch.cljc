@@ -1,10 +1,9 @@
 (ns re-frame.epoch
-  "Per-frame epoch history. Per Tool-Pair §Time-travel and Spec-Schemas
-  §`:rf/epoch-record`.
+  "Per-frame epoch history and time-travel support.
 
   Every DEQUEUED EVENT's run-to-completion marks an epoch boundary — one
-  `:rf/epoch-record` per event, NOT per drain (per Spec 002 §Drain versus
-  event, rf2-u6jsj/rf2-nj6p7). A drain that processes a parent event and
+  `:rf/epoch-record` per event, not per drain. A drain that processes a
+  parent event and
   the `:fx [[:dispatch …]]` child it queued commits TWO records. A machine
   macrostep (`:raise` / `:always` microsteps) runs inside one event and
   stays ONE epoch. The runtime records, per frame, an `:rf/epoch-record`
@@ -12,14 +11,11 @@
 
     :epoch-id       opaque, unique within a frame's history
     :frame          frame keyword
-    :committed-at   the committing event's CAUSAL time — its envelope's
-                    `:rf.cofx` `:rf/time-ms`, stamped at the router's
-                    causal boundary (rf2-bh56rc / EP-0010 §Time), NOT an
-                    ambient assembly-time clock read; replayable
+    :committed-at   the committing event's causal `:rf/time-ms`
     :event-id       the event keyword that triggered the cascade
     :trigger-event  the full event vector
-    :db-before      app-db snapshot before the cascade
-    :db-after       app-db snapshot after the drain settled
+    :db-before      app-db snapshot before the event ran
+    :db-after       app-db snapshot after that event settled
     :trace-events   the raw trace stream that produced this epoch
     :sub-runs       structured projection of subscription activity
     :renders        structured projection of render activity
@@ -31,22 +27,19 @@
 
   The entire epoch-history machinery is gated on `interop/debug-enabled?`,
   the same compile-time goog-define as the trace surface. Production
-  builds elide; no allocation, no storage, no overhead.
+  builds elide the epoch implementation and its recorded data.
 
-  Listener API (`register-epoch-listener!` / `unregister-epoch-listener!`) mirrors the
-  raw-trace listener API in `re-frame.trace`. Listeners receive the
-  fully-assembled record after it lands in the ring buffer.
+  Listeners receive each raw assembled record after the storage attempt.
+  With history depth 0, listeners still receive records while the ring stays
+  empty.
 
   Restore (`restore-epoch!`) rewinds a frame to the named epoch's
   canonical `:frame-state-after` — the WHOLE frame-state, with app-db
   and runtime-db as two separate partitions reinstalled in ONE atomic
-  write (EP-0001 rf2-3aizt1; Tool-Pair §Time-travel). The retained
+  write. The retained
   `:db-before` / `:db-after` are OPTIONAL app-db projections of that
-  frame-state, not the restore target itself. Seven documented failure
-  modes (Tool-Pair §Time-travel restore-failure-modes table) each emit
-  a structured trace and leave the frame's frame-state unchanged — six
-  under the reserved `:rf.epoch/*` namespace, plus the registry-lookup
-  `:rf.error/no-such-handler` (kind `:frame`) for an unknown frame-id."
+  frame-state, not the restore target itself. Refused restores emit a
+  structured trace and leave the frame state unchanged."
   (:require [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as listeners]
@@ -59,33 +52,7 @@
 
 ;; ---- configuration --------------------------------------------------------
 ;;
-;; Atoms, defaults, and config-merge validation live in `re-frame.epoch.state`.
-;; The facade keeps the public docstrings and the late-bind hook publication.
-;;
-;; Design provenance (kept out of the public `configure!` docstring per the
-;; rf2-ee38b clarity review):
-;;   * `:trace-events-keep` defaults to a FINITE fixed 50 — chosen to equal
-;;     the shipped `:depth` DEFAULT (see
-;;     `re-frame.epoch.state/default-trace-events-keep`; rf2-mrsck /
-;;     Security.md §Epoch privacy posture). It does NOT track a configured
-;;     `:depth` — the two are independent slots. With the default the most-recent
-;;     `:depth` records per frame retain raw `:trace-events`; when an epoch
-;;     evicts from the ring its raw trace evicts with it, so trace + epoch
-;;     stay atomic (Mike pair-debug 2026-05-27 — the prior finite-5 default
-;;     created the discrepancy of 50 retained records but only 5 with their
-;;     `:trace-events`). Older records (beyond the keep-window, when an app
-;;     configures a keep < depth) keep only the cheap structured projections.
-;;     Memory-conscious hosts pass a smaller value (e.g.
-;;     `{:trace-events-keep 5}`); `0` drops every record's `:trace-events`.
-;;     `(rf/configure! {:epoch-history {:trace-events-keep nil}})` is a no-op
-;;     against the explicit-value validation; use a numeric value or omit the
-;;     slot.
-;;   * Keys are validated at the boundary (refactor-audit r2 rf2-lwn4t
-;;     §rf2-douii): a `:depth` / `:trace-events-keep` that isn't a
-;;     non-negative integer is silently dropped rather than stored, so a
-;;     nil / non-numeric value can't survive into `record!` and explode at
-;;     the next `pos?` / `nat-int?`. Mirrors `re-frame.trace/configure-trace-
-;;     buffer!`'s own config-boundary validation.
+;; Defaults, state, and boundary validation live in `re-frame.epoch.state`.
 
 (defn configure!
   "Update the epoch-history configuration. Supported keys:
@@ -105,21 +72,21 @@
                         `:depth`: set `{:depth 100}` and `:trace-events-keep`
                         stays 50 unless you also set it. Pass a smaller value
                         (e.g. 5) to bound dev-session heap more aggressively.
-    :redact-fn          fn? or nil. The ADVANCED PROJECTION-SIDE override
-                        (EP-0015 §15 + open-issue 6, RULED). When non-nil the
+    :redact-fn          fn? or nil. An advanced projection-side override.
+                        When non-nil the
                         framework invokes the fn ONCE per record at the
                         OFF-BOX EGRESS boundary — inside `projected-record`,
                         AFTER the frame/profile `project-egress` projection —
                         NOT at storage time. The ring buffer and every
                         `register-epoch-listener!` listener receive the RAW
-                        record: post-EP-0010 epoch records are causal replay
-                        material, and mutating them at rest would corrupt the
+                        record. Epoch records are causal replay material, and
+                        mutating them at rest would corrupt the
                         replay contract. The fn is the rare advanced escape
                         for an app that records material the declaration-driven
                         projection cannot prove (a sensitive slot no frame /
                         schema declaration covers); ordinary redaction needs
                         only the frame's `:sensitive` / `:large` classification
-                        (EP-0015 §3) plus the per-slot schema props machine /
+                        plus the per-slot schema properties machine /
                         resource data carry, which `projected-record` already
                         applies. A throwing
                         fn emits `:rf.warning/epoch-redact-fn-exception` and
@@ -127,13 +94,11 @@
                         record. Passing `nil` clears any previously-installed
                         fn. CAVEAT: the fn runs only on the projected egress
                         copy; it cannot affect `restore-epoch!` fidelity (the
-                        ring stays raw) — that hazard is gone by construction.
+                        ring stays raw).
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
   malformed `:redact-fn` (not `fn?` / `nil`) are silently dropped at the
-  boundary. See EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition,
-  Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch privacy posture
-  for the full contract."
+  boundary."
   [opts]
   (state/merge-config! opts))
 
@@ -142,18 +107,6 @@
   and tools that want to display the current depth."
   []
   (state/current-config))
-
-;; The test-support config-isolation seam (`:epoch/reset-config!`,
-;; rf2-yw1w1u) points straight at `state/reset-config!` from the late-bind
-;; map below (rf2-c0rv4v — no facade wrapper; `state/reset-config!`'s
-;; docstring is the canonical pin and there is no distinct public docstring
-;; to keep here).
-
-;; The record-assembly helpers — `current-schema-digest`, the
-;; sensitive-rollup family, and `build-record` itself — live in
-;; `re-frame.epoch.assembly`. The `:redact-fn` advanced override
-;; (`apply-redact-fn`) is projection-side only (EP-0015 §15 + open-issue
-;; 6, RULED) — invoked from `projected-record`, never at storage time.
 
 ;; ---- the per-frame ring buffer --------------------------------------------
 ;;
@@ -172,13 +125,8 @@
 (defn clear-history!
   "Drop every recorded epoch for every frame. Test fixtures use this.
 
-  Per rf2-v0jwt: also drops any in-flight per-frame capture buffer.
-  Conformance / unit-test fixtures that sequence runs need a fresh
-  capture state per fixture so the halted-cascade record commits
-  observe THIS fixture's drain only — a buffer left over from a
-  previous fixture's mid-flight emit (e.g. a `:frame/created` event
-  whose drain didn't fire `harvest-buffer!`) would otherwise be
-  picked up by the next fixture's first cascade."
+  Also drop in-flight capture buffers so a later event cannot harvest traces
+  left by an interrupted test or run."
   []
   (state/reset-histories!)
   (state/reset-capture-buffers!)
@@ -191,15 +139,14 @@
 ;; fan-out / failure-isolation policy.
 
 (defn register-epoch-listener!
-  "Register a callback fired once per drain-settle with the assembled
-  `:rf/epoch-record`. The id can be any comparable value; passing the
-  same id twice replaces. Per Spec 009 §`register-epoch-listener!` —
-  assembled-epoch listener.
+  "Register a callback fired for each assembled event epoch record.
+  The id can be any comparable value; passing the
+  same id twice replaces the callback.
 
   The callback receives a fully-formed record with `:db-after`,
   `:sub-runs`, `:renders`, `:effects`, and `:trace-events` populated.
-  The record has already been appended to the frame's `epoch-history`
-  ring buffer when the callback runs.
+  Storage is attempted before the callback runs. At depth 0 the callback
+  still receives the record even though the ring remains empty.
 
   Listener exceptions are caught and isolated; one broken listener
   cannot break the runtime or block other listeners.
@@ -217,14 +164,6 @@
   []
   (state/reset-listeners!))
 
-;; `notify-listeners!` (the fan-out + failure-isolation policy) and
-;; `on-frame-destroyed!` (the four-step destroy contract that
-;; straddles state, capture, and assembly) live in
-;; `re-frame.epoch.listeners` (Phase-2 seam C, rf2-0wi86). The
-;; `:epoch/on-frame-destroyed` late-bind slot points straight at
-;; `listeners/on-frame-destroyed!` (rf2-c0rv4v — no facade wrapper; that
-;; seam carries no public docstring distinct from the listeners pin).
-
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;
 ;; The drain runs traces through `re-frame.trace/emit!` which fans out to
@@ -236,168 +175,62 @@
 ;; The buffer is keyed by frame-id so concurrent drains across frames
 ;; don't co-mingle. Within a frame, drain-execution is single-threaded
 ;; (per Spec 002 §Run-to-completion) so no further locking is needed.
-;; The atom + buffer-CRUD live in `re-frame.epoch.state` (Phase-2
-;; seam A, rf2-0wi86).
-
-;; The skip-ops catalogue, the late-bind `:epoch/capture-event` entry
-;; point, and the two read-only walks (`project-all`,
-;; `find-trigger-event`) live in `re-frame.epoch.capture` (Phase-2
-;; seam B, rf2-0wi86).
+;; Buffer storage lives in `re-frame.epoch.state`; capture and projection
+;; helpers live in `re-frame.epoch.capture`.
 
 ;; ---- per-event settle hook ------------------------------------------------
 
 (defn- commit-record!
-  "Build, ring-append, and fan out one RAW `:rf/epoch-record`. Shared
-  by the per-event clean settle (`settle!`) and the per-event halt commit
-  (`commit-halt-record!`). `events` is the harvested cascade buffer (may
-  be empty for a halt whose event never ran); `trigger-event` is an
-  explicit `[event-id …]` vector to pin the record's trigger when the
-  buffer carries no `:event/run-start` (the depth-exceed halting event,
-  per rf2-nj6p7), or nil to let `build-record` derive the trigger from
-  the buffer (the normal `:ok` path).
+  "Build, store, and fan out one raw `:rf/epoch-record`.
 
-  Per EP-0015 §15 + open-issue 6 (RULED, hardened): the ring buffer and
-  every `register-epoch-listener!` listener receive the RAW record.
-  Epoch records are causal replay material (per EP-0010), and mutating
-  them at rest would corrupt the replay contract (not merely restore
-  fidelity), so storage is always raw. The app-supplied `:redact-fn` is a
-  PROJECTION-SIDE-ONLY advanced override, applied at the off-box egress
-  boundary inside `projected-record` (never at storage time). The
-  `:rf.epoch/sensitive?` rollup inside `build-record` reflects raw signals
-  so off-box consumers can branch on it before projecting.
+  `events` is the harvested capture buffer. `trigger-event` supplies the
+  trigger for a halt whose event never ran and therefore has no
+  `:event/run-start`; normal settles derive it from `events`.
 
-  `committed-at` is the record's durable causal time — per EP-0010 §Time
-  and Spec 002 §The World-Input Rule (rf2-bh56rc) the committing causal
-  token's `:rf.cofx` `:rf/time-ms`, threaded down from the router's
-  per-event settle / depth-halt seam, NOT an ambient host-clock read at
-  assembly time. This makes `:committed-at` replayable."
+  Raw storage is required for replay. Projection, including the configured
+  `:redact-fn`, happens only at off-box egress. `committed-at` is the causal
+  token's `:rf/time-ms`, not an assembly-time clock read."
   [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
-  ;; EP-0001 (rf2-3aizt1, decision #2): the canonical snapshot unit is the
-  ;; whole frame-state (both partitions); `build-record` stores it as
-  ;; `:frame-state-before` / `:frame-state-after` and derives the
-  ;; `:db-before` / `:db-after` app-db projections.
+  ;; Whole-frame snapshots are restore units; app-db slots are projections.
   (let [base   (assembly/build-record frame-id frame-state-before frame-state-after
                                       events committed-at outcome halt-reason)
-        ;; Pin the explicit trigger when supplied AND the buffer didn't
+        ;; Pin the explicit trigger only when the buffer did not resolve one.
         ;; already resolve one (the halting event never ran, so no
-        ;; `:event/run-start` was buffered). Per Spec-Schemas
-        ;; §:rf/epoch-record the slots are :keyword / vector — never nil.
+        ;; `:event/run-start` was buffered). Omit rather than store nil.
         record (cond-> base
                  (and trigger-event (not (:event-id base)))
                  (assoc :event-id      (first trigger-event)
                         :trigger-event trigger-event))]
     (state/record! record)
-    ;; Per rf2-qs6dl: mark this as the frame's most-recently-settled
-    ;; epoch so post-settle async render emits (which fire at React
-    ;; commit time, after this event settled) are attributed back to
-    ;; THIS event rather than buffered into the next one. Set after
-    ;; `record!` so the record is in the ring before any render can
-    ;; back-fill into it.
+    ;; Async render/sub emits use this anchor after the event has settled.
+    ;; Set it after storage so back-fill can find the record immediately.
     (state/set-last-settled-epoch! frame-id (:epoch-id record))
-    ;; Per rf2-931pm — focused-event-only cascade-DAG capture. Sticky
-    ;; hook (rf2-f72pd) published by `re-frame.trace.cascade` at ns-load;
-    ;; when the trace.cascade ns has not been loaded (e.g. tooling-
-    ;; stripped JVM consumers) the lookup returns nil and the call
-    ;; short-circuits. The aggregator's own focus-predicate gate decides
-    ;; whether to emit `:rf.cascade/captured` — off-focus epochs pay just
-    ;; the predicate call (default predicate returns false).
+    ;; The optional cascade aggregator applies its own focus predicate.
     (when-let [capture (late-bind/get-fn-cached
                          :trace.cascade/capture-for-epoch!)]
       (try
         (capture frame-id (:epoch-id record) (:event-id record) events)
         (catch #?(:clj Throwable :cljs :default) _ nil)))
-    ;; Per rf2-18g1w / rf2-jppad — the cascade-trailer pair: the detailed
-    ;; `:rf.epoch/snapshotted` (tools that want the CAUSE read its
-    ;; `:outcome` tag) plus the consumer-facing `:rf.epoch/outcome`
-    ;; (`{:ok :blocked :error}` — the Xray Trace panel close-row §13 and
-    ;; Story outcome chips read this op's tag directly). The shared
-    ;; `emit-snapshotted+outcome!` keeps the trailer shape identical to
-    ;; the mid-drain destroy commit's.
+    ;; Emit both the detailed close cause and its consumer-facing tier.
     (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                         (:event-id record) outcome)
     (listeners/notify-listeners! record)
     record))
 
 (defn settle!
-  "Hook called by the router once per DEQUEUED EVENT — at each event's
-  run-to-completion boundary, NOT once per drain. Per Spec 002
-  §Drain versus event — the epoch unit (rf2-u6jsj/rf2-nj6p7) and
-  Tool-Pair §Time-travel and rf2-v0jwt §Outcomes.
+  "Settle one dequeued event, not an entire drain.
 
-  Per rf2-nj6p7: the epoch boundary is the dequeued event, not the
-  drain-settle. A drain that processes a parent event and an
-  `:fx [[:dispatch …]]` child it queued therefore produces TWO records
-  (one per event), each with its OWN `:db-before` / `:db-after` snapshot
-  pair and its own harvested trace buffer. The router calls this after
-  each `process-event!` returns, so the capture buffer it harvests holds
-  exactly that one event's six-domino cascade (within a frame, execution
-  is single-threaded run-to-completion, so the buffer is cleanly the
-  in-flight event's). A machine macrostep — `:raise` sub-events and
-  `:always` microsteps — runs INSIDE a single `process-event!`, so its
-  emits ride the triggering event's buffer and settle as ONE epoch (per
-  Spec 005 §macrostep); they do not allocate a new epoch.
+  Parent and child events in one drain produce separate records; machine
+  microsteps within one handler remain in that handler's record. The two
+  frame-state arguments are whole-frame snapshots, and `committed-at` is the
+  event envelope's causal time.
 
-  `committed-at` is the record's durable causal time — per EP-0010 §Time
-  (epoch record causal time) and Spec 002 §The World-Input Rule
-  (rf2-bh56rc) the committing causal token's `:rf.cofx` `:rf/time-ms`,
-  read ONCE at the causal boundary (envelope construction) and threaded
-  down here by the router's per-event settle seam (`settle-event-epoch!`),
-  NOT an ambient host-clock read at assembly time. This makes the record's
-  `:committed-at` replayable: the same event log replayed with the same
-  supplied `:rf/time-ms` values yields records with equal `:committed-at`.
-
-  Arities:
-    (settle! frame-id frame-state-before frame-state-after committed-at)
-      Clean per-event settle. `:outcome` is `:ok`. Equivalent to passing
-      `:ok` as `outcome` explicitly. Skips recording when the captured
-      buffer is empty (a truly empty cascade — likely a rejected
-      dispatch — is degenerate and would emit a misleading record).
-    (settle! frame-id frame-state-before frame-state-after committed-at settling-dispatch-id)
-      Clean per-event settle threading the settling ENVELOPE's dispatch-id —
-      the arity the ROUTER's per-event seam (`settle-event-epoch!`) calls.
-      `settling-dispatch-id` scopes the NO-RUN-START harvest (rf2-erczwd): a
-      rejected / aborted dispatch (no-handler / frame-destroyed) emits a
-      frame-stamped, dispatch-id-bearing error trace that buffers but fired no
-      `:event/run-start`; the harvest drops THAT dispatch's own traces so the
-      empty-buffer skip suppresses the misleading `:ok` epoch, while an
-      unrelated buffered child marker survives for its own settle. `:outcome`
-      is `:ok`.
-    (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason)
-      Drain-boundary commit with explicit outcome. The runtime commits
-      one of three outcomes: `:ok` / `:halted-depth` / `:halted-destroy`
-      (`:halted-handler-exception` is a schema-reserved value the
-      reference runtime never emits — handler exceptions ride the
-      interceptor error-capture seam and the drain settles `:ok` with the
-      error trace under `:trace-events`; see Spec-Schemas §`:rf/epoch-record`
-      §Outcomes and Spec 009 §register-epoch-listener!). `halt-reason` is
-      a structured descriptor populated on halt paths (nil on `:ok`). On a buffer
-      with no recoverable trigger (no `:event/run-start` and no
-      `:event-id` tag — e.g. a destroy that races a registration-time
-      emit) `build-record` omits `:event-id` / `:trigger-event`
-      entirely; the schema admits absent slots, rejects nil values
-      (per rf2-kl5p1 / audit r3 §F1).
-
-  `frame-state-before` is the whole frame-state value (both partitions)
-  snapshotted before the cascade began; `frame-state-after` is the value
-  the runtime settled to — equal to `frame-state-before` for atomic-rollback
-  halts (`:halted-depth`), the live frame-state for the destroy path
-  (`:halted-destroy`), the post-drain value for `:ok`. EP-0001 (rf2-3aizt1,
-  decision #2): the canonical snapshot unit is the whole frame-state;
-  `build-record` derives the `:db-before` / `:db-after` app-db projections
-  from it. The captured trace buffer is harvested here and projected into
-  the record.
-
-  Emits `:rf.epoch/snapshotted` with a `:outcome` tag so trace listeners
-  can discriminate clean from halted boundaries without inspecting the
-  epoch-history vector. Listeners (`register-epoch-listener!`) receive every
-  record regardless of outcome.
-
-  See also `commit-halt-record!` — the sibling commit path for the
-  depth-exceed halt whose halting event never ran, so the buffer is empty
-  at halt and `settle!`'s empty-buffer skip would suppress the record.
-  Both fns share the private `commit-record!` helper; `commit-halt-record!`
-  synthesises the halting event's trigger explicitly while `settle!` lets
-  `build-record` derive it from the harvested buffer."
+  The router arity includes `settling-dispatch-id`, allowing capture to discard
+  a rejected dispatch's traces without consuming a queued child's marker. An
+  empty harvest produces no misleading `:ok` record. A depth halt whose event
+  never ran uses `commit-halt-record!`, which can commit an explicit trigger
+  despite an empty buffer. Explicit outcomes carry a structured halt reason;
+  when no trigger can be recovered, trigger slots are omitted rather than nil."
   ([frame-id frame-state-before frame-state-after committed-at]
    (settle! frame-id frame-state-before frame-state-after committed-at :ok nil nil))
   ([frame-id frame-state-before frame-state-after committed-at settling-dispatch-id]
@@ -406,84 +239,32 @@
    (settle! frame-id frame-state-before frame-state-after committed-at outcome halt-reason nil))
   ([frame-id frame-state-before frame-state-after committed-at outcome halt-reason settling-dispatch-id]
    (when interop/debug-enabled?
-     ;; Per rf2-nj6p7: scoped harvest — take only the settling event's
-     ;; traces (its `:dispatch-id` + pre-cascade tagalongs), LEAVING any
-     ;; child's `:event/dispatched` marker (emitted during THIS event's
-     ;; do-fx, carrying the child's id) in the buffer for the child's own
-     ;; settle. Keeps each epoch's `:trace-events` to one `:dispatch-id`
-     ;; (Spec 009 §Dispatch correlation: one dispatch-id = one epoch).
-     ;; rf2-erczwd: `settling-dispatch-id` (the router-threaded envelope id)
-     ;; scopes the NO-RUN-START branch so a rejected/aborted dispatch's own
+     ;; Take only the settling event's traces, leaving a queued child's
+     ;; marker in the buffer for its own settle. The envelope id also scopes
+     ;; the no-run-start branch so a rejected or aborted dispatch's own
      ;; error trace is dropped (not returned) rather than committed as a fake
      ;; `:ok` epoch.
      (let [events (state/harvest-buffer-for-event! frame-id settling-dispatch-id)]
-       ;; Empty-buffer policy (consistent across outcomes): an empty
-       ;; capture buffer means no cascade context was recorded for
-       ;; this event — skip emission rather than commit a record with
-       ;; no :event-id / :trigger-event. A rejected/aborted dispatch
-       ;; (no `:event/run-start` ever fired) reaches this seam with an
-       ;; empty harvest (its own traces dropped by the scoped no-run-start
-       ;; branch, rf2-erczwd) and is correctly suppressed. Halt paths whose
-       ;; halting event never ran (the per-event depth-exceed boundary,
-       ;; per rf2-nj6p7) use `commit-halt-record!` instead, which
-       ;; synthesises the halting event's trigger explicitly.
+       ;; An empty capture has no event context. Rejected dispatches are
+       ;; suppressed here; never-run depth halts use `commit-halt-record!`.
        (when (seq events)
          (commit-record! frame-id frame-state-before frame-state-after events
                          committed-at outcome halt-reason nil))))))
 
 (defn- commit-halt-record!
-  "Commit a `:halted-*` epoch record for a drain halt whose halting event
-  never ran to completion — the per-event depth-exceed boundary
-  (rf2-nj6p7). Unlike `settle!`, this does NOT skip on an empty capture
-  buffer: under per-event epochs the events that ALREADY ran each
-  harvested their own buffer and committed their own `:ok` epoch, so the
-  buffer is empty when the depth limit trips. The halting event (the next
-  one that would have been dequeued) never ran, so it has no cascade
-  trace; this seam synthesises its `:halted-depth` record from the
-  explicit `trigger-event` so devtools (Xray, re-frame2-pair) get a
-  clear 'drain halted here' marker following the runaway `:ok` epochs.
+  "Commit a halt record for an event that never ran.
 
-  `frame-state-before` / `frame-state-after` are equal — the halting event
-  made no write (it never ran). Per rf2-nj6p7 the already-settled sibling events are
-  DURABLE (their `:ok` epochs and db writes survive); there is no
-  whole-drain rollback under per-event epochs — see the router's
-  `handle-depth-exceeded!` and the report note on the rule-3 reconcile.
-
-  PRINCIPLED SOURCE (rf2-bhu3a0): the halted-depth record's frame-state
-  is the durable LAST-SETTLED value, so this seam sources both
-  `frame-state-before` and `frame-state-after` from the most-recently-
-  settled epoch record's canonical `:frame-state-after` — the same value
-  `restore-epoch!` rewinds to — NOT from the live re-read the router
-  passes. The two coincide today (the halting event makes no write, so the
-  live frame-state still equals the last-settled value), so this is a
-  correctness-hardening, not a behaviour change: it removes the latent
-  dependence on the live container still holding the last-settled value at
-  the halt seam. When there is no last-settled record yet (a depth-exceed
-  on the very first cascade, before any `:ok` epoch landed), the
-  router-passed `frame-state-after` is the fallback.
-
-  Harvests-and-clears any residual buffer first so a stray pre-halt emit
-  (there should be none under per-event settling) can't leak into the
-  next cascade for this frame.
-
-  `committed-at` is the record's durable causal time — per EP-0010 §Time
-  and Spec 002 §The World-Input Rule (rf2-bh56rc) the halting causal
-  token's `:rf.cofx` `:rf/time-ms`, threaded down from the router's
-  `handle-depth-exceeded!` seam, NOT an ambient host-clock read. The
-  halting event never ran, but its envelope carries a `:time-ms` stamped
-  at its dispatch (the causal boundary); using it keeps even this
-  synthesised `:halted-depth` marker replayable.
-
-  See also `settle!` — the clean-path sibling that handles every per-
-  event `:ok` settle. Both fns share the private `commit-record!`
-  helper; `settle!` lets `build-record` derive the trigger from the
-  harvested buffer (an `:event/run-start` is always present on the
-  clean path) and skips on an empty buffer."
+  Earlier events in the drain already committed and remain durable. Because
+  the halting event has no run trace, this path uses its explicit event vector
+  and does not skip an empty capture. Both frame-state snapshots use the last
+  settled record's `:frame-state-after`; the router's live value is only the
+  fallback when no record has settled. The snapshots are equal because the
+  halted event made no write. Residual capture is cleared before commit, and
+  `committed-at` comes from the halted event's already-stamped envelope."
   [frame-id frame-state-before frame-state-after committed-at outcome halt-reason trigger-event]
   (when interop/debug-enabled?
     (let [events (state/harvest-buffer! frame-id)
-          ;; rf2-bhu3a0 — source the durable last-settled value from the
-          ;; canonical epoch record (the `:frame-state-after` restore uses)
+          ;; Source the durable value from the same snapshot restore uses,
           ;; rather than trusting the router's live re-read. Fall back to
           ;; the router-passed value when no `:ok` epoch has landed yet
           ;; (depth-exceed on the first cascade).
@@ -499,16 +280,10 @@
 
 ;; ---- restore --------------------------------------------------------------
 ;;
-;; Precondition validators, schema/handler/version probes, and
-;; `perform-restore!` live in `re-frame.epoch.tool-pair` (Phase-2 seam E,
-;; rf2-0wi86). The orchestrator below stays in the facade — it wires
-;; the precondition check + the trace emission + the perform step into
-;; a four-line case-match.
-
 (defn restore-epoch!
   "Rewind the frame to the named epoch's canonical `:frame-state-after`
   — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
-  separate partitions in ONE atomic write (EP-0001 rf2-3aizt1: reviving
+  separate partitions in one atomic write (reviving
   machine snapshots, the route slice, elision declarations, and SSR
   metadata, not just the app-db partition). `:frame-state-after` is the
   only restore source — every record `build-record` emits carries it; the
@@ -522,8 +297,7 @@
     :rf.epoch/restore-during-drain     — called while drain is in flight
     :rf.epoch/restore-unknown-epoch    — epoch-id not in current history
     :rf.epoch/restore-non-ok-record    — target epoch's :outcome is not :ok
-                                         (per rf2-v0jwt — halted-cascade
-                                         records carry partial state and
+                                         (halted records carry partial state and
                                          are not valid restore targets)
     :rf.epoch/restore-schema-mismatch  — db-after no longer validates
     :rf.epoch/restore-missing-handler  — referenced registration absent
@@ -541,78 +315,17 @@
 
 ;; ---- replace-frame-state! (Tool-Pair §Pair-tool writes) -------------------
 ;;
-;; Per Tool-Pair §Pair-tool writes: the ONE public Tool-Pair write surface
-;; that installs a PARTIAL frame-state map into a frame's frame-state,
-;; bypassing the dispatch loop (rf2-t3lftq — API-shrink #3 consolidated the
-;; former four-mutator family — `replace-app-db!` / `reset-app-db!` /
-;; `replace-runtime-db!` / `replace-frame-state!` — into this). Used by
-;; pair-shaped tools for state injection (evolved-state-shape probes after a
-;; handler hot-swap), story tools, conformance harnesses, and time-travel
-;; from JSON-loaded bug repros. A present partition key replaces that
-;; partition; an absent key is preserved unchanged — a db-shaped key never
-;; silently touches the OTHER partition (Mike ruling #10, preserved and
-;; generalised).
-;;
-;; App-only injection is `(replace-frame-state! id {:rf.db/app v})`; the
-;; former `reset-app-db!` is `(replace-frame-state! id {:rf.db/app {}})`;
-;; runtime-only injection is `(replace-frame-state! id {:rf.db/runtime v})`;
-;; a both-partition install supplies both keys.
-;;
-;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
-;; gate as `restore-epoch!` / `register-epoch-listener!` / the rest of the
-;; epoch-history machinery. Production builds (`:advanced` +
-;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
-;; available in shipped binaries.
-;;
-;; Failure modes (each is a no-op on the frame-state and returns `false`):
-;;   :rf.error/replace-frame-state-bad-keys — no recognized partition key, or
-;;                                              an unrecognized key — checked
-;;                                              before frame resolution
-;;   :rf.error/no-such-handler              (kind :frame) — frame not registered
-;;   :rf.epoch/replace-during-drain  — called while drain is in flight
-;;   :rf.epoch/replace-schema-mismatch — a PRESENT app-db partition fails the
-;;                                              frame's registered app-schema
-;;                                              set, or a PRESENT runtime-db
-;;                                              partition fails the
-;;                                              framework-owned validator
-;;   :rf.epoch/replace-history-disabled — epoch ring disabled (depth 0); the
-;;                                              synthetic undo-anchor cannot land
-;;                                              so the undo invariant is
-;;                                              unsatisfiable (rf2-unpldn)
-;;
-;; On success: records a synthetic `:rf/epoch-record` (so undo via
-;; `restore-epoch!` works against the previous state), emits
-;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
-;; epoch listeners with the assembled record.
+;; Dev-only state injection outside the dispatch loop. Present partition keys
+;; replace their partition; absent keys preserve it. Every successful write
+;; records a synthetic epoch so it can be undone, which is why depth 0 refuses
+;; the operation rather than installing state without an undo anchor.
 
 (defn- record-synthetic-replace-epoch!
-  "Record a synthetic `:rf.epoch/db-replaced` epoch for a pair-tool
-  injection and fan it out. Called by the partial-frame-state-patch perform
-  helper (`perform-replace-frame-state!`) — the single lockstep-maintained
-  site for the synthetic-record / committed-at / redaction contract. `fs-before` /
-  `fs-after` are the pre- and post-replace coherent frame-state values;
-  restore of this synthetic record reinstalls `fs-after`, and restore of a
-  PRIOR epoch rewinds past the injection.
+  "Record and fan out one synthetic pair-tool epoch.
 
-  Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record is stored
-  RAW (the ring is causal replay material); the `:redact-fn` advanced
-  override runs projection-side only, inside `projected-record`. Per
-  rf2-qs6dl: stamps the synthetic epoch as
-  the frame's last-settled so post-settle re-renders attribute back to it
-  rather than the next real cascade.
-
-  rf2-bh56rc: a pair-tool injection — no application event / causal token
-  is in flight, so `:committed-at` is the tool action's own wall-clock; the
-  ambient read happens HERE rather than inside the pure `build-record`
-  builder (per EP-0010 §Time — ambient time stays allowed for a tool
-  action's wall-clock).
-
-  rf2-czwwf4: `:committed-at` is a DURABLE epoch field, so the ambient read
-  uses `interop/epoch-now-ms` (wall-clock epoch ms, `js/Date.now()` on
-  CLJS) — NOT `interop/now-ms`, which on CLJS is `performance.now()`
-  (origin-relative, NOT for durable facts). This keeps a tool-injected
-  epoch's `:committed-at` in the same wall-clock CLASS as the
-  router-stamped epochs (EP-0010 §Time durable-timestamp rule)."
+  The record remains raw for replay and becomes the frame's last-settled
+  attribution anchor. With no application event in flight, `:committed-at`
+  uses `epoch-now-ms`: a durable wall-clock value, not the elapsed-time clock."
   [frame-id fs-before fs-after]
   (let [record (assoc (assembly/build-record frame-id fs-before fs-after []
                                              (interop/epoch-now-ms))
@@ -627,54 +340,21 @@
     record))
 
 (defn- perform-replace!
-  "Carry out a frame-state patch once preconditions have passed — the body
-  behind `perform-replace-frame-state!` (rf2-c0rv4v; formerly shared across
-  the three now-consolidated `perform-replace-app-db!` /
-  `perform-replace-runtime-db!` / `perform-replace-frame-state!` helpers).
-  `write-fn` is a 0-arg thunk that performs the `frame/replace-frame-state!`
-  partition write (the wrapper binds the frame-id + new partial map into
-  it); `fs-after-fn` builds the coherent post-replace frame-state from the
-  pre-replace `fs-before` (so restore of the synthetic epoch reinstalls the
-  right two-partition value). Returns `true` on a real write.
+  "Carry out a frame-state patch after preconditions pass.
 
-  Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
-  the write boundary via `tool-pair/live-container-or-fail`. If the frame was
-  destroyed between the precondition pass and now, the container is nil and
-  `replace-container!` would silently no-op — so instead of recording a
-  synthetic epoch for a destroyed frame, fanning it out to listeners,
-  emitting `:rf.epoch/db-replaced`, and returning `true` (a FALSE success
-  against a frame that no longer exists), this emits the canonical
-  `:rf.error/no-such-handler` (kind `:frame`) failure trace and returns
-  `false`, matching the destroyed-frame contract.
-
-  Per rf2-s93722 (post-liveness teardown race): the liveness check closes
-  only HALF the window — a frame destroyed AFTER `live-container-or-fail`
-  passes but BEFORE the `frame/replace-*!` write actually lands still slips
-  through. The partition writers return `nil` for a destroyed frame (a
-  non-nil — possibly EMPTY — changed-key-set for a live frame, even a no-op
-  write), so we check that return: a `nil` return is the destroyed-frame
-  signal, surfaced as the same `:rf.error/no-such-handler` (kind `:frame`)
-  failure / `false` return BEFORE any synthetic epoch, listener fanout, or
-  success telemetry. On a real write records a synthetic epoch via
-  `record-synthetic-replace-epoch!` (single lockstep-maintained site for the
-  synthetic-record / committed-at / redaction contract — see that fn's
-  docstring for the rf2-bh56rc / rf2-czwwf4 / qs6dl rationale).
-
-  EP-0001 (rf2-adwcv6): the partition writes go through the `frame/replace-*!`
-  writers because `frame/app-db-container` / `runtime-db-container` are now
-  READ-ONLY projections, so a direct `replace-container!` on them throws."
+  Liveness is checked again at the write boundary. The write result closes the
+  remaining teardown race: nil means the frame disappeared before the write
+  landed, while any non-nil changed-key set, including empty, is a successful
+  live-frame write. Failure is reported before telemetry, listener fan-out, or
+  a synthetic epoch can claim success."
   [frame-id fs-after-fn write-fn]
   (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
     (if (= :fail outcome)
       (do (tool-pair/emit-precondition-failure! op tags)
           false)
-      (let [;; EP-0001 (rf2-3aizt1): the canonical snapshot unit is the whole
-            ;; frame-state; `fs-after-fn` builds the coherent post-replace
-            ;; value (app-db-only / runtime-db-only / both-partition per the
-            ;; calling wrapper). Restore of the synthetic epoch reinstalls it.
-            ;; rf2-s93722: capture the write return — `nil` means the frame was
-            ;; destroyed in the post-liveness window (no write happened); a
-            ;; non-nil changed-key-set (even empty) means the write landed.
+      (let [;; Record the same coherent whole-frame value the write installs.
+            ;; Nil means teardown won the post-liveness race; an empty set is
+            ;; still a successful no-op write against a live frame.
             fs-before (frame/frame-state-value frame-id)
             fs-after  (fs-after-fn fs-before)
             changed   (write-fn)]
@@ -689,10 +369,8 @@
   "Carry out the partial frame-state patch once preconditions have passed.
   `new-frame-state` is a PARTIAL frame-state map (any subset of
   `{:rf.db/app … :rf.db/runtime …}`); a present key replaces that
-  partition, an absent key is carried forward unchanged from `fs-before`
-  (rf2-t3lftq — API-shrink #3; see `frame/replace-frame-state!`, which
-  already implements the present-replaces / absent-preserves contract via
-  `commit-frame-transition!`). The recorded after-state (`merge fs-before
+  partition, an absent key is carried forward unchanged from `fs-before`.
+  The recorded after-state (`merge fs-before
   new-frame-state`) mirrors that same contract so the synthetic epoch's
   `:frame-state-after` matches exactly what the write installed."
   [frame-id new-frame-state]
@@ -703,13 +381,9 @@
 (defn replace-frame-state!
   "Atomically install `new-frame-state` — a PARTIAL frame-state map (any
   subset of `{:rf.db/app … :rf.db/runtime …}`) — into `frame-id`'s
-  frame-state, bypassing the dispatch loop: a PRESENT key replaces that
-  partition, an ABSENT key is preserved unchanged (rf2-t3lftq — API-shrink
-  #3, consolidating the former `replace-app-db!` / `reset-app-db!` /
-  `replace-runtime-db!` / `replace-frame-state!` four-mutator family into
-  this ONE surface). A db-shaped key never silently touches the other
-  partition — the partition is named explicitly at every call site (Mike
-  ruling #10, preserved and generalised): app-only injection is
+  frame-state, bypassing the dispatch loop: a present key replaces that
+  partition, and an absent key is preserved. A db-shaped key never silently
+  touches the other partition: app-only injection is
   `{:rf.db/app v}`; runtime-only is `{:rf.db/runtime v}`; both-partition
   install supplies both keys. Per Tool-Pair §Pair-tool writes.
 
@@ -738,7 +412,7 @@
                                                    validator
     :rf.epoch/replace-history-disabled   — epoch ring disabled (depth 0);
                                                    the synthetic undo-anchor
-                                                   cannot land (rf2-unpldn)
+                                                    cannot land
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
@@ -753,163 +427,64 @@
                   false)))))
 
 ;; ---- projected egress -----------------------------------------------------
-;;
-;; The projection helpers live in `re-frame.epoch.tool-pair` (Phase-2
-;; seam E, rf2-0wi86); the public docstrings stay here so the facade
-;; remains the canonical API reference.
 
 (defn projected-record
-  "Project an `:rf/epoch-record` for off-box egress. Routes the
-  app-db-rooted full-value payload slots (`:frame-state-before`,
-  `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through
-  the record-level egress boundary `re-frame.projection/project-egress`
-  under the selected `:rf.egress/profile` (default
-  `:rf.egress/off-box-observability`; tools pass `:rf.egress/off-box-tool`
-  — see §Egress profile below) against the record's frame, with the
-  off-box defaults `:include-sensitive? false` / `:include-large? false`.
-  `project-egress` resolves the named profile to the `:rf.size/*` opt set
-  and delegates each tree-shaped slot to the low-level walker
-  `re-frame.elision/elide-wire-value` (the walker is the delegated
-  primitive, NOT the egress boundary — name and validate the profile, not
-  the walker). Sensitive paths land as `:rf/redacted`; large paths land as
-  `:rf.size/large-elided` markers per the §Composition rule.
+  "Project an `:rf/epoch-record` for off-box egress.
 
-  The `:trigger-event` slot is NOT app-db-rooted (rf2-nm611o): the
-  dispatched event vector's ARGS are registration-owned transient payloads
-  (Spec 015 §151), the same class as the `:effects` `:args` — so it fails
-  closed instead. The args are redacted while the head event-id keyword
-  (the non-payload summary, == the record's `:event-id` slot) is retained,
-  so `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]`. The same
-  event-args also ride the `:rf.event/v` / `:event` tags of every
-  `:trace-events` entry; they fail closed there too. The trusted-local
-  `:include-event-args? true` opt keeps the raw args.
+  This is the required boundary for forwarding records across a process,
+  logging, or tool wire. The in-process ring and listeners remain raw so
+  restore and local inspection retain exact state.
 
-  EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
-  `:frame-state-before` / `:frame-state-after` slots egress with their
-  `:rf.db/app` partition elided (the same projection the `:db-*` app-db
-  projections get) and their `:rf.db/runtime` partition DEFAULT-REDACTED
-  to `:rf/redacted` off-box — machine snapshots / route slice / SSR
-  metadata do not egress to AI / log channels by default.
+  App-db-rooted slots are projected under the selected closed
+  `:rf.egress/profile`. Sensitive values become `:rf/redacted`; large values
+  become `:rf.size/large-elided` markers. Whole-frame slots project their
+  app-db partition and redact runtime-db by default.
 
-  The structured `:sub-runs` rows are ALSO value-bearing (rf2-at60h):
-  each carries the sub's computed `:prev-value` / `:value`, which respect
-  the projection contract (whole-output `:large?` rows have their value
-  slots substituted with the `:rf.size/large-elided` marker under the
-  `:include-large? false` default). The non-value row metadata (`:sub-id`,
-  `:query-v`, `:value-changed?`, `:cascade?`, `:cause-sub`,
-  `:cause-event-id`) passes through unchanged.
+  Payloads that are not app-db-rooted fail closed independently:
 
-  The structured `:effects` rows are payload-bearing too (rf2-rlt3sv):
-  each carries `:args` — the RAW fx-handler argument captured verbatim from
-  the `:rf.fx/args` trace tag, NOT routed through the marks-projection
-  chokepoint and NOT app-db-rooted, so the schema-path walker cannot prove
-  it safe. Off-box egress FAILS CLOSED: `:args` lands as `:rf/redacted` for
-  every outcome row under the `:include-fx-args? false` default. The
-  value-free `:fx-id` / `:outcome` / `:error-trace` row metadata and the
-  whole `:renders` projection pass through unchanged. The trusted-local
-  `:include-fx-args? true` opt keeps the raw `:args`. The record-level
-  bookkeeping (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`,
-  `:outcome`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`,
-  `:rf.epoch/redacted-modified-paths-count`) also passes through
-  unchanged — it carries no app-db material.
+    - trigger and trace-event arguments retain only the event id;
+    - effect `:args` are redacted;
+    - sub-run values respect sensitive and large classification;
+    - unschematized HTTP bodies and resource-owned identities are redacted by
+      their dedicated projectors.
 
-  Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
-  single normative projection emission site for off-box egress. Tools
-  that forward epoch records across a process boundary (Xray-MCP
-  `watch-epochs`, story / pair recorders, hosted post-mortem
-  forwarders) MUST route through this fn at the wire boundary; the
-  on-box ring buffer and `register-epoch-listener!` listener fan-out
-  continue to deliver the RAW record so on-box devtools (Xray diff,
-  REPL, `restore-epoch!`) can reason about exact state.
+  The configured `:redact-fn` runs once, after these built-in projections,
+  and never mutates the raw record.
 
-  `record` may be `nil` (e.g. a missing epoch lookup) — the projection
-  returns `nil` in that case, no elision called. Production builds
-  elide the entire epoch surface; consumers gate any
-  `register-epoch-listener!` registration under `interop/debug-enabled?`
-  per Spec 009 §User-side listener registration.
-
-  ## Egress profile (rf2-1afn7q) + opts (rf2-5w06uu)
-
-  The 2-arity accepts an `opts` map. The PRIMARY public selector is the
-  named egress boundary `:rf.egress/profile` (the shared closed
-  `re-frame.projection/profiles` enum) — it answers *\"which boundary is
-  this?\"* rather than assembling boolean combinations:
-
-    - `:rf.egress/off-box-observability` (DEFAULT) — hosted monitoring /
-      log shippers / Story / pair recorders (redact sensitive, elide large,
-      omit structural digests).
-    - `:rf.egress/off-box-tool` — the MCP / AI / tool wire. Same
-      redact/elide defaults but includes structural marker indicators
-      (`:digest`) so a tool can reason about an elided large slot's shape.
-      An MCP / AI epoch consumer (Xray-MCP `watch-epochs`, pair tool)
-      should pass this. An unknown profile is rejected against the closed
-      enum.
-
-  The unqualified `:include-*` keys are ADVANCED per-call overrides
-  composed OVER the selected profile (NOT the primary boundary selector) —
-  `{:include-sensitive? :include-large? :include-runtime-db?
-  :include-fx-args? :include-event-args?}`, all defaulting `false`.
-  `:include-sensitive?` / `:include-large?` opt the APP-DB partition's
-  privacy / size posture back in across every payload slot; they do NOT
-  lift the frame-state `:rf.db/runtime` partition boundary, which stays
-  `:rf/redacted` unless `:include-runtime-db? true` is also passed, NOR the
-  structured `:effects` `:args` (a different keyspace), which stay
-  `:rf/redacted` unless `:include-fx-args? true` is passed (rf2-rlt3sv),
-  NOR the `:trigger-event` / trace-event `:rf.event/v` args (another
-  keyspace), which stay redacted unless `:include-event-args? true` is
-  passed (rf2-nm611o). The 1-arity is the safe, fully-redacted off-box
-  path."
+  The default profile is `:rf.egress/off-box-observability`. MCP and AI tools
+  use `:rf.egress/off-box-tool`, which also includes structural marker
+  digests. Advanced trusted-local overrides are `:include-sensitive?`,
+  `:include-large?`, `:include-runtime-db?`, `:include-fx-args?`, and
+  `:include-event-args?`; each lifts only its own boundary. The 1-arity uses
+  safe defaults. Nil input returns nil."
   ([record] (tool-pair/projected-record record))
   ([record opts] (tool-pair/projected-record record opts)))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
   Equivalent to `(mapv #(projected-record % opts) (epoch-history frame-id))`.
-  Tools that egress the whole ring (an MCP `watch-epochs` initial
-  snapshot, a recorder dumping the full session) can call this once
-  rather than walking the raw ring and re-wrapping each record. The
-  2-arity threads the trusted-local egress `opts` (rf2-5w06uu) to every
-  record; the 1-arity is the safe, fully-redacted off-box path."
+  The 2-arity threads egress `opts` to every record; the 1-arity uses the
+  safe off-box defaults."
   ([frame-id] (tool-pair/projected-history frame-id))
   ([frame-id opts] (tool-pair/projected-history frame-id opts)))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
-;; The router calls into settle! at drain-empty; the trace surface calls
-;; into capture-event! on every emit. Publishing through the late-bind
-;; registry keeps router.cljc / trace.cljc free of a require on this ns.
-;;
-;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
-;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
-;; core artefact MUST NOT statically `:require` it. Core's public
-;; re-exports (`rf/epoch-history`, `rf/restore-epoch!`) and the
-;; `:epoch` listener stream (`(rf/register-listener! :epoch …)` /
-;; `(rf/unregister-listener! :epoch …)`) and the
-;; `(rf/configure! {:epoch-history ...})` knob look the producing fns up
-;; through the hook table at call time; when this artefact is not on
-;; the classpath those queries return nil / empty / false and the
-;; (rf/configure! {:epoch-history ...}) call is a silent no-op — the
-;; epoch surface is dev-tier so an absent artefact degrades quietly
-;; rather than throwing.
-
-;; Per rf2-rtk2e: a single map-form publication reads as 'the late-bind
-;; contract for this artefact' rather than a column of identical
-;; imperative side-effects. Each entry is identical to a standalone
-;; `(late-bind/set-fn! key fn)` call; the drift gate
-;; (`re-frame.late-bind-drift-test`) walks both call shapes.
+;; The router calls `settle!` after each dequeued event, and trace emission
+;; calls `capture-event!`. Late binding keeps core independent of this optional
+;; artefact. Most absent-artefact reads degrade to empty/false/no-op; the state
+;; replacement facade raises because it cannot preserve its undo invariant
+;; without epoch storage.
 (late-bind/set-fns!
   {;; ---- per-cascade lifecycle (router + trace capture seam) -------
    :epoch/settle!             settle!
-   ;; rf2-nj6p7: per-event halt commit — the depth-exceed boundary whose
-   ;; halting event never ran (so the buffer is empty and `settle!` would
-   ;; skip). Synthesises the halting event's `:halted-depth` record.
+   ;; Per-event halt commit for a depth-exceeded event that never ran, so
+   ;; `settle!` would otherwise skip its empty buffer.
    :epoch/commit-halt-record! commit-halt-record!
    :epoch/capture-event       capture/capture-event!
-   ;; rf2-25zo2: in-flight run-cause lookup for :rf.view/rendered.
-   ;; Views consume this via `:epoch/run-cause` at render-emit time
-   ;; to stamp :cause-event-id + :cause-subs onto the per-render trace.
+   ;; In-flight cause lookup used to attribute render traces.
    :epoch/run-cause           capture/run-cause
-   ;; rf2-qs6dl: post-settle render back-fill. `capture-event!` routes a
+   ;; Post-settle render back-fill. `capture-event!` routes a
    ;; view-render op that fires with no in-flight cascade (a React-
    ;; commit-time async re-render) here so it is attributed to the
    ;; cascade that CAUSED it (the frame's most-recently-settled epoch)
@@ -918,11 +493,10 @@
    ;; publishing it through late-bind keeps `capture` free of a require
    ;; on `listeners` (which would close the assembly→capture cycle).
    :epoch/record-render!      listeners/record-render!
-   ;; rf2-wi900: post-settle sub-run back-fill — the subs sibling of
-   ;; `:epoch/record-render!`. Same React-deref-time async recompute
-   ;; problem; same attribution fix.
+   ;; Post-settle sub-run back-fill, parallel to render back-fill for the
+   ;; same React-deref-time attribution case.
    :epoch/record-sub-run!     listeners/record-sub-run!
-   ;; rf2-59hx3: post-settle view-unmount back-fill — the teardown sibling
+   ;; Post-settle view-unmount back-fill, the teardown sibling
    ;; of the two above. A `:rf.view/unmounted` fires at React teardown time,
    ;; after the cascade that removed the view settled — too late for the
    ;; capture seam. Back-fills it into the causing (most-recently-settled)
@@ -939,19 +513,14 @@
    :epoch/register-epoch-listener!   register-epoch-listener!
    :epoch/unregister-epoch-listener! unregister-epoch-listener!
    :epoch/configure!                 configure!
-   ;; rf2-yw1w1u: test-support config-isolation hook. `re-frame.test-
+   ;; Test-support config-isolation hook. `re-frame.test-
    ;; support`'s reset-hook table fires this to restore epoch config to
    ;; the shipped default between tests, keeping the private `state/config`
-   ;; var out of test namespaces. rf2-c0rv4v: points straight at the
-   ;; `state/reset-config!` seam (no facade wrapper).
+   ;; var out of test namespaces.
    :epoch/reset-config!              state/reset-config!
    :epoch/clear-history!             clear-history!
    :epoch/clear-epoch-listeners!     clear-epoch-listeners!
 
-   ;; ---- off-box egress projection (rf2-mrsck) ----------------------
-   ;; Per Security.md §Epoch privacy posture: off-box egress projection
-   ;; helpers, parallel to elide-wire-value for direct reads. Tools that
-   ;; forward records over a process boundary use these (Xray-MCP
-   ;; `watch-epochs`, story / pair recorders).
+   ;; ---- off-box egress projection ---------------------------------
    :epoch/projected-record    projected-record
    :epoch/projected-history   projected-history})

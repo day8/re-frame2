@@ -1,42 +1,18 @@
 (ns re-frame.epoch-attribution-test
-  "Standing epoch-attribution suite — the comprehensive guard for the
+  "Comprehensive guard for the
   per-cascade / per-mount attribution surface (Spec 009 §Instrumentation,
   Tool-Pair §Time-travel).
 
-  WHY THIS NS EXISTS — three near-identical attribution escapes shipped to
-  CI for the SAME structural reason: no test asserted per-cascade / per-mount
-  attribution across ≥2 distinct cascades. Each was caught in production
-  (Xray's Views / Reactive panels), fixed in isolation, and shipped with its
-  own inline test:
-
-    rf2-qs6dl (#1935) — a `:rf.view/render` (`:rf.view/rendered`) fired at React
-                        COMMIT time, AFTER its causing cascade settled, landed
-                        in the now-empty buffer, and was harvested by the NEXT
-                        cascade's settle — every render mis-attributed by one
-                        epoch. Xray showed a `counter-inc` epoch rendering
-                        `title-view`, which is impossible.
-    rf2-wi900 (#1938) — the SUBS sibling. A reactive `:rf.sub/run` recomputes
-                        lazily at React deref time, post-settle, same lag — so
-                        a `counter-inc 1→2` epoch reported the counter sub's
-                        PRIOR value. The `:rf.sub/value-changed?` / `:rf.sub/cause-sub`
-                        attribution landed on the wrong epoch.
-    rf2-vh1k3 (#1939) — a late MOUNT render whose commit lands AFTER the first
-                        user interaction settled was back-filled onto that
-                        first cascade (rf2-qs6dl's most-recently-settled
-                        anchor) — so a freshly-mounted view spuriously appeared
-                        in the first post-mount cascade's RENDERED list even
-                        though its subs never changed.
-
-  These three are ONE surface: \"which epoch does a post-settle async emit
-  (sub-run / render / mount render) belong to?\" This suite consolidates the
-  per-fix tests and generalizes them into invariant-keyed cases so the next
-  regression of the SAME class is caught by CI.
+  The central question is which epoch owns a post-settle async emit: reactive
+  sub-runs and renders belong to their causing event, while a late mount render
+  remains anchored to the mount epoch. Cases use multiple distinct events so a
+  one-epoch attribution lag cannot pass unnoticed.
 
   THE POST-SETTLE-EMIT SIMULATION TECHNIQUE — the bug is a TIMING bug: the
   emit fires OUTSIDE the in-flight cascade, after `settle!` already harvested
   + committed the record. In a synchronous JVM `dispatch-sync`, every trace
   emits INSIDE the cascade, so the lag is structurally unreproducible — which
-  is exactly why every prior test missed it. We reproduce the real
+  so the suite reproduces the real
   React-commit / React-deref timing directly: dispatch a cascade (it settles
   and commits its record), THEN emit a `:rf.sub/run` / `:rf.view/render` via
   `trace/emit!` with NO `*handler-scope*` and an empty in-flight buffer —
@@ -1882,9 +1858,8 @@
         (is (not= target-id (:epoch-id (nth history-after 1)))
             "a DIFFERENT epoch now occupies the stale index 1")
 
-        ;; NOW back-fill the target by id. The naive stale-index path would
-        ;; have spliced into index 1 (the wrong epoch); the fix re-derives the
-        ;; index inside the swap and lands on the target by id.
+        ;; Back-fill the target by id. The index is derived inside the swap, so
+        ;; eviction cannot redirect the row to a positional neighbour.
         (let [{:keys [event row]} (bf-sub-event :test/main :late-sub 99)]
           (state/back-fill-sub-run! :test/main target-id event row))
 
@@ -1930,4 +1905,4 @@
         (is (every? (fn [r] (not (contains? (sub-run-ids r) :ghost-sub)))
                     (rf/epoch-history :test/main))
             "no surviving epoch was mis-spliced with the evicted target's
-             back-fill (the stale-index wrong-record splice the fix kills)")))))
+             back-fill")))))

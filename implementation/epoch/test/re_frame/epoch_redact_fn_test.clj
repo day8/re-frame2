@@ -1,12 +1,9 @@
 (ns re-frame.epoch-redact-fn-test
   "Coverage for the `:redact-fn` PROJECTION-SIDE advanced override on
-  `:epoch-history` (EP-0015 §15 Epoch Redaction + open-issue 6 disposition,
-  RULED, hardened).
+  `:epoch-history`.
 
-  THE RULING (open-issue 6). `:redact-fn` is the projection-side-only
-  advanced override. Storage-side mutation was REMOVED — post-EP-0010
-  epoch records are causal replay material, and mutating them at rest
-  corrupts the replay contract. So:
+  `:redact-fn` is a projection-side-only advanced override. Storage mutation
+  would corrupt causal replay material, so
 
     * the in-process ring buffer (`epoch-history`) and every
       `register-epoch-listener!` listener deliver the RAW record;
@@ -426,11 +423,11 @@
           "no redact-fn — no synthetic slots added"))))
 
 ;; ============================================================================
-;;  Per-site wirings — settle! / replace-app-db! / halted-destroy store RAW
+;; Per-site wirings: event settle, frame-state replacement, and destroy store raw
 ;; ============================================================================
 
 (deftest wiring-settle-stores-raw-record
-  (testing "the settle! drain-settle commit path stores the RAW record —
+  (testing "the settle! event commit path stores the raw record —
             the :redact-fn does not run at this seam (it runs
             projection-side, in projected-record)."
     (rf/reg-frame :test/main {})
@@ -444,7 +441,7 @@
         "the override IS applied when the record is projected for egress")))
 
 (deftest wiring-replace-app-db-stores-raw-record
-  (testing "the perform-replace-app-db! synthetic-record commit path stores
+  (testing "the frame-state replacement synthetic-record path stores
             the RAW synthetic record (pair-tool injection / story tools land
             the synthetic :rf.epoch/db-replaced record through this seam);
             the override applies only on projection."
@@ -454,9 +451,9 @@
       (rf/configure! {:epoch-history {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))}})
       (rf/replace-frame-state! :test/main {:rf.db/app {:injected :state}})
       (is (not (contains? @synthetic :rf/test-tag))
-          "replace-app-db! path: listener received the RAW synthetic record")
+          "frame-state replacement: listener received the raw synthetic record")
       (is (not (contains? (last-record :test/main) :rf/test-tag))
-          "replace-app-db! path: ring received the RAW synthetic record")
+          "frame-state replacement: ring received the raw synthetic record")
       (is (= :redacted (:rf/test-tag (epoch/projected-record @synthetic)))
           "the override applies when the synthetic record is projected"))))
 

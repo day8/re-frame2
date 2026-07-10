@@ -1,16 +1,13 @@
 (ns re-frame.epoch-test
   "Tool-Pair §Time-travel — epoch recording, query, listener, restore.
 
-  Bead rf2-shjf coverage:
-
     1. Recording — each DEQUEUED EVENT commits its own record; a
        multi-event drain (an :fx-dispatched child) commits one record
-       PER EVENT, not one per drain (per rf2-nj6p7 / Spec 002 §Drain
-       versus event).
+       per event, not one per drain.
     2. Per-frame isolation — two frames, each gets its own ring.
     3. Ring depth cap — dispatch >depth events; oldest get evicted.
     4. Configurable depth — `(rf/configure! {:epoch-history {:depth N}})`.
-    5. Listener — `register-epoch-listener!` fires per drain-settle with the
+    5. Listener — `register-epoch-listener!` fires per event epoch with the
        assembled record; same-key replaces; remove unhooks; exception
        isolation.
     6. Restore happy path — `restore-epoch!` rewinds app-db.
@@ -20,12 +17,10 @@
        unknown frame-id; each leaves app-db unchanged.
     8. Sub-runs / renders / effects projection from the trace stream.
 
-  Per-cascade / per-mount POST-SETTLE attribution (rf2-qs6dl render lag,
-  rf2-wi900 sub-run lag, rf2-vh1k3 mount-render burst) lives in the dedicated
+  Per-event and per-mount post-settle attribution lives in the dedicated
   standing suite `re-frame.epoch-attribution-test` — those cases simulate the
   React-commit / React-deref timing the synchronous JVM cascade can't
-  reproduce. Consolidated there from this file (rf2-yp81r) so the whole
-  attribution surface is one cohesive, invariant-keyed grep target."
+  reproduce."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -152,8 +147,8 @@
 
 ;; ---- recording -------------------------------------------------------------
 
-(deftest record-on-drain-settle
-  (testing "every drain-settle commits exactly one :rf/epoch-record"
+(deftest record-on-event-settle
+  (testing "every dequeued event commits exactly one :rf/epoch-record"
     (rf/reg-frame :test/main {:doc "epoch test frame"})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -163,7 +158,7 @@
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)]
-      (is (= 3 (count history)) "one record per drain-settle")
+      (is (= 3 (count history)) "one record per dequeued event")
       (is (every? :epoch-id history))
       (is (every? :committed-at history))
       (is (= [[:seed] [:inc] [:inc]]
@@ -627,8 +622,8 @@
 
 ;; ---- listener --------------------------------------------------------------
 
-(deftest listener-fires-per-drain-settle
-  (testing "register-epoch-listener! fires once per drain-settle with the assembled record"
+(deftest listener-fires-per-event-settle
+  (testing "register-epoch-listener! fires once per event epoch with the assembled record"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -669,7 +664,7 @@
 ;; ---- rf2-s60jx: multi-listener observed-frames + re-register dissoc ------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
-;; drain-settle, populating `observed-frames-by-cb[cb-id]` with each
+;; event settle, populating `observed-frames-by-cb[cb-id]` with each
 ;; frame the cb has seen. Two contracts that weren't pinned:
 ;;
 ;;   1. Two listeners both observing the same frame on the same drain
@@ -679,7 +674,7 @@
 ;;      `register-epoch-listener!`) resets BOTH the listener entry AND the
 ;;      observed-frames entry — so the new callback's silencing trace
 ;;      fires fresh against frames it observes. The `dissoc` at
-;;      epoch.cljc:158 is the non-obvious half of the contract; a
+;;      the fan-out path is the non-obvious half of the contract; a
 ;;      future regression that drops it would leave stale observed-
 ;;      frames bookkeeping under the new fn's id.
 
@@ -2478,11 +2473,9 @@
           "the scan reaches the still-trace-bearing value-change at idx 2,
            below (- n new-keep) = 5 — the post-reduction transient gap"))))
 
-(deftest value-changed-scan-stops-at-elision-boundary
-  (testing "rf2-b2c02 — the scan does NOT walk past the elision boundary: a
-            record whose :trace-events was elided (slot absent) terminates the
-            scan, and a value-change ONLY present in an elided (older) record is
-            correctly NOT found. This pins the O(keep) bound the fix preserves."
+(deftest value-changed-scan-needs-retained-evidence
+  (testing "a value-change present only in an elided raw trace, with no
+            structured :sub-runs evidence, is not attributed"
     (let [frame-id   :test/main
           render-key [:counter-view 0]
           ;; idx 0 carries a value-change but was ELIDED (no :trace-events slot);
@@ -2499,12 +2492,11 @@
       (reset! @#'state/histories {frame-id history})
       (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
       (is (nil? (@#'state/value-changed-epoch-for frame-id render-key))
-          "the value-change lives only in an ELIDED record — the scan stops at
-           the boundary and reports no hit (the elided record cannot match)"))))
+          "the elided record carries no evidence the attribution scan can match"))))
 
-;; ---- restore-epoch! reactive surfaces (rf2-2fat) ---------------------------
+;; ---- restore-epoch! reactive surfaces -------------------------------------
 ;;
-;; Bead rf2-2fat coverage. Tool-Pair §Time-travel says restore "rewinds the
+;; Tool-Pair §Time-travel says restore "rewinds the
 ;; frame's app-db to the named epoch's :db-after value." Spec 006 §Subscription
 ;; cache pins invalidation to :replace-container! — and restore-epoch! goes
 ;; through the same adapter/replace-container! choke point used by the drain
@@ -2684,8 +2676,8 @@
           "flow recomputed correctly post-restore (6 * 1 = 6)"))))
 
 (deftest restore-rewinds-route-slice-and-route-sub
-  (testing "Per the bead: when a restored epoch changes the route slice, the
-  observable routing state follows. EP-0001 (rf2-tfepxu): the route slice
+  (testing "when a restored epoch changes the route slice, observable routing
+  state follows. The route slice
   lives in the runtime-db partition at [:rf.runtime/routing :current] — NOT
   under a legacy app-db :rf/runtime root (now a hard error) — and a
   full-frame-state restore (decision #2) rewinds runtime-db with app-db."
@@ -2693,8 +2685,7 @@
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {} "/articles/:id")
     ;; Framework-authority handlers write the route slice into the runtime-db
-    ;; partition via the reserved :rf.db/runtime effect (Mike ruling #4 — the
-    ;; routing subsystem is a framework/runtime-extension writer).
+    ;; partition via the reserved :rf.db/runtime effect.
     (rf/reg-event :go-home
       {:rf/machine? true}
       (fn [{:keys [rf.db/runtime]} _]
@@ -2728,9 +2719,9 @@
              (get-in (:rf.db/runtime (rf/frame-state-value :test/main)) [:rf.runtime/routing :current :route-id]))
           "the runtime-db route slice is rewound by the full-frame-state restore"))))
 
-;; ---- replace-app-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
+;; ---- replace-frame-state! app-db patches ---------------------------------
 ;;
-;; Per Tool-Pair §Pair-tool writes: replace-app-db! is the canonical
+;; Per Tool-Pair §Pair-tool writes, an app-db-only `replace-frame-state!` is the
 ;; Tool-Pair write surface for state injection. The invariants below
 ;; cover the contract the spec commits to:
 ;;
@@ -2745,7 +2736,7 @@
 ;; 7. Unknown frame: :rf.error/no-such-handler (kind :frame).
 
 (deftest replace-frame-state-app-only-replaces-container
-  (testing "replace-app-db! replaces the underlying app-db value"
+  (testing "an app-db-only replace-frame-state! patch replaces the app-db value"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2756,10 +2747,8 @@
         "container holds the injected value")))
 
 (deftest replace-frame-state-app-reset-resets-app-db-only-preserving-runtime-db
-  (testing "reset-app-db! resets the app-db partition to {} while live
-            runtime-db (machines / routes) survives (EP-0001 rf2-tfepxu,
-            Mike ruling #10 — the app-db sibling of a full frame reset,
-            destroy-frame! + reg-frame)"
+  (testing "an empty app-db patch resets that partition while the live
+            runtime-db (machines and routes) survives"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2769,15 +2758,14 @@
     (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :test/main))))
 
     (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {}}))
-        "reset-app-db! returns true on success")
+        "the empty app-db patch returns true on success")
     (is (= {} (rf/app-db-value :test/main))
         "app-db partition is reset to {}")
     (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :test/main)))
-        "runtime-db partition is PRESERVED — reset-app-db! never touches it")))
+        "the runtime-db partition is preserved")))
 
 (deftest replace-frame-state-app-reset-records-undo-epoch
-  (testing "reset-app-db! records a synthetic :rf.epoch/db-replaced epoch
-            (it delegates to replace-app-db! with {})"
+  (testing "an empty app-db patch records a synthetic :rf.epoch/db-replaced epoch"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2791,7 +2779,7 @@
       (is (= {} (:db-after head)) "db-after is the {} reset value"))))
 
 (deftest replace-frame-state-app-only-records-undo-epoch
-  (testing "replace-app-db! records a synthetic epoch so restore-epoch!
+  (testing "an app-db-only patch records a synthetic epoch so restore-epoch!
             can rewind to the prior state"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
@@ -2822,7 +2810,7 @@
             "restoring the seed epoch rewinds past the pair-tool injection")))))
 
 (deftest replace-frame-state-app-only-emits-trace
-  (testing "replace-app-db! emits :rf.epoch/db-replaced on success with
+  (testing "an app-db-only patch emits :rf.epoch/db-replaced on success with
             :frame and :epoch-id tags"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -2841,7 +2829,7 @@
           "trace carries the synthetic record's epoch-id"))))
 
 (deftest replace-frame-state-app-only-fires-listeners
-  (testing "replace-app-db! fans out the assembled synthetic record to
+  (testing "an app-db-only patch fans out the assembled synthetic record to
             register-epoch-listener! listeners"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -2862,7 +2850,7 @@
           (rf/unregister-listener! :epoch ::reset-listener))))))
 
 (deftest replace-frame-state-app-only-failure-unknown-frame
-  (testing "replace-app-db! on an unknown frame returns false and emits
+  (testing "an app-db-only patch on an unknown frame returns false and emits
             :rf.error/no-such-handler (kind :frame); no-op on app-db"
     (let [recorded (record-trace!)
           ok?      (rf/replace-frame-state! :no.such/frame {:rf.db/app {:any 'value}})]
@@ -2874,7 +2862,7 @@
         (is (= :no.such/frame (:frame (:tags ev))))))))
 
 (deftest replace-frame-state-app-only-failure-during-drain
-  (testing "replace-app-db! called from inside a drain returns false and
+  (testing "an app-db-only patch called from inside a drain returns false and
             emits :rf.epoch/replace-during-drain; app-db unchanged
             by the rejected call"
     (rf/reg-frame :test/main {})
@@ -2903,7 +2891,7 @@
         (is (= :test/main (:frame (:tags ev))))))))
 
 (deftest replace-frame-state-app-only-failure-schema-mismatch
-  (testing "replace-app-db! with a new-db that fails the frame's
+  (testing "an app-db-only patch whose value fails the frame's
             registered schemas returns false; emits
             :rf.epoch/replace-schema-mismatch; app-db unchanged"
     (rf/reg-frame :test/main {})
@@ -2931,7 +2919,7 @@
             "[:n] is the failing path")))))
 
 (deftest replace-frame-state-app-only-no-validation-when-no-schemas
-  (testing "When the frame has no registered schemas, replace-app-db!
+  (testing "when the frame has no registered schemas, an app-db-only patch
             accepts any new-db (the validation step is a no-op)"
     (rf/reg-frame :test/loose {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:anything 'goes}}))
@@ -2941,9 +2929,9 @@
     (is (= {:totally :different :shape true}
            (rf/app-db-value :test/loose)))))
 
-;; ---- rf2-unpldn: depth-0 undo-works-after invariant ----------------------
+;; ---- depth-0 undo-works-after invariant ----------------------------------
 ;;
-;; The four synthetic mutators each record a :rf.epoch/db-replaced undo-anchor
+;; Every partition shape records a :rf.epoch/db-replaced undo anchor
 ;; so restore-epoch! can rewind PAST the injection — their caller's invariant is
 ;; "undo works after this call" (Tool-Pair §Pair-tool writes). Under
 ;; (rf/configure! {:epoch-history {:depth 0}}) the ring buffer is DISABLED by
@@ -2956,10 +2944,10 @@
 ;; :rf.epoch/restore-unknown-epoch). The contract is therefore LOUD REJECT —
 ;; depth 0 means "history disabled", so force-appending the anchor would
 ;; contradict the spec; instead reject loudly via the in-artefact failure
-;; channel (the analogue of the artefact-missing throw at core_epoch.cljc:111).
+;; channel, analogous to the artefact-missing public wrapper failure.
 
 (deftest replace-frame-state-app-only-depth-0-rejects-no-false-undo
-  (testing "rf2-unpldn — under depth 0 (ring disabled) replace-app-db!
+  (testing "under depth 0 (ring disabled), an app-db-only patch
             returns FALSE and emits :rf.epoch/replace-history-disabled rather
             than a false success; app-db is unchanged and NO phantom
             last-settled anchor is left (the undo-works-after invariant is
@@ -2978,14 +2966,14 @@
     (let [recorded (record-trace!)
           ok?      (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})]
       (is (false? ok?)
-          "replace-app-db! is REJECTED under depth 0 — NOT a false true")
+          "the patch is rejected under depth 0 rather than returning false success")
       (is (= {:n 0} (rf/app-db-value :test/main))
           "app-db unchanged — the rejected injection is a no-op")
       (is (= [] (rf/epoch-history :test/main))
           "still no ring history — nothing force-appended")
       (is (nil? (state/last-settled-epoch-id :test/main))
           "NO phantom anchor left behind (would have named a non-ring epoch-id
-           pre-fix, breaking later back-fill / undo attribution)")
+           and broken later back-fill or undo attribution)")
       (let [ev (some (fn [ev]
                        (when (= :rf.epoch/replace-history-disabled (:operation ev))
                          ev))
@@ -2994,20 +2982,19 @@
         (is (= :error (:op-type ev)))
         (is (= :test/main (:frame (:tags ev))))))))
 
-(deftest four-mutators-all-reject-under-depth-0
-  (testing "rf2-unpldn — all four synthetic mutators (replace-app-db! /
-            reset-app-db! / replace-runtime-db! / replace-frame-state!) reject
-            uniformly under depth 0 via the shared precondition skeleton; none
-            leaves a phantom anchor"
+(deftest all-partition-shapes-reject-under-depth-0
+  (testing "every replace-frame-state! partition shape rejects uniformly under
+            depth 0 through the shared precondition path; none leaves a phantom
+            anchor"
     (rf/configure! {:epoch-history {:depth 0}})
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}}))   "replace-app-db! rejected")
-    (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {}}))          "reset-app-db! rejected")
+    (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 1}})) "app-db patch rejected")
+    (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {}})) "empty app-db patch rejected")
     (is (false? (rf/replace-frame-state! :test/main {:rf.db/runtime {:rf.runtime/machines {}}}))
-        "replace-runtime-db! rejected")
+        "runtime-db patch rejected")
     (is (false? (rf/replace-frame-state! :test/main
                                          {:rf.db/app {:n 2} :rf.db/runtime {}}))
         "replace-frame-state! rejected")
@@ -3324,7 +3311,7 @@
 ;; deliberate-enumeration choice right-by-construction.
 
 (deftest replace-frame-state-app-only-does-not-leak-into-next-cascade
-  (testing "after replace-app-db! on a frame, the NEXT cascade on that
+  (testing "after an app-db-only patch on a frame, the next cascade on that
             frame harvests a record whose :trace-events excludes the
             out-of-drain :rf.epoch/db-replaced emit, and whose
             :trigger-event is the actual next dispatched event (NOT
@@ -3357,7 +3344,7 @@
       (is (not-any? (fn [ev] (= :rf.epoch/db-replaced (:operation ev)))
                     (:trace-events post-reset))
           ":trace-events does NOT contain the out-of-drain :rf.epoch/db-replaced emit")
-      ;; project-all (rf2-ecu37, fused projection) emits no :effects
+      ;; The fused project-all pass emits no :effects
       ;; entry for :bump; the :sub-runs / :renders slots walking a
       ;; leaked event with op :rf.epoch/db-replaced would silently be
       ;; empty anyway — the strong signal is the trigger-event check
@@ -3366,12 +3353,12 @@
           "no leaked effects from the out-of-drain emit"))))
 
 (deftest replace-frame-state-app-only-failure-does-not-leak-into-next-cascade
-  (testing "the two replace-app-db! failure-mode emits
+  (testing "the two app-db-only patch failure-mode emits
             (:rf.epoch/replace-during-drain,
              :rf.epoch/replace-schema-mismatch) fire outside a
             cascade with :frame tags. They MUST be filtered out of
             capture-event!'s buffering — otherwise a failed
-            replace-app-db! attempt leaks a phantom event into the next
+            rejected patch leaks a phantom event into the next
             real cascade for that frame."
     ;; Use the schema-mismatch path — easier to drive than during-drain.
     (rf/reg-frame :test/sm {})
@@ -3940,23 +3927,24 @@
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
-;; ---- rf2-5qbus: capture-buffer cross-contamination from out-of-drain emits ---
+;; ---- capture-buffer cross-contamination from out-of-drain emits -----------
 ;;
 ;; The `capture-event!` fn must skip every `:rf.epoch/*` op the namespace
 ;; emits OUTSIDE a cascade (catalogued in the `skip-ops` set). Without
-;; the skip, a `replace-app-db!` call (which emits `:rf.epoch/db-replaced`
+;; the skip, an app-db-only `replace-frame-state!` call (which emits
+;; `:rf.epoch/db-replaced`
 ;; after harvesting the cascade buffer) would buffer the db-replaced
 ;; trace event into `capture-buffers[frame-id]`, and the NEXT cascade
 ;; for the same frame would harvest it as the first event in the
 ;; buffer — treating it as belonging to that cascade. The
 ;; `find-trigger-event` fallback would pick its `:epoch-id` as the
-;; trigger; `project-all` (rf2-ecu37) would silently include the
-;; leaked entries. The skip-set carries these ops (rf2-htf28); this pins
+;; trigger; `project-all` would silently include the leaked entries. The
+;; skip-set carries these ops; this pins
 ;; the contract so a future regression that drops them surfaces loudly.
 
 (deftest capture-buffer-does-not-cross-contaminate-from-replace-frame-state-app-only
   (testing "an out-of-drain :rf.epoch/db-replaced emit from
-            replace-app-db! does NOT leak into the next cascade's
+            the app-db-only patch does not leak into the next cascade's
             harvested record for the same frame"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -3965,7 +3953,7 @@
     ;; 1. Drive one cascade — clean record lands.
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
-    ;; 2. replace-app-db! out-of-drain — emits :rf.epoch/db-replaced,
+    ;; 2. An app-db-only patch outside a drain emits :rf.epoch/db-replaced,
     ;;    which must NOT buffer into capture-buffers.
     (is (true? (rf/replace-frame-state! :test/main {:rf.db/app {:n 99}})))
 
@@ -3975,7 +3963,7 @@
     (let [history    (rf/epoch-history :test/main)
           last-record (peek history)]
       ;; The history has 3 records: [:seed], the synthetic
-      ;; replace-app-db! record, and [:foo].
+      ;; synthetic db-replaced record, and [:foo].
       (is (= 3 (count history)))
 
       ;; The most-recent record (the [:foo] cascade) must be clean —
@@ -4011,7 +3999,7 @@
 
     ;; Synthesize a mid-flight capture-buffer entry directly. The
     ;; private capture-buffers atom holds frame-id → vector of trace
-    ;; events that were buffered between drain-start and drain-settle.
+    ;; events that were buffered between drain start and this event's settle.
     ;; A real-world race would have at least one event in this vector
     ;; when the destroy lands; pin the contract by inserting a
     ;; synthetic entry.
@@ -4392,7 +4380,7 @@
 ;; ---- rf2-eo4pr: record-observation! guards its swap -----------------------
 ;;
 ;; `notify-listeners!` invokes `record-observation!` once per listener per
-;; drain-settle. For the steady state — a long-lived listener observing the
+;; event settle. For the steady state — a long-lived listener observing the
 ;; same frame on every cascade — the cb's observed-frames set already
 ;; contains the frame-id, and an unconditional `swap!` would fire every
 ;; atom watcher N times per settle for ZERO semantic change. The guard
@@ -4405,7 +4393,7 @@
 (deftest record-observation-no-op-when-already-observed
   (testing "record-observation! does NOT swap! the observed-frames-by-cb
             atom when the (cb-id, frame-id) pair is already present —
-            repeated drain-settles for a stable listener-observing-frame
+            repeated event settles for a stable listener-observing-frame
             pairing leave the atom untouched (no watcher fires)"
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -4447,9 +4435,9 @@
         (finally
           (remove-watch observed-atom ::swap-counter))))))
 
-;; ---- rf2-douii: configure! validates at the boundary ---------------------
+;; ---- configure! validates at the boundary -------------------------------
 ;;
-;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!` validates
+;; `configure!` validates
 ;; `:depth` and `:trace-events-keep` at the boundary — invalid values (nil,
 ;; non-numeric) are silently dropped and the prior valid config survives.
 ;; Without that boundary check a bad value would survive configuration and
@@ -4520,9 +4508,9 @@
       (is (= 4 (:trace-events-keep cfg))
           "the invalid :trace-events-keep update was dropped"))))
 
-;; ---- rf2-douii: ring-eviction interaction with restore -------------------
+;; ---- ring-eviction interaction with restore -----------------------------
 ;;
-;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: ring-buffer eviction and
+;; Ring-buffer eviction and
 ;; restore preconditions were each covered in isolation but never
 ;; together. A restore against an epoch-id that the ring has since evicted
 ;; must deterministically fail as :rf.epoch/restore-unknown-epoch with the
@@ -4569,9 +4557,9 @@
               "history-size tag reflects the post-eviction size, not
                the pre-eviction count"))))))
 
-;; ---- rf2-douii: depth 0 still fires listeners ----------------------------
+;; ---- depth 0 still fires listeners --------------------------------------
 ;;
-;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: `configure!`'s docstring
+;; `configure!`'s docstring
 ;; documents that depth 0 'disables recording (assembled records can
 ;; still fire on listeners but nothing lands in the ring buffer)'. The
 ;; pre-existing `depth-zero-disables-recording` test covers only the
@@ -4593,7 +4581,7 @@
       (is (= [] (rf/epoch-history :test/main))
           "ring buffer is empty at depth 0")
       (is (= 2 (count @seen))
-          "listener still received an assembled record per drain-settle")
+          "listener still received an assembled record per event settle")
       (is (= [:seed :inc] (mapv :event-id @seen))
           "records carry the per-cascade trigger event-id")
       (is (every? #(contains? % :db-after) @seen)
@@ -4602,18 +4590,16 @@
       (is (every? #(contains? % :renders)  @seen))
       (is (every? #(contains? % :effects)  @seen)))))
 
-;; ---- rf2-douii: rejected restore/reset paths do not mutate history /
-;; ---- do not notify listeners --------------------------------------------
+;; ---- rejected restore/reset paths do not mutate history or notify listeners
 ;;
-;; Per refactor-audit r2 (rf2-lwn4t) §rf2-douii: the rejection tests
-;; (`restore-failure-*` / `replace-app-db!-failure-*`) verify the trace
+;; The rejection tests verify the trace
 ;; emission and app-db stability but do NOT explicitly pin the related
 ;; bookkeeping contracts:
 ;;
 ;;   1. A rejected restore does not append a new record to history.
 ;;   2. A rejected restore does not fire registered epoch listeners.
-;;   3. A rejected replace-app-db! does not append a new record.
-;;   4. A rejected replace-app-db! does not fire registered listeners.
+;;   3. A rejected replacement does not append a new record.
+;;   4. A rejected replacement does not fire registered listeners.
 ;;
 ;; A regression that swapped emission-on-failure for fanout-on-failure
 ;; (or appended a synthetic failure record) would slip through the
@@ -4641,7 +4627,7 @@
           "no listener fanout for the rejected restore"))))
 
 (deftest rejected-replace-frame-state-app-only-does-not-touch-history-or-listeners
-  (testing "a rejected replace-app-db! (during-drain rejection — the
+  (testing "a rejected app-db-only patch (during-drain rejection — the
             simplest rejection path that exercises the reset surface)
             leaves history untouched and does not fire listeners"
     (rf/reg-frame :test/main {})
@@ -4652,7 +4638,7 @@
           seen           (atom [])
           attempt        (atom nil)]
       (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
-      ;; A handler that calls replace-app-db! synchronously during a
+      ;; A handler that calls replace-frame-state! synchronously during a
       ;; drain — the during-drain precondition fails. The reset itself
       ;; must not fan out, but the surrounding drain still settles
       ;; normally (which appends ONE record — the one for :try-reset).
@@ -4708,17 +4694,16 @@
         "current-config's :trace-events-keep resolves to the shipped 50")))
 
 ;; ============================================================================
-;;  rf2-7i872 — write-boundary liveness race (validate-then-destroy)
+;;  Write-boundary liveness race (validate, then destroy)
 ;; ============================================================================
 ;;
-;; restore-epoch! / replace-app-db! validate preconditions against a LIVE
+;; restore-epoch! and replace-frame-state! validate preconditions against a live
 ;; frame, then write the frame's container. A frame destroyed in the window
 ;; BETWEEN validation and the write (a tool gesture interleaving with the
 ;; owning component's teardown) leaves `frame/app-db-container` returning
 ;; nil, so the choke-point `adapter/replace-container!` silently no-ops the
-;; write. Pre-rf2-7i872 the epoch surfaces still emitted success and
-;; returned `true` (and `replace-app-db!` recorded + fanned out a SYNTHETIC
-;; epoch for the destroyed frame). Per Tool-Pair §Surface behaviour against
+;; write. The epoch surfaces must not emit success or return `true` after this
+;; race. Per Tool-Pair §Surface behaviour against
 ;; destroyed frames a destroyed-frame write is a STRUCTURAL FAILURE
 ;; (:rf.error/no-such-handler, kind :frame, returns false).
 ;;
@@ -4727,7 +4712,7 @@
 ;;       steps the public fn sequences, with the destroy injected between.
 ;;   (b) the PUBLIC surface — with-redefs the precondition check to destroy
 ;;       the frame after a real (live) validation, proving the public
-;;       restore-epoch! / replace-app-db! honour the write-boundary guard.
+;;       restore-epoch! and replace-frame-state! honour the write-boundary guard.
 
 (deftest restore-epoch-validate-then-destroy-reports-honest-failure-seam
   (testing "rf2-7i872 — perform-restore! against a frame destroyed AFTER a

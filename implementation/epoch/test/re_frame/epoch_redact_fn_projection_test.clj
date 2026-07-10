@@ -1,10 +1,10 @@
 (ns re-frame.epoch-redact-fn-projection-test
   "Composition between the frame/profile projection (`projected-record` /
   `projected-history`) and the `:redact-fn` PROJECTION-SIDE advanced
-  override (EP-0015 §15 Epoch Redaction + open-issue 6 disposition, RULED).
+  override.
 
-  Per the ruling `:redact-fn` is projection-side only — storage was REMOVED
-  (the ring is causal replay material). `projected-record` is a TWO-STAGE
+  `:redact-fn` is projection-side only because the ring is causal replay
+  material. `projected-record` is a two-stage
   projection:
 
     1. frame/profile projection — each tree slot through

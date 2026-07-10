@@ -1,11 +1,11 @@
 (ns re-frame.epoch-cljs-test
-  "Per rf2-5lvk6 (test-coverage sweep G3 from rf2-toib5) — CLJS smoke
-  for the epoch artefact. The JVM coverage in `re-frame.epoch-test` is
+  "CLJS smoke coverage for the epoch artefact. JVM coverage in
+  `re-frame.epoch-test` is
   dense, but the epoch surface ships through `re-frame.epoch.cljc` and
   the late-bind seam under CLJS too; this file pins the cross-target
   contract for the load-bearing behaviours:
 
-    1. Recording — every drain-settle commits one `:rf/epoch-record` and
+    1. Recording — every dequeued event commits one `:rf/epoch-record` and
        the record carries the canonical shape (`:event-id`, `:db-before`,
        `:db-after`, `:effects`, `:outcome :ok`).
     2. Restore happy path — `restore-epoch!` rewinds `app-db` to a named
@@ -14,7 +14,7 @@
        followed by five dispatches keeps the last three; the oldest two
        are dropped.
     4. Per-dispatch fan-out — `register-epoch-listener!` fires once per
-       drain-settle with the assembled record (the contract that
+       event epoch with the assembled record (the contract that
        Xray's preload routes through to dispatch
        `:rf.xray/epoch-recorded`; the per-dispatch signal is the
        epoch-cb fan-out itself, plus the `:rf.epoch/snapshotted`
@@ -22,7 +22,7 @@
     5. Production-elision DCE — runtime gate sanity. Under the
        `:node-test` build (`goog.DEBUG=true`) the surface is live;
        the framework-level grep
-       (`implementation/scripts/check-elision.cjs`, rf2-11hn) is the
+       (`implementation/scripts/check-elision.cjs`) is the
        authoritative `:advanced` + `goog.DEBUG=false` DCE assertion
        and already pins every `:rf.epoch/*` sentinel. This file's
        gate-state assertion locks the dev-side companion: under the
@@ -31,8 +31,7 @@
        vacuous (it asserts ABSENCE of strings that only enter the
        bundle when this gate is true).
 
-  Mirrors the smoke shape of `re-frame.schemas-cljs-test` (per
-  rf2-5b6x): one happy path, one ring-cap path, one listener path,
+  Covers one happy path, one ring-cap path, one listener path,
   one runtime-gate-on path. The JVM tests carry the conformance
   weight; this file locks the cross-substrate contract.
 
@@ -74,7 +73,7 @@
 
 ;; ---- 1. Recording — happy-path record shape -------------------------------
 
-(deftest record-on-drain-settle-cljs
+(deftest record-on-event-settle-cljs
   (testing "dispatch a single event under CLJS — exactly one record
             lands in the ring with the canonical shape (`:event-id`,
             `:db-before`, `:db-after`, `:effects`, `:outcome :ok`)"
@@ -86,7 +85,7 @@
 
     (let [history (rf/epoch-history :rf/default)]
       (is (= 2 (count history))
-          "one record per drain-settle under the CLJS plain-atom adapter")
+          "one record per dequeued event under the CLJS plain-atom adapter")
       (let [r (last history)]
         (is (= :n/inc      (:event-id r))
             ":event-id names the triggering event")
@@ -97,7 +96,7 @@
         (is (= {:n 1}      (:db-after r))
             ":db-after is the post-settle snapshot")
         (is (= :ok         (:outcome r))
-            ":outcome :ok pins the drain-settle outcome on the happy path")
+            ":outcome :ok pins the event-settle outcome on the happy path")
         (is (vector? (:effects r))
             ":effects is a vector projection from the trace stream")))))
 
@@ -121,7 +120,7 @@
 ;; the epoch record reproduces Mike's RED.
 ;;
 ;; RED (pre-fix): epoch `:trace-events` has NO :where :event violation.
-;; GREEN (post-fix): the violation is present in the triggering epoch.
+;; The violation belongs to the triggering epoch.
 
 (deftest event-args-violation-captured-in-epoch-trace-events-cljs
   (testing "rf2-lo28u — a plain reg-event :schema violation fires
@@ -147,11 +146,10 @@
             "the last epoch is the bad-event-args dispatch")
         (is (= 1 (count violations))
             "the :where :event violation is captured in THIS epoch's
-             :trace-events (RED pre-fix: dropped because the trace
-             carried no :frame tag)")
+             :trace-events")
         (when-let [v (first violations)]
           (is (= :rf/default (-> v :tags :frame))
-              "the captured violation carries the :frame tag the fix adds"))))))
+              "the captured violation carries its :frame tag"))))))
 
 ;; ---- 2. Restore happy path -------------------------------------------------
 
@@ -198,7 +196,7 @@
 ;; ---- 4. Per-dispatch fan-out — register-epoch-listener! + snapshotted trace ----
 
 (deftest epoch-cb-fires-per-dispatch-cljs
-  (testing "register-epoch-listener! fires once per drain-settle — the
+  (testing "register-epoch-listener! fires once per event epoch — the
             contract Xray's preload (`:rf.xray/epoch-recorded`)
             routes through. The companion `:rf.epoch/snapshotted`
             trace also fires once per dispatch."
@@ -234,7 +232,7 @@
       (is (every? #(= :rf.epoch (:op-type %)) @trace-seen)
           "the trace event's :op-type is :rf.epoch")
       (is (every? #(= :ok (-> % :tags :outcome)) @trace-seen)
-          "the trace's :outcome tag is :ok on clean drain-settle"))))
+          "the trace's :outcome tag is :ok on a clean event settle"))))
 
 ;; ---- 5. Production-elision DCE — runtime gate sanity ----------------------
 
