@@ -1082,8 +1082,8 @@
     (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob] :large? true} (fn [_] {:bytes "BIG"}))
     ;; Precondition: the flow's own registration installed the :source :flow
     ;; declaration (not a helper, not an effect).
-    (is (= :flow (:source (get (elision/declarations :rf/default) [:derived :blob])))
-        "precondition: the reg-flow :large? mark stands as a :source :flow declaration")
+    (is (some #(= :flow (:source %)) (get (elision/declarations :rf/default) [:derived :blob]))
+        "precondition: the reg-flow :large? mark stands as a :source :flow owner")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     ;; (a) the trace channel — :rf.flow/computed :result rides elide-wire-value.
@@ -1117,9 +1117,9 @@
     (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]} (fn [n] {:secret (str "Bearer-" n)}))
     ;; Precondition: the sensitive sub-slot roots at :output-path ++ [:secret]
     ;; and is a :source :flow declaration.
-    (is (= :flow (:source (get (elision/sensitive-declarations :rf/default)
-                               [:auth :creds :secret])))
-        "precondition: the reg-flow :sensitive mark stands as a :source :flow declaration")
+    (is (some #(= :flow (:source %)) (get (elision/sensitive-declarations :rf/default)
+                                          [:auth :creds :secret]))
+        "precondition: the reg-flow :sensitive mark stands as a :source :flow owner")
     (reset! *captured* [])
     (rf/dispatch-sync [:init])
     ;; (a) the trace channel — :result's :secret sub-slot redacts (sensitive
