@@ -249,9 +249,9 @@
       ;; inbound event (`[:ws/send …]` or `[:ws/request …]`), not just its
       ;; body. `:flush-queue` (above) re-dispatches each verbatim on the next
       ;; `:connected` entry, so a queued request rejoins `:register-request`
-      ;; and gets correlated. (Buffering a bare body instead put a request's
-      ;; whole envelope onto the wire as if it were the payload —
-      ;; uncorrelated, never answered.)
+      ;; and gets correlated. Keeping the event preserves whether the queued
+      ;; item was a send or a request; a bare body would lose that routing
+      ;; intent.
       (fn action-enqueue-message [{data :data event :event}]
         {:data (update data :queue conj event)})
 
@@ -447,8 +447,9 @@
 ;; ============================================================================
 
 ;; `reg-machine` marks this registration `:rf/machine? true` — the flag a
-;; declarative `:spawn` looks for when resolving its target. Forget it and
-;; the spawn quietly does nothing, which is a fun afternoon to debug.
+;; declarative `:spawn` looks for when resolving its target. An unregistered
+;; target is rejected with `:rf.error/machine-spawn-unregistered-type`; no
+;; child snapshot is created.
 (rf/reg-machine :ws/connection connection-machine)
 
 ;; --- subs -------------------------------------------------------------

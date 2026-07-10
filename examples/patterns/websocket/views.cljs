@@ -12,14 +12,15 @@
       `:websocket/connecting`, `:websocket/authenticating`,
       `:websocket/connected`, `:websocket/reconnecting`,
       `:websocket/failed` — through this example's per-tag subs
-      (`:ws/connected?` and friends in `connection.cljs`, each a
-      `contains?` over the snapshot's `:tags` union). It doesn't care which
-      leaf carries the `:connected` intent, only that the tag is there.
+      (`:ws/connected?` and friends in `connection.cljs`, each chaining off
+      the framework's `:rf.machine/has-tag?` sub). It doesn't care which leaf
+      carries the `:connected` intent, only that the tag is there.
       Ask, don't tell. See docs/machines/glossary.md#state-tag.
 
-   2. The send form disables itself off the `:ws/connected?` sub, not a
-      `cond` picking apart the raw `:state` vector. Same answer, far nicer
-      to read."
+   2. The send form uses the `:ws/connected?` sub to label its action
+      **Send** or **Queue**. It remains usable while disconnected because
+      the connection machine owns the offline queue; the view never picks
+      apart the raw `:state` vector."
   (:require [re-frame.core :as rf]
             [websocket.messages]
             [websocket.connection]))

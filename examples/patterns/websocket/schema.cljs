@@ -85,9 +85,9 @@
    [:draft    :string]
    ;; The inbox log, newest-first, so the view just renders top-down.
    [:received [:vector Message]]
-   ;; The most recent correlated reply (set by :ws.app/request-reply, or by
-   ;; :ws/handle-message for server pushes) — handy for the round-trip view
-   ;; and a convenient thing for a test to assert on.
+   ;; The most recent correlated reply. :ws/handle-message updates this only
+   ;; when the body has a :request-id, and :ws.app/request-reply records the
+   ;; same body for the registered callback. Server pushes stay in :received.
    [:last-reply [:maybe :any]]
    ;; The ticking source for each message's :rx-seq stamp.
    [:rx-count :int]])

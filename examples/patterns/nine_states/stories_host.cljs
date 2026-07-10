@@ -28,11 +28,11 @@
 
    ## One adapter
 
-   This host installs the full Reagent adapter (`re-frame.adapter.reagent`)
-   — the substrate the Story shell itself renders on — and runs everything
-   on it: live app, shell, and every variant canvas. (The example's own
-   `core.cljs` mounts on the stock Reagent adapter for its standalone
-   `:examples/nine-states` build; this showcase is a separate entry point.)
+   This host installs the Reagent adapter (`re-frame.adapter.reagent`) — the
+   substrate the Story shell itself renders on — and runs everything on it:
+   live app, shell, and every variant canvas. The standalone
+   `:examples/nine-states` build installs the same adapter from `core.cljs`;
+   this showcase is simply a separate entry point.
    It all works because `nine-states.core/root-view` is a
    substrate-agnostic `reg-view` — it renders identically either way.
 

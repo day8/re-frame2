@@ -25,10 +25,11 @@
             ;; Schemas ship in their own artefact; this require registers
             ;; `rf/reg-app-schema`.
             [re-frame.schemas]
-            ;; This one turns Malli validation on. The Malli adapter ns
-            ;; publishes the default validator, and requiring it is the CLJS
-            ;; opt-in — skip it and the validator soft-passes, so a malformed
-            ;; slice slides through with no failure trace.
+            ;; The schemas facade above loads this Malli adapter and publishes
+            ;; the default validator. Naming the adapter explicitly here makes
+            ;; the concrete validator behind these Malli forms visible at the
+            ;; declaration site; activation does not depend on this second
+            ;; require.
             [re-frame.schemas.malli]))
 
 ;; ============================================================================
