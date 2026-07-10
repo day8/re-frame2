@@ -28,6 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const { stagedAssetsByBuild } = require('./examples-asset-manifest.cjs');
+const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -289,35 +290,43 @@ function parseExampleBuilds(edn) {
 // first use so a multi-build run scans the tree once.
 let _nsIndex = null;
 
-function buildNsIndex(root = EXAMPLES_ROOT) {
+// Build the ns -> source-folder index over the examples/ tree, FAIL-CLOSED. A
+// directory that cannot be read — OR a matched source file whose head cannot be
+// read — is NOT silently dropped (the old catch-and-continue turned a hidden ns
+// into an ordinary "build not runnable", so a torn checkout / permissions fault
+// under one subtree made listStandaloneExamples advertise an INCOMPLETE runnable
+// set — rf2-3fc89f.31). Both failure classes are collected and thrown by name via
+// assertWalkComplete. The `node_modules` / `_shared` prunes stay a POLICY skip.
+// `io` is injectable so a test can drive a deterministic partial-walk / unreadable
+// -source failure.
+function buildNsIndex(root = EXAMPLES_ROOT, { io = fs } = {}) {
   const index = new Map();
-  const stack = [root];
   const nsRe = /\(ns\s+([\w.\-]+)/;
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    let entries;
+  const { items, walkErrors } = walkDir({
+    roots: [root],
+    io,
+    skipDir: (name) => name === 'node_modules' || name === '_shared',
+    acceptFile: (name) => /\.clj[sc]$/.test(name),
+  });
+  // A source whose head cannot be read fails CLOSED too: an unreadable ns file
+  // would otherwise vanish from the index exactly like a swallowed directory.
+  const readErrors = [];
+  for (const full of items) {
+    let head;
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
+      head = io.readFileSync(full, 'utf8').slice(0, 4096);
+    } catch (err) {
+      readErrors.push({
+        path: full,
+        code: (err && err.code) || null,
+        message: (err && err.message) || String(err),
+      });
       continue;
     }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '_shared') continue;
-        stack.push(full);
-      } else if (entry.isFile() && /\.clj[sc]$/.test(entry.name)) {
-        let head;
-        try {
-          head = fs.readFileSync(full, 'utf8').slice(0, 4096);
-        } catch {
-          continue;
-        }
-        const m = head.match(nsRe);
-        if (m && !index.has(m[1])) index.set(m[1], path.dirname(full));
-      }
-    }
+    const m = head.match(nsRe);
+    if (m && !index.has(m[1])) index.set(m[1], path.dirname(full));
   }
+  assertWalkComplete([...walkErrors, ...readErrors], 'examples-staging ns-index enumeration');
   return index;
 }
 
@@ -371,5 +380,6 @@ module.exports = {
   readShadowEdn,
   stripEdnComments,
   parseExampleBuilds,
+  buildNsIndex,
   listStandaloneExamples,
 };

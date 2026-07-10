@@ -56,6 +56,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { walkDir, assertWalkComplete } = require('./walk-tree.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -113,28 +114,25 @@ const SOURCE_EXTS = new Set(['.clj', '.cljs', '.cljc']);
 // walk never descends into it.
 // ---------------------------------------------------------------------------
 
-function listStockReagentSources(roots = STOCK_REAGENT_ROOTS) {
-  const out = [];
-  const stack = [...roots];
-  while (stack.length > 0) {
-    const dir = stack.pop();
-    let entries;
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '.shadow-cljs') continue;
-        stack.push(full);
-      } else if (entry.isFile() && SOURCE_EXTS.has(path.extname(entry.name))) {
-        out.push(full);
-      }
-    }
-  }
-  return out.sort();
+// Enumerate every stock-Reagent source across the declared roots, FAIL-CLOSED.
+// EACH declared root is enumerated INDEPENDENTLY (its own readdirSync), so a
+// single missing / unreadable root — core, capabilities, patterns, or real-apps —
+// is surfaced by name via assertWalkComplete rather than being erased into a
+// smaller-but-above-floor array (the old catch-and-continue let a forbidden slim
+// import in an unwalked root stay invisible — rf2-3fc89f.31). Every declared
+// root is therefore proven readable independently of the aggregate count floor,
+// which is now only a SECONDARY drift ratchet. The `node_modules` / `.shadow-cljs`
+// prunes stay a POLICY skip (not an error). `io` is injectable so a test can
+// drive a deterministic missing-root / unreadable-subtree failure.
+function listStockReagentSources(roots = STOCK_REAGENT_ROOTS, { io = fs } = {}) {
+  const { items, walkErrors } = walkDir({
+    roots,
+    io,
+    skipDir: (name) => name === 'node_modules' || name === '.shadow-cljs',
+    acceptFile: (name) => SOURCE_EXTS.has(path.extname(name)),
+  });
+  assertWalkComplete(walkErrors, 'check-reagent-slim-boundary stock-source enumeration');
+  return items.sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -204,12 +202,22 @@ module.exports = {
 // ---------------------------------------------------------------------------
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
-  const files = listStockReagentSources();
+  // Fail-closed enumeration: a missing/unreadable declared root (or any nested
+  // directory) throws by name (rf2-3fc89f.31), so every declared root is proven
+  // readable independently — the walk itself is the completeness proof. The
+  // count floor below is now a SECONDARY drift ratchet only. Surface the
+  // actionable discovery-failure message cleanly (no JS stack) and exit non-zero.
+  let files;
+  try {
+    files = listStockReagentSources();
+  } catch (err) {
+    console.error(err && err.actionable ? err.message : err && err.stack ? err.stack : err);
+    process.exit(1);
+  }
 
-  // Non-vacuous guard: a walk that silently recovers nothing must NOT let the
-  // gate pass green having scanned zero files. The stock Reagent tree ships
-  // dozens of sources; require a sane floor so a layout/walk drift fails loud
-  // rather than turning the boundary check into a vacuous pass.
+  // Secondary drift ratchet: even a fully-readable walk that recovers almost
+  // nothing (a layout collapse / mass rename) must NOT green a vacuous gate.
+  // The stock Reagent tree ships dozens of sources; require a sane floor.
   if (files.length < 20) {
     console.error(
       `check-reagent-slim-boundary: only ${files.length} source file(s) ` +

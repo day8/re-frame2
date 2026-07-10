@@ -29,6 +29,7 @@ const assert = require('assert');
 
 const {
   parseExampleBuilds,
+  buildNsIndex,
   listStandaloneExamples,
   readShadowEdn,
   isStrictlyUnder,
@@ -145,6 +146,77 @@ it('parseExampleBuilds(shadow-cljs.edn) is non-vacuous and every build has out+i
     assert.ok(b.outputDir, `build ${b.build} missing :output-dir`);
     assert.ok(b.initFn, `build ${b.build} missing :init-fn`);
   }
+});
+
+// ---- FAIL-CLOSED ns-index enumeration (rf2-3fc89f.31) --------------------
+//
+// buildNsIndex feeds listStandaloneExamples: an unreadable examples/ subtree (or
+// an unreadable source file whose head we read for its ns) must FAIL CLOSED
+// (throw, naming the path) rather than hide the ns and make the dev runner
+// advertise the build as merely "not runnable". The old catch-and-continue
+// swallowed BOTH the readdirSync AND the readFileSync failure. On OLD code
+// buildNsIndex was not even exported and ignored an injected io, so these tests
+// fail on old code (regression teeth).
+
+// An io that delegates to the real fs but fails for ONE path: EACCES on
+// readdirSync of `badDir`, or throws on readFileSync of `badFile`.
+function failingFsIo({ badDir = null, badFile = null } = {}) {
+  const realFs = require('fs');
+  const bd = badDir && path.resolve(badDir);
+  const bf = badFile && path.resolve(badFile);
+  return {
+    readdirSync: (dir, opts) => {
+      if (bd && path.resolve(dir) === bd) {
+        const e = new Error(`EACCES: permission denied, scandir '${dir}'`);
+        e.code = 'EACCES';
+        throw e;
+      }
+      return realFs.readdirSync(dir, opts);
+    },
+    readFileSync: (p, enc) => {
+      if (bf && path.resolve(p) === bf) {
+        const e = new Error(`EACCES: permission denied, open '${p}'`);
+        e.code = 'EACCES';
+        throw e;
+      }
+      return realFs.readFileSync(p, enc);
+    },
+  };
+}
+
+it('TEETH: buildNsIndex FAILS CLOSED on an unreadable subtree (rf2-3fc89f.31)', () => {
+  const badDir = path.join(EXAMPLES_ROOT, 'core');
+  assert.throws(
+    () => buildNsIndex(EXAMPLES_ROOT, { io: failingFsIo({ badDir }) }),
+    (err) =>
+      /enumeration FAILED/.test(err.message) &&
+      err.message.includes(badDir) &&
+      Array.isArray(err.walkErrors),
+    'an unreadable subtree must throw (naming the path), not hide the ns',
+  );
+});
+
+it('TEETH: buildNsIndex FAILS CLOSED on an unreadable source file head (rf2-3fc89f.31)', () => {
+  // Find a real .cljs source under examples/ to mark unreadable.
+  const realFs = require('fs');
+  const clean = buildNsIndex(EXAMPLES_ROOT, { io: realFs }); // a full clean index
+  assert.ok(clean.size > 0, 'precondition: the clean ns-index is non-empty');
+  const someSourceDir = [...clean.values()][0];
+  const someSource = realFs
+    .readdirSync(someSourceDir)
+    .map((n) => path.join(someSourceDir, n))
+    .find((p) => /\.clj[sc]$/.test(p));
+  assert.ok(someSource, 'precondition: found a real source file to mark unreadable');
+  assert.throws(
+    () => buildNsIndex(EXAMPLES_ROOT, { io: failingFsIo({ badFile: someSource }) }),
+    (err) => /enumeration FAILED/.test(err.message) && err.message.includes(someSource),
+    'an unreadable ns source head must fail closed by name (not vanish from the index)',
+  );
+});
+
+it('buildNsIndex builds the full index with a clean io (no false failure) (rf2-3fc89f.31)', () => {
+  const idx = buildNsIndex(EXAMPLES_ROOT, { io: require('fs') });
+  assert.ok(idx.size >= 30, `expected a non-vacuous ns-index, got ${idx.size}`);
 });
 
 it('listStandaloneExamples resolves the three UIx examples to a colocated index.html', () => {
