@@ -673,11 +673,11 @@
       (is (true? (:rf.size/include-large? parsed))
           "local-raw includes large too — the trusted-local boundary"))))
 
-(deftest posture->profile-maps-posture-to-named-boundary
-  ;; The posture→profile mapping is the explicit EP-0015 §10 naming:
-  ;; off-box-tool is the off-box default; local-raw is the
-  ;; trusted-local opt-in.
-  (is (= :rf.egress/off-box-tool (elision/posture->profile false))
-      "not-opted-in ⇒ the MCP/AI tool wire boundary")
-  (is (= :rf.egress/local-raw (elision/posture->profile true))
-      "trusted-local opt-in ⇒ the raw boundary"))
+;; NOTE the pure posture→profile mapping (`false ⇒ :rf.egress/off-box-tool`,
+;; `true ⇒ :rf.egress/local-raw`) now lives in the shared
+;; `re-frame.mcp-base.egress/mcp-tool-profile` and is pinned once in
+;; `re-frame.mcp-base.egress-test` (rf2-54y369). The
+;; `elision-opts-edn-resolves-named-egress-profiles` test above is the
+;; LOCAL integration test that this server's `elision-opts-edn` threads
+;; that mapping (via the gate-produced boolean) through to the correct
+;; `:rf.size/*` floor + `:elision` overlay.
