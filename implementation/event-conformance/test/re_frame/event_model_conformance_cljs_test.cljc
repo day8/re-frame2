@@ -1,97 +1,22 @@
 (ns re-frame.event-model-conformance-cljs-test
-  "EP-0018 ONE-FORM event-MODEL conformance (rf2-xhfxcs.6; EP-0018
-  §Conformance + Bead Plan item 7).
+  "Adversarial conformance for the public one-form event model.
 
-  The umbrella REGRESSION LOCK on the public contract the EP-0018 flip
-  (Slice Z) settled: `reg-event` is the SINGLE public event-registration
-  form (reg-event-fx semantics — coeffects in, a closed effects map out,
-  `{:db …}` is the db-write effect, `:rf.cofx/requires` works uniformly);
-  the three retired names survive ONLY as facade-exported `^:no-doc`
-  throwing stubs raising their exact hard errors; ONE `:rf/event-handler`
-  wrapper (`:rf/default? true`); `:event/kind` gone; `reg-event-ctx` is
-  not a public facade var.
+  Core's focused suites own individual `reg-event` and observability behaviour.
+  This cross-artefact suite locks the boundaries that are easiest to weaken while
+  those tests remain green: handlers receive coeffects and return a closed effect
+  map; recordable coeffects obey their host-read policy; registrations have one
+  `:rf/event-handler` wrapper and no `:event/kind`; and the `^:no-doc` retired
+  forms throw, register nothing, and notify the always-on error channel.
 
-  ## The frame/query contract is NOT locked here — it lives in core
+  The retired-form probes are deliberately fail-closed. A form that becomes
+  callable again returns `:no-throw`, and registration is checked independently,
+  so silently reviving an old API cannot satisfy the suite. Frame-targeted lookup
+  belongs to `re-frame.facade-frame-read-cljs-test`; live frame dispatch belongs
+  to the sibling `re-frame.event-frame-isolation-conformance-cljs-test`.
 
-  This tier carries NO realm-routing / frame-query section. The EP-0013
-  multi-realm substrate was RETIRED under EP-0023/EP-0024 (the realm
-  collapse, rf2-afdlyr / rf2-tu2vr7): there is no public realm query
-  coordinate, and the public read grammar is FRAME-TARGETED over a live
-  frame's sealed image generation (spec/API.md §The public registrar
-  query API). The two halves of that post-collapse contract are locked
-  elsewhere, NOT duplicated as an adversarial umbrella here:
-
-    - the QUERY-shaped read contract (`rf/handler-meta` /
-      `rf/registrations` `{:frame …}` resolving each
-      frame's own sealed image descriptors with provenance, `frame-
-      generation`, both fail-loud cases, and the byte-identical default
-      keyword path) is comprehensively locked in core's
-      `re-frame.facade-frame-read-cljs-test` (EP-0023, rf2-wkw8na);
-    - the LIVE-DISPATCH isolation leg (a real `rf/dispatch-sync` through
-      two image-loaded frames runs + commits ONLY that frame's handler /
-      app-db) is locked in the SIBLING ns
-      `re-frame.event-frame-isolation-conformance-cljs-test` (EP-0023,
-      rf2-slvzn3).
-
-  So a regression in the frame/query contract goes RED in those suites;
-  this tier deliberately does not restate it.
-
-  ## Why a cross-artefact tier and not just the in-core unit suite
-
-  `re-frame.reg-event-cljs-test` (core) carries the NARROW per-feature
-  unit checks for `reg-event`, and `re-frame.observability-routing-cljs-test`
-  (core) owns the frame-owned observability sink routing E2E; the baseline
-  reg-event and observability-routing scenarios those two suites own are NOT
-  restated here. This tier is the ADVERSARIAL UMBRELLA over the contracts
-  that span wider than either: every assertion is shaped so a future
-  regression would go RED —
-
-    - a RE-INTRODUCED working `reg-event-db` / `reg-event-fx` /
-      `reg-event-ctx` (the stub assertions FAIL CLOSED: a call that does
-      NOT throw the removed-error is detected, and the same id is proven
-      absent from the registry afterwards);
-    - a SECOND framework wrapper id, or a renamed wrapper (the wrapper is
-      pinned to exactly `[:rf/event-handler]` with `:rf/default? true`);
-    - a RE-APPEARING `:event/kind` sub-tag (pinned absent);
-    - a `reg-event-ctx` PROMOTION back onto the public facade (the JVM
-      `:no-doc`-meta probe FAILS if `reg-event-ctx` ever loses its
-      `^:no-doc`, and `reg-event` FAILS if it ever GAINS one);
-    - a removed-name error that THROWS but no longer fans out on the
-      always-on error channel (the advanced/corpus integration listener —
-      NOT the normal off-box sink path).
-
-  The always-on `register-error-listener!` / `register-event-listener!`
-  registries this tier asserts against are the LOW-LEVEL advanced /
-  corpus-wide integration APIs (production-survivable `:rf.error/*`
-  fan-out). Per EP-0015 / Spec 015 §Frame-owned observability sink policy
-  they are NOT the normal production off-box (Datadog / Sentry) story —
-  the normal story is a frame `:observability` sink fed an already-
-  PROJECTED record by the runtime (centralized `project-egress` runs
-  before any sink sees a record). That frame-owned observability sink
-  routing — including registration-owned `:sensitive` event-arg
-  classification and the off-box handled-event / error projection — is
-  locked END TO END in core's `re-frame.observability-routing-cljs-test`
-  (EP-0015 §9); this tier does NOT restate it.
-
-  The contract spans the events runtime, the public facade, and the
-  always-on error-emit / event-emit channels — wider than any single
-  artefact's test tree — so it lives in its own cross-artefact
-  `event-conformance/` surface (the precedent is `reply-conformance/` +
-  `derivation-conformance/`).
-
-  `.cljc`, dual-runtime: the shadow-cljs `:node-test` build
-  (`npm run test:cljs`, ns matches `cljs-test$`) AND the JVM
-  `clojure -M:test` runner both pick it up. The harness mirrors
-  `re-frame.reg-event-cljs-test` — the shared
-  `test-support/make-reset-runtime-fixture` wraps every body in
-  `(with-frame :rf/default …)` so ambient `dispatch-sync` resolves; an
-  outer fixture clears the always-on error- and event-listener registries
-  (`defonce`s that survive re-runs) between cases.
-
-  Canonical contract: EP-0018 §1/§2/§3/§4/§5/§6/§7 + spec/002-Frames.md
-  §Event handlers + spec/001-Registration.md §The retired
-  event-registration names + spec/009-Instrumentation.md (the
-  `:rf/event-handler` wrapper)."
+  The fixture supplies an ambient `:rf/default` frame and clears the always-on
+  listener registries between cases. These `.cljc` tests run on both JVM and
+  CLJS; the JVM arm also verifies facade var metadata."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -103,17 +28,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
 
-;; ---------------------------------------------------------------------------
-;; Harness. The runtime-reset fixture snapshot/restores the registrar and
-;; wraps each body in `(with-frame :rf/default …)`. The second fixture clears
-;; the always-on error- and event-listener registries (`defonce` atoms that
-;; survive test re-runs — rf2-bacs4) before AND after each test so no listener
-;; leaks between cases.
-;; ---------------------------------------------------------------------------
-
 (defn- clear-observation-state! []
-  ;; Clear the always-on listener registries (the advanced/corpus error- and
-  ;; event-emit APIs) so no listener leaks between cases.
   (error-emit/clear-error-listeners!)
   (event-emit/clear-event-listeners!))
 
@@ -124,16 +39,9 @@
     (test-fn)
     (clear-observation-state!)))
 
-;; ---------------------------------------------------------------------------
-;; Shared helpers.
-;; ---------------------------------------------------------------------------
-
 (defn- thrown-error-id
   "Call `f` and return the `:rf.error/id` of the ExceptionInfo it raises, or
-  `:no-throw` if it did not throw. The retired-name stubs raise an ex-info
-  carrying `:rf.error/id`; an old form that was silently RE-INTRODUCED would
-  not throw, so the `:no-throw` sentinel makes the stub assertions FAIL CLOSED
-  (a passing-by-not-throwing regression is detected, not skipped)."
+  `:no-throw` if it did not throw."
   [f]
   (try
     (f)
@@ -143,9 +51,7 @@
 
 (defn- thrown-error-reason
   "Call `f` and return the `:reason` text of the ExceptionInfo it raises, or
-  `:no-throw` if it did not throw. The retired-name stubs carry the actionable
-  replacement guidance in `:reason`; the `:no-throw` sentinel makes the
-  replacement-guidance assertions FAIL CLOSED if the form ever stops throwing."
+  `:no-throw` if it did not throw."
   [f]
   (try
     (f)
@@ -154,11 +60,7 @@
       (:reason (ex-data e)))))
 
 (defn- chain-ids
-  "Map a STORED (unresolved) `:interceptors` chain to a vector of authored ids.
-  Per EP-0022 reference-only (rf2-0adhqs.9) the stored chain holds REFS
-  unresolved: a bare-keyword ref IS its id; an `[id arg]` factory ref's head
-  is the id; the framework handler-wrapper (an inline value map) yields its
-  `:id`."
+  "Return ids from a stored chain without resolving its interceptor references."
   [chain]
   (mapv (fn [entry]
           (cond
@@ -168,21 +70,14 @@
             :else                                     entry))
         chain))
 
-;; ===========================================================================
-;; (1) `reg-event` — the ONE form, reg-event-fx semantics
-;;     (coeffects in / closed effects map out; `{:db …}` is the db-write).
-;; ===========================================================================
+;; One-form handler and coeffect contract.
 
 (deftest reg-event-has-reg-event-fx-semantics-coeffects-in-effects-out
-  (testing "EP-0018 §1/§4: a reg-event handler is BYTE-FOR-BYTE a reg-event-fx
-            handler — it receives the coeffects map (NOT a bare db) and returns
-            the CLOSED effects map; `{:db …}` is the db-write effect like any
-            other (the db-only return shape is GONE)"
+  (testing "reg-event receives coeffects and returns an explicit effects map"
     (let [seen-cofx (atom ::unset)]
       (rf/reg-sub :evt-conf/count (fn [db _] (:count db 0)))
       (rf/reg-event :evt-conf/bump
         (fn [coeffects _]
-          ;; The handler is handed the COEFFECTS MAP — the reg-event-fx shape.
           (reset! seen-cofx coeffects)
           {:db (update (:db coeffects) :count (fnil inc 0))}))
       (rf/dispatch-sync [:evt-conf/bump])
@@ -195,16 +90,7 @@
           "the `{:db …}` effect committed cumulatively (the db-write IS an effect)"))))
 
 (deftest reg-event-handler-receives-the-canonical-coeffect-keys
-  (testing "EP-0018 §4 + spec/002 §Event handlers + EP-0017 §3/§5: the coeffects
-            map a handler receives carries `:db`, `:event`, `:rf.frame/id`,
-            `:rf.db/runtime`, and the canonical complete `:rf.cofx` RECORD — the
-            framework-supplied baseline (NO `:event/kind`). `:rf.cofx` is the
-            envelope's flat recordable-coeffect record reachable through the
-            context for generic code (per EP-0017 §5); the handler's DECLARED
-            facts are delivered FLAT under their own ids (see
-            `reg-event-rf-cofx-requires-delivers-the-fact-flat`), NOT nested
-            here. The retired `:rf.world/inputs` successor is GONE from the
-            baseline (the flat-envelope rename — EP-0017 §3)"
+  (testing "handlers receive the canonical coeffect keys without an event-kind tag"
     (let [cofx (atom ::unset)]
       (rf/reg-event :evt-conf/inspect-cofx
         (fn [coeffects _] (reset! cofx coeffects) {}))
@@ -219,30 +105,20 @@
             "the ambient frame id is delivered as `:rf.frame/id`")
         (is (contains? c :rf.db/runtime) "`:rf.db/runtime` present in the coeffects map")
         (is (contains? c :rf.cofx)
-            "the canonical complete `:rf.cofx` record is reachable in the coeffects map (the flat envelope record — EP-0017 §5)")
+            "the canonical complete `:rf.cofx` record is reachable in the coeffects map")
         (is (map? (:rf.cofx c))
             "`:rf.cofx` is the FLAT recordable-coeffect map (fact-name → value, no grouping sub-maps)")
         (is (not (contains? c :rf.world/inputs))
-            "the retired `:rf.world/inputs` successor is GONE from the coeffects baseline (EP-0017 §3 flat rename)")
+            "the unsupported `:rf.world/inputs` key is absent from the coeffects baseline")
         (is (not (contains? c :event/kind))
             "the `:event/kind` sub-tag is GONE from the coeffects map (one form)")))))
 
 (deftest dispatch-opt-rf-world-inputs-is-the-generic-unknown-opt-with-did-you-mean
-  (testing "rf2-8rtuiq (Mike ruled OPTION A) — the OLD coeffect key: supplying
-            the retired `:rf.world/inputs` DISPATCH OPT earns NO dedicated error
-            id. `:rf.world/inputs` only ever named this fact in the spec's own
-            DRAFTS — it never shipped in a released artefact — so under the
-            shipped-names-only tombstone rule (Conventions §The tombstone rule)
-            it rides the GENERIC `:rf.warning/unknown-dispatch-opt` surface with
-            a did-you-mean naming `:rf.cofx`. The dispatch PROCEEDS unchanged
-            (the warning is observational), and the retired key is NOT aliased
-            to `:rf.cofx` nor silently swallowed. A regression that re-accepted
-            `:rf.world/inputs` as an alias (or dropped the warning) turns this RED"
+  (testing "the unsupported :rf.world/inputs opt warns and suggests :rf.cofx"
     (rf/reg-event :evt-conf/inspect-renamed (fn [{:keys [db]} _] {:db (assoc db :evt-conf/ran true)}))
     (let [traces (atom [])]
       (rf/register-listener! :trace :evt-conf/renamed-recorder (fn [ev] (swap! traces conj ev)))
-      ;; The dispatch does NOT throw — the retired draft key is an unrecognised
-      ;; opt, not a dedicated hard error.
+      ;; Unknown dispatch opts are observational warnings, not hard errors.
       (rf/dispatch-sync [:evt-conf/inspect-renamed]
                         {:rf.world/inputs {:rf/time-ms 1781078400123}})
       (rf/unregister-listener! :trace :evt-conf/renamed-recorder)
@@ -259,17 +135,7 @@
               "the warning message appends a did-you-mean naming `:rf.cofx` as the replacement"))))))
 
 (deftest live-event-coeffects-carry-no-rf-world-inputs-flat-delivery
-  (testing "EP-0017 §3/§5 (rf2-k51wm0) — the flat / no-live-world-inputs
-            contract: a live event's coeffects (and the supplied recordable
-            facts) carry the flat `:rf.cofx` record, NOT the retired
-            `:rf.world/inputs` nested envelope. A handler DECLARING a recordable
-            fact receives it FLAT under its id, while the canonical `:rf.cofx`
-            record (present in the coeffects) is flat too — there is NO
-            `:rf.world/inputs` key anywhere in the live coeffects, and no nested
-            `:cofx` successor. This locks the positive flat delivery against the
-            negative absence of the old shape in ONE assertion bundle. A
-            regression that re-introduced an `:rf.world/inputs` nested map in the
-            live coeffects turns this RED"
+  (testing "recordable facts and the canonical :rf.cofx record are flat"
     (let [c (atom ::unset)]
       (rf/reg-event :evt-conf/flat-delivery
         {:rf.cofx/requires [:rf/time-ms]}
@@ -287,9 +153,7 @@
             "the canonical complete record under `:rf.cofx` is the FLAT recordable map (fact-name → value)")))))
 
 (deftest reg-event-second-arg-is-the-event-vector
-  (testing "EP-0018 §1 (D4): the handler is TWO-ARG `(fn [coeffects event-vec])`
-            — the 2nd arg is the event vector and `(:event coeffects)` is the
-            same value"
+  (testing "the second handler argument is also available as :event in coeffects"
     (let [arg-event   (atom ::unset)
           cofx-event  (atom ::unset)]
       (rf/reg-event :evt-conf/two-arg
@@ -304,12 +168,7 @@
           "`(:event coeffects)` is the SAME value as the positional event arg"))))
 
 (deftest reg-event-rf-cofx-requires-one-arg-ambient-supplier-arg-path
-  (testing "EP-0017 §2 one-arg AMBIENT supplier on reg-event: a `[:cofx-id arg]`
-            declaration passes the literal arg to a call-site-parameterized
-            ambient supplier `(fn [arg] value)`, delivered flat. This is the
-            ambient (never-recorded) supplier-arg path — distinct from the
-            slice-B recordable-generator / mint-policy machinery exercised
-            below (which mints + writes back to the causal record)"
+  (testing "a [cofx-id arg] requirement passes arg to an ambient supplier"
     (let [seen (atom ::unset)]
       ;; The call-site-parameterized supplier is one-arg `(fn [arg] value)`
       ;; (cofx.cljc §Supplier signatures), declared `[id arg]` in :rf.cofx/requires.
@@ -322,28 +181,11 @@
           "the generator arg was threaded and the result delivered flat"))))
 
 (deftest reg-event-recordable-generator-mints-under-live-and-writes-back-to-the-record
-  (testing "EP-0017 §5/§6 slice-B.7 (rf2-lpyw1v) — a declared-absent RECORDABLE
-            NON-PROVIDED generator-backed cofx (a `{:recordable? true}` reg-cofx
-            WITH a value-returning supplier — NOT `:provided?`) runs its
-            generator at processing-start under the router's default `:live`
-            mint policy, the produced value is DELIVERED flat AND written back
-            into the in-flight `:rf.cofx` causal record (so the epoch captures
-            the post-generation token and replay re-presents it). Distinct from
-            the existing one-arg AMBIENT supplier (`:evt-conf/echo`, which is
-            never recorded): this is the recordable generator the existing tier
-            lacked. The write-back is observed through the canonical envelope
-            `:rf.cofx` reachable in the coeffects map. A regression that
-            generated but failed to write back (the epoch missing the fact,
-            replay re-generating a different value) turns the record assertion
-            RED; one that did not mint at all (treating an absent
-            generator-backed fact as missing-required under `:live`) turns the
-            delivery assertion RED"
+  (testing "live policy mints a missing recordable fact and writes it to the causal record"
     (let [delivered (atom ::unset)
           recorded  (atom ::unset)
           calls     (atom 0)]
-      ;; A RECORDABLE generator (NOT :provided?) — a value-returning supplier
-      ;; the framework records, replays, and enforces. A monotonic counter so
-      ;; a re-run (which would be a write-back failure) is observable.
+      ;; A monotonic supplier makes an accidental second host read observable.
       (rf/reg-cofx :evt-conf/mint-id
         {:recordable? true}
         (fn [] (swap! calls inc) (str "id-" @calls)))
@@ -351,12 +193,8 @@
         {:rf.cofx/requires [:evt-conf/mint-id]}
         (fn [{:keys [evt-conf/mint-id] :as cofx} _]
           (reset! delivered mint-id)
-          ;; The canonical complete record is reachable in the coeffects map
-          ;; under :rf.cofx (the runtime restamps it post-generation).
           (reset! recorded (get (:rf.cofx cofx) :evt-conf/mint-id))
           {}))
-      ;; Dispatch WITHOUT supplying the fact — under the default :live policy
-      ;; the generator mints it at processing-start.
       (rf/dispatch-sync [:evt-conf/uses-mint])
       (is (= "id-1" @delivered)
           "the recordable generator minted the absent fact under :live and delivered it flat")
@@ -366,13 +204,7 @@
           "the generator ran exactly once (the write-back, not a re-read, supplies the record)"))))
 
 (deftest reg-event-recordable-generator-emits-rf-cofx-generated-trace-op
-  (testing "EP-0017 §9 slice-B.7 (rf2-lpyw1v) — the generation step emits the
-            dev-mode `:rf.cofx/generated` trace op (fact-name + supplier id +
-            produced value) so traces are self-describing even though the record
-            is flat. This is the slice-B trace vocabulary the existing tier did
-            not exercise. Observed via a trace listener filtering `:operation`.
-            A regression that stopped emitting the op (or renamed it) turns this
-            RED"
+  (testing "recordable generation emits a self-describing :rf.cofx/generated trace"
     (let [traces (atom [])]
       (rf/reg-cofx :evt-conf/gen-fact
         {:recordable? true}
@@ -392,17 +224,7 @@
             "the op carries the produced value (fact-name + value, self-describing)")))))
 
 (deftest reg-event-strict-mint-policy-refuses-to-generate-and-raises-missing-required
-  (testing "EP-0017 §5/§6 slice-B.8 (rf2-lpyw1v) — STRICT replay/test behaviour:
-            under the `:strict` mint policy a declared-absent generator-backed
-            recordable fact is NOT minted (no host read, no generator run) — it
-            is the hard error `:rf.error/missing-required-cofx`. Replay is
-            unconditionally strict: an incomplete record MUST fail loudly rather
-            than silently re-read the host. The policy is supplied per-call via
-            the `:rf.cofx/mint-policy` dispatch opt (the same opt a Tool-Pair
-            replay supplies). This is the strict-replay lock the existing tier
-            lacked: it proves `:strict` REFUSES to mint the very fact `:live`
-            mints in the test above. A regression that minted under `:strict`
-            (re-reading the host on replay) turns this RED"
+  (testing "strict policy rejects a missing recordable fact without reading the host"
     (let [calls  (atom 0)
           fired? (atom false)]
       (rf/reg-cofx :evt-conf/strict-fact
@@ -411,7 +233,6 @@
       (rf/reg-event :evt-conf/needs-strict-fact
         {:rf.cofx/requires [:evt-conf/strict-fact]}
         (fn [_ _] (reset! fired? true) {}))
-      ;; Dispatch under :strict WITHOUT supplying the fact — strict refuses to mint.
       (let [thrown (thrown-error-id
                      #(rf/dispatch-sync [:evt-conf/needs-strict-fact]
                                         {:rf.cofx/mint-policy :strict}))]
@@ -423,16 +244,7 @@
             "the handler never ran — missing-required halts the cascade before the handler")))))
 
 (deftest reg-event-explicit-live-mint-policy-mints-the-declared-nondeterminism-escape
-  (testing "EP-0017 §6 slice-B.8 (rf2-lpyw1v) — `:explicit-live` is the
-            declared-nondeterminism ESCAPE: like `:live` it mints a
-            declared-absent generator-backed recordable fact, but the test has
-            explicitly opted into nondeterminism (distinct from the `:test`
-            preset's `:strict` default). Supplied per-call via the
-            `:rf.cofx/mint-policy` dispatch opt. This completes the policy
-            triad — `:live` (router default, minted above), `:strict` (refuses,
-            above), `:explicit-live` (mints, here) — locking all three binding
-            points. A regression that conflated `:explicit-live` with `:strict`
-            (refusing to mint) turns this RED"
+  (testing "explicit-live policy opts into minting a missing recordable fact"
     (let [delivered (atom ::unset)]
       (rf/reg-cofx :evt-conf/escape-fact
         {:recordable? true}
@@ -446,9 +258,7 @@
           ":explicit-live mints a declared-absent generator-backed fact (the declared-nondeterminism escape, NOT strict)"))))
 
 (deftest reg-event-typo-cofx-is-the-hard-error
-  (testing "EP-0017 typo path on reg-event: declaring `:rf.cofx/requires` for an
-            UNregistered cofx is the hard error `:rf.error/unregistered-cofx`
-            (NO db-handler exception — the same path every event form takes)"
+  (testing "requiring an unregistered coeffect is a hard error"
     (rf/reg-event :evt-conf/bad-requires
       {:rf.cofx/requires [:evt-conf/never-registered]}
       (fn [_ _] {}))
@@ -457,16 +267,7 @@
         "an unregistered declared cofx raises :rf.error/unregistered-cofx")))
 
 (deftest reg-event-malformed-requires-is-cofx-request-invalid
-  (testing "EP-0017 §8 error matrix (rf2-fiiwbb) — a malformed `:rf.cofx/requires`
-            declaration is the registration-time hard error
-            `:rf.error/cofx-request-invalid` (DISTINCT from the unregistered-id
-            typo case, `:rf.error/unregistered-cofx`, above). `:rf.cofx/requires`
-            must be a VECTOR of ids; a non-vector value (e.g. a bare keyword) and
-            a vector carrying a non-id entry (e.g. a number) both fail at
-            registration — typos die before dispatch semantics apply. This locks
-            the request-shape leg of the public error matrix the existing tier
-            pinned only partially. A regression that silently accepted a
-            malformed requires (delivering nothing, or a nil) turns this RED"
+  (testing "malformed :rf.cofx/requires declarations fail at registration"
     ;; A non-vector :rf.cofx/requires value.
     (is (= :rf.error/cofx-request-invalid
            (thrown-error-id
@@ -483,19 +284,7 @@
         "a non-id entry in :rf.cofx/requires is :rf.error/cofx-request-invalid at registration")))
 
 (deftest reg-cofx-malformed-grade-metadata-is-cofx-registration-invalid
-  (testing "EP-0017 §2/§8 error matrix (rf2-fiiwbb) — malformed `reg-cofx` GRADE
-            metadata is the registration-time hard error
-            `:rf.error/cofx-registration-invalid` (DISTINCT from
-            `:rf.error/cofx-name-collision`, which is reserved for genuine
-            duplicate ownership). The three malformed-grade shapes the supplier /
-            grade contract rejects: (1) `:provided?` without `:recordable?` (a
-            provided fact is recordable by definition); (2) a `:provided?` fact
-            carrying a supplier (silently ignored at delivery — the contradiction
-            is rejected at the call site); (3) an ambient (non-provided) fact
-            with NO supplier (it could never produce a value). This locks the
-            reg-cofx grade-validation leg the existing tier did not exercise. A
-            regression that registered any of these malformed grades (surfacing
-            as an opaque host NPE at delivery) turns this RED"
+  (testing "contradictory coeffect grades fail at registration"
     ;; (1) :provided? without :recordable?
     (is (= :rf.error/cofx-registration-invalid
            (thrown-error-id
@@ -515,17 +304,7 @@
         "an ambient fact with no supplier is :rf.error/cofx-registration-invalid")))
 
 (deftest supplied-recordable-non-edn-value-is-cofx-value-invalid
-  (testing "EP-0017 §2/§5/§8 error matrix (rf2-fiiwbb) — a SUPPLIED recordable
-            value that fails the STRUCTURAL-EDN check (a host handle — a
-            function, atom, or other non-EDN object — stuffed into `:rf.cofx`)
-            is `:rf.error/cofx-value-invalid` with `reason
-            :non-edn-recordable-value`. Recordable coeffect values ride the
-            durable causal record (epoch ledger, replay, SSR payload, Xray) and
-            MUST be ordinary EDN data that reads back unchanged. The error fires
-            at the dispatch boundary BEFORE the handler. This locks the
-            structural-EDN half of the supplied-value validation matrix. A
-            regression that let a host handle reach the durable token (failing
-            far away at replay / Xray time, not at the boundary) turns this RED"
+  (testing "a host value cannot cross the durable recordable-coeffect boundary"
     (let [fired? (atom false)]
       (rf/reg-cofx :evt-conf/host-fact {:recordable? true :provided? true})
       (rf/reg-event :evt-conf/reads-host-fact
@@ -541,25 +320,8 @@
             "the handler never ran — the boundary structural-EDN check halts before the handler")))))
 
 (deftest supplied-recordable-value-failing-schema-is-cofx-value-invalid-in-production
-  (testing "EP-0017 §5/§8 + disposition 9 (rf2-fiiwbb) — a SUPPLIED recordable
-            value that fails its `reg-cofx` `:schema` is the
-            `:rf.error/cofx-value-invalid` hard error, and it fires in
-            PRODUCTION as well as dev (the production-hard-error contract — an
-            out-of-contract recordable value folded into the durable ledger is
-            corrupt state, the `:dispatched-at` precedent). The `:schema` check
-            routes through the shared `set-schema-validator!` seam (Spec 010
-            §Non-Malli validators): a registered validator covers this surface
-            even without the Malli schemas artefact. Here we register a tiny
-            non-Malli validator directly via the late-bind seam and prove a
-            supplied value the validator rejects is the hard error; a value it
-            accepts is delivered. The `validate-recordable-value!` path is
-            ALWAYS-ON (not dev-gated), so this locks the production contract. A
-            regression that downgraded schema validation to a dev-only diagnostic
-            (or skipped it for supplied values) turns this RED"
-    ;; Register a tiny NON-Malli validator + explainer via the same late-bind
-    ;; seam `re-frame.schemas` publishes (Spec 010): the schema is `[:enum …]`,
-    ;; the validator accepts only the listed values. Restored in the finally so
-    ;; no hook leaks between tests.
+  (testing "recordable-coeffect schemas are enforced at the durable boundary"
+    ;; Exercise the schema hook without taking a dependency on the schemas artefact.
     (let [prev-validate (late-bind/get-fn :schemas/validate-with-registered-fn)
           prev-explain  (late-bind/get-fn :schemas/explain-with-registered-fn)]
       (try
@@ -601,13 +363,7 @@
           (late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
 
 (deftest reg-event-declared-rf-time-ms-is-delivered-flat-from-the-token
-  (testing "EP-0017 §2/§5 recordable-delivery on reg-event (rf2-q5w74i): a
-            handler that DECLARES `:rf.cofx/requires [:rf/time-ms]` receives the
-            recordable `:rf/time-ms` fact FLAT from the supplied/stamped
-            `:rf.cofx` causal token — the framework's one provided recordable
-            coeffect. This is the POSITIVE counterpart to
-            `reg-event-undeclared-cofx-is-not-staged` (declared-only delivery):
-            declared → delivered flat; undeclared → never staged"
+  (testing "a declared :rf/time-ms fact is delivered flat from the causal token"
     (let [seen (atom ::unset)]
       (rf/reg-event :evt-conf/reads-time
         {:rf.cofx/requires [:rf/time-ms]}
@@ -618,15 +374,7 @@
           "the DECLARED :rf/time-ms arrived FLAT under its id from the causal token"))))
 
 (deftest reg-event-registered-but-absent-provided-fact-is-missing-required-cofx
-  (testing "EP-0017 §5/§7 provided-recordable on reg-event (rf2-q5w74i): a
-            DECLARED PROVIDED recordable fact (registered `{:recordable? true
-            :provided? true}` — NO generator) that is ABSENT from the supplied
-            causal token is the hard error `:rf.error/missing-required-cofx` —
-            the cascade halts before the handler runs (it fails loudly rather
-            than silently re-reading the host). This is DISTINCT from the typo
-            case (`:rf.error/unregistered-cofx`, already covered): the id IS
-            registered, it is just not supplied. The error rides the always-on
-            error channel; observe it via the throw + a trace listener"
+  (testing "a missing provided fact fails before the handler without a host read"
     (let [traces (atom [])
           fired? (atom false)]
       (rf/reg-cofx :evt-conf/required-boundary
@@ -649,22 +397,7 @@
               ":rf.cofx/id names the absent provided fact"))))))
 
 (deftest reg-event-framework-provided-rf-time-ms-declared-delivered-undeclared-absent
-  (testing "EP-0017 §1/§2/§4/§5 (rf2-dkkmig) — the framework-STAMPED `:rf/time-ms`
-            provided-recordable matrix, the no-implicit-time rule. `:rf/time-ms`
-            is the framework's ONE built-in `{:recordable? true :provided? true}`
-            registration, stamped onto every dispatch envelope at enqueue (so it
-            is always present on the token without the caller supplying it). The
-            two legs prove the provided-vs-ambient recordable contract for the
-            STAMPED fact: (1) a handler DECLARING `:rf/time-ms` receives the
-            framework-stamped value flat (the stamp guarantees the provided fact
-            is present — no `:rf.error/missing-required-cofx`, distinct from the
-            generator-less custom provided fact that IS absent); (2) a handler
-            NOT declaring it never sees it in its coeffects map (no implicit
-            time — the most-consumed fact gets no special treatment).
-            A regression re-introducing implicit time delivery (staging
-            `:rf/time-ms` for an undeclared handler) turns leg 2 RED; a
-            regression that stopped stamping the provided fact turns leg 1 RED
-            (it would surface as missing-required)"
+  (testing "framework-stamped time is delivered only when declared"
     (let [declared-time   (atom ::unset)
           undeclared-has? (atom ::unset)]
       ;; Leg 1 — DECLARED: the framework-stamped provided `:rf/time-ms` is
@@ -684,18 +417,7 @@
           "the UNDECLARED handler never sees :rf/time-ms — no implicit time (declared-only delivery, the most-consumed fact gets no exemption)"))))
 
 (deftest reg-event-custom-provided-cofx-supplied-on-token-is-delivered-flat
-  (testing "EP-0017 §2/§4/§5 (rf2-dkkmig) — a CUSTOM `{:recordable? true
-            :provided? true}` cofx (no generator), SUPPLIED on the dispatch
-            token, is delivered FLAT under its id when declared. This is the
-            POSITIVE delivery leg complementing
-            `reg-event-registered-but-absent-provided-fact-is-missing-required-cofx`
-            (the negative leg): a registered provided fact PRESENT on the token
-            is delivered verbatim (supplied values win — no host read, no
-            generator), exactly like the framework's own `:rf/time-ms` but for an
-            app-owned boundary fact. Together the two legs lock the provided
-            recordable matrix: present → delivered flat; absent →
-            missing-required. A regression that failed to deliver a supplied
-            provided fact (or that ran a phantom supplier) turns this RED"
+  (testing "a supplied custom provided fact is delivered flat without a host read"
     (let [seen (atom ::unset)]
       ;; A custom provided recordable fact — NO supplier (its owner stamps the
       ;; token). The valid provided shape: `{:recordable? true :provided? true}`.
@@ -712,17 +434,7 @@
           "the SUPPLIED custom provided recordable fact arrived FLAT under its id from the token (supplied values win — no generator, no host read)"))))
 
 (deftest inject-cofx-is-off-the-public-facade-and-the-removal-is-a-hard-error
-  (testing "EP-0017 slice A.3 + rf2-w9xyx1 (rf2-q5w74i): the v1 ctx→ctx
-            `inject-cofx` delivery idiom is REMOVED with no alias —
-            `:rf.cofx/requires` is the ONE declaration surface. The umbrella
-            lock has TWO legs: (1) `inject-cofx` is OFF the public `rf/`
-            facade entirely — there is NO public `re-frame.core/inject-cofx`
-            var (a re-introduced working public facade var goes RED); (2) the
-            migration alarm survives as the always-on hard-error thrower
-            (`re-frame.cofx/inject-cofx`), raising `:rf.error/inject-cofx-
-            removed` and naming `:rf.cofx/requires` as the replacement (a
-            removal that stopped throwing, or dropped the replacement guidance,
-            goes RED)"
+  (testing "inject-cofx is absent from the facade and its tombstone points to :rf.cofx/requires"
     ;; Leg 1 — OFF the public facade. JVM-only var-reflection probe: the
     ;; public facade carries no `inject-cofx` var. (CLJS has no runtime vars;
     ;; the CLJS publics surface is policed by the api-manifest --check gate.)
@@ -739,18 +451,10 @@
       (is (re-find #":rf.cofx/requires" reason)
           "the replacement guidance names `:rf.cofx/requires` (the one declaration surface)"))))
 
-;; ===========================================================================
-;; (2) Effect-map shape — closed return contract, nil/{} no-op, foreign-key
-;;     and legacy-shortcut rejection.
-;; ===========================================================================
+;; Closed effect-map contract.
 
 (deftest reg-event-foreign-top-level-key-is-effect-map-shape
-  (testing "EP-0018 §4: a FOREIGN top-level effect key (outside the closed
-            `#{:db :fx :rf.db/runtime}`) is the `:rf.error/effect-map-shape`
-            diagnostic (`:recovery :logged-and-skipped`) — the v1 top-level
-            shortcut shape stays rejected, NOT silently honoured. The
-            diagnostic rides the dev trace bus (an `:op-type :error` op), so
-            observe it via a trace listener filtering on `:operation`"
+  (testing "a foreign top-level effect key is reported and skipped"
     (let [traces (atom [])
           fired? (atom false)]
       (rf/register-listener! :trace :evt-conf/shape-recorder (fn [ev] (swap! traces conj ev)))
@@ -773,20 +477,7 @@
             "the diagnostic names the offending legacy top-level key")))))
 
 (deftest reg-event-bare-app-db-shaped-return-is-effect-map-shape-not-committed
-  (testing "EP-0018 §4 closed-effects contract (rf2-tqrr1d) — a BARE app-db-shaped
-            return (a map of application keys, e.g. `{:count 1}`, NOT wrapped in
-            `{:db …}`) is rejected as `:rf.error/effect-map-shape`
-            (`:recovery :logged-and-skipped`): its application top-level key is
-            FOREIGN to the closed `#{:db :rf.db/runtime :fx}` effect map. This is
-            DISTINCT from the legacy-`:dispatch`-shortcut case (a known v1
-            shortcut id) — it is the db-RETURN convenience the EP-0018 collapse
-            removed (`reg-event-db`'s bare-db return is GONE; the db-write is the
-            explicit `:db` effect). A regression that partially revived the old
-            db-return convenience for application keys — committing `{:count 1}`
-            as app-db, or otherwise avoiding the shape error — passes the existing
-            `{:db …}` positive tier while VIOLATING the closed contract; this
-            lock turns it RED. The lock has two legs: the offending app key emits
-            the shape error, AND app-db is NOT mutated to the bare map"
+  (testing "a bare app-db map is not mistaken for the explicit :db effect"
     (let [traces (atom [])]
       (rf/reg-sub :evt-conf/bare-count (fn [db _] (:count db :absent)))
       ;; Seed app-db with a sentinel so a wrongly-committed bare return is
@@ -810,21 +501,7 @@
             "the bare-db-return shape diagnostic carries :recovery :logged-and-skipped")))))
 
 (deftest reg-event-app-handler-runtime-effect-keeps-the-diagnostic-unless-framework-authority
-  (testing "EP-0018 §Conformance + EP-0001 (rf2-tqrr1d) — an app-authored
-            `reg-event` handler returning `{:rf.db/runtime …}` keeps the
-            `:rf.warning/app-handler-runtime-effect` diagnostic UNLESS the
-            handler has framework-write authority. `:rf.db/runtime` is the
-            runtime-db partition reserved BY CONVENTION for framework /
-            runtime-extension code (NOT a security boundary — the effect is
-            still applied, `:recovery :warned`); an ordinary app handler emitting
-            it is the dev diagnostic, while a framework-authority handler (the
-            reserved `:rf/framework-authority? true` registration meta) writes it
-            silently. The existing tier only proves `:rf.db/runtime` PRESENT in
-            the coeffects map — this locks the RETURN-side authority guard. A
-            regression that dropped the diagnostic for app handlers (or fired it
-            for framework-authority handlers) turns the respective leg RED. The
-            diagnostic rides the dev trace bus, so observe it via a trace
-            listener filtering on `:operation`"
+  (testing "runtime-db writes warn for app handlers but not framework-authorised handlers"
     (let [app-traces (atom [])
           fw-traces  (atom [])]
       ;; Leg 1 — an APP handler (no authority) returning :rf.db/runtime fires
@@ -852,16 +529,7 @@
           "a FRAMEWORK-AUTHORITY handler writes :rf.db/runtime silently — NO app-handler-runtime-effect diagnostic"))))
 
 (deftest reg-event-unchanged-db-return-is-a-true-noop
-  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
-            EP-0018 §4 Conformance section assigns the `{:db <identical>}` no-op
-            to rf2-ekq28v): a `{:db db}` return that re-installs the
-            SAME app-db value is a true no-op — app-db is unchanged AND the
-            change-trace stream reflects the no-op (`:rf.event/db-noop` fires,
-            `:rf.event/db-changed` does NOT). A regression that treated every
-            `{:db …}` return as a write (firing db-changed unconditionally,
-            re-running dependent subs) would turn this RED. The observable
-            stable surface for the no-op-vs-changed distinction is the dev
-            trace bus, so observe it via a trace listener filtering `:operation`"
+  (testing "returning the identical db emits db-noop rather than db-changed"
     (let [traces (atom [])]
       (rf/reg-sub :evt-conf/noop-seed (fn [db _] (:seed db :untouched)))
       (rf/reg-event :evt-conf/noop-seed! (fn [{:keys [db]} _] {:db (assoc db :seed :set)}))
@@ -883,15 +551,7 @@
             "an unchanged `{:db db}` return does NOT fire :rf.event/db-changed")))))
 
 (deftest reg-event-db-nil-return-is-coerced-to-empty-map-with-diagnostic
-  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
-            EP-0018 §4 Conformance section assigns the `{:db nil}` -> `{:db {}}`
-            coercion to rf2-ekq28v): a `{:db nil}` return is
-            COERCED to `{}` at the commit boundary (app-db is always a map,
-            never nil — the v1 nil-footgun is removed structurally) AND emits
-            the dev-mode `:rf.warning/db-nil-coerced` diagnostic for
-            accidental-wipe visibility. The diagnostic rides the trace bus, so
-            observe it via a trace listener filtering on `:operation`. A
-            regression that wiped app-db to nil (or coerced silently) goes RED"
+  (testing "a nil db effect becomes an empty map and emits its diagnostic"
     (let [traces  (atom [])
           db-seen (atom ::unset)]
       ;; Seed a non-trivial app-db so the coercion-to-`{}` is observable.
@@ -916,12 +576,7 @@
             "the coercion diagnostic carries :recovery :warned (the value is still applied)")))))
 
 (deftest reg-event-deliberate-empty-db-clear-emits-no-diagnostic
-  (testing "COMMIT-SEMANTICS COMPANION — rf2-ekq28v (NOT EP-0018-owned; the
-            companion to the `{:db nil}` coercion above): a DELIBERATE clear —
-            returning `{:db {}}` (a distinct, non-nil empty map) — clears app-db WITHOUT
-            the `:rf.warning/db-nil-coerced` diagnostic, distinguishing the
-            intentional empty-map clear from the accidental-nil footgun. A
-            regression that warned on a deliberate `{:db {}}` clear goes RED"
+  (testing "an explicit empty db clears state without the nil-coercion diagnostic"
     (let [traces (atom [])]
       (rf/reg-sub :evt-conf/clear-mark (fn [db _] (:mark db :untouched)))
       (rf/reg-event :evt-conf/clear-seed! (fn [{:keys [db]} _] {:db (assoc db :mark :set)}))
@@ -936,14 +591,7 @@
           "a deliberate `{:db {}}` clear emits NO :rf.warning/db-nil-coerced diagnostic"))))
 
 (deftest reg-event-malformed-fx-value-is-logged-and-skipped-without-aborting-siblings
-  (testing "EP-0018 §4 + rf2-24zly (rf2-na5i1z): a non-sequential `:fx` VALUE
-            (the forgot-the-outer-vector typo — e.g. `{:fx {:dispatch […]}}`)
-            is the `:rf.error/effect-map-shape` diagnostic
-            (`:recovery :logged-and-skipped`) and is DROPPED — it never reaches
-            `fx/do-fx` to throw a raw host exception AFTER the db commit. The
-            sibling `:db` write STILL commits and the cascade is NOT aborted. A
-            regression that let the malformed `:fx` escape (a raw host throw,
-            app-db left mutated, downstream events abandoned) goes RED"
+  (testing "a malformed :fx value is skipped without aborting valid sibling effects"
     (let [traces    (atom [])
           sentinel? (atom false)]
       (rf/reg-sub :evt-conf/fx-shape-db (fn [db _] (:committed db :absent)))
@@ -972,20 +620,9 @@
             "the malformed-:fx diagnostic carries :recovery :logged-and-skipped")))))
 
 (deftest reg-event-final-effects-boundary-polices-after-interceptor-effects
-  (testing "EP-0018 §4 + rf2-u1kdvg (rf2-na5i1z): the FINAL-effects boundary —
-            not only the per-handler-return check — polices the closed
-            effect-map. An `:after` interceptor that injects a FOREIGN
-            top-level effect key AFTER the handler-return policing has run is
-            still caught at the final boundary: the foreign key emits
-            `:rf.error/effect-map-shape` and is dropped (never silently honoured
-            at the partition commit). A regression that only policed the
-            handler return (letting an `:after`-injected foreign key through)
-            goes RED. EP-0022 reference-only: the interceptor is registered via
-            the public surface and referenced by id"
+  (testing "the final effects boundary polices keys injected by an after interceptor"
     (let [traces (atom [])]
       (rf/reg-sub :evt-conf/boundary-db (fn [db _] (:committed db :absent)))
-      ;; EP-0022: register the `:after`-injecting interceptor through the
-      ;; PUBLIC reg-interceptor surface; reference it by id in the chain.
       (rf/reg-interceptor :evt-conf/inject-foreign
         {:after (fn [ctx]
                   ;; Inject a FOREIGN top-level effect key into the final
@@ -1007,16 +644,10 @@
         (is (= :logged-and-skipped (:recovery (first shape-traces)))
             "the final-boundary diagnostic carries :recovery :logged-and-skipped")))))
 
-;; ===========================================================================
-;; (3) Registration SHAPE — registers under :event with the ONE wrapper,
-;;     handler-meta surfaces metadata + the effective chain, NO :event/kind.
-;; ===========================================================================
+;; Registration shape.
 
 (deftest reg-event-registers-under-event-kind-with-the-one-wrapper
-  (testing "EP-0018 §5: reg-event registers under registry kind :event;
-            handler-meta returns the metadata + effective interceptor chain;
-            the framework wrapper is the ONE `:rf/event-handler` interceptor
-            with `:rf/default? true`, and NO `:event/kind` sub-tag survives"
+  (testing "reg-event registers under :event with one default wrapper"
     (rf/reg-event :evt-conf/shape (fn [{:keys [db]} _] {:db (assoc db :m :v)}))
     (let [meta (rf/handler-meta :event :evt-conf/shape)]
       (is (some? meta)
@@ -1035,10 +666,7 @@
             "the wrapper carries :rf/default? true (filtered as a framework auto-wrapper)")))))
 
 (deftest reg-event-no-per-kind-wrapper-ids-survive
-  (testing "ADVERSARIAL wrapper-drift lock (EP-0018 §5): the historical per-kind
-            wrapper ids (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`)
-            are GONE — a reg-event chain carries NONE of them, only the unified
-            `:rf/event-handler`. Re-introducing a per-kind wrapper would go RED"
+  (testing "the unified event wrapper excludes the retired per-kind wrapper ids"
     (rf/reg-event :evt-conf/wrapper-drift (fn [_ _] {}))
     (let [ids (set (mapv :id (:interceptors (rf/handler-meta :event :evt-conf/wrapper-drift))))]
       (is (= #{:rf/event-handler} ids)
@@ -1048,28 +676,12 @@
       (is (not (contains? ids :rf/ctx-handler)) "the retired :rf/ctx-handler wrapper is gone"))))
 
 (deftest reg-event-chain-references-an-interceptor-from-public-reg-interceptor
-  (testing "EP-0022 public authoring surface (rf2-9g5xla): an application
-            interceptor used by an event chain is registered through the PUBLIC
-            `rf/reg-interceptor` form (the ONLY authoring surface on the facade
-            since rf2-m90brg retired the programmatic `reg-interceptor*`
-            fn-twin). EP-0022 makes `reg-interceptor` the
-            public authoring surface (demoting `->interceptor` to an internal
-            lowering constructor); this tier must exercise THAT path so a
-            regression in the public facade / macro / metadata route for
-            `reg-interceptor` goes RED rather than passing on the internal
-            helper. The chain is reference-only: the event registration carries
-            the interceptor ID, not an inline value. `handler-meta :interceptor`
-            surfaces the registered descriptor + the registration metadata"
+  (testing "an event chain resolves an interceptor registered through the public facade"
     (let [ran? (atom false)]
       (rf/reg-sub :evt-conf/public-icpt-marker (fn [db _] (:public-icpt-marker db)))
-      ;; PUBLIC authoring surface — `rf/reg-interceptor` (macro on JVM,
-      ;; fn-alias on CLJS), WITH a registration-metadata map (`:doc`) so the
-      ;; metadata route is exercised, not just the descriptor.
       (rf/reg-interceptor :evt-conf/audit
         {:doc "an application audit interceptor authored via reg-interceptor"}
         {:before (fn [ctx] (reset! ran? true) ctx)})
-      ;; handler-meta for the :interceptor kind surfaces the registered
-      ;; descriptor + the registration metadata (EP-0022).
       (let [imeta (rf/handler-meta :interceptor :evt-conf/audit)]
         (is (some? imeta)
             "reg-interceptor registers under the :interceptor kind (handler-meta finds it)")
@@ -1087,25 +699,16 @@
       (let [emeta (rf/handler-meta :event :evt-conf/uses-public-icpt)]
         (is (= [:evt-conf/audit :rf/event-handler] (chain-ids (:interceptors emeta)))
             "the event chain carries the interceptor REFERENCE (id), before the framework wrapper"))
-      ;; Dispatch proves the public-registered interceptor actually runs in the
-      ;; event chain (the reference resolved to the registered descriptor).
       (rf/dispatch-sync [:evt-conf/uses-public-icpt])
       (is (true? @ran?)
           "the public-registered interceptor's :before ran in the event chain")
       (is (= :handler-ran @(rf/subscribe [:evt-conf/public-icpt-marker]))
           "the event handler ran after the public-registered interceptor"))))
 
-;; ===========================================================================
-;; (4) The retired public names — facade-exported `^:no-doc` throwing stubs
-;;     raising their EXACT hard errors, production-survivable (fan out on the
-;;     error channel THEN throw), registering nothing.
-;; ===========================================================================
+;; Retired registration-form tombstones.
 
 (deftest retired-names-raise-their-exact-removal-errors
-  (testing "EP-0018 §2/§3: the three retired public names are resolvable facade
-            stubs that raise their EXACT naming hard errors — a hard runtime
-            error, never a silent alias (FAILS CLOSED on a re-introduced
-            working form via the :no-throw sentinel)"
+  (testing "retired facade forms raise their specific removal errors"
     (is (= :rf.error/reg-event-db-removed
            (thrown-error-id #(rf/reg-event-db :evt-conf/via-db (fn [_ _] nil))))
         "reg-event-db raises :rf.error/reg-event-db-removed")
@@ -1117,10 +720,7 @@
         "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
 
 (deftest reg-event-db-and-fx-removals-still-point-at-reg-event
-  (testing "EP-0018 §2/§3: the reg-event-db / reg-event-fx removal errors keep
-            naming `reg-event` (the ONE public registration form) as their
-            replacement — guarding the db/fx guidance alongside the ctx one so a
-            cross-wave edit that broke either still goes RED"
+  (testing "retired db and fx forms point to reg-event"
     (let [db-reason (thrown-error-reason
                       #(rf/reg-event-db :evt-conf/db-reason (fn [_ _] nil)))
           fx-reason (thrown-error-reason
@@ -1131,28 +731,14 @@
           "reg-event-fx removal names reg-event as the replacement"))))
 
 (deftest retired-names-are-resolvable-facade-vars
-  (testing "EP-0018 §2/§3: the retired names are RESOLVABLE facade vars (so the
-            call reaches the throwing stub — a hard error, not an
-            unresolved-symbol compile failure); each is a callable value on the
-            `re-frame.core` facade"
-    ;; Resolvability is proven by the fact the call above REACHED the stub and
-    ;; threw the removal error (an unresolved var would be a compile/analysis
-    ;; error, never a runtime :rf.error/*). Pin it explicitly: the facade vars
-    ;; are callable functions.
-    ;; The three retired names are plain FN stubs on both runtimes (so the
-    ;; call reaches the throw). `reg-event`, the ONE live form, is a MACRO on
-    ;; the JVM (source-coord capture) and a fn-alias on CLJS, so it is NOT a
-    ;; `fn?` value on the JVM — its public-facade presence is locked by the
-    ;; §5 no-doc probe + the api-manifest --check gate, not a `fn?` check here.
+  (testing "retired names remain callable facade tombstones"
+    ;; Unlike `reg-event`, these are functions in both runtimes.
     (is (fn? rf/reg-event-db)  "reg-event-db is a resolvable callable facade fn (the throwing stub)")
     (is (fn? rf/reg-event-fx)  "reg-event-fx is a resolvable callable facade fn (the throwing stub)")
     (is (fn? rf/reg-event-ctx) "reg-event-ctx is a resolvable callable facade fn (the throwing stub)")))
 
 (deftest retired-names-register-nothing-only-reg-event-commits
-  (testing "EP-0018 §2/§3: the retired-name stubs register NOTHING — after each
-            throws, its id is absent from the registry; only reg-event commits.
-            (A re-introduced form that registered would leave a registry slot,
-            turning the `nil?` assertions RED.)"
+  (testing "retired-form tombstones register nothing"
     (rf/reg-sub :evt-conf/tally (fn [db _] (:tally db [])))
     (rf/reg-event :evt-conf/live
       (fn [{:keys [db]} _] {:db (update db :tally (fnil conj []) :reg-event)}))
@@ -1170,13 +756,7 @@
         "only the reg-event handler committed; the retired stubs registered nothing")))
 
 (deftest retired-name-error-fans-out-on-the-always-on-channel-before-throwing
-  (testing "EP-0018 §2 + spec/009: the removal error is PRODUCTION-SURVIVABLE —
-            it fans out on the always-on error-emit channel (the LOW-LEVEL
-            advanced/corpus error listener that survives `goog.DEBUG=false` —
-            NOT the normal EP-0015 off-box sink path, which is a frame
-            `:observability` sink fed an already-projected record; see §7)
-            BEFORE the throw escapes. A removal that threw but went silent on
-            the channel would turn this RED"
+  (testing "retired-form errors reach the always-on channel before they throw"
     (let [seen (atom [])]
       (rf/register-listener! :errors :evt-conf/removal-recorder
         (fn [r] (swap! seen conj (:error r))))
@@ -1197,20 +777,7 @@
           "reg-event-ctx removal also fans out on the always-on channel"))))
 
 (deftest handled-event-fans-out-on-the-always-on-events-channel
-  ;; rf2-f5b8pd — the `:events` sibling of the error-channel fan-out above.
-  ;; The ns docstring (§`registries this tier asserts against`) AND the §8
-  ;; preamble both claim this tier asserts the always-on `register-event-
-  ;; listener!` fan-out, but only the error half (`retired-name-error-fans-
-  ;; out-…`) was ever driven — the `:events` half was a claim with no
-  ;; assertion behind it. This closes that gap so the claim is TRUE.
-  (testing "Spec 009 §Event-emit listener / EP-0018: a real one-form `reg-event`
-            dispatch fans out EXACTLY ONE tight record on the always-on
-            `:events` channel — `register-listener! :events` IS the low-level
-            `register-event-listener!` registry (core.cljc §stream verb), the
-            ADVANCED corpus-wide production-survivable hook fanned across EVERY
-            frame (survives `goog.DEBUG=false`), DISTINCT from the frame-owned
-            `:observability` sink locked in §8. A regression that stopped firing
-            the always-on per-event channel turns this RED"
+  (testing "a handled event emits one record on the always-on event channel"
     (let [seen (atom [])]
       (rf/register-listener! :events :evt-conf/handled-recorder
         (fn [r] (swap! seen conj r)))
@@ -1232,41 +799,22 @@
             "the tight record carries the wall-clock :elapsed-ms slot (Spec 009 §Record shape)"))
       (rf/unregister-listener! :events :evt-conf/handled-recorder))))
 
-;; ===========================================================================
-;; (5) PUBLIC FACADE classification — reg-event-ctx is NOT a public (doc'd)
-;;     facade var, while reg-event IS. JVM-only meta probe (CLJS has no
-;;     runtime vars; the CLJS publics probe filters `^:no-doc` at compile
-;;     time, exercised by the api-manifest --check gate — see PR §Quality
-;;     gates).
-;; ===========================================================================
+;; JVM-only metadata check; the CLJS manifest gate owns compile-time publics.
 
 #?(:clj
    (deftest public-facade-no-doc-classification
-     (testing "EP-0018 §3 + §Backwards Compatibility: `reg-event-ctx` is NOT a
-               public (doc'd) facade var — it carries `^:no-doc` — and so do
-               the two REMOVED names; `reg-event` (the ONE live form) carries
-               NO `:no-doc` and IS public. A `reg-event-ctx` promotion back
-               onto the public surface (losing `^:no-doc`), or `reg-event`
-               accidentally gaining one, turns this RED"
+     (testing "reg-event is documented while retired facade tombstones are not"
        (is (nil? (:no-doc (meta #'re-frame.core/reg-event)))
            "reg-event is PUBLIC — it carries no :no-doc meta")
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-ctx)))
-           "public reg-event-ctx is NOT a doc'd facade var — it carries ^:no-doc")
+           "the reg-event-ctx facade tombstone carries ^:no-doc")
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-db)))
            "the REMOVED reg-event-db carries ^:no-doc (off the public manifest)")
        (is (true? (:no-doc (meta #'re-frame.core/reg-event-fx)))
            "the REMOVED reg-event-fx carries ^:no-doc (off the public manifest)"))))
 
-;; ===========================================================================
-;; (6) Path interceptors work with `{:db slice}` returns.
-;; ===========================================================================
-
 (deftest reg-event-path-interceptor-works-with-db-slice-return
-  (testing "EP-0018 §6: the `[:rf.interceptor/path …]` ref focuses the handler
-            on a sub-slice — the handler sees the SLICE as `:db` and returns
-            `{:db slice}`, which the interceptor splices back at the path (the
-            bare-slice return is gone; it is `{:db slice}` now). EP-0022: there
-            is no public `rf/path` value constructor — the chain carries the ref"
+  (testing "a path interceptor splices an explicit :db slice effect into app-db"
     (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
     (rf/reg-event :evt-conf/inc-via-path
       {:interceptors [[:rf.interceptor/path [:counter]]]}
@@ -1278,20 +826,10 @@
     (is (= {:value 2} @(rf/subscribe [:evt-conf/counter]))
         "the `{:db slice}` return was spliced back into app-db at [:counter]")))
 
-;; ===========================================================================
-;; (7) Raw context capture / short-circuit is expressible with an INTERCEPTOR
-;;     — no public reg-event-ctx is required for the suite (EP-0018 §7).
-;; ===========================================================================
-
 (deftest raw-context-work-is-expressible-via-an-interceptor
-  (testing "EP-0018 §7: full-context work that once used reg-event-ctx is
-            expressed as an interceptor (the public `context → context`
-            primitive) — `:rf/skip-handler?` short-circuits the handler and the
-            interceptor installs effects directly, with NO public reg-event-ctx"
+  (testing "an interceptor can inspect context, skip the handler, and install effects"
     (let [handler-ran? (atom false)]
       (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
-      ;; EP-0022 reference-only: register the guard interceptor, then reference
-      ;; it by id in the chain (an inline interceptor value is now rejected).
       (rf/reg-interceptor :evt-conf/guard
         {:before
          (fn [ctx]
