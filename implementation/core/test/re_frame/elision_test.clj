@@ -562,8 +562,10 @@
     (re-frame.elision/swap-elision-slot!
        frame-id
        (fn [reg]
+         ;; owner-set shape (rf2-wdm1vg): the owner carries its optional
+         ;; display `:hint`, which rides into the marker.
          (assoc reg :declarations
-                {path {:large? true :source :test :hint "Upload preview"}})))
+                {path #{{:source :test :hint "Upload preview"}}})))
     (let [out  (rf/elide-wire-value sub-cache {:frame frame-id})
           slot (get-in out [[:user/uploaded] :value :pdf])]
       (is (elision/marker? slot)
