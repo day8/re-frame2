@@ -4,53 +4,25 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.interceptors.panel :as panel]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `reset-all!` folds the trace-collector ring reset in, so the old
+  ;; bespoke `xray-init!` (reset-all! + a REDUNDANT direct trace reset) is
+  ;; gone (rf2-vj80u8). Default `:all` tier + plain-atom adapter.
+  (xray-test-support/make-xray-runtime-fixture))
 
-;; ---- hiccup walker ------------------------------------------------------
-
-(declare expand-tree)
-(defn- expand-tree [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-    (vector? tree) (mapv expand-tree tree)
-    (seq? tree)    (map expand-tree tree)
-    :else          tree))
-
-(defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-tree tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
+;; ---- hiccup walkers ------------------------------------------------------
+;;
+;; The private expand-tree / hiccup-seq / find-by-testid* copies this file
+;; carried are semantically identical to `re-frame.test-helpers`; the tests
+;; below call `th/find-by-testid` / `th/find-by-testid-prefix` directly
+;; (rf2-vj80u8 — no Xray walker facade).
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
@@ -230,7 +202,7 @@
     (rf/dispatch-sync
       [:rf.xray.static.interceptors/set-registry-override-for-test {}])
     (let [tree (panel/Panel)]
-      (is (some? (find-by-testid tree "rf-xray-static-interceptors-empty"))))))
+      (is (some? (th/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
 
 (deftest panel-renders-rows-from-override
   (setup-xray!)
@@ -239,7 +211,7 @@
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
     (let [tree (panel/Panel)
-          rows (find-all-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
+          rows (th/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
       (is (= 3 (count rows)) "three collapsed interceptor rows rendered"))))
 
 (deftest panel-renders-filtered-state-on-no-match
@@ -250,7 +222,7 @@
        sample-events-with-chains])
     (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "no-such-id"])
     (let [tree (panel/Panel)]
-      (is (some? (find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
+      (is (some? (th/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) a11y list semantics (rf2-mq8wk)
@@ -264,8 +236,8 @@
         [:rf.xray.static.interceptors/set-registry-override-for-test
          sample-events-with-chains])
       (let [tree (panel/Panel)
-            list-node (find-by-testid tree "rf-xray-static-interceptors-list")
-            rows (find-all-by-testid-prefix
+            list-node (th/find-by-testid tree "rf-xray-static-interceptors-list")
+            rows (th/find-by-testid-prefix
                    tree "rf-xray-static-interceptors-row-")]
         (is (= "list" (:role (second list-node))) "<ul> carries role=list")
         (is (seq rows) "rows rendered")
