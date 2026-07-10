@@ -31,8 +31,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.view :as settings-view]
@@ -44,15 +42,12 @@
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
-  ;; settings reset into one call.
-  (xray-test-support/reset-runtime!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; into one owner: plain-atom adapter + the `:runtime` reset tier (sentinels
+  ;; + trace-collector rings + persisted settings). (`trace-collector` is
+  ;; still required for the `seed-trace-for-test!` seeding below.)
+  (xray-test-support/make-xray-runtime-fixture {:tier :runtime}))
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)

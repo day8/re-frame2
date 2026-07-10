@@ -30,17 +30,16 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.views.edn-inspector-popup :as edn-inspector-popup]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (xray-test-support/reset-all!))}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the inline
+  ;; `make-reset-runtime-fixture` + `reset-all!` init into one owner:
+  ;; plain-atom adapter + the default `:all` reset tier.
+  (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- helpers ------------------------------------------------------------
 

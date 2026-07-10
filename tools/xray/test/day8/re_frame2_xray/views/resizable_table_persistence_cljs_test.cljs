@@ -20,23 +20,20 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (rt/clear!)
-  (rt/set-storage-key! nil))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier) into one owner; `:post-reset` carries the column-widths
+  ;; persistence slate.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (rt/clear!)
+                   (rt/set-storage-key! nil))}))
 
 (defn- xray-setup!
   "Register Xray handlers + the :rf/xray frame, then re-run the

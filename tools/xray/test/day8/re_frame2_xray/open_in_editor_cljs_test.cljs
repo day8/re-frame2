@@ -23,12 +23,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [re-frame.source-coords.open-endpoint :as open-endpoint]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
-            [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -64,21 +61,18 @@
 ;; chip-render tests don't drive the runtime, so they pay only the
 ;; cheap snapshot/restore cost; the rf2-g5q8d tests below need the
 ;; clean runtime so registrations don't bleed between tests.
-(defn- xray-init! []
-  ;; rf2-sdqsla — `reset-all!` now folds the trace-collector ring reset
-  ;; in; `reset-editor!` owns the settings reset + editor re-arm.
-  (xray-test-support/reset-all!)
-  (reset-editor!)
-  ;; rf2-wn3bh — pin the endpoint launcher to the synchronous always-fall-back
-  ;; stub so the URI / navigator assertions below exercise the deterministic
-  ;; fallback path (no real fetch). The endpoint-preference path is covered
-  ;; in its own block at the bottom of this file.
-  (open-endpoint/set-launcher! always-fall-back!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the reset (plain-atom +
+  ;; `:all` tier, which already covers the trace-collector rings) into one
+  ;; owner; `:post-reset` re-arms the editor default (settings reset + editor
+  ;; re-arm) and — rf2-wn3bh — pins the endpoint launcher to the synchronous
+  ;; always-fall-back stub so the URI / navigator assertions exercise the
+  ;; deterministic fallback path (no real fetch). The endpoint-preference
+  ;; path is covered in its own block at the bottom of this file.
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset (fn []
+                   (reset-editor!)
+                   (open-endpoint/set-launcher! always-fall-back!))}))
 
 (deftest open-chip-renders-anchor-with-href
   (testing "open-chip returns an <a> hiccup vector when source has :file"

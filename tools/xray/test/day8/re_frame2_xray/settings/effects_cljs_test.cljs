@@ -21,8 +21,6 @@
             [re-frame.core :as rf]
             [re-frame.epoch.state :as epoch-state]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.effects :as effects]
@@ -30,11 +28,6 @@
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- fixture -----------------------------------------------------------
-
-(defn- xray-init! []
-  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
-  ;; settings reset into one call.
-  (xray-test-support/reset-runtime!))
 
 (defn- ensure-stub-shell-root! []
   ;; Some node test runtimes provide js/document; create the
@@ -54,12 +47,15 @@
         (.removeChild (.-parentNode el) el)))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn []
-                (xray-init!)
-                (effects/detach-auto-open-watcher!)
-                (remove-stub-shell-root!))}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom adapter + the
+  ;; `:runtime` reset tier (sentinels + trace rings + persisted settings);
+  ;; `:post-reset` detaches the auto-open watcher + tears down the stub shell
+  ;; root so neither leaks between tests.
+  (xray-test-support/make-xray-runtime-fixture
+    {:tier       :runtime
+     :post-reset (fn []
+                   (effects/detach-auto-open-watcher!)
+                   (remove-stub-shell-root!))}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)

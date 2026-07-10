@@ -36,8 +36,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
@@ -46,30 +44,28 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 ;;
-;; `make-reset-runtime-fixture` snapshots/restores the registrar around each
-;; test, clears trace listeners, and disposes the substrate adapter. The
-;; init-fn flips Xray's idempotency sentinels, re-registers the trace
-;; collector (so each test runs against the SAME wiring the production
-;; preload installs), and clears the per-process buffer + counter +
-;; flag so each test starts from the baseline.
-
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (registry/register-xray-handlers!)
-  ;; Allocate the :rf/xray frame so `note-suppressed!`'s dispatch
-  ;; guard passes. Without the frame, `note-suppressed!` skips the
-  ;; dispatch entirely — which would mask the loop scenario.
-  (frame/reg-frame :rf/xray {})
-  ;; Re-install the trace collector. The fixture above cleared it.
-  (preload/register-trace-collector!)
-  (trace-collector/reset-for-test!)
-  (config/reset-suppressed-count!)
-  (config/set-egress-profile! config/default-egress-profile))
+;; `make-xray-runtime-fixture` (rf2-vj80u8) runs the `:all` reset tier
+;; (Xray install/registry/mount sentinels + trace-collector rings) over the
+;; plain-atom adapter; `:post-reset` re-registers Xray's handlers + the
+;; `:rf/xray` frame, RE-installs the trace collector (the reset above cleared
+;; it, so each test runs against the SAME wiring the production preload
+;; installs), and clears the per-process counter + egress profile so each
+;; test starts from the baseline.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  (xray-test-support/make-xray-runtime-fixture
+    {:post-reset
+     (fn []
+       (registry/register-xray-handlers!)
+       ;; Allocate the :rf/xray frame so `note-suppressed!`'s dispatch
+       ;; guard passes. Without the frame, `note-suppressed!` skips the
+       ;; dispatch entirely — which would mask the loop scenario.
+       (frame/reg-frame :rf/xray {})
+       ;; Re-install the trace collector. The reset tier above cleared it.
+       (preload/register-trace-collector!)
+       (trace-collector/reset-for-test!)
+       (config/reset-suppressed-count!)
+       (config/set-egress-profile! config/default-egress-profile))}))
 
 ;; ---- helpers ------------------------------------------------------------
 

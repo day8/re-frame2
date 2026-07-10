@@ -27,8 +27,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -37,18 +35,14 @@
 
 ;; ---- fixture ------------------------------------------------------------
 
-(defn- xray-init! []
-  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
-  ;; settings reset into one call.
-  (xray-test-support/reset-runtime!)
-  ;; Force-cleanup any stale seam-drag state from a previous test (the
-  ;; module-level defonce atom survives fixture reset).
-  (resize-handle/seam-simulate-up!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8): plain-atom + the `:runtime`
+  ;; reset tier (sentinels + trace rings + persisted settings); `:post-reset`
+  ;; force-clears the module-level seam-drag defonce (survives the runtime
+  ;; reset) so no stale drag leaks between tests.
+  (xray-test-support/make-xray-runtime-fixture
+    {:tier       :runtime
+     :post-reset (fn [] (resize-handle/seam-simulate-up!))}))
 
 (defn- setup! []
   (registry/register-xray-handlers!)
