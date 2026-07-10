@@ -49,10 +49,13 @@
   between now and then."
   [record]
   (let [frame-id (:frame record)]
-    (doseq [[id f] (state/listeners-snapshot)]
-      (state/record-observation! id frame-id)
+    (doseq [[id {:keys [generation callback]}] (state/listeners-snapshot)]
+      ;; Stamp the observation against the EXACT generation being invoked, so a
+      ;; concurrent same-id replacement can neither erase this observation nor
+      ;; inherit it (rf2-j538f7.5).
+      (state/record-observation! id generation frame-id)
       (try
-        (f record)
+        (callback record)
         (catch #?(:clj Throwable :cljs :default) ex
           ;; Trace identity is qualified; the source record field is bare.
           (trace/emit-error! :rf.epoch.cb/listener-exception
@@ -225,10 +228,12 @@
   destroyed frames have empty history, so listener delivery is the only channel
   for this terminal partial record.
 
-  Each listener that observed the frame receives one silencing trace. The
-  observation, history, capture, last-settled, and mount-attribution entries are
-  then removed so a same-keyed replacement frame starts clean. Repeated destroys
-  are idempotent."
+  Each listener whose CURRENT generation observed the frame receives one
+  silencing trace (a stale observation from a since-replaced same-id generation
+  is skipped — `state/cbs-observing-frame` scopes the fan to the live
+  generation). The observation, history, capture, last-settled, and
+  mount-attribution entries are then removed so a same-keyed replacement frame
+  starts clean. Repeated destroys are idempotent."
   [frame-id fs-before fs-after committed-at]
   (when interop/debug-enabled?
     ;; A run-start distinguishes a real in-flight event from unrelated
@@ -244,10 +249,7 @@
           (assembly/emit-snapshotted+outcome! frame-id (:epoch-id record)
                                               (:event-id record) :halted-destroy)
           (notify-listeners! record))))
-    (let [silenced-cbs (->> (state/observations-snapshot)
-                            (keep (fn [[cb-id frames]]
-                                    (when (contains? frames frame-id) cb-id)))
-                            vec)]
+    (let [silenced-cbs (state/cbs-observing-frame frame-id)]
       (doseq [cb-id silenced-cbs]
         (trace/emit! :rf.epoch.cb :rf.epoch.cb/silenced-on-frame-destroy
                      {:frame  frame-id

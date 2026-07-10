@@ -12,13 +12,15 @@
                                                        :deps #{sub-id…}}}
                             (mount anchor and learned view read-set)
     capture-buffers         frame-id → vector<trace-event> (in-flight)
-    listeners               cb-id    → fn
-    observed-frames-by-cb   cb-id    → #{frame-id ...}
+    listeners               cb-id    → {:generation token :callback fn}
+    observed-frames-by-cb   cb-id    → {frame-id → generation-token}
 
   Capture buffers stay separate from rarely-written back-fill state because
   every trace emit updates them. Listener observations likewise stay separate
-  from the registry snapshot read on every fan-out. No operation requires an
-  atomic update across two of these stores."
+  from the registry snapshot read on every fan-out; they cohere through the
+  per-registration GENERATION token (see the listener-registry section) rather
+  than a cross-atom update, so no operation requires an atomic update across two
+  of these stores."
   (:require [re-frame.privacy :as privacy]))
 
 ;; ---- configuration --------------------------------------------------------
@@ -787,26 +789,68 @@
 
 ;; ---- listener registry ----------------------------------------------------
 
+;; A listener registration is ONE atomic unit: the callback plus the
+;; monotonically-increasing GENERATION token minted when it was installed.
+;;
+;;   listeners   cb-id → {:generation <token> :callback <fn>}
+;;
+;; Same-id replacement publishes a fresh generation (new token + callback) in a
+;; SINGLE swap, so a concurrent fan-out that snapshots the new generation and
+;; the registering thread can never tear the registration across two writes —
+;; the split-brain the two-swap predecessor suffered (rf2-j538f7.5). The token
+;; is drawn from a process-global monotonic counter so it is NEVER reused, not
+;; even across a drop-then-re-register of the same id; that closes the ABA
+;; window a per-id counter would leave (a recycled token could let a stale
+;; fan-out arm a fresh registration).
+(defonce ^:private listener-generation (atom 0))
+
+(defn- next-listener-generation
+  "Mint a fresh, process-unique listener generation token."
+  []
+  (swap! listener-generation inc))
+
 (defonce ^:private listeners (atom {}))
 
-;; Track which frames each callback has observed. When a
-;; frame is destroyed, every cb whose observed-frames set contains
-;; that frame receives a one-shot :rf.epoch.cb/silenced-on-frame-destroy
-;; trace. The frame is then dropped from the cb's entry so a
-;; re-registration of a same-keyed frame (e.g. a destroy-frame! +
-;; re-reg-frame reset of :app/main) can re-arm the silencing trace for a
-;; future destroy.
+;; Track which frames each callback GENERATION has observed. When a frame is
+;; destroyed, every cb whose CURRENT generation observed that frame receives a
+;; one-shot :rf.epoch.cb/silenced-on-frame-destroy trace. Each observation is
+;; STAMPED with the generation token that recorded it:
+;;
+;;   observed-frames-by-cb   cb-id → {frame-id → generation-token}
+;;
+;; Stamping the observation with its generation is what makes same-id
+;; replacement correct WITHOUT a cross-atom clear (the split-brain the two-swap
+;; predecessor suffered): a replacement simply mints a new token, so a stale
+;; OLD-generation observation is silently ignored by the token-scoped readers
+;; (`record-observation!` refuses to re-arm it; `cbs-observing-frame` skips it)
+;; and is overwritten the moment the NEW generation observes the same frame.
+;; The frame-id stays the map KEY, so `(contains? (get observed cb-id)
+;; frame-id)` still answers "did this cb ever observe the frame?" — the same
+;; question a bare set answered, now carrying the owning generation alongside.
+;; A same-keyed frame recreation re-arms because `drop-frame-observation!`
+;; removes the frame on the prior destroy and the recreated frame's cascade
+;; re-stamps it under the current generation.
 (defonce ^:private observed-frames-by-cb
-  ;; cb-id → #{frame-id ...}
+  ;; cb-id → {frame-id → generation-token}
   (atom {}))
 
 (defn put-listener!
-  "Install or replace `f` under `id`. Also clears `id`'s
-  observed-frames set so the new callback's silencing trace fires
-  fresh against frames the new callback observes."
+  "Install or replace `f` under `id` as a fresh listener GENERATION.
+
+  The callback and its freshly-minted generation token are published in ONE
+  atomic swap, so a same-id replacement can never be torn across two writes.
+  The observation ledger is deliberately NOT cleared here: observations are
+  stamped with the generation that recorded them (see `observed-frames-by-cb`),
+  so a stale OLD-generation observation is ignored by the token-scoped readers
+  and overwritten when the new generation re-observes the frame. This removes
+  the two-swap window in which a concurrent fan-out's fresh observation of the
+  new callback could be erased by a lagging second swap (rf2-j538f7.5), and its
+  mirror in which a stale old callback could re-arm the new registration.
+
+  Returns the id."
   [id f]
-  (swap! listeners assoc id f)
-  (swap! observed-frames-by-cb dissoc id)
+  (let [g (next-listener-generation)]
+    (swap! listeners assoc id {:generation g :callback f}))
   id)
 
 (defn drop-listener!
@@ -825,62 +869,87 @@
   nil)
 
 (defn listeners-snapshot
-  "Return the current `{cb-id → f}` map. Callers iterate this snapshot
-  for fan-out — taking the snapshot once isolates iteration from
-  concurrent `put-listener!` / `drop-listener!` updates."
+  "Return the current `{cb-id → {:generation g :callback f}}` registry map.
+  Callers iterate this snapshot for fan-out — taking it once isolates
+  iteration from concurrent `put-listener!` / `drop-listener!` updates, and
+  each entry carries its generation token so the fan-out can stamp its
+  observation against the exact generation it invoked."
   []
   @listeners)
 
 (defn observations-snapshot
-  "Return the current `{cb-id → #{frame-id ...}}` map."
+  "Return the current `{cb-id → {frame-id → generation-token}}` map."
   []
   @observed-frames-by-cb)
 
 (defn record-observation!
-  "Mark that the cb registered under `cb-id` has seen a record from
-  `frame-id`. Guards against re-firing the atom watcher on the
-  no-op case (cb already observes that frame) — for the common
-  long-lived listener observing the same frame on every cascade,
-  this is a single deref + membership check with no swap.
+  "Mark that the cb GENERATION `token` registered under `cb-id` has seen a
+  record from `frame-id`. `notify-listeners!` snapshots `[cb-id token callback]`
+  and calls this before invoking `callback`, so the observation is attributed to
+  the exact generation that consumed the record.
 
-  `notify-listeners!` iterates a listener snapshot, then calls this function
-  before
-  invoking the callback. If `unregister-epoch-listener!` removed the cb
-  between the snapshot and now, recording an observation would
-  RE-INTRODUCE bookkeeping for a cb that no longer exists — the stale
-  cb-id then lingers in `observed-frames-by-cb` and later receives a
-  bogus `:rf.epoch.cb/silenced-on-frame-destroy` trace on frame destroy.
-  The swap is therefore made conditional on the cb-id STILL being a live
-  listener AT RECORD TIME: the swap update fn re-reads the (live)
-  `listeners` map and refuses to (re)add an observation for a cb that has
-  since been dropped. The liveness check rides INSIDE the swap so the
-  drop-vs-record decision is taken against a consistent listener snapshot
-  on every CAS retry — a `drop-listener!` landing mid-swap is honoured."
-  [cb-id frame-id]
+  Two hazards this closes, both scoped by `token`:
+
+    * The recorded generation is no longer current — a same-id replacement
+      minted a new token, or `unregister-epoch-listener!` dropped the id
+      entirely. Re-adding the observation would either re-arm a retired
+      generation or, worse, arm the NEW generation for a frame it never
+      consumed. The swap therefore lands ONLY when `token` still equals the
+      live generation for `cb-id` (a dropped id has no entry, so no token
+      matches — this subsumes the rf2-7i872 unregister-liveness guard).
+
+    * A no-op re-observation of the same (cb, generation, frame) triple — the
+      steady-state hot path — must not fire the atom watcher. The outer guard
+      short-circuits before any swap when the frame is already stamped with
+      this token: one deref + lookup, no swap.
+
+  Both checks ride INSIDE the swap as well, so the decision is taken against a
+  consistent listener snapshot on every CAS retry — a replace/drop landing
+  mid-swap is honoured."
+  [cb-id token frame-id]
   (when frame-id
-    (let [current @observed-frames-by-cb]
-      (when (and (not (contains? (get current cb-id) frame-id))
-                 (contains? @listeners cb-id))
+    (let [observed @observed-frames-by-cb]
+      (when (and (not= token (get-in observed [cb-id frame-id]))
+                 (= token (:generation (get @listeners cb-id))))
         (swap! observed-frames-by-cb
                (fn [m]
-                 (if (or (contains? (get m cb-id) frame-id)
-                         ;; Liveness re-check inside the swap: a
-                         ;; `drop-listener!` that landed between the
-                         ;; outer guard and this CAS attempt must not be
-                         ;; undone by re-adding the cb's observation.
-                         (not (contains? @listeners cb-id)))
+                 (if (or (= token (get-in m [cb-id frame-id]))
+                         ;; Generation re-check inside the swap: a same-id
+                         ;; replacement or `drop-listener!` that landed between
+                         ;; the outer guard and this CAS attempt must not be
+                         ;; undone by arming a retired/replaced generation.
+                         (not= token (:generation (get @listeners cb-id))))
                    m
-                   (update m cb-id (fnil conj #{}) frame-id))))))))
+                   (assoc-in m [cb-id frame-id] token))))))))
+
+(defn cbs-observing-frame
+  "Return the cb-ids whose CURRENT generation observed `frame-id` — the frame
+  is stamped in the cb's observation ledger with the cb's live generation
+  token. A stale OLD-generation stamp (left by a since-replaced generation that
+  never re-observed the frame) is NOT returned, so a same-id replacement never
+  silences the new callback for a frame only the OLD callback consumed, and
+  never fails to silence a frame the new callback did consume. The one-shot
+  `:rf.epoch.cb/silenced-on-frame-destroy` fan is derived from this set."
+  [frame-id]
+  (let [observed @observed-frames-by-cb
+        live     @listeners]
+    (->> observed
+         (keep (fn [[cb-id frames]]
+                 (let [token (get frames frame-id ::absent)]
+                   (when (and (not= token ::absent)
+                              (= token (:generation (get live cb-id))))
+                     cb-id))))
+         vec)))
 
 (defn drop-frame-observation!
-  "Drop `frame-id` from every cb's observed-frames set. cbs whose set
-  goes empty as a result are dropped from the map entirely so the
-  map doesn't accrete keys to empty sets."
+  "Drop `frame-id` from every cb's observation ledger. cbs whose ledger goes
+  empty as a result are dropped from the map entirely so the map doesn't
+  accrete keys to empty ledgers."
   [frame-id]
   (swap! observed-frames-by-cb
          (fn [m]
            (reduce-kv (fn [acc cb-id frames]
-                        (let [frames' (disj frames frame-id)]
+                        (let [frames' (dissoc frames frame-id)]
                           (if (empty? frames')
                             (dissoc acc cb-id)
                             (assoc acc cb-id frames'))))

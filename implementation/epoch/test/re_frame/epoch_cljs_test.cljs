@@ -42,6 +42,7 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
             [re-frame.interop :as interop]
             ;; rf2-lo28u — schemas + the Malli adapter so a `:schema`-bearing
@@ -369,3 +370,57 @@
       (state/drop-frame-buffer! frame)
       (is (empty? (state/buffer-for frame))
           "rf2-bhglx — drop-frame-buffer! (terminal path) clears a stranded marker"))))
+
+;; ---- 7. Same-id listener replacement generation semantics (rf2-j538f7.5) ---
+;;
+;; CLJS cannot thread-preempt between swaps, so the two-thread erasure race the
+;; JVM suite drives cannot manifest here. But the generation-scoped bookkeeping
+;; the fix installs lives in `re-frame.epoch.state` (.cljc) and runs under CLJS
+;; too; this pins the sequential-interleaving contract on the CLJS runtime: a
+;; same-id replacement mints a fresh generation, a stale old-generation fan-out
+;; is refused, the new generation's observation survives the re-registration,
+;; and frame destroy silences only the live generation exactly once.
+
+(deftest same-id-replacement-generation-semantics-cljs
+  (testing "rf2-j538f7.5 — under CLJS' single-threaded runtime the listener
+            registry is generation-scoped: a stale old-generation observation is
+            refused, the new generation's observation survives a same-id
+            re-registration, and frame destroy silences only the live generation
+            exactly once"
+    (rf/reg-frame :j538/main {})
+    (rf/reg-frame :j538/other {})
+    (let [silences (atom [])]
+      (trace-tooling/register-listener! ::rec
+        (fn [ev]
+          (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
+            (swap! silences conj (:tags ev)))))
+      ;; Gen 1 registered; capture its token (a stale fan-out snapshot).
+      (rf/register-listener! :epoch ::probe (fn [_] nil))
+      (let [gen1 (:generation (get (state/listeners-snapshot) ::probe))]
+        ;; Gen 1 observes :j538/main.
+        (epoch.listeners/notify-listeners! {:frame :j538/main :epoch-id 1})
+        (is (= [::probe] (state/cbs-observing-frame :j538/main))
+            "gen 1 is the live observer of :j538/main")
+        ;; Same-id replacement → gen 2.
+        (rf/register-listener! :epoch ::probe (fn [_] nil))
+        (let [gen2 (:generation (get (state/listeners-snapshot) ::probe))]
+          (is (not= gen1 gen2) "replacement minted a fresh generation")
+          ;; A stale gen-1 fan-out cannot arm the new registration.
+          (state/record-observation! ::probe gen1 :j538/other)
+          (is (not (contains? (get (state/observations-snapshot) ::probe) :j538/other))
+              "stale old-generation observation refused")
+          ;; The gen-1 stamp on :j538/main is no longer live.
+          (is (empty? (state/cbs-observing-frame :j538/main))
+              "the retired generation's :j538/main observation is not live")
+          ;; Gen 2 observes :j538/main — survives, stamped under gen 2.
+          (epoch.listeners/notify-listeners! {:frame :j538/main :epoch-id 2})
+          (is (= gen2 (get-in (state/observations-snapshot) [::probe :j538/main]))
+              "the new generation re-stamped :j538/main and its observation survives")
+          (is (= [::probe] (state/cbs-observing-frame :j538/main))
+              "gen 2 is the live observer of :j538/main")
+          ;; Destroy silences the live generation exactly once.
+          (rf/destroy-frame! :j538/main)
+          (is (= 1 (count (filter #(= :j538/main (:frame %)) @silences)))
+              "exactly one silencing trace for the live generation")))
+      (trace-tooling/unregister-listener! ::rec)
+      (rf/unregister-listener! :epoch ::probe))))
