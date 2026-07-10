@@ -1040,6 +1040,82 @@
 ;; first-boot (dropped at destroy). The `[:schemas :data]` schema is for
 ;; validation only.
 
+;; ---- source-metadata advisory (dev-only, once-per-id) ----------------------
+;;
+;; The `reg-machine` MACRO walks the literal spec at expansion time and
+;; co-locates per-element source (`:source-coords` / `:source-code`) onto each
+;; `:guards` / `:actions` / `:on-spawn-actions` entry and each `:states`-tree
+;; map node — the surface Xray's machine panel reads to navigate a live
+;; snapshot back to the guard / action / state DEFINITION (click-to-source). A
+;; plain `(def m {…})` + `(reg-machine :id m)` hands the macro only the `m`
+;; SYMBOL, so its literal-walk captures nothing and the registered spec arrives
+;; here SOURCE-BLIND — Xray silently loses click-to-source for that machine.
+;;
+;; This advisory surfaces that loss at registration. It keys on the OBSERVABLE
+;; property — the arriving spec carries NO per-element source metadata anywhere
+;; — NOT on symbol-vs-expression spelling: an inline literal (macro-walked) and
+;; a `defmachine` value (definition-site walk) both arrive source-bearing and
+;; do not warn; a bare-def symbol and a genuinely runtime-built spec
+;; (`reg-machine*` / computed / fixture-synthesised) both arrive source-blind
+;; and warn. A runtime-built spec structurally CANNOT carry author coords, so
+;; this is a WARNING (advisory, recoverable), never an error — the message
+;; tells a runtime-built author they may ignore it. Dev-only (DCE'd in
+;; production via the call-site `interop/debug-enabled?` gate), once per id.
+
+(defonce ^:private source-unstamped-warned
+  ;; The set of machine-ids already advised (once-per-id). Reset by
+  ;; `clear-source-unstamped-warned!` (test fixtures start from a clean slate).
+  (atom #{}))
+
+(defn clear-source-unstamped-warned!
+  "Reset the once-per-id `:rf.warning/machine-source-unstamped` cache. Used by
+  test fixtures so each case starts from a clean diagnostic slate."
+  []
+  (reset! source-unstamped-warned #{}))
+
+(defn- spec-carries-source-metadata?
+  "True iff `spec` carries ANY per-element source metadata — a `:source-coords`
+  or `:source-code` key on any map node anywhere in the tree (the surface the
+  `reg-machine` macro / `defmachine` co-locate). The OBSERVABLE property the
+  source-unstamped advisory keys on: a macro-walked inline literal and a
+  `defmachine` value carry it; a bare-def symbol and a runtime-built spec do
+  not. Short-circuits on the first hit."
+  [spec]
+  (boolean
+    (some (fn [x]
+            (and (map? x)
+                 (or (contains? x :source-coords)
+                     (contains? x :source-code))))
+          (tree-seq coll? seq spec))))
+
+(defn- maybe-warn-source-unstamped!
+  "Emit `:rf.warning/machine-source-unstamped` once per `machine-id` when the
+  spec arriving at the registration home carries no per-element source
+  metadata. Callers MUST wrap the invocation in `(when interop/debug-enabled?
+  …)` so the production bundle DCEs the consult + emit branch (Spec 009
+  §Production builds), mirroring the schema-walker-opaque advisory."
+  [machine-id machine]
+  (when (and (not (spec-carries-source-metadata? machine))
+             (not (contains? @source-unstamped-warned machine-id)))
+    (swap! source-unstamped-warned conj machine-id)
+    (trace/emit! :warning :rf.warning/machine-source-unstamped
+                 {:machine-id machine-id
+                  :recovery   :warned-and-proceeded
+                  :reason
+                  (str "Machine " machine-id " was registered from a spec "
+                       "carrying NO per-element source metadata, so Xray "
+                       "click-to-source is unavailable for this machine — a "
+                       "snapshot cannot navigate back to the guard / action / "
+                       "state-node definitions. This is the plain (def m {…}) + "
+                       "(reg-machine :id m) shape: reg-machine's literal-walk "
+                       "sees only the symbol and captures nothing. Fix: use "
+                       "defmachine for a named spec (a drop-in for def that "
+                       "stamps source at the definition site), or pass the spec "
+                       "literal inline to reg-machine. A runtime-built spec "
+                       "(reg-machine* / computed / fixture-synthesised) "
+                       "structurally cannot carry author coords and may ignore "
+                       "this advisory.")})))
+
 ;; ---- the single registration home -----------------------------------------
 
 (defn- register-machine-event!
@@ -1109,6 +1185,12 @@
    ;; per actor instance at spawn / first-boot — so a shape fault must be
    ;; caught at definition, like every other registration-shape fault.
    (classification/validate-machine-classification! machine-id machine)
+   ;; Dev-only source-metadata advisory (once per id). Checked on the RAW
+   ;; incoming spec — a bare-def symbol / runtime-built spec arrives here
+   ;; source-blind, an inline literal / `defmachine` value source-bearing.
+   ;; Call-site `interop/debug-enabled?`-gated so production DCEs it.
+   (when interop/debug-enabled?
+     (maybe-warn-source-unstamped! machine-id machine))
    ;; Install a per-machine region-machine cache before
    ;; the machine value is threaded through the handler closure and
    ;; published to the registrar. Re-registration replaces the machine
