@@ -76,8 +76,8 @@
             [re-frame.schemas :as schemas]
             [re-frame.routing.url :as url]
             [re-frame.ssr.hydrate :as hydrate]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
+            #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
+               :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
             [re-frame.security.gen :as gen]))
 
 ;; Reset per-test so app-schema registrations / validator overrides don't
@@ -108,10 +108,8 @@
 
 (defn- capture
   [f]
-  (let [traces (atom [])
-        kw     (keyword "rf2-gro94" (name (gensym "listen")))]
-    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (trace-tooling/unregister-listener! kw)))
+  (with-trace-recorder! [traces]
+    (f)
     @traces))
 
 (defn- ops [traces op]
