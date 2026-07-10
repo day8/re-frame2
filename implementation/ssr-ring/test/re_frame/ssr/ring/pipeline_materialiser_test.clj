@@ -399,6 +399,105 @@
           "the override Content-Type is set — the map was never nulled"))))
 
 ;; ===========================================================================
+;; merge-pair-into-header-map — case-insensitive collapse (rf2-3fc89f.16)
+;;
+;; HTTP header field names are case-insensitive (RFC 7230 §3.2), and the
+;; ns docstring already promises a case-insensitive name match. Pairs whose
+;; names differ only by ASCII case are ONE logical header: they collapse
+;; under the first-seen spelling with values in declaration order, exactly
+;; like same-case repeats. `:rf.server/append-header` preserves the caller's
+;; spelling, so mixed-case pairs are reachable through the public effect.
+;; Before this fix the fold used a case-SENSITIVE `(get m k)` and emitted a
+;; separate map entry per casing — a non-deterministic Ring header model.
+;; ===========================================================================
+
+(deftest mixed-case-names-collapse-into-one-first-seen-key
+  (testing "rf2-3fc89f.16: pairs differing only by ASCII case are ONE logical
+            header — they collapse under the first-seen spelling with values
+            in declaration order (the case-insensitive fold)"
+    (is (= {"Vary" ["Accept" "Origin"]}
+           (-> {}
+               (headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (headers/merge-pair-into-header-map ["vary" "Origin"])))
+        "second-seen lower-case `vary` folds under the first-seen `Vary` key")
+    (is (= {"Vary" ["Accept" "Origin" "Accept-Encoding"]}
+           (-> {}
+               (headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (headers/merge-pair-into-header-map ["vary" "Origin"])
+               (headers/merge-pair-into-header-map ["VARY" "Accept-Encoding"])))
+        "three casings collapse to one key; values stay in declaration order")))
+
+(deftest mixed-case-fold-retains-first-seen-spelling-not-latest
+  (testing "rf2-3fc89f.16: the emitted key is the FIRST-seen spelling; a
+            later case variant does NOT rename the key"
+    (is (= ["Origin" "Accept"]
+           (get (-> {}
+                    (headers/merge-pair-into-header-map ["vary" "Origin"])
+                    (headers/merge-pair-into-header-map ["Vary" "Accept"]))
+                "vary"))
+        "first-seen lower-case `vary` is the stable emitted key")))
+
+(deftest mixed-case-content-type-collapses-under-nil-override
+  (testing "rf2-3fc89f.16 (accept #2): mixed-case Content-Type with a nil
+            handler override collapses to exactly one logical key carrying
+            both values in order (vector semantics follow append-header)"
+    (let [result (headers/headers->ring-map+content-type-override
+                   [["content-type" "text/html"]
+                    ["Content-Type" "application/json"]]
+                   nil)
+          ct-keys (filter (fn [k] (= "content-type" (str/lower-case (str k))))
+                          (keys result))]
+      (is (= 1 (count ct-keys))
+          "exactly one logical content-type key with a nil override")
+      (is (= ["text/html" "application/json"] (get result (first ct-keys)))
+          "both values survive in declaration order under the first-seen key"))))
+
+(deftest mixed-case-content-type-with-override-strips-every-casing
+  (testing "rf2-3fc89f.16 (accept #2): a non-nil override still strips every
+            prior spelling and emits one canonical `Content-Type` scalar"
+    (let [result (headers/headers->ring-map+content-type-override
+                   [["content-type" "text/html"]
+                    ["Content-Type" "application/json"]]
+                   "text/xml; charset=utf-8")
+          ct-keys (filter (fn [k] (= "content-type" (str/lower-case (str k))))
+                          (keys result))]
+      (is (= 1 (count ct-keys)) "exactly one content-type key after override")
+      (is (= "Content-Type" (first ct-keys)) "the canonical spelling is emitted")
+      (is (= "text/xml; charset=utf-8" (get result "Content-Type"))
+          "the override value wins — no casing survivor, no vector"))))
+
+(deftest mixed-case-set-cookie-append-collapses-under-existing-key
+  (testing "rf2-3fc89f.16 (accept #3): structured cookies appended to a
+            pre-existing differently-cased Set-Cookie entry yield ONE logical
+            key preserving every value in order"
+    (let [result (headers/append-set-cookies
+                   {"set-cookie" "pre=1"}
+                   [{:name "session" :value "abc"}
+                    {:name "theme" :value "dark"}])
+          sc-keys (filter (fn [k] (= "set-cookie" (str/lower-case (str k))))
+                          (keys result))
+          sc      (get result (first sc-keys))]
+      (is (= 1 (count sc-keys))
+          "the lower-case `set-cookie` pre-existing key absorbs the cookies")
+      (is (= "set-cookie" (first sc-keys)) "first-seen spelling is retained")
+      (is (= 3 (count sc)) "the pre-existing value plus both cookies are present")
+      (is (= "pre=1" (first sc)) "the pre-existing value stays first (declaration order)")
+      (is (some #(str/starts-with? % "session=abc") sc))
+      (is (some #(str/starts-with? % "theme=dark") sc)))))
+
+(deftest same-case-header-fold-behaviour-unchanged
+  (testing "rf2-3fc89f.16: the case-insensitive fold leaves same-case
+            singleton/scalar/vector behaviour exactly as before"
+    (is (= {"Vary" "Accept"}
+           (headers/merge-pair-into-header-map {} ["Vary" "Accept"]))
+        "a singleton stays a scalar")
+    (is (= {"Vary" ["Accept" "Cookie"]}
+           (-> {}
+               (headers/merge-pair-into-header-map ["Vary" "Accept"])
+               (headers/merge-pair-into-header-map ["Vary" "Cookie"])))
+        "same-case repeats still promote to an ordered vector")))
+
+;; ===========================================================================
 ;; merge-pair-into-header-map — dev-gated warning on a non-string value
 ;;
 ;; rf2-b0jlr: a non-string header value reaching the fold is host-dependent

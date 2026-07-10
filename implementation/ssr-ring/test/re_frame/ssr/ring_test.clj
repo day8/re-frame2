@@ -2122,6 +2122,50 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
+;; rf2-3fc89f.16 — mixed-case append-header pairs collapse to ONE Ring key
+;;
+;; `:rf.server/append-header` preserves the caller's supplied spelling, so an
+;; app can append the same logical header under inconsistent casing (`Vary`
+;; then `vary`). HTTP field names are case-insensitive (RFC 7230 §3.2), so
+;; the materialiser must fold them into ONE Ring map entry with both values
+;; in declaration order — not two entries a downstream proxy/servlet might
+;; merge, overwrite, or emit independently (dropping a Vary cache dimension).
+;; ===========================================================================
+
+(deftest mixed-case-append-header-collapses-to-one-wire-key
+  (testing "rf2-3fc89f.16 (accept #5): mixed-case :rf.server/append-header
+            effects for one logical header materialise to exactly one Ring
+            key carrying every value in declaration order"
+    (rf/reg-event :vary/emit
+      {:platforms #{:server}}
+      (fn [{:keys [db]} _]
+        {:db db
+         :fx [[:rf.server/append-header {:name "Vary" :value "Accept"}]
+              [:rf.server/append-header {:name "vary" :value "Origin"}]
+              [:rf.server/append-header {:name "VARY" :value "Accept-Encoding"}]]}))
+
+    (rf/reg-view* :pages/vary
+      (fn [] [:div.page [:h1 "vary"]]))
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:initial-events [[:vary/emit]]
+                      :root-view      [:pages/vary]
+                      :payload        :rf.ssr.payload/whole-app-db})
+          response (handler {:uri            "/vary"
+                             :request-method :get
+                             :headers        {}})
+          headers  (:headers response)
+          vary-keys (filter (fn [k] (= "vary" (str/lower-case (str k))))
+                            (keys headers))
+          vary-val  (get headers (first vary-keys))]
+      (is (= 200 (:status response)) "drain settled cleanly")
+      (is (= 1 (count vary-keys))
+          "exactly one logical Vary key on the wire — no case-variant duplicates")
+      (is (vector? vary-val) "three appends → a vector of values")
+      (is (= ["Accept" "Origin" "Accept-Encoding"] vary-val)
+          "every value present in declaration order under the first-seen key"))))
+
+;; ===========================================================================
 ;; rf2-nncni3 / rf2-depii — Content-Type override strips any casing (no dup)
 ;;
 ;; `headers->ring-map+content-type-override` force-replaces the accumulator's
