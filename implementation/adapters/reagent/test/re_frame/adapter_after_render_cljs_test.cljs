@@ -42,7 +42,6 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.substrate.adapter :as substrate-adapter]
@@ -53,28 +52,17 @@
 ;; currently-installed adapter (per `substrate-adapter/route-hook!`).
 ;; Other adapter ns'es loaded in the same test bundle publish the same
 ;; key, so we MUST install the Reagent adapter to make the routed closure
-;; dispatch to Reagent's reader rather than chain to a sibling. Mirrors
-;; the install/dispose pattern in `dispatch_frame_capture_cljs_test`.
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  ;; Drain any after-render queue / pending fake-raf so an enqueued
-  ;; callback can't leak into a later test ns sharing the bundle.
-  (r/flush)
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+;; dispatch to Reagent's reader rather than chain to a sibling —
+;; `make-reset-runtime-fixture {:adapter reagent-adapter/adapter}` does the
+;; snapshot/restore + frames-reset + dispose/install. `:ambient-frame nil`
+;; preserves the suite's no-ambient-scope behaviour (no frame-scoped ops in
+;; the bodies). A composed teardown fixture drains Reagent's after-render
+;; queue / pending fake-raf (`r/flush`) so an enqueued callback can't leak
+;; into a later test ns sharing the bundle.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-adapter/adapter :ambient-frame nil})
+  (fn [test-fn] (try (test-fn) (finally (r/flush)))))
 
 ;; ---- (1) the hook is reachable through interop under the Reagent adapter ---
 

@@ -44,7 +44,6 @@
             ;; The shared React-hook lease Var — the very one UIx / Helix
             ;; re-export. Exercised directly = the UIx/Helix family's behaviour.
             [re-frame.adapter.resource-lease :as resource-lease]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
             ;; load-bearing side-effecting requires: register the
             ;; :rf.resource/* events + the managed-HTTP fx surface (overridden
@@ -54,41 +53,34 @@
             [re-frame.http.managed]
             [re-frame.schemas]))
 
-;; ---- fixture (MAP-form, async-safe) ---------------------------------------
-;; A function fixture would tear down mid-async (its `(f)` returns before the
-;; async body's `done`); the map `{:before :after}` form brackets the async
-;; completion. Installs the Reagent adapter + a REAL global resource whose
-;; transport is stubbed to a no-op, so ensure writes the :loading entry + owner
-;; deterministically without a live fetch.
+;; ---- async map-form fixture -----------------------------------------------
+;; `make-reset-runtime-fixture` (`:async? true`) performs the snapshot/restore +
+;; frames-reset + adapter dispose/install this suite hand-rolled. `:ambient-frame
+;; nil` preserves the no-ambient-scope behaviour (both leases pin an explicit
+;; `:frame`). The `:init-fn` installs a no-op `:rf.http/managed` fx (so ensure
+;; never fetches) + a REAL global resource, so ensure writes the :loading entry
+;; + owner deterministically; both registrations roll back with the per-test
+;; registrar snapshot.
 
 (def ^:private lease-frame :rf/default)
 (def ^:private resource-id :rf.mixed-lease/feed)
 
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!)
-  ;; No real fetch — ensure only needs to write the :loading entry + attach the
-  ;; owner for the owner-index / release-owner assertions.
-  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (rf/reg-resource resource-id
-    {:scope         :rf.scope/global
-     :params-schema [:map [:page :int]]
-     :tags          (fn [_p _v] #{[:mixed-feed]})}
-    (fn [{:keys [page]} _ctx]
-      {:request {:method :get :url "/feed" :params {:page page}}})))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter       reagent-adapter/adapter
+     :async?        true
+     :ambient-frame nil
+     :init-fn       (fn []
+                      ;; No real fetch — ensure only needs to write the :loading
+                      ;; entry + attach the owner for the owner-index /
+                      ;; release-owner assertions.
+                      (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+                      (rf/reg-resource resource-id
+                        {:scope         :rf.scope/global
+                         :params-schema [:map [:page :int]]
+                         :tags          (fn [_p _v] #{[:mixed-feed]})}
+                        (fn [{:keys [page]} _ctx]
+                          {:request {:method :get :url "/feed" :params {:page page}}})))}))
 
 ;; ---- descriptors + runtime readers ----------------------------------------
 

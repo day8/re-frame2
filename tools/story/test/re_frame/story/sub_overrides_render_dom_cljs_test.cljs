@@ -27,24 +27,16 @@
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.story.sub-overrides :as sub-overrides]))
 
-(def ^:private registrar-snapshot (atom nil))
-
+;; `make-reset-runtime-fixture` performs the snapshot/restore + frames-reset +
+;; adapter dispose/install this suite hand-rolled. `:ambient-frame nil` preserves
+;; the suite's no-ambient-scope behaviour — each render-based test binds its own
+;; `*current-frame* :rf/default` around the mount.
 (use-fixtures :each
-  {:before (fn []
-             (reset! registrar-snapshot (test-support/snapshot-registrar))
-             (reset! frame/frames {})
-             (substrate-adapter/dispose-adapter!)
-             (substrate-adapter/install-adapter! reagent-adapter/adapter)
-             (frame/ensure-default-frame!))
-   :after  (fn []
-             (when-let [snap @registrar-snapshot]
-               (test-support/restore-registrar! snap)
-               (reset! registrar-snapshot nil))
-             (reset! frame/frames {}))})
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-adapter/adapter :ambient-frame nil}))
 
 ;; ---- browser + act gate (mirrors react-shared-suite) ----------------------
 

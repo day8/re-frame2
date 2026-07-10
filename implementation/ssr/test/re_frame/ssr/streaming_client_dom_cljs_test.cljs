@@ -49,35 +49,19 @@
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.streaming.constants :as wire]
             [re-frame.ssr.streaming.client :as streaming-client]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.trace.tooling :as trace-tooling]))
 
-;; Per cljs.test: async tests require fixtures supplied as a MAP (a
-;; fn-form fixture's `finally` runs before the async body completes,
-;; which cljs.test rejects — "Async tests require fixtures to be
-;; specified as maps"). One of the tests below is observer-driven
-;; (`cljs.test/async`), so the suite uses the map-form reset fixture —
-;; the same idiom as `re-frame.dispatch-fallthrough-warn-dom-cljs-test`.
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-listeners!)
-  (substrate-adapter/install-adapter! reagent-slim-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {})
-  (trace-tooling/clear-listeners!))
-
-(use-fixtures :each {:before before! :after after!})
+;; Per cljs.test: async tests require fixtures supplied as a MAP (a fn-form
+;; fixture's teardown runs before the async body completes — "Async tests require
+;; fixtures to be specified as maps"). One of the tests below is observer-driven
+;; (`cljs.test/async`), so the suite uses `make-reset-runtime-fixture`'s
+;; `:async? true` map-form for the snapshot/restore + frames-reset + adapter
+;; dispose/install it hand-rolled. `:ambient-frame nil` preserves the
+;; no-ambient-scope behaviour (each test creates its own client frame).
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-slim-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 

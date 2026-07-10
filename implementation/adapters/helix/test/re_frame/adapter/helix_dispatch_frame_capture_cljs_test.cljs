@@ -15,40 +15,21 @@
 
   ns ends in `-cljs-test` so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest async use-fixtures]]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.adapter.react-shared-suite :as suite]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
 
-;; Per cljs.test: async tests require fixtures supplied as a map
-;; (fn-form fixtures don't suspend across the async body). Wrap the
-;; snapshot/restore pattern as `{:before :after}`.
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  ;; Per rf2-wkxng / rf2-6m0se: clear the per-frame schema registry so
-  ;; ns-load `reg-app-schema` calls from sibling test namespaces don't
-  ;; fire post-commit validation rollbacks against this test's frames.
-  (when-let [clear! (late-bind/get-fn :schemas/clear-by-frame!)]
-    (clear!))
-  (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-listeners!)
-  (substrate-adapter/install-adapter! helix-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+;; Async map-form fixture (a fn-form fixture's teardown would restore the
+;; registrar before an `(async done)` body completes). `make-reset-runtime-
+;; fixture` (`:async? true`) performs the snapshot/restore + frames-reset +
+;; adapter dispose/install this suite hand-rolled, and its pre-dispose reset
+;; clears the per-frame schema registry (per rf2-wkxng / rf2-6m0se: so ns-load
+;; `reg-app-schema` calls from sibling test namespaces don't fire post-commit
+;; validation rollbacks against this test's frames). `:ambient-frame nil`
+;; preserves the suite's no-ambient-scope behaviour.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter helix-adapter/adapter :async? true :ambient-frame nil}))
 
 (def ^:private cfg
   {:adapter      helix-adapter/adapter
