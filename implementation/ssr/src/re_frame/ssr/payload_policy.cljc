@@ -491,11 +491,42 @@
   per-frame registry, never the wire copy. The classified app-db / route /
   machine slices above were ALREADY projected against this registry server-side,
   so their redaction is baked into the wire value and does not need the
-  declarations to re-derive it."
-  [runtime-db]
-  (when (map? runtime-db)
+  declarations to re-derive it.
+
+  ## The projection frame is the EXPLICIT carried target (rf2-3fc89f.15)
+
+  The two-arity `[runtime-db frame-id]` is the canonical form: it projects
+  every runtime-db slice under the EXPLICIT `frame-id` the caller carries — the
+  same target the payload is stamped `:rf/frame-id`, and the same target
+  `build-final-payload` / the non-streaming builder already thread to the app-db
+  projection. A hydration payload therefore projects BOTH partitions under ONE
+  frame, regardless of ambient scope.
+
+  This matters because the runtime-db projectors fail in OPPOSITE directions on
+  a missing frame: `project-routing-egress` fails OPEN (no frame ⇒ the
+  classified route `:current` slice rides RAW) while the machines projector
+  skips `:data` redaction. Resolving the frame AMBIENTLY (the pre-3fc89f.15
+  one-arity behaviour) meant a builder called outside `rf/with-frame`, or under
+  a DIFFERENT ambient frame, serialized classified route / machine / resource
+  state under nil or the WRONG frame's policy — a serialization privacy leak.
+
+  The one-arity `[runtime-db]` is a convenience that projects under the ambient
+  scope frame — sound ONLY at a call site already inside the MATCHING
+  `rf/with-frame` (ambient == target). The security-critical builders MUST pass
+  the explicit target.
+
+  The late-bound `:ssr/extend-runtime-db-projection` hook (resources) resolves
+  its OWN frame ambiently; the two-arity binds the explicit target as the
+  ambient scope around that call so the extension projects under the SAME frame
+  as every other slice — never a borrowed / mismatched ambient scope."
+  ([runtime-db]
+   ;; Convenience: project under the AMBIENT scope frame. Correct only when the
+   ;; call site is inside the frame's own `with-frame` (ambient == the target).
+   ;; The security-critical builders pass the explicit target (rf2-3fc89f.15).
+   (project-runtime-db runtime-db (frame/resolve-current-frame)))
+  ([runtime-db frame-id]
+   (when (map? runtime-db)
     (let [project-machines (late-bind/get-fn :machines/project-ssr-runtime-db)
-          frame-id         (frame/resolve-current-frame)
           machines-slice   (when (contains? runtime-db :rf.runtime/machines)
                              (if project-machines
                                (project-machines runtime-db frame-id)
@@ -538,9 +569,14 @@
           ;; `:tag-index` / `:owner-index` are recomputable-from-entries
           ;; and need not ride the wire — Spec 016 §Restore and replay).
           slice (if-let [extend-fn (late-bind/get-fn :ssr/extend-runtime-db-projection)]
-                  (merge slice (extend-fn runtime-db))
+                  ;; The extension hook (resources) resolves its OWN frame
+                  ;; ambiently — bind the EXPLICIT target as the ambient scope so
+                  ;; it projects under the same frame as every other slice, never
+                  ;; a borrowed / mismatched ambient one (rf2-3fc89f.15).
+                  (merge slice (binding [frame/*current-frame* frame-id]
+                                 (extend-fn runtime-db)))
                   slice)]
-      (when (seq slice) slice))))
+      (when (seq slice) slice)))))
 
 ;; ---- version resolution + payload assembly -------------------------------
 ;;

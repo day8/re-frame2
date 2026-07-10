@@ -657,7 +657,12 @@
       (payload-policy/apply-policy app-db policy-opts)
       frame-id)
      render-hash
-     (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db)))))
+     ;; rf2-3fc89f.15 — project the runtime-db under the EXPLICIT carried
+     ;; `frame-id` (the same target the app-db projection above uses), NOT an
+     ;; ambient one. A streaming build called outside `with-frame`, or under a
+     ;; different ambient frame, otherwise serialized classified route / machine
+     ;; / resource runtime state under nil / the wrong frame's policy.
+     (assoc policy-opts :runtime-db (payload-policy/project-runtime-db runtime-db frame-id)))))
 
 ;; ---- late-bind hook registration -----------------------------------------
 ;;
