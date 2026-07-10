@@ -16,7 +16,8 @@
   (:require [clojure.string            :as str]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.predicates :as pred]
-            [re-frame.story.registrar  :as registrar]))
+            [re-frame.story.registrar  :as registrar]
+            [re-frame.story.verdict    :as verdict]))
 
 ;; ---- aliases on the leaf predicates ns ----------------------------------
 ;;
@@ -30,14 +31,10 @@
 
 ;; ---- the unified run-result verdicts (spec/017 §Run result) -------------
 ;;
-;; The four verdicts every assertion record / check / run carries
-;; (`re-frame.story.result/statuses`). Mirrored here as a local set so the
-;; pure helpers can recognise a stamped `:status` without a require into
-;; `re-frame.story.result` (which loops through the runtime).
-
-(def statuses
-  "The unified run / check / assertion verdicts (spec/017 §Run result)."
-  #{:pass :fail :cannot-run :error})
+;; The four verdicts every assertion record / check / run carries are owned
+;; by the pure `re-frame.story.verdict` leaf (`verdict/statuses`) — consumed
+;; directly here (no require into `re-frame.story.result`, which loops
+;; through the runtime; no local mirror to drift).
 
 ;; ---- pure: variant-has-tests? -------------------------------------------
 
@@ -137,7 +134,7 @@
                    (= :rf.assert/skipped aid)          :skip
                    ;; The unified `:status` wins; the :passed?-only
                    ;; derivation is the fallback.
-                   (contains? statuses st)             st
+                   (contains? verdict/statuses st)     st
                    (:cannot-run? rec)                  :cannot-run
                    (or (:error rec) (:exception rec))  :error
                    passed?                             :pass
@@ -397,8 +394,8 @@
   [result summary]
   (let [st (:status result)]
     (cond
-      (nil? result)             :pending
-      (contains? statuses st)   st
+      (nil? result)                   :pending
+      (contains? verdict/statuses st) st
       :else
       (let [{:keys [total failed cannot-run all-passed?]} (or summary {})]
         (cond
@@ -701,7 +698,7 @@
         status-of (fn [rec]
                     (let [st (:status rec)]
                       (cond
-                        (contains? statuses st)            st
+                        (contains? verdict/statuses st)    st
                         (:cannot-run? rec)                 :cannot-run
                         (or (:error rec) (:exception rec)) :error
                         (:passed? rec)                     :pass
