@@ -546,50 +546,34 @@
     {:sensitive (->abs s)
      :large     (->abs l)}))
 
-(defn- without-resource-sourced
-  "Drop `:source :resource` entries from a `{path decl}` declaration map,
-  preserving every other-sourced entry (`:effect` / `:flow` / `:route` /
-  `:machine` / `:owner-declaration`). Returns `{}` for nil."
-  [decls]
-  (reduce-kv (fn [acc p decl]
-               (if (= resource-source (:source decl))
-                 acc
-                 (assoc acc p decl)))
-             {}
-             (or decls {})))
-
-(defn- with-resource-paths
-  "Overlay `:source :resource` declarations for the absolute `paths` onto the
-  carried (non-resource-sourced) declaration map WITHOUT clobbering a foreign-
-  source standing entry on the same absolute path (the registry is one entry-
-  per-path-per-axis; an app-effect / flow / route claim on the same path is left
-  standing — the same posture machines' `apply-decls` SET uses)."
-  [carried paths]
-  (reduce (fn [acc p]
-            (if (contains? acc p)
-              acc
-              (assoc acc p {:source resource-source})))
-          carried
-          paths))
+(def ^:private resource-owner
+  "The multi-owner elision-registry owner identity a resource / mutation
+  instance lowering claims under. All current entries share this owner; the
+  reconcile rebuilds the full resource-owned claim set from the live entries
+  each commit (self-dropping), so `elision/replace-owner-claims` drops evicted
+  entries' claims and installs current ones in one step."
+  {:source resource-source})
 
 (defn reconcile-registry
   "PURE per-instance lowering: given a base `runtime-db` value and a `spec-of`
   resolver `(fn [resource-id] -> spec|nil)`, return the runtime-db with the
-  `[:rf.runtime/elision …]` registry's `:source :resource` entries REPLACED by
-  the declarations of EVERY current cache entry (re-rooted absolute per the
-  entry's byte `key-id`). This is the resources peer of
-  `re-frame.routing.classification/apply-route-classification` and
-  `re-frame.machines.classification/lower-at-spawn!`.
+  `[:rf.runtime/elision …]` registry's resource-owner claims REPLACED by the
+  declarations of EVERY current cache entry (re-rooted absolute per the entry's
+  byte `key-id`), delegating to the core multi-owner op
+  `re-frame.elision/replace-owner-claims`. The standard EP-0025 lowering — the
+  resources peer of `re-frame.routing.classification/apply-route-classification`
+  and `re-frame.machines.classification/lower-at-spawn!` (rf2-v8x9n8).
 
   Operates on a VALUE so a resource handler's durable `:rf.db/runtime`
   transition folds the registry update into the SAME atomic commit that
   writes / evicts the entry. IDEMPOTENT + SELF-DROPPING: the full resource-
-  sourced set is rebuilt from the current `:entries`, so an evicted entry's
+  owned claim set is rebuilt from the current `:entries`, so an evicted entry's
   declarations vanish (the per-instance teardown) and a newly-minted entry's
   appear, with no separate drop hook. Value-INDEPENDENT (the declared path
-  redacts whatever later occupies the slot). Other-sourced registry entries
-  (`:effect` / `:flow` / `:route` / `:machine`) ride untouched and union at
-  egress-lookup time.
+  redacts whatever later occupies the slot). A path ALSO claimed by another
+  owner (`{:source :effect}` / `{:source :flow …}` / `{:source :route}` /
+  `{:source :machine …}`) rides untouched and unions at egress-lookup time
+  (rf2-wdm1vg).
 
   `spec-of` is injected (resources' `registry` requires `classification`, so a
   static back-require would cycle) — the caller (a resource event handler in
@@ -598,7 +582,7 @@
   nothing.
 
   Reconcile-aware (router `re-frame.elision/reconcile-runtime-db-effect`): when
-  the lowering touched the registry (the base carried resource-sourced entries
+  the lowering touched the registry (the base carried resource-owned entries
   or the current entries declare some), it emits an EXPLICIT
   `:rf.runtime/elision` key (possibly cleared of all resource entries) so a
   whole-value runtime-db commit honours an eviction's drop verbatim rather than
@@ -608,8 +592,6 @@
   (let [base    (or runtime-db {})
         entries (get-in base (state/entries-path))
         reg     (get base elision-registry-key)
-        carry-s (without-resource-sourced (:sensitive-declarations reg))
-        carry-l (without-resource-sourced (:declarations reg))
         ;; gather every current entry's absolute declaration paths
         {:keys [sensitive large]}
         (reduce-kv
@@ -624,11 +606,9 @@
                       (update :large into large))))))
           {:sensitive [] :large []}
           (or entries {}))
-        new-s   (with-resource-paths carry-s sensitive)
-        new-l   (with-resource-paths carry-l large)
-        new-reg (cond-> {}
-                  (seq new-s) (assoc :sensitive-declarations new-s)
-                  (seq new-l) (assoc :declarations new-l))]
+        new-reg (-> (or reg {})
+                    (elision/replace-owner-claims :sensitive-declarations resource-owner sensitive)
+                    (elision/replace-owner-claims :declarations resource-owner large))]
     (cond
       (seq new-reg)
       (assoc base elision-registry-key new-reg)
