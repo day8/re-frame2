@@ -1,27 +1,11 @@
 (ns re-frame.mcp-conformance.wire-vocab.schemas
-  "Canonical cross-MCP wire-marker schemas + the `canonical-markers`
-  catalogue.
+  "Canonical shared wrapper-marker schemas and fixture catalogue.
 
-  This is the **contract data**, not boilerplate: a single Malli schema
-  per cross-server wire marker, plus the ordered `canonical-markers`
-  index binding each marker key to its schema, description, and
-  per-server fixtures. The several focused test namespaces that share
-  these schemas (`wire_vocab_test`, `cursor_stale_test`,
-  `progress_notification_test`, …) each `:require` ONE support ns rather
-  than re-deriving the shapes. The marker-family-LOCAL schemas
-  (`ResultEnvelope`, `EventBundle`) stay co-located with their tests —
-  only the shapes referenced across families live here.
-
-  See `wire_vocab_test.clj`'s ns docstring for the full cross-MCP
-  vocabulary rationale (six top-level wrapper markers + the
-  `:rf.elision/at` fetch-handle tag, the per-server presence/absence
-  contract, the source-text pins). This ns is the schemas only.
-
-  Each schema is the cross-MCP-server contract for one wire marker. The
-  marker is **always a single-key map** keyed by the reserved keyword;
-  the value is a body conforming to the per-marker schema below. Agents
-  pattern-match on the top-level reserved key — that rule is what makes
-  the vocabulary cross-server."
+  `canonical-markers` binds each reserved key to one Malli schema,
+  contracted servers, and representative fixtures. Family-local schemas
+  such as result envelopes and event bundles stay beside their focused
+  tests. Wrapper maps are closed and single-keyed; marker bodies remain
+  open where additive fields are part of the contract."
   (:require [malli.core :as m]))
 
 ;; ---------------------------------------------------------------------------
@@ -29,21 +13,8 @@
 ;; ---------------------------------------------------------------------------
 
 (def ReFrame2PairOverflowBody
-  "The canonical `:rf.mcp/overflow` body shape (per
-  `mcp-base/overflow.cljc/overflow-payload`). Every emit carries
-  `:cap-tokens` + `:token-count` + `:tool` + `:hint` plus the `:limit
-  :reached` sentinel. Required-not-optional — an emit missing any of
-  these is a contract break, not a degenerate but tolerated marker.
-
-  Multi-emitter: BOTH re-frame2-pair-mcp and story-mcp emit this marker
-  via the shared `mcp-base.cap/apply-cap` → `overflow-payload` builder,
-  so the body is byte-identical across both — there is exactly one
-  shape, not a per-server variant. (story-mcp's wire-boundary cap is
-  `tools/story-mcp/.../tools/wire_pipeline.cljc`, which calls
-  `base-cap/apply-cap`. The name keeps the `ReFrame2Pair` prefix as the
-  shape-author; the SHAPE is the cross-MCP contract.) Cap renames
-  (`cap-tokens` vs `cap_tokens`), field renames (`hint` vs `next-step`),
-  or empty bodies all trip the schema."
+  "Canonical `:rf.mcp/overflow` body emitted by the shared mcp-base
+  builder. Both servers must carry every required field."
   [:map
    {:closed false}
    [:limit       [:enum :reached]]
@@ -53,16 +24,7 @@
    [:hint        [:or :string :keyword]]])
 
 (def Overflow
-  "`{:rf.mcp/overflow ReFrame2PairOverflowBody}` — the wrapper shape.
-
-  CLOSED single-key map: a wire marker is ALWAYS a
-  single reserved wrapper key (see the header — agents pattern-match on
-  exactly one top-level key). A payload carrying the marker plus an
-  unrelated sibling top-level key is a mixed-envelope emission a uniform
-  cross-server client can't pattern-match; the `{:closed true}` arm
-  rejects it so the conformance gate pins the single-key contract the
-  contract documents. (The marker BODY stays open — additive body slots
-  compose; it's the top-level envelope that is single-key.)"
+  "Closed, single-key overflow wrapper. The body remains additive."
   [:map {:closed true} [:rf.mcp/overflow ReFrame2PairOverflowBody]])
 
 (defn summary-has-count-or-counts?

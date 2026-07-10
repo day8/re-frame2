@@ -1,35 +1,10 @@
 (ns re-frame.mcp-conformance.wire-vocab.source-pins
-  "Shared source-text pin inventories + near-miss helpers.
+  "Shared emit/doc source inventories and near-miss generators.
 
-  The wire-vocab conformance corpus pins each canonical marker literal
-  against the server source/spec files where it MUST (emit-sources) or
-  SHOULD (doc-sources) appear, and an anti-pin that forbids near-miss
-  spellings anywhere in the conformance-tracked tree. The per-server
-  file inventories and the near-miss generator are shared by several
-  focused test namespaces (`wire_vocab_test`, `cursor_stale_test`,
-  `result_envelope_test`, `progress_notification_test`,
-  `redacted_sentinel_test`) — they live here so a new marker family adds
-  ONE `:require` rather than re-deriving the inventories.
-
-  ## The two-tier pin
-
-  - **emit-sources** — source files where the literal MUST appear as
-    actual data (not in a comment or docstring). Stripped via
-    `fx/strip-comments-and-strings` before the grep. A rename in any of
-    these files MUST trip the test even if a docstring elsewhere still
-    carries the old form.
-  - **doc-sources** — spec docs and prose-y descriptors where the
-    literal SHOULD appear for human readers. Looser — a `str/includes?`
-    against raw text suffices; documentation reorganisation may move
-    the mention around without tripping the gate.
-
-  The emit-side pin is the load-bearing one: a `some`-over-doc-sources
-  check would pass merely because the spec docs prose-reference every
-  marker, even though four of five literals never appear in
-  re-frame2-pair-mcp source code at all (they are imported via
-  `re-frame.mcp-base.vocab/<key>`), so a rename inside
-  `mcp-base/vocab.cljc` (the canonical home of every literal) would not
-  trip a doc-only gate. The emit-side pin closes that hole."
+  Emit pins scan comment/string-stripped source so documentation cannot
+  satisfy a data-emission assertion. Doc pins scan raw contract text.
+  Focused vocabulary tests reuse these inventories instead of defining
+  partial source sets."
   (:require [clojure.string :as str]))
 
 (def emit-source-files
@@ -47,12 +22,8 @@
   is the right invariant; emit-sites that import from vocab.cljc
   cannot drift independently of the canonical declaration.
 
-  story-mcp also consumes from `mcp-base/vocab.cljc` (the
-  `dedup-table-key` symbol — `tools/story-mcp/src/re_frame/
-  story_mcp/tools/wire_pipeline.cljc` reaches it transitively via its
-  `re-frame.mcp-base.dedup` require; rf2-ywkiss removed the intermediate
-  `tools/dedup.cljc`). Same single-source-of-truth posture as pair-mcp;
-  the canonical literal home is `mcp-base/vocab.cljc`."
+  story-mcp also consumes these names from `mcp-base/vocab.cljc`, so both
+  server entries intentionally pin the same production owner."
   {:re-frame2-pair-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
    :story-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]})
 

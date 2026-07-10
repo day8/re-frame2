@@ -196,17 +196,3 @@
                     (assoc re-frame2-pair-event-bundle-fixture
                            :dispatch-id :cart/checkout))
         "a keyword dispatch id (not :ungrouped) is application-shaped and accepted")))
-
-;; rf2-hvn83u (LOW): the former "event-bundle topics ship under
-;; :event-bundles; frameless under :events" testing block was DROPPED — it
-;; asserted `vector?` / `not contains?` over locally hand-built literal
-;; maps (`cascade-tick` / `frameless-tick`), which is tautological: the
-;; values were constructed as vectors / without the key the assertion
-;; checked for, so the block could never fail and observed no real
-;; emitter. The genuine event-vs-frameless distinction is pinned by the
-;; two schema-rejection `testing` blocks above (`:ungrouped` rejected on an
-;; EventBundle and inside an EventBundleVector via the `not-ungrouped?`
-;; predicate). Tying the dropped tautology to a real progress-notification
-;; subscribe-emit projection would require the heavyweight live emitter
-;; and is out of scope for the fixture-drift fix; the schema gates carry
-;; the contract.

@@ -1,37 +1,6 @@
 #!/usr/bin/env node
-/*
- * PR-CI Node-regression gate.
- *
- * Runs the pure-Node UNIT cluster of the conformance inventory — every
- * row in `scripts/test-all.cjs`'s authoritative `TESTS` array whose
- * `argv[0] === '--test'` (i.e. invoked via `node --test`). These are the
- * harness's own regression nets: the runner watchdog teardown, the
- * awaited hermetic cleanup, the bounded setup-command timeout, the
- * symlink-safe port-file read, the dedup-envelope decoder, and the
- * call-coverage / classification ratchets. They boot no MCP server, need
- * no nREPL / clojure / Chromium, and finish in a couple of seconds.
- *
- * ## Why this script exists
- *
- * `test-all.cjs` is the single source of truth for the conformance
- * inventory, but it spawns EVERY test — including the end-to-end (server
- * bundle), live (nREPL), story (JVM `clojure`), and hermetic
- * (shadow-cljs + Chromium) gates. Those are run by dedicated CI jobs
- * (`mcp-conformance-{re-frame2-pair,story}`) with their own toolchains
- * and caches. This gate runs the full set of `node --test` unit gates in
- * PR CI, so a regression any of them guards is caught before merge.
- *
- * This runner DERIVES its set from `test-all.cjs` rather than
- * re-listing, so it cannot drift: add a new `node --test` row to the
- * authoritative array and PR CI picks it up automatically. It runs the
- * whole cluster in ONE `node --test` invocation (Node's test runner
- * aggregates results across files and exits non-zero if any file fails),
- * which is faster than spawning each file separately and gives one
- * combined summary.
- *
- * Exit codes: 0 = every unit gate green; non-zero = at least one failed
- * (forwarded from the `node --test` child).
- */
+/* Node-only CI gate. Derives every `node --test` row from test-all.cjs
+ * and runs the files together without booting either MCP server. */
 'use strict';
 
 const path = require('node:path');
@@ -39,10 +8,7 @@ const { spawnSync } = require('node:child_process');
 
 const { TESTS, ROOT } = require('./test-all.cjs');
 
-// The unit cluster is exactly the rows invoked through `node --test`.
-// The end-to-end / live / story / flag-gates rows are plain
-// `node <script>` (no `--test`) and are excluded — they belong to the
-// dedicated server jobs, not this Node-only unit gate.
+// Plain `node <script>` rows are integration tests and stay excluded.
 const UNIT_FILES = TESTS.filter((t) => t.argv[0] === '--test').map(
   (t) => t.argv[t.argv.length - 1],
 );
@@ -59,18 +25,14 @@ const sep = '─'.repeat(72);
 process.stdout.write(
   '\n' +
     sep +
-    '\n▶ mcp-conformance Node unit cluster (rf2-md05gp)\n  node --test ' +
+    '\n▶ mcp-conformance Node unit cluster\n  node --test ' +
     UNIT_FILES.join(' ') +
     '\n' +
     sep +
     '\n',
 );
 
-// One `node --test` invocation across every unit file: the runner
-// aggregates and exits non-zero on any failure. `cwd: ROOT` so the
-// relative `test/...` paths resolve against the artefact root regardless
-// of the caller's cwd. `shell: false` (spawnSync default) — no
-// shell-interpolation of file paths.
+// ROOT keeps the inventory's relative paths independent of caller cwd.
 const child = spawnSync(process.execPath, ['--test', ...UNIT_FILES], {
   cwd: ROOT,
   stdio: 'inherit',

@@ -1,10 +1,5 @@
-;; tools/mcp-conformance/wire-vocab — cross-MCP wire-vocabulary
-;; conformance test (rf2-j2z7o).
-;;
-;; A pure-JVM Clojure test that pins the **cross-server wire-marker
-;; vocabulary** shared by re-frame2-pair-mcp and story-mcp (the
-;; `canonical-markers` table in wire_vocab_test.clj is the source of
-;; truth — six top-level wrapper markers):
+;; Pure-JVM cross-MCP vocabulary conformance. `canonical-markers` in
+;; wire_vocab/schemas.clj owns these six generic wrapper markers:
 ;;
 ;;   :rf.mcp/overflow      — token-budget overflow (mechanism 1)
 ;;   :rf.mcp/summary       — tree-summary lazy mode (mechanism 4)
@@ -12,122 +7,38 @@
 ;;   :rf.mcp/diff-from     — diff-encoded epochs
 ;;   :rf.size/large-elided — size-elision wire marker
 ;;   :rf.mcp/cache-hit     — per-session response-cache hit marker
-;;   :rf.elision/at        — size-elision fetch handle
-;;
-;; The test asserts a single canonical schema per marker, validates
-;; fixtures representing each server's observed emission shape against
-;; the canonical schema, and grep-pins the source/spec files so a
-;; per-server vocabulary drift trips this gate. See README.md.
-;;
-;; Why a separate JVM artefact inside tools/mcp-conformance/?
-;; The sibling end-to-end-*.js tests drive each server through the MCP
-;; SDK client — they are Node-side. This wire-vocab test is pure data:
-;; a Malli-style schema validated against authored fixtures, plus a
-;; grep against source files. JVM Clojure is the cheaper substrate for
-;; that shape (no SDK install, no server boot, ~100ms test run).
-;;
-;; Bundle isolation: the artefact is test-only and never on a consumer's
-;; runtime classpath.
+;; Other vocabulary families, including :rf.elision/at, use focused test
+;; namespaces. See README.md for the ownership and evidence layers. This
+;; artefact is test-only and never enters a consumer runtime classpath.
 {:paths []
 
  :deps  {org.clojure/clojure  {:mvn/version "1.12.0"}
-         ;; Malli for schema validation. Already on the implementation's
-         ;; classpath (used by tools/story-mcp); pinning the same version
-         ;; here so the schema syntax matches.
+         ;; Canonical schema validation.
          metosin/malli        {:mvn/version "0.16.4"}
-         ;; data.json for the verb-vocab linter (rf2-vkx7m) — reads each
-         ;; server's canonical `tool-names.json` fixture to lint against
-         ;; the NAMING.md verb catalogue.
+         ;; Reads each server's canonical tool-name fixture for verb linting.
          org.clojure/data.json {:mvn/version "2.5.0"}}
 
  :aliases
- ;; All fixtures are inlined in `wire_vocab_test.clj` (as the `:fixtures`
- ;; slot on `canonical-markers`) and in the sibling test files —
- ;; no `fixtures/` directory exists. A standalone fixture-tree would
- ;; be more work than the inline form is currently worth: the fixtures
- ;; live next to their schemas and the test files are small enough
- ;; (rf2-ikjrr).
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
-                       day8/re-frame2-test-quiet
+         :extra-deps  {day8/re-frame2-test-quiet
                        {:local/root "../../../implementation/test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}
-                       ;; rf2-80y2h — the canonical `:rf.mcp/diff-from`
-                       ;; encoder so the wire-vocab gate can assert LIVE
-                       ;; emission (the real encoder actually producing
-                       ;; the marker), not only fixture+grep coverage.
-                       ;; The grep pin only checks the literal exists in
-                       ;; `mcp-base/vocab.cljc`; without a live-emission
-                       ;; gate a tool that stopped diff-encoding
-                       ;; `:db-after` would pass every conformance check.
+                       ;; Canonical diff and overflow builders.
                        day8/re-frame2-mcp-base
                        {:local/root "../../mcp-base"}
-                       ;; rf2-x0pr0 — the canonical structural-dedup
-                       ;; encoder so the `:rf.mcp/dedup-table` gate can
-                       ;; drive the REAL `de-dupe.core/de-dupe-eq` and
-                       ;; assert (a) its output validates against the
-                       ;; tightened `DedupTable` schema and (b) the
-                       ;; emitted root cache-id agrees byte-for-byte with
-                       ;; the Node decoder's `ROOT_CACHE_ID`
-                       ;; (`lib/dedup-envelope.cjs`). Lockstep on the same
-                       ;; tag pair-mcp + story-mcp pin so the gate sees
-                       ;; the same algorithm the servers emit.
+                       ;; Canonical structural-dedup encoder.
                        day8/de-dupe
                        {:git/url "https://github.com/day8/de-dupe.git"
                         :git/tag "v0.3.0"
                         :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}
-                       ;; rf2-2js41 finding 1 — `:rf.mcp/cursor-stale` is
-                       ;; a MULTI-server reason value: pair-mcp emits it
-                       ;; on epoch-ring rotation, story-mcp emits the SAME
-                       ;; reason when a Docs `list-*` registry changes
-                       ;; between cursor pages. Both delegate to the
-                       ;; shared `mcp-base/cursor.cljc/cursor-stale-result`.
-                       ;; This dep puts story-mcp's own
-                       ;; `re-frame.story-mcp.tools.cursor/cursor-stale-result`
-                       ;; on the classpath so the gate can drive the
-                       ;; SECOND server's builder LIVE (mirroring the
-                       ;; pair-mcp + diff-encode + de-dupe live-emission
-                       ;; gates) — closing the false-green hole where a
-                       ;; story-mcp cursor-stale drift was caught only by
-                       ;; story-mcp's local unit tests, not by the
-                       ;; cross-MCP vocabulary surface. `:local/root` (not
-                       ;; an `:extra-paths` to story-mcp's `src`) is the
-                       ;; idiomatic, deprecation-warning-free form; the
-                       ;; transitive story/implementation tree it pulls is
-                       ;; the cost of validating the real builder.
+                       ;; Story's cursor-stale builder.
                        day8/re-frame2-story-mcp
                        {:local/root "../../story-mcp"}
-                       ;; rf2-hvn83u — the canonical wire-elision walker
-                       ;; (`re-frame.elision/elide-wire-value`) so the
-                       ;; `:rf.size/large-elided` gate can drive the REAL
-                       ;; emitter LIVE over a frame-declared `:large` slot
-                       ;; and validate the emitted marker against the
-                       ;; `ElisionMarker` schema. Without this gate the
-                       ;; marker was FIXTURE+grep only — exactly why the
-                       ;; pre-EP-0015 `:reason :schema` pin sat stale and
-                       ;; VACUOUS (the canonical schema validated only the
-                       ;; impossible `:schema` shape while the runtime
-                       ;; emitted `:frame`/`:marks`). `:local/root` to core
-                       ;; (not the transitive story-mcp pull) makes the
-                       ;; classpath dependency intentional, mirroring the
-                       ;; diff-encode + de-dupe live-emission gates.
+                       ;; Framework elision walker.
                        day8/re-frame2
                        {:local/root "../../../implementation/core"}
-                       ;; rf2-9wvwpa — the SECOND framework emitter of the
-                       ;; `:rf.size/large-elided` marker:
-                       ;; `re-frame.schemas.validate/validate-event!`'s
-                       ;; validation-failure size-safety arm (Spec 010
-                       ;; §`:large?`). hvn83u's live gate drove only the
-                       ;; `re-frame.elision/elide-wire-value` walker; the
-                       ;; schemas-artefact emitter sat fixture-free — exactly
-                       ;; the blind spot that let `validate.cljc` ship a
-                       ;; non-conformant `:reason :schema` / no-`:hint`
-                       ;; marker. `:local/root` to the schemas artefact puts
-                       ;; `re-frame.schemas` on the JVM classpath so the gate
-                       ;; below can drive the REAL validation-failure emitter
-                       ;; LIVE and validate its marker against the same
-                       ;; canonical `ElisionMarker` schema.
+                       ;; Schema validation-failure elision emitter.
                        day8/re-frame2-schemas
                        {:local/root "../../../implementation/schemas"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
