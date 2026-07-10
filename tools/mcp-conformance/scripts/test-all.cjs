@@ -21,9 +21,23 @@
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { LIVE_TESTS } = require('./live-test-inventory.cjs');
 
 const HERE = __dirname;
 const ROOT = path.resolve(HERE, '..');
+
+// The live re-frame2-pair gates, DERIVED from the shared inventory
+// (`scripts/live-test-inventory.cjs`) — the single owner of the roster — so
+// this file and the hermetic runner (`run-re-frame2-pair-live-hermetic-suite.cjs`)
+// can never declare a different set. Under `npm test` (no
+// `$SHADOW_CLJS_NREPL_PORT`) each SKIPs and rides green; the hermetic CI job
+// is the only place the live path fires. Spliced into `TESTS` below AFTER the
+// degraded end-to-end and BEFORE story-mcp so a green run reads as "real
+// conformance passed, the live gates gracefully skipped".
+const LIVE_ROWS = LIVE_TESTS.map((t) => ({
+  name: `re-frame2-pair-mcp ${t.name} (SKIPs without $SHADOW_CLJS_NREPL_PORT)`,
+  argv: [`test/${t.basename}`],
+}));
 
 // One row per conformance test. Order matters: cheap unit tests first
 // so a typo in the exec-safety helpers fails before we spawn an MCP
@@ -40,6 +54,10 @@ const ROOT = path.resolve(HERE, '..');
 // that runner DERIVES its set from this array, a new `--test` row added
 // here is automatically picked up by PR CI — no second list to keep in
 // sync.
+//
+// The LIVE re-frame2-pair rows are themselves DERIVED from the shared
+// live-test inventory (`LIVE_ROWS`, above) rather than re-listed here, so
+// they cannot drift from the hermetic runner's roster.
 const TESTS = [
   {
     name: 'exec-safety unit tests',
@@ -62,7 +80,7 @@ const TESTS = [
     argv: ['--test', 'test/inner-test-close-grading.test.cjs'],
   },
   {
-    name: 'live-gate list completeness — disk ⇄ INNER_TESTS ⇄ test-all rows (rf2-79qmsw)',
+    name: 'live-gate list completeness — disk ⇄ shared live-test inventory (rf2-79qmsw / rf2-phveub)',
     argv: ['--test', 'test/live-list-completeness.test.cjs'],
   },
   {
@@ -97,30 +115,9 @@ const TESTS = [
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },
-  {
-    name: 're-frame2-pair-mcp live-overflow (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-overflow.cjs'],
-  },
-  {
-    name: 're-frame2-pair-mcp live-subscribe (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-subscribe.cjs'],
-  },
-  {
-    name: 're-frame2-pair-mcp live-redaction (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-redaction.cjs'],
-  },
-  {
-    name: 're-frame2-pair-mcp live-iserror — :ok? false ⇒ isError read-dom/read-ui (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-iserror.cjs'],
-  },
-  {
-    name: 're-frame2-pair-mcp live-cofx — EP-0017 reproducible dispatch + cofx tooling (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-cofx.cjs'],
-  },
-  {
-    name: 're-frame2-pair-mcp live-event-meta — EP-0018 unified event metadata (SKIPs without $SHADOW_CLJS_NREPL_PORT)',
-    argv: ['test/live-re-frame2-pair-event-meta.cjs'],
-  },
+  // Live re-frame2-pair gates, derived from the shared inventory (see
+  // `LIVE_ROWS` above). SKIP-by-default under `npm test`.
+  ...LIVE_ROWS,
   {
     name: 'story-mcp end-to-end',
     argv: ['test/end-to-end-story.cjs'],

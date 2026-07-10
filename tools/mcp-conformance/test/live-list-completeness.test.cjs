@@ -1,5 +1,6 @@
-// Completeness / anti-drift guard for the hermetic live-suite's
-// INNER_TESTS inventory and test-all.cjs's live rows (rf2-79qmsw).
+// Completeness / anti-drift guard for the shared live-test inventory
+// (`scripts/live-test-inventory.cjs`) against the live gate files on disk
+// (rf2-79qmsw, rf2-phveub).
 //
 // Uses Node's built-in `node:test` (same posture as
 // `inner-test-close-grading.test.cjs` — no extra dev-dependency). Runs in
@@ -9,34 +10,27 @@
 //
 // ## The drift this pins
 //
-// The live gates live in `test/live-re-frame2-pair-*.cjs`. They are named in
-// TWO separate, hand-maintained lists:
+// The live gates live in `test/live-re-frame2-pair-*.cjs`. They used to be
+// named in TWO separate, hand-maintained lists (the hermetic runner's
+// `INNER_TESTS` and `test-all.cjs`'s live rows), and nothing cross-checked
+// the two against each other or against disk — so a forgotten entry could
+// ride perpetually green (never launched on CI) or never be spawned at all.
 //
-//   1. `scripts/run-re-frame2-pair-live-hermetic-suite.cjs` `INNER_TESTS` —
-//      the ONLY place the live path actually FIRES (the hermetic suite boots
-//      shadow-cljs, sets `$SHADOW_CLJS_NREPL_PORT`, and spawns each entry).
-//   2. `scripts/test-all.cjs` `TESTS` live rows — spawned by `npm test`,
-//      where they SKIP-by-default (no `$SHADOW_CLJS_NREPL_PORT`) and ride
-//      green.
+// rf2-phveub collapsed those two lists onto ONE owner: the shared inventory
+// (`scripts/live-test-inventory.cjs`). BOTH runners now DERIVE their rows from
+// that array (the hermetic runner resolves each `basename` to an absolute
+// path; `test-all.cjs` derives a SKIP-by-default row), so they can no longer
+// disagree with each other. The only remaining drift is inventory-versus-disk:
+//   - a new `live-re-frame2-pair-<new>.cjs` added to disk but forgotten in the
+//     inventory → never spawned by `npm test`, never LAUNCHED on CI (the
+//     hermetic job is the only place the live path fires) — rides perpetually
+//     green as an un-exercised gate;
+//   - a rename/delete that left a dangling inventory entry → the hermetic
+//     suite would fail to spawn a file that no longer exists.
 //
-// Nothing derives either list from the files on disk, and nothing
-// cross-checks the two against each other. So a future
-// `live-re-frame2-pair-<new>.cjs` added to ONE list but forgotten in the
-// other:
-//   - forgotten in `test-all.cjs` → never spawned by `npm test` at all;
-//   - forgotten in `INNER_TESTS`  → never LAUNCHED on CI (the hermetic job is
-//     the only place the live path runs) — it rides perpetually green as an
-//     un-exercised gate.
-//
-// The `inner-test-close-grading` sentinel guard (rf2-6girz0) cannot catch
-// this: it only inspects tests already IN `INNER_TESTS`. This is the
-// silent-SKIP false-green class one meta-level up. The `test-unit.cjs`
-// derive-don't-re-list discipline is the fix, applied here as an assertion:
-// the DISK glob is the source of truth; both lists must cover it exactly.
-//
-// It requires both scripts AS MODULES (the orchestrator's auto-run is guarded
-// behind `require.main === module`, and `test-all.cjs` only runs `main()`
-// under the same guard, so requiring them boots nothing).
+// The DISK glob is the source of truth; the inventory must cover it exactly.
+// It requires only the inventory (a side-effect-free pure-data module — no
+// runner, no shadow-cljs, no Chromium boots).
 
 'use strict';
 
@@ -48,10 +42,9 @@ const path = require('node:path');
 const TEST_DIR = __dirname;
 const SCRIPTS_DIR = path.join(TEST_DIR, '..', 'scripts');
 
-const { INNER_TESTS } = require(
-  path.join(SCRIPTS_DIR, 'run-re-frame2-pair-live-hermetic-suite.cjs'),
+const { LIVE_TESTS } = require(
+  path.join(SCRIPTS_DIR, 'live-test-inventory.cjs'),
 );
-const { TESTS } = require(path.join(SCRIPTS_DIR, 'test-all.cjs'));
 
 // The on-disk source of truth: every live gate file.
 const LIVE_FILE_RE = /^live-re-frame2-pair-.*\.cjs$/;
@@ -63,17 +56,9 @@ function liveFilesOnDisk() {
     .sort();
 }
 
-// The live basenames each list references. `INNER_TESTS` entries carry an
-// absolute `.path`; `test-all.cjs` live rows are `{ argv: ['test/<file>'] }`
-// (no `--test`) — take the last argv element and keep only the live gates.
-function innerTestBasenames() {
-  return INNER_TESTS.map((t) => path.basename(t.path))
-    .filter((name) => LIVE_FILE_RE.test(name))
-    .sort();
-}
-
-function testAllLiveBasenames() {
-  return TESTS.map((t) => path.basename(t.argv[t.argv.length - 1]))
+// The live basenames the inventory declares.
+function inventoryBasenames() {
+  return LIVE_TESTS.map((t) => t.basename)
     .filter((name) => LIVE_FILE_RE.test(name))
     .sort();
 }
@@ -83,61 +68,37 @@ test('there is at least one live gate on disk (refuse to report green on an empt
   assert.ok(
     disk.length > 0,
     'no test/live-re-frame2-pair-*.cjs files found — either the glob broke or ' +
-      'the live gates were removed; refusing to certify the lists as complete ' +
-      'against an empty disk set',
+      'the live gates were removed; refusing to certify the inventory as ' +
+      'complete against an empty disk set',
   );
 });
 
-test('every live gate on disk appears in the hermetic INNER_TESTS inventory (rf2-79qmsw)', () => {
+test('every live gate on disk appears in the shared inventory (rf2-phveub / rf2-79qmsw)', () => {
   const disk = new Set(liveFilesOnDisk());
-  const inner = new Set(innerTestBasenames());
-  const missing = [...disk].filter((f) => !inner.has(f));
+  const inventory = new Set(inventoryBasenames());
+  const missing = [...disk].filter((f) => !inventory.has(f));
   assert.deepEqual(
     missing,
     [],
-    'live gate file(s) present on disk but MISSING from `INNER_TESTS` in ' +
-      'run-re-frame2-pair-live-hermetic-suite.cjs — the hermetic CI job is the ' +
-      'only place the live path fires, so a forgotten entry never launches and ' +
-      'rides perpetually green:\n  ' +
+    'live gate file(s) present on disk but MISSING from the inventory in ' +
+      'scripts/live-test-inventory.cjs — both runners derive their roster from ' +
+      'the inventory, so a forgotten entry is never spawned by `npm test` and ' +
+      'never LAUNCHED by the hermetic CI job (the only place the live path ' +
+      'fires), riding perpetually green:\n  ' +
       missing.join('\n  '),
   );
 });
 
-test('every live gate on disk appears in the test-all.cjs live rows (rf2-79qmsw)', () => {
+test('the inventory references no live gate that is absent from disk (dangling entry after a rename/delete)', () => {
   const disk = new Set(liveFilesOnDisk());
-  const testAll = new Set(testAllLiveBasenames());
-  const missing = [...disk].filter((f) => !testAll.has(f));
-  assert.deepEqual(
-    missing,
-    [],
-    'live gate file(s) present on disk but MISSING from the `TESTS` live rows ' +
-      'in test-all.cjs — a forgotten entry is never spawned by `npm test` at ' +
-      'all:\n  ' +
-      missing.join('\n  '),
-  );
-});
-
-test('INNER_TESTS references no live gate that is absent from disk (dangling entry after a rename/delete)', () => {
-  const disk = new Set(liveFilesOnDisk());
-  const dangling = innerTestBasenames().filter((f) => !disk.has(f));
+  const dangling = inventoryBasenames().filter((f) => !disk.has(f));
   assert.deepEqual(
     dangling,
     [],
-    '`INNER_TESTS` names live gate file(s) that no longer exist on disk — a ' +
-      'rename/delete left a dangling entry the hermetic suite would fail to ' +
-      'spawn:\n  ' +
-      dangling.join('\n  '),
-  );
-});
-
-test('test-all.cjs live rows reference no live gate that is absent from disk (dangling row after a rename/delete)', () => {
-  const disk = new Set(liveFilesOnDisk());
-  const dangling = testAllLiveBasenames().filter((f) => !disk.has(f));
-  assert.deepEqual(
-    dangling,
-    [],
-    'test-all.cjs names live gate file(s) that no longer exist on disk — a ' +
-      'rename/delete left a dangling row:\n  ' +
+    'the inventory in scripts/live-test-inventory.cjs names live gate file(s) ' +
+      'that no longer exist on disk — a rename/delete left a dangling entry ' +
+      'both runners would derive a row for and the hermetic suite would fail ' +
+      'to spawn:\n  ' +
       dangling.join('\n  '),
   );
 });
