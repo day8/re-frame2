@@ -1,31 +1,40 @@
 #!/usr/bin/env python3
-"""Ratchet TESTING.md's hand-maintained Xray + MCP counts against source.
+"""Ratchet TESTING.md's hand-maintained Xray feature-matrix counts against source.
 
-TESTING.md carries several prose/table counts that are *hand-maintained*
-against two source-of-truth files:
+TESTING.md's "Kinds of tests" table describes the Xray feature gate with four
+*hand-maintained* counts, all derived from one source-of-truth file — the Xray
+feature-matrix substrate ``tools/xray/testbeds/feature_matrix/scenarios.cjs``:
 
-  * the Xray feature-matrix substrate
-    ``tools/xray/testbeds/feature_matrix/scenarios.cjs`` — the full
-    scenario count, the ``smoke: true`` scenario count, the full-sweep
-    staged-surface count, and the count of *distinct* surfaces the smoke
-    scenarios stage; and
-  * the PR workflow ``.github/workflows/test.yml`` — the number of
-    ``mcp-conformance-*`` jobs.
+  * the full scenario count,
+  * the ``smoke: true`` scenario count,
+  * the full-sweep staged-surface count, and
+  * the count of *distinct* surfaces the smoke scenarios stage.
 
-These counts drifted silently once already (rf2-dvwvyk): PR 4163
-(rf2-fxnszc) removed four staged surfaces from ``scenarios.cjs`` but did
-not update TESTING.md in the same PR, because a change under
-``tools/xray/testbeds/`` fires the ``story_xray_browser`` surface, not the
-S1 blast-trigger (only TESTING.md / report-changed-surfaces.sh / the two
-workflow files mark_all) — so nothing forced the prose counts to be
-re-checked. TESTING.md's tables are explicitly "hand-maintained" and these
-prose counts had no automated guard at all.
+These counts drifted silently once already (rf2-dvwvyk): PR 4163 (rf2-fxnszc)
+removed staged surfaces from ``scenarios.cjs`` but did not update TESTING.md in
+the same PR, because a change under ``tools/xray/testbeds/`` fires the
+``story_xray_browser`` surface, not a TESTING.md re-check — so nothing forced
+the prose counts to be re-verified. TESTING.md's tables are explicitly
+hand-maintained and these prose counts had no automated guard.
 
-This script closes that gap. It derives the live counts from the two
-source files, extracts every count TESTING.md *claims*, and asserts they
-agree.
+This script closes that gap. It derives the live counts from ``scenarios.cjs``,
+extracts every count TESTING.md *claims*, and asserts they agree. It is wired
+into the always-on ``verify-skill-mcp-drift`` PR job in
+``.github/workflows/test.yml`` (rf2-o23pim), so it runs on every PR regardless
+of which surface changed — a scenario add or a prose edit that desyncs the two
+is caught before merge.
 
-Ground truth derivation (deterministic, line-oriented — no JS/YAML parser):
+Scope note (rf2-o23pim). An earlier revision of this guard also pinned an
+"MCP conformance ×N" job-fan-out count against ``.github/workflows/test.yml``.
+The 2026-07-04 TESTING.md reshape (643 -> 162 lines, commit 12bfeae5a) replaced
+the classifier-outputs inventory that carried that count with *pointers to the
+executable classifier script* — leaving no reshape-compatible home for a
+hardcoded job count. That check was therefore retired here, and the now-unused
+``test.yml`` derivation removed with it. The guard now pins the Xray
+feature-matrix counts only, which keep a natural home in the Kinds-of-tests
+"Xray gates" row (the reshape kept that row, only dropping its numbers).
+
+Ground truth derivation (deterministic, line-oriented — no JS parser):
 
   * scenario count       = object-literal ``name: '...'`` fields in
                            scenarios.cjs (a leading-comment ``name:`` is
@@ -39,25 +48,22 @@ Ground truth derivation (deterministic, line-oriented — no JS/YAML parser):
                            scenario's ``url``, drop the ``#``/``?`` tail and
                            surrounding slashes, and match against the set of
                            ``servedPath`` values.
-  * MCP-conformance jobs = top-level ``  mcp-conformance-<name>:`` job keys
-                           in test.yml (two-space indent = a job key).
 
 Claimed counts in TESTING.md are matched by a small registry of regexes
 (``CLAIM_PATTERNS`` below). Each pattern names which ground-truth value it
 must equal; every match is checked, so a count repeated on several lines is
 all verified. A pattern that *never* matches is itself a failure — that
 catches the case where a TESTING.md rewrite drops or rewords a sentence the
-guard was pinning, so the guard can be re-aimed rather than silently
-passing.
+guard was pinning, so the guard can be re-aimed rather than silently passing.
 
 Exit code:
     0  all claimed counts agree with source
     1  at least one mismatch, or a claim pattern matched nothing
     2  invocation / setup error (a source file is missing/unreadable)
 
-The script is stdlib-only (no third-party deps) and cross-platform: it
-reads files via pathlib and never shells out, so it runs identically on the
-Windows dev box and the Linux CI runners.
+The script is stdlib-only (no third-party deps) and cross-platform: it reads
+files via pathlib and never shells out, so it runs identically on the Windows
+dev box and the Linux CI runners.
 
 Usage:
     python scripts/check_testing_md_counts.py [--verbose]
@@ -75,13 +81,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 TESTING_MD = REPO_ROOT / "TESTING.md"
 SCENARIOS_CJS = REPO_ROOT / "tools" / "xray" / "testbeds" / "feature_matrix" / "scenarios.cjs"
-TEST_YML = REPO_ROOT / ".github" / "workflows" / "test.yml"
 
 # Source-derivation regexes (line-oriented; see module docstring).
 RE_SCENARIO_NAME = re.compile(r"^\s+name:\s*'")
 RE_SMOKE_TRUE = re.compile(r"^\s+smoke:\s*true\b")
 RE_SERVED_PATH = re.compile(r"^\s+servedPath:\s*'([^']*)'")
-RE_MCP_JOB = re.compile(r"^  (mcp-conformance-[A-Za-z0-9-]+):")
 
 # For the smoke-surface derivation: a scenario object opens with a
 # ``name: '...'`` line and (somewhere before the next ``name:``) may carry a
@@ -103,8 +107,8 @@ def _surface_for_url(url: str, served_paths: set) -> "str | None":
     return url_path if url_path in served_paths else None
 
 
-def derive_ground_truth(scenarios_text: str, test_yml_text: str) -> dict:
-    """Return the five live counts derived from the two source files."""
+def derive_ground_truth(scenarios_text: str) -> dict:
+    """Return the four live counts derived from scenarios.cjs."""
     scenario_count = 0
     smoke_count = 0
     served_paths = []
@@ -152,32 +156,25 @@ def derive_ground_truth(scenarios_text: str, test_yml_text: str) -> dict:
     if have_block:
         _flush()
 
-    mcp_jobs = sum(1 for line in test_yml_text.splitlines() if RE_MCP_JOB.match(line))
-
     return {
         "scenarios": scenario_count,
         "smoke_scenarios": smoke_count,
         "full_surfaces": len(served_set),
         "smoke_surfaces": len(smoke_surfaces),
-        "mcp_jobs": mcp_jobs,
     }
 
 
-# Each entry: (human label, regex with one capturing group for the digit,
-# ground-truth key it must equal). A pattern that matches zero lines is a
+# Each entry: (human label, regex with one capturing group per count, the
+# ground-truth key(s) it must equal). A pattern that matches zero lines is a
 # failure, so a TESTING.md reword that drops a pinned sentence re-surfaces
-# here rather than silently passing.
+# here rather than silently passing. All three patterns pin the single
+# Kinds-of-tests "Xray gates" row, whose sentence reads:
+#   "smoke = the N highest-signal scenarios over M staged surfaces,
+#    nightly = all P scenarios across Q surfaces."
 CLAIM_PATTERNS = [
-    ("smoke-scenario prose (--smoke tier)", re.compile(r"runs the (\d+) highest-signal scenarios over"), "smoke_scenarios"),
-    ("smoke-surface prose (--smoke tier)", re.compile(r"highest-signal scenarios over (\d+) staged surfaces"), "smoke_surfaces"),
-    ("full-sweep scenario/surface (overview table)", re.compile(r"full (\d+)-scenario / (\d+)-surface sweep"), ("scenarios", "full_surfaces")),
-    ("feature-matrix scenario count (smoke table)", re.compile(r"\| (\d+) scenarios across the matrix"), "scenarios"),
-    ("full Xray gate staged surfaces (split prose)", re.compile(r"the full Xray gate stages (\d+) surfaces"), "full_surfaces"),
-    ("smoke prose (N highest-signal Xray scenarios)", re.compile(r"the (\d+) highest-signal Xray"), "smoke_scenarios"),
-    ("smoke prose (over just N staged surfaces)", re.compile(r"over just (\d+) staged surfaces"), "smoke_surfaces"),
-    ("nightly full sweep (all N scenarios / M surfaces)", re.compile(r"all (\d+) scenarios / (\d+) surfaces"), ("scenarios", "full_surfaces")),
-    ("smoke gate row (N scenarios / M surfaces today)", re.compile(r"\((\d+) scenarios / (\d+) surfaces today\)"), ("smoke_scenarios", "smoke_surfaces")),
-    ("MCP conformance fan-out (xN)", re.compile(r"MCP conformance ×(\d+)"), "mcp_jobs"),
+    ("smoke-scenario prose (Xray gates row)", re.compile(r"smoke = the (\d+) highest-signal scenarios"), "smoke_scenarios"),
+    ("smoke-surface prose (Xray gates row)", re.compile(r"highest-signal scenarios over (\d+) staged surfaces"), "smoke_surfaces"),
+    ("full-sweep scenario/surface (Xray gates row)", re.compile(r"nightly = all (\d+) scenarios across (\d+) surfaces"), ("scenarios", "full_surfaces")),
 ]
 
 
@@ -223,15 +220,14 @@ def check_claims(testing_text: str, truth: dict, verbose: bool) -> "list[str]":
 
 
 def run_real(verbose: bool) -> int:
-    for p in (TESTING_MD, SCENARIOS_CJS, TEST_YML):
+    for p in (TESTING_MD, SCENARIOS_CJS):
         if not p.is_file():
             fail_setup(f"missing source file: {p}")
 
     testing_text = TESTING_MD.read_text(encoding="utf-8")
     scenarios_text = SCENARIOS_CJS.read_text(encoding="utf-8")
-    test_yml_text = TEST_YML.read_text(encoding="utf-8")
 
-    truth = derive_ground_truth(scenarios_text, test_yml_text)
+    truth = derive_ground_truth(scenarios_text)
     if verbose:
         sys.stderr.write(f"ground truth: {truth}\n")
 
@@ -242,11 +238,10 @@ def run_real(verbose: bool) -> int:
             sys.stderr.write(f"  {v}\n")
         return 1
     sys.stderr.write(
-        "check_testing_md_counts: OK — TESTING.md counts match "
-        "scenarios.cjs + test.yml "
+        "check_testing_md_counts: OK — TESTING.md Xray counts match "
+        "scenarios.cjs "
         f"(scenarios={truth['scenarios']}, smoke={truth['smoke_scenarios']}, "
-        f"full-surfaces={truth['full_surfaces']}, smoke-surfaces={truth['smoke_surfaces']}, "
-        f"mcp-jobs={truth['mcp_jobs']})\n"
+        f"full-surfaces={truth['full_surfaces']}, smoke-surfaces={truth['smoke_surfaces']})\n"
     )
     return 0
 
@@ -303,45 +298,29 @@ const SCENARIOS = [
 
 # Expected from the fixture above:
 #   scenarios=5, smoke=4, full-surfaces=4, smoke-surfaces=3 (counter,
-#   deliberate-throw, panel-gallery — gamma reuses counter), mcp-jobs=2.
-_SELFTEST_TEST_YML = """\
-jobs:
-  some-other-job:
-    steps: []
-  mcp-conformance-re-frame2-pair:
-    steps: []
-  mcp-conformance-story:
-    steps: []
-  # mcp-conformance-commented-out (a comment, not a job key)
-"""
-
+#   deliberate-throw, panel-gallery — gamma reuses counter).
 _SELFTEST_TRUTH = {
     "scenarios": 5,
     "smoke_scenarios": 4,
     "full_surfaces": 4,
     "smoke_surfaces": 3,
-    "mcp_jobs": 2,
 }
 
 _SELFTEST_TESTING_GOOD = """\
-The `--smoke` tier runs the 4 highest-signal scenarios over 3 staged surfaces; the full 5-scenario / 4-surface sweep runs nightly.
-| 5 scenarios across the matrix |
-the full Xray gate stages 4 surfaces).
-the 4 highest-signal Xray scenarios over just 3 staged surfaces (`a` + `b` + `c`).
-`test:xray-feature-gate` (all 5 scenarios / 4 surfaces),
-(4 scenarios / 3 surfaces today)
-MCP conformance ×2 (`mcp-conformance-{story,re-frame2-pair}`)
+The Xray feature matrix; smoke = the 4 highest-signal scenarios over 3 staged surfaces, nightly = all 5 scenarios across 4 surfaces.
 """
 
+# Flip the smoke-scenario count and the full-sweep scenario count; both pinned
+# claims must fire (the surface counts stay correct, proving per-group checking).
 _SELFTEST_TESTING_BAD = _SELFTEST_TESTING_GOOD.replace(
-    "MCP conformance ×2", "MCP conformance ×4"
-).replace("| 5 scenarios across the matrix |", "| 13 scenarios across the matrix |")
+    "smoke = the 4 highest-signal", "smoke = the 9 highest-signal"
+).replace("all 5 scenarios", "all 13 scenarios")
 
 
 def run_self_test(verbose: bool) -> int:
     failures = []
 
-    truth = derive_ground_truth(_SELFTEST_SCENARIOS, _SELFTEST_TEST_YML)
+    truth = derive_ground_truth(_SELFTEST_SCENARIOS)
     if truth != _SELFTEST_TRUTH:
         failures.append(f"derivation mismatch: got {truth}, want {_SELFTEST_TRUTH}")
 
@@ -353,12 +332,10 @@ def run_self_test(verbose: bool) -> int:
         )
 
     bad_violations = check_claims(_SELFTEST_TESTING_BAD, _SELFTEST_TRUTH, verbose)
-    # The BAD fixture flips the MCP count (xN) and the matrix-scenario count;
-    # both pinned claims must fire.
-    if not any("MCP conformance" in v for v in bad_violations):
-        failures.append("BAD fixture: MCP-count mismatch was not caught")
-    if not any("feature-matrix scenario count" in v for v in bad_violations):
-        failures.append("BAD fixture: matrix scenario-count mismatch was not caught")
+    if not any("smoke-scenario prose" in v for v in bad_violations):
+        failures.append("BAD fixture: smoke-scenario-count mismatch was not caught")
+    if not any("full-sweep scenario/surface" in v for v in bad_violations):
+        failures.append("BAD fixture: full-sweep scenario-count mismatch was not caught")
 
     if failures:
         sys.stderr.write("check_testing_md_counts --self-test: FAIL\n")

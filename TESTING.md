@@ -26,7 +26,7 @@ This table is also the command catalogue: each kind names the command that runs 
 | **docs/cljs playground** — `tools-playground` job | medium | The live-CLJS-cell engine: bundle smokes + freshness gates (byte-diff on deterministic bundles; smoke + structural validity on the SCI bundle). |
 | **MCP conformance, live** — `test:re-frame2-pair-live-hermetic-suite` | expensive | Real re-frame2-pair-mcp against a real shadow-cljs nREPL: eval cap, subscribe lifecycle, redaction, isError, cofx, event metadata. |
 | **Story gates** — `test:story-play-scripts` (PR smoke), `test:story-feature-load` + `test:story-static` (nightly) | expensive | Every variant's `:play-script` runs as a regression test; the full feature-load + static-export sweep runs nightly. |
-| **Xray gates** — `test:xray-feature-gate:smoke` (PR), `test:xray-feature-gate` (nightly) | medium / expensive | The Xray feature matrix; smoke = highest-signal scenarios over few staged surfaces, nightly = all scenarios, all surfaces. |
+| **Xray gates** — `test:xray-feature-gate:smoke` (PR), `test:xray-feature-gate` (nightly) | medium / expensive | The Xray feature matrix; smoke = the 4 highest-signal scenarios over 3 staged surfaces, nightly = all 16 scenarios across 11 surfaces. These counts are source-anchored to `tools/xray/testbeds/feature_matrix/scenarios.cjs` by `scripts/check_testing_md_counts.py`. |
 | **Template emitted-app smoke** — `jvm-tools-template` job | expensive | The emitted app boots and passes its own gates, plus the `re-frame2-setup` day-one scaffold materialise-and-compile drift net. Behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`. |
 
 ## Test surfaces and their owners

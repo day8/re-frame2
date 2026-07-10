@@ -449,6 +449,24 @@ jobs:
       - name: Verify impl keyword contract vs Spec 009 + Conventions (rf2-1nci83)
         run: python scripts/check_keyword_catalogue_drift.py --verbose
 
+      # TESTING.md Xray feature-matrix count guard (rf2-o23pim). The
+      # Kinds-of-tests "Xray gates" row states four hand-maintained counts —
+      # smoke/full scenario counts + smoke/full staged-surface counts — that
+      # are derived from tools/xray/testbeds/feature_matrix/scenarios.cjs.
+      # These drifted silently once (rf2-dvwvyk: a surface removed from
+      # scenarios.cjs without a TESTING.md re-check), and the prose had no
+      # automated guard. This gate re-derives the live counts and fails on any
+      # mismatch — or when a pinned sentence is reworded away (fail-on-no-match).
+      # Hosted in this always-on PR-spine python job so a count drift blocks the
+      # merge whether the PR edits TESTING.md, scenarios.cjs, or neither. Self-test
+      # first (proves the parse + claim-checking fire on a synthetic mismatch),
+      # then the live scan. See scripts/check_testing_md_counts.py.
+      - name: Self-test the TESTING.md Xray-count guard
+        run: python scripts/check_testing_md_counts.py --self-test --verbose
+
+      - name: Verify TESTING.md Xray counts match scenarios.cjs (rf2-o23pim)
+        run: python scripts/check_testing_md_counts.py --verbose
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub
