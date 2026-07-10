@@ -917,7 +917,8 @@
 ;; ---------------------------------------------------------------------------
 ;; JS-vs-Malli `ReFrame2PairOverflowBody` cross-encoding sanity (rf2-0zqox).
 ;;
-;; `test/live-re-frame2-pair-overflow.cjs` hand-rolls `assertOverflowBody` as a JS
+;; `lib/overflow-marker.cjs` (imported by `test/live-re-frame2-pair-overflow.cjs`)
+;; hand-rolls `assertOverflowBody` as a JS
 ;; re-encoding of `ReFrame2PairOverflowBody`. The two encodings must agree on
 ;; the same contract — that's the whole point of pinning a vocabulary
 ;; conformance gate; a drift between the encodings is a vocabulary bug
@@ -944,8 +945,15 @@
 
 (def ^:private live-re-frame2-pair-overflow-js-rel
   "Relative path to the hand-rolled JS assertion. Single source of truth
-  — drift here surfaces against the slurp below."
-  "tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs")
+  — drift here surfaces against the slurp below.
+
+  rf2-3fc89f.20 extracted the pure overflow parsing/validation out of the
+  live gate into `lib/overflow-marker.cjs` (so its branches are
+  unit-testable off the SKIP-gated live path). The `REQUIRED_FIELDS` data
+  table + the token-count invariant this gate greps now live THERE; the
+  live `test/live-re-frame2-pair-overflow.cjs` imports them. Point the
+  slurp at the helper that owns the rows."
+  "tools/mcp-conformance/lib/overflow-marker.cjs")
 
 (def ^:private re-frame2-pair-overflow-js-required-grep-markers
   "Substrings the JS `assertOverflowBody` MUST contain to pin every

@@ -61,6 +61,10 @@ const TESTS = [
     argv: ['--test', 'test/token-match.test.cjs'],
   },
   {
+    name: 'overflow marker: closed single-key wrapper + dual-slot agreement',
+    argv: ['--test', 'test/overflow-marker.test.cjs'],
+  },
+  {
     name: 'universal isError and :ok? cross-check after dedup decoding',
     argv: ['--test', 'test/is-error-matches-ok.test.cjs'],
   },

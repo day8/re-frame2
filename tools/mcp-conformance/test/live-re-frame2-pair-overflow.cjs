@@ -79,18 +79,33 @@
 // through `runWithWatchdog.skip`, and the spawn+connect+teardown ceremony
 // is `_runner.cjs`'s `connectServer` / `closeQuietly` (the redaction arm's
 // second-server boot uses it directly). What is NOT shared — by design —
-// is each variant's data-driven field validator (`REQUIRED_FIELDS` +
-// `assertOverflowBody` here; `REQUIRED_PARAMS` + `assertProgressParams` in
-// subscribe). Each pins a DISTINCT Malli schema (`ReFrame2PairOverflowBody`
-// vs `ReFrame2PairProgressNotificationParams`) and the JVM cross-encoding
-// gate in `wire_vocab_test.clj` greps each function's literal source rows
-// by name — collapsing them into one generic helper would dissolve that
-// per-schema attribution and weaken the conformance contract.
+// is each variant's data-driven field validator: this variant's overflow
+// parsing/validation lives in the overflow-SPECIFIC `lib/overflow-marker.cjs`
+// (`REQUIRED_FIELDS` + `assertOverflowBody` + the closed-wrapper guard),
+// while subscribe keeps `REQUIRED_PARAMS` + `assertProgressParams` inline.
+// Each pins a DISTINCT Malli schema (`ReFrame2PairOverflowBody` vs
+// `ReFrame2PairProgressNotificationParams`) and the JVM cross-encoding gate
+// in `wire_vocab_test.clj` greps each validator's literal source rows by
+// name — collapsing them into one GENERIC helper would dissolve that
+// per-schema attribution and weaken the conformance contract. (The overflow
+// helper was extracted so its pure logic is unit-testable off the live
+// path; it is not shared with subscribe.)
 
 const path = require('node:path');
 const os = require('node:os');
-const { parseEDNString } = require('edn-data');
 const { runWithWatchdog } = require('./_runner.cjs');
+// Pure overflow parsing/validation lives in `lib/overflow-marker.cjs` so
+// it is unit-testable without booting a server (this file's top-level
+// SKIP path exits before any function is reachable). It owns the
+// CLOSED single-key wrapper enforcement, the `REQUIRED_FIELDS` body table,
+// the token-count invariant, and the dual-slot agreement check. The JVM
+// cross-encoding grep gate (`js-assertOverflowBody-pins-every-re-frame2-pair-
+// overflow-required-field`) slurps that helper's `REQUIRED_FIELDS` rows.
+const {
+  validateOverflowText,
+  validateOverflowWrapper,
+  assertBodiesAgree,
+} = require('../lib/overflow-marker.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -111,76 +126,6 @@ const DEFAULT_MAX_TOKENS = 5000;
 // (large enough to trip, not so large that an unrelated overflow
 // path kicks in first).
 const FORM_OVER_BUDGET = '(apply str (repeat 25000 "x"))';
-
-// `edn-data` parse opts pinned for the whole harness: map → plain JS
-// object, keyword → bare string (no `:` prefix), set → array. The
-// bare-string keyword form matches Node's JSON-native sensibilities and
-// makes assertions read directly (`body.limit === 'reached'`). Drift in
-// the EDN shape surfaces as a parse exception on a real EDN reader.
-const EDN_PARSE_OPTS = { mapAs: 'object', keywordAs: 'string', setAs: 'array' };
-
-// Required-field table for `:rf.mcp/overflow` (re-frame2-pair-mcp shape). Each
-// row pins one Malli `ReFrame2PairOverflowBody` field, the expected value
-// shape, and a description for the error message. Adding / removing a
-// row MUST stay in lockstep with the Malli schema in
-// `wire-vocab/test/.../wire_vocab_test.clj` (`ReFrame2PairOverflowBody`); the
-// cross-encoding grep gate (`js-assertOverflowBody-pins-every-re-frame2-pair-
-// overflow-required-field`) reads this same data table by name so a
-// drift in either direction trips the JVM-side test.
-const REQUIRED_FIELDS = [
-  ['limit',       (v) => v === 'reached',          'enum :reached'],
-  ['cap-tokens',  (v) => typeof v === 'number',    'int'],
-  ['token-count', (v) => typeof v === 'number',    'int'],
-  ['tool',        (v) => typeof v === 'string',    'string|keyword'],
-  ['hint',        (v) => typeof v === 'string',    'string|keyword'],
-];
-
-// Validate the parsed `:rf.mcp/overflow` body against the canonical
-// `ReFrame2PairOverflowBody` shape.
-function assertOverflowBody(body, ctx) {
-  if (!body || typeof body !== 'object') {
-    throw new Error(ctx + ': overflow body is not a map: ' + JSON.stringify(body));
-  }
-  for (const [field, ok, desc] of REQUIRED_FIELDS) {
-    if (!ok(body[field])) {
-      throw new Error(
-        ctx + ': :' + field + ' MUST be ' + desc +
-          '; got ' + JSON.stringify(body[field]) +
-          '. (Schema: ReFrame2PairOverflowBody.' + field + ' : ' + desc + ')',
-      );
-    }
-  }
-  // Cross-field invariant: a tripped cap MUST report token-count
-  // strictly greater than cap-tokens. Malli's `[:map ...]` doesn't
-  // model cross-field relationships; this is the only gate.
-  if (body['token-count'] <= body['cap-tokens']) {
-    throw new Error(
-      ctx + ': :token-count MUST exceed :cap-tokens for a tripped cap; got ' +
-        body['token-count'] + ' ≤ ' + body['cap-tokens'],
-    );
-  }
-}
-
-// Parse the canonical re-frame2-pair-mcp overflow marker from response
-// text. `edn-data` (~30KB, zero transitive deps) is a real EDN reader
-// that handles nested-map / escape-sequence shapes robustly. Returns the
-// inner body map (a plain JS object with bare-string keys) or null when
-// the marker is absent / the text is unparseable.
-function parseOverflowMarker(text) {
-  let outer;
-  try {
-    outer = parseEDNString(text, EDN_PARSE_OPTS);
-  } catch (_e) {
-    return null;
-  }
-  if (!outer || typeof outer !== 'object') return null;
-  // The marker is `{:rf.mcp/overflow {...}}` — with `keywordAs:
-  // 'string'` the top-level key arrives as the bare string
-  // `'rf.mcp/overflow'`. Any other shape (a longer envelope wrapping
-  // the marker, an `:ok? true` success that means apply-cap missed)
-  // is rejected.
-  return outer['rf.mcp/overflow'] || null;
-}
 
 // Pre-flight SKIP: route through the runner's shared skip helper so we
 // don't spawn a child or install a watchdog. Same posture as the sibling
@@ -253,11 +198,13 @@ runWithWatchdog(
     }
     console.log('OK   tools/call eval-cljs -> SDK accepts envelope, isError=false');
 
-    // 4. The content slot must hold the canonical `:rf.mcp/overflow`
-    // marker. We read the EDN text and parse the inner map. Any
-    // surrounding `{:ok? true :value "xxxxx..."}` reaching the wire
-    // would indicate `apply-cap` failed to trigger — the load-bearing
-    // bug this variant guards against.
+    // 4. The `content[0].text` slot must hold the canonical
+    // `:rf.mcp/overflow` marker. We read the EDN text and validate it as
+    // the CLOSED single-key wrapper — a surrounding `{:ok? true :value
+    // "xxxxx..."}` (apply-cap missed) OR a mixed envelope smuggling a
+    // sibling top-level key past the wrapper (the rf2-3fc89f.20 hole) is
+    // rejected. The friendly presence check first distinguishes "cap
+    // didn't trigger" from "cap triggered but shape wrong".
     const text = callResp.content?.[0]?.text;
     if (typeof text !== 'string') {
       throw new Error('content[0].text is not a string: ' + JSON.stringify(callResp));
@@ -271,20 +218,46 @@ runWithWatchdog(
     }
     console.log('OK   response text carries :rf.mcp/overflow marker key');
 
-    // 5. Schema-validate the marker body against the canonical
-    // ReFrame2PairOverflowBody shape pinned by wire-vocab. This is the
-    // cross-server vocabulary assertion: re-frame2-pair-mcp's wire emission
-    // MUST satisfy the same shape as the wire-vocab fixture.
-    const body = parseOverflowMarker(text);
-    if (!body) {
-      throw new Error(
-        'Could not parse `:rf.mcp/overflow` body from response text.\n' +
-          'First 500 chars: ' +
-          text.slice(0, 500),
-      );
-    }
-    assertOverflowBody(body, 'eval-cljs live overflow');
-    console.log('OK   marker body validates against canonical ReFrame2PairOverflowBody schema');
+    // 5. Validate the text-slot marker: closed single-key wrapper +
+    // canonical `ReFrame2PairOverflowBody` body + the token-count >
+    // cap-tokens invariant. This is the cross-server vocabulary
+    // assertion: re-frame2-pair-mcp's wire emission MUST satisfy the same
+    // shape as the wire-vocab fixture AND the JVM `Overflow` schema's
+    // `{:closed true}` single-key posture.
+    const textBody = validateOverflowText(text, 'eval-cljs live overflow (content[0].text)');
+    console.log('OK   content[0].text validates as the CLOSED :rf.mcp/overflow wrapper + body');
+
+    // 5b. Validate the SECOND result slot — `structuredContent`. Pair
+    // MCP writes the SAME marker into BOTH `content[0].text` (pr-str EDN)
+    // and `structuredContent` (the namespace-preserving `clj->js`
+    // projection, see `tools/cap.cljs build-overflow-result` →
+    // `wire/result`). Before rf2-3fc89f.20 the live gate never inspected
+    // structuredContent, so it could lose the namespace, gain siblings,
+    // or carry a different body while text stayed canonical and CI still
+    // reported green. `structuredContent` arrives as an already-parsed JS
+    // object whose top-level key is the bare string `"rf.mcp/overflow"`,
+    // so the SAME closed-wrapper validator applies.
+    const structured = callResp.structuredContent;
+    const structuredBody = validateOverflowWrapper(
+      structured,
+      'eval-cljs live overflow (structuredContent)',
+    );
+    console.log('OK   structuredContent validates as the CLOSED :rf.mcp/overflow wrapper + body');
+
+    // 5c. Prove the two slots agree. A drift (a field present in one but
+    // not the other, or a differing value) means the dual representations
+    // diverged — a client reading structuredContent would see a different
+    // marker than one reading the text.
+    assertBodiesAgree(
+      textBody,
+      structuredBody,
+      'eval-cljs live overflow (dual-slot)',
+    );
+    console.log('OK   content[0].text and structuredContent marker bodies agree');
+
+    // The semantic pins below read the text-slot body (byte-identical to
+    // the structured body per 5c).
+    const body = textBody;
 
     // 6. Pin the load-bearing semantic facts about the marker:
     //   - :cap-tokens MUST equal the documented default (5000).
@@ -298,7 +271,7 @@ runWithWatchdog(
     // EDN keywords as bare strings (no `:` prefix), so `body.foo` reads
     // directly. The Malli-side schema names the same fields as kebab-
     // case keywords; the cross-encoding gate in `wire_vocab_test.clj`
-    // greps for the JS-side substrings below.
+    // greps the `REQUIRED_FIELDS` rows in `lib/overflow-marker.cjs`.
     if (body['cap-tokens'] !== DEFAULT_MAX_TOKENS) {
       throw new Error(
         ':cap-tokens MUST equal default ' +
