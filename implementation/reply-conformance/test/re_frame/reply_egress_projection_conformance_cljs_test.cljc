@@ -32,6 +32,7 @@
   + `spec/Managed-Effects.md` §Tracing (the data-only trace summary)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
@@ -54,6 +55,11 @@
 
 (def ^:private frame-id :reply-egress/main)
 
+;; The raw sensitive token — the exact string that MUST NOT survive projection
+;; into any off-box / redacted wire slot. Named once so the sentinel predicate
+;; and the fixtures share a single source of truth.
+(def ^:private raw-token "bearer-SECRET-do-not-ship")
+
 (def ^:private big-string
   ;; Exceeds the default size threshold as well as carrying a declaration.
   (apply str (repeat 40000 \x)))
@@ -68,7 +74,7 @@
 
 ;; Payload fixtures use the classified coordinates directly.
 (defn- reply-body []
-  {:token      "bearer-SECRET-do-not-ship"
+  {:token      raw-token
    :blob       big-string
    :secret-big big-string
    :public     {:count 3}})
@@ -93,7 +99,7 @@
   {:status      :error
    :error       {:kind   :rf.http/http-5xx
                  :status 503
-                 :token  "bearer-SECRET-do-not-ship"
+                 :token  raw-token
                  :blob   big-string}
    :rf.reply/work-id     work-id
    :rf.reply/work-kind   :resource
@@ -102,6 +108,43 @@
 
 (defn- redacted? [v] (= privacy/redacted-sentinel v))
 (defn- large-marker? [v] (and (map? v) (contains? v :rf.size/large-elided)))
+
+;; ---------------------------------------------------------------------------
+;; Recursive raw-value-absence predicate (Finding 2, rf2-3fc89f.7).
+;;
+;; `large-marker?` proves a marker is PRESENT; it does NOT prove the raw value
+;; LEFT — a leaking marker representation or a reply-slot projection regression
+;; could carry `{:rf.size/large-elided true :raw <40k-string>}` and still pass a
+;; marker-presence check. This portable tree walk (no JVM-only walk API — it
+;; runs identically on both hosts) asserts the exact raw sentinel is absent from
+;; EVERY nested node of a projected slot, closing that fail-open gap.
+;; ---------------------------------------------------------------------------
+
+(defn- tree-contains?
+  "True iff any node reachable in `data` satisfies `pred`. Recurses map keys AND
+  vals, sequential collections, and sets; applies `pred` at every node."
+  [pred data]
+  (cond
+    (pred data)  true
+    (map? data)  (boolean (some (fn [[k v]] (or (tree-contains? pred k)
+                                                (tree-contains? pred v)))
+                                data))
+    (coll? data) (boolean (some #(tree-contains? pred %) data))
+    :else        false))
+
+(defn- embeds-raw-token?
+  "True iff the raw sensitive token survives anywhere in `data` — as a string
+  equal to OR embedding the original bearer token (a leaking representation
+  might wrap rather than replace it)."
+  [data]
+  (tree-contains? #(and (string? %) (str/includes? % raw-token)) data))
+
+(defn- embeds-raw-blob?
+  "True iff the raw 40k big-string survives anywhere in `data` (equal or
+  embedded). The legitimate `:rf.size/large-elided` marker carries only a
+  byte-count / type / handle, so it never trips this predicate."
+  [data]
+  (tree-contains? #(and (string? %) (str/includes? % big-string)) data))
 
 ;; ---------------------------------------------------------------------------
 ;; trace-summary projects every wire-bearing slot and preserves identity facts.
@@ -133,7 +176,25 @@
         (is (= :resource (:rf.reply/work-kind summary))     ":rf.reply/work-kind verbatim")
         (is (= :completed (:rf.reply/work-status summary))  ":rf.reply/work-status verbatim")
         (is (= frame-id (:rf.frame/id summary))    ":rf.frame/id verbatim")
-        (is (= completed-at-ms (:completed-at summary)) ":completed-at verbatim")))))
+        (is (= completed-at-ms (:completed-at summary)) ":completed-at verbatim"))
+      (testing "NO raw sensitive/large value survives in ANY projected wire slot"
+        ;; Marker/redaction PRESENCE is asserted above; this proves the raw
+        ;; value is ABSENT — recursively, so a value retained under a sibling
+        ;; key or embedded in a marker cannot slip through.
+        (is (not (embeds-raw-token? (:value summary)))
+            "the raw token is absent from the projected :value slot")
+        (is (not (embeds-raw-blob? (:value summary)))
+            "the raw 40k blob is absent from the projected :value slot")
+        (is (not (embeds-raw-token? (:correlation summary)))
+            "the raw token is absent from the projected :correlation slot")
+        (is (not (embeds-raw-blob? (:meta summary)))
+            "the raw blob is absent from the projected :meta slot")
+        ;; And nothing raw survives anywhere in the whole summary (identity
+        ;; facts carry no wire values).
+        (is (not (embeds-raw-token? summary))
+            "no raw token anywhere in the trace summary")
+        (is (not (embeds-raw-blob? summary))
+            "no raw blob anywhere in the trace summary")))))
 
 (deftest trace-summary-projects-the-error-failure-payload
   (testing "the :error payload is projected like the :value payload"
@@ -148,7 +209,14 @@
           "the family error :kind rides (not a declared wire path)")
       (is (= 503 (get-in summary [:error :status]))
           "the family error :status rides (not a declared wire path)")
-      (is (= work-id (:rf.reply/work-id summary)) ":rf.reply/work-id verbatim on an error reply"))))
+      (is (= work-id (:rf.reply/work-id summary)) ":rf.reply/work-id verbatim on an error reply")
+      (testing "NO raw sensitive/large value survives in the projected :error slot"
+        (is (not (embeds-raw-token? (:error summary)))
+            "the raw token is absent from the projected :error payload")
+        (is (not (embeds-raw-blob? (:error summary)))
+            "the raw blob is absent from the projected :error payload")
+        (is (not (embeds-raw-token? summary))
+            "no raw token anywhere in the error trace summary")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sensitive classification wins over large classification.
@@ -179,7 +247,7 @@
     (let [unresolved (reply/trace-summary (ok-reply) {:frame :reply-egress/ghost})]
       (is (redacted? (:value unresolved))
           "an UNRESOLVED :frame opt fails closed — the whole :value slot redacts")
-      (is (not= "bearer-SECRET-do-not-ship" (get-in unresolved [:value :token]))
+      (is (not (embeds-raw-token? unresolved))
           "the raw token NEVER ships under an unresolved frame")
       ;; Identity facts are not wire slots and remain unchanged.
       (is (= work-id (:rf.reply/work-id unresolved))
@@ -202,7 +270,7 @@
             "the carried frame's large policy elides [:blob]")
         (is (= 3 (get-in summary [:value :public :count]))
             "the unmarked sibling passes through — per-leaf policy, not a whole-slot redact")
-        (is (not= "bearer-SECRET-do-not-ship" (get-in summary [:value :token]))
+        (is (not (embeds-raw-token? summary))
             "the raw token NEVER ships")
         (is (= frame-id (:rf.frame/id summary))
             "the carried :rf.frame/id remains an identity fact")
@@ -238,14 +306,26 @@
         (is (large-marker? (get-in out [:blob]))
             (str p ": the large reply-body leaf is elided"))
         (is (= 3 (get-in out [:public :count]))
-            (str p ": the unmarked sibling passes through"))))
+            (str p ": the unmarked sibling passes through"))
+        ;; Marker/redaction presence is asserted above; prove raw ABSENCE too —
+        ;; recursively, across the whole projected record.
+        (is (not (embeds-raw-token? out))
+            (str p ": the raw token does NOT survive project-egress anywhere"))
+        (is (not (embeds-raw-blob? out))
+            (str p ": the raw blob does NOT survive project-egress anywhere"))))
     (testing ":rf.egress/local-raw exposes classified fields"
       (let [out (rf/project-egress (reply-body)
                   {:frame frame-id :rf.egress/profile :rf.egress/local-raw})]
-        (is (= "bearer-SECRET-do-not-ship" (get-in out [:token]))
+        (is (= raw-token (get-in out [:token]))
             "local-raw keeps the token")
         (is (= big-string (get-in out [:blob]))
-            "local-raw keeps the large field")))))
+            "local-raw keeps the large field")
+        ;; The explicit positive control: the SAME sentinel predicate that must
+        ;; find nothing off-box MUST find the originals under local-raw.
+        (is (embeds-raw-token? out)
+            "local-raw is the positive control — the raw token IS present")
+        (is (embeds-raw-blob? out)
+            "local-raw is the positive control — the raw blob IS present")))))
 
 (deftest off-box-project-egress-fails-closed-on-an-unresolved-frame
   (testing "project-egress fails closed for an unresolved explicit frame"
@@ -253,8 +333,10 @@
                 {:frame :reply-egress/ghost :rf.egress/profile :rf.egress/off-box-tool})]
       (is (redacted? out)
           "an unresolved-frame off-box egress conservatively redacts the whole reply body")
-      (is (not= "bearer-SECRET-do-not-ship" (get-in out [:token]))
-          "the raw token NEVER ships under an unresolved frame"))))
+      (is (not (embeds-raw-token? out))
+          "the raw token NEVER ships under an unresolved frame")
+      (is (not (embeds-raw-blob? out))
+          "the raw blob NEVER ships under an unresolved frame"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mapped targets have distinct ephemeral and durable representations; completed
@@ -297,11 +379,42 @@
   (testing "the raw fixture contains protected fields before projection"
     (mk-frame!)
     (let [reply (ok-reply)]
-      (is (= "bearer-SECRET-do-not-ship" (get-in reply [:value :token]))
+      (is (= raw-token (get-in reply [:value :token]))
           "the RAW reply carries the sensitive token (pre-projection)")
       (is (= big-string (get-in reply [:value :blob]))
           "the RAW reply carries the large blob (pre-projection)")
+      ;; The sentinel predicate finds the originals in the raw reply — its
+      ;; positive baseline (the redacted/projected outputs above must NOT).
+      (is (embeds-raw-token? reply)
+          "the sentinel predicate finds the raw token in the pre-projection reply")
+      (is (embeds-raw-blob? reply)
+          "the sentinel predicate finds the raw blob in the pre-projection reply")
       ;; The direct walker provides the expected projection result.
       (let [direct (elision/elide-wire-value (:value reply) {:frame frame-id})]
         (is (redacted? (get-in direct [:token]))
             "the shared walker redacts the token")))))
+
+;; ---------------------------------------------------------------------------
+;; Adversarial control (Finding 2): a marker map that STILL embeds the raw
+;; large value passes the superficial `large-marker?` presence check but is
+;; caught by the recursive sentinel predicate — proving the raw-value-absence
+;; gate has teeth that marker-presence alone lacks.
+;; ---------------------------------------------------------------------------
+
+(deftest sentinel-predicate-catches-a-marker-that-embeds-the-raw-value
+  (testing "a large-marker map that ALSO retains the raw big-string fools
+            large-marker? but the recursive sentinel predicate would go RED on it"
+    (let [leaking {:rf.size/large-elided true :raw big-string}]
+      ;; The fail-open gap: the superficial marker-presence check is satisfied.
+      (is (large-marker? leaking)
+          "large-marker? returns true for the leaking marker (the gap Finding 2 closes)")
+      ;; The recursive sentinel predicate catches the embedded raw value, so a
+      ;; raw-value-absence assertion built on it FAILS on this leaking shape.
+      (is (embeds-raw-blob? leaking)
+          "the sentinel predicate FINDS the raw blob the leaking marker embeds")))
+  (testing "a LEGITIMATE large-elided marker carries no raw value, so the
+            sentinel predicate does not false-positive on it"
+    (let [clean (elision/->marker big-string [:blob] {})]
+      (is (large-marker? clean) "a real marker is still a marker")
+      (is (not (embeds-raw-blob? clean))
+          "the real marker carries only a byte-count / type / handle — no raw blob"))))

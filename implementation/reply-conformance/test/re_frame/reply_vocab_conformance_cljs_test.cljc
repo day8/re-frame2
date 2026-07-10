@@ -191,30 +191,126 @@
   ;; The current work id names the superseding HTTP attempt.
   (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
 
-(defn- resource-stale-out []
-  (rreply/stale-reply
-    {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-     :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-     :extra   {:rf.reply/work-id      [:rf.work/resource [:rf.scope/global :r {}] 4]
-               :rf.reply/work-kind    :resource
-               :rf.frame/id           :app/main
-               :rf.reply/stale-reason :resource/generation-mismatch}}))
+;; The stale-suppression outcomes are parameterized by an optional `extra-more`
+;; (resource / mutation) or `ctx-more` (route) map so the non-success stale
+;; time-pair (below) can thread `:completed-at` onto the suppress `:extra` /
+;; ctx and prove completion-time propagation + omission through the same shared
+;; suppress boundary. The 0-arg arity is the original no-extra outcome.
+(defn- resource-stale-out
+  ([] (resource-stale-out nil))
+  ([extra-more]
+   (rreply/stale-reply
+     {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
+      :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
+      :extra   (merge {:rf.reply/work-id      [:rf.work/resource [:rf.scope/global :r {}] 4]
+                       :rf.reply/work-kind    :resource
+                       :rf.frame/id           :app/main
+                       :rf.reply/stale-reason :resource/generation-mismatch}
+                      extra-more)})))
 
-(defn- mutation-stale-out []
-  (rreply/stale-reply
-    {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
-     :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
-     :extra   {:rf.reply/work-id      [:rf.work/resource [:rf.mutation :form/save-1] 2]
-               :rf.reply/work-kind    :mutation
-               :rf.frame/id           :app/main
-               :rf.reply/stale-reason :mutation/superseded}}))
+(defn- mutation-stale-out
+  ([] (mutation-stale-out nil))
+  ([extra-more]
+   (rreply/stale-reply
+     {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
+      :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
+      :extra   (merge {:rf.reply/work-id      [:rf.work/resource [:rf.mutation :form/save-1] 2]
+                       :rf.reply/work-kind    :mutation
+                       :rf.frame/id           :app/main
+                       :rf.reply/stale-reason :mutation/superseded}
+                      extra-more)})))
 
-(defn- route-stale-out []
-  (route-reply/suppress {:route-id  :route/article
-                         :nav-token "nav-1"
-                         :loader-id :article/loaded
-                         :frame     :app/main}
-                        "nav-2"))
+(defn- route-stale-out
+  ([] (route-stale-out nil))
+  ([ctx-more]
+   (route-reply/suppress (merge {:route-id  :route/article
+                                 :nav-token "nav-1"
+                                 :loader-id :article/loaded
+                                 :frame     :app/main}
+                                ctx-more)
+                         "nav-2")))
+
+;; ---------------------------------------------------------------------------
+;; Non-success terminal completion-time pairs (Finding 1, rf2-3fc89f.7). The
+;; success tier already pairs `:completed-at` presence/omission across families;
+;; these extend the SAME propagation/omission gate to the non-success terminals
+;; whose owning builder contract ACCEPTS or DURABLY USES the causal completion
+;; time. Each `-with-time` builder supplies `completion-time-ms`; each
+;; `-no-time` builder omits it, so the shared gate proves both propagation and
+;; omission.
+;;
+;; Terminals EXCLUDED from the gate (see `time-pair-exclusions`): HTTP stale
+;; (`http-reply/suppress` hard-codes its stale `:extra` — no completion-time
+;; slot), machine cancel (`cancelled-actor-reply`) and timer cancel
+;; (`cancelled-timer-reply`) take no `:completed-at` parameter — an
+;; actor-destroy / timer-cancel terminal is a correlation row, not a causal
+;; completion that threads a fire-time. Documenting the exclusions keeps the
+;; gate from becoming an over-broad mandatory-field rule.
+;; ---------------------------------------------------------------------------
+
+;; HTTP failure/abort lower through `base-reply`, which threads `:completed-at`.
+(defn- http-error-with-time  [] (http-reply/failure-reply http-ctx a-failure))
+(defn- http-error-no-time    [] (http-reply/failure-reply (dissoc http-ctx :completed-at) a-failure))
+(defn- http-cancel-with-time [] (http-reply/failure-reply http-ctx an-abort))
+(defn- http-cancel-no-time   [] (http-reply/failure-reply (dissoc http-ctx :completed-at) an-abort))
+
+;; Resource/mutation failure/abort thread `:completed-at` from the opts map —
+;; the causal fact closed bug rf2-rl27r2 / PR #4473 repaired (pinned only
+;; family-locally before; this closes the umbrella gap Finding 1 names).
+(defn- resource-error-with-time []
+  (rreply/failure-reply resource-vp a-failure
+                        {:work-kind rreply/work-kind-resource :completed-at completion-time-ms}))
+(defn- resource-error-no-time []
+  (rreply/failure-reply resource-vp a-failure {:work-kind rreply/work-kind-resource}))
+(defn- resource-cancel-with-time []
+  (rreply/failure-reply resource-vp an-abort
+                        {:work-kind rreply/work-kind-resource :completed-at completion-time-ms}))
+(defn- resource-cancel-no-time []
+  (rreply/failure-reply resource-vp an-abort {:work-kind rreply/work-kind-resource}))
+
+(defn- mutation-error-with-time []
+  (rreply/failure-reply mutation-vp a-failure
+                        {:work-kind rreply/work-kind-mutation :completed-at completion-time-ms}))
+(defn- mutation-error-no-time []
+  (rreply/failure-reply mutation-vp a-failure {:work-kind rreply/work-kind-mutation}))
+(defn- mutation-cancel-with-time []
+  (rreply/failure-reply mutation-vp an-abort
+                        {:work-kind rreply/work-kind-mutation :completed-at completion-time-ms}))
+(defn- mutation-cancel-no-time []
+  (rreply/failure-reply mutation-vp an-abort {:work-kind rreply/work-kind-mutation}))
+
+;; Resource/mutation stale thread `:completed-at` via the suppress `:extra`.
+(defn- resource-stale-with-time [] (:reply (resource-stale-out {:completed-at completion-time-ms})))
+(defn- resource-stale-no-time   [] (:reply (resource-stale-out)))
+(defn- mutation-stale-with-time [] (:reply (mutation-stale-out {:completed-at completion-time-ms})))
+(defn- mutation-stale-no-time   [] (:reply (mutation-stale-out)))
+
+;; Machine spawn-error threads `:completed-at` through `base-reply`; `machine-ctx`
+;; already carries one, so the with-time builder reuses it directly.
+(defn- machine-error-with-time [] (m-reply/error-reply machine-ctx {:reason :bad-creds}))
+(defn- machine-error-no-time   [] (m-reply/error-reply (dissoc machine-ctx :completed-at) {:reason :bad-creds}))
+
+;; Machine spawn-stale threads `:completed-at` when the ctx supplies one
+;; (`machine-stale-reply` already carries it; this is its no-time companion).
+(defn- machine-stale-no-time []
+  (m-reply/stale-spawn-reply (assoc (dissoc machine-ctx :completed-at) :current-generation nil)))
+
+;; Timer `:after`-stale threads `:completed-at` when the firing dispatch
+;; supplied it (`after-stale-reply` above is its no-time companion).
+(defn- after-stale-reply-with-time []
+  (m-reply/after-stale-reply
+    {:actor-id        :a/multi
+     :state           :loading
+     :delay           30000
+     :decl-path       [:loading]
+     :scheduled-epoch 1
+     :current-epoch   2
+     :frame           :app/main
+     :completed-at    completion-time-ms}))
+
+;; Route stale threads `:completed-at` when the suppress ctx supplies one.
+(defn- route-stale-with-time [] (:reply (route-stale-out {:completed-at completion-time-ms})))
+(defn- route-stale-no-time   [] (:reply (route-stale-out)))
 
 (def ^:private families
   [{:family          :http
@@ -223,6 +319,12 @@
     :success-no-time http-success-no-time
     :error           #(http-reply/failure-reply http-ctx a-failure)
     :cancel          #(http-reply/failure-reply http-ctx an-abort)
+    ;; Non-success completion-time pairs (HTTP stale excluded — `suppress`
+    ;; hard-codes its `:extra` with work-id facts only).
+    :error-with-time  http-error-with-time
+    :error-no-time    http-error-no-time
+    :cancel-with-time http-cancel-with-time
+    :cancel-no-time   http-cancel-no-time
     ;; HTTP supersession is a stale completion of the earlier request attempt.
     :stale-out       http-stale-out
     :stale           #(:reply (http-stale-out))}
@@ -237,6 +339,12 @@
                                             {:work-kind rreply/work-kind-resource})
     :cancel          #(rreply/failure-reply resource-vp an-abort
                                             {:work-kind rreply/work-kind-resource})
+    :error-with-time  resource-error-with-time
+    :error-no-time    resource-error-no-time
+    :cancel-with-time resource-cancel-with-time
+    :cancel-no-time   resource-cancel-no-time
+    :stale-with-time  resource-stale-with-time
+    :stale-no-time    resource-stale-no-time
     :stale-out       resource-stale-out
     :stale           #(:reply (resource-stale-out))}
 
@@ -250,6 +358,12 @@
                                             {:work-kind rreply/work-kind-mutation})
     :cancel          #(rreply/failure-reply mutation-vp an-abort
                                             {:work-kind rreply/work-kind-mutation})
+    :error-with-time  mutation-error-with-time
+    :error-no-time    mutation-error-no-time
+    :cancel-with-time mutation-cancel-with-time
+    :cancel-no-time   mutation-cancel-no-time
+    :stale-with-time  mutation-stale-with-time
+    :stale-no-time    mutation-stale-no-time
     :stale-out       mutation-stale-out
     :stale           #(:reply (mutation-stale-out))}
 
@@ -261,6 +375,12 @@
     ;; Destroying an actor closes its work attempt with cancellation data.
     :cancel          #(m-reply/cancelled-actor-reply
                         (assoc machine-ctx :reason :explicit))
+    ;; Spawn-error + spawn-stale carry completion time; actor-destroy cancel
+    ;; does not (see `time-pair-exclusions`).
+    :error-with-time  machine-error-with-time
+    :error-no-time    machine-error-no-time
+    :stale-with-time  machine-stale-reply
+    :stale-no-time    machine-stale-no-time
     ;; Machine replies carry their stale gate directly in `:correlation`.
     :stale           machine-stale-reply}
 
@@ -280,6 +400,10 @@
                          :epoch     1
                          :frame     :app/main
                          :reason    :on-exit})
+    ;; The `:after`-stale timer carries completion time; timer-cancel does not
+    ;; (see `time-pair-exclusions`).
+    :stale-with-time  after-stale-reply-with-time
+    :stale-no-time    after-stale-reply
     ;; Timer replies carry their epoch gate directly in `:correlation`.
     :stale           after-stale-reply}
 
@@ -291,8 +415,49 @@
     :success-no-time route-success-no-time
     :error           nil
     :cancel          nil
+    :stale-with-time  route-stale-with-time
+    :stale-no-time    route-stale-no-time
     :stale-out       route-stale-out
     :stale           #(:reply (route-stale-out))}])
+
+;; ---------------------------------------------------------------------------
+;; The non-success terminal situations paired for the shared completion-time
+;; propagation/omission gate, and the terminals deliberately excluded from it.
+;; ---------------------------------------------------------------------------
+
+(def ^:private time-pair-situations
+  "Non-success terminal situations paired for the shared completion-time
+  propagation/omission gate (Finding 1). Each entry is
+  `[situation with-time-key no-time-key]`. The success tier owns its own pair
+  (`:success` / `:success-no-time`); these extend the SAME gate to the
+  non-success terminals whose owning builder contract accepts or durably uses
+  `:completed-at`. A family that omits a pair does not durably carry completion
+  time for that situation (see `time-pair-exclusions`)."
+  [[:error  :error-with-time  :error-no-time]
+   [:cancel :cancel-with-time :cancel-no-time]
+   [:stale  :stale-with-time  :stale-no-time]])
+
+(def ^:private time-pair-exclusions
+  "Terminal situations deliberately EXCLUDED from the completion-time
+  propagation/omission gate because their owning builder does not accept a
+  causal completion time — asserting one would impose an over-broad
+  mandatory-field rule. Each entry is `[family situation builder-thunk reason]`;
+  each builder is fed an input context that DOES carry a completion time, so the
+  companion test proves the builder omits `:completed-at` regardless."
+  [[:http    :stale  #(:reply (http-stale-out))
+    "http-reply/suppress hard-codes its stale :extra map (work-id facts only)"]
+   [:machine :cancel #(m-reply/cancelled-actor-reply (assoc machine-ctx :reason :explicit))
+    "cancelled-actor-reply takes no :completed-at parameter"]
+   [:timer   :cancel #(m-reply/cancelled-timer-reply
+                        {:actor-id     :a/multi
+                         :state        :loading
+                         :delay        30000
+                         :decl-path    [:loading]
+                         :epoch        1
+                         :frame        :app/main
+                         :completed-at completion-time-ms
+                         :reason       :on-exit})
+    "cancelled-timer-reply takes no :completed-at parameter"]])
 
 ;; ---------------------------------------------------------------------------
 ;; Universal envelope invariants across all supported situations.
@@ -418,6 +583,71 @@
                  (reply/validate-reply reply)))
         (is (= :ok (:status reply))
             (str family " no-time success is still :status :ok"))))))
+
+;; ---------------------------------------------------------------------------
+;; Causal completion time for the NON-SUCCESS terminals (Finding 1,
+;; rf2-3fc89f.7). The success tier above pins propagation/omission for
+;; `:status :ok`; this extends the SAME gate to the error / cancel / stale
+;; terminals whose owning builder durably uses `:completed-at`. Failure /
+;; cancellation / stale timestamps are causal replay/tooling evidence — a
+;; builder silently dropping or nil-filling `:completed-at` (the rf2-rl27r2
+;; regression class) while keeping status + work-id canonical is exactly the
+;; drift this closes. Terminals that do not durably carry completion time are
+;; excluded explicitly (`time-pair-exclusions`), not silently.
+;; ---------------------------------------------------------------------------
+
+(deftest completion-time-propagates-and-omits-across-nonsuccess-terminals
+  (testing "each non-success terminal that durably uses causal completion time
+            propagates a supplied :completed-at unchanged and omits it when absent"
+    (doseq [{:keys [family] :as f} families
+            [situation with-k no-k] time-pair-situations
+            :let [with-builder (get f with-k)
+                  no-builder    (get f no-k)]
+            :when (or with-builder no-builder)]
+      ;; A family declaring one half of a pair MUST declare both, so the gate
+      ;; proves BOTH propagation and omission (never a half-covered situation).
+      (is (and with-builder no-builder)
+          (str family " " situation " must declare BOTH " with-k " and " no-k
+               " — a completion-time pair proves propagation AND omission"))
+      (when (and with-builder no-builder)
+        (let [with-reply (with-builder)
+              no-reply   (no-builder)]
+          (testing (str family " / " situation " → supplied :completed-at propagates unchanged")
+            (is (contains? with-reply :completed-at)
+                (str family " " situation " with-time reply MUST carry :completed-at "
+                     "when the completion time was supplied"))
+            (is (= completion-time-ms (:completed-at with-reply))
+                (str family " " situation " with-time :completed-at must be the supplied "
+                     "causal time " completion-time-ms ", got " (:completed-at with-reply))))
+          (testing (str family " / " situation " → absent :completed-at omitted (never nil-filled)")
+            (is (not (contains? no-reply :completed-at))
+                (str family " " situation " no-time reply MUST OMIT :completed-at when no "
+                     "completion time was supplied — never nil-fill it (a nil sentinel "
+                     "would let a reducer derive a bogus durable timestamp). Got "
+                     (pr-str (:completed-at no-reply)))))
+          (testing (str family " / " situation " → both replies still validate")
+            (is (reply/valid-reply? with-reply)
+                (str family " " situation " with-time reply must validate: "
+                     (reply/validate-reply with-reply)))
+            (is (reply/valid-reply? no-reply)
+                (str family " " situation " no-time reply must validate: "
+                     (reply/validate-reply no-reply)))))))))
+
+(deftest excluded-terminals-omit-completion-time-even-when-supplied
+  (testing "a terminal whose builder does not accept a causal completion time
+            omits :completed-at even when its input context carries one — so
+            the propagation gate is correctly NOT applied to it (documenting the
+            exclusion instead of imposing an over-broad mandatory-field rule)"
+    (doseq [[family situation builder reason] time-pair-exclusions
+            :let [reply (builder)]]
+      (is (not (contains? reply :completed-at))
+          (str family " " situation " is excluded from the completion-time gate ("
+               reason ") — its reply MUST NOT carry :completed-at even when the "
+               "input context supplies one; got " (pr-str (:completed-at reply))))
+      ;; The excluded terminal is still a canonical, valid reply.
+      (is (reply/valid-reply? reply)
+          (str family " " situation " excluded terminal still validates: "
+               (reply/validate-reply reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Error shape: :status :error, a terminal failure work status, and a
@@ -592,4 +822,38 @@
                "FAIL on this reply, catching the nil-sentinel anti-pattern"))
       (is (nil? (:completed-at bad))
           (str family " control's :completed-at is the nil sentinel the gate "
+               "forbids")))))
+
+;; The same fail-closed controls for the NON-SUCCESS terminals — proving the
+;; shared `completion-time-propagates-and-omits-across-nonsuccess-terminals`
+;; gate has teeth on error / cancel / stale replies too, not only on success.
+(deftest nonsuccess-completion-time-gate-fails-closed-on-drop-and-nil-fill
+  (testing "a non-success terminal that DROPS its supplied :completed-at is
+            detected — the propagation gate's `(contains? …)` + value assertions
+            would go RED on it"
+    (doseq [{:keys [family] :as f} families
+            [situation with-k _] time-pair-situations
+            :let [with-builder (get f with-k)]
+            :when with-builder
+            :let [bad (drop-completion-time (with-builder))]]
+      ;; Completion time is optional, so the reply is otherwise still valid.
+      (is (reply/valid-reply? bad)
+          (str family " " situation " control still validates: " (reply/validate-reply bad)))
+      (is (not (contains? bad :completed-at))
+          (str family " " situation " control DROPPED :completed-at — the propagation "
+               "gate's `contains?` + value assertions would FAIL on this reply"))))
+  (testing "a non-success terminal that NIL-FILLS its no-time reply is detected —
+            the omit-when-absent gate's `(not (contains? …))` would go RED on a
+            present-but-nil slot"
+    (doseq [{:keys [family] :as f} families
+            [situation _ no-k] time-pair-situations
+            :let [no-builder (get f no-k)]
+            :when no-builder
+            :let [bad (nil-fill-completion-time (no-builder))]]
+      (is (contains? bad :completed-at)
+          (str family " " situation " control NIL-FILLED :completed-at (present-but-nil) — "
+               "the omit-when-absent gate's `(not (contains? …))` assertion would FAIL, "
+               "catching the nil-sentinel anti-pattern"))
+      (is (nil? (:completed-at bad))
+          (str family " " situation " control's :completed-at is the nil sentinel the gate "
                "forbids")))))
