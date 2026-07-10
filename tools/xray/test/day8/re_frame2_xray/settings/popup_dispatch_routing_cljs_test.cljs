@@ -43,6 +43,7 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-helpers :as th]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
@@ -77,36 +78,10 @@
   {:before setup-runtime!
    :after  teardown-runtime!})
 
-;; ---- hiccup walker (mirrors popup_cljs_test) ---------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq / find-by-testid copies were
+;; semantically identical to `re-frame.test-helpers`; tests call
+;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- click-time helpers ------------------------------------------------
 
@@ -147,7 +122,7 @@
             `{:frame :rf/xray}` opt on the dispatch, the click would
             land on :rf/default and the modal would stay open."
     (let [rendered  (render-open-modal)
-          close-btn (find-by-testid rendered "rf-xray-settings-close")
+          close-btn (th/find-by-testid rendered "rf-xray-settings-close")
           handler   (on-click close-btn)]
       (is (some? handler) "close button exposes an :on-click handler")
       (handler (fake-event)) ; outside any with-frame — same as a browser click
@@ -167,7 +142,7 @@
             :rf/xray frame-provider's render context still closes the
             modal."
     (let [rendered (render-open-modal)
-          backdrop (find-by-testid rendered "rf-xray-settings-backdrop")
+          backdrop (th/find-by-testid rendered "rf-xray-settings-backdrop")
           handler  (on-click backdrop)]
       (is (some? handler) "backdrop exposes an :on-click handler")
       (handler (fake-event))
@@ -184,7 +159,7 @@
   (testing "rf2-smvvz — Esc keydown from OUTSIDE the :rf/xray frame-
             provider's render context still closes the modal."
     (let [rendered (render-open-modal)
-          dialog   (find-by-testid rendered "rf-xray-settings-dialog")
+          dialog   (th/find-by-testid rendered "rf-xray-settings-dialog")
           handler  (on-key-down dialog)]
       (is (some? handler) "dialog exposes an :on-key-down handler")
       (handler (fake-key-event "Escape"))
@@ -209,7 +184,7 @@
             assertion is independent of which tab is clicked as long
             as it differs from the default :general)."
     (let [rendered (render-open-modal)
-          tab-node (find-by-testid rendered "rf-xray-settings-tab-buffer")
+          tab-node (th/find-by-testid rendered "rf-xray-settings-tab-buffer")
           handler  (on-click tab-node)]
       (is (some? handler) "buffer tab exposes an :on-click handler")
       (handler (fake-event))

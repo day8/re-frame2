@@ -19,6 +19,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
@@ -258,34 +259,13 @@
 ;; (6) View — frame-switcher-view reads the contract
 ;; -------------------------------------------------------------------------
 
-(defn- expand-tree
-  "Walk `tree` and replace every fn-component vector with its rendered
-  result. Mirror of the shell tests' walker — keeps the hiccup-only
-  assertions terse."
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
+;; The private expand-tree / find-by-testid copies were semantically identical
+;; to `re-frame.test-helpers`; tests call `th/find-by-testid` directly
+;; (rf2-vj80u8 — no Xray walker facade). `hiccup-seq` (depth-first nodes over
+;; the expanded tree) is not exposed by test-helpers, so it is kept as a thin
+;; wrapper over `th/expand-tree` for the `:option`-node filter below.
 (defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-tree tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
 
 (deftest view-renders-frame-dropdown-button-always
   (testing "rf2-pjjwh — the Figma chrome ribbon ALWAYS shows a frame
@@ -298,9 +278,9 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree    (frame-switcher/frame-switcher-view {})
-            button  (find-by-testid tree "rf-xray-ribbon-frame")
-            label   (find-by-testid tree "rf-xray-ribbon-frame-label")
-            picker  (find-by-testid tree "rf-xray-ribbon-frame-picker")
+            button  (th/find-by-testid tree "rf-xray-ribbon-frame")
+            label   (th/find-by-testid tree "rf-xray-ribbon-frame-label")
+            picker  (th/find-by-testid tree "rf-xray-ribbon-frame-picker")
             options (filter (fn [n]
                               (and (vector? n) (= :option (first n))))
                             (hiccup-seq tree))]
@@ -308,7 +288,7 @@
         (is (some? label) "the frame label renders")
         (is (= ":app/main" (last label))
             "the button face shows the currently-selected frame value (rf2-pjjwh)")
-        (is (some? (find-by-testid tree "rf-xray-ribbon-frame-chevron"))
+        (is (some? (th/find-by-testid tree "rf-xray-ribbon-frame-chevron"))
             "the `▾` chevron renders, marking it a dropdown")
         (is (some? picker) "the native <select> overlay is present for a11y")
         (is (not (:disabled (second picker)))
@@ -332,8 +312,8 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree   (frame-switcher/frame-switcher-view {})
-            picker (find-by-testid tree "rf-xray-ribbon-frame-picker")
-            label  (find-by-testid tree "rf-xray-ribbon-frame-label")]
+            picker (th/find-by-testid tree "rf-xray-ribbon-frame-picker")
+            label  (th/find-by-testid tree "rf-xray-ribbon-frame-label")]
         (is (some? picker) "dropdown renders for multi-frame")
         (is (= :select (first picker))
             "it's a <select>, not a custom multi-select")

@@ -44,6 +44,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -69,55 +70,21 @@
     {:post-reset (fn [] (config/reset-suppressed-count!))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  "Walk `tree` and replace every fn-component vector with its rendered
-  result (recursively). Pure keyword-headed hiccup passes through;
-  nil / strings / numbers / maps pass through. Vectors whose head is
-  `rf/frame-provider` (or any other non-fn keyword-headed form) walk
-  their children but don't get invoked."
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
+;; The private expand-tree / find-by-testid / find-all-by-testid-prefix /
+;; find-all-by-testid copies were semantically identical to
+;; `re-frame.test-helpers` and alias straight through (rf2-vj80u8 — no Xray
+;; walker facade). `hiccup-seq` (depth-first nodes over the expanded tree) is
+;; not exposed by test-helpers, so it is kept as a thin wrapper over
+;; `th/expand-tree` for the `:option`-node filter below. `text-nodes` is left
+;; bespoke: it collects STRING leaves only, whereas `th/text-content` also
+;; folds in numbers — shell asserts exact/empty text, so the distinction is
+;; load-bearing.
 (defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
+  (tree-seq (some-fn vector? seq?) seq (th/expand-tree tree)))
 
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (when-let [tid (:data-testid (second node))]
-                    (= 0 (.indexOf tid prefix)))))
-           (hiccup-seq tree)))
-
-(defn- find-all-by-testid [tree testid]
-  (filterv (fn [node]
-             (and (vector? node)
-                  (map? (second node))
-                  (= testid (:data-testid (second node)))))
-           (hiccup-seq tree)))
+(def ^:private find-by-testid            th/find-by-testid)
+(def ^:private find-all-by-testid        th/find-all-by-testid)
+(def ^:private find-all-by-testid-prefix th/find-by-testid-prefix)
 
 (defn- text-nodes
   "Flatten the rendered tree's string leaves into one concatenated

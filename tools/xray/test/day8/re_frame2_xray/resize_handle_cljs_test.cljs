@@ -23,6 +23,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -45,36 +46,10 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {}))
 
-;; ---- hiccup walker (mirrors shell_cljs_test) ---------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq / find-by-testid copies were
+;; semantically identical to `re-frame.test-helpers`; tests call
+;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
 
 ;; ---- mount on :inline / short-circuit on others ------------------------
 
@@ -108,7 +83,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view {:mode :inline})]
-        (is (some? (find-by-testid tree "rf-xray-resize-handle"))
+        (is (some? (th/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle present in :inline mode")))))
 
 (deftest shell-omits-resize-handle-in-popout
@@ -116,7 +91,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree (shell/shell-view {:mode :popout})]
-        (is (nil? (find-by-testid tree "rf-xray-resize-handle"))
+        (is (nil? (th/find-by-testid tree "rf-xray-resize-handle"))
             "resize handle absent in :popout mode")))))
 
 ;; ---- drag lifecycle ----------------------------------------------------

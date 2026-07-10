@@ -27,6 +27,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
@@ -48,47 +49,21 @@
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {}))
 
-;; ---- hiccup walker (mirrors shell_cljs_test) ---------------------------
-
-(declare expand-tree)
-
-(defn- expand-tree
-  [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (expand-tree (apply (first tree) (rest tree)))
-
-    (vector? tree)
-    (mapv expand-tree tree)
-
-    (seq? tree)
-    (map expand-tree tree)
-
-    :else
-    tree))
-
-(defn- hiccup-seq [tree]
-  (let [expanded (expand-tree tree)]
-    (tree-seq (some-fn vector? seq?) seq expanded)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
+;; ---- hiccup walker ------------------------------------------------------
+;; The private expand-tree / hiccup-seq / find-by-testid copies this file
+;; carried were semantically identical to `re-frame.test-helpers`; tests call
+;; `th/find-by-testid` directly (rf2-vj80u8 — no Xray walker facade).
+;; `all-testids` (every carried testid in pre-order, for the DOM-order seam
+;; assertion) is not exposed by test-helpers, so it is expressed over
+;; `th/find-by-testid-prefix` with the empty-prefix (matches every string
+;; testid, depth-first).
 
 (defn- all-testids
   "Return the testids of every hiccup node in `tree` that carries one,
   in pre-order. Used to assert DOM-order — the seam must sit between
   `rf-xray-event-list` and `rf-xray-tab-bar`."
   [tree]
-  (->> tree
-       hiccup-seq
-       (keep (fn [node]
-               (when (and (vector? node) (map? (second node)))
-                 (:data-testid (second node)))))))
+  (map (comp :data-testid th/attrs) (th/find-by-testid-prefix tree "")))
 
 ;; ---- SeamHandle component shape ----------------------------------------
 
@@ -159,7 +134,7 @@
     (setup!)
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view {:mode :inline})
-            list  (find-by-testid tree "rf-xray-event-list")
+            list  (th/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (some? list) "event-list container present")
         (is (nil? (:resize style))
@@ -406,7 +381,7 @@
       (rf/dispatch-sync [:rf.xray/set-events-list-height-px 360]))
     (rf/with-frame :rf/xray
       (let [tree  (shell/shell-view {:mode :inline})
-            list  (find-by-testid tree "rf-xray-event-list")
+            list  (th/find-by-testid tree "rf-xray-event-list")
             style (:style (second list))]
         (is (= "360px" (:height style))
             "list :height updates to the persisted seam-handle value")))))

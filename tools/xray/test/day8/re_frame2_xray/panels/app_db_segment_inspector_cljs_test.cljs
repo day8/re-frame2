@@ -23,6 +23,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.test-helpers :as th]
             [day8.re-frame2-xray.panels.app-db-segment-inspector
              :as segment-inspector]
             [day8.re-frame2-xray.registry :as registry]
@@ -63,41 +64,11 @@
     (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])))
 
 ;; ---- hiccup walk helpers ------------------------------------------------
-
-(declare expand-tree)
-(defn- expand-tree [tree]
-  (cond
-    (and (vector? tree) (fn? (first tree)))
-    (let [result (apply (first tree) (rest tree))]
-      ;; Form-2 Reagent components return an inner fn; re-call with
-      ;; the same args (Reagent's re-render contract). rf2-oqa60 —
-      ;; the edn-inspector widget is form-2 to stabilise mount-id.
-      (expand-tree
-        (if (fn? result)
-          (apply result (rest tree))
-          result)))
-    (vector? tree) (mapv expand-tree tree)
-    (seq? tree)    (map expand-tree tree)
-    :else          tree))
-
-(defn- hiccup-seq [tree]
-  (tree-seq (some-fn vector? seq?) seq (expand-tree tree)))
-
-(defn- find-by-testid [tree testid]
-  (some (fn [node]
-          (when (and (vector? node)
-                     (map? (second node))
-                     (= testid (:data-testid (second node))))
-            node))
-        (hiccup-seq tree)))
-
-(defn- text-content
-  "Flatten all string leaves of a hiccup subtree into one string —
-  enough to assert the rendered value text shows up."
-  [tree]
-  (->> (hiccup-seq tree)
-       (filter string?)
-       (apply str)))
+;; The private expand-tree (form-2 aware) / hiccup-seq / find-by-testid /
+;; text-content copies were semantically identical to `re-frame.test-helpers`
+;; (`th/expand-tree` handles the form-2 edn-inspector widget too); tests call
+;; `th/find-by-testid` / `th/text-content` directly (rf2-vj80u8 — no Xray
+;; walker facade).
 
 (defn- read-value-sub []
   (rf/with-frame :rf/xray
@@ -157,19 +128,19 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector [:user]]))
     (let [tree   (rf/with-frame :rf/xray (segment-inspector/Popup))
-          title  (find-by-testid tree "rf-xray-segment-inspector-title")
-          body   (find-by-testid tree "rf-xray-segment-inspector-body")]
+          title  (th/find-by-testid tree "rf-xray-segment-inspector-title")
+          body   (th/find-by-testid tree "rf-xray-segment-inspector-body")]
       (is (some? tree) "Popup renders when open")
       (is (some? title) "header title node renders")
       (is (some? body) "body node renders")
       ;; The header echoes the inspected path so the user knows what
       ;; they are looking at.
-      (let [title-text (text-content title)]
+      (let [title-text (th/text-content title)]
         (is (re-find #":user" title-text)
             "header title did not echo the inspected path"))
       ;; The body renders the sliced value — the user's name appears
       ;; somewhere in the projected tree.
-      (let [body-text (text-content body)]
+      (let [body-text (th/text-content body)]
         (is (re-find #"ada" body-text)
             "body did not render the sliced value's content")))))
 
@@ -181,8 +152,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
     (let [tree  (rf/with-frame :rf/xray (segment-inspector/Popup))
-          title (find-by-testid tree "rf-xray-segment-inspector-title")]
-      (is (re-find #"root" (text-content title))
+          title (th/find-by-testid tree "rf-xray-segment-inspector-title")]
+      (is (re-find #"root" (th/text-content title))
           "root-path header title did not read '(root)'"))))
 
 (deftest popup-closed-renders-nothing
