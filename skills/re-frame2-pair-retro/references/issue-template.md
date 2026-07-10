@@ -2,6 +2,8 @@
 
 Use this structure when drafting or filing an improvement. Keep it evidence-based and concise. The default filing path is a **GitHub issue** against `day8/re-frame2` — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`). Both pair-tool and framework friction file there, distinguished in the title + body; labels are optional (the canonical rule is in [`../SKILL.md` §Filing improvements](../SKILL.md#filing-improvements)). Tracker boundary: never `bd`.
 
+**The filing mechanics live once — in the shared recipe, [`../../shared/issue-filing.md`](../../shared/issue-filing.md).** That leaf is the single home for the generic shell-safety core every issue-filing skill shares: search-before-file, the explicit-approval gate, composing the redacted body with the `Write` tool and passing it by file (a fresh temp file in the host OS's temp directory), the safe-alphabet title/search rule, redaction, and the `bd`-never tracker boundary. Read it for *how* to file; **do not restate it here**. This template carries only what is specific to a Pair-retro issue — the routing decision, the title patterns, the target/optional-label policy, and the issue-body skeleton.
+
 ## Routing first
 
 Before drafting, decide which kind of friction it is — both target `day8/re-frame2`, and the distinction is carried in the title + body:
@@ -20,7 +22,7 @@ When unsure, ask the user. Sometimes both: a tool-side workaround now and an ups
 - `Surface <signal> instead of requiring manual reconstruction`
 - `Promote <private-ns reach-through> to a public Tool-Pair surface` (upstream)
 
-**Shell-safe titles.** `gh issue create` has no `--title-file`, so `--title` is always inline argv — the file trick that protects the body cannot protect it. Author the title yourself from a restricted **safe alphabet** (letters, digits, spaces, and `- . , / ( ) :` only) by filling the patterns above with summarised text; never paste a transcript-/evidence-derived string (a suggested title, a quoted failure message, a recap line) into `--title` — it can carry `$(…)`, backticks, `"`, `\`, or a newline the shell expands before `gh` sees argv. Full threat model: [`../../shared/issue-filing.md`](../../shared/issue-filing.md) §Shell-safety: the title is an inline argument.
+Fill a pattern with **summarised, agent-written** text; never paste a transcript-/evidence-derived string — a suggested title, a quoted failure message, a recap line — into the title. The full title-safety rule (why the title is an inline shell argument with no file equivalent, the restricted safe alphabet, and the pre-emission reviewer pass) lives in the shared recipe: [`../../shared/issue-filing.md`](../../shared/issue-filing.md) §Shell-safety: the title is an inline argument.
 
 ## Body
 
@@ -59,50 +61,23 @@ List any remaining uncertainty, especially if the best fix might belong upstream
 
 ## Filing with `gh issue create`
 
-Once the body is drafted and the user has approved, file via the GitHub CLI. The shared shell-safety core — why the body goes through `--body-file`, the safe-alphabet `--title` / `--search` rule, redaction — lives once in [`../../shared/issue-filing.md`](../../shared/issue-filing.md); the worked pair-retro recipe is below.
+File per the shared recipe — [`../../shared/issue-filing.md`](../../shared/issue-filing.md) — which owns the whole mechanic: search for an existing issue first, get explicit user approval, compose the redacted body with the `Write` tool, pass it by file, and author the title from the safe alphabet. This section adds only the Pair-retro layer that rides on top of that recipe:
 
-1. Use the `Write` tool to compose the body into a **fresh, per-filing temp file in the host OS's temp directory** — never a fixed, predictable shared path (a hard-coded file under `/tmp` breaks on hosts without a POSIX `/tmp`, and its predictable name lets concurrent or rapid filings overwrite each other's redacted body — wrong text to GitHub, or sensitive evidence left in a shared location). Pick the OS path, add a per-filing nonce, and carry that exact path into `--body-file` below:
-
-   - **POSIX:** `${TMPDIR:-/tmp}/re-frame2-pair-retro-$$-$RANDOM.md`
-   - **Windows (PowerShell):** `$env:TEMP\re-frame2-pair-retro-$([guid]::NewGuid()).md`
-
-   The body is plain markdown — nothing expands it.
-
-2. File it against the target repo with one `gh issue create` command. **Labels are optional, best-effort taxonomy — never a precondition** (canonical rule: [`../SKILL.md` §Filing improvements](../SKILL.md#filing-improvements)): `gh issue create` fails the whole command on a `--label` the repo does not define, so the **baseline command carries no `--label`** and always lands. Encode the tool-vs-framework routing in the title + body, not solely in a label:
-
-   ```bash
-   gh issue create \
-     --repo day8/re-frame2 \
-     --title "<short title>" \
-     --body-file "<the per-filing temp path you wrote in step 1>"
-   ```
-
-   `<short title>` is the agent-authored safe-alphabet title (§Title patterns); `<the per-filing temp path …>` is the exact nonce-carrying path from step 1, never a re-typed fixed name.
-
-3. **Only to add the label taxonomy, pass labels that already exist** — detect first, never pass an unverified label:
+- **Target repo** — always `day8/re-frame2`. Both pair-tool and framework friction land there; the tool-vs-framework distinction is carried in the title + body, not in the repo.
+- **Optional labels, never a filing precondition.** The baseline create carries **no `--label`** and always lands (canonical rule: [`../SKILL.md` §Filing improvements](../SKILL.md#filing-improvements)). Only to add the taxonomy, detect the repo's labels first — never pass an unverified one:
 
    ```bash
    gh label list --repo day8/re-frame2 --limit 200
    ```
 
-   - **pair-tool friction** — if present, add `--label retro,pair-mcp` (drop any absent token; omit `--label` if neither exists).
+   - **pair-tool friction** — if present, add `--label retro,pair-mcp` (drop any absent token; add no `--label` if neither exists).
    - **framework friction** — if present, add `--label retro,upstream-from-re-frame2-pair` (same degrade rule).
 
-   If a labelled create fails with an unknown-label error, **re-run the no-label baseline command** — the issue must land; the label is optional.
-
-Always search for an existing issue on the same friction first, and reference it instead of duplicating:
-
-```bash
-gh issue list --repo <owner/repo> --search "<keywords>"
-```
-
-**Author the `<keywords>` yourself from the safe alphabet (§Title patterns).** `--search` is inline argv with no `--search-file`, so a query pasted from the transcript / a quoted failure string / a suggested title can carry `$(…)`, backticks, `"`, `\`, or a newline the shell expands before `gh` sees it (and it leaks the raw evidence to GitHub as the query). Never interpolate evidence text into `--search`. See [`../../shared/issue-filing.md`](../../shared/issue-filing.md) §Search before filing.
+   If a labelled create fails with an unknown-label error, re-run the no-label baseline create — the issue must land; the label is optional.
 
 ## Filing rules
 
-- File only after explicit user approval.
-- **Labels optional; never let a missing label block filing** — baseline is a no-label create; add `--label` only after `gh label list` confirms it (see [`../SKILL.md` §Filing improvements](../SKILL.md#filing-improvements)).
-- **Never interpolate transcript-derived text into a shell command** — body via `Write` + `--body-file` (a fresh per-filing OS-temp file); `--title`, `--search`, `--label`, `--repo` authored from the safe alphabet (§Title patterns), never evidence text.
-- Redact secrets, tokens, and internal-only details; prefer one issue per distinct improvement.
-- Cross-link tool-side and upstream issues when both are filed for the same friction.
-- **Tracker boundary** — file GitHub issues against the target repo; never invoke `bd` (the re-frame2 monorepo's internal tracker).
+The generic rules — file only after explicit user approval, never interpolate transcript-derived text into a shell command, redact secrets/tokens/internal paths, and never invoke `bd` — are owned by [`../../shared/issue-filing.md`](../../shared/issue-filing.md); follow them there. The Pair-retro-specific rules:
+
+- **Labels are optional; a missing label never blocks filing** — baseline is a no-label create; add `--label` only after `gh label list` confirms it (see §Filing with `gh issue create` above and [`../SKILL.md` §Filing improvements](../SKILL.md#filing-improvements)).
+- **Cross-link the tool-side and upstream issues** when both are filed for the same friction, so a reader of either finds the other.

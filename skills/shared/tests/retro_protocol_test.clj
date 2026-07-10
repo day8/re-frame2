@@ -410,17 +410,33 @@
              "prohibition has no constructive counterpart and the agent "
              "has nowhere safe to land."))))
 
-(deftest issue-template-pins-title-safety
-  (testing "references/issue-template.md ties --title to the safe-alphabet rule"
-    (is (contains-any? @issue-template-md
-                       ["Shell-safe titles" "safe alphabet" "safe-alphabet"
-                        "no `--title-file`"])
-        (str "re-frame2-pair-retro/references/issue-template.md no longer "
-             "carries the title-safety rule next to its title patterns "
-             "and worked `gh issue create` examples. The template's "
-             "inline `--title \"<short title>\"` examples are exactly the "
-             "recipe an agent follows; the safe-title rule must live "
-             "beside them, not only in the shared leaf."))))
+;; Post-dedup (rf2-mwd6tf): the template keeps its Pair-retro title PATTERNS
+;; (issue-filing.md §Shell-safety points here for them), and must keep the
+;; never-paste-evidence guard reachable from beside those patterns — but as a
+;; LINK to the shared owner, NOT a local restatement of the generic threat
+;; model. The full safe-alphabet enumeration lives once in
+;; ../../shared/issue-filing.md §Shell-safety.
+(deftest issue-template-title-safety-links-not-duplicates
+  (testing "issue-template.md §Title patterns keeps the patterns + a link to the shared title-safety rule, without re-inlining the generic threat model"
+    (let [s (section @issue-template-md "Title patterns")]
+      (is (str/includes? s "Improve <workflow>")
+          (str "the Pair-retro title patterns disappeared from §Title "
+               "patterns. issue-filing.md §Shell-safety points HERE for the "
+               "patterns, so they stay local while the shell-safety rule "
+               "lives in the shared leaf (rf2-mwd6tf)."))
+      (is (and (contains-any? s ["never paste" "never copy"])
+               (str/includes? s "../../shared/issue-filing.md"))
+          (str "§Title patterns no longer carries BOTH the never-paste-"
+               "evidence guard AND a link to the shared title-safety rule "
+               "beside the patterns. The patterns are the recipe an agent "
+               "fills in, so the guard must be reachable from beside them — "
+               "as a LINK to the shared owner, not a local restatement "
+               "(rf2-mwd6tf)."))
+      (is (not (str/includes? s "letters, digits"))
+          (str "§Title patterns re-inlines the generic safe-alphabet "
+               "enumeration ('letters, digits, …'). That threat model is "
+               "owned once by ../../shared/issue-filing.md §Shell-safety; the "
+               "template must LINK it, not copy it back (rf2-mwd6tf).")))))
 
 (deftest issue-filing-gates-create-on-user-approval
   (testing "gh issue create is gated on a fresh in-conversation yes"
@@ -457,12 +473,17 @@
 ;; concurrent retros / two rapid filings overwrite each other's redacted
 ;; body — filing the WRONG redacted text to GitHub or leaving sensitive
 ;; evidence in a shared location longer than intended. These assertions
-;; lock the rule in the SHARED canonical recipe and its consumer template:
-;; the published recipe MUST NOT prescribe `/tmp/issue-body.md` as the
-;; `--body-file` target, and MUST name a per-filing OS-temp path (TMPDIR /
-;; $env:TEMP). The "never a fixed /tmp/issue-body.md" PROHIBITION strings
-;; are tolerated — the regression fires only on the prescriptive command
-;; form (`--body-file /tmp/issue-body.md`) or the prescriptive "compose
+;; lock the rule in the two owners of the recipe — the SHARED canonical
+;; recipe (issue-filing.md) and the README §allowed-tools baseline: each MUST
+;; NOT prescribe `/tmp/issue-body.md` as the `--body-file` target, and MUST
+;; name a per-filing OS-temp path (TMPDIR / $env:TEMP). The consumer template
+;; (re-frame2-pair-retro/issue-template.md) is NO LONGER an owner: post-dedup
+;; (rf2-mwd6tf) it LINKS the shared recipe rather than restating the mechanic,
+;; so its own assertion (`issue-template-omits-duplicated-filing-mechanics`
+;; below) checks the opposite — that the per-filing OS-temp recipe is ABSENT
+;; locally. The "never a fixed /tmp/issue-body.md" PROHIBITION strings are
+;; tolerated — the regression fires only on the prescriptive command form
+;; (`--body-file /tmp/issue-body.md`) or the prescriptive "compose
 ;; /tmp/issue-body.md" Write step, never on a prohibition that merely names
 ;; the banned literal.
 ;; ---------------------------------------------------------------------------
@@ -520,22 +541,43 @@
              "'per-filing' and an OS-temp token). The canonical shape is "
              "what consumers copy; it must carry the positive rule."))))
 
-(deftest issue-template-uses-per-filing-os-temp-body-path
-  (testing "the consumer template (re-frame2-pair-retro/issue-template.md) uses a per-filing OS-temp path"
-    (is (not (prescribes-fixed-body-path? @issue-template-md))
-        (str "re-frame2-pair-retro/references/issue-template.md again "
-             "prescribes the fixed `/tmp/issue-body.md` in its worked `gh "
-             "issue create --body-file …` examples. The template's command "
-             "is exactly the recipe an agent follows, so the per-filing "
-             "OS-temp path must live in the worked examples, not only in "
-             "the shared leaf (rf2-de7pqw landed this in-lane; ca5v9s "
-             "locks it)."))
-    (is (names-per-filing-os-temp-path? @issue-template-md)
-        (str "re-frame2-pair-retro/references/issue-template.md no longer "
-             "names a fresh, per-filing temp file in the host OS's temp "
-             "directory (needs both 'per-filing' and an OS-temp token). "
-             "The worked example must show the per-filing path, not assume "
-             "the reader infers it from the shared leaf."))))
+;; Post-dedup (rf2-mwd6tf): the consumer template no longer restates ANY of the
+;; generic filing mechanics owned by ../../shared/issue-filing.md — the body
+;; path (fixed OR per-filing OS-temp), the worked `gh issue create --body-file`
+;; command, and the worked `gh issue list --search` command all live once in
+;; the shared leaf. The template LINKS that leaf instead. This assertion gives
+;; the dedup teeth: re-inlining any of those mechanics fails the suite. (The
+;; SHARED-recipe / README assertions above still REQUIRE the per-filing OS-temp
+;; path, because the recipe itself is owned there.)
+(deftest issue-template-omits-duplicated-filing-mechanics
+  (testing "issue-template.md links the shared filing recipe instead of restating its generic mechanics"
+    (let [body @issue-template-md]
+      (is (str/includes? body "../../shared/issue-filing.md")
+          (str "issue-template.md no longer links ../../shared/issue-filing.md "
+               "— the shared owner of the filing mechanics it delegates. "
+               "Without the link the reader loses the recipe the template "
+               "stopped restating (rf2-mwd6tf)."))
+      (is (not (prescribes-fixed-body-path? body))
+          (str "issue-template.md prescribes the fixed `/tmp/issue-body.md` "
+               "again. The body-path mechanic is owned by "
+               "../../shared/issue-filing.md; the template links it "
+               "(rf2-mwd6tf; was rf2-de7pqw/ca5v9s)."))
+      (is (not (names-per-filing-os-temp-path? body))
+          (str "issue-template.md re-inlines the per-filing OS-temp body-path "
+               "recipe (a 'per-filing' + TMPDIR/$env:TEMP worked example). "
+               "That mechanic now lives ONCE in ../../shared/issue-filing.md; "
+               "the template links it rather than copying it back "
+               "(rf2-mwd6tf)."))
+      (is (not (str/includes? body "--body-file"))
+          (str "issue-template.md re-inlines the worked `gh issue create "
+               "--body-file` command. The body-file filing mechanic is owned "
+               "by ../../shared/issue-filing.md; keep only the link "
+               "(rf2-mwd6tf)."))
+      (is (not (str/includes? body "--search"))
+          (str "issue-template.md re-inlines the worked `gh issue list "
+               "--search` command. Search-before-file and the safe-alphabet "
+               "`--search` rule are owned by ../../shared/issue-filing.md; "
+               "keep only the link (rf2-mwd6tf).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 4d — Search-argument safety on the inline `gh issue list --search`
@@ -551,7 +593,11 @@
 ;; The title/body hardening closed `--title`/`--body`; this lock keeps the
 ;; `--search` clause from drifting back out. EVERY corpus site that shows
 ;; the search recipe must carry (or link) the agent-authored-keywords /
-;; never-paste-evidence rule next to it.
+;; never-paste-evidence rule next to it. Post-dedup (rf2-mwd6tf) the consumer
+;; template stopped SHOWING the search recipe (it links the shared owner), so
+;; only issue-filing.md and retro-protocol.md are checked here; the template's
+;; `issue-template-omits-duplicated-filing-mechanics` assertion above holds it
+;; to the "no local `--search` recipe" side of the same rule.
 ;; ---------------------------------------------------------------------------
 
 (defn- search-recipe-has-safety-clause?
@@ -586,16 +632,35 @@
              "carries the agent-authored / never-paste-evidence `--search` "
              "rule beside it (rf2-7g9htq.1)."))))
 
-(deftest issue-template-search-recipe-carries-search-safety
-  (testing "re-frame2-pair-retro/references/issue-template.md search recipe carries the --search safety clause"
-    (is (search-recipe-has-safety-clause? @issue-template-md)
-        (str "re-frame2-pair-retro/references/issue-template.md shows the "
-             "`gh issue list --search` command (it is the recipe the agent "
-             "follows) but no longer carries the agent-authored / "
-             "never-paste-evidence `--search` rule beside it. The worked "
-             "search command is exactly where the injection invitation "
-             "lives, so the clause must be local, not only in the shared "
-             "leaf (rf2-7g9htq.1)."))))
+;; Post-dedup (rf2-mwd6tf): with the generic mechanics linked out, the template
+;; must still RETAIN its Pair-retro-specific content — the routing decision, the
+;; domain issue-body skeleton, and the target/optional-label policy — so the
+;; dedup collapses the copy without gutting what only the consumer owns. Several
+;; other leaves point HERE for exactly these (issue-filing.md §Shell-safety →
+;; title patterns; §Body shape → the body skeleton; SKILL.md §Filing
+;; improvements + analysis-lenses.md → routing + the optional-label degrade).
+(deftest issue-template-retains-pair-retro-content
+  (testing "issue-template.md keeps its Pair-retro-specific routing, body skeleton, and target/optional-label policy"
+    (let [body @issue-template-md]
+      (is (and (str/includes? body "pair-tool friction")
+               (str/includes? body "framework friction"))
+          (str "issue-template.md dropped the pair-tool-vs-framework routing. "
+               "That routing is Pair-retro-specific and stays local — SKILL.md "
+               "§Filing improvements and analysis-lenses.md both point here "
+               "for it (rf2-mwd6tf)."))
+      (is (and (str/includes? body "## Problem")
+               (str/includes? body "## Why re-frame2-pair was not enough"))
+          (str "issue-template.md dropped the domain issue-body skeleton "
+               "(Problem / … / Why re-frame2-pair was not enough / …). The "
+               "body shape is consumer-specific and owned here — "
+               "issue-filing.md §Body shape points here for it (rf2-mwd6tf)."))
+      (is (and (str/includes? body "pair-mcp")
+               (str/includes? body "gh label list"))
+          (str "issue-template.md dropped the target/optional-label policy "
+               "(the `pair-mcp` / `upstream-from-re-frame2-pair` labels and "
+               "the `gh label list` degrade). That policy is Pair-retro-"
+               "specific and remains local; SKILL.md §Filing improvements "
+               "points here for the operational degrade steps (rf2-mwd6tf).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-consumer adoption — both consuming skills must actually load

@@ -127,7 +127,7 @@ skills/re-frame2-pair-retro/
 ├── references/
 │ ├── analysis-lenses.md (nine root-cause lenses + improvement shapes)
 │ ├── known-frictions.md (recurring re-frame2-pair pain patterns)
-│ ├── issue-template.md (GitHub-issue-body template, redaction rules)
+│ ├── issue-template.md (Pair-retro issue structure — routing, title patterns, body skeleton, optional-label policy; links ../../shared/issue-filing.md for the generic filing mechanics)
 │ └── working-style.md (diagnostic-posture rules; shipped operational home of §8)
 └── spec/
  ├── design.md (this file)

@@ -50,15 +50,14 @@ Hand-curated list of recurring friction patterns the skill has seen across multi
 
 ## 5. Tertiary input — `references/issue-template.md`
 
-The GitHub-issue-body template the skill uses when the user asks for a draft. Carries:
+The Pair-retro issue structure the skill uses when the user asks for a draft. Carries only what is specific to a Pair-retro issue:
 
-- The friction summary (1-2 sentences).
-- The evidence (session moments — redacted).
-- The proposed change.
-- The layer (skill / script / runtime / tests / docs / upstream).
-- The impact statement.
+- The routing decision (pair-tool vs framework friction; both target `day8/re-frame2`).
+- The title patterns.
+- The issue-body skeleton — problem / evidence (redacted session moments) / why re-frame2-pair was not enough / proposed change + layer (skill / script / runtime / tests / docs / upstream) / expected impact / open questions.
+- The target/optional-label policy (the `pair-mcp` / `upstream-from-re-frame2-pair` labels and the `gh label list` degrade).
 
-Redaction rules are baked in (no secrets, tokens, internal URLs, unnecessary local paths).
+The **generic filing mechanics live once** in [`../../shared/issue-filing.md`](../../shared/issue-filing.md) — search-before-file, the `Write`-tool + body-file path, the safe-alphabet `--title` / `--search` rule, redaction, the approval gate, and the `bd`-never tracker boundary. The template **links** that shared recipe rather than restating it, so the shell-safety boundary stays a single source and any later hardening lands once.
 
 ## 6. Authoring-discipline inputs
 
@@ -87,5 +86,5 @@ When the pair tool changes:
 3. **A cardinal rule changes in `re-frame2-pair` SKILL.md** → re-read the parent's `spec/design.md`; verify this skill's lens-routing still respects the new lock.
 4. **A new common friction pattern emerges** (3+ retros surface it) → add a row to `known-frictions.md` with the pattern shape and the typical resolution.
 5. **A new analysis lens is named** → add to `analysis-lenses.md` with the canonical question and improvement shape.
-6. **The issue-filing process changes** (e.g. the `gh issue create` flow or label scheme changes) → update `issue-template.md`.
+6. **The issue-filing process changes** → route the edit by *what* changed. A change to the **generic** shell-safety mechanics (the `gh issue create` / `gh issue list --search` flow, the body-file path, redaction, the approval gate) → update the shared owner `../../shared/issue-filing.md`, never re-inline it into the template. A change to the **Pair-retro-specific** routing, title patterns, body skeleton, or label scheme → update `issue-template.md`.
 7. **Re-frame2's Tool-Pair contract grows a new surface** (e.g. a new `register-*-cb` hook) → this skill may need to know about it for upstream-routing decisions; check `known-frictions.md` for entries that were "we worked around the missing surface" — they now resolve.
