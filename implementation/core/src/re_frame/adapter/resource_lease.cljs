@@ -63,12 +63,220 @@
             [re-frame.frame  :as frame]
             [re-frame.router :as router]))
 
-(defonce ^:private lease-token-counter
-  ;; Monotone per-runtime counter minting a UNIQUE lease token per mounted
-  ;; helper instance, so two components leasing the same resource+scope hold
-  ;; INDEPENDENT leases (releasing one never drops the other). Mirrors the
-  ;; spine's `unmount-instance-counter`.
+;; ============================================================================
+;; Process-wide lease identity — the SINGLE owner mint (rf2-qdkt8y)
+;; ============================================================================
+;;
+;; ONE counter, ONE mint, for the WHOLE framework. Every adapter family — the
+;; ratom families (Reagent / reagent-slim, via `make-resource-lease-component`
+;; below) and the React-hook families (UIx / Helix, via `use-resource-lease`
+;; below) — draws its lease owner from HERE, so owners minted by two different
+;; adapter families in one mixed-adapter process are GUARANTEED DISTINCT.
+;;
+;; Before rf2-qdkt8y each adapter family kept its OWN `(atom 0)` counter, so the
+;; first lease from any two families collided on the identical owner `[:lease
+;; 1]`. Because `:rf.resource/release-owner` drops an owner from EVERY indexed
+;; resource, unmounting one family's component then cross-released another
+;; family's still-live resource. A single source of owner identity removes the
+;; collision by construction.
+
+(defonce ^:private lease-owner-counter
+  ;; Monotone per-runtime counter minting a globally-unique lease token — the
+  ;; SOLE lease-owner counter in the framework (mirrors the spine's
+  ;; `unmount-instance-counter`). Two components leasing the same resource+scope
+  ;; hold INDEPENDENT leases (releasing one never drops the other), AND two
+  ;; components from DIFFERENT adapter families can never collide on one owner.
   (atom 0))
+
+(defn mint-lease-owner!
+  "Mint a fresh, process-unique resource-lease OWNER in the framework-canonical
+  `[:lease <n>]` shape (Spec 016 §Active owners). THE single owner mint for
+  every adapter family (rf2-qdkt8y): two owners minted anywhere in one process
+  are always distinct, so a mixed-adapter process can never collide two
+  families' leases on one owner. Framework-internal — not part of the public
+  adapter surface."
+  []
+  [:lease (swap! lease-owner-counter inc)])
+
+;; ============================================================================
+;; Shared ensure / release dispatch (one implementation, all families)
+;; ============================================================================
+
+(defn- dispatch-ensure!
+  "Dispatch `:rf.resource/ensure` for `descriptor` under `owner` into `frame-id`,
+  recording `cause`. Direct owning-ns dispatch (not the `rf/dispatch` macro) —
+  framework-internal plumbing, not an application call site, so it deliberately
+  carries no `:rf.trace/call-site`."
+  [frame-id {:keys [resource scope params]} owner cause]
+  (router/dispatch! [:rf.resource/ensure
+                     {:resource resource
+                      :scope    scope
+                      :params   params
+                      :owner    owner
+                      :cause    cause}]
+                    {:frame frame-id}))
+
+(defn- dispatch-release!
+  "Dispatch `:rf.resource/release-owner` for `owner` into `frame-id` — the frame
+  the matching ensure targeted."
+  [frame-id owner]
+  (router/dispatch! [:rf.resource/release-owner {:owner owner}]
+                    {:frame frame-id}))
+
+;; ============================================================================
+;; Ratom-family (Reagent / reagent-slim) shared lifecycle + component factory
+;; ============================================================================
+;;
+;; The ratom families express the lease as a Form-3 component (mount / update /
+;; unmount lifecycle methods) rather than a React hook. Everything about the
+;; lease — arg normalization, render-time frame resolution, the desired/held
+;; diff, ensure / release, and the re-lease ORDERING (release-old then
+;; ensure-new under the SAME owner) — lives HERE, once. The two adapters differ
+;; ONLY in bare substrate ops (`create-class` / `current-component`) and how the
+;; frame React-context is wired onto the class (stock Reagent copies a
+;; `:context-type` map key; reagent-slim's create-class caps its key set and
+;; sets the static `contextType` afterwards) — supplied via
+;; `make-resource-lease-component`'s `build-class`, so those substrate specifics
+;; stay ISOLATED per adapter and never cross-leak.
+
+(defn lease-args
+  "Normalise a ratom `with-resource-lease` call `[descriptor & args]` into
+  `{:descriptor :cause :frame :body}`. The optional `opts` map may sit between
+  the descriptor and the body thunk; a leading fn is the body."
+  [[descriptor & args]]
+  (let [[opts body] (if (fn? (first args))
+                      [nil (first args)]
+                      [(first args) (second args)])]
+    {:descriptor descriptor
+     :cause      (get opts :cause [:lease :mount])
+     :frame      (get opts :frame)
+     :body       body}))
+
+(defn resolve-lease-frame
+  "Resolve the frame a lease targets, at RENDER time, honouring EP-0002 tier
+  precedence (Spec 002 §Frame target resolution): an explicit `explicit-frame`
+  pins the target; otherwise delegate to the canonical reader
+  `frame/require-current-frame!` — dynamic-var tier (`*current-frame*`) FIRST,
+  React-context tier SECOND, else the always-on `:rf.error/no-frame-context`.
+  `reader` / `where` name the caller for that error (the ratom families pass the
+  `with-resource-lease` marker; the hook passes the `use-resource-lease` one).
+
+  Resolving at RENDER time (not in a commit-phase lifecycle method) keeps the
+  dynamic-var tier able to win — resolving after the render scope unwound would
+  see `*current-frame*` already restored (the EP-0002 inversion)."
+  [explicit-frame reader where]
+  (or explicit-frame
+      (frame/require-current-frame! reader {:where where})))
+
+(defn- ensure-lease!
+  "Dispatch `:rf.resource/ensure` for the render-time-resolved `desired` target
+  (`#js {:frame :descriptor :cause}`) under `owner`. Returns the HELD-lease
+  record (frame + owner + descriptor + cause snapshot) so a later re-lease diff
+  and the unmount release act on the SAME target the ensure used, even after the
+  render scope has unwound."
+  [^js desired owner]
+  (let [frame-id   (.-frame desired)
+        descriptor (.-descriptor desired)
+        cause      (.-cause desired)]
+    (dispatch-ensure! frame-id descriptor owner cause)
+    #js {:frame frame-id :lease owner :descriptor descriptor :cause cause}))
+
+(defn- release-lease!
+  "Dispatch `:rf.resource/release-owner` for the `held` lease into the frame it
+  was ensured against."
+  [^js held]
+  (dispatch-release! (.-frame held) (.-lease held)))
+
+(defn lease-target-changed?
+  "True when the render-time `desired` target differs from the currently-`held`
+  lease on frame, descriptor, or cause — the same `[frame descriptor cause]`
+  tuple the React-hook twin keys its effect on."
+  [^js held ^js desired]
+  (or (not= (.-frame held)      (.-frame desired))
+      (not= (.-descriptor held) (.-descriptor desired))
+      (not= (.-cause held)      (.-cause desired))))
+
+;; The ratom families' frame-resolution error marker. reagent-slim is PUBLISHED
+;; as `re-frame.adapter.reagent` (its in-tree `-slim` ns is renamed at
+;; publication; a `-slim` symbol would survive verbatim into the shipped jar),
+;; so BOTH ratom adapters name the canonical `re-frame.adapter.reagent/
+;; with-resource-lease` here — rename-stable in-tree AND post-publish
+;; (rf2-gjvu84).
+(def ^:private ratom-lease-reader :with-resource-lease)
+(def ^:private ratom-lease-where  're-frame.adapter.reagent/with-resource-lease)
+
+(defn make-resource-lease-component
+  "Build a ratom-family (Reagent / reagent-slim) `with-resource-lease` Form-3
+  component. The lease IDENTITY (owner mint) and LIFECYCLE semantics (frame
+  resolution, ensure on mount, re-lease on descriptor/frame/cause change,
+  release on unmount) live here — ONE implementation shared by both ratom
+  adapters (rf2-qdkt8y). The substrate supplies ONLY:
+
+    :current-component  the substrate's `current-component` reader, called in
+                        `:reagent-render` to stash the render-time target.
+    :build-class        `(fn [class-map] -> class)` — runs the substrate's
+                        `create-class` on the lifecycle-method map AND wires the
+                        frame React-context onto the class. Kept per-adapter so
+                        stock Reagent's `:context-type` map key and reagent-
+                        slim's post-hoc static `contextType` stay ISOLATED (no
+                        cross-leak) — the ONLY substrate divergence.
+
+  A single Form-3 `create-class` (NOT a Form-2 returning one — that would mint a
+  fresh component type per render and remount). Frame resolution happens in
+  `:reagent-render` (render time, so the dynamic-var tier can win and the
+  in-flight component is the resolving one); the render-time-resolved frame +
+  descriptor + cause are stashed on the instance so the commit-phase methods act
+  on the render-time target even after the render scope unwinds.
+
+  Mount mints the per-instance owner ONCE (reused across re-leases, so a
+  hot-reload re-mount settles to exactly one held lease — ensure re-attaches the
+  same owner; Spec 016 §Active owners); `:component-did-update` diffs the
+  render-time `[frame descriptor cause]` against the held lease and, on any
+  change, RELEASES the old lease then ENSURES the new target under the SAME
+  owner (so neither is the old resource over-retained nor the new one
+  under-provisioned until unmount). Under SSR (`render-to-string`) lifecycle
+  methods do not run, so the acquire/release is a natural no-op."
+  [{:keys [current-component build-class]}]
+  (build-class
+    {:display-name "re-frame.adapter.reagent/with-resource-lease"
+     :reagent-render
+     (fn [d & args]
+       (let [{:keys [cause descriptor frame body]} (lease-args (cons d args))
+             frame-id (resolve-lease-frame frame ratom-lease-reader ratom-lease-where)]
+         ;; Stash the render-time-resolved lease target (dynamic-var-honouring
+         ;; frame + current descriptor/cause) so the commit-phase lifecycle
+         ;; methods take + re-lease against it after the render scope unwinds.
+         (set! (.-rf2LeaseDesired ^js (current-component))
+               #js {:frame frame-id :descriptor descriptor :cause cause})
+         (body)))
+     :component-did-mount
+     (fn [^js this]
+       ;; Mint the per-instance owner ONCE (reused across re-leases, matching
+       ;; the hook twin's stable useRef owner) + take the first lease.
+       (set! (.-rf2ResourceLease this)
+             (ensure-lease! (.-rf2LeaseDesired this) (mint-lease-owner!))))
+     :component-did-update
+     ;; Variadic to span both substrates: stock Reagent invokes did-update
+     ;; 4-arity (prev-argv, prev-children, snapshot), reagent-slim 3-arity
+     ;; (prev-argv, snapshot) per IMPL-SPEC §6.6. We read the render-time stash,
+     ;; not the prev args, so the extra positional args are ignored either way.
+     (fn [^js this & _]
+       (let [held    (.-rf2ResourceLease this)
+             desired (.-rf2LeaseDesired this)]
+         (when (and held desired (lease-target-changed? held desired))
+           ;; Descriptor / frame / cause changed across re-render — release the
+           ;; old lease then re-ensure the new target under the SAME owner.
+           (release-lease! held)
+           (set! (.-rf2ResourceLease this)
+                 (ensure-lease! desired (.-lease held))))))
+     :component-will-unmount
+     (fn [^js this]
+       (when-let [held (.-rf2ResourceLease this)]
+         (release-lease! held)))}))
+
+;; ============================================================================
+;; React-hook family (UIx / Helix) — `use-resource-lease`
+;; ============================================================================
 
 (defn use-resource-lease
   "React hook (UIx / Helix): take a resource liveness LEASE for the calling
@@ -113,40 +321,30 @@
    ;; React-context → loud `:rf.error/no-frame-context`. Resolving here (not
    ;; inside the effect) captures the render-time frame to close over, since
    ;; the effect runs after the render scope unwinds.
-   (let [frame-id (or frame
-                      (frame/require-current-frame!
-                        :use-resource-lease
-                        {:where 're-frame.adapter.resource-lease/use-resource-lease}))
-         ;; One stable lease token per mounted instance (survives re-renders
-         ;; AND React StrictMode's mount→cleanup→mount double-invoke).
-         token-ref (React/useRef nil)
-         token     (or (.-current token-ref)
-                       (let [t (swap! lease-token-counter inc)]
-                         (set! (.-current token-ref) t)
-                         t))
-         lease     [:lease token]
+   (let [frame-id (resolve-lease-frame
+                    frame :use-resource-lease
+                    're-frame.adapter.resource-lease/use-resource-lease)
+         ;; One stable lease OWNER per mounted instance (survives re-renders AND
+         ;; React StrictMode's mount→cleanup→mount double-invoke), drawn from the
+         ;; single framework owner mint so a mixed-adapter process can't collide.
+         owner-ref (React/useRef nil)
+         owner     (or (.-current owner-ref)
+                       (let [o (mint-lease-owner!)]
+                         (set! (.-current owner-ref) o)
+                         o))
          cause     (or cause [:lease :mount])
          {:keys [resource scope params]} descriptor
          ;; Stable primitive deps for React's `Object.is` comparison: the
          ;; descriptor / cause are value-equal but fresh JS objects per
          ;; render, so key the effect on a printed digest rather than the
          ;; live objects (the same stable-key discipline the spine's
-         ;; use-subscribe uses for its query vector).
-         deps-key  (pr-str [frame-id token resource scope params cause])]
+         ;; use-subscribe uses for its query vector). The owner is stable per
+         ;; instance, so it never triggers a re-lease.
+         deps-key  (pr-str [frame-id owner resource scope params cause])]
      (React/useEffect
        (fn arm-lease []
-         ;; Direct owning-ns dispatch (not the `rf/dispatch` macro) —
-         ;; this is framework-internal plumbing, not an application call
-         ;; site, so it deliberately carries no `:rf.trace/call-site`.
-         (router/dispatch! [:rf.resource/ensure
-                            {:resource resource
-                             :scope    scope
-                             :params   params
-                             :owner    lease
-                             :cause    cause}]
-                           {:frame frame-id})
+         (dispatch-ensure! frame-id descriptor owner cause)
          (fn release-lease []
-           (router/dispatch! [:rf.resource/release-owner {:owner lease}]
-                             {:frame frame-id})))
+           (dispatch-release! frame-id owner)))
        #js [deps-key])
      nil)))
