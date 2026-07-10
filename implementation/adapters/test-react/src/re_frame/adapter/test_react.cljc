@@ -181,6 +181,39 @@
         (swap! active-mounts disj mount)))
     nil))
 
+(defn- force-teardown-record!
+  "Forcibly tear a single mount record down, bypassing the public
+  render-depth unmount guard. Records a `:forced-teardown` phase, flips
+  `mounted?` off, clears the render tree, and removes the record from
+  `active-mounts`. Idempotent via the `mounted?` guard.
+
+  This is the ONE place the forced-teardown steps live, shared by
+  `dispose-adapter!` (a flat drain of the whole live forest) and the
+  failed-render rollback in `mount-tree!` (a recursive subtree drain). Sharing
+  it keeps the two forced paths from drifting — e.g. one clearing a field the
+  other forgets. Forced teardown is the escape hatch the render-depth guard
+  deliberately cannot block; it must NOT route through the public unmount thunk
+  (which correctly rejects unmount-during-render)."
+  [mount]
+  (when @(:mounted? mount)
+    (log-phase! mount :forced-teardown)
+    (reset! (:mounted? mount) false)
+    (reset! (:render-tree mount) nil)
+    (swap! active-mounts disj mount)))
+
+(defn- roll-back-speculative-children!
+  "Roll back every mount `parent` speculatively mounted during a render that
+  then threw. Each such child completed its own mount (so it is registered in
+  `active-mounts` with `mounted?` true) and was appended to `parent`'s
+  `:children`, but `parent` itself never registered — leaving the children
+  unreachable via the public unmount surface. Walk that recorded `:children`
+  subtree GRANDCHILDREN-first (mirroring React's leaf-upward teardown) and
+  force-tear each record down. Used only by `mount-tree!`'s failed-render path."
+  [parent]
+  (doseq [child @(:children parent)]
+    (roll-back-speculative-children! child)
+    (force-teardown-record! child)))
+
 (defn- mount-tree!
   "The internal mount seam. Builds the `MountedComponent`, runs the
   constructor → render → did-mount lifecycle, registers it in
@@ -191,7 +224,12 @@
 
   If invoked while a parent's render body is running (i.e. via `mount-child!`,
   with `*rendering-mount*` bound) the new mount is appended to that parent's
-  `:children`, so unmounting the parent later cascades to it."
+  `:children`, so unmounting the parent later cascades to it.
+
+  Initial mount is TRANSACTIONAL: if `run-render!` throws (the render body
+  raised), any children the failed render already mounted are rolled back
+  before the original exception is rethrown — a failed mount registers nothing
+  and leaks nothing."
   [render-tree]
   (let [self-ref (atom nil)   ; forward ref so the thunk can disj the FINAL record
         base     (->MountedComponent
@@ -207,7 +245,24 @@
     ;; :unmount-fn, so the skeleton would not match the registered record).
     (reset! self-ref mount)
     (log-phase! mount :constructor)
-    (run-render! mount render-tree)
+    (try
+      (run-render! mount render-tree)
+      (catch #?(:clj Throwable :cljs :default) render-error
+        ;; The initial render threw. Any children the render speculatively
+        ;; mounted via `mount-child!` already registered in `active-mounts`
+        ;; (with `mounted?` true) and were recorded under this mount's
+        ;; `:children`, but this parent never reaches the `active-mounts conj`
+        ;; below — so those children would leak, unreachable via the public
+        ;; unmount surface. Roll them back so the failed initial mount is
+        ;; transactional. `run-render!` already restored `render-depth` through
+        ;; its own `finally`, so the rollback runs with the guard state correct.
+        ;; Run the rollback in its OWN try so a defect there can never MASK the
+        ;; render exception — the render error is what the caller must see.
+        (try
+          (roll-back-speculative-children! mount)
+          (catch #?(:clj Throwable :cljs :default) _rollback-error
+            nil))
+        (throw render-error)))
     (log-phase! mount :did-mount)
     (swap! active-mounts conj mount)
     mount))
@@ -297,17 +352,17 @@
   ;;
   ;; Drain flat over active-mounts: children are themselves registered in
   ;; active-mounts (mount-tree! adds every mount, parent or child), so a flat
-  ;; walk drains the whole forest without recursing through :children. We do
-  ;; NOT route through the public unmount thunk (it would throw on the
-  ;; render-depth guard) — forced teardown is the
-  ;; escape hatch the guard deliberately cannot block.
+  ;; walk drains the whole forest without recursing through :children.
+  ;; `force-teardown-record!` — the SAME primitive the failed-render rollback
+  ;; uses — performs the per-record teardown, so disposal and rollback cannot
+  ;; drift. It does NOT route through the public unmount thunk (which would
+  ;; throw on the render-depth guard) — forced teardown is the escape hatch the
+  ;; guard deliberately cannot block. The trailing `reset! active-mounts #{}` is
+  ;; belt-and-suspenders: the primitive already disj'd each drained record.
   ;;
   (subs-cache/clear-all-frame-sub-caches!)
   (doseq [mount @active-mounts]
-    (when @(:mounted? mount)
-      (log-phase! mount :forced-teardown)
-      (reset! (:mounted? mount) false)
-      (reset! (:render-tree mount) nil)))
+    (force-teardown-record! mount))
   (reset! active-mounts #{})
   ;; Normal renders restore this in finally; disposal also repairs test code
   ;; that bypassed the public driver.
