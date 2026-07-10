@@ -175,6 +175,52 @@
       (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db now matches the named epoch's :db-after"))))
 
+;; ---- 2b. rf2-3fc89f.4 — reentrant tool writes refuse mid-drain -------------
+;;
+;; The drain-serialization fix routes tool writes through the frame's
+;; `:drain-lock` (`re-frame.frame/call-serialized-with-drain!`). A restore /
+;; replace issued reentrantly from inside an event handler (i.e. from the
+;; active drainer) must REFUSE with the documented during-drain op rather than
+;; run — otherwise it would re-take the lock. CLJS cannot thread-preempt, so it
+;; never hits the cross-thread TOCTOU, but it MUST still take the same reentrant
+;; mid-drain refusal WITHOUT deadlocking (the pre-lock `drain-in-flight?`
+;; precondition, unchanged by the fix, is what fires here on `:in-drain? true`).
+
+(deftest reentrant-tool-writes-refuse-mid-drain-cljs
+  (testing "restore-epoch! / replace-frame-state! called from inside a drain
+            return false, emit :rf.epoch/restore-during-drain /
+            :rf.epoch/replace-during-drain, record NO synthetic epoch, and do
+            not deadlock (the drain settles cleanly)"
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/dispatch-sync [:n/init])
+    (let [target-id  (:epoch-id (last (rf/epoch-history :rf/default)))
+          restore-r  (atom ::unset)
+          replace-r  (atom ::unset)
+          ops        (atom #{})]
+      (trace-tooling/register-listener! ::rec
+                                        (fn [ev] (swap! ops conj (:operation ev))))
+      (rf/reg-event :n/try-writes
+        (fn [{:keys [db]} _]
+          (reset! restore-r (rf/restore-epoch! :rf/default target-id))
+          (reset! replace-r (rf/replace-frame-state! :rf/default {:rf.db/app {:n 99}}))
+          {:db (assoc db :phase :done)}))
+      ;; If either reentrant call deadlocked re-taking the lock, this
+      ;; dispatch-sync would never return.
+      (rf/dispatch-sync [:n/try-writes])
+      (trace-tooling/unregister-listener! ::rec)
+
+      (is (false? @restore-r) "reentrant restore-epoch! returned false")
+      (is (false? @replace-r) "reentrant replace-frame-state! returned false")
+      (is (contains? @ops :rf.epoch/restore-during-drain)
+          ":rf.epoch/restore-during-drain fired")
+      (is (contains? @ops :rf.epoch/replace-during-drain)
+          ":rf.epoch/replace-during-drain fired")
+      (is (nil? (some #(when (= :rf.epoch/db-replaced (:event-id %)) %)
+                      (rf/epoch-history :rf/default)))
+          "no synthetic :rf.epoch/db-replaced record was created by the refused replace")
+      (is (= :done (:phase (rf/app-db-value :rf/default)))
+          "the drain settled cleanly (no deadlock); app-db carries the handler's own commit"))))
+
 ;; ---- 3. Ring depth cap -----------------------------------------------------
 
 (deftest ring-depth-evicts-oldest-cljs
