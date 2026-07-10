@@ -1,66 +1,41 @@
-;; re-frame2 EP-0011 cross-family reply-VOCABULARY-consistency tier
-;; (rf2-wbh1ln + rf2-5ha70w; EP-0011 testing-rigour audit rf2-h8xw2v).
+;; Cross-implementation reply conformance for the uniform managed-async
+;; envelope (Managed-Effects).
 ;;
-;; This is NOT a published Maven artefact — it has no `src/`. It is a
-;; cross-artefact TEST surface (the precedent is `security/`) that holds
-;; the umbrella conformance the per-family reply suites cannot: the
-;; cross-family VOCABULARY-consistency guard (every managed-async family —
-;; HTTP, resources, mutations, machines, routing — produces the ONE shared
-;; `:status` / `:rf.reply/work-status` / `:work/id` / canonical-stale shape, the
-;; axis rf2-mn4j89 violated) and the EP-0015 reply-envelope EGRESS-projection
-;; conformance (every wire-bearing reply slot projects through the shared
-;; elider at each trace / tool / log boundary). The test namespaces sit ABOVE
-;; several artefacts (core, http, resources, machines, routing), so they live
-;; in their own top-level `reply-conformance/` surface rather than any single
-;; family's test tree. (rf2-9dc84j retired the synthetic functor/naturality
-;; suite — core + timer-probe own the reply-target functor laws; this tier no
-;; longer claims family-level relocation conformance.)
+;; This is a test-only surface with no published source. It checks the core
+;; reply substrate and builders in HTTP, resources, machines, and routing
+;; against the shared `:status`, `:rf.reply/work-status`,
+;; `:rf.reply/work-id`, stale-suppression, and egress-projection contracts.
+;; The tests depend on several implementation
+;; artefacts, so no single family's test tree can own them. Reply-target functor
+;; laws remain owned by the core substrate and its independent timer consumer.
 ;;
-;; ## Why this deps.edn exists
-;;
-;; The conformance namespaces are `.cljc` and run in BOTH runtimes. They
-;; ride the always-on CLJS `:node-test` gate (`npm run test:cljs`, ns
-;; matches `cljs-test$`) via the cross-artefact source paths the top-level
-;; `implementation/shadow-cljs.edn` lists. This alias is the JVM
-;; counterpart: it runs the SAME `.cljc` namespaces under the JVM so the
-;; `:clj` reader-conditional arms (the EDN round-trip `read-string`, any
-;; `:clj` host-handle detection) are exercised — mirroring why
-;; `security/deps.edn` exists. Wired into
-;; `scripts/test-jvm-implementation.sh`.
+;; The `.cljc` suites run in the top-level CLJS `:node-test` build. This alias
+;; supplies the JVM counterpart, including the JVM reader-conditional paths,
+;; and is invoked by `scripts/test-jvm-implementation.sh`.
 ;;
 ;; ## Why test-only deps, not :local/root in :deps
 ;;
-;; This artefact ships nothing, so the top-level `:deps` is empty. The
-;; cross-artefact source the test namespaces `:require` (`re-frame.reply`
-;; from core; `re-frame.http.reply`; `re-frame.resources.reply`;
-;; `re-frame.machines.reply`; `re-frame.routing.reply`) is pulled in under
-;; the `:test` alias only. `:extra-paths` is JUST `["test"]` so the
-;; cognitect test-runner scans ONLY this tier's test dir — the artefact
-;; `:local/root` deps contribute their `src` (never their `:test`), so no
-;; other artefact's tests run here.
+;; The top-level `:deps` stays empty because this artefact ships nothing.
+;; `:extra-paths` limits test discovery to this directory; the local-root
+;; dependencies contribute production source, not their own test trees.
 ;;
-;; ## Bundle isolation (tools/README.md)
+;; ## Bundle isolation
 ;;
-;; No tool deps; this is a pure cross-FAMILY conformance surface. The
-;; dependency arrow flows reply-conformance(test) → implementation
-;; artefacts, never the reverse. Nothing under `implementation/` production
-;; `src/` `:require`s anything here, so no production bundle is widened.
+;; Dependencies flow from this test artefact to production artefacts only.
+;; Production source does not require this surface, so it widens no bundle.
 {:paths []
  :deps  {}
 
  :aliases
  {:test
   {:extra-paths ["test"]
-   ;; The five managed-async families whose reply builders the conformance
-   ;; tests `:require`. core carries `re-frame.reply` (the shared
-   ;; substrate); http / resources / machines / routing carry their
-   ;; per-family reply slices.
+   ;; Core supplies the shared substrate; the other artefacts supply the
+   ;; family reply builders exercised by the conformance matrices.
    :extra-deps  {day8/re-frame2           {:local/root "../core"}
                  day8/re-frame2-http      {:local/root "../http"}
                  day8/re-frame2-resources {:local/root "../resources"}
                  day8/re-frame2-machines  {:local/root "../machines"}
                  day8/re-frame2-routing   {:local/root "../routing"}
-                 ;; rf2-try1x — silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
