@@ -124,11 +124,11 @@ Signals:
 - a production-elided build (`:advanced` + `goog.DEBUG=false`) darkened the dev-gated surfaces and the user read the partial result as everything-gone
 - the user cannot tell whether they hit an elision wall or a tool bug
 
-Background: production elision is NOT a total wall. Only the **dev-gated** surfaces elide under `re-frame.interop/debug-enabled?` false — the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. `orient` still returns registry/frame shape (built from `health` + frame ids + app-db top keys + registry counts, none dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on event/error-emit substrate (the `:events` / `:errors` streams of `register-listener!`, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone abandons usable probes.
+Background: production elision is a **mixed** result, not a total wall — the dev-gated families go dark while the always-answering families keep responding (orientation / registry-frame shape is the canonical surface that still answers), so a partial result is not a broken tool. The authoritative dark-vs-answering split is owned by the routing index's availability legend + production note ([`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md)) and [`spec/009-Instrumentation.md` §What IS available in production](../../../spec/009-Instrumentation.md#what-is-available-in-production); route to them rather than re-enumerating the surfaces here. Misclassifying a mixed production result as everything-is-gone abandons usable probes.
 
 Typical improvements:
 - preflight check that reads `re-frame.interop/debug-enabled?` and reports the answer
-- make "I am attached to a production-elided build" a first-class result state, distinguishing the dev-only surfaces that go dark (trace / epoch / schema / source-coord) from the surfaces that still answer (orientation, registry/frame shape, the direct-read primitives, and the always-on event/error-emit listeners — observability, not an app-steerable recovery policy)
+- make "I am attached to a production-elided build" a first-class result state that distinguishes the dark dev-only surfaces from the ones that still answer (name the split by pointing at the routing index, not by re-listing the surfaces in the result)
 - recipe for switching to a dev build before continuing
 
 ### Error observability and recovery-model confusion
@@ -140,7 +140,7 @@ Signals:
 - the session looked for a per-frame `:on-error` slot — there is none
 - the agent assumed the error-emit listener elides in a CLJS production build and dismissed a production error report
 
-Background: recovery is framework-owned (the typed per-category default); observability is the **always-on** error-emit listener — `(rf/register-listener! :errors id listener-fn)`, the `:errors` stream of the stream-parameterized listener verb. It is NOT gated by `re-frame.interop/debug-enabled?` and survives `:advanced` + `goog.DEBUG=false` for every catalogued production-reachable `:rf.error/*` (per `spec/009-Instrumentation.md` §Production elision) — registered listeners DO fire in prod. Only dev-side enrichments elide: the `:rf.trace/dispatch-id` / `:rf.trace/trigger-handler` source-coord correlation and the retain-N ring buffer ride the dev trace surface. Genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), not an app-steerable policy.
+Background: recovery and observability are distinct. Recovery is **framework-owned** — a typed per-category default, with no app-steerable per-frame `:on-error` policy; observability is the **always-on** error-emit listener, which survives production elision (only dev-side trace enrichments elide). The listener's shape, its production-survival guarantee, and the dev-only enrichments that DO elide are owned by [`spec/009-Instrumentation.md` §Error observability](../../../spec/009-Instrumentation.md#error-observability-the-always-on-error-listener) — route there rather than re-stating them. Genuine recovery for *expected* failures is local-at-source (managed-HTTP `:retry`, optional-read fallback), not an app-steerable policy.
 
 Typical improvements:
 - turn a silent runtime fallback into a louder warning the agent can route to the user
