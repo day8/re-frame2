@@ -227,6 +227,7 @@
    :routing/reset-nav-counters!     1  ;; rf2-oosjmh — host-side counters
    :resources/reset-resources!      1  ;; rf2-yuc8o0 — host-side resources state
    :http/clear-all-in-flight!       1
+   :http/clear-all-http-interceptors! 1  ;; rf2-q14tde — interceptor-chain reset
    :epoch/clear-history!            1
    :epoch/clear-epoch-listeners!          1
    :epoch/reset-config!             1
