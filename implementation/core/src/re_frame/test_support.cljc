@@ -247,9 +247,10 @@
 
   Per-row rationale:
 
-    :flows/reset-flows!              — drop the per-frame flow registry.
-    :flows/reset-last-inputs!        — drop the dirty-check last-inputs
-                                       map paired with the flow registry.
+    :flows/reset-flows!              — drop ALL per-frame flow state: the
+                                       flow registry, the paired dirty-check
+                                       last-inputs containers, and the pending
+                                       abandoned-output-paths containers.
     :schemas/clear-by-frame!         — clear per-frame schema registrations.
                                        Paired with `:schemas/snapshot-by-frame`
                                        + `:schemas/restore-by-frame!` for
@@ -342,7 +343,6 @@
 
   Adding a new artefact's reset becomes a one-row addition here."
   [{:hook :flows/reset-flows!              :phase :pre-dispose}
-   {:hook :flows/reset-last-inputs!        :phase :pre-dispose}
    {:hook :schemas/clear-by-frame!         :phase :pre-dispose}
    {:hook :machines/reset-timers!          :phase :post-dispose}
    {:hook :fx/reset-dispatch-later-timers! :phase :post-dispose}

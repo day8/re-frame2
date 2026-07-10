@@ -118,21 +118,6 @@
           (is (= {:probe :ok} (rf/app-db-value :rf/default))
               ":db commit lands even though the outermost-`:after` flow walker is a no-op"))))))
 
-(deftest reset-last-inputs!-no-ops-when-flows-artefact-missing
-  (testing "test-support's reset-runtime fixture no-ops when :flows/reset-last-inputs! hook is nil"
-    ;; Consumer is `re-frame.test-support`'s reset-hook-table (row for
-    ;; `:flows/reset-last-inputs!`). The driver `run-reset-hooks!` walks
-    ;; the table and short-circuits rows whose hook is unregistered.
-    ;; With the hook nil, the fixture bracket fires its full cascade
-    ;; (snap/restore registrar, dispose adapter, reinstall, run test-fn)
-    ;; without touching the absent-flows machinery.
-    (with-hook-as-nil :flows/reset-last-inputs!
-      (fn []
-        (let [ran? (atom false)
-              fix  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
-          (fix (fn [] (reset! ran? true)))
-          (is @ran? "fixture invoked the test-fn without throwing on the absent hook"))))))
-
 (deftest reset-flows!-no-ops-when-flows-artefact-missing
   (testing "test-support's reset-runtime fixture no-ops when :flows/reset-flows! hook is nil"
     ;; Consumer is `re-frame.test-support`'s reset-hook-table (row for

@@ -221,7 +221,6 @@
   refactor that drops EITHER call site (or unifies them into one) is
   surfaced as a regression."
   {:flows/reset-flows!              2  ;; pre + finally (symmetry)
-   :flows/reset-last-inputs!        1
    :schemas/clear-by-frame!         1
    :machines/reset-timers!          1
    :routing/reset-counters!         1

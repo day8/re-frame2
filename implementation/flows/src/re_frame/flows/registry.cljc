@@ -1559,12 +1559,18 @@
 (defn reset-last-inputs!
   "Test-only: clear ALL per-frame dirty-check `last-inputs` containers
   (drops the whole `frame-last-inputs` registry, discarding every frame's
-  inner atom). The flows reset-runtime fixture uses this to drop stale
-  per-flow state between tests so re-registration does not silently no-op
-  when new-inputs =-equal a stale entry from a sibling test. Published
-  through the late-bind hook table so `re-frame.test-support`'s
-  reset-runtime fixture can call it without statically requiring
-  `re-frame.flows`."
+  inner atom) WITHOUT touching the flow registrations or the pending
+  abandoned-output-paths. A TARGETED helper for a test that wants to force
+  the next drain to recompute every flow (so re-registration does not
+  silently no-op when new-inputs =-equal a stale entry) while keeping the
+  flows registered. Re-exported on the `re-frame.flows` facade for
+  direct in-artefact / cross-artefact test use.
+
+  This is NOT part of the standard reset-runtime fixture: that fixture
+  clears the SAME containers (and more) via `reset-flows!` through the
+  `:flows/reset-flows!` late-bind hook, which drops the registry,
+  last-inputs, AND abandoned-output-paths in lockstep. `reset-last-inputs!`
+  is the narrower, registrations-preserving cousin for targeted tests."
   []
   (reset! frame-last-inputs {})
   nil)
