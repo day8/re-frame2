@@ -179,7 +179,15 @@ The egress redaction **call site is born here** — the wire boundary where a
 tool ships the graph **off** the developer's box (an MCP surface streaming
 the graph to a remote agent, a serialized capture written to disk / posted
 to a service). `derivation-graph-helpers/redact-graph-for-egress` is that
-call site:
+call site. The redaction **algorithm** itself is owned by the
+bundle-isolated core tooling ns `re-frame.derivation.egress/project-graph`
+(rf2-mm3y49): `redact-graph-for-egress` is a thin **delegate** to it, so this
+panel and the derivation-conformance suite share **one** implementation
+rather than the two drifting copies they used to maintain. The owner lives in
+`implementation/core` and is built entirely from `implementation/`-resident
+primitives (`elide-wire-value` + `canonical-bytes`), so the delegation adds
+no `tools/` → `implementation/` dependency inversion. The call site behaves as
+follows:
 
 - each node's value-bearing summary field (`:value` / `:params` / `:query`
   / `:state`) is projected through the single shared `rf/elide-wire-value`
@@ -284,9 +292,11 @@ graph` with the override input layered on top.
 
 Same contract as every Xray panel — observing the graph pins nothing,
 dispatches nothing, mutates no host state. Pure hiccup; the projection
-algebra + the egress redaction call site live in
-`derivation_graph_helpers.cljc` (JVM-portable). Frame isolation comes from
-the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
+algebra + the egress redaction **call site** live in
+`derivation_graph_helpers.cljc` (JVM-portable), which **delegates** the
+redaction algorithm itself to the core-owned
+`re-frame.derivation.egress/project-graph` (rf2-mm3y49). Frame isolation comes
+from the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
 
 ## Test coverage
 
@@ -295,38 +305,29 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   node degree; on-box `summarize` raw-permitting posture; `summarize-node`
   structure preservation; `graph-summary` tallies.
 - **`derivation_graph_redaction_cljs_test.cljc`** (JVM + node, runtime
-  fixture) — the **positive** off-box egress test (rf2-yjarv6): a sensitive
-  node value run through `rf/elide-wire-value` is elided **while** the node
-  + edge structure survives (the "redact value, keep edge" arm the EP-0014
+  fixture) — the **consumer/wiring** pin for the delegate (rf2-mm3y49). The
+  redaction algorithm is owned by `re-frame.derivation.egress` and its
+  COMPREHENSIVE coverage lives in the derivation-conformance egress arms
+  (`g-*`); this suite proves the Xray delegate wires that algorithm through,
+  across the frame-policy value walk and the resource-identity projection.
+  The **positive** off-box egress test (rf2-yjarv6): a sensitive node value
+  run through the frame's `elide-wire-value` is elided **while** the node +
+  edge structure survives (the "redact value, keep edge" arm the EP-0014
   testing-coverage audit flagged as missing); large elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value
   raw); frameless fail-closed — including the **nil-frame-under-an-ambient-
   binding** arm (rf2-udkj69): a nil frame-id while an ambient frame is bound
-  must still redact, never borrow that ambient frame and ship raw. Plus the
-  **adversarial** live resource
-  identity arm (rf2-k0meap.1): a live resource scoped key carrying a session
-  token in BOTH its cache scope and its canonical params, with an in-flight
-  work-ledger record and a route-owned `:param` edge naming it — asserting
-  NO raw secret survives anywhere in the egressed graph (node key, `:id`,
-  `:inputs`, `:output`, work-ledger, edges) while connectivity survives (the
-  node is still classified, the edge still connects to the projected key),
-  the projection is deterministic across all identity positions, and it is
-  **idempotent** — `project(project(x)) == project(x)`, asserted as full graph
-  equality across two (and three) passes plus per-position witnesses (node
-  keys, `:id`, `:inputs`, `:output`, work-ledger `:resource/key`, edges), so a
-  forwarder pipeline that re-egresses an already-projected graph cannot drift
-  the realized `:inputs` handles (rf2-g197ep). Plus the **work-id /
-  host-transient identity** arm (rf2-qo1l8w): a resource-shaped work-id
-  (`[:rf.work/resource <scoped-key> <generation>]`) embedding the same
-  session-token secret, planted directly into `:work-ledger :work/id`,
-  `:work-ledger :record :work/id`, and `:host-transient` (bypassing the
-  upstream `resources.tooling/project-work-id` pre-projection that masks this
-  gap in production) — asserting no raw secret survives in any of those three
-  positions, the resource work-id shape (`:rf.work/resource` head +
-  generation) survives projection, and the same opaque scoped-key handle is
-  consistent across all three positions (mirrors the derivation-conformance
-  egress mirror's `project-work-id` / `project-host-transient` fix,
-  rf2-tmyfkn/rf2-uh2clr, closing the same latent gap in the real call site).
+  must still redact, never borrow that ambient frame and ship raw. Plus one
+  **identity-projection wiring smoke**: a live resource scoped key carrying a
+  session token in BOTH its cache scope and canonical params (and inside its
+  canonical work-id / host-transient), with a route-owned `:param` edge naming
+  it — asserting NO raw secret survives anywhere in the egressed graph while
+  connectivity survives (the node stays classified, the edge remaps to the
+  projected key), the registration resource-id stays visible, and every
+  identity position projects to the SAME opaque scoped key. The exhaustive
+  per-position, work-id/host-transient, and idempotence depth is proven once,
+  in derivation-conformance, against the shared owner — Xray does not re-prove
+  the algorithm.
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
   consumer** test (rf2-4wtllq): registers the panel handlers via
   `registry/register-xray-handlers!` + `test-support/install-test-overrides!`
