@@ -119,6 +119,127 @@
     :else
     runtime-db))
 
+;; ---- multi-owner claim registry (rf2-wdm1vg) -----------------------------
+;;
+;; The per-frame elision registry is a MULTI-OWNER claim registry. Each axis
+;; slot (`:sensitive-declarations` / `:declarations`) maps a concrete
+;; runtime-db path to the SET of OWNER identities that currently claim it. An
+;; owner identity is any EDN value that names a claimant for the purpose of
+;; add / remove: the commit-plane effects claim under `{:source :effect}`,
+;; `reg-flow` outputs `{:source :flow :flow-id <id>}`, machine spawns
+;; `{:source :machine :actor-id <id>}`, route activation `{:source :route}`,
+;; and resource instances `{:source :resource}`. Instance identity (`:flow-id`
+;; / `:actor-id`) is carried where an owner reconciles its OWN claims
+;; independently of a same-family sibling, so removing one leaves the rest.
+;;
+;; Independent owners UNION: a path is redacted / size-marked at egress while
+;; ANY owner claims it, and it is pruned from the registry only when its LAST
+;; owner drops. This is the privacy-boundary correctness property (rf2-wdm1vg).
+;; Before it, the registry held one owner per path, so a second owner's claim
+;; either overwrote the first (then deleted it on teardown) or was silently
+;; ignored — a route change / actor teardown could un-redact an
+;; effect-classified path (a fail-open on the AI-egress privacy boundary). The
+;; egress read needs only PRESENCE (sensitive) or a STABLE provenance derived
+;; from the owner-set (the large marker's `:reason`).
+;;
+;; Family code (effects / flows / machines / routing / resources) derives only
+;; absolute paths + owner identities and DELEGATES to the pure operations
+;; below; there is no family-private source-filter / overlay logic.
+
+(def ^:no-doc effect-owner
+  "The owner identity the EP-0025 commit-plane classification effects claim
+  under. A distinguished value: it is the ONLY in-band owner (written WITH the
+  `:db` commit), so `restore-elision-slot` unwinds it on a schema rollback
+  while carrying the out-of-band subsystem owners forward."
+  {:source :effect})
+
+(defn ^:no-doc add-claims
+  "PURE. Add owner-identity `owner` to each path in `paths` within the axis
+  `slot` of registry value `reg`. UNION: a path already claimed by other owners
+  keeps them and gains `owner`; a path with no prior claim is created with
+  `#{owner}`. A no-op (returns `reg`) when `paths` is empty. Returns the new
+  registry value."
+  [reg slot owner paths]
+  (if (empty? paths)
+    reg
+    (let [cur     (get reg slot)
+          updated (reduce (fn [m p] (update m (vec p) (fnil conj #{}) owner))
+                          (or cur {})
+                          paths)]
+      (assoc reg slot updated))))
+
+(defn ^:no-doc remove-claims
+  "PURE. Remove owner-identity `owner` from each NAMED path in `paths` within
+  axis `slot`; a path whose owner-set empties is pruned. Other owners on a
+  named path survive, so a source-scoped clear / teardown never un-redacts a
+  path another owner still claims (a privacy fail-open). A no-op when `paths`
+  or the slot is empty. Returns the new registry value (the slot is dissoc'd
+  when it empties)."
+  [reg slot owner paths]
+  (let [cur (get reg slot)]
+    (if (or (empty? paths) (empty? cur))
+      reg
+      (let [updated (reduce (fn [m p]
+                              (let [p      (vec p)
+                                    owners (disj (get m p) owner)]
+                                (if (seq owners)
+                                  (assoc m p owners)
+                                  (dissoc m p))))
+                            cur
+                            paths)]
+        (if (seq updated)
+          (assoc reg slot updated)
+          (dissoc reg slot))))))
+
+(defn ^:no-doc remove-owner
+  "PURE. Remove owner-identity `owner` from EVERY path in axis `slot`; a path
+  whose owner-set empties is pruned. The whole-axis complement of
+  `remove-claims` — the flow-clear + the route / resource reconcile drop step.
+  Returns the new registry value (the slot is dissoc'd when it empties)."
+  [reg slot owner]
+  (let [cur (get reg slot)]
+    (if (empty? cur)
+      reg
+      (let [updated (reduce-kv (fn [m p owners]
+                                 (let [owners' (disj owners owner)]
+                                   (if (seq owners')
+                                     (assoc m p owners')
+                                     m)))
+                               {}
+                               cur)]
+        (if (seq updated)
+          (assoc reg slot updated)
+          (dissoc reg slot))))))
+
+(defn ^:no-doc replace-owner-claims
+  "PURE. Reconcile owner `owner`'s claims in axis `slot` to EXACTLY `paths`:
+  drop `owner` from every path, then add `owner` to each path in `paths`. The
+  whole-owner reconcile the singleton route lowering, the self-dropping
+  resource lowering, and a `reg-flow` re-registration use — a foreign owner on
+  any path survives untouched. Returns the new registry value."
+  [reg slot owner paths]
+  (-> reg
+      (remove-owner slot owner)
+      (add-claims slot owner paths)))
+
+(def ^:private source-provenance-priority
+  "Deterministic priority order for deriving a large marker's STABLE `:reason`
+  provenance from a path's retained owner-set. A large path may be claimed by
+  several independent owners; the marker carries ONE reproducible source so the
+  wire shape is stable across runs and serialization. First match wins."
+  [:effect :flow :machine :route :resource])
+
+(defn ^:no-doc owners->provenance
+  "Derive the STABLE `:reason` / `:source` provenance keyword for a large-
+  classified path from its retained `owners` set. Picks the highest-priority
+  `:source` present (`source-provenance-priority`); falls back to `:effect`
+  when the set carries no recognised source (defensive — matches the historical
+  `->marker` default)."
+  [owners]
+  (let [sources (into #{} (keep :source) owners)]
+    (or (some sources source-provenance-priority)
+        :effect)))
+
 (defn ^:no-doc restore-elision-slot
   "EP-0025 SOURCE-AWARE rollback restore for the per-frame elision registry.
 
@@ -126,39 +247,39 @@
   unwinds with the WHOLE frame-state transition (both partitions back to the
   pre-handler value). Per Spec 015 §84 a classification `walks back atomically
   with the frame on a revert` — but only the IN-BAND classification this event
-  produced: the four commit-plane classification effects write
-  `{:source :effect}` marks (`apply-classification-effects`), and those MUST
-  unwind. The OTHER sources are written OUT-OF-BAND by long-lived subsystems —
-  `reg-flow` outputs (`:source :flow`), machine actor spawns
-  (`:source :machine`), route activation (`:source :route`) — and a
-  declaration one of those LOWERED during the rejected event may LEGITIMATELY
-  survive the rollback (the actor / route registration is not the
-  schema-rejected `:db` effect).
+  produced: the four commit-plane classification effects claim under the
+  `effect-owner` (`apply-classification-effects`), and those MUST unwind. Every
+  OTHER owner is written OUT-OF-BAND by a long-lived subsystem — `reg-flow`
+  outputs (`{:source :flow …}`), machine actor spawns (`{:source :machine …}`),
+  route activation (`{:source :route}`), resource instances
+  (`{:source :resource}`) — and a claim one of those LOWERED during the
+  rejected event may LEGITIMATELY survive the rollback (the actor / route
+  registration is not the schema-rejected `:db` effect).
 
-  The base is `pre-reg` — the per-frame elision registry as it was at
-  chain-start, BEFORE the cascade ran (the `[:rf.runtime/elision]` sub-tree of
-  the chain-start `runtime-before` runtime-db, captured by reference in the
-  router's `assemble-initial-ctx`, so it is a true PRE-CASCADE snapshot at no
-  copy cost). Restoring to that base alone already:
+  Since the registry retains ALL owners per path (rf2-wdm1vg), the restore is
+  per-OWNER, not per-path: for each path in an axis the restored owner-set is
 
-    - UNWINDS in-band `:source :effect` marks the rejected event added
-      (rf2-5lo1fk) — they were not in the pre-cascade snapshot, so they are
-      gone; and
-    - RESTORES an out-of-band `:source :flow` mark a mid-drain reentrant
-      `reg-flow` output-path MOVE dropped (rf2-o6rsi2) — the OLD path's
-      `:source :flow` entry is still in the pre-cascade snapshot, so it comes
-      back (the live registry had already dropped it; carrying live forward
-      would leak — a privacy fail-open on revert).
+      pre-owners[path]  ∪  (live-owners[path] MINUS effect-owner)
 
-  But the base alone would also drop an out-of-band declaration LOWERED
-  DURING the event (a `:source :machine` / `:source :route` mark from an actor
-  spawn / route activation inside the rejected event, or the NEW-path
-  `:source :flow` mark from a reentrant move) — those are absent from the
-  pre-cascade snapshot yet legitimately survive. So OVERLAY the LIVE
-  out-of-band entries (`:source` ≠ `:effect`) onto the pre-cascade base: this
-  re-adds the during-event subsystem-lowered marks WITHOUT re-adding the
-  in-band `:source :effect` marks (the only sourced kind that must unwind).
-  Privacy posture stays fail-safe-toward-redaction: a kept mark over a value
+  — the pre-cascade owners (which includes whatever the effect owner held at
+  chain-start, so its during-event add / clear both unwind to the pre value)
+  UNIONED with every NON-effect owner LIVE currently holds (so a during-event
+  subsystem lowering survives). `pre-reg` is the `[:rf.runtime/elision]`
+  sub-tree at chain-start (captured by reference in the router's
+  `assemble-initial-ctx`, a true PRE-CASCADE snapshot at no copy cost).
+
+  This subsumes the historical single-owner cases:
+    - UNWINDS an in-band effect claim the rejected event ADDED (rf2-5lo1fk) —
+      absent from `pre`, and the effect owner is stripped from `live`, so it is
+      gone;
+    - RESTORES an out-of-band `:source :flow` claim a mid-drain reentrant
+      `reg-flow` output-path MOVE dropped (rf2-o6rsi2) — the OLD path's flow
+      owner is still in `pre`, so the union re-adds it (carrying live forward
+      alone would leak — a privacy fail-open on revert); and
+    - KEEPS the NEW-path `:source :flow` / `:source :machine` / `:source :route`
+      claim lowered DURING the event — present in `live` and non-effect, so the
+      union carries it forward.
+  Privacy posture stays fail-safe-toward-redaction: a kept claim over a value
   the rolled-back db no longer holds redacts nothing (harmless); a dropped one
   risks raw egress.
 
@@ -167,23 +288,27 @@
   — the caller folds it onto `runtime-before` via `write-elision-slot`.
   Pure."
   [pre-reg live-reg]
-  (let [;; Per axis slot (`:sensitive-declarations` / `:declarations`): start
-        ;; from the pre-cascade entries, then overlay the LIVE OUT-OF-BAND
-        ;; (`:source` ≠ `:effect`) entries. The pre-cascade base unwinds in-band
-        ;; `:source :effect` and restores a dropped old-path `:source :flow`;
-        ;; the overlay re-adds during-event subsystem-lowered survivors.
+  (let [;; Per axis slot (`:sensitive-declarations` / `:declarations`): the
+        ;; restored owner-set for a path is the pre-cascade owners UNIONED with
+        ;; the LIVE non-effect owners. The pre base unwinds the in-band effect
+        ;; owner (add + clear) and restores a dropped out-of-band owner; the
+        ;; live union re-adds during-event subsystem-lowered survivors.
         restore-axis
         (fn [slot]
-          (let [pre  (get pre-reg slot)
-                live (get live-reg slot)
-                out-of-band-live (reduce-kv
-                                   (fn [m path decl]
-                                     (if (= :effect (:source decl))
-                                       m
-                                       (assoc m path decl)))
-                                   {}
-                                   (or live {}))
-                merged (merge (or pre {}) out-of-band-live)]
+          (let [pre    (get pre-reg slot)
+                live   (get live-reg slot)
+                paths  (into (set (keys pre)) (keys live))
+                merged (reduce
+                         (fn [m p]
+                           (let [pre-owners  (get pre p #{})
+                                 live-owners (get live p #{})
+                                 owners      (into pre-owners
+                                                   (disj live-owners effect-owner))]
+                             (if (seq owners)
+                               (assoc m p owners)
+                               m)))
+                         {}
+                         paths)]
             (not-empty merged)))
         s (restore-axis :sensitive-declarations)
         l (restore-axis :declarations)]
@@ -272,14 +397,14 @@
 ;; They are applied WITH the `:db` write (a frame-state transform at the
 ;; commit point — `re-frame.router/commit-frame-effects!`), NOT as a later
 ;; post-commit `:fx`, so a path classified in the SAME event is redacted from
-;; its first egress. They write into the per-frame elision registry's
-;; `:sensitive-declarations` (sensitive) / `:declarations` (large) sub-maps —
-;; the SAME slot `re-frame.flows.registry` (`:source :flow`) and the subsystem
-;; projection-relative declarations populate — tagged
-;; `:source :effect`, unioned with the other sources at egress-lookup time
-;; (`elide-against-frame` reads both sub-maps verbatim, so no change to the wire
-;; walker is needed). Classification is VALUE-INDEPENDENT (classify a path before
-;; any value lands there) and read ONLY at egress.
+;; its first egress. They add the `effect-owner` to the per-frame elision
+;; registry's `:sensitive-declarations` (sensitive) / `:declarations` (large)
+;; multi-owner slots — the SAME slots `re-frame.flows.registry`
+;; (`{:source :flow …}`) and the subsystem projection-relative declarations
+;; populate — unioned with every other owner at egress-lookup time
+;; (`elide-against-frame` reads the owner-set per path, so a path claimed by
+;; ANY owner redacts). Classification is VALUE-INDEPENDENT (classify a path
+;; before any value lands there) and read ONLY at egress.
 ;;
 ;; The two axes (`:sensitive` / `:large`) are INDEPENDENT — a
 ;; `:clear-sensitive` never touches `:declarations`, and `:clear-large` never
@@ -299,8 +424,8 @@
 (def ^:private classification-effect-axis
   "Map each classification effect key to the registry slot it writes and
   whether it SETS or CLEARS. `:slot` is the `[:rf.runtime/elision …]`
-  declaration sub-map; `:set?` true adds `{:source :effect}` decls, false
-  removes the named paths. The two axes are independent — a clear on one axis
+  declaration sub-map; `:set?` true ADDS the `effect-owner` to the named
+  paths, false REMOVES it. The two axes are independent — a clear on one axis
   never touches the other's slot."
   {:sensitive       {:slot :sensitive-declarations :set? true}
    :large           {:slot :declarations           :set? true}
@@ -370,39 +495,27 @@
   a live container, so the router can fold the result into the atomic `:db`
   commit transition (a partition-write alongside `:db`).
 
-  Each SET key (`:sensitive` / `:large`) adds `{:source :effect}` declarations
-  for its paths to the axis slot (`:sensitive-declarations` / `:declarations`)
-  WITHOUT clobbering a foreign-source standing entry: the registry is
-  one-entry-per-path-per-axis, so a SET on a path another owner already claims
-  (`:source :flow` / `:machine` / `:route` / a subsystem declaration) leaves
-  that owner standing rather than overwriting it to `:source :effect`
-  (rf2-p4spo4). Were it to overwrite, the later source-scoped CLEAR would
-  dissoc the entry and silently un-redact a path the other owner still
-  classifies — a privacy fail-open. The egress read needs only presence, so a
-  doubly-claimed path stays redacted and the SET is a no-op on it; only a free
-  or already-effect-owned slot is (re)stamped `:source :effect`.
-  Each CLEAR key (`:clear-sensitive` / `:clear-large`) removes ONLY the
-  effect's OWN contribution to its paths from the axis slot. A clear is
-  SOURCE-SCOPED: it dissocs a path only when the standing entry is
-  `:source :effect` (the effect's own declaration); a path also claimed by
-  another source (`:source :flow` from a `reg-flow` output, `:source :machine`,
-  `:source :route`, or a subsystem projection declaration) is LEFT INTACT, so
-  the clear can never silently un-redact a path another owner still classifies
-  (a privacy fail-open). This mirrors `re-frame.flows.registry/drop-flow-sourced`,
-  which likewise removes only its own `:source :flow` entries. The two axes are
-  INDEPENDENT — clearing one never touches the other's slot — and clearing
-  removes only the named paths (other-sourced entries for an unnamed path
-  survive). Within one effect map, a SET on an axis applies before its own
-  CLEAR (a handler returns at most one of each axis's set/clear), so if both an
-  axis SET and that axis's CLEAR name the same path the CLEAR wins (the SET
-  stamped it `:source :effect`, so the source-scoped clear removes the
-  effect's own just-written entry). An empty/absent axis slot is pruned
-  (dissoc'd) rather than left as `{}` (matching
-  `write-elision-slot`). Assumes `effects` already passed
-  `classification-effect-defect` (the router's pure pre-commit check returned
-  nil, so the paths are valid concrete `:rf/path`s); normalizes each to its
-  canonical vector form here so the stored decl key matches the wire walker's
-  `(vec path)` lookup.
+  Each SET key (`:sensitive` / `:large`) ADDS the `effect-owner` to its paths
+  in the axis slot (`:sensitive-declarations` / `:declarations`), UNIONING with
+  any foreign owner already on the path (`add-claims`): a SET on a path another
+  owner claims (`:source :flow` / `:machine` / `:route` / `:resource`) leaves
+  that owner in place AND records the effect owner alongside it (rf2-wdm1vg),
+  so both claims survive independently. Each CLEAR key (`:clear-sensitive` /
+  `:clear-large`) removes ONLY the `effect-owner` from its named paths
+  (`remove-claims`); a path still claimed by another owner stays redacted (the
+  clear can never silently un-redact a path another owner still classifies — a
+  privacy fail-open), and a path whose last owner was the effect owner is
+  pruned. The two axes are INDEPENDENT — clearing one never touches the other's
+  slot — and clearing removes only the named paths (other paths survive).
+  Within one effect map, a SET on an axis applies before its own CLEAR (a
+  handler returns at most one of each axis's set/clear), so if both an axis SET
+  and that axis's CLEAR name the same path the CLEAR wins (the SET added the
+  effect owner; the CLEAR removes the effect's own just-added claim). An
+  empty/absent axis slot is pruned (dissoc'd) rather than left as `{}`. Assumes
+  `effects` already passed `classification-effect-defect` (the router's pure
+  pre-commit check returned nil, so the paths are valid concrete `:rf/path`s);
+  normalizes each to its canonical vector form here so the stored key matches
+  the wire walker's `(vec path)` lookup.
 
   Pre-commit FAIL-OPEN posture: a path classified here is value-independent —
   it redacts whatever later occupies the path, and is a harmless no-op over an
@@ -412,51 +525,20 @@
         reg  (get base :rf.runtime/elision)
         ;; Reduce the four effects (set axes first, clear axes second) so a
         ;; same-axis set+clear on one path resolves to cleared. Order within a
-        ;; single map is fixed by the key sequence below.
+        ;; single map is fixed by the key sequence below. Each arm derives the
+        ;; concrete paths and DELEGATES to the core multi-owner ops — add-claims
+        ;; unions the effect owner in, remove-claims strips only the effect
+        ;; owner (a foreign owner on the path survives).
         new-reg
         (reduce
           (fn [reg k]
             (if-not (contains? effects k)
               reg
               (let [{:keys [slot set?]} (classification-effect-axis k)
-                    paths   (map #(vec (path/normalize-concrete %)) (get effects k))
-                    cur     (get reg slot)
-                    updated (if set?
-                              ;; NON-CLOBBERING set (rf2-p4spo4): the registry is
-                              ;; one-entry-per-path-per-axis, so an effect SET on a
-                              ;; path ALSO claimed by another owner (`:source :flow`
-                              ;; from a reg-flow output, `:source :machine`,
-                              ;; `:source :route`, or a subsystem declaration) must
-                              ;; NOT overwrite that owner's provenance. If it did,
-                              ;; the later SOURCE-SCOPED clear below would see
-                              ;; `:source :effect`, dissoc the entry, and silently
-                              ;; un-redact a path the other owner still classifies —
-                              ;; a privacy fail-open. The egress read needs only
-                              ;; PRESENCE, so leaving the foreign owner standing
-                              ;; keeps the path redacted while preserving the source
-                              ;; the clear must honour. Only a free or already-
-                              ;; effect-owned slot is (re)stamped `:source :effect`.
-                              (reduce (fn [m p]
-                                        (let [src (:source (get m p))]
-                                          (if (or (nil? src) (= :effect src))
-                                            (assoc m p {:source :effect})
-                                            m)))
-                                      (or cur {}) paths)
-                              ;; SOURCE-SCOPED clear (rf2-34jrb6): remove a path
-                              ;; only when ITS standing entry is the effect's own
-                              ;; (`:source :effect`). A path also claimed by a
-                              ;; flow / machine / route / subsystem source is
-                              ;; left intact, so a clear never un-redacts a path
-                              ;; another owner still classifies (privacy fail-open).
-                              (reduce (fn [m p]
-                                        (if (= :effect (:source (get m p)))
-                                          (dissoc m p)
-                                          m))
-                                      (or cur {})
-                                      paths))]
-                (if (seq updated)
-                  (assoc reg slot updated)
-                  (dissoc reg slot)))))
+                    paths (map #(vec (path/normalize-concrete %)) (get effects k))]
+                (if set?
+                  (add-claims reg slot effect-owner paths)
+                  (remove-claims reg slot effect-owner paths)))))
           (or reg {})
           ;; SET axes before CLEAR axes — a same-event set+clear of one path on
           ;; an axis resolves to cleared (the clear is the later write).
@@ -569,14 +651,15 @@
 
 (defn- marker-opts
   "The `->marker` option map for a declared-`:large` node — derived from the
-  matched `large-decl` (its `:hint` / `:source`) and the walk `ctx` (its
-  `:as-of-epoch` / `:include-digests?`). The 4-key option map the path-based
-  wire walker (`walk-decider`) passes to `->marker`. The `:source` / `:hint`
-  stay genuinely multi-valued across the flow / effect / schema declaration
-  sources, so the lookup is real even with a single caller."
-  [large-decl ctx]
-  {:hint             (:hint large-decl)
-   :reason           (:source large-decl)
+  matched path's retained `large-owners` set (a STABLE `:reason` provenance via
+  `owners->provenance`) and the walk `ctx` (its `:as-of-epoch` /
+  `:include-digests?`). The 4-key option map the path-based wire walker
+  (`walk-decider`) passes to `->marker`. A large path may carry several
+  independent owners (rf2-wdm1vg); the marker's `:reason` picks the
+  highest-priority source deterministically so the wire shape is reproducible."
+  [large-owners ctx]
+  {:hint             nil
+   :reason           (owners->provenance large-owners)
    :as-of-epoch      (:as-of-epoch ctx)
    :include-digests? (:include-digests? ctx)})
 
@@ -882,7 +965,7 @@
         frame-id      (:frame-id ctx)]
     {:decide
      (fn [[path decl-paths] v]
-       (let [large-decl (decl-match decl-paths large-tbl)
+       (let [large-owners (decl-match decl-paths large-tbl)
              sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
          (cond
            (and sensitive? (not include-s?))
@@ -903,12 +986,12 @@
            ;; fires when a sensitive descendant actually exists under a large
            ;; match, so the ordinary same-path / no-nesting large case is
            ;; unchanged.
-           (and large-decl (not include-lg?) (not include-s?)
+           (and large-owners (not include-lg?) (not include-s?)
                 (seq shadow-set)
                 (some #(contains? shadow-set %) decl-paths))
            walk-recur
 
-           (and large-decl (not include-lg?))
+           (and large-owners (not include-lg?))
            (if (marker? v)
              ;; Idempotence under double-projection: a value at a `:large?`-
              ;; declared path that already carries the `:rf.size/large-elided`
@@ -921,7 +1004,7 @@
              ;; sentinel is non-matchable so the walker descends into nothing
              ;; on a re-projection pass).
              v
-             (->marker v path (marker-opts large-decl ctx)))
+             (->marker v path (marker-opts large-owners ctx)))
 
            :else
            walk-recur)))
@@ -936,10 +1019,10 @@
 
      :leaf
      (fn [[path decl-paths] v]
-       (let [large-decl (decl-match decl-paths large-tbl)
+       (let [large-owners (decl-match decl-paths large-tbl)
              sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
          (when (and (string? v)
-                    (not large-decl)
+                    (not large-owners)
                     (not sensitive?))
            ;; A threshold of 0 disables runtime auto-detect entirely —
            ;; no `pr-str-bytes` walk, no warning. Per API.md §Configure

@@ -82,8 +82,8 @@
     ;; recorded in the registry, tagged :source :effect
     (is (contains? (sensitive-decls) [:user :token])
         "the classified path is in the per-frame sensitive registry")
-    (is (= :effect (:source (get (sensitive-decls) [:user :token])))
-        "the effect-sourced declaration is tagged :source :effect")
+    (is (= #{{:source :effect}} (get (sensitive-decls) [:user :token]))
+        "the effect owner is the sole claimant of the path (a one-owner set)")
     ;; the application sees the REAL value in app-db (read-only-at-egress)
     (is (= "Bearer secret-xyz" (get-in (frame/frame-app-db-value :rf/default)
                                        [:user :token]))
@@ -122,7 +122,7 @@
     (rf/dispatch-sync [:docs/upload])
     (is (contains? (large-decls) [:docs :csv])
         "the classified path is in the per-frame large registry")
-    (is (= :effect (:source (get (large-decls) [:docs :csv]))))
+    (is (= #{{:source :effect}} (get (large-decls) [:docs :csv])))
     (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))
           slot (get-in wire [:docs :csv])]
       (is (elision/marker? slot)
@@ -187,53 +187,51 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest clear-sensitive-is-source-scoped-does-not-un-redact-another-source
-  (testing ":clear-sensitive removes only the effect's OWN declaration for a
-            path; a path ALSO claimed by another source (e.g. a reg-flow output
-            under :source :flow) stays classified — the clear must not silently
+  (testing ":clear-sensitive removes only the effect's OWN claim for a path; a
+            path ALSO claimed by another owner (e.g. a reg-flow output under
+            :source :flow) stays classified — the clear must not silently
             un-redact a path another owner still considers sensitive (a privacy
-            fail-open). rf2-34jrb6 + rf2-p4spo4.
+            fail-open). rf2-34jrb6 + rf2-wdm1vg.
 
             This exercises the REAL cross-event path with NO artificial
             re-assertion of the flow mark: the flow claim is installed ONCE up
             front, then a LATER, unrelated event does SET+CLEAR on the same
-            path. Because the SET is non-clobbering (rf2-p4spo4) the flow's
-            :source survives the SET, so the source-scoped clear refuses to
-            dissoc it. Manually re-installing the flow mark between the SET and
-            the CLEAR (the prior papering pattern) is GONE — a live reg-flow
-            does NOT re-fold between two unrelated events, so that re-assertion
-            masked the SET-clobber bug."
-    ;; A flow (another source) declares [:user :token] sensitive in the SAME
+            path. The effect SET UNIONS in (multi-owner registry, rf2-wdm1vg) —
+            both owners now claim the path — and the source-scoped clear removes
+            ONLY the effect owner, leaving the flow owner standing."
+    ;; A flow (another owner) declares [:user :token] sensitive in the SAME
     ;; per-frame elision registry slot the effects write. reg-flow lives in a
     ;; separate artefact, so simulate its registry write directly via the shared
-    ;; swap-elision-slot! seam (the exact slot + shape reg-flow installs:
-    ;; {:source :flow :flow-id …}). Installed ONCE — it is never re-asserted.
+    ;; swap-elision-slot! seam, delegating to the same core op reg-flow uses
+    ;; ({:source :flow :flow-id …}). Installed ONCE — it is never re-asserted.
     (elision/swap-elision-slot! :rf/default
       (fn [reg]
-        (assoc-in reg [:sensitive-declarations [:user :token]]
-                  {:source :flow :flow-id :token-watch})))
-    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
-        "the flow-sourced declaration is standing in the registry")
+        (elision/add-claims (or reg {}) :sensitive-declarations
+                            {:source :flow :flow-id :token-watch} [[:user :token]])))
+    (is (= #{{:source :flow :flow-id :token-watch}}
+           (get (sensitive-decls) [:user :token]))
+        "the flow owner is standing in the registry")
     ;; A LATER, unrelated event ALSO classifies the same path via an effect SET.
-    ;; The NON-CLOBBERING set must leave the flow's :source standing (the
-    ;; registry is one-entry-per-path-per-axis; presence is what egress needs).
+    ;; The multi-owner SET UNIONS the effect owner in alongside the flow owner.
     (rf/reg-event :effect-classify-token
       (fn [{:keys [db]} _]
         {:db (assoc-in db [:user :token] "Bearer secret-xyz")
          :sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-classify-token])
-    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
-        "the same-path effect SET did NOT clobber the flow's :source (rf2-p4spo4)")
-    ;; A still-later event CLEARS the path. The source-scoped clear sees
-    ;; :source :flow (NOT :effect) and refuses to dissoc — the path stays
-    ;; classified and the value stays REDACTED. No flow mark is re-asserted
-    ;; between the SET and the CLEAR: this is the real operational sequence.
+    (is (= #{{:source :flow :flow-id :token-watch} {:source :effect}}
+           (get (sensitive-decls) [:user :token]))
+        "the same-path effect SET UNIONS in — both owners claim the path (rf2-wdm1vg)")
+    ;; A still-later event CLEARS the path. The source-scoped clear removes ONLY
+    ;; the effect owner — the flow owner survives, the path stays classified and
+    ;; the value stays REDACTED. This is the real operational sequence.
     (rf/reg-event :effect-clear-token
       (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-clear-token])
     (is (contains? (sensitive-decls) [:user :token])
         "the path is STILL classified — the flow's claim survives the effect clear")
-    (is (= :flow (:source (get (sensitive-decls) [:user :token])))
-        "the surviving entry is the flow's, not the effect's")
+    (is (= #{{:source :flow :flow-id :token-watch}}
+           (get (sensitive-decls) [:user :token]))
+        "the sole surviving owner is the flow's, not the effect's")
     (let [wire (elision/elide-wire-value (frame/frame-app-db-value :rf/default))]
       (is (= privacy/redacted-sentinel (get-in wire [:user :token]))
           "the value stays REDACTED at egress — the clear did not un-redact it"))))
@@ -245,7 +243,7 @@
     (rf/reg-event :effect-only-classify
       (fn [{:keys [db]} _] {:db db :sensitive [[:only :effect]]}))
     (rf/dispatch-sync [:effect-only-classify])
-    (is (= :effect (:source (get (sensitive-decls) [:only :effect]))))
+    (is (= #{{:source :effect}} (get (sensitive-decls) [:only :effect])))
     (rf/reg-event :effect-only-clear
       (fn [{:keys [db]} _] {:db db :clear-sensitive [[:only :effect]]}))
     (rf/dispatch-sync [:effect-only-clear])
