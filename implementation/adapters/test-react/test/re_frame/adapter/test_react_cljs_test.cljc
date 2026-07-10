@@ -516,6 +516,187 @@
       (test-react/unmount! mount))))
 
 ;; ----------------------------------------------------------------------------
+;; B.4 — Transactional failed initial mount (rf2-3fc89f.2)
+;; ----------------------------------------------------------------------------
+;;
+;; Bug class: a parent's render body mounts a child (registered in the live
+;; forest) and then THROWS. Because `mount-tree!` registered the child during
+;; the render but never reaches the parent's own registration, a naive
+;; implementation leaves the child mounted yet unreachable — `mount!` returned
+;; no handle, so nothing can tear it down until whole-adapter disposal. That
+;; phantom live mount is exactly the lifecycle imbalance Test-React exists to
+;; catch, so it corrupts the harness's core purpose.
+;;
+;; The fix makes initial mount TRANSACTIONAL: a failed render rolls back every
+;; child it speculatively mounted (nested descendants too), removing them from
+;; the live forest before the ORIGINAL render exception is rethrown — without
+;; masking that exception and without weakening the sync-unmount-during-render
+;; guard (B.1). Each of the following pins one property the fix guarantees; on
+;; the pre-fix code every leak assertion FAILS (the child / subtree survives).
+
+(deftest failed-initial-render-rolls-back-mounted-child-rf2-3fc89f2
+  (testing "a parent render that mounts a child and then throws is
+            transactional: the ORIGINAL render exception escapes unmasked,
+            no render is left in flight, the live forest is empty, and the
+            speculatively-mounted child is torn down (not a phantom live mount)"
+    (let [child-ref (atom nil)]
+      ;; The render body mounts a child (registering it in the live forest),
+      ;; captures its handle, then throws a distinctively-tagged exception.
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-parent-render"
+            (test-react/mount!
+              {:rf/component
+               (fn [_parent]
+                 (reset! child-ref (test-react/mount-child! [:span "child"]))
+                 (throw (ex-info "boom-parent-render" {})))}))
+          "the ORIGINAL render exception propagates — rollback never masks it")
+      (is (false? (test-react/rendering?))
+          "run-render!'s finally restored render-depth to zero on unwind")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the live forest is empty — the child mounted before the throw was
+           rolled back, not leaked as a phantom live mount (this FAILS pre-fix)")
+      (is (false? @(:mounted? @child-ref))
+          "the child record itself was torn down (mounted? flipped false)")
+      (is (= 1 (phase-count @child-ref :forced-teardown))
+          "the rollback recorded a :forced-teardown on the child — teardown
+           logging is preserved, not a silent drop")
+      (is (nil? (test-react/current-render-tree @child-ref))
+          "the child's render tree was cleared by the forced teardown"))))
+
+(deftest failed-initial-render-rolls-back-nested-subtree-rf2-3fc89f2
+  (testing "the rollback reaches NESTED descendants: parent → child →
+            grandchild, then the parent throws. The whole speculative subtree
+            (child AND grandchild) is removed, leaf-upward, not just the direct
+            child"
+    (let [child-ref      (atom nil)
+          grandchild-ref (atom nil)]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-nested-parent"
+            (test-react/mount!
+              {:rf/component
+               (fn [_parent]
+                 (reset! child-ref
+                         (test-react/mount-child!
+                           {:rf/component
+                            (fn [_child]
+                              (reset! grandchild-ref
+                                      (test-react/mount-child! [:span "leaf"])))}))
+                 (throw (ex-info "boom-nested-parent" {})))}))
+          "the original render exception escapes")
+      (is (zero? (count (test-react/mounted-roots)))
+          "no descendant leaks — child AND grandchild both left the forest
+           (pre-fix this is 2)")
+      (is (and (false? @(:mounted? @child-ref))
+               (false? @(:mounted? @grandchild-ref)))
+          "both the direct child and the nested grandchild were torn down")
+      (is (and (= 1 (phase-count @child-ref :forced-teardown))
+               (= 1 (phase-count @grandchild-ref :forced-teardown)))
+          "each rolled-back level recorded exactly one :forced-teardown")
+      (let [gc-seq    (phase-first-seq @grandchild-ref :forced-teardown)
+            child-seq (phase-first-seq @child-ref :forced-teardown)]
+        (is (< gc-seq child-seq)
+            "rollback ran leaf-upward: the grandchild tore down STRICTLY before
+             the child, mirroring React's children-first teardown order")))))
+
+(deftest failed-child-render-rolls-back-its-own-descendants-rf2-3fc89f2
+  (testing "the throw can originate in a nested render: parent mounts child,
+            child mounts grandchild then the CHILD throws. The grandchild is
+            rolled back and the whole attempt leaves the forest empty — the
+            child's own mount-tree! is transactional before its failure
+            unwinds through the parent"
+    (let [grandchild-ref (atom nil)]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-child-render"
+            (test-react/mount!
+              {:rf/component
+               (fn [_parent]
+                 (test-react/mount-child!
+                   {:rf/component
+                    (fn [_child]
+                      (reset! grandchild-ref
+                              (test-react/mount-child! [:span "leaf"]))
+                      (throw (ex-info "boom-child-render" {})))}))}))
+          "the child's render exception propagates out through the parent")
+      (is (false? (test-react/rendering?))
+          "every nested run-render! finally unwound render-depth to zero")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the grandchild the failing child mounted was rolled back — no
+           orphaned descendant survives the nested failure")
+      (is (false? @(:mounted? @grandchild-ref))
+          "the grandchild record was torn down by the child's own rollback"))))
+
+(deftest failed-mount-leaves-no-did-mount-and-spares-live-sibling-rf2-3fc89f2
+  (testing "a failed initial mount records NO :did-mount for the throwing
+            parent, registers nothing in the live forest, and does not disturb
+            a separate root that was already live before the failed mount"
+    (let [survivor  (test-react/mount! [:div "survivor"])
+          parent-ref (atom nil)
+          child-ref  (atom nil)]
+      (is (= 1 (count (test-react/mounted-roots)))
+          "precondition: exactly the survivor root is live")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-with-sibling"
+            (test-react/mount!
+              {:rf/component
+               (fn [parent]
+                 (reset! parent-ref parent)
+                 (reset! child-ref (test-react/mount-child! [:span "child"]))
+                 (throw (ex-info "boom-with-sibling" {})))}))
+          "the failed mount throws its original exception")
+      (is (zero? (phase-count @parent-ref :did-mount))
+          "the throwing parent never reached :did-mount — a failed render does
+           NOT emit the mount-completed phase")
+      (is (= [survivor] (test-react/mounted-roots))
+          "the ONLY live root is the pre-existing survivor: the parent never
+           registered and the child was rolled back — no hidden leaked record
+           remains in the live forest for a later test to trip over")
+      (is (true? @(:mounted? survivor))
+          "the separate live root was untouched by the failed mount's rollback")
+      (is (zero? (phase-count survivor :forced-teardown))
+          "the survivor took no forced teardown — rollback is scoped to the
+           failed parent's own speculative children")
+      (is (false? @(:mounted? @child-ref))
+          "the speculative child is torn down, not a manually-cleanable phantom")
+      ;; Clean up the survivor so the fixture's drain has nothing to force.
+      (test-react/unmount! survivor))))
+
+(deftest rollback-does-not-mask-guard-and-spares-guard-target-rf2-3fc89f2
+  (testing "the transactional rollback COMPOSES with the B.1 guard: a render
+            body that mounts a tracked child and then synchronously unmounts a
+            SEPARATE live root still trips :rf.error/sync-unmount-during-render
+            (rollback does not mask that guard error), the guard's target root
+            stays mounted (the guard refused the unmount), and the tracked
+            child the same body mounted IS rolled back"
+    (let [target    (test-react/mount! [:div.panel "target"])
+          child-ref (atom nil)]
+      (is (= 1 (count (test-react/mounted-roots)))
+          "precondition: only the guard's target root is live")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #":rf.error/sync-unmount-during-render"
+            (test-react/mount!
+              {:rf/component
+               (fn [_host]
+                 ;; Mount a tracked child (registers in the forest), THEN trip
+                 ;; the sync-unmount-during-render guard on a separate root.
+                 (reset! child-ref (test-react/mount-child! [:span "child"]))
+                 (test-react/unmount! target))}))
+          "the guard error — NOT the rollback — is what escapes; rollback does
+           not swallow or replace the render body's exception")
+      (is (true? @(:mounted? target))
+          "the guard refused the synchronous unmount — the target root survives")
+      (is (= [target] (test-react/mounted-roots))
+          "only the target is live: the host never registered and its tracked
+           child was rolled back despite the render failing via the guard")
+      (is (false? @(:mounted? @child-ref))
+          "the child mounted before the guard tripped was rolled back too")
+      (test-react/unmount! target))))
+
+;; ----------------------------------------------------------------------------
 ;; C. Harness-contract guards (rf2-ynjts.6)
 ;; ----------------------------------------------------------------------------
 ;;
