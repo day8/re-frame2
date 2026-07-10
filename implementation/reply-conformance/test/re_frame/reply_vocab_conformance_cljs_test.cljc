@@ -175,11 +175,12 @@
 ;; timer's transition can mutate machine snapshot `:data`, so per
 ;; Managed-Effects §Causal completion metadata it threads the durable causal
 ;; `:completed-at` when the firing dispatch supplied one (rf2-hawtjr —
-;; `m-reply/after-fired-reply` `(some? completed-at) (assoc …)`). The no-time
-;; variant (the `families` `:success` row, which is held only to
-;; status/work-id/value shape) omits it; the with-time variant feeds the
-;; EP-0017 `completion-time-families` tier (rf2-suwuqo — the timer family was
-;; the one success-producing family the completion-time tier never exercised).
+;; `m-reply/after-fired-reply` `(some? completed-at) (assoc …)`). This no-time
+;; variant is the timer row's `:success-no-time` (held to the omit-when-absent
+;; half); the `with-time` sibling below is its `:success` (with-time), feeding
+;; the EP-0017 completion-time tier off the ONE `families` matrix (rf2-suwuqo —
+;; the timer family was the one success-producing family that tier never
+;; exercised until it joined the matrix).
 (defn- after-fired-reply []
   (m-reply/after-fired-reply
     {:actor-id   :a/multi
@@ -198,13 +199,6 @@
      :epoch        1
      :frame        :app/main
      :completed-at completion-time-ms}))
-
-(defn- route-stale-reply []
-  (:reply (route-reply/suppress {:route-id  :route/article
-                                 :nav-token "nav-1"
-                                 :loader-id :article/loaded
-                                 :frame     :app/main}
-                                "nav-2")))
 
 ;; rf2-bphg8v — the route loader's LIVE success completion (carried nav-token
 ;; still current) builds its OWN `:status :ok` reply envelope via
@@ -227,92 +221,157 @@
 (defn- route-success-no-time []
   (route-reply/live-reply (dissoc route-ctx :completed-at) {:title "Welcome"}))
 
-(defn- resource-stale-reply []
-  (let [carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-        current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}]
-    (:reply (rreply/stale-reply
-              {:carried carried :current current
-               :extra   {:rf.reply/work-id      (:work/id carried)
-                         :rf.reply/work-kind    :resource
-                         :rf.frame/id  :app/main
-                         :rf.reply/stale-reason :resource/generation-mismatch}}))))
+;; ---------------------------------------------------------------------------
+;; The "no completion time supplied" success builders — the SAME family success
+;; builders, but with `:completed-at` stripped from the context — so the
+;; EP-0017 omit-when-absent tier can prove the family does NOT nil-fill the
+;; slot. Owned here (before `families`) so the matrix is the SOLE owner of each
+;; family's success-with-time AND success-without-time reply (rf2-91xwc5).
+;; ---------------------------------------------------------------------------
+
+(defn- http-success-no-time []
+  (http-reply/success-reply (dissoc http-ctx :completed-at) {:title "Welcome"}))
+
+(defn- resource-success-no-time []
+  (rreply/success-reply resource-vp {:title "Welcome"}
+                        {:work-kind rreply/work-kind-resource}))
+
+(defn- mutation-success-no-time []
+  (rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                        {:work-kind rreply/work-kind-mutation}))
+
+(defn- machine-success-no-time []
+  (m-reply/success-reply (dissoc machine-ctx :completed-at) {:user-id "u-42"}))
+
+;; ---------------------------------------------------------------------------
+;; The suppress-OUTCOME builders for the four suppress-DELEGATING families
+;; (HTTP / resource / mutation / route). Each returns the
+;; `re-frame.reply/suppress` outcome map `{:deliver? :reply :rf.reply/work-status
+;; :trace}`; the matrix row's `:stale` REPLY is DERIVED from it via `:reply`, so
+;; each family's stale carried/current/extra fixture is spelled ONCE (rf2-91xwc5
+;; — the reply and the suppress-outcome are no longer duplicated). The `:extra`
+;; maps carry the CANONICAL `:rf.reply/work-id` / `:rf.reply/work-kind` identity
+;; keys: the drift this bead fixes is that the prior secondary resource/mutation
+;; copies used BARE `:work/id` / `:work/kind`, which the trace-only correlation
+;; assertions never caught (only `every-work-id`, which reads the derived reply,
+;; would have — and it consulted the canonical copy, so the drift stayed green).
+;; ---------------------------------------------------------------------------
+
+(defn- http-stale-out []
+  ;; HTTP supersession lowered through the REAL production helper
+  ;; `re-frame.http.reply/suppress` (rf2-fkdyhl — NOT the substrate directly
+  ;; with a synthetic extra), with a carried-vs-current HTTP work-id gate
+  ;; (Managed-Effects §Stale suppression). `current-work-id` is the superseding
+  ;; attempt's work-id (issuance 2), =-distinct from the carried one (issuance
+  ;; 1). Fails closed on a real HTTP-helper drift (a dropped :rf.reply/carried /
+  ;; :rf.reply/current trace fact).
+  (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
+
+(defn- resource-stale-out []
+  (rreply/stale-reply
+    {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
+     :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
+     :extra   {:rf.reply/work-id      [:rf.work/resource [:rf.scope/global :r {}] 4]
+               :rf.reply/work-kind    :resource
+               :rf.frame/id           :app/main
+               :rf.reply/stale-reason :resource/generation-mismatch}}))
+
+(defn- mutation-stale-out []
+  (rreply/stale-reply
+    {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
+     :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
+     :extra   {:rf.reply/work-id      [:rf.work/resource [:rf.mutation :form/save-1] 2]
+               :rf.reply/work-kind    :mutation
+               :rf.frame/id           :app/main
+               :rf.reply/stale-reason :mutation/superseded}}))
+
+(defn- route-stale-out []
+  (route-reply/suppress {:route-id  :route/article
+                         :nav-token "nav-1"
+                         :loader-id :article/loaded
+                         :frame     :app/main}
+                        "nav-2"))
 
 (def ^:private families
-  [{:family    :http
-    :work-head :rf.work/http
-    :success   #(http-reply/success-reply http-ctx {:title "Welcome"})
-    :error     #(http-reply/failure-reply http-ctx a-failure)
-    :cancel    #(http-reply/failure-reply http-ctx an-abort)
-    ;; HTTP supersession is the stale path (a same-:request-id supersede).
-    ;; Pin the canonical stale shape via the REAL production helper
-    ;; `re-frame.http.reply/suppress` (NOT the substrate directly with a
-    ;; synthetic extra) so this row would go red if the HTTP helper drifts in
-    ;; its :rf.reply/stale-reason, carried/current facts, frame threading, or work-id
-    ;; shape (rf2-fkdyhl). `current-work-id` is the superseding attempt's
-    ;; work-id (issuance 2), =-distinct from the carried one (issuance 1).
-    :stale     #(:reply (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))}
+  [{:family          :http
+    :work-head       :rf.work/http
+    :success         #(http-reply/success-reply http-ctx {:title "Welcome"})
+    :success-no-time http-success-no-time
+    :error           #(http-reply/failure-reply http-ctx a-failure)
+    :cancel          #(http-reply/failure-reply http-ctx an-abort)
+    ;; HTTP supersession is the stale path (a same-:request-id supersede). The
+    ;; suppress OUTCOME (`:stale-out`) is the SINGLE owner; the `:stale` reply
+    ;; is DERIVED from it via `:reply` (rf2-91xwc5 — no longer spelled twice).
+    :stale-out       http-stale-out
+    :stale           #(:reply (http-stale-out))}
 
-   {:family    :resource
-    :work-head :rf.work/resource
-    :success   #(rreply/success-reply resource-vp {:title "Welcome"}
-                                      {:work-kind rreply/work-kind-resource
-                                       :completed-at completion-time-ms})
-    :error     #(rreply/failure-reply resource-vp a-failure
-                                      {:work-kind rreply/work-kind-resource})
-    :cancel    #(rreply/failure-reply resource-vp an-abort
-                                      {:work-kind rreply/work-kind-resource})
-    :stale     resource-stale-reply}
+   {:family          :resource
+    :work-head       :rf.work/resource
+    :success         #(rreply/success-reply resource-vp {:title "Welcome"}
+                                            {:work-kind rreply/work-kind-resource
+                                             :completed-at completion-time-ms})
+    :success-no-time resource-success-no-time
+    :error           #(rreply/failure-reply resource-vp a-failure
+                                            {:work-kind rreply/work-kind-resource})
+    :cancel          #(rreply/failure-reply resource-vp an-abort
+                                            {:work-kind rreply/work-kind-resource})
+    :stale-out       resource-stale-out
+    :stale           #(:reply (resource-stale-out))}
 
-   {:family    :mutation
-    :work-head :rf.work/resource ;; mutation reuses the resource head with a [:rf.mutation …] key
-    :success   #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                                      {:work-kind rreply/work-kind-mutation
-                                       :completed-at completion-time-ms})
-    :error     #(rreply/failure-reply mutation-vp a-failure
-                                      {:work-kind rreply/work-kind-mutation})
-    :cancel    #(rreply/failure-reply mutation-vp an-abort
-                                      {:work-kind rreply/work-kind-mutation})
-    :stale     #(let [carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
-                      current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}]
-                  (:reply (rreply/stale-reply
-                            {:carried carried :current current
-                             :extra   {:rf.reply/work-id      (:work/id carried)
-                                       :rf.reply/work-kind    :mutation
-                                       :rf.frame/id  :app/main
-                                       :rf.reply/stale-reason :mutation/superseded}})))}
+   {:family          :mutation
+    :work-head       :rf.work/resource ;; mutation reuses the resource head with a [:rf.mutation …] key
+    :success         #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                                            {:work-kind rreply/work-kind-mutation
+                                             :completed-at completion-time-ms})
+    :success-no-time mutation-success-no-time
+    :error           #(rreply/failure-reply mutation-vp a-failure
+                                            {:work-kind rreply/work-kind-mutation})
+    :cancel          #(rreply/failure-reply mutation-vp an-abort
+                                            {:work-kind rreply/work-kind-mutation})
+    :stale-out       mutation-stale-out
+    :stale           #(:reply (mutation-stale-out))}
 
-   {:family    :machine
-    :work-head :rf.work/machine
-    :success   #(m-reply/success-reply machine-ctx {:user-id "u-42"})
-    :error     #(m-reply/error-reply machine-ctx {:reason :bad-creds})
+   {:family          :machine
+    :work-head       :rf.work/machine
+    :success         #(m-reply/success-reply machine-ctx {:user-id "u-42"})
+    :success-no-time machine-success-no-time
+    :error           #(m-reply/error-reply machine-ctx {:reason :bad-creds})
     ;; rf2-sfunt8 — a destroyed (cancelled) spawned actor closes its work
     ;; attempt the reply-envelope way: a :status :cancelled reply
     ;; (cancellation as DATA, Managed-Effects §Cancellation). Same canonical
     ;; cancel shape every family produces.
-    :cancel    #(m-reply/cancelled-actor-reply
-                  (assoc machine-ctx :reason :explicit))
-    :stale     machine-stale-reply}
+    :cancel          #(m-reply/cancelled-actor-reply
+                        (assoc machine-ctx :reason :explicit))
+    ;; Machine exposes its stale REPLY directly (carried/current built inline
+    ;; in `:correlation` — it does NOT delegate to a suppress OUTCOME), so
+    ;; there is no `:stale-out` row (rf2-91xwc5 — kept a direct stale builder).
+    :stale           machine-stale-reply}
 
    ;; The machine :after timer is a specialized timer instance. rf2-niarhz —
    ;; both its FIRED (live) and STALE (epoch-mismatch) completions now carry
    ;; the canonical `:work/id` `[:rf.work/timer <decl-path> <epoch>]` so they
    ;; join the uniform work/reply rows.
-   {:family    :timer
-    :work-head :rf.work/timer
-    :success   after-fired-reply
-    :error     nil
+   {:family          :timer
+    :work-head       :rf.work/timer
+    ;; rf2-suwuqo — `:success` is the WITH-time FIRED completion (a fired
+    ;; timer's transition can mutate durable machine `:data`, so it threads the
+    ;; causal `:completed-at`); `:success-no-time` is the plain no-cofx fire.
+    :success         after-fired-reply-with-time
+    :success-no-time after-fired-reply
+    :error           nil
     ;; rf2-sfunt8 — a cancelled :after timer (state exit / destroy / etc.)
     ;; closes its work attempt as :status :cancelled DATA, same canonical
     ;; cancel shape as every other family.
-    :cancel    #(m-reply/cancelled-timer-reply
-                  {:actor-id  :a/multi
-                   :state     :loading
-                   :delay     30000
-                   :decl-path [:loading]
-                   :epoch     1
-                   :frame     :app/main
-                   :reason    :on-exit})
-    :stale     after-stale-reply}
+    :cancel          #(m-reply/cancelled-timer-reply
+                        {:actor-id  :a/multi
+                         :state     :loading
+                         :delay     30000
+                         :decl-path [:loading]
+                         :epoch     1
+                         :frame     :app/main
+                         :reason    :on-exit})
+    ;; The :after timer likewise exposes its stale REPLY directly.
+    :stale           after-stale-reply}
 
    ;; The route loader's underlying HTTP TRANSPORT success / error flow
    ;; through the HTTP transport (covered by the :http row). But the route
@@ -322,13 +381,15 @@
    ;; carried frame + `:completed-at` — is what `:success` exercises here
    ;; (rf2-bphg8v). The family does not shape its own error/cancel reply (those
    ;; ride the HTTP transport); it shapes the live success + the nav-token
-   ;; stale suppression.
-   {:family    :route
-    :work-head :rf.work/route
-    :success   route-live-reply
-    :error     nil
-    :cancel    nil
-    :stale     route-stale-reply}])
+   ;; stale suppression (the suppress OUTCOME owned by `:stale-out`).
+   {:family          :route
+    :work-head       :rf.work/route
+    :success         route-live-reply
+    :success-no-time route-success-no-time
+    :error           nil
+    :cancel          nil
+    :stale-out       route-stale-out
+    :stale           #(:reply (route-stale-out))}])
 
 ;; ---------------------------------------------------------------------------
 ;; (0) Universal invariants — EVERY reply EVERY family produces, in EVERY
@@ -463,65 +524,23 @@
 ;; threads `:completed-at` uniformly (rf2-bphg8v / rf2-2avo53); the machine
 ;; `:after` timer's FIRED completion threads it too (rf2-hawtjr —
 ;; `after-fired-reply` `(some? completed-at) (assoc …)`), because a fired
-;; timer's transition can mutate durable machine `:data`. The timer family was
-;; the one success-producing family the completion-time tier had never
-;; exercised (the `families` `:success` row used the NO-time `after-fired-reply`
-;; and `completion-time-families` omitted `:timer`), so a timer builder that
-;; dropped or nil-filled `:completed-at` while preserving status/work-id shape
-;; would have left this cross-family tier green — exactly the umbrella gap the
-;; bead names. The with-time / no-time timer pair below closes it.
+;; timer's transition can mutate durable machine `:data`. Every success-
+;; producing family (all six) is exercised here via the ONE `families` matrix's
+;; `:success` (with-time) / `:success-no-time` pair — including timer
+;; (rf2-suwuqo), whose FIRED completion threads `:completed-at`
+;; (`after-fired-reply-with-time`) and whose no-cofx fire path omits it
+;; (`after-fired-reply`). So a timer builder that dropped or nil-filled
+;; `:completed-at` while preserving status/work-id shape goes RED here — exactly
+;; the umbrella gap the bead names (rf2-91xwc5 folded the former
+;; `completion-time-families` tier into the single `families` matrix).
 ;; ---------------------------------------------------------------------------
-
-;; Parallel "no completion time supplied" success builders — the SAME family
-;; success builders, but with `:completed-at` stripped from the context — so
-;; the omit-when-absent half can prove the family does NOT nil-fill the slot.
-(defn- http-success-no-time []
-  (http-reply/success-reply (dissoc http-ctx :completed-at) {:title "Welcome"}))
-
-(defn- resource-success-no-time []
-  (rreply/success-reply resource-vp {:title "Welcome"}
-                        {:work-kind rreply/work-kind-resource}))
-
-(defn- mutation-success-no-time []
-  (rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                        {:work-kind rreply/work-kind-mutation}))
-
-(defn- machine-success-no-time []
-  (m-reply/success-reply (dissoc machine-ctx :completed-at) {:user-id "u-42"}))
-
-(def ^:private completion-time-families
-  "The success-producing families whose fixture seeds a causal completion
-  time, each paired with its no-time counterpart."
-  [{:family :http     :with-time #(http-reply/success-reply http-ctx {:title "Welcome"})
-    :no-time http-success-no-time}
-   {:family :resource :with-time #(rreply/success-reply resource-vp {:title "Welcome"}
-                                                        {:work-kind rreply/work-kind-resource
-                                                         :completed-at completion-time-ms})
-    :no-time resource-success-no-time}
-   {:family :mutation :with-time #(rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                                                        {:work-kind rreply/work-kind-mutation
-                                                         :completed-at completion-time-ms})
-    :no-time mutation-success-no-time}
-   {:family :machine  :with-time #(m-reply/success-reply machine-ctx {:user-id "u-42"})
-    :no-time machine-success-no-time}
-   {:family :route    :with-time route-live-reply
-    :no-time route-success-no-time}
-   ;; rf2-suwuqo — the machine `:after` timer's FIRED completion. The with-time
-   ;; variant seeds the causal `:completed-at` (a fired timer's transition can
-   ;; mutate durable machine `:data`); the no-time variant is the plain
-   ;; `after-fired-reply` (an unscripted / no-cofx fire path), which OMITS the
-   ;; slot. This holds the timer family to BOTH halves of the EP-0017 tier:
-   ;; uniform propagation when supplied, omit-when-absent (no nil sentinel)
-   ;; when not — and feeds it into the completion-time adversarial control.
-   {:family :timer    :with-time after-fired-reply-with-time
-    :no-time after-fired-reply}])
 
 (deftest completion-time-propagates-uniformly-across-families
   (testing "EP-0017 — every family supplied a causal completion time threads
             the SAME `:completed-at` fact onto its reply (the durable value the
             live reply dispatch carries as flat :rf.cofx :rf/time-ms)"
-    (doseq [{:keys [family with-time]} completion-time-families
-            :let [reply (with-time)]]
+    (doseq [{:keys [family success]} families
+            :let [reply (success)]]
       (testing (str family " success → :completed-at present + uniform")
         (is (contains? reply :completed-at)
             (str family " success reply MUST carry the :completed-at causal "
@@ -537,8 +556,8 @@
             completion time OMITS :completed-at entirely (no nil sentinel); a
             reducer deriving a durable timestamp must never read a stale/nil
             completion fact"
-    (doseq [{:keys [family no-time]} completion-time-families
-            :let [reply (no-time)]]
+    (doseq [{:keys [family success-no-time]} families
+            :let [reply (success-no-time)]]
       (testing (str family " success (no time supplied) → :completed-at omitted")
         (is (not (contains? reply :completed-at))
             (str family " success reply MUST OMIT :completed-at when no "
@@ -641,44 +660,6 @@
           (str family " stale reply MUST NOT carry a :value — a stale reply "
                "mutates NO app state")))))
 
-;; ---------------------------------------------------------------------------
-;; The suppress OUTCOME builders for the four suppress-DELEGATING families.
-;; Each returns the `re-frame.reply/suppress` outcome map
-;; `{:deliver? :reply :rf.reply/work-status :trace}` (HTTP / resources / mutations /
-;; routing all delegate to `re-frame.reply/suppress`, so the carried/current
-;; correlation rides the OUTCOME's `:trace`, not the reply). Factored so the
-;; correlation-gate assertion AND the adversarial control share one source.
-;; ---------------------------------------------------------------------------
-
-(defn- http-stale-out []
-  ;; HTTP supersession lowered through the REAL production helper
-  ;; `re-frame.http.reply/suppress` (rf2-fkdyhl — NOT the substrate directly
-  ;; with a synthetic extra), with a carried-vs-current HTTP work-id gate
-  ;; (the same call the :http row's :stale builder uses — Managed-Effects
-  ;; §Stale suppression). This makes the cross-family correlation gate fail
-  ;; closed on a real HTTP-helper drift (a dropped :rf.reply/carried /
-  ;; :rf.reply/current trace fact).
-  (http-reply/suppress http-ctx [:rf.work/http :article/by-id 2 1]))
-
-(defn- mutation-stale-out []
-  (rreply/stale-reply
-    {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
-     :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
-     :extra   {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2]
-               :work/kind :mutation :rf.reply/stale-reason :mutation/superseded}}))
-
-(defn- resource-stale-out []
-  (rreply/stale-reply
-    {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-     :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-     :extra   {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
-               :work/kind :resource :rf.reply/stale-reason :resource/generation-mismatch}}))
-
-(defn- route-stale-out []
-  (route-reply/suppress {:route-id :route/article :nav-token "nav-1"
-                         :loader-id :article/loaded :frame :app/main}
-                        "nav-2"))
-
 (deftest stale-replies-carry-a-carried-and-current-correlation-gate
   ;; The canonical stale shape carries the carried-vs-current correlation —
   ;; either on the suppress OUTCOME's :trace (HTTP / resources / mutations /
@@ -702,10 +683,9 @@
     ;; checked only :route and :resource — so HTTP or a mutation losing the
     ;; carried/current trace facts in its stale outcome would NOT have gone
     ;; red here. All four are now exercised.
-    (doseq [[family out] [[:http     (http-stale-out)]
-                          [:resource (resource-stale-out)]
-                          [:mutation (mutation-stale-out)]
-                          [:route    (route-stale-out)]]]
+    (doseq [{:keys [family stale-out]} families
+            :when stale-out
+            :let  [out (stale-out)]]
       (is (false? (:deliver? out))
           (str family " stale suppression MUST NOT deliver the app target"))
       (is (= :suppressed (:rf.reply/work-status out))
@@ -792,8 +772,8 @@
   (testing "a success reply that DROPS :completed-at is detected — the
             propagation gate's `(= completion-time-ms (:completed-at reply))`
             and `(contains? reply :completed-at)` would go RED on it"
-    (doseq [{:keys [family with-time]} completion-time-families
-            :let [bad (drop-completion-time (with-time))]]
+    (doseq [{:keys [family success]} families
+            :let [bad (drop-completion-time (success))]]
       ;; The reply is otherwise a perfectly canonical :ok success …
       (is (= :ok (:status bad))
           (str family " control reply is still :status :ok"))
@@ -808,8 +788,8 @@
   (testing "a success reply that NIL-FILLS :completed-at is detected — the
             omit-when-absent gate's `(not (contains? reply :completed-at))`
             would go RED on a present-but-nil slot"
-    (doseq [{:keys [family no-time]} completion-time-families
-            :let [bad (nil-fill-completion-time (no-time))]]
+    (doseq [{:keys [family success-no-time]} families
+            :let [bad (nil-fill-completion-time (success-no-time))]]
       (is (contains? bad :completed-at)
           (str family " control NIL-FILLED :completed-at (present-but-nil) — the "
                "omit-when-absent gate's `(not (contains? …))` assertion would "
