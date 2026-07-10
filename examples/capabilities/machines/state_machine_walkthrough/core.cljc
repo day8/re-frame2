@@ -53,7 +53,7 @@
 ;; pure-transition testing story centre stage. Read `login` for the UI wiring;
 ;; read this one for the testing progression.
 
-(def login-flow
+(rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 

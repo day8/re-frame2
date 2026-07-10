@@ -21,7 +21,7 @@ If you forget to do this, your first `reg-machine` will loudly throw `:rf.error/
 A machine is a data structure which defines a set of named states, and for each one, which triggers move it where. Here's a login as that data structure — four states, and the triggers that connect them.
 
 ```clojure
-(def login-flow
+(rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}     ;; the machine's private state; Step 3 puts it to work
 
@@ -66,7 +66,7 @@ And when a view needs to know what state the machine is in, it reads the machine
 Right now *any* `:auth.login/submit` trigger moves you from `:idle` to `:submitting`, even with an empty form. A **guard** is a yes/no test that gates a transition. Below we add one named guard `:form-valid?`, and reference it from the arrow:
 
 ```clojure
-(def login-flow
+(rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 
@@ -107,7 +107,7 @@ A guard decides *whether*; an **action** computes change. But it never performs 
 Below, we add three actions and a second guard, and wire them in. `:clear-error` wipes the last error on submit; `:record-error` counts a failure into `:data`; `:store-session` fires an effect on success:
 
 ```clojure
-(def login-flow
+(rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 

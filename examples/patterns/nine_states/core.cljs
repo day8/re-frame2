@@ -256,7 +256,7 @@
 ;; is the thing the render selector reads. See the machines guide:
 ;; ../../../docs/machines/concepts.md#when-the-machine-grows
 
-(def nine-states-machine
+(rf/defmachine nine-states-machine
   {:type :parallel
 
    ;; The machine validates its own `:data` here, on every transition and at

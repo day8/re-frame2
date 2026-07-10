@@ -13,7 +13,7 @@ A statechart-capable state machine, registered as an [event handler](../core/glo
 Its live value is a [snapshot](#snapshot) (the current state plus its `:data`), held in [runtime-db](../core/glossary.md#runtime-db) and read like any other derived state.
 
 ```clojure
-(rf/reg-machine :auth.login/flow login-flow)
+(rf/reg-machine :auth.login/flow login-flow)   ;; login-flow is a defmachine value
 ```
 
 Related: [Machines](concepts.md); the [`reg-machine` API](../api/re-frame.machines.md#reg-machine).

@@ -86,7 +86,7 @@
 ;; Same upside as the tags machine: the view never has to know WHICH state
 ;; means \"in-flight\". It asks the tag and moves on.
 
-(def settings-form-machine
+(rf/defmachine settings-form-machine
   {:initial :neutral
    :data    initial-data
    ;; The snapshot lives in runtime-db

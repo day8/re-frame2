@@ -18,7 +18,7 @@ Here's a login flow as that one value — five states in a single map. Read it t
 
 ```clojure
 ;; Adapted from examples/capabilities/machines/state_machine_walkthrough/core.cljc
-(def login-flow
+(rf/defmachine login-flow
   {:initial :idle
    :data    {:attempts 0 :error nil}
 
@@ -92,6 +92,13 @@ Registering the table is one line — and there's no new runtime concept under i
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
+There are **two blessed ways to register a machine**, and you pick by where the spec lives:
+
+- **`defmachine` + `reg-machine`** — for a named, reusable spec (the `def`-then-register shape shown here). [`defmachine`](../api/re-frame.machines.md#defmachine) is a drop-in for `def` that walks the literal spec *at the definition site* and stamps per-element source onto the value, so it travels into `reg-machine` and Xray's click-to-source lights up for every guard, action, and state node.
+- **Inline `reg-machine`** — pass the spec map *literal* straight to `reg-machine` for a small, local machine; the macro walks the literal in place, capturing the same source.
+
+The one shape to avoid is a plain `(def m {…})` followed by `(reg-machine :id m)`: the macro sees only the `m` *symbol*, so its literal-walk captures nothing and Xray silently loses click-to-source for that machine. Reach for `defmachine` whenever you want a named spec. (The runtime emits a dev-only `:rf.warning/machine-source-unstamped` advisory when a registered spec carries no per-element source — a runtime-built spec via `reg-machine*` may ignore it.)
+
 So every event reaches the machine through the same `dispatch` and the same [event pipeline](../core/glossary.md#event-pipeline) as everything else — no actor object, no second messaging system. Dispatching routes through the machine's id, wrapping an inner event vector; you read the snapshot through a [subscription](../core/glossary.md#subscription) addressed by that id:
 
 ```clojure
@@ -123,7 +130,10 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-(def turnstile
+;; A small, local machine — inline reg-machine (the second blessed form): the
+;; macro walks the spec literal in place, so source is captured. (For a named,
+;; reusable spec you'd reach for defmachine + reg-machine instead.)
+(rf/reg-machine :turnstile/flow
   {:initial :locked
    :data    {:coins 0 :pushes 0}
    :actions {:take-coin  (fn [{data :data}] {:data (update data :coins  inc)})
@@ -134,12 +144,10 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
     :unlocked {:on {:push {:target :locked}
                     :coin {:target :unlocked :action :take-coin}}}}})
 
-(rf/reg-machine :turnstile/flow turnstile)
-
-;; [:rf/machine ...] returns nil until the first event; render :initial until then.
+;; [:rf/machine ...] returns nil until the first event; render the initial until then.
 (defn turnstile-view []
   (let [{:keys [state data]} (or @(rf/subscribe [:rf/machine :turnstile/flow])
-                                 {:state (:initial turnstile) :data (:data turnstile)})
+                                 {:state :locked :data {:coins 0 :pushes 0}})
         open? (= state :unlocked)]
     [:div {:style {:font-family "sans-serif"}}
      [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]

@@ -61,7 +61,7 @@
 ;; The payoff: the view never has to remember WHICH state means \"in-flight\".
 ;; It asks for the tag, and the machine keeps that bookkeeping to itself.
 
-(def tags-machine
+(rf/defmachine tags-machine
   {:initial :idle
    :data    {:tags     []
              :error    nil

@@ -67,7 +67,7 @@
 ;; region event names stay distinct to avoid crosstalk, and each region treats
 ;; `:reset` as a self-target.
 
-(def profile-machine
+(rf/defmachine profile-machine
   {:type :parallel
 
    ;; The banner's latest error map. The profile/article items live in
