@@ -18,12 +18,14 @@ A generated, CI-guarded manifest prevents the drift the way the keystone's `spec
 - The **catalogue-row projection** (`descriptor->row`): the stable shape one registry descriptor maps to.
 - The **deterministic, byte-stable, LF-pinned EDN serialiser** (`render-edn`) — one tool row per line for surgical diffs.
 - The **drift-check** (`check`): regenerate-in-memory vs committed, with an added / removed / **changed** name diff for the failure message. `:changed` (rf2-y3qpv) names every tool present in BOTH manifests whose catalogue row drifted (a changed `:description` / `:input-keys` / `:gated-input-keys` / `:required` / `:output?` / `:annotations` / `:typicalTokens`) and carries its `{:name :old :new}` rows, so a tool-set-identical-but-descriptor-changed drift is row-level actionable instead of forcing a manual whole-manifest diff.
+- The **drift-report formatter** (`drift-report-lines`, `row-slot-deltas`, `governed-slots`, rf2-cbgc40): the PURE diagnostic body both generators print when a drift-check trips. `governed-slots` is the canonical per-tool slot vector (every row slot except `:name`); `row-slot-deltas` names which of them moved between an old and new row; `drift-report-lines` turns a `check` result + the consumer's two wording strings into the printable added / removed / changed / malformed report lines. Centralised so the two servers report the SAME governed surface + the SAME body (they previously duplicated the vector and the whole traversal).
 - `build-rows` / `build-manifest` — the small assembly helpers between the two.
 
 `descriptor-manifest` does NOT own:
 
 - **Reading the registry.** Each server's generator reads its OWN registry on its OWN platform (story-mcp on the JVM, pair-mcp under Node — its registry is CLJS-only) and passes the descriptor seq in. The base never names a registry.
-- **File I/O.** Each server's generator does its own `spit`/`slurp` (JVM) or `fs.writeFileSync`/`readFileSync` (Node). The base is pure data-in / string-out.
+- **File I/O.** Each server's generator does its own `spit`/`slurp` (JVM) or `fs.writeFileSync`/`readFileSync` (Node). The base is pure data-in / string-out — `drift-report-lines` returns strings; the generator prints them on its own stdout/stderr and owns the process exit code.
+- **Per-server wording.** The two strings that legitimately differ per server — the `Regenerate with: <command>` hint and the missing-file header (which names each server's own regenerate command) — are passed INTO `drift-report-lines` by the generator; the shared body (added / removed / changed / malformed) is byte-identical across servers. The OK-path "in sync" wording likewise stays generator-side.
 - **CI wiring.** Each check is wired into the workflow that already has the right toolchain (story-mcp's JVM job; pair-mcp's Node + shadow-cljs job).
 
 ## The manifest row shape
@@ -61,6 +63,9 @@ The full descriptor maps carry deeply-nested JSON-Schema fragments whose exact s
 | `build-manifest` | `[server descriptors]` / `[server descriptors gated-keys]` | `{:meta {:server :tool-count} :tools [rows]}` |
 | `render-edn` | `[manifest]` | deterministic, LF-pinned EDN string |
 | `check` | `[generated-manifest generated-edn committed-string-or-nil]` | `{:ok? :added :removed :changed (:missing-file?)}` |
+| `governed-slots` | *(def)* | the canonical per-tool slot vector (row slots minus `:name`) |
+| `row-slot-deltas` | `[old-row new-row]` | seq of `[slot old new]` for the `governed-slots` that differ |
+| `drift-report-lines` | `[check-result {:keys [regenerate-line missing-file-line]}]` | vector of printable report lines (pure — no I/O, no exit) |
 
 The optional `gated-keys` arg (rf2-qo3wvp) is the SET of input-key strings the server's default `tools/list` profile gates off (story-mcp passes `#{"include-sensitive"}`; pair-mcp omits it → the empty default). It is config-independent — the static slot set the server knows it gates, not a read of the live gate — so the manifest stays deterministic. Each row's `:gated-input-keys` is the per-tool intersection of this set with the descriptor's actual input keys.
 
@@ -88,7 +93,7 @@ The committed manifest lives at each artefact's root: `tools/<server>/tool-descr
 
 ## Conformance posture
 
-- **Serialiser determinism + drift semantics** are pinned on the JVM by `tools/mcp-base/test/re_frame/mcp_base/descriptor_manifest_test.clj` (the algorithm is platform-agnostic `.cljc`).
+- **Serialiser determinism + drift semantics + the drift-report body** are pinned on the JVM by `tools/mcp-base/test/re_frame/mcp_base/descriptor_manifest_test.clj` (the algorithm is platform-agnostic `.cljc`). The report tests cover the added / removed / per-slot changed / structurally-broken / missing-file lines `drift-report-lines` emits, so a wording or slot-ordering regression trips the base suite rather than diverging silently between the two servers.
 - **The drift-check itself** runs in CI: story-mcp's check rides its JVM job (`clojure -M:gen --check`); pair-mcp's rides its Node + shadow-cljs job (`npm run check:descriptors`). Adding / removing / renaming a tool, or changing a tool's input-key / gated-input-key / required / output? / annotations / typicalTokens surface, turns the respective job red until the manifest is regenerated.
 
 ## See also

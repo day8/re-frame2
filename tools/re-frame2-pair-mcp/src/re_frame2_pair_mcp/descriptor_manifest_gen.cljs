@@ -99,49 +99,27 @@
     (println (str "Wrote " p " (" (-> manifest :meta :tool-count) " tools)."))
     manifest))
 
-(defn- row-slot-deltas
-  "Seq of `[slot old-val new-val]` for the catalogue slots that differ
-  between a tool's committed `old` row and regenerated `new` row. Names
-  exactly which of the manifest's governed slots drifted so a descriptor-
-  only change is actionable without a manual whole-manifest diff."
-  [old new]
-  (for [slot [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens]
-        :let [o (get old slot)
-              n (get new slot)]
-        :when (not= o n)]
-    [slot o n]))
-
 (defn check! []
   (let [manifest  (build)
         edn       (dm/render-edn manifest)
         p         (manifest-path)
         committed (when (.existsSync fs p)
                     (.toString (.readFileSync fs p)))
-        {:keys [ok? added removed changed missing-file?]} (dm/check manifest edn committed)]
+        {:keys [ok?] :as result} (dm/check manifest edn committed)]
     (if ok?
       (do (println (str "OK: tool-descriptors.edn in sync ("
                         (-> manifest :meta :tool-count) " tools)."))
           true)
+      ;; The drift report body (added / removed / changed / malformed) is
+      ;; formatted by the shared `dm/drift-report-lines`; this fn owns only
+      ;; the file lookup, the OK-path wording, its *print-err-fn* channel,
+      ;; the two consumer wording strings, and the exit code (via `-main`).
       (do (binding [*print-fn* *print-err-fn*]
-            (if missing-file?
-              (println "DRIFT: tool-descriptors.edn does not exist. Run the generator.")
-              (println "DRIFT: generated manifest differs from tool-descriptors.edn."))
-            (println "Regenerate with: node scripts/descriptor-manifest-gen.cjs")
-            (when (seq added)
-              (println "  Tools the registry has that the committed file lacks (new/renamed tool):")
-              (doseq [n added] (println "    +" n)))
-            (when (seq removed)
-              (println "  Tools in the committed file the registry no longer has (removed/renamed tool):")
-              (doseq [n removed] (println "    -" n)))
-            (when (seq changed)
-              (println "  Existing tools whose descriptor catalogue row changed (input-keys / gated-input-keys / required / output? / annotations / description / typicalTokens):")
-              (doseq [{:keys [name old new]} changed]
-                (println "    ~" name)
-                (doseq [[slot o n] (row-slot-deltas old new)]
-                  (println (str "        " (cljs.core/name slot) ": "
-                                (pr-str o) " -> " (pr-str n))))))
-            (when (and (empty? added) (empty? removed) (empty? changed))
-              (println "  (tool set identical; the committed file is structurally broken or its provenance banner/meta drifted — regenerate)")))
+            (doseq [line (dm/drift-report-lines
+                          result
+                          {:regenerate-line   "Regenerate with: node scripts/descriptor-manifest-gen.cjs"
+                           :missing-file-line "DRIFT: tool-descriptors.edn does not exist. Run the generator."})]
+              (println line)))
           false))))
 
 (defn -main [& args]
