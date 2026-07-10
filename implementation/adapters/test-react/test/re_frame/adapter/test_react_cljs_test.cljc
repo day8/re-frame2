@@ -697,6 +697,263 @@
       (test-react/unmount! target))))
 
 ;; ----------------------------------------------------------------------------
+;; B.5 — Failed update unmounts the whole root (rf2-j538f7.1)
+;; ----------------------------------------------------------------------------
+;;
+;; Bug class (the update-path analogue of B.4): a LIVE root re-renders, the
+;; update body mounts a child and then THROWS. `run-render!` stores the
+;; candidate tree BEFORE invoking the body, so a naive `trigger-update!` left
+;; the throwing candidate exposed as the committed `current-render-tree` and
+;; left the speculatively-mounted child live and attached — a phantom committed
+;; tree plus an extra live mount, exactly the lifecycle imbalance Test-React
+;; exists to catch. Unlike the failed INITIAL mount (B.4), the parent here is
+;; ALREADY committed, so the initial-mount rollback cannot cover it.
+;;
+;; The fix honors React 18+'s uncaught-render-error semantics — the same
+;; contract `run-render!`'s docstring already documents ("React 18+ unmounts the
+;; root"). A failed update UNMOUNTS THE WHOLE LIVE ROOT: the root and its entire
+;; child subtree (pre-existing children AND this attempt's speculative ones) are
+;; force-torn-down grandchildren-first, evicted from the live forest with their
+;; render trees cleared, then the ORIGINAL exception is rethrown and NO
+;; `:did-update` fires. Parity is the whole point of the test double — real
+;; React tears the root down rather than silently keeping the prior tree. The
+;; teardown reuses the SAME `force-teardown-record!` primitive as B.4 and the
+;; adapter drain, and preserves the B.1 sync-unmount-during-render guard. Each
+;; test pins one property; on the pre-fix code the unmount / no-leak assertions
+;; FAIL (candidate committed as the live tree, root + child both survive).
+
+(deftest failed-update-unmounts-the-whole-root-rf2-j538f71
+  (testing "a live root whose update body mounts a child then throws is
+            UNMOUNTED whole (React-18 uncaught-render semantics): the ORIGINAL
+            exception escapes unmasked, the root AND its speculative child leave
+            the forest with cleared render trees, and NO :did-update is logged"
+    (let [child-ref (atom nil)
+          mount     (test-react/mount! [:div "committed-v1"])]
+      (is (= 1 (count (test-react/mounted-roots)))
+          "precondition: the root is live on its committed tree")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-update-body"
+            (test-react/trigger-update!
+              mount
+              {:rf/component
+               (fn [_mount]
+                 (reset! child-ref (test-react/mount-child! [:span "speculative"]))
+                 (throw (ex-info "boom-update-body" {})))}))
+          "the ORIGINAL update exception propagates — teardown never masks it")
+      (is (false? (test-react/rendering?))
+          "run-render!'s finally restored render-depth to zero on unwind")
+      (is (false? @(:mounted? mount))
+          "the root was UNMOUNTED — a throwing update tears the root down, it is
+           NOT left live on a preserved tree (this FAILS pre-fix: root stays live)")
+      (is (nil? (test-react/current-render-tree mount))
+          "the root's render tree was CLEARED — the throwing candidate is not
+           exposed as committed (pre-fix the candidate leaked as current tree)")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the live forest is empty — root AND its speculative child both left
+           (pre-fix this is 2: candidate root + leaked child)")
+      (is (false? @(:mounted? @child-ref))
+          "the speculative child record was torn down (mounted? flipped false)")
+      (is (= 1 (phase-count @child-ref :forced-teardown))
+          "the child recorded a :forced-teardown — teardown logging preserved")
+      (is (= 1 (phase-count mount :forced-teardown))
+          "the ROOT itself recorded a :forced-teardown — the whole root unmount")
+      (is (zero? (phase-count mount :did-update))
+          "a FAILED update publishes NO :did-update — the update did not commit")
+      (is (= [:constructor :render :did-mount :render :forced-teardown]
+             (mapv :phase (test-react/lifecycle-log mount)))
+          "the root logged mount lifecycle, the failed update's :render, then a
+           :forced-teardown — no :did-update, matching React's unmount-the-root"))))
+
+(deftest failed-update-tears-down-pre-existing-and-speculative-children-rf2-j538f71
+  (testing "a live parent that already has a pre-existing child A fails an update
+            after mounting a SECOND child B: the whole root unmounts — BOTH A
+            (pre-existing) and B (speculative) tear down children-first, not just
+            the attempt's own child. Proves cleanup neither strands the new
+            child nor spares the old one under uncaught-root semantics"
+    (let [child-a-ref (atom nil)
+          child-b-ref (atom nil)
+          ;; Initial mount whose render body mounts a pre-existing child (A).
+          parent      (test-react/mount!
+                        {:rf/component
+                         (fn [_parent]
+                           (reset! child-a-ref
+                                   (test-react/mount-child! [:span "child-a"])))})]
+      (is (= 2 (count (test-react/mounted-roots)))
+          "precondition: parent + pre-existing child A are live")
+      (is (= [@child-a-ref] (test-react/children parent))
+          "precondition: A is the parent's only tracked child")
+      ;; Update fails after mounting a second child (B).
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-update-with-preexisting"
+            (test-react/trigger-update!
+              parent
+              {:rf/component
+               (fn [_parent]
+                 (reset! child-b-ref (test-react/mount-child! [:span "child-b"]))
+                 (throw (ex-info "boom-update-with-preexisting" {})))}))
+          "the original update exception propagates")
+      (is (false? @(:mounted? parent))
+          "the root was unmounted whole")
+      (is (nil? (test-react/current-render-tree parent))
+          "the root's render tree was cleared — no candidate survives")
+      (is (and (false? @(:mounted? @child-a-ref))
+               (false? @(:mounted? @child-b-ref)))
+          "BOTH the pre-existing child A AND the speculative child B were torn
+           down — the update unmounts the whole subtree (pre-fix A survives with
+           the parent, and B leaks)")
+      (is (and (= 1 (phase-count @child-a-ref :forced-teardown))
+               (= 1 (phase-count @child-b-ref :forced-teardown)))
+          "each child recorded exactly one :forced-teardown")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the live forest is empty — parent + both children all gone")
+      (let [a-seq      (phase-first-seq @child-a-ref :forced-teardown)
+            b-seq      (phase-first-seq @child-b-ref :forced-teardown)
+            parent-seq (phase-first-seq parent :forced-teardown)]
+        (is (and (< a-seq parent-seq) (< b-seq parent-seq))
+            "teardown ran children-first: both children tore down STRICTLY
+             before the parent, mirroring React's leaf-upward order")))))
+
+(deftest failed-update-tears-down-nested-subtree-rf2-j538f71
+  (testing "the failed-update teardown reaches NESTED descendants: the update
+            body mounts child → grandchild then throws; the whole root subtree
+            (root, child AND grandchild) is torn down leaf-upward"
+    (let [child-ref      (atom nil)
+          grandchild-ref (atom nil)
+          parent         (test-react/mount! [:div "old"])]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-nested-update"
+            (test-react/trigger-update!
+              parent
+              {:rf/component
+               (fn [_parent]
+                 (reset! child-ref
+                         (test-react/mount-child!
+                           {:rf/component
+                            (fn [_child]
+                              (reset! grandchild-ref
+                                      (test-react/mount-child! [:span "leaf"])))}))
+                 (throw (ex-info "boom-nested-update" {})))}))
+          "the original update exception escapes")
+      (is (false? @(:mounted? parent))
+          "the root was unmounted whole")
+      (is (nil? (test-react/current-render-tree parent))
+          "the root's render tree was cleared")
+      (is (zero? (count (test-react/mounted-roots)))
+          "no node leaks — root, child AND grandchild all left the forest
+           (pre-fix this is 3)")
+      (is (and (false? @(:mounted? @child-ref))
+               (false? @(:mounted? @grandchild-ref)))
+          "both the direct child and the nested grandchild were torn down")
+      (let [gc-seq     (phase-first-seq @grandchild-ref :forced-teardown)
+            child-seq  (phase-first-seq @child-ref :forced-teardown)
+            parent-seq (phase-first-seq parent :forced-teardown)]
+        (is (< gc-seq child-seq parent-seq)
+            "teardown ran leaf-upward: grandchild < child < root — the whole
+             subtree unwound children-first, mirroring React's teardown order")))))
+
+(deftest failed-update-spares-unrelated-sibling-root-rf2-j538f71
+  (testing "a failed update on one root does NOT disturb a separate live sibling
+            root: teardown is scoped to the updated root and its own subtree —
+            the sibling and its committed tree are untouched"
+    (let [sibling (test-react/mount! [:div "sibling"])
+          target  (test-react/mount! [:div "target-v1"])]
+      (is (= 2 (count (test-react/mounted-roots)))
+          "precondition: sibling + target both live")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-scoped-update"
+            (test-react/trigger-update!
+              target
+              {:rf/component
+               (fn [_target]
+                 (test-react/mount-child! [:span "speculative"])
+                 (throw (ex-info "boom-scoped-update" {})))}))
+          "the target's update exception propagates")
+      (is (true? @(:mounted? sibling))
+          "the unrelated sibling root stays live")
+      (is (= [:div "sibling"] (test-react/current-render-tree sibling))
+          "the sibling's committed tree is untouched")
+      (is (zero? (phase-count sibling :forced-teardown))
+          "the sibling took no forced teardown — teardown did not reach it")
+      (is (false? @(:mounted? target))
+          "the target root was unmounted whole by its failed update")
+      (is (nil? (test-react/current-render-tree target))
+          "the target's render tree was cleared")
+      (is (= [sibling] (test-react/mounted-roots))
+          "only the sibling remains live — the target and its speculative child
+           are gone, the sibling is scoped out")
+      (test-react/unmount! sibling))))
+
+(deftest failed-update-fully-unmounts-root-so-later-update-is-rejected-rf2-j538f71
+  (testing "a failed update UNMOUNTS the root for real (not just clears its
+            tree): a subsequent trigger-update! on it is rejected with
+            :rf.error/update-after-unmount — the update-after-unmount guard sees
+            a dead mount, proving the teardown fully evicted it"
+    (let [mount (test-react/mount! [:div "v1"])]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #"boom-then-dead"
+            (test-react/trigger-update!
+              mount
+              {:rf/component
+               (fn [_mount]
+                 (test-react/mount-child! [:span "speculative"])
+                 (throw (ex-info "boom-then-dead" {})))}))
+          "the update fails")
+      (is (false? @(:mounted? mount))
+          "the root is unmounted after the failed update")
+      (is (nil? (test-react/current-render-tree mount))
+          "its render tree was cleared")
+      (is (zero? (count (test-react/mounted-roots)))
+          "the forest is empty")
+      ;; The mount is genuinely dead — a later update must be rejected, not
+      ;; silently re-render a torn-down root.
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #":rf.error/update-after-unmount"
+            (test-react/trigger-update! mount [:div "v2"]))
+          "trigger-update! refuses the unmounted root — the failed update fully
+           evicted it, so the update-after-unmount guard fires (pre-fix the root
+           stayed live and this update would have silently re-rendered it)"))))
+
+(deftest failed-update-composes-with-sync-unmount-guard-rf2-j538f71
+  (testing "the failed-update teardown COMPOSES with the B.1 guard: an update
+            body that mounts a tracked child then synchronously unmounts a
+            SEPARATE live root still trips :rf.error/sync-unmount-during-render
+            (teardown does not mask it); the guard's target survives (the guard
+            refused its unmount), while the HOST root — whose update threw via
+            the guard — is unmounted whole along with its speculative child"
+    (let [target    (test-react/mount! [:div.panel "target"])
+          host      (test-react/mount! [:div "host-v1"])
+          child-ref (atom nil)]
+      (is (= 2 (count (test-react/mounted-roots)))
+          "precondition: guard target + host both live")
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+            #":rf.error/sync-unmount-during-render"
+            (test-react/trigger-update!
+              host
+              {:rf/component
+               (fn [_host]
+                 (reset! child-ref (test-react/mount-child! [:span "child"]))
+                 (test-react/unmount! target))}))
+          "the guard error — NOT the teardown — is what escapes")
+      (is (true? @(:mounted? target))
+          "the guard refused the synchronous unmount — the target survives")
+      (is (false? @(:mounted? host))
+          "the host root, whose update threw via the guard, was unmounted whole")
+      (is (nil? (test-react/current-render-tree host))
+          "the host's render tree was cleared")
+      (is (false? @(:mounted? @child-ref))
+          "the child the host mounted before the guard tripped was torn down too")
+      (is (= [target] (test-react/mounted-roots))
+          "only the guard's target is live — host + its speculative child are gone")
+      (test-react/unmount! target))))
+
+;; ----------------------------------------------------------------------------
 ;; C. Harness-contract guards (rf2-ynjts.6)
 ;; ----------------------------------------------------------------------------
 ;;
