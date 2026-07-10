@@ -42,11 +42,14 @@
             ;; at the boundary is to require the adapter ns at boot.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support])
+  ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
+  ;; register-listener!/unregister-listener! capture bracket. The macro
+  ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
+  ;; reaches it via :require-macros (mirrors re-frame.core's call-site macros).
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Mirror schemas_cljs_test.cljs's fixture: snapshot/restore the
 ;; registrar (rf2-am9d) and clear the schemas artefact's per-frame
@@ -110,10 +113,8 @@
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:api/strict "not-an-int"])
-        (trace-tooling/unregister-listener! ::prod-no-trace)
         (is (= 0 @calls)
             "handler skipped (boundary did its job)")
         ;; Under `:advanced` + `goog.DEBUG=false` the trace surface is

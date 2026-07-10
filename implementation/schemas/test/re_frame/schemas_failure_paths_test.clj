@@ -44,7 +44,8 @@
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.schemas.validate :as validate]
-            [re-frame.schemas.validator :as validator]))
+            [re-frame.schemas.validator :as validator]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -52,12 +53,8 @@
   "Run `body-fn` while collecting :rf.error/schema-validation-failure
   trace events; return the vector of captured events."
   [body-fn]
-  (let [traces (atom [])
-        cb-id  (keyword (gensym "capture"))]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try
-      (body-fn)
-      (finally (rf/unregister-listener! :trace cb-id)))
+  (with-trace-recorder! [traces]
+    (body-fn)
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
 

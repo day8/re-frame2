@@ -98,7 +98,7 @@
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.subs :as subs]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -432,17 +432,6 @@
   (doseq [[path schema] (get-in fixture [:fixture/registry :app-schemas])]
     (rf/reg-app-schema path schema)))
 
-;; ---- trace capture -------------------------------------------------------
-
-(defn- collect-traces
-  "Register a trace listener for the fixture's run; the returned atom
-  accumulates every captured trace event."
-  [fixture-id]
-  (let [traces (atom [])]
-    (trace/register-listener! [fixture-id]
-                              (fn [ev] (swap! traces conj ev)))
-    traces))
-
 ;; ---- matchers ------------------------------------------------------------
 
 (defn- submap?
@@ -556,62 +545,61 @@
   "Run one fixture; return a result map shaped like the core runner's."
   [fixture]
   (try
-    (let [fid          (:fixture/id fixture)
-          traces       (collect-traces fid)
-          _            (realise-handlers fixture)
-          frame-config (or (:fixture/frame-config fixture) {})
-          ;; `reset-runtime` already created :rf/default WITHOUT any
-          ;; :initial-events. `reg-frame` against an existing id is a
-          ;; surgical update that does NOT re-fire :initial-events (Spec 002).
-          ;; Destroy first so the fixture's :initial-events cascade fires
-          ;; under its declared frame config.
-          _            (rf/destroy-frame! :rf/default)
-          ;; Per rf2-wkxng / rf2-6m0se: register app-db schemas
-          ;; AFTER the destroy step (the new
-          ;; `:schemas/on-frame-destroyed!` hook drops the frame's
-          ;; schemas on destroy, so registering them BEFORE the
-          ;; destroy would leak them through). Schemas must also
-          ;; precede `reg-frame` so the :initial-events cascade fires
-          ;; with the schemas in place — the initial-events' db commit
-          ;; will trigger validate-app-schema! against the new slate.
-          _            (realise-app-schemas fixture)
-          ;; EP-0002 (rf2-5q7um6): the shared `tf/reset-runtime` pins
-          ;; `*current-frame* :rf/default` for the body. Unbind it around
-          ;; `reg-frame` so the fixture's `:initial-events` cascade fires
-          ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues initial-events when
-          ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
-          ;; handler), which would land the seed AFTER the first dispatch.
-          _            (binding [frame/*current-frame* nil]
-                         (rf/reg-frame :rf/default frame-config))
-          dispatches   (or (:fixture/dispatches fixture) [])
-          ;; EP-0017 `:expect-error` mismatches (rf2-hqwki4) — a context-assembly
-          ;; throw the dispatch declared but did not raise (or raised wrong).
-          dispatch-error-failures (atom [])]
-      (doseq [ev dispatches]
-        (run-dispatch ev dispatch-error-failures))
-      (let [expect        (or (:fixture/expect fixture) {})
-            expected-db   (:final-app-db expect)
-            final-db      (rf/app-db-value :rf/default)
-            sub-checks
-            (doall
-              (for [[query-v expected-val] (or (:sub-values expect) {})]
-                (let [[frame-id qv] (resolve-sub query-v)]
-                  {:query    query-v
-                   :expected expected-val
-                   :actual   (rf/subscribe-once qv {:frame frame-id})})))
-            trace-failures (check-trace-emissions @traces
-                                                  (:trace-emissions expect))]
-        (trace/clear-listeners!)
-        {:fixture-id     fid
-         :passed?        (and (or (nil? expected-db) (submap? expected-db final-db))
-                              (every? #(= (:expected %) (:actual %)) sub-checks)
-                              (empty? trace-failures)
-                              (empty? @dispatch-error-failures))
-         :dispatch-error-failures @dispatch-error-failures
-         :final-db       final-db
-         :expected-db    expected-db
-         :sub-checks     sub-checks
-         :trace-failures trace-failures}))
+    (with-trace-recorder! [traces]
+      (let [fid          (:fixture/id fixture)
+            _            (realise-handlers fixture)
+            frame-config (or (:fixture/frame-config fixture) {})
+            ;; `reset-runtime` already created :rf/default WITHOUT any
+            ;; :initial-events. `reg-frame` against an existing id is a
+            ;; surgical update that does NOT re-fire :initial-events (Spec 002).
+            ;; Destroy first so the fixture's :initial-events cascade fires
+            ;; under its declared frame config.
+            _            (rf/destroy-frame! :rf/default)
+            ;; Per rf2-wkxng / rf2-6m0se: register app-db schemas
+            ;; AFTER the destroy step (the new
+            ;; `:schemas/on-frame-destroyed!` hook drops the frame's
+            ;; schemas on destroy, so registering them BEFORE the
+            ;; destroy would leak them through). Schemas must also
+            ;; precede `reg-frame` so the :initial-events cascade fires
+            ;; with the schemas in place — the initial-events' db commit
+            ;; will trigger validate-app-schema! against the new slate.
+            _            (realise-app-schemas fixture)
+            ;; EP-0002 (rf2-5q7um6): the shared `tf/reset-runtime` pins
+            ;; `*current-frame* :rf/default` for the body. Unbind it around
+            ;; `reg-frame` so the fixture's `:initial-events` cascade fires
+            ;; SYNCHRONOUSLY — `frame/reg-frame` async-queues initial-events when
+            ;; `*current-frame*` is bound (Spec 002 §reg-frame from inside a
+            ;; handler), which would land the seed AFTER the first dispatch.
+            _            (binding [frame/*current-frame* nil]
+                           (rf/reg-frame :rf/default frame-config))
+            dispatches   (or (:fixture/dispatches fixture) [])
+            ;; EP-0017 `:expect-error` mismatches (rf2-hqwki4) — a context-assembly
+            ;; throw the dispatch declared but did not raise (or raised wrong).
+            dispatch-error-failures (atom [])]
+        (doseq [ev dispatches]
+          (run-dispatch ev dispatch-error-failures))
+        (let [expect        (or (:fixture/expect fixture) {})
+              expected-db   (:final-app-db expect)
+              final-db      (rf/app-db-value :rf/default)
+              sub-checks
+              (doall
+                (for [[query-v expected-val] (or (:sub-values expect) {})]
+                  (let [[frame-id qv] (resolve-sub query-v)]
+                    {:query    query-v
+                     :expected expected-val
+                     :actual   (rf/subscribe-once qv {:frame frame-id})})))
+              trace-failures (check-trace-emissions @traces
+                                                    (:trace-emissions expect))]
+          {:fixture-id     fid
+           :passed?        (and (or (nil? expected-db) (submap? expected-db final-db))
+                                (every? #(= (:expected %) (:actual %)) sub-checks)
+                                (empty? trace-failures)
+                                (empty? @dispatch-error-failures))
+           :dispatch-error-failures @dispatch-error-failures
+           :final-db       final-db
+           :expected-db    expected-db
+           :sub-checks     sub-checks
+           :trace-failures trace-failures})))
     (catch Throwable e
       {:fixture-id (:fixture/id fixture)
        :passed?    false

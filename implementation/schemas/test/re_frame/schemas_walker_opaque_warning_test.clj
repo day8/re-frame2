@@ -26,16 +26,10 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.test-fixture :as tf]))
+            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
-
-(defn- record-traces!
-  "Attach a recording listener and return its atom."
-  [listener-id]
-  (let [a (atom [])]
-    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
-    a))
 
 (defn- warnings-of
   "Filter the recorded events to the given operation keyword."
@@ -55,7 +49,7 @@
 (deftest warning-fires-when-schema-is-compiled-map-object
   (testing "reg-app-schema with a compiled m/schema-like map value
             (opaque to the walker) emits the warning exactly once"
-    (let [recorded (record-traces! ::compiled-map)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:cart] {:malli/schema :some-compiled-form})
       (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
         (is (= 1 (count warns))
@@ -67,7 +61,7 @@
   (testing "subsequent reg-app-schema calls with opaque (compiled-map)
             schemas within the same process do NOT re-emit the warning
             (process-lifecycle one-shot)"
-    (let [recorded (record-traces! ::dedup-rereg)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:a] {:malli/schema :a})
       (rf/reg-app-schema [:b] {:malli/schema :b})
       (rf/reg-app-schema [:c] {:malli/schema :c})
@@ -78,7 +72,7 @@
 (deftest warning-fires-once-from-reg-app-schemas-bulk
   (testing "bulk reg-app-schemas with opaque schemas fires the warning
             once across all entries"
-    (let [recorded (record-traces! ::bulk)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schemas {[:user]    {:malli/schema :user}
                            [:cart]    {:malli/schema :cart}
                            [:session] {:malli/schema :session}})
@@ -89,7 +83,7 @@
   (testing "rf2-k0ew8n — :tags includes a :reason string that names the
             ONE supported shape (register the vector form) and does NOT
             recommend the REMOVED registration-meta `:sensitive?` fallback"
-    (let [recorded (record-traces! ::reason)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:user] {:malli/schema :user})
       (let [warns  (warnings-of recorded :rf.warning/schema-walker-opaque)
             tags   (-> warns first :tags)
@@ -114,7 +108,7 @@
             that embeds a compiled m/schema value as a NESTED child (a
             :map slot's tail) also emits the warning; the root-only
             `schema-opaque?` check used to miss this and stay silent"
-    (let [recorded (record-traces! ::nested-opaque-child)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:token]
                          [:map [:secret {} {:malli/schema :compiled}]])
       (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
@@ -127,7 +121,7 @@
 (deftest warning-suppressed-when-schema-is-vector-form
   (testing "reg-app-schema with a vector-form Malli schema (introspectable)
             does NOT emit the warning"
-    (let [recorded (record-traces! ::vector-form)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:user] [:map [:id :int] [:name :string]])
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "vector-form schema -> no warning"))))
@@ -137,7 +131,7 @@
             / `:boolean` / `:any`) are valid Malli schemas that cannot
             carry per-slot props; the walker provably skips nothing, so
             registering one does NOT emit the false-positive warning"
-    (let [recorded (record-traces! ::primitive-kw)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:age]    :int)
       (rf/reg-app-schema [:name]   :string)
       (rf/reg-app-schema [:active] :boolean)
@@ -153,7 +147,7 @@
             keyword case is suppressed entirely. The advanced registry-
             ref-hides-per-slot-flags shape is covered by the walker
             docstring's discoverability caveat (rf2-yaioz)"
-    (let [recorded (record-traces! ::registry-ref)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:user] :my/user-schema)
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "registry-ref keyword schema -> no warning"))))
@@ -164,7 +158,7 @@
   (testing "clear-walker-opaque-warned! resets the one-shot so a
             subsequent reg-app-schema fires the warning anew (test-fixture
             isolation)"
-    (let [recorded (record-traces! ::clear-cache)]
+    (with-trace-recorder! [recorded]
       (rf/reg-app-schema [:first] {:malli/schema :first})
       (is (= 1 (count (warnings-of recorded
                                    :rf.warning/schema-walker-opaque))))

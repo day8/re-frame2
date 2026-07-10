@@ -62,7 +62,8 @@
             ;; through the `re-frame.schemas` facade (validate-app-schema!'s
             ;; private redaction helper).
             [re-frame.schemas.walker :as walker]
-            [re-frame.schemas.test-fixture :as tf]))
+            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -168,11 +169,9 @@
     ;; A schema where the WHOLE registered slot is marked sensitive
     ;; (container-level :sensitive?).
     (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::redact (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; The value at [:auth :token] is an int (42) — fails :string.
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
-      (rf/unregister-listener! :trace ::redact)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -202,8 +201,7 @@
                        [:map
                         [:name     :string]
                         [:password {:sensitive? true} :string]])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::slot (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; password is an int — fails :string. Since validation is
       ;; per-registered-path, the whole [:user] value fails the schema.
       ;; But schema-sensitive-at? checks if [:user] is sensitive (no)
@@ -213,7 +211,6 @@
       ;; failure when ANY slot within is sensitive.
       (schemas/validate-app-schema! {:user {:name "alice" :password 99}}
                                 :user/bad)
-      (rf/unregister-listener! :trace ::slot)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a trace fired")
@@ -226,10 +223,8 @@
   (testing "Backward-compat — a schema with no :sensitive? props emits
             unchanged traces; :value and :explain ride verbatim"
     (rf/reg-app-schema [:count] [:int])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::plain (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (schemas/validate-app-schema! {:count "not-an-int"} :count/bad)
-      (rf/unregister-listener! :trace ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -259,11 +254,8 @@
   the schema), and return the single schema-validation-failure trace."
   [path schema db failing-id]
   (rf/reg-app-schema path schema)
-  (let [traces (atom [])
-        kw     (keyword "rf2-g5auo" (name (gensym "listen")))]
-    (rf/register-listener! :trace kw (fn [ev] (swap! traces conj ev)))
+  (with-trace-recorder! [traces]
     (schemas/validate-app-schema! db failing-id)
-    (rf/unregister-listener! :trace kw)
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
@@ -1092,10 +1084,8 @@
          :sensitive? true                                      ;; ignored — annotation removed
          :schema     [:cat [:= :auth/sign-in] :string :string]}
         (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::ev (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:auth/sign-in "ada" 42])
-        (rf/unregister-listener! :trace ::ev)
         (is (= 0 @calls) "handler skipped — validation failed")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
@@ -1118,10 +1108,8 @@
       {:schema [:cat [:= :user/register]
                    [:map [:email :string] [:age :int]]]}
       (fn [{:keys [db]} [_ payload]] {:db (update db :users (fnil conj []) payload)}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::reg (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
-      (rf/unregister-listener! :trace ::reg)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -1160,10 +1148,8 @@
                    ;; :password is sensitive AND wrong type (int) → fails.
                    [:password {:sensitive? true} :int]]]}
         (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::login (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:auth/login {:user "ada" :password secret}])
-        (rf/unregister-listener! :trace ::login)
         (is (= 0 @calls) "handler skipped — validation failed")
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
@@ -1188,10 +1174,8 @@
         ;; int where :string is expected so it fails.
         {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
         (fn [{:keys [db]} _] {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::tok (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:auth/token 12345])
-        (rf/unregister-listener! :trace ::tok)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -1206,10 +1190,8 @@
     (rf/reg-event :user/update
       {:schema [:cat [:= :user/update] [:map [:name :string] [:age :int]]]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::upd (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:user/update {:name "bob" :age "old"}])
-      (rf/unregister-listener! :trace ::upd)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -1264,8 +1246,7 @@
     (rf/reg-event :auth/use-ctx
       {:rf.cofx/requires [:auth/ctx]}
       (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::ctx (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; :token "SECRET-COFX-tok" CONFORMS (sensitive sibling); :count fails
       ;; (string, not int) — the failing slot is the NON-sensitive sibling.
       (try
@@ -1273,7 +1254,6 @@
                           {:rf.cofx {:auth/ctx {:token "SECRET-COFX-tok"
                                                 :count "not-an-int"}}})
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! :trace ::ctx)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v) "a recordable-cofx validation failure was traced")
@@ -1294,14 +1274,12 @@
     (rf/reg-event :auth/use-ctx2
       {:rf.cofx/requires [:auth/ctx2]}
       (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::ctx2 (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; :token fails (int, not string) — the FAILING slot IS sensitive.
       (try
         (rf/dispatch-sync [:auth/use-ctx2]
                           {:rf.cofx {:auth/ctx2 {:token 1234 :count 3}}})
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! :trace ::ctx2)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
@@ -1321,10 +1299,8 @@
                 [:token {:sensitive? true} :string]
                 [:count :int]]}
       (fn [_ _] {:token "SECRET-SUB-tok" :count "not-an-int"}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::view (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       @(rf/subscribe [:auth/view])
-      (rf/unregister-listener! :trace ::view)
       (let [v (first (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                    (= :sub-return (-> % :tags :where)))
                              @traces))]
@@ -1353,14 +1329,12 @@
                    [:password {:sensitive? true} :string]
                    [:age :int]]]}
         (fn [{:keys [db]} _] {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::prof (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; :password conforms (a string, the sensitive sibling); :age fails
         ;; (a string, not int). The failing slot is NON-sensitive, but the
         ;; whole event vector (carrying the conforming :password) rides every
         ;; value-bearing slot.
         (rf/dispatch-sync [:auth/profile {:password secret :age "old"}])
-        (rf/unregister-listener! :trace ::prof)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -1385,11 +1359,9 @@
                    [:password {:sensitive? true} :string]
                    [:age :int]]]}
         (fn [{:keys [db]} _] {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::prof2 (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; :password fails (int, not string) — the FAILING slot IS sensitive.
         (rf/dispatch-sync [:auth/profile2 {:password secret :age 30}])
-        (rf/unregister-listener! :trace ::prof2)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -1414,11 +1386,9 @@
                              [:password {:sensitive? true} :string]
                              [:age :int]]]]}
         (fn [{:keys [db]} _] {:db db}))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::profn (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; :age fails (non-sensitive); :password conforms (sensitive sibling).
         (rf/dispatch-sync [:auth/profile-n {:password secret :age "old"}])
-        (rf/unregister-listener! :trace ::profn)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -1555,13 +1525,11 @@
     (rf/reg-event :auth/use-creds
       {:rf.cofx/requires [:auth/credentials]}
       (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::cf (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (try
         (rf/dispatch-sync [:auth/use-creds]
                           {:rf.cofx {:auth/credentials 42}})  ;; int, fails :string
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! :trace ::cf)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
@@ -1581,13 +1549,11 @@
     (rf/reg-event :use-secret
       {:rf.cofx/requires [:secret-blob]}
       (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::cb (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (try
         (rf/dispatch-sync [:use-secret]
                           {:rf.cofx {:secret-blob 99}})  ;; int, fails :string
         (catch clojure.lang.ExceptionInfo _))
-      (rf/unregister-listener! :trace ::cb)
       (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
                              @traces))]
         (is (some? v))
@@ -1607,15 +1573,13 @@
     (rf/reg-sub :secrets
       {:schema [:vector [:string {:sensitive? true}]]}
       (fn [db _] (:secrets db)))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::sr (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:secrets/init])
       ;; First subscribe materialises; well-typed.
       (rf/subscribe-once [:secrets])
       (rf/dispatch-sync [:secrets/break])
       ;; Resubscribe; malformed return — fails.
       (rf/subscribe-once [:secrets])
-      (rf/unregister-listener! :trace ::sr)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)]
         (is (pos? (count violations)))
@@ -1647,15 +1611,13 @@
     (rf/reg-sub :token-for
       {:schema [:string {:sensitive? true}]}
       (fn [db [_ token]] (get-in db [:tokens token])))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::qv (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:tokens/init])
       ;; Well-typed return on the first call — no validation failure.
       (rf/subscribe-once [:token-for "user-42-token"])
       (rf/dispatch-sync [:tokens/break])
       ;; Malformed return on the second call — fires the sub-return failure.
       (rf/subscribe-once [:token-for "user-42-token"])
-      (rf/unregister-listener! :trace ::qv)
       (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces)
             v (first violations)]
@@ -1682,13 +1644,11 @@
     (rf/reg-sub :widget
       {:schema :string}                                  ; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::plain (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:widgets/init])
       (rf/subscribe-once [:widget :w1])
       (rf/dispatch-sync [:widgets/break])
       (rf/subscribe-once [:widget :w1])
-      (rf/unregister-listener! :trace ::plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -1717,10 +1677,8 @@
             humanizer hook loaded) carries the real :explain-humanized
             payload alongside the raw :explain"
     (rf/reg-app-schema [:auth :token] [:string])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::hum-plain (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
-      (rf/unregister-listener! :trace ::hum-plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a trace fired")
@@ -1739,10 +1697,8 @@
             :rf/redacted. The slot is PRESENT (the sentinel), not
             omitted — symmetric redaction per Spec 010 §Humanize-hook"
     (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::hum-redact (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
-      (rf/unregister-listener! :trace ::hum-redact)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a trace fired")
@@ -1763,10 +1719,8 @@
       ;; Schema wants an :int; the secret is a string — fails. The value
       ;; itself is the sensitive material that must not surface.
       (rf/reg-app-schema [:auth :token] [:int {:sensitive? true}])
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::no-leak (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (schemas/validate-app-schema! {:auth {:token secret}} :auth/init-bad)
-        (rf/unregister-listener! :trace ::no-leak)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -1786,13 +1740,11 @@
       (rf/reg-sub :secrets
         {:schema [:vector [:string {:sensitive? true}]]}
         (fn [db _] (:secrets db)))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::sr-hum (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:secrets/init])
         (rf/subscribe-once [:secrets])          ;; well-typed first pass
         (rf/dispatch-sync [:secrets/break])
         (rf/subscribe-once [:secrets])          ;; malformed return — fails
-        (rf/unregister-listener! :trace ::sr-hum)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v) "a sub-return failure fired")
@@ -1813,13 +1765,11 @@
     (rf/reg-sub :widget
       {:schema :string}                                  ;; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::sr-plain (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:widgets/init])
       (rf/subscribe-once [:widget :w1])
       (rf/dispatch-sync [:widgets/break])
       (rf/subscribe-once [:widget :w1])
-      (rf/unregister-listener! :trace ::sr-plain)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -1839,13 +1789,11 @@
     ;; Schema declares the slot BOTH large and sensitive.
     (rf/reg-app-schema [:user :secret-pdf]
                        [:string {:sensitive? true :large? true}])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::both (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; Value is a long string but is an int (42) here — actually let's
       ;; make it a wrong type to force a validation failure regardless
       ;; of how :large? would behave at runtime.
       (schemas/validate-app-schema! {:user {:secret-pdf 42}} :doc/bad)
-      (rf/unregister-listener! :trace ::both)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
@@ -1868,11 +1816,9 @@
             redaction substitution) lives behind the
             interop/debug-enabled? gate. Production builds DCE both."
     (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::prod (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (with-redefs [re-frame.interop/debug-enabled? false]
         (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad))
-      (rf/unregister-listener! :trace ::prod)
       (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                           @traces))
           "no validation trace fires when debug-enabled? is false — redaction is moot"))))
@@ -1907,23 +1853,21 @@
             redacts via the walker"
     (let [secret  "OPAQUE-COMPILED-SECRET-u9bjgr"
           compiled (m/schema
-                     [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]])
-          traces  (atom [])]
-      (rf/register-listener! :trace ::opq (fn [ev] (swap! traces conj ev)))
-      ;; The password value is a VECTOR where a :string is required, so it FAILS
-      ;; the schema; the failing value carries the sentinel.
-      (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
-                               {:schema compiled})
-      (rf/unregister-listener! :trace ::opq)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v) "a validation-failure trace fired")
-        (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
-        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-        (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
-        (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-        (is (not (str/includes? (pr-str v) secret))
-            "the secret survives nowhere in the opaque-schema failure trace")))))
+                     [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]])]
+      (with-trace-recorder! [traces]
+        ;; The password value is a VECTOR where a :string is required, so it FAILS
+        ;; the schema; the failing value carries the sentinel.
+        (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
+                                 {:schema compiled})
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a validation-failure trace fired")
+          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+          (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+          (is (not (str/includes? (pr-str v) secret))
+              "the secret survives nowhere in the opaque-schema failure trace"))))))
 
 (deftest app-db-validation-opaque-schema-fails-closed
   (testing "rf2-u9bjgr — a compiled app-db schema with a :sensitive? slot
@@ -1931,11 +1875,9 @@
     (let [secret "OPAQUE-APPDB-SECRET-u9bjgr"]
       (rf/reg-app-schema [:user]
                          (m/schema [:map [:token {:sensitive? true} :string]]))
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::opqdb (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; :token is a VECTOR where a :string is required → fails the schema.
         (schemas/validate-app-schema! {:user {:token [secret]}} :user/bad)
-        (rf/unregister-listener! :trace ::opqdb)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v) "a validation-failure trace fired")
@@ -2059,22 +2001,20 @@
             redacted."
     (let [secret        "NESTED-OPAQUE-EVENT-SECRET-hi0tf8"
           nested-opaque (m/schema [:map [:password {:sensitive? true} :string]])
-          schema        [:cat [:= :auth/login] nested-opaque]
-          traces        (atom [])]
-      (rf/register-listener! :trace ::nested-opq-evt (fn [ev] (swap! traces conj ev)))
-      ;; :password is a VECTOR where a :string is required -> fails the schema.
-      (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
-                               {:schema schema})
-      (rf/unregister-listener! :trace ::nested-opq-evt)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v) "a validation-failure trace fired")
-        (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
-        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-        (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
-        (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-        (is (not (str/includes? (pr-str v) secret))
-            "the secret survives nowhere in the nested-opaque event failure trace")))))
+          schema        [:cat [:= :auth/login] nested-opaque]]
+      (with-trace-recorder! [traces]
+        ;; :password is a VECTOR where a :string is required -> fails the schema.
+        (schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
+                                 {:schema schema})
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a validation-failure trace fired")
+          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+          (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+          (is (not (str/includes? (pr-str v) secret))
+              "the secret survives nowhere in the nested-opaque event failure trace"))))))
 
 (deftest app-db-validation-nested-opaque-schema-fails-closed
   (testing "rf2-hi0tf8 — a VECTOR-FORM app-db schema (root introspectable)
@@ -2089,12 +2029,10 @@
     (let [secret "NESTED-OPAQUE-APPDB-SECRET-hi0tf8"]
       (rf/reg-app-schema [:token]
                          [:map [:token (m/schema [:string {:sensitive? true}])]])
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::nested-opq-db (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; :token's value is a VECTOR where the nested compiled schema
         ;; requires a :string -> fails exactly at the opaque leaf ([:token]).
         (schemas/validate-app-schema! {:token {:token [secret]}} :token/bad)
-        (rf/unregister-listener! :trace ::nested-opq-db)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v) "a validation-failure trace fired")
@@ -2151,58 +2089,52 @@
             :reason :effect provenance (EP-0025 — the commit-plane
             classification default; NOT the removed :frame annotation, NOT the
             retired :reason :schema), with the REQUIRED :hint slot present"
-    (let [blob   (apply str (repeat 200 "X"))
-          traces (atom [])]
-      (rf/register-listener! :trace ::lgm (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
-                               {:schema [:cat [:= :upload/save]
-                                         [:map [:blob {:large? true} :int]]]})
-      (rf/unregister-listener! :trace ::lgm)
-      (let [v      (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                                  @traces))
-            marker (-> v :tags :value :rf.size/large-elided)]
-        (is (some? v) "a validation-failure trace fired")
-        (is (map? marker) ":value carries a :rf.size/large-elided marker")
-        (is (= :effect (:reason marker))
-            ":reason :effect — the EP-0025 canonical classification provenance default")
-        (is (contains? marker :hint) ":hint slot present (REQUIRED by the contract)")
-        (is (integer? (:bytes marker)) ":bytes is a byte count")
-        (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")
-        (is (true? (-> v :tags :large?)) ":tags :large? stamped")
-        (is (not (str/includes? (pr-str v) blob))
-            "the large blob survives nowhere verbatim in the failure trace")))))
+    (let [blob (apply str (repeat 200 "X"))]
+      (with-trace-recorder! [traces]
+        (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+                                 {:schema [:cat [:= :upload/save]
+                                           [:map [:blob {:large? true} :int]]]})
+        (let [v      (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                                    @traces))
+              marker (-> v :tags :value :rf.size/large-elided)]
+          (is (some? v) "a validation-failure trace fired")
+          (is (map? marker) ":value carries a :rf.size/large-elided marker")
+          (is (= :effect (:reason marker))
+              ":reason :effect — the EP-0025 canonical classification provenance default")
+          (is (contains? marker :hint) ":hint slot present (REQUIRED by the contract)")
+          (is (integer? (:bytes marker)) ":bytes is a byte count")
+          (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")
+          (is (true? (-> v :tags :large?)) ":tags :large? stamped")
+          (is (not (str/includes? (pr-str v) blob))
+              "the large blob survives nowhere verbatim in the failure trace"))))))
 
 (deftest event-validation-large-slot-elides
   (testing "rf2-vmhu4i — a :large? slot's validation failure elides :value /
             :received / :explain to the size marker rather than shipping the
             raw blob"
-    (let [blob   (apply str (repeat 500 "Z"))
-          traces (atom [])]
-      (rf/register-listener! :trace ::lg (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
-                               {:schema [:cat [:= :upload/save]
-                                         [:map [:blob {:large? true} :int]]]})
-      (rf/unregister-listener! :trace ::lg)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (not (contains? v :sensitive?))
-            "a :large?-only failure is NOT stamped sensitive")
-        (doseq [slot [:value :received :explain]]
-          (is (contains? (-> v :tags slot) :rf.size/large-elided)
-              (str slot " elided to the size marker")))
-        (is (not (str/includes? (pr-str v) blob))
-            "the raw blob never rides the trace")))))
+    (let [blob (apply str (repeat 500 "Z"))]
+      (with-trace-recorder! [traces]
+        (schemas/validate-event! :upload/save [:upload/save {:blob blob}]
+                                 {:schema [:cat [:= :upload/save]
+                                           [:map [:blob {:large? true} :int]]]})
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (not (contains? v :sensitive?))
+              "a :large?-only failure is NOT stamped sensitive")
+          (doseq [slot [:value :received :explain]]
+            (is (contains? (-> v :tags slot) :rf.size/large-elided)
+                (str slot " elided to the size marker")))
+          (is (not (str/includes? (pr-str v) blob))
+              "the raw blob never rides the trace"))))))
 
 (deftest app-db-validation-large-slot-elides
   (testing "rf2-vmhu4i — a :large? app-db slot's post-commit validation
             failure elides the value-bearing slots to the size marker"
     (let [blob (apply str (repeat 500 "Y"))]
       (rf/reg-app-schema [:upload] [:map [:blob {:large? true} :int]])
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::lgdb (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (schemas/validate-app-schema! {:upload {:blob blob}} :upload/bad)
-        (rf/unregister-listener! :trace ::lgdb)
         (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                                @traces))]
           (is (some? v))
@@ -2216,23 +2148,21 @@
   (testing "rf2-vmhu4i / Spec 010 §Composition with `:large?` — a slot carrying
             BOTH :large? and :sensitive? redacts on sensitivity; NO
             :rf.size/large-elided marker is emitted (it would leak :bytes)"
-    (let [secret (apply str (repeat 100 "S"))
-          traces (atom [])]
-      (rf/register-listener! :trace ::ls (fn [ev] (swap! traces conj ev)))
-      (schemas/validate-event! :x [:x {:blob secret}]
-                               {:schema [:cat [:= :x]
-                                         [:map [:blob {:large? true :sensitive? true} :int]]]})
-      (rf/unregister-listener! :trace ::ls)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (true? (:sensitive? v)) "sensitive stamp wins")
-        (is (= :rf/redacted (-> v :tags :value)) ":value redacted (not a marker)")
-        (is (not (-> v :tags :large?)) "no :large? stamp on a sensitive failure")
-        (is (not (and (map? (-> v :tags :value))
-                      (contains? (-> v :tags :value) :rf.size/large-elided)))
-            "no size marker — would re-leak :bytes")
-        (is (not (str/includes? (pr-str v) secret)))))))
+    (let [secret (apply str (repeat 100 "S"))]
+      (with-trace-recorder! [traces]
+        (schemas/validate-event! :x [:x {:blob secret}]
+                                 {:schema [:cat [:= :x]
+                                           [:map [:blob {:large? true :sensitive? true} :int]]]})
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (true? (:sensitive? v)) "sensitive stamp wins")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted (not a marker)")
+          (is (not (-> v :tags :large?)) "no :large? stamp on a sensitive failure")
+          (is (not (and (map? (-> v :tags :value))
+                        (contains? (-> v :tags :value) :rf.size/large-elided)))
+              "no size marker — would re-leak :bytes")
+          (is (not (str/includes? (pr-str v) secret))))))))
 
 (deftest redact-validation-tags-large-slot-elides
   (testing "rf2-vmhu4i — the off-namespace seam elides value-bearing slots for
@@ -2252,11 +2182,9 @@
 (deftest non-large-non-sensitive-rides-verbatim
   (testing "rf2-vmhu4i — a plain (no :large? / :sensitive?) failure rides
             verbatim — the elision is precise, not a blanket marker"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::plainv (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (schemas/validate-event! :api/x [:api/x {:n "nope"}]
                                {:schema [:cat [:= :api/x] [:map [:n :int]]]})
-      (rf/unregister-listener! :trace ::plainv)
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v))
