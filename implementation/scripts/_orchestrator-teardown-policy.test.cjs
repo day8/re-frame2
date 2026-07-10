@@ -37,9 +37,10 @@
  * orphan) and the orchestrator BLOCKS on it, so it needs no teardown — the
  * leak class is the LONG-LIVED server, which must go through the tracked
  * harness. This gate therefore does NOT ban spawnSync outright; it requires
- * the tracked-harness posture for the long-lived server and bans spawnSync
- * specifically for the two prod wrappers that spawn an inner ORCHESTRATOR
- * (a long-lived process) rather than a self-exiting compile.
+ * the tracked-harness posture for the long-lived server. (Until rf2-hmgwk2
+ * it also banned spawnSync outright in the two prod-mode wrappers that
+ * spawned an inner orchestrator; those wrappers were collapsed into direct
+ * `--root`/`--port` calls on the shared runner, so that special case is gone.)
  *
  * This is a STATIC text gate — it reads the orchestrator sources and
  * asserts on their text; no process is spawned by this suite. The runtime
@@ -109,8 +110,8 @@ const ORCHESTRATORS = orchestratorFiles();
 // would be vacuously green — fail loud instead.
 test('orchestrator inventory is non-trivial (rf2-c3hffe)', () => {
   assert.ok(
-    ORCHESTRATORS.length >= 8,
-    `expected at least 8 serve-and-run-*.cjs orchestrators across ` +
+    ORCHESTRATORS.length >= 6,
+    `expected at least 6 serve-and-run-*.cjs orchestrators across ` +
       `implementation/scripts + examples/scripts, found ${ORCHESTRATORS.length}. ` +
       `Did the scripts dirs move?`,
   );
@@ -168,40 +169,15 @@ for (const file of ORCHESTRATORS) {
   });
 }
 
-// Positive guards: pin the rf2-c3hffe fix for the two prod wrappers so a
-// future edit can't quietly regress them back to a blocking, teardown-less
-// spawnSync. Unlike the other orchestrators (whose spawnSync is a
-// self-exiting compile), these wrappers' only child is the LONG-LIVED inner
-// serve-and-run-browser-tests.cjs orchestrator (which holds the real
-// http-server) — so a spawnSync here orphans that server on signal, and is
-// banned outright.
-const PROD_WRAPPERS = [
-  'serve-and-run-prod-elision-tests.cjs',
-  'serve-and-run-schemas-boundary-prod-tests.cjs',
-];
-for (const base of PROD_WRAPPERS) {
-  test(`${base}: spawns the inner orchestrator async + tracked, never blocking spawnSync (rf2-c3hffe)`, () => {
-    const code = stripComments(
-      fs.readFileSync(path.join(IMPL_SCRIPTS_DIR, base), 'utf8'),
-    );
-    assert.match(
-      code,
-      TRACKED_SPAWN_RE,
-      `${base} must launch the inner orchestrator via ` +
-        `trackProcess(spawnHarnessProcess(...)) so a SIGINT/SIGTERM to the ` +
-        `wrapper tree-kills the inner orchestrator + the http-server it ` +
-        `holds (rf2-c3hffe).`,
-    );
-    assert.doesNotMatch(
-      code,
-      SPAWNSYNC_RE,
-      `${base} must NOT use spawnSync for the inner orchestrator — its only ` +
-        `child is a long-lived process and spawnSync does not forward ` +
-        `signals to its child on Windows (the orphan class rf2-c3hffe ` +
-        `removed).`,
-    );
-  });
-}
+// The two prod-mode gates (test:browser-prod-elision,
+// test:browser-schemas-boundary-prod) used to route through mirrored
+// serve-and-run-{prod-elision,schemas-boundary-prod}-tests.cjs wrappers that
+// only set BROWSER_TEST_ROOT/PORT before spawning the inner
+// serve-and-run-browser-tests.cjs orchestrator. rf2-hmgwk2 collapsed those
+// wrappers: the gates now call the shared runner directly with `--root` /
+// `--port`, so there is no longer an extra process whose teardown posture
+// needs pinning here — the shared runner's own tracked-harness teardown
+// (guarded by the dynamic sweep above) is the whole story.
 
 // stripComments sanity: it must remove a required-symbol mention that
 // appears only in a comment, but keep one in real code. Guards the gate

@@ -36,23 +36,86 @@ const {
   waitForOwnedHttpReady,
 } = require('./lib/local-browser-harness.cjs');
 
+// Strict CLI options (rf2-hmgwk2). The two production browser gates
+// (test:browser-prod-elision, test:browser-schemas-boundary-prod) call this
+// shared runner DIRECTLY with `--root <dir> --port <n>` rather than routing
+// through a per-gate wrapper that only set the BROWSER_TEST_ROOT/PORT env
+// vars. CLI options take precedence over those env vars, which in turn take
+// precedence over the historical defaults — so env-var and default behaviour
+// are preserved when no CLI option is given. Parsing is strict: an unknown
+// flag, a flag missing its value, or a `--port` that is not a 1..65535
+// integer fails fast with a clear message rather than being silently coerced
+// or ignored. A CLI `--root` is routed through the SAME path policy as the
+// env var below (it cannot bypass the approved-roots check).
+function parseCliOptions(argv) {
+  const opts = { root: null, port: null };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    let flag = arg;
+    let value = null;
+    if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=');
+      if (eq !== -1) {
+        flag = arg.slice(0, eq);
+        value = arg.slice(eq + 1);
+      }
+    }
+    if (flag !== '--root' && flag !== '--port') {
+      throw new Error(
+        `Unknown option ${JSON.stringify(arg)}. Supported: --root <dir>, ` +
+          `--port <n> (env: BROWSER_TEST_ROOT, BROWSER_TEST_PORT).`,
+      );
+    }
+    // Read the value from either the `--flag=value` form or the next token.
+    if (value === null) {
+      if (i + 1 >= argv.length) {
+        throw new Error(`${flag} requires a value (e.g. \`${flag} <value>\`).`);
+      }
+      value = argv[i + 1];
+      i += 1;
+    }
+    if (flag === '--root') {
+      if (value === '') throw new Error('--root requires a non-empty value.');
+      opts.root = value;
+    } else {
+      const n = Number(value);
+      if (!isValidExplicitPort(n)) {
+        throw new Error(
+          `--port must be an integer in 1..65535 (got ${JSON.stringify(value)}).`,
+        );
+      }
+      opts.port = n;
+    }
+  }
+  return opts;
+}
+
+let CLI;
+try {
+  CLI = parseCliOptions(process.argv.slice(2));
+} catch (err) {
+  console.error(`serve-and-run-browser-tests: ${err.message}`);
+  process.exit(1);
+}
+
 const DEFAULT_PORT = 8021;
-// $BROWSER_TEST_ROOT lets a caller point the orchestrator at a different
-// shadow-cljs :browser-test output directory — used by the prod-mode
-// schemas boundary build (Spec 010 §Production builds, rf2-r2uh /
-// rf2-84e9), whose `:advanced + goog.DEBUG=false` bundle lands in
-// `out/browser-test-schemas-boundary-prod/` rather than the default
-// `out/browser-test/`.
+// `--root` (or $BROWSER_TEST_ROOT) lets a caller point the orchestrator at a
+// different shadow-cljs :browser-test output directory — used by the two
+// prod-mode gates (Spec 009/010 §Production builds, rf2-2zdu / rf2-uwg5 /
+// rf2-r2uh / rf2-84e9), whose `:advanced + goog.DEBUG=false` bundles land in
+// `out/browser-test-prod-elision/` and `out/browser-test-schemas-boundary-prod/`
+// rather than the default `out/browser-test/`.
 //
 // Per rf2-o38lb (security audit): the override MUST land inside
 // `implementation/out` unless `RE_FRAME_ALLOW_OUT_OF_TREE_PATHS=1` is
 // set in the environment. The orchestrator writes `${ROOT}/index.html`
-// and `${ROOT}/.rf-harness-token`; an unconstrained env-var override
-// would otherwise become an arbitrary file-write primitive in CI or
-// downstream environments inheriting parent env state.
-const ROOT_OVERRIDE = process.env.BROWSER_TEST_ROOT;
+// and `${ROOT}/.rf-harness-token`; an unconstrained override would otherwise
+// become an arbitrary file-write primitive in CI or downstream environments
+// inheriting parent env state. The CLI `--root` (rf2-hmgwk2) routes through
+// this SAME enforcePolicy check — a CLI root cannot bypass the path policy.
+const ROOT_OVERRIDE = CLI.root || process.env.BROWSER_TEST_ROOT;
 const ROOT = enforcePolicy(
-  'BROWSER_TEST_ROOT',
+  CLI.root ? '--root' : 'BROWSER_TEST_ROOT',
   ROOT_OVERRIDE || path.resolve(__dirname, '..', 'out', 'browser-test'),
   { allowedRoots: [DEFAULT_OUT_ROOT] },
 );
@@ -138,19 +201,28 @@ function ensureMountPoint() {
 // diagnostics.
 
 // Resolve the port to use via the shared harness primitive
-// (local-browser-harness.cjs), honouring $BROWSER_TEST_PORT first, then
-// the historical default 8021, then a free OS-chosen port. The shared
-// `resolveServePort` carries the strict 1..65535 explicit-port contract
-// and the busy-port fallback (rf2-0u8kz / rf2-84gzw); this wrapper keeps
-// the launcher-specific diagnostics (distinguishing an explicitly-set but
-// unusable BROWSER_TEST_PORT from a busy default).
+// (local-browser-harness.cjs), honouring `--port` first, then
+// $BROWSER_TEST_PORT, then the historical default 8021, then a free
+// OS-chosen port. The shared `resolveServePort` carries the strict 1..65535
+// explicit-port contract and the busy-port fallback (rf2-0u8kz / rf2-84gzw);
+// this wrapper keeps the launcher-specific diagnostics (distinguishing an
+// explicitly-set but unusable BROWSER_TEST_PORT from a busy default). A CLI
+// `--port` is already validated to be a usable 1..65535 integer by
+// parseCliOptions, so the only fallback it can trigger is a busy port.
 async function resolvePort() {
+  const cliSet = CLI.port != null;
   const envRaw = process.env.BROWSER_TEST_PORT;
-  const envSet = !!(envRaw && envRaw.trim() !== '');
-  const preferred = envSet ? parseInt(envRaw, 10) : DEFAULT_PORT;
+  const envSet = !cliSet && !!(envRaw && envRaw.trim() !== '');
+  const preferred = cliSet
+    ? CLI.port
+    : envSet ? parseInt(envRaw, 10) : DEFAULT_PORT;
   return await resolveServePort(preferred, {
     onFallback: (pref, fallback) => {
-      if (envSet && !isValidExplicitPort(pref)) {
+      if (cliSet) {
+        console.warn(
+          `--port ${pref} is busy; falling back to free port ${fallback}.`
+        );
+      } else if (envSet && !isValidExplicitPort(pref)) {
         console.error(
           `BROWSER_TEST_PORT="${envRaw}" is not a valid TCP port (want 1..65535); ` +
             `ignoring and using free port ${fallback}.`
