@@ -89,7 +89,7 @@ Friction that is really a gap in re-frame2's Tool-Pair surface or spec — not t
 
 - Don't fabricate findings to fill the output. If the code is clean against the catalogue, say so.
 - Don't reduce every finding to "read the spec". The cross-link is supporting evidence; the finding must stand on its own with symptom + suggested rewrite.
-- Don't apply `Edit` for higher-leverage redesigns or any finding the user hasn't agreed to (Edit-gate split, §Workflow step 5).
+- Don't apply `Edit` for a higher-leverage redesign, or for an **evidence-shaped** rewrite the user hasn't approved — one whose content or motivation derives from user-supplied evidence (a snippet, transcript, stack trace, or in-source comment). This gate does **not** reach a **canonical-idiom-shaped** mechanical rewrite: when the new shape comes verbatim from the catalogue / spec and the evidence only located *where* the anti-pattern occurs, that Edit MAY apply when you are confident — no separate approval required (Edit-gate split, §Workflow step 5).
 - Don't interrupt authoring with anti-pattern detections. Pull-only; if the user is mid-writing via `re-frame2`, wait for the pull.
 - Don't rewrite user code for framework-shaped friction — hand off per §Framework-shaped friction.
 
