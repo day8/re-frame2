@@ -30,8 +30,8 @@
     "test:testbed-support": "shadow-cljs compile node-test-testbed-support && node out/node-test-testbed-support.js",
     "test:cljs-perf-emit-nightly": "shadow-cljs compile node-test-perf-nightly && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
-    "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-schemas-boundary-prod-tests.cjs",
-    "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/serve-and-run-prod-elision-tests.cjs",
+    "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-schemas-boundary-prod --port 8022",
+    "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023",
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:perf-bundle": "shadow-cljs release examples/counter examples/counter-perf && node scripts/check-perf-bundle.cjs",
     "test:schemas-bundle": "shadow-cljs release schemas-bundle-probe schemas-bundle-probe-malli && node scripts/check-schemas-bundle.cjs",
@@ -48,7 +48,7 @@
     "test:xray-feature-gate": "node scripts/serve-and-run-xray-feature-gate.cjs",
     "test:xray-feature-gate:smoke": "node scripts/serve-and-run-xray-feature-gate.cjs --smoke",
     "test:story-static": "node scripts/check-story-static.cjs",
-    "test:script-policy": "node scripts/_path-policy.test.cjs && node scripts/_changed-surfaces.test.cjs && node scripts/_lint-workflow-policy.test.cjs && node scripts/_story-feature-load-port.test.cjs && node scripts/_examples-port.test.cjs && node scripts/_story-script-runners-policy.test.cjs && node scripts/_impl-browser-runners-pageerror-policy.test.cjs && node scripts/_script-spawn-policy.test.cjs && node scripts/_orchestrator-teardown-policy.test.cjs && node scripts/_mcp-conformance-install-policy.test.cjs && node scripts/_adapter-smoke-filter.test.cjs && node scripts/_examples-staging.test.cjs && node scripts/check-examples-compile.test.cjs && node scripts/check-examples-assets.test.cjs && node scripts/check-reagent-slim-boundary.test.cjs && node scripts/_transform-reagent-slim-ns.test.cjs && node scripts/_reagent-slim-smoke-policy.test.cjs && node scripts/_rigorous-local-inventory.test.cjs",
+    "test:script-policy": "node scripts/_path-policy.test.cjs && node scripts/_changed-surfaces.test.cjs && node scripts/_lint-workflow-policy.test.cjs && node scripts/_story-feature-load-port.test.cjs && node scripts/_examples-port.test.cjs && node scripts/_story-script-runners-policy.test.cjs && node scripts/_impl-browser-runners-pageerror-policy.test.cjs && node scripts/_script-spawn-policy.test.cjs && node scripts/_orchestrator-teardown-policy.test.cjs && node scripts/_mcp-conformance-install-policy.test.cjs && node scripts/_adapter-smoke-filter.test.cjs && node scripts/_examples-staging.test.cjs && node scripts/check-examples-compile.test.cjs && node scripts/check-examples-assets.test.cjs && node scripts/check-reagent-slim-boundary.test.cjs && node scripts/_transform-reagent-slim-ns.test.cjs && node scripts/_reagent-slim-smoke-policy.test.cjs && node scripts/_rigorous-local-inventory.test.cjs && node scripts/_serve-and-run-cli.test.cjs",
     "test:script-helpers": "node scripts/_browser-test-report.test.cjs && node scripts/_gate-report.test.cjs && node scripts/_local-browser-harness.test.cjs && node scripts/_orchestrator-teardown-integration.test.cjs && node scripts/_read-release-bundle.test.cjs && node scripts/dev-testbed.test.cjs",
     "test:mcp-conformance": "node scripts/test-mcp-conformance.cjs"
   }
