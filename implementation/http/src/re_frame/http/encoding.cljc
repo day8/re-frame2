@@ -274,18 +274,26 @@
                                                     {:rf/time-ms (:completed-at args)}))))))
 
 (defn build-reply-event
-  "Per Spec 014 §Reply addressing. Returns the event vector to dispatch,
-  or nil when silenced. `reply-payload` is the CANONICAL reply envelope
-  (`{:status :ok/:error/:cancelled …}`, rf2-ibksxg) — `:on-success` /
-  `:on-failure` are pure routing sugar (both receive it verbatim), and the
-  co-located default merges it under `:rf/reply`.
+  "Per Spec 014 §Reply addressing. Returns the event vector to dispatch for
+  ONE branch (`:success` / `:failure`), or nil when the branch has no
+  target. `reply-payload` is the CANONICAL reply envelope
+  (`{:status :ok/:error/:cancelled …}`, rf2-ibksxg). The three authoring
+  keys (`:reply-to` / `:on-success` / `:on-failure`) all normalise upstream
+  (`handlers/normalise-args`) to the ONE `explicit-on` descriptor
+  (`{:supplied? :value}`) this fn consumes — never a second dialect.
 
-  - explicit :on-success / :on-failure: append the canonical reply map as
-    the last arg of the supplied event vector.
-  - default (omitted): originating event-id with the canonical reply map
-    merged under `:rf/reply` into the original message.
-  - explicit nil: silenced."
-  [{:keys [origin-event explicit-on reply-payload]}]
+  - supplied event vector: append the canonical reply map as its last arg.
+  - supplied `nil`: silenced (fire-and-forget).
+  - NOT supplied: nil — the branch has no target. The co-located default
+    (reply merged under `:rf/reply` back to the originating event) was
+    RETIRED pre-alpha (rf2-et4c1s); omitting EVERY reply target now fails
+    loud at fx-call time (`handlers/validate-reply-target!` →
+    `:rf.error/http-no-reply-target`), so a WHOLLY-unaddressed request never
+    reaches here. A PARTIALLY-addressed one (only the opposite branch's
+    sugar, no `:reply-to`) silences this branch — a silenced FAILURE
+    surfaces the one-shot `:rf.warning/failure-swallowed`
+    (transport `warn-failure-swallowed!`)."
+  [{:keys [explicit-on reply-payload]}]
   (let [supplied? (:supplied? explicit-on)
         value     (:value explicit-on)]
     (cond
@@ -299,26 +307,17 @@
 
       ;; rf2-smqkq — an explicitly supplied non-vector non-nil reply target
       ;; (e.g. a bare keyword or a map) is malformed: Spec 014 §Reply
-      ;; addressing types `:on-success` / `:on-failure` as "event vector or
-      ;; nil". Earlier this fell into the `:else` default-merge branch and
-      ;; silently re-routed the reply to the originating event-id, dropping
-      ;; the caller's explicit intent. Reject it at the dispatch site rather
-      ;; than swallow the misuse.
+      ;; addressing types the reply target as "event vector or nil". Reject it
+      ;; at the dispatch site rather than swallow the misuse.
       supplied?
       (error/throw-error!
         :rf.error/http-bad-reply-target :rf.http/managed
-        "`:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
+        "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
         {:extra {:value value}})
 
-      ;; default — back to originator with :rf/reply merged into message
-      :else
-      (let [event-id (first origin-event)
-            orig-msg (or (when (>= (count origin-event) 2) (nth origin-event 1))
-                         {})
-            merged   (cond
-                       (map? orig-msg) (assoc orig-msg :rf/reply reply-payload)
-                       :else           {:rf/reply reply-payload})]
-        [event-id merged]))))
+      ;; NOT supplied — the co-located default was retired (rf2-et4c1s); the
+      ;; branch has no target, so no event is dispatched.
+      :else nil)))
 
 ;; ---- backoff --------------------------------------------------------------
 

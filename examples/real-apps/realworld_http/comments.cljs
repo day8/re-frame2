@@ -85,18 +85,18 @@
          `[:rf.runtime/routing :current :params :slug]` (the route lives in
          runtime-db).
 
-         This one's a little demo of default reply addressing. Leave off
-         `:on-success` / `:on-failure` and the framework loops the reply back
-         to this very same event id, with `:rf/reply` merged into the message.
-         So the handler runs twice for one load — once to send the request,
-         once when the answer comes back — and branches on `(:rf/reply msg)`
-         to tell which hat it's wearing. One event id, two roles. See the HTTP
-         guide, the one-handler way to handle the reply:
-         ../../../docs/async/http.md#one-handler"
+         This one's a little demo of the unified reply spelling. Point
+         `:reply-to` back at this very same event id and the framework delivers
+         ONE reply — success or failure — to it, the canonical envelope
+         appended as the event's last argument. So the handler runs twice for
+         one load — once to send the request, once when the answer comes back —
+         and branches on the envelope's `:status` to tell which hat it's
+         wearing. One event id, two roles. See the HTTP guide, the one-handler
+         way to handle the reply: ../../../docs/async/http.md#one-handler"
    :rf.http/decode-schemas [schema/ArticleResponse]
    :rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
-    (if-let [reply (:rf/reply msg)]
+  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ reply]]
+    (if reply
       ;; Reply hat — the answer's back. Success or failure?
       (case (:status reply)
         :ok
@@ -111,9 +111,8 @@
                  (assoc-in [:article :status] :error)
                  (assoc-in [:article :error] (rh/failure->message (:error reply))))})
 
-      ;; Request hat — first time through, fire the managed request. With no
-      ;; explicit handlers, default reply addressing brings the answer right
-      ;; back to this event.
+      ;; Request hat — first time through, fire the managed request. `:reply-to`
+      ;; brings the one reply right back to this event.
       (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
         {:db (-> db
                  (assoc-in [:article :status]
@@ -125,7 +124,8 @@
                             :path       (article-path slug)
                             :decode     schema/ArticleResponse
                             :retry      rh/data-fetch-retry
-                            :request-id [:article/load slug]})]]}))))
+                            :request-id [:article/load slug]
+                            :reply-to   [:article/load]})]]}))))
 
 ;; ============================================================================
 ;; COMMENTS
@@ -133,10 +133,11 @@
 
 (rf/reg-event :comments/load
   {:doc "Load the comments for the current article. This one names explicit
-         success / failure handlers — the opposite choice from :article/load
-         just above, which lets the reply default back to itself. Both styles
-         are perfectly valid; reach for whichever reads more clearly in the
-         handler at hand. Here, separate handlers keep the load logic tidy."
+         `:on-success` / `:on-failure` handlers — the split sugar, the opposite
+         choice from :article/load just above, which uses the unified
+         `:reply-to` back to itself. Both styles are perfectly valid; reach for
+         whichever reads more clearly in the handler at hand. Here, separate
+         handlers keep the load logic tidy."
    :rf.http/decode-schemas [schema/CommentsResponse]}
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]

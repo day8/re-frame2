@@ -141,6 +141,27 @@
                "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"
                {:extra {:url url}})))))
 
+(defn- validate-reply-target!
+  "Per Spec 014 §Reply addressing (rf2-et4c1s) — every `:rf.http/managed`
+  request MUST address its reply. A reply is addressed by `:reply-to` (the
+  unified target for BOTH success and failure — the app branches on the
+  canonical envelope's `:status`), or by `:on-success` / `:on-failure` (the
+  split routing sugar; an explicit `nil` silences that branch).
+
+  The CO-LOCATED DEFAULT — the reply merged under `:rf/reply` back to the
+  originating event id when NO target was supplied — was RETIRED pre-alpha:
+  omitting EVERY reply target now FAILS LOUD at fx-call time with
+  `:rf.error/http-no-reply-target` rather than silently routing the reply
+  back to the dispatching event. Fires at the dispatch site (before
+  `run-attempt!`), matching the other args-map guards (`validate-retry!` →
+  `:rf.error/http-bad-retry-on`; `validate-url!` → `:rf.error/http-bad-request`)."
+  [args-map]
+  (when-not (some #(contains? args-map %) [:reply-to :on-success :on-failure])
+    (throw (error/thrown-ex-info
+             :rf.error/http-no-reply-target :rf.http/managed
+             "`:rf.http/managed` must address its reply — supply `:reply-to` (one target for both success and failure; the app branches on the canonical envelope's `:status`), or `:on-success` / `:on-failure` (an explicit `nil` silences a branch). The co-located default (reply merged under `:rf/reply` back to the originating event) was retired pre-alpha. Per Spec 014 §Reply addressing"
+             {:extra {:args-keys (vec (keys args-map))}}))))
+
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
   per-host attempt loop.
@@ -165,7 +186,7 @@
   truthiness check — `0` is truthy in Clojure). The three-way contract
   is thus preserved end-to-end without any reshaping here."
   [{:keys [request decode accept retry timeout-ms
-           on-success on-failure request-id abort-signal]
+           on-success on-failure reply-to request-id abort-signal]
     :or   {timeout-ms 30000}
     :as   args-map}
    frame-ctx]
@@ -201,7 +222,26 @@
         ;; default cap on unique decoded object keys. Absent → reader
         ;; default (`util-json/default-max-decoded-keys`, 10000). Per
         ;; Spec 014 §Decoding.
-        max-keys     (:rf.http/max-decoded-keys args-map)]
+        max-keys     (:rf.http/max-decoded-keys args-map)
+        ;; Reply addressing (Spec 014 §Reply addressing; rf2-et4c1s). Three
+        ;; authoring keys lower to the ONE internal reply-target descriptor
+        ;; (`{:supplied? :value}`) `build-reply-event` consumes — never a
+        ;; second dialect. `:reply-to` is the UNIFIED spelling: a single
+        ;; target for BOTH the success and the failure reply (the app branches
+        ;; on the canonical envelope's `:status`), mirroring the resources /
+        ;; mutation call-site `:reply-to`. `:on-success` / `:on-failure` are
+        ;; the split routing sugar; a per-branch key OVERRIDES the `:reply-to`
+        ;; base for its branch. The co-located default (reply merged under
+        ;; `:rf/reply` back to the originating event when NO target was given)
+        ;; was retired pre-alpha — omitting every target fails loud at
+        ;; `validate-reply-target!`, so a branch is `{:supplied? false}` only
+        ;; under partial addressing (the opposite sugar alone).
+        reply-target (fn [branch-supplied? branch-value]
+                       (cond
+                         branch-supplied?   {:supplied? true  :value branch-value}
+                         (contains? args-map :reply-to)
+                         {:supplied? true  :value reply-to}
+                         :else              {:supplied? false :value nil}))]
     {:request           request
      :decode            decode
      :accept            accept
@@ -209,12 +249,8 @@
      :timeout-ms        timeout-ms
      :max-decoded-keys  max-keys
      :origin-event      origin-event
-     :explicit-on-success
-     {:supplied? (contains? args-map :on-success)
-      :value     on-success}
-     :explicit-on-failure
-     {:supplied? (contains? args-map :on-failure)
-      :value     on-failure}
+     :explicit-on-success (reply-target (contains? args-map :on-success) on-success)
+     :explicit-on-failure (reply-target (contains? args-map :on-failure) on-failure)
      :request-id        request-id
      :actor-id          actor-id
      :abort-signal      abort-signal
@@ -248,6 +284,12 @@
   ;; transport loop (or silently dropped when the bad member never
   ;; fires). Per Spec 014 §Closed-set `:retry :on` validation.
   (validate-retry! args-map)
+  ;; rf2-et4c1s — every request MUST address its reply. Fires BEFORE the
+  ;; middleware chain (like `validate-retry!`) so an unaddressed request
+  ;; surfaces `:rf.error/http-no-reply-target` at the dispatch site rather
+  ;; than silently falling back to the retired co-located default. Per
+  ;; Spec 014 §Reply addressing.
+  (validate-reply-target! args-map)
   ;; rf2-q8vbna — `:abort-signal` and `:request-id` are NOT mutually
   ;; exclusive. Both attach cancellation sources to the one managed
   ;; request; the CLJS transport forwards an external `:abort-signal`

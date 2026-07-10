@@ -5,10 +5,12 @@
   That's the whole idea, and it's built on one effect: `:rf.http/managed`.
   You describe a request as data; the runtime owns the rest of its life —
   encode, send, decode, sort the failures, retry, abort. When the answer
-  comes home it arrives as an ordinary event, re-dispatched — via default
-  reply addressing — to the very handler that sent the request. So \"send\"
-  and \"receive\" are two passes through one pure function, and you never go
-  near js/fetch. The HTTP guide has the full contract: docs/async/http.md.
+  comes home it arrives as an ordinary event: you address the reply with
+  `:reply-to`, and the runtime appends the canonical reply envelope as the
+  event's last argument. Point `:reply-to` back at the very handler that sent
+  the request and \"send\" and \"receive\" become two passes through one pure
+  function — you never go near js/fetch. The HTTP guide has the full
+  contract: docs/async/http.md.
 
   Five buttons walk the whole surface:
 
@@ -89,37 +91,40 @@
 ;;
 ;; Start here — this is the pattern the whole example turns on. One pure
 ;; handler, two jobs. The first time through, the :else branch *describes* a
-;; request and hands back an :rf.http/managed effect. The runtime takes it
-;; from there: GET api/inc.json, decode the `{"delta": 1}` body, and
-;; re-dispatch [:counter/+1 {:rf/reply ...}] right back to this same handler.
-;; Second time through it's the :success branch, which applies the increment.
-;; All the asynchrony lives in the runtime. The handler never stops being a
-;; plain pure function — no callbacks, no promises to babysit.
+;; request and hands back an :rf.http/managed effect whose `:reply-to` points
+;; back at THIS event. The runtime takes it from there: GET api/inc.json,
+;; decode the `{"delta": 1}` body, and re-dispatch [:counter/+1 <reply>] right
+;; back to this same handler — the canonical reply envelope appended as the
+;; last arg. Second time through it's the :ok branch, which applies the
+;; increment. All the asynchrony lives in the runtime. The handler never stops
+;; being a plain pure function — no callbacks, no promises to babysit.
 
 (rf/reg-event :counter/+1
-  (fn [{:keys [db]} [_ msg]]
+  (fn [{:keys [db]} [_ reply]]
     (cond
       ;; The reply came back happy — bump the count by the delta the server
-      ;; sent, and settle the UI to :idle. The reply is the canonical envelope;
-      ;; success is `:status :ok`, the decoded body at `:value`.
-      (some-> msg :rf/reply :status (= :ok))
+      ;; sent, and settle the UI to :idle. `reply` is the canonical envelope,
+      ;; delivered as the event's last arg; success is `:status :ok`, the
+      ;; decoded body at `:value`.
+      (some-> reply :status (= :ok))
       {:db (-> db
-               (update :counter/count + (or (:delta (:value (:rf/reply msg))) 1))
+               (update :counter/count + (or (:delta (:value reply)) 1))
                (assoc :counter/status :idle :counter/error nil))}
 
       ;; The reply came back unhappy — stash the error so the view can show it.
       ;; Failure is `:status :error`, the classified `:rf.http/*` map at `:error`.
-      (some-> msg :rf/reply :status (= :error))
+      (some-> reply :status (= :error))
       {:db (-> db
                (assoc :counter/status :error
-                      :counter/error  (:error (:rf/reply msg))))}
+                      :counter/error  (:error reply)))}
 
-      ;; No reply yet, so this is the opening move: fire the request.
-      ;; `rf.http/get` builds the same `[:rf.http/managed args-map]` vector a
-      ;; hand-written `:method :get` entry would — just in one tidy line.
+      ;; No reply yet, so this is the opening move: fire the request and
+      ;; address its reply back to THIS event with `:reply-to`. `rf.http/get`
+      ;; builds the same `[:rf.http/managed args-map]` vector a hand-written
+      ;; `:method :get` entry would — just in one tidy line.
       :else
       {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [(rf.http/get "api/inc.json" {:decode :json})]})))
+       :fx [(rf.http/get "api/inc.json" {:decode :json :reply-to [:counter/+1]})]})))
 
 ;; ============================================================================
 ;; Fail  —  real 404 from the http-server
@@ -131,12 +136,12 @@
 ;; exactly what the view reaches for to tell the user what went wrong.
 
 (rf/reg-event :counter/fail
-  (fn [{:keys [db]} [_ msg]]
+  (fn [{:keys [db]} [_ reply]]
     (cond
-      (some-> msg :rf/reply :status (= :error))
-      {:db (assoc db :counter/status :error :counter/error (:error (:rf/reply msg)))}
+      (some-> reply :status (= :error))
+      {:db (assoc db :counter/status :error :counter/error (:error reply))}
 
-      (some-> msg :rf/reply :status (= :ok))
+      (some-> reply :status (= :ok))
       ;; We never expect to land here — the URL is a deliberate 404.
       {:db (assoc db :counter/status :idle :counter/error nil)}
 
@@ -149,7 +154,7 @@
       ;; error page. The classification order is in docs/async/http.md.
       :else
       {:db (assoc db :counter/status :loading :counter/error nil)
-       :fx [(rf.http/get "api/does-not-exist")]})))
+       :fx [(rf.http/get "api/does-not-exist" {:reply-to [:counter/fail]})]})))
 
 ;; ============================================================================
 ;; Retry-recover  —  canned-stub at app level
@@ -165,22 +170,24 @@
 ;; difference. It reads the reply the same way either way.
 
 (rf/reg-event :counter/retry-recover
-  (fn [{:keys [db]} [_ msg]]
+  (fn [{:keys [db]} [_ reply]]
     (cond
-      (some-> msg :rf/reply :status (= :ok))
+      (some-> reply :status (= :ok))
       {:db (-> db
-               (update :counter/count + (or (:delta (:value (:rf/reply msg))) 0))
+               (update :counter/count + (or (:delta (:value reply)) 0))
                (assoc :counter/status :idle :counter/error nil))}
 
       :else
       {:db (assoc db :counter/status :loading)
        ;; The stub conjures the reply directly. We still spell out the
        ;; :request and :decode so the call site reads like the real thing —
-       ;; the stub just quietly skips the trip over the network.
+       ;; the stub just quietly skips the trip over the network. `:reply-to`
+       ;; addresses the synthesised reply exactly as it would the live fx's.
        :fx [[:rf.http/managed-canned-success
-             {:request {:method :get :url "api/flaky"}
-              :decode  :json
-              :value   {:delta 5}}]]})))
+             {:request  {:method :get :url "api/flaky"}
+              :decode   :json
+              :value    {:delta 5}
+              :reply-to [:counter/retry-recover]}]]})))
 
 ;; ============================================================================
 ;; Start long / Cancel  —  a REAL abort of a REAL in-flight request
@@ -239,35 +246,36 @@
          ;; and calls us with the abort `reason` (`:user` here). Our two jobs:
          ;; clear the registry slot, and dispatch the :rf.http/aborted reply —
          ;; the exact shape the live transport's abort path emits — home to
-         ;; :counter/start-long via default reply addressing.
+         ;; :counter/start-long. The live fx would deliver it via `:reply-to`,
+         ;; so we mirror that: the canonical envelope is the appended last arg.
          :abort-fn (fn [reason]
                      (http-registry/clear-in-flight! request-id)
                      ;; rf2-ibksxg — the canonical abort reply: an abort is
                      ;; `:status :cancelled`, the `:rf.http/aborted` map under
                      ;; `:error` (mirrors the live transport's abort path).
                      (rf/dispatch [:counter/start-long
-                                   {:rf/reply {:status        :cancelled
-                                               :cancelled?    true
-                                               :cancel/reason reason
-                                               :error         {:kind       :rf.http/aborted
-                                                               :request-id request-id
-                                                               :reason     reason}}}]
+                                   {:status        :cancelled
+                                    :cancelled?    true
+                                    :cancel/reason reason
+                                    :error         {:kind       :rf.http/aborted
+                                                    :request-id request-id
+                                                    :reason     reason}}]
                                   {:frame frame}))}))
     nil))
 
 (rf/reg-event :counter/start-long
-  (fn [{:keys [db]} [_ msg]]
+  (fn [{:keys [db]} [_ reply]]
     (cond
       ;; The reply branch. When Cancel fires, the :abort-fn dispatches the
-      ;; canonical :status :cancelled reply, and default reply addressing routes
+      ;; canonical :status :cancelled reply as this event's last arg, routing
       ;; it right back here. We note the aborted classification (under :error)
       ;; and ease the UI to :idle.
-      (some-> msg :rf/reply :status (= :cancelled))
+      (some-> reply :status (= :cancelled))
       {:db (assoc db
                   :counter/status :idle
-                  :counter/error  (:error (:rf/reply msg)))}
+                  :counter/error  (:error reply))}
 
-      (some-> msg :rf/reply :status (= :ok))
+      (some-> reply :status (= :ok))
       {:db (assoc db :counter/status :idle :counter/error nil)}
 
       ;; The opening move: seed a request that's genuinely in flight, ready

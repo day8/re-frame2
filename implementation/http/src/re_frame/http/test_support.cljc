@@ -239,8 +239,14 @@
         reply        {:status :ok :value value}]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       :explicit-on    {:supplied? (contains? args-map :on-success)
-                        :value     (:on-success args-map)}
+       ;; rf2-et4c1s — the canned stub honours the SAME reply-addressing keys
+       ;; as the live fx: `:on-success` (this branch's sugar) else the unified
+       ;; `:reply-to` (both branches). The co-located default is retired, so an
+       ;; unaddressed stub reply is silenced (build-reply-event nil).
+       :explicit-on    (cond
+                         (contains? args-map :on-success) {:supplied? true  :value (:on-success args-map)}
+                         (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
+                         :else                            {:supplied? false :value nil})
        :reply-payload  reply
        :kind           :success
        :frame          frame-id
@@ -274,8 +280,12 @@
                        {:status :error :error failure})]
     (dispatch-canned-reply!
       {:origin-event   origin-event
-       :explicit-on    {:supplied? (contains? args-map :on-failure)
-                        :value     (:on-failure args-map)}
+       ;; rf2-et4c1s — same reply-addressing keys as the live fx: `:on-failure`
+       ;; (this branch's sugar) else the unified `:reply-to` (both branches).
+       :explicit-on    (cond
+                         (contains? args-map :on-failure) {:supplied? true  :value (:on-failure args-map)}
+                         (contains? args-map :reply-to)   {:supplied? true  :value (:reply-to args-map)}
+                         :else                            {:supplied? false :value nil})
        :reply-payload  reply
        :kind           :failure
        :frame          frame-id
