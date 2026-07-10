@@ -46,6 +46,21 @@ without breaking the "copy these together and it works" contract. The reverse �
 a snippet dispatching an id nobody registers — is the drift that strands the
 author with a no-op button.
 
+Two further checks keep the sole-canonical-source contract (rf2-qzrkek):
+
+  * CANONICAL-SOURCE. The copy-complete Reagent `core.cljs` (a fenced
+    `clojure` block that requires `reagent.dom.client` and mounts via
+    `rdc/render`) must exist in EXACTLY ONE place — first-counter.md — and
+    NOT in entry-namespace.md, which now explains the boot lifecycle keyed to
+    it (retaining the UIx/Helix substrate deltas) instead of duplicating a
+    second runnable skeleton.
+
+  * MALLI-REQUIRE. The schemas artefact self-wires its Malli adapter, so a
+    setup app requires ONLY `re-frame.schemas`. A separate
+    `re-frame.schemas.malli` require — a literal require vector, or checklist
+    prose demanding one — is drift, flagged on any line naming it UNLESS the
+    line explicitly says the separate require is not needed.
+
 Exit code:
     0  no drift detected
     1  drift detected (printed line-by-line; GitHub-Actions ::error:: under CI)
@@ -83,10 +98,12 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):  # pragma: no cover - non-TextIO stream
         pass
 
-SETUP_REFS = REPO_ROOT / "skills" / "re-frame2-setup" / "references"
+SETUP_ROOT = REPO_ROOT / "skills" / "re-frame2-setup"
+SETUP_REFS = SETUP_ROOT / "references"
 FIRST_COUNTER = SETUP_REFS / "first-counter.md"
 ENTRY_NAMESPACE = SETUP_REFS / "entry-namespace.md"
 SHADOW_CLJS = SETUP_REFS / "shadow-cljs.md"
+SKILL_MD = SETUP_ROOT / "SKILL.md"
 
 TEMPLATE_ROOT = (
     REPO_ROOT
@@ -154,6 +171,27 @@ HOT_RELOAD_DRIFT = [
 # `:subscribe-container` adapter key; the load-bearing retired token is the bare
 # `state-container` adapter-key name, which has no current meaning.)
 ADAPTER_KEY_DRIFT = re.compile(r"(?<![:`\w-])`state-container`")
+
+# CANONICAL-SOURCE (rf2-qzrkek). A copy-complete Reagent `core.cljs` is a fenced
+# ```clojure block that both requires `reagent.dom.client` AND mounts via
+# `rdc/render`. It must live in EXACTLY ONE place — first-counter.md — so the
+# setup skill has a single copy-complete entry source. entry-namespace.md
+# explains the boot lifecycle keyed to it (retaining the UIx/Helix substrate
+# deltas, which mount via uix-dom / react-dom, not `rdc/render`) rather than
+# carrying a duplicate Reagent skeleton.
+FENCED_CLOJURE = re.compile(r"(?s)```clojure\r?\n(.*?)```")
+
+# MALLI-REQUIRE (rf2-qzrkek). Requiring `re-frame.schemas` alone wires Malli —
+# the schemas artefact self-requires its Malli adapter. A separate
+# `re-frame.schemas.malli` require is wrong. We flag any line NAMING the ns
+# unless that same line marks it as unnecessary (the corpus documents the ns
+# only to say "no separate require is needed"). The negation cue is regex-based
+# and whitespace/markdown-tolerant so `**no** separate` still reads as clean.
+MALLI_NS = re.compile(r"re-frame\.schemas\.malli")
+MALLI_OK_CONTEXT = re.compile(
+    r"(?i)(no\W+separate|self-\W?(?:require|wire)|not\W+needed|isn'?t\W+needed"
+    r"|is\W+not\W+needed|without|don'?t\W+need|does\W+not\W+need|never\W+need)"
+)
 
 
 def _slurp(path: Path) -> str:
@@ -270,8 +308,68 @@ def find_adapter_key_drift(name: str, text: str) -> list[str]:
     return problems
 
 
+def _reagent_core_blocks(text: str) -> list[str]:
+    """Fenced `clojure` blocks that are a copy-complete Reagent core.cljs —
+    they require `reagent.dom.client` AND mount via `rdc/render`. UIx/Helix
+    snippets (uix-dom / react-dom) never match."""
+    return [
+        block
+        for block in FENCED_CLOJURE.findall(text)
+        if "reagent.dom.client" in block and "rdc/render" in block
+    ]
+
+
+def find_canonical_source_drift(
+    first_counter_text: str, entry_namespace_text: str
+) -> list[str]:
+    """CANONICAL-SOURCE check. Returns drift messages (empty == clean)."""
+    problems: list[str] = []
+    fc_blocks = _reagent_core_blocks(first_counter_text)
+    en_blocks = _reagent_core_blocks(entry_namespace_text)
+
+    if len(fc_blocks) != 1:
+        problems.append(
+            "CANONICAL-SOURCE: first-counter.md must carry EXACTLY ONE "
+            "copy-complete Reagent core.cljs fenced block (requires "
+            "`reagent.dom.client` and mounts via `rdc/render`) — the sole "
+            f"copy-complete setup entry source; found {len(fc_blocks)}. An "
+            "anchor moved or a duplicate crept in; the emitted-scaffold "
+            "compile also extracts this one block."
+        )
+    if en_blocks:
+        problems.append(
+            f"CANONICAL-SOURCE: entry-namespace.md carries {len(en_blocks)} "
+            "copy-complete Reagent core.cljs fenced block(s) "
+            "(`reagent.dom.client` + `rdc/render`). The sole copy-complete "
+            "core.cljs must live ONLY in first-counter.md; entry-namespace.md "
+            "explains the boot lifecycle keyed to it — retain the UIx/Helix "
+            "substrate deltas, but do not duplicate the Reagent skeleton "
+            "(rf2-qzrkek)."
+        )
+    return problems
+
+
+def find_malli_require_drift(name: str, text: str) -> list[str]:
+    """MALLI-REQUIRE check. Returns drift messages (empty == clean)."""
+    problems: list[str] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if MALLI_NS.search(line) and not MALLI_OK_CONTEXT.search(line):
+            problems.append(
+                f"MALLI-REQUIRE: {name}:{lineno} names a SEPARATE "
+                "`re-frame.schemas.malli` require without flagging it as "
+                "unnecessary. The schemas artefact self-requires its Malli "
+                "adapter, so requiring `re-frame.schemas` alone publishes the "
+                "validate/explain hooks — a separate `re-frame.schemas.malli` "
+                "require (or checklist prose demanding one) is wrong. Require "
+                "only `re-frame.schemas`, or say the separate require is not "
+                f"needed. Offending line: {line.strip()!r}"
+            )
+    return problems
+
+
 def run(*, verbose: bool, ci: bool) -> int:
-    for p in (FIRST_COUNTER, ENTRY_NAMESPACE, SHADOW_CLJS, TEMPLATE_EVENTS, TEMPLATE_SUBS):
+    for p in (FIRST_COUNTER, ENTRY_NAMESPACE, SHADOW_CLJS, SKILL_MD,
+              TEMPLATE_EVENTS, TEMPLATE_SUBS):
         if not p.is_file():
             sys.stderr.write(f"error: required file not found at {p}\n")
             return 2
@@ -279,6 +377,7 @@ def run(*, verbose: bool, ci: bool) -> int:
     first_counter_text = _slurp(FIRST_COUNTER)
     entry_namespace_text = _slurp(ENTRY_NAMESPACE)
     shadow_text = _slurp(SHADOW_CLJS)
+    skill_text = _slurp(SKILL_MD)
 
     problems = find_counter_drift(
         first_counter_text,
@@ -293,13 +392,23 @@ def run(*, verbose: bool, ci: bool) -> int:
     problems += find_adapter_key_drift(
         str(ENTRY_NAMESPACE.relative_to(REPO_ROOT)), entry_namespace_text
     )
+    problems += find_canonical_source_drift(first_counter_text, entry_namespace_text)
+    for name, text in (
+        (str(FIRST_COUNTER.relative_to(REPO_ROOT)), first_counter_text),
+        (str(ENTRY_NAMESPACE.relative_to(REPO_ROOT)), entry_namespace_text),
+        (str(SKILL_MD.relative_to(REPO_ROOT)), skill_text),
+    ):
+        problems += find_malli_require_drift(name, text)
 
     if verbose:
         print(
             "setup-counter guard: checked counter-keyword containment "
             "(first-counter.md + entry-namespace.md + template), hot-reload "
-            "lifecycle wording (shadow-cljs.md + entry-namespace.md), and adapter-key "
-            "vocabulary (entry-namespace.md)."
+            "lifecycle wording (shadow-cljs.md + entry-namespace.md), adapter-key "
+            "vocabulary (entry-namespace.md), one-canonical-source "
+            "(first-counter.md is the sole copy-complete core.cljs), and the "
+            "schemas single-require contract (only re-frame.schemas; no separate "
+            "re-frame.schemas.malli)."
         )
 
     if not problems:
@@ -439,6 +548,70 @@ def _self_test() -> int:
     probs = find_adapter_key_drift("entry-namespace.md", drift_adapter)
     if not any("ADAPTER-KEY" in p for p in probs):
         print(f"SELF-TEST FAIL (G adapter drift): expected drift, got {probs}")
+        failures += 1
+
+    # Case H — CANONICAL-SOURCE clean: the copy-complete Reagent core.cljs
+    # lives ONLY in first-counter.md; entry-namespace.md's UIx snippet mounts
+    # via uix-dom (not rdc/render), so it is not a Reagent core block.
+    good_fc_block = (
+        "```clojure\n"
+        "(ns your-app.core\n"
+        "  (:require [reagent.dom.client :as rdc]))\n"
+        "(defn ^:export init []\n"
+        "  (rdc/render @react-root [counter-app]))\n"
+        "```\n"
+    )
+    good_en_no_reagent = (
+        "```clojure\n"
+        "(ns your-app.core (:require [uix.dom :as uix-dom]))\n"
+        "(uix-dom/render-root ($ views/counter-app) react-root)\n"
+        "```\n"
+    )
+    probs = find_canonical_source_drift(good_fc_block, good_en_no_reagent)
+    if probs:
+        print(f"SELF-TEST FAIL (H canonical clean): unexpected {probs}")
+        failures += 1
+
+    # Case I — CANONICAL-SOURCE drift: entry-namespace.md carries a duplicate
+    # copy-complete Reagent core.cljs skeleton (the rf2-qzrkek regression).
+    probs = find_canonical_source_drift(good_fc_block, good_fc_block)
+    if not any("CANONICAL-SOURCE" in p and "entry-namespace.md" in p for p in probs):
+        print(f"SELF-TEST FAIL (I canonical drift): expected entry-namespace drift, got {probs}")
+        failures += 1
+
+    # Case J — MALLI-REQUIRE clean: the ns is named only to say it is NOT
+    # needed. Both the plain and the markdown-emphasised (`**no** separate`)
+    # negations must read as clean.
+    for label, txt in [
+        ("plain",
+         "re-frame.schemas self-requires its Malli adapter — no separate "
+         "re-frame.schemas.malli require is needed.\n"),
+        ("md",
+         "requires **only** `re-frame.schemas` (which self-wires its Malli "
+         "adapter; **no** separate `re-frame.schemas.malli` require).\n"),
+    ]:
+        probs = find_malli_require_drift("first-counter.md", txt)
+        if probs:
+            print(f"SELF-TEST FAIL (J malli clean {label}): unexpected {probs}")
+            failures += 1
+
+    # Case K — MALLI-REQUIRE drift: checklist prose demanding a SEPARATE
+    # re-frame.schemas.malli require (the rf2-qzrkek checklist drift), and a
+    # literal require vector.
+    probs = find_malli_require_drift(
+        "SKILL.md",
+        "Entry ns requires `re-frame.schemas` + `re-frame.schemas.malli` and "
+        "attaches the app-db schema.\n",
+    )
+    if not any("MALLI-REQUIRE" in p for p in probs):
+        print(f"SELF-TEST FAIL (K malli prose drift): expected drift, got {probs}")
+        failures += 1
+    probs = find_malli_require_drift(
+        "first-counter.md",
+        "  (:require [re-frame.schemas]\n            [re-frame.schemas.malli])\n",
+    )
+    if not any("MALLI-REQUIRE" in p for p in probs):
+        print(f"SELF-TEST FAIL (K malli require drift): expected drift, got {probs}")
         failures += 1
 
     if failures:

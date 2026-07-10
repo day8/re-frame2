@@ -722,8 +722,8 @@
                "rather than imply the skill runs it (rf2-agi57x)."))
       ;; And the UIx/Helix path the skill EXECUTES must be the manual substrate
       ;; views (already locked by Lock 7) — re-assert the executable framing.
-      (is (contains-any? skill ["manual seven-step" "manual scaffold"])
-          (str "SKILL.md no longer names the manual seven-step scaffold as the "
+      (is (contains-any? skill ["manual six-step" "manual scaffold"])
+          (str "SKILL.md no longer names the manual six-step scaffold as the "
                "path the skill executes (vs. the user-run generator). The "
                "skill's executable route must be the one its allowed-tools "
                "cover (rf2-agi57x)."))))

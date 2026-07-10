@@ -47,7 +47,7 @@ the situation they cover:
 - **[`re-frame2-setup/`](re-frame2-setup)** — scaffold a fresh
   re-frame2 ClojureScript project by hand. Walks the author from an empty
   directory to a working `shadow-cljs watch` counter via the canonical
-  seven-step path. Complementary to the generator template under
+  six-step path. Complementary to the generator template under
   [`tools/template/`](../tools/template): use the template when you want a
   one-shot scaffold. (Pre-split, the published `:template` coordinate can't
   resolve — [`tools/template/README.md`](../tools/template/README.md)
