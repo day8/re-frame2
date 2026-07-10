@@ -71,7 +71,7 @@ Managed effects MUST honour the dispatching frame's `:fx-overrides`, `:intercept
 
 ### 9. Uniform reply envelope (async completions)
 
-A managed effect whose completion crosses an event boundary MUST report that completion through **one** uniform reply envelope: one standard **reply map** delivered to one standard **reply target**. The effect either accepts `:rf/reply-to` directly or defines public sugar (HTTP `:on-success` / `:on-failure`, the resource/mutation internal replies, machine `:on-done`, nav-token threading) that **lowers** to `:rf/reply-to` internally. Completion MUST produce a reply map with a single `:status`, value and/or error data, work correlation, causal completion metadata, and any cancellation/staleness facts. Ledger-backed effects MUST correlate by `:work/id`.
+A managed effect whose completion crosses an event boundary MUST report that completion through **one** uniform reply envelope: one standard **reply map** delivered to one standard **reply target**. The app addresses a completion through either an app-facing **`:reply-to`** call-site key — the unified spelling shared by HTTP, resources, and mutations, with HTTP's `:on-success` / `:on-failure` the split routing sugar over it — or a family's **native grammar** that lowers a completion onto the envelope internally with no reply-target spelling in the app's hands: a machine's `:on-done` / `:on-error` are ordinary statechart transitions (the machine runtime lowers the awaited async work onto the envelope), nav-token threading rides the route. All of these lower to the one internal / normalized **`:rf/reply-to`** descriptor (a conformance surface, not an everyday app-facing spelling). Completion MUST produce a reply map with a single `:status`, value and/or error data, work correlation, causal completion metadata, and any cancellation/staleness facts. Ledger-backed effects MUST correlate by `:work/id`.
 
 This is the property that makes "an event reply is a causal continuation" a framework-wide law rather than a per-family convention. It is faithful to [EP-0011 §Specification](../docs/EP/EP-0011-uniform-async-reply-envelope.md#specification); where this section and that EP differ, this section governs (the EP is the rationale record). The contract is defined in full immediately below ([§The uniform reply envelope](#the-uniform-reply-envelope)); each async surface's spec adds the family-specific work-id tuple and suppression gates and a back-reference to here when it lowers.
 
@@ -259,7 +259,7 @@ The four shipped surfaces in the v1 corpus that satisfy the contract. Each Spec 
 
 ### `:rf.http/managed` — HTTP requests ([Spec 014](014-HTTPRequests.md))
 
-Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:accept`, `:on-success`, `:on-failure`, `:retry`. Eight-category failure taxonomy under `:rf.http/*`. Frame-aware reply addressing via co-located request-and-reply handlers (the `(:rf/reply msg)` branch). Specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md); pins [Pattern-RemoteData](Pattern-RemoteData.md)'s lifecycle slice.
+Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:accept`, `:reply-to` (unified) / `:on-success` / `:on-failure` (split sugar), `:retry`. Eight-category failure taxonomy under `:rf.http/*`. Frame-aware reply addressing; `:reply-to [:same-event]` folds request and reply into one handler. Specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md); pins [Pattern-RemoteData](Pattern-RemoteData.md)'s lifecycle slice.
 
 ### `:spawn` / `:spawn-all` — state-machine actors ([Spec 005](005-StateMachines.md))
 
@@ -291,7 +291,7 @@ A future surface — managed timers, managed IndexedDB transactions, managed bac
 6. Ship retry / abort / teardown as data on the args map (not as caller code).
 7. Maintain a framework-private in-flight registry keyed by an addressable id; expose via the registrar query API.
 8. Honour the dispatching frame's `:fx-overrides`, `:interceptor-overrides`, and `:platforms` filters.
-9. **If the surface has asynchronous completion**, report it through the [uniform reply envelope](#the-uniform-reply-envelope): accept `:rf/reply-to` (or define sugar that lowers to it), complete with a reply map carrying one closed `:status`, correlate ledger-backed work by `:work/id`, and make stale suppression the correctness boundary. A purely synchronous surface (no completion after the `:fx` walk) is exempt from property 9 only.
+9. **If the surface has asynchronous completion**, report it through the [uniform reply envelope](#the-uniform-reply-envelope): accept the app-facing `:reply-to` call-site key (or define native grammar that lowers a completion onto the envelope — the internal / normalized target is `:rf/reply-to`), complete with a reply map carrying one closed `:status`, correlate ledger-backed work by `:work/id`, and make stale suppression the correctness boundary. A purely synchronous surface (no completion after the `:fx` walk) is exempt from property 9 only.
 
 A surface that satisfies fewer than these remains useful but does **not** carry the "managed external effect" label; pair tools, the conformance corpus, and the AI-Audit treat it as out-of-contract.
 
