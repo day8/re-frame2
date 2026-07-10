@@ -1,18 +1,21 @@
 # ClojureScript for non-Clojurians
 
-New to **ClojureScript**? This page will teach you to ***read ClojureScript*** in 30 minutes.
+New to **ClojureScript**? This page will teach you to ***read ClojureScript*** in about 40 minutes.
 
-And, specifically, how to read `re-frame2` code. Learning to *write ClojureScript* will require a few hours of your time.
+And, specifically, how to read `re-frame2` code.
 
 ---
 
 > A note on names:
-> `Clojure` runs on the JVM.
-> `ClojureScript` runs in the browser.
+>   - `Clojure` a language which runs on the JVM.
+>   - `ClojureScript` a language which runs in the browser.
+>
 > They are essentially the same language but our focus here is on `ClojureScript`.
+>
+> There is also `Closure` — [a library](https://clojurescript.org/reference/google-closure-library) originally written by Google, but now packaged as part of `ClojureScript`. Mentioned once, here, for completeness but otherwise ignored for our purposes.  
 
 ---
-I have good news: you are going to be surprised and delighted at the simplicity of the syntax.
+I have good news: you are going to be **surprised and delighted at the simplicity of the syntax**.
 
 ## Simple Data Literals
 
@@ -79,7 +82,7 @@ using Clojure's data literals, and we've just covered data literals.
 ---
 ## Evaluation
 
-You are going to be surprised and delighted with the simplicity of "evaluation".
+You are going to be **surprised and delighted with the simplicity of "evaluation"**.
 
 **1st Evaluation Rule:** all data literals other than `lists` and `symbols` **evaluate** to themselves.
 
@@ -100,6 +103,8 @@ Try these experiments — what does each one evaluate to? Edit the cell and see:
 ```cljs
 {:a 1 :a 4}
 ```
+
+This next one is **deliberately incomplete** (missing a closing `]`). Evaluate it and notice how the error reports a broken form — then add the `]` and re-evaluate:
 
 ```cljs
 [:apple :orange :banana
@@ -122,14 +127,14 @@ Example symbol evaluations:
 | `[foo bar]`     | `[4 [1 2 3]]`                | Assuming `foo` evaluates to  `4`,  `bar` evaluates to  `[1 2 3]` |
 
 
-!!! Note "Symbols are often bound to functions"
+!!! note "Symbols are often bound to functions"
 
     For the moment, you'll have to take my word on this: the symbol `inc`
     is bound to a function in Clojure's standard library. As a result, when you evaluate `inc`, you get the function!! Because that's what `inc` is bound to.
 
     There's also another symbol, `count`, which is bound to different function in the standard library.
 
-    And, finally - this one will be a surprise - the symbol `+` is bound to a function.
+    And, finally - and this one will be a surprise - the symbol `+` is bound to a function.
     Wait. Isn't `+` an operator?  No. Clojure doesn't have operators.
     Instead, `+` is a symbol, and it is bound to a function - one which adds. Anyway, more soon.
 
@@ -151,10 +156,9 @@ inc
 {inc 5}
 ```
 
-(Nearly anything can be a map key.)
+Nearly anything can be a map key including a function. Seldom useful, but possible.
 
 ## Evaluating Lists
-
 
 **3rd Evaluation Rule:** a `list` evaluates to a function call.
 
@@ -173,8 +177,8 @@ Such a list is **evaluated in two steps**:
 
 The list evaluates to the return value of this function call. So, if this example function call returned the string `"maybe Satoshi"`, then the list `(f arg1 arg2 arg3)` would evaluate to `"maybe Satoshi"`.
 
-!!! Note "More on symbols bound to functions"
-    In Clojure code, the 1st element of a list is often a symbol. So, let's talk more about that.
+!!! note "More on symbols bound to functions"
+    The 1st element of a list is often a symbol. So, let's talk more about that.
 
     Here's an example: `(inc 3)`.  That's a two element list, and the first element is the symbol `inc`. The 2nd element is the value `3`
 
@@ -196,10 +200,10 @@ Example list evaluations, involving symbols:
 | `(+ 1 2 3)`             | `6`                    | Surprise! Turns out this function can handle a variable<br>number of arguments.          |
 | `[1 (+ 1 2 3)]`         | `[1 6]`                |  |
 
-!!! Note "No operators"
+!!! note "No operators"
     We now know that `+` is a symbol bound to a builtin function, not an operator. <br>
     It is the same with `-`,  `/` ,  `>`,  `=`, etc.<br>
-    Because these are just names, you can also have `not=`<br>
+    Because these are just symbols, not operators, you can have `not=`<br>
     And because there are no operators, there's no operator precedence to discuss. Simple syntax, right?
 
 Let's start evaluating, live. Type into each editor. Press `Ctrl-Enter` to evaluate. Possible experiments:
@@ -400,7 +404,7 @@ is evaluated depending on the result of that `test`. One element remains unevalu
 |   `{1 (if false "yes")}`     |  `{1 nil}`                  |   |
 
 
-!!! Note "No Statements"
+!!! note "No Statements"
     Notice how `if` is a form in Clojure, which evaluates to a value, and not a statement. (Clojure doesn't have any statements, or operators, it just has data and evaluation rules)
 
 Possible experiments:
@@ -644,7 +648,6 @@ Define another:
 `str` is a builtin function which turns each of its arguments into a string and concatenates them.
 
 use it:
-
 ```cljs
 (greet "world")
 ```
@@ -656,7 +659,7 @@ In a functional language, creating functions is a big deal. You'll be using `def
 ---
 ## `let`
 
-This is another special form you'll be using _a lot_.
+This is another special form you'll be using  _a lot_.
 
 ```cljs
 ;; a let form has two parts:
@@ -847,12 +850,12 @@ are used all the time, and to read Clojure code (our aim here), you must know th
 `assoc`  allows you to add a key/value pair to a hashmap.
 
 
-|   Example                    |  Evaluates To               |  Comments                                     |
-|------------------------------|-----------------------------|-----------------------------------------------|
-|   `(assoc {} :a 4)`          |  `{:a 4}`                   |  adding a key/value pair to the empty hashmap `{}`     |
-|   `(assoc nil :a 4)`         |  `{:a 4}`                   |  `nil` is treated as `{}`         |
-|   `(assoc {:b 1} :a 4)`      |  `{:b 1 :a 4}`              |  adding a key/value pair to the hashmap  `{:b 1}`              |
-|   `(assoc {} :b 1 :a 4)`     |  `{:b 1 :a 4}`              |  add two pairs at once                              |
+|   Example                  |  Evaluates To           |  Comments                                     |
+|----------------------------|-------------------------|-----------------------------------------------|
+|   `(assoc {} :a 4)`        |  `{:a 4}`               |  adding a key/value pair to the empty hashmap `{}`     |
+|   `(assoc nil :a 4)`       |  `{:a 4}`               |  `nil` is treated as `{}`         |
+|   `(assoc {:b 1} :a 4)`    |  `{:b 1 :a 4}`          |  adding a key/value pair to the hashmap  `{:b 1}`              |
+|   `(assoc {} :b 1 :a 4)`   |  `{:b 1 :a 4}`          |  add two pairs at once                              |
 
 
 ## `map`
@@ -869,14 +872,14 @@ First, we create a function called  `plus-one`:
 
 Now use it with `map`:
 
-|   Example of map               |  Evaluates To               |  Comments                                     |
-|--------------------------------|-----------------------------|-----------------------------------------------|
-| `(map plus-one [1 2 3])`       |  `(2 3 4)`                  |  Applies  `plus-one` to each element of the collection.<br>Think `[(plus-one 1) (plus-one 2) (plus-one 3)]`<br>except the result is a list, not a vector. |
-| `(map inc [1 2 3])`            |  `(2 3 4)`                  |  Same as above, but now `inc` |
-| `(map inc '(1 2 3))`           |  `(2 3 4)`                  |  Same as above. But now across a `list`.<br>Note the use of quote on the list |
-| `(map inc #{1 2 3})`           |  `(2 3 4)`                  |  Same as above. But now across a `set`. |
-| `(map count ["hi" "world"])`   |  `(2 5)`                    | Think `(count "hi") (count "world")` |
-| `(map :a [{:a 1} {:a 11}])`    | `(1 11)`                    | Earlier, we learned that `keywords` can act like<br>functions. Think `(:a {:a 1}) (:a {:a 11})` |
+|   Example of map             |  Evaluates To    |  Comments                                     |
+|------------------------------|------------------|-----------------------------------------------|
+| `(map plus-one [1 2 3])`     |  `(2 3 4)`       |  Applies  `plus-one` to each element of the collection.<br>Think `[(plus-one 1) (plus-one 2) (plus-one 3)]`<br>except the result is a list, not a vector. |
+| `(map inc [1 2 3])`          |  `(2 3 4)`       |  Same as above, but now `inc` |
+| `(map inc '(1 2 3))`         |  `(2 3 4)`       |  Same as above. But now across a `list`.<br>Note the use of quote on the list |
+| `(map inc #{1 2 3})`         |  `(2 3 4)`       |  Same as above. But now across a `set`. |
+| `(map count ["hi" "world"])` |  `(2 5)`         | Think `(count "hi") (count "world")` |
+| `(map :a [{:a 1} {:a 11}])`  | `(1 11)`         | Earlier, we learned that `keywords` can act like<br>functions. Think `(:a {:a 1}) (:a {:a 11})` |
 
 > Note: `map` always returns a `list`, even if you give it a vector, set, list, etc.
 
@@ -1015,15 +1018,15 @@ Clojure has an advanced feature called `macros` which we'll review now,
 because you need to understand their impact.
 
 Macros are functions which are run at compile time, not run time. Their job
-is to **rewrite your code** in useful ways. This is probably not a feature
+is to **rewrite your code** in a useful way - at compile time. This is probably not a feature
 you'll have experienced before in other languages.
 
 Wait, rewrite my code? How is that even possible?
 
 Well, in ClojureScript your **code is data**.
-It is just arrangements of data literals put into text file, involving mostly  lists, symbols and vectors.
+It is just arrangements of data literals put into text file, involving mostly lists, symbols and vectors.
 This property means a function can take your code (which is just data, remember),  and compute new data, which is new code.
-And **that** is how a macro rewrites your code - it is a function that runs at compile time.
+And **that** is how a macro rewrites your code - it is a function that runs at compile time - it takes your code as a data structure and computes a new data structure (new code).
 
 The key takeaway is that macros rewrite your code in useful ways.
 
@@ -1134,7 +1137,7 @@ ClojureScript uses immutable data structures by default.
 
 **The rule**: once you create data, you can't mutate it (change it). Ever.
 
-But you can create a revision (a copy) of that data, which is modified in some way.
+But, you can create a revision (a copy) of that data, which is modified in some way.
 The original data is untouched. But, then, you
 can't change this revision either. But, you can create a further revision (copy) of the revision, etc.
 
@@ -1211,6 +1214,55 @@ One last bit of reader shorthand you'll meet often.
 (#(* 3 (+ %1 %2)) 4 5)
 ```
 
+## Destructuring
+
+Destructuring is a way to bind local names to values inside a collection, without writing lookup code by hand. The original collection is not changed.
+
+### With `let`
+
+Here is a map. Without destructuring you might write:
+
+```cljs
+(let [a-map {:db {:value 0} :event [:inc]}
+      db    (get a-map :db)]  ;; <- get is used to reach into the map and obtain a value
+  db)
+```
+
+evaluates to `{:value 0}`. Now the same thing with destructuring — still using `a-map`:
+
+```cljs
+(let [a-map         {:db {:value 0} :event [:inc]}
+      {:keys [db]}  a-map]  ;; <-- desctructuring is used to obtain the :db value from the map
+  db)
+```
+
+Again `{:value 0}`. The pattern `{:keys [db]}` means: look up `:db` in the map, and bind that value to a local called `db` — no separate `get`.
+
+Vectors work by position:
+
+```cljs
+(let [[a b] [1 2]]
+  b)
+```
+
+evaluates to `2` — first element is `a`, second is `b`.
+
+### In function parameters
+
+Here is destructuing used within arguments with a `defn`. 
+
+```cljs
+(defn my-fn 
+  [{:keys [db]}]
+  db)
+```
+
+Now call the funtion with a map argument, containing the key `:db`:
+```cljs
+(my-fn  {:db {:value 0 :other 1}})
+```
+
+
 ## Summary
 
 We have learned:
@@ -1224,23 +1276,6 @@ We have learned:
   - data structures themselves can be used as functions (`(:key m)`, `(m :key)`)
   - threading macros `->` and `->>` reshape deeply-nested calls into top-to-bottom pipelines
   - immutable data — every change is a new value; old values are untouched
+  - destructuring binds local names to values inside maps and vectors when you bind them (re-frame2 handlers do this a lot)
 
 We've looked at ClojureScript through a lens which makes it easier to understand Reagent and re-frame2.
-
-## Where to go from here
-
-You have, in 40 minutes, just enough ClojureScript to read every snippet in the rest of this guide. We haven't covered everything — destructuring, macros (beyond the threading ones), JavaScript interop, atoms and `deref` — but each of those will come up at its natural moment in the chapters that follow, and you can come back to this page when something looks unfamiliar.
-
-Three paths forward, depending on what you want next:
-
-1. **To read the rest of the guide** — you're done. Head to [02 — app-db](../core/app-db.md). The guide assumes you can parse the constructs in this chapter and nothing more.
-
-2. **To run the example apps locally** — see the [`examples/`](https://github.com/day8/re-frame2/tree/main/examples) directory in the repo. Each example has its own `npm install && npm run dev` instructions. The build tool is **shadow-cljs**, which you'll meet there.
-
-3. **To write your own ClojureScript from scratch** — here are three resources that paid off for me:
-
-    - [clojure.org/guides/learn/syntax](https://clojure.org/guides/learn/syntax) — the canonical reference.
-    - [The cheatsheet](https://clojure.org/api/cheatsheet) — every builtin on one page.
-    - The [shadow-cljs User's Guide](https://shadow-cljs.github.io/docs/UsersGuide.html) — once you're ready to build something.
-
-    Or, easier and more fun: clone an example, change something, and watch it hot-reload.

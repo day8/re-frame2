@@ -6,7 +6,7 @@ The current time. A `localStorage` value. A fresh id. Reaching out and grabbing 
 
 ## The counter learns the time
 
-Let's give [our first app](first-app.md) one more feature: show when the button was last clicked. It looks like throwaway decoration. It's quietly one of the most important ideas in the framework, so it's worth slowing down for.
+Let's give the [app-db](app-db.md) counter one more feature: show when the button was last clicked. It looks like throwaway decoration. It's quietly one of the most important ideas in the framework, so it's worth slowing down for.
 
 Here's the constraint. A pure handler must not read the clock — if it did, replaying the same event tomorrow would compute different state, and the history the dev tools show you — a re-run of recorded events — would be a lie. So re-frame2 reads the time once, as the event enters the queue, and stamps it **onto the event**. A handler that wants the time *declares* it — one line of metadata — and receives it as a plain value:
 

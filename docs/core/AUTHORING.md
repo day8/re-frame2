@@ -39,7 +39,7 @@ Gloss load-bearing terms (`app-db`, frame, coeffect, …) at first use in a few 
 
 Diátaxis with reference first-class: guide pages teach; when a page accumulates option tables and precedence rules, move that weight to the API or glossary.
 
-**Core track (flat under `docs/core/`):** introduction → first app → concept pages in growth order (app-db, subscriptions, views, effects, coeffects, run-to-completion, flows, frames, interceptors, errors, images, observability) → how-to → testing → explanation → migration → glossary.
+**Core track (flat under `docs/core/`):** introduction → app-db (complete counter + one-map doctrine) → concept pages in growth order (subscriptions, views, effects, coeffects, run-to-completion, flows, frames, interceptors, errors, images, observability) → how-to → testing → explanation → migration → glossary.
 
 **Canon apps.** Counter for the model pages (no server). RealWorld once server data enters. Domain corpora keep their own anchors (XState / login+websocket; TanStack Query + RealWorld nouns; same nouns for async, routing, SSR). No throwaway narrative apps.
 

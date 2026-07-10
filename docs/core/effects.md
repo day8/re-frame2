@@ -6,7 +6,7 @@ Yes. A surprising claim.
 
 Say your [event handler](glossary.md#event-handler) needs to fire an HTTP request. It also has to stay a pure function — same inputs, same output, every time — because purity is what makes testing, replay, and time-travel work. Both demands are real. Neither bends.
 
-The way out is the move you've been leaning on since [our first app](first-app.md): a handler never *does* anything. It returns a **to-do list** — a description of what should happen, in plain data — and the runtime does the dirty work. Hold onto that list — the whole page runs on it. What follows is the output story in full: the [effect](glossary.md#effect) grammar, effects you register yourself, and the guarantees you can build on.
+The way out is the move you've been leaning on since the [introduction](introduction.md) and [app-db](app-db.md): a handler never *does* anything. It returns a **to-do list** — a description of what should happen, in plain data — and the runtime does the dirty work. Hold onto that list — the whole page runs on it. What follows is the output story in full: the [effect](glossary.md#effect) grammar, effects you register yourself, and the guarantees you can build on.
 
 ## The counter learns to act
 
