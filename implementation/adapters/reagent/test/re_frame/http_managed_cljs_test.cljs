@@ -10,7 +10,7 @@
 
   - `:rf.http/managed-canned-success` — synthesised success reply
   - `:rf.http/managed-canned-failure` — synthesised failure reply
-  - default reply addressing (originator id with `:rf/reply` merged)
+  - unified `:reply-to` addressing (envelope appended as the last arg)
   - explicit `:on-success` target
   - explicit `:on-failure` target
   - silenced `:on-success nil`
@@ -57,10 +57,10 @@
       test-fn)
     (http-managed/clear-all-in-flight!)))
 
-;; ---- 1. canned-success: default reply addressing --------------------------
+;; ---- 1. canned-success: unified :reply-to addressing ----------------------
 
-(deftest canned-success-default-reply-addressing-cljs
-  (testing "the canned-success stub dispatches a default reply (originating event-id with :rf/reply)"
+(deftest canned-success-reply-to-addressing-cljs
+  (testing "the canned-success stub dispatches the reply to the unified :reply-to target (rf2-et4c1s)"
     (rf/reg-event :article/load
       (fn [_ [_ msg reply]]
         (if reply
@@ -74,7 +74,7 @@
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
       (is (= {:stubbed true} (:article db))
-          "default-reply addressing routed the synthesised reply back to :article/load"))))
+          ":reply-to routed the synthesised reply back to :article/load"))))
 
 ;; ---- 2. canned-failure: explicit on-failure -------------------------------
 

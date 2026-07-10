@@ -64,15 +64,18 @@
    :frame               :rf/default
    :sensitive?          false})
 
-(deftest on-failure-silenced?-detects-explicit-nil-only
-  (testing "rf2-rl5tt — the silence predicate mirrors build-reply-event's
-            silence branch: supplied? true AND value nil"
+(deftest on-failure-silenced?-detects-both-nil-producing-shapes
+  (testing "rf2-rl5tt + rf2-et4c1s — the silence predicate mirrors
+            build-reply-event's two nil-producing branches: an explicit
+            `:on-failure nil` (supplied? true + nil value), and — now the
+            co-located default is retired — an UNADDRESSED failure branch
+            (supplied? false)"
     (is (true?  (on-failure-silenced? (ctx-on-failure-nil)))
         "explicit :on-failure nil is silenced")
     (is (false? (on-failure-silenced? (ctx-on-failure-present)))
         "an explicit event-vector target is not silenced")
-    (is (false? (on-failure-silenced? {:explicit-on-failure {:supplied? false :value nil}}))
-        "the omitted default (reply-to-origin) is not silenced")))
+    (is (true? (on-failure-silenced? {:explicit-on-failure {:supplied? false :value nil}}))
+        "an unaddressed failure branch is now silenced (co-located default retired)")))
 
 (deftest swallowed-non-aborted-failure-emits-exactly-one-trace
   (testing "rf2-rl5tt — a NON-aborted failure dropped by :on-failure nil
