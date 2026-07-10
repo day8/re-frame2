@@ -213,32 +213,70 @@
 
 (defonce
   ^{:private true
-    :doc "Host-side side table of pending `:dispatch-later` timer handles,
-   keyed by `[frame-id timer-id]` → an opaque host handle from
-   `re-frame.interop/set-timeout!`. Transient host state (NOT runtime-db),
-   so an epoch restore cannot rewind / recycle it and it never rides the
-   SSR / hydration / epoch wire. A fired timer drops its own entry;
-   `release-frame!` cancels + drops every still-pending timer for a
-   destroyed frame (frame/destroy-frame! via the `:fx/on-frame-destroyed!`
-   late-bind hook). Mirrors `re-frame.resources.timers/timer-table`."}
+    :doc "Host-side side table of pending `:dispatch-later` timers, keyed by
+   `[frame-id timer-id]`. A slot holds EITHER the `arming-sentinel` (the timer
+   is mid-`set-timeout!` — RESERVED but not yet PUBLISHED) OR the opaque host
+   handle from `re-frame.interop/set-timeout!` (armed). Transient host state
+   (NOT runtime-db), so an epoch restore cannot rewind / recycle it and it never
+   rides the SSR / hydration / epoch wire. A fired timer drops its own entry;
+   `release-frame!` cancels + drops every still-pending timer for a destroyed
+   frame (frame/destroy-frame! via the `:fx/on-frame-destroyed!` late-bind hook).
+   Mirrors `re-frame.resources.timers/timer-table`."}
   dispatch-later-timers
   (atom {}))
+
+(def ^:private arming-sentinel
+  "Placeholder value held in `dispatch-later-timers` for the window between
+  RESERVING a `[frame-id timer-id]` slot and PUBLISHING the real host handle
+  returned by `set-timeout!` (two-phase arm, rf2-3fc89f.3). Distinct from every
+  host handle — a `ScheduledFuture` on the JVM, a numeric id on CLJS — so
+  `release-frame!` / `reset-dispatch-later-timers!` can tell an in-flight arming
+  from an installed handle and NEVER pass it to `clear-timeout!` (a sentinel is
+  not a cancellable host object). The arming caller's publish phase cancels the
+  real handle when it finds the reservation already gone."
+  ::arming)
 
 (defn- arm-dispatch-later!
   "Arm a `:dispatch-later` host timer that dispatches `event` with `opts`
   after `ms`, RETAINING its handle in `dispatch-later-timers` under
   `[frame-id timer-id]` so `release-frame!` can cancel it on frame destroy.
   The timer thunk drops its OWN slot BEFORE dispatching, so the table tracks
-  exactly the pending set (a fired timer leaves no residue). Returns nil."
+  exactly the pending set (a fired timer leaves no residue). Returns nil.
+
+  TWO-PHASE, ATOMIC publication (rf2-3fc89f.3). A zero/immediate host callback
+  (the JVM `ScheduledExecutorService` may run the thunk on its worker thread
+  BEFORE `set-timeout!` returns) or a `release-frame!`/destroy racing the
+  schedule would, under a publish-AFTER-`set-timeout!` scheme, either orphan a
+  spent handle (the thunk `dissoc`s an absent slot, then the caller `assoc`s the
+  already-fired handle forever) or publish a handle past cleanup:
+
+    1. RESERVE `[frame-id timer-id]` with `arming-sentinel` BEFORE scheduling,
+       so the thunk and `release-frame!` always have a slot to remove.
+    2. After `set-timeout!` returns, atomically REPLACE the reservation with the
+       real handle ONLY IF the reservation still exists (`swap-vals!` — the swap
+       fn is pure; the host side effect rides the CAS-derived old snapshot, never
+       inside the retriable swap). If the thunk fired or destroy removed it
+       first, DO NOT reinsert — CANCEL the returned handle (safe even if it
+       already completed).
+
+  CLJ + CLJS run identical code; the race is only reachable on the JVM (CLJS
+  `js/setTimeout` cannot fire before the caller yields), but the reservation
+  keeps both platforms leak-free and behaviourally identical."
   [frame-id ms event opts]
   (let [timer-id (swap! dispatch-later-counter inc)
-        k        [frame-id timer-id]
-        handle   (interop/set-timeout!
+        k        [frame-id timer-id]]
+    ;; PHASE 1 — reserve the slot BEFORE scheduling. The sentinel is not a host
+    ;; handle: `release-frame!` / `reset-dispatch-later-timers!` drop it without
+    ;; passing it to `clear-timeout!`.
+    (swap! dispatch-later-timers assoc k arming-sentinel)
+    (let [handle (interop/set-timeout!
                    (fn []
                      ;; Drop our own slot first — the timer has fired, so its
                      ;; handle is spent; a later `release-frame!` must not try
                      ;; to cancel a fired handle, and the table must not retain
-                     ;; a fired timer.
+                     ;; a fired timer. Removal precedes dispatch on BOTH the
+                     ;; sentinel window (immediate fire before publication) and
+                     ;; the ordinary armed slot.
                      (swap! dispatch-later-timers dissoc k)
                      ;; Sticky hook (rf2-f72pd) — the timer callback fires per
                      ;; scheduled :dispatch-later. When the frame was destroyed
@@ -247,8 +285,17 @@
                      ;; on the live path `dispatch!` enqueues into the frame.
                      (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
                        (dispatch! event opts)))
-                   ms)]
-    (swap! dispatch-later-timers assoc k handle)
+                   ms)
+          ;; PHASE 2 — publish the handle only if the reservation survived. The
+          ;; swap fn is a pure CAS-derived replace-if-present; the cancel side
+          ;; effect below reads the old snapshot, never runs inside the swap.
+          [old _] (swap-vals! dispatch-later-timers
+                              (fn [m] (if (contains? m k) (assoc m k handle) m)))]
+      (when-not (contains? old k)
+        ;; The thunk (immediate/0ms fire) or destroy already removed the
+        ;; reservation — do NOT reinsert the spent/orphan handle; cancel it
+        ;; (idempotent even on an already-completed handle).
+        (interop/clear-timeout! handle)))
     nil))
 
 (defn release-frame!
@@ -258,12 +305,21 @@
   never fires a dead-on-arrival dispatch into the torn-down frame, and its
   armed host handle + captured closure are released promptly rather than
   leaking until the delay elapses. Idempotent — a frame with no pending
-  timers is a no-op. Returns nil."
+  timers is a no-op. Returns nil.
+
+  Removes the frame's slots ATOMICALLY (a single `swap-vals!`) and cancels the
+  real host handles off the CAS-derived old snapshot — no host side effect runs
+  inside the retriable swap. An `arming-sentinel` slot (a timer mid-`set-timeout!`,
+  rf2-3fc89f.3) is dropped but NEVER passed to `clear-timeout!` — the arming
+  caller's publish phase finds the vanished reservation and cancels the real
+  handle itself, so the timer is cancelled exactly once with no orphan."
   [frame-id]
-  (doseq [[[fid _tid :as k] handle] @dispatch-later-timers]
-    (when (= fid frame-id)
-      (interop/clear-timeout! handle)
-      (swap! dispatch-later-timers dissoc k)))
+  (let [[old _] (swap-vals! dispatch-later-timers
+                            (fn [m]
+                              (into {} (remove (fn [[[fid _tid] _]] (= fid frame-id))) m)))]
+    (doseq [[[fid _tid] handle] old
+            :when (and (= fid frame-id) (not (= handle arming-sentinel)))]
+      (interop/clear-timeout! handle)))
   nil)
 
 (defn reset-dispatch-later-timers!
@@ -272,11 +328,18 @@
   so the shared CLJS `make-reset-runtime-fixture` reset-hooks table clears it
   per test — host-side transient state the runtime / frames reset does not
   touch, so without this a stale armed timer from a sibling test could fire
-  mid-next-test. Returns nil."
+  mid-next-test. Returns nil.
+
+  Clears the table ATOMICALLY (`reset-vals!`) and cancels the real host handles
+  off the captured old snapshot. An `arming-sentinel` slot (a timer
+  mid-`set-timeout!`, rf2-3fc89f.3) is dropped but NEVER passed to
+  `clear-timeout!` — its arming caller's publish phase cancels the real handle
+  when it finds the reservation gone."
   []
-  (doseq [[_ handle] @dispatch-later-timers]
-    (interop/clear-timeout! handle))
-  (reset! dispatch-later-timers {})
+  (let [[old _] (reset-vals! dispatch-later-timers {})]
+    (doseq [[_ handle] old
+            :when (not (= handle arming-sentinel))]
+      (interop/clear-timeout! handle)))
   nil)
 
 ;; Publish the frame-destroy cleanup + test-isolation reset through the
