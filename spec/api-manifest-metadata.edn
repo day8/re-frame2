@@ -578,9 +578,9 @@
   ;; cross-namespace-reach target; rf2-m90brg completed the retirement.
   ["re-frame.core" "dispatch"]            {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "dispatch-sync"]       {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
-  ;; rf2-gkt25a / rf2-80mmlf: the `dispatch-to-system` FN was DEMOTED off the
-  ;; `re-frame.core` facade and relocated to `re-frame.machines`
-  ;; (:tier :implementation, row below). The canonical action-side surface is
+  ;; rf2-gkt25a / rf2-80mmlf / rf2-c6xkmn: the `dispatch-to-system` FN was
+  ;; DEMOTED off the `re-frame.core` facade, then DELETED entirely (rf2-c6xkmn:
+  ;; pre-alpha, zero in-repo consumers). The one named-addressing surface is
   ;; the reserved `[:rf.machine/dispatch-to-system [system-id event]]` fx tuple.
   ["re-frame.core" "subscribe"]           {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ;; rf2-bfadc6: `subscribe-once` gained the public `{:frame}` opts-map
@@ -1003,12 +1003,15 @@
   ["re-frame.machines" "destroy-machine-fx"]    {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-schedule-fx"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "after-cancel-fx"]       {:tier :implementation :owner "005" :status "v1"}
-  ;; rf2-gkt25a / rf2-80mmlf: the `dispatch-to-system` FN demoted off the
-  ;; `re-frame.core` facade lands here as an implementation-tier helper; the
-  ;; canonical action-side surface remains the `:rf.machine/dispatch-to-system`
-  ;; fx tuple (`dispatch-to-system-fx`).
-  ["re-frame.machines" "dispatch-to-system"]    {:tier :implementation :owner "005" :status "v1"}
-  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :implementation :owner "005" :status "v1"}
+  ;; rf2-c6xkmn: the redundant `dispatch-to-system` call-site FN twin was
+  ;; DELETED (pre-alpha, zero in-repo consumers — a machine IS an event
+  ;; handler, so the everyday send is plain dispatch to the id you hold). The
+  ;; `:rf.machine/dispatch-to-system` fx (handler `dispatch-to-system-fx`) is
+  ;; PARKED IN PLACE as the single named-addressing escape and classified
+  ;; :advanced (parity): zero in-repo consumers, retained for XState v6
+  ;; actor-system parity (systemId addressing); the facade audit at API-freeze
+  ;; rules on its deletion with full information.
+  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :implementation :owner "005" :status "v1"}

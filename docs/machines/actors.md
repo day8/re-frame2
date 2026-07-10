@@ -157,12 +157,14 @@ Give the spawn a `:system-id` and message it by that *role name* instead of the 
 
 ## Cross-machine messaging
 
-There is **one** mechanism: `dispatch` by id. A spawned actor's id is a handler address, so a parent messages a child — and a child messages its parent — the same way:
+There is **one** mechanism: `dispatch` by id. **A machine *is* an event handler** — you message it the way you message anything, by dispatching to the id you hold. A spawned actor's id is a handler address, so a parent messages a child — and a child messages its parent — the same way:
 
 ```clojure
 ;; parent → child, or child → parent: same primitive.
 {:fx [[:dispatch [some-machine-id [:some-event payload]]]]}
 ```
+
+You get the id where the actor was created and carry it as an ordinary value: read the parent's `:rf/spawned` `:data` slot, observe it in `:on-spawn`, or read it from the snapshot — then dispatch to it. There is no machine-specific *send* verb; there is only `dispatch`.
 
 ### Addressing by name with `:system-id`
 
@@ -179,6 +181,10 @@ When you don't want to thread the gensym'd id around, name the actor at spawn wi
 ```
 
 From a non-action call site you can resolve the id directly with `(re-frame.machines/machine-by-system-id :primary-request)` and `dispatch` to it. The binding lives in the frame's runtime-db, so it reverts with everything else.
+
+!!! note "`:rf.machine/dispatch-to-system` is a parked parity escape"
+
+    This fx has **zero in-repo consumers** as of 2026-07-10 — the everyday send is plain `dispatch` to the id you hold (above). It is retained as the one named-addressing escape for **XState v6 actor-system parity** (`systemId` addressing — behavioural parity, not API-mimicry); the facade audit at API-freeze rules on whether it ships. Reach for it only when you genuinely need role-name addressing from *inside* an action (which can't read app-db to resolve the id itself). There is no separate machine *send* verb.
 
 ### Including a reply address
 

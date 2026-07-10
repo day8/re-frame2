@@ -216,13 +216,13 @@ See [Actors → When a child finishes](actors.md#when-a-child-finishes).
 
 ### **system-id**
 
-A stable **role name** (`:logger`, `:websocket`, `:retry-coordinator`) bound to a spawned [actor](#actor), so a parent can address its child by *role* instead of by gensym'd id. The canonical action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` [effect](../core/glossary.md#effect) — a machine [action](#action) can't read app-db, so the fx tuple is how it messages a named child.
+A stable **role name** (`:logger`, `:websocket`, `:retry-coordinator`) bound to a spawned [actor](#actor), so a parent can address its child by *role* instead of by gensym'd id. The action-side surface is the reserved `[:rf.machine/dispatch-to-system [system-id event]]` [effect](../core/glossary.md#effect) — a machine [action](#action) can't read app-db, so the fx tuple is how it messages a named child.
 
 ```clojure
 {:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
 ```
 
-See the [`machine-by-system-id`](../api/re-frame.machines.md#re-framemachinesmachine-by-system-id) / [`dispatch-to-system`](../api/re-frame.machines.md#re-framemachinesdispatch-to-system) lookup helpers.
+The fx is a **parked named-addressing escape** — zero in-repo consumers as of 2026-07-10, retained for XState v6 actor-system parity (`systemId` addressing); the everyday send is plain `dispatch` to the id you hold (a machine *is* an event handler). See the [`machine-by-system-id`](../api/re-frame.machines.md#re-framemachinesmachine-by-system-id) lookup helper.
 
 ### **:raise**
 
