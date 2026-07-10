@@ -815,7 +815,29 @@
   ;; registries are reached via the `:events` / `:errors` stream here, and
   ;; remain addressable via `re-frame.event-emit` / `re-frame.error-emit` +
   ;; late-bind for internal consumers.
-  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact)"}
+  ;;
+  ;; FACADE vs HOME-NAMESPACE VERB — the DCE tier rule (rf2-rfid2x).
+  ;; `re-frame.core/register-listener!` (`:facade? true` in the generated
+  ;; manifest) is the APP-FACING call form. Each stream ALSO has a
+  ;; home-namespace verb — the TOOL-EMBEDDING form (`:facade? false`) that a
+  ;; dev-only tool preload uses so it never requires `re-frame.core` into a
+  ;; production build (bundle isolation / DCE):
+  ;;   :trace  → re-frame.trace.tooling/register-listener!
+  ;;   :events → re-frame.event-emit/register-event-listener!
+  ;;   :errors → re-frame.error-emit/register-error-listener!
+  ;;   :epoch  → re-frame.epoch/register-epoch-listener!   (rowed below)
+  ;; The normative rule lives in spec/Tool-Pair.md §"Facade vs home-namespace
+  ;; verb — the DCE tier rule". BOTH call forms hit the SAME registries and
+  ;; BOTH carry `:tier :tooling` — registering a listener is a tooling-tier
+  ;; concern regardless of call form (per spec/API.md §Tier vs Status, which
+  ;; cites `register-listener!` as the canonical `:tooling` exemplar); the
+  ;; app-facing-vs-tool-embedding split is carried by `:facade?`, not by a
+  ;; different tier value. The trace.tooling / event-emit / error-emit home
+  ;; namespaces are internal-plumbing (reached via the facade or late-bind),
+  ;; not enumerated public-artefact surfaces, so they are NOT separately rowed
+  ;; here; `re-frame.epoch` IS an enumerated optional-artefact public surface,
+  ;; so its home verb `register-epoch-listener!` is rowed (tier :tooling) below.
+  ["re-frame.core" "register-listener!"]    {:tier :tooling :owner "009" :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; app-facing facade — home-verb tool-embedding form per Tool-Pair DCE tier rule)"}
   ["re-frame.core" "unregister-listener!"]  {:tier :tooling :owner "009" :status "v1 (stream-parameterized)"}
   ;; Tracing (dev-only) — §009.
   ["re-frame.core" "emit-trace-event!"]     {:tier :tooling :owner "009" :status "v1 (dev-only)"}
@@ -1239,8 +1261,15 @@
   ;; replace-runtime-db! DELETED — consolidated into replace-frame-state!'s
   ;; partial-map contract.
   ["re-frame.epoch" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-rfid2x — `register-epoch-listener!` is the `:epoch`-stream HOME verb:
+  ;; the TOOL-EMBEDDING form (`:facade? false`) canonical devtools attach with,
+  ;; the home-verb counterpart to the app-facing `(rf/register-listener! :epoch
+  ;; …)` facade. Same registry, tier :tooling; a dev-only preload uses this form
+  ;; so it never drags `re-frame.core` into a production build. See the facade
+  ;; row above and spec/Tool-Pair.md §"Facade vs home-namespace verb — the DCE
+  ;; tier rule".
+  ["re-frame.epoch" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb — tool-embedding form, cf. rf/register-listener! :epoch facade)"}
+  ["re-frame.epoch" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only; :epoch home verb)"}
   ["re-frame.epoch" "clear-epoch-listeners!"]     {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "clear-history!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "projected-history"]          {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
