@@ -82,13 +82,13 @@
           data-pre  [:rf.runtime/resources :entries k-id :data]
           key-pre   [:rf.runtime/resources :entries k-id :resource/key]]
       ;; :data-rooted sensitive → absolute entry :data path
-      (is (= {:source :resource} (get sens (conj data-pre :ssn)))
+      (is (= #{{:source :resource}} (get sens (conj data-pre :ssn)))
           "the :data :ssn declaration is lowered at the absolute entry data path")
       ;; :params-rooted sensitive → the scoped-key params component (index 2)
-      (is (= {:source :resource} (get sens (conj key-pre 2 :account-id)))
+      (is (= #{{:source :resource}} (get sens (conj key-pre 2 :account-id)))
           "the :params :account-id declaration is lowered at the scoped-key params index")
       ;; :data-rooted large → absolute entry :data path
-      (is (= {:source :resource} (get large (conj data-pre :avatar-bytes)))
+      (is (= #{{:source :resource}} (get large (conj data-pre :avatar-bytes)))
           "the :data :avatar-bytes declaration is lowered as a large declaration"))))
 
 (deftest reconcile-is-idempotent
@@ -123,9 +123,9 @@
     (let [k   (state/scoped-resource-key :rf.scope/global :profile/card4 {:slug "x"})
           rdb (-> (runtime-db-with {k {:data {:ssn "x"}}})
                   (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
-                            {:source :effect}))
+                            #{{:source :effect}}))
           out (classification/reconcile-registry rdb registry/resource-meta)]
-      (is (= {:source :effect} (get (sensitive-decls out) [:app :token]))
+      (is (= #{{:source :effect}} (get (sensitive-decls out) [:app :token]))
           "the :source :effect entry survives reconciliation"))))
 
 (deftest reconcile-no-classification-no-registry
@@ -169,6 +169,6 @@
         (is (= "Alice" (:name projected))
             "the undeclared sibling rides verbatim")
         (testing "the registry carries the declaration under :source :resource"
-          (is (= {:source :resource}
+          (is (= #{{:source :resource}}
                  (get (elision/sensitive-declarations :reg/frame)
                       [:rf.runtime/resources :entries k-id :data :ssn]))))))))
