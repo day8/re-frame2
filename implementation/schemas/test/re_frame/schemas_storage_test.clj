@@ -17,7 +17,8 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.schemas.validate :as validate]))
+            [re-frame.schemas.validate :as validate]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -829,11 +830,8 @@
   swallow throws — a regression that re-introduces the throw fails the
   `:result` assertion loudly."
   [db failing-id frame]
-  (let [traces (atom [])
-        kw     (keyword "ss06u.3" (name (gensym "l")))]
-    (rf/register-listener! :trace kw (fn [ev] (swap! traces conj ev)))
+  (with-trace-recorder! [traces]
     (let [result (validate/validate-app-schema! db failing-id frame)]
-      (rf/unregister-listener! :trace kw)
       {:result result :traces @traces})))
 
 (deftest malformed-schema-no-silent-pass-childless-vector

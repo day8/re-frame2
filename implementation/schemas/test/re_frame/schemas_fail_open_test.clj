@@ -40,17 +40,16 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.schemas.validator :as validator]))
+            [re-frame.schemas.validator :as validator]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
 (defn- capture
   "Run `body-fn` while collecting trace events; return the captured vector."
   [body-fn]
-  (let [traces (atom [])
-        cb-id  (keyword (gensym "capture"))]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try (body-fn) (finally (rf/unregister-listener! :trace cb-id)))
+  (with-trace-recorder! [traces]
+    (body-fn)
     @traces))
 
 (defn- malformed-traces [traces]

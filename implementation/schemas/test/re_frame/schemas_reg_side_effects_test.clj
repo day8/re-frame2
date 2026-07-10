@@ -37,7 +37,8 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.substrate.adapter :as substrate-adapter]))
+            [re-frame.substrate.adapter :as substrate-adapter]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -54,11 +55,8 @@
   "Run `body-fn` collecting trace events whose `:operation` is
   `operation`; return the captured vector."
   [operation body-fn]
-  (let [traces (atom [])
-        cb-id  (keyword (gensym "capture"))]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try (body-fn)
-         (finally (rf/unregister-listener! :trace cb-id)))
+  (with-trace-recorder! [traces]
+    (body-fn)
     (filterv #(= operation (:operation %)) @traces)))
 
 ;; ===========================================================================

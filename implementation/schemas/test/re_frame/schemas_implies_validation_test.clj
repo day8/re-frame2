@@ -47,15 +47,10 @@
             ;; `re-frame.schemas.malli`. The whole point of rf2-v96fh is
             ;; that requiring the facade is sufficient to wire Malli.
             [re-frame.schemas]
-            [re-frame.schemas.test-fixture :as tf]))
+            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
-
-(defn- record-traces!
-  [listener-id]
-  (let [a (atom [])]
-    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
-    a))
 
 (defn- failures-of
   [recorded]
@@ -83,13 +78,12 @@
             explicit `re-frame.schemas.malli` require. Pre-fix this was a
             silent no-op (the default validator soft-passed)."
     (rf/reg-app-schema [:count] [:int])
-    (let [recorded (record-traces! ::bad-write)]
+    (with-trace-recorder! [recorded]
       (with-redefs [interop/debug-enabled? true]
         (rf/reg-event :count/break (fn [{:keys [db]} _] {:db (assoc db :count "not-an-int")}))
         ;; validate-app-schema! runs the registered app-db schema set over
         ;; the supplied db value, exactly as the post-handler step does.
         (re-frame.schemas/validate-app-schema! {:count "not-an-int"} :count/break))
-      (rf/unregister-listener! :trace ::bad-write)
       (let [violations (failures-of recorded)]
         (is (= 1 (count violations))
             "exactly one schema-validation-failure fired — schema implies validation")
@@ -103,9 +97,8 @@
             the validation is real (it accepts good values), not a blanket
             reject."
     (rf/reg-app-schema [:count] [:int])
-    (let [recorded (record-traces! ::good-write)]
+    (with-trace-recorder! [recorded]
       (with-redefs [interop/debug-enabled? true]
         (re-frame.schemas/validate-app-schema! {:count 7} :count/ok))
-      (rf/unregister-listener! :trace ::good-write)
       (is (empty? (failures-of recorded))
           "no failure trace — the well-typed value conforms"))))

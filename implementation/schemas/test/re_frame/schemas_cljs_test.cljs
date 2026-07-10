@@ -24,12 +24,15 @@
             ;; §Recommended soft-pass) and no failure trace fires.
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
-            ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support])
+  ;; rf2-bhh8my: the shared trace recorder supersedes the per-test
+  ;; register-listener!/unregister-listener! capture brackets. The macro
+  ;; ships from the `#?(:clj ...)` arm of re-frame.test-support, so CLJS
+  ;; reaches it via :require-macros (mirrors re-frame.core's call-site macros).
+  (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d). The earlier
 ;; (registrar/clear-all!) wiped framework registrations (routing,
@@ -58,11 +61,9 @@
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
-    (let [traces (atom [])]
-      (trace-tooling/register-listener! ::cljs-live (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/break])
-      (trace-tooling/unregister-listener! ::cljs-live)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -83,12 +84,10 @@
     (rf/reg-app-schema [:n] [:int])
     (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (let [traces (atom [])]
-      (trace-tooling/register-listener! ::cljs-ok (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:n/init])
       (rf/dispatch-sync [:n/inc])
       (rf/dispatch-sync [:n/inc])
-      (trace-tooling/unregister-listener! ::cljs-ok)
       (is (empty? (filter #(= :rf.error/schema-validation-failure
                               (:operation %))
                           @traces))
@@ -121,10 +120,8 @@
     (rf/reg-app-schema [:user :age] :int)
     (rf/reg-event :user/set-age-bad
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :age] "twenty-three")}))
-    (let [traces (atom [])]
-      (trace-tooling/register-listener! ::t0hq (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       (rf/dispatch-sync [:user/set-age-bad])
-      (trace-tooling/unregister-listener! ::t0hq)
       (let [violations (filter #(= :rf.error/schema-validation-failure
                                    (:operation %))
                                @traces)]
@@ -150,10 +147,8 @@
       (try
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
-        (let [traces (atom [])]
-          (trace-tooling/register-listener! ::no-adapter (fn [ev] (swap! traces conj ev)))
+        (with-trace-recorder! [traces]
           (rf/dispatch-sync [:n/break])
-          (trace-tooling/unregister-listener! ::no-adapter)
           (is (empty? (filter #(= :rf.error/schema-validation-failure
                                   (:operation %))
                               @traces))
@@ -180,13 +175,11 @@
         (fn [{:keys [db]} _]
           (swap! calls inc)
           {:db db}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::cljs-ev (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; Well-typed payload — handler runs.
         (rf/dispatch-sync [:user/register {:email "a@b.com" :age 30}])
         ;; Malformed — handler must NOT run.
         (rf/dispatch-sync [:user/register {:email "c@d.com" :age "no"}])
-        (trace-tooling/unregister-listener! ::cljs-ev)
         (is (= 1 @calls)
             "handler ran exactly once — the bad payload was rejected pre-handler")
         (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -222,14 +215,12 @@
       (rf/reg-event :rf2-lo28u/bad-event-args
         {:schema [:cat [:= :rf2-lo28u/bad-event-args] pos-int?]}
         (fn [{:keys [db]} _ev] (swap! calls inc) {:db db}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::lo28u (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; Well-typed arg (a pos-int) — handler runs.
         (rf/dispatch-sync [:rf2-lo28u/bad-event-args 7])
         ;; Bad arg (a string where a pos-int is required) — handler must
         ;; NOT run; a :where :event violation must fire.
         (rf/dispatch-sync [:rf2-lo28u/bad-event-args "not-a-number"])
-        (trace-tooling/unregister-listener! ::lo28u)
         (is (= 1 @calls)
             "handler ran exactly once — the bad arg was rejected pre-handler")
         (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -253,10 +244,8 @@
       (rf/reg-event :rf2-lo28u/diag-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/diag-bad-event-args] pos-int?]}
         (fn [{:keys [db]} _ev] (swap! calls inc) {:db db}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::lo28u-diag (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:rf2-lo28u/diag-bad-event-args "not-a-number"])
-        (trace-tooling/unregister-listener! ::lo28u-diag)
         (let [event-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                              (= :event (-> % :tags :where)))
                                        @traces)]
@@ -301,14 +290,12 @@
         {:schema [:cat [:= :rf2-lo28u/async-bad-event-args] pos-int?]}
         (fn [{:keys [db]} _ev] (swap! calls inc) {:db (assoc db :baseline 1)}))
       (rf/reg-event :rf2-lo28u/noop (fn [{:keys [db]} _] {:db db}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::lo28u-async (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         ;; (a) ASYNC dispatch — lands at the BACK of the queue (live button path).
         (rf/dispatch [:rf2-lo28u/async-bad-event-args "not-a-number"])
         ;; (b) Drain to fixed point: the queued bad event is dequeued by the
         ;; real drain through the same cascade the nextTick drain would use.
         (rf/dispatch-sync [:rf2-lo28u/noop])
-        (trace-tooling/unregister-listener! ::lo28u-async)
         (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %)) @traces)
               event-violations (filter #(= :event (-> % :tags :where)) violations)]
           (is (= 0 @calls)
@@ -354,11 +341,9 @@
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 42}}))
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n 99)}))
-        (let [traces (atom [])]
-          (trace-tooling/register-listener! ::cv (fn [ev] (swap! traces conj ev)))
+        (with-trace-recorder! [traces]
           (rf/dispatch-sync [:n/init])
           (rf/dispatch-sync [:n/break])
-          (trace-tooling/unregister-listener! ::cv)
           (is (pos? @calls)
               "the custom validator was invoked through the live dispatch path")
           (let [violations (filter #(= :rf.error/schema-validation-failure
@@ -378,10 +363,8 @@
     (try
       (rf/reg-app-schema [:n] :int)
       (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::nv (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:n/break])
-        (trace-tooling/unregister-listener! ::nv)
         (is (empty? (filter #(= :rf.error/schema-validation-failure
                                 (:operation %))
                             @traces))
@@ -417,15 +400,13 @@
       {:schema [:cat [:= :api/strict] :int]
        :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
-    (let [traces (atom [])]
-      (trace-tooling/register-listener! ::boundary-dev (fn [ev] (swap! traces conj ev)))
+    (with-trace-recorder! [traces]
       ;; Direct :before invocation isolates the boundary's behaviour
       ;; from the surrounding router/step-1 path so we observe the
       ;; boundary's own dev-mode contract.
       (let [before    (:before rf/validate-at-boundary-interceptor)
             valid-ctx (before {:coeffects {:event [:api/strict 42]}})
             bad-ctx   (before {:coeffects {:event [:api/strict "not-an-int"]}})]
-        (trace-tooling/unregister-listener! ::boundary-dev)
         (is (not (:rf/skip-handler? valid-ctx))
             "valid event: boundary did not set :rf/skip-handler? (no-op)")
         (is (not (:rf/skip-handler? bad-ctx))
@@ -449,10 +430,8 @@
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
-      (let [traces (atom [])]
-        (trace-tooling/register-listener! ::dev-dispatch (fn [ev] (swap! traces conj ev)))
+      (with-trace-recorder! [traces]
         (rf/dispatch-sync [:api/strict "not-an-int"])
-        (trace-tooling/unregister-listener! ::dev-dispatch)
         (is (= 0 @calls)
             "handler was skipped — router's step-1 validation fired in dev")
         (let [boundary-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))

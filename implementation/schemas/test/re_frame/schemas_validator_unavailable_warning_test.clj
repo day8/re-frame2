@@ -29,16 +29,10 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]
             [re-frame.trace :as trace]))
 
 (use-fixtures :each tf/reset-runtime)
-
-(defn- record-traces!
-  "Attach a recording listener and return its atom."
-  [listener-id]
-  (let [a (atom [])]
-    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
-    a))
 
 (defn- warnings-of
   "Filter the recorded events to the given operation keyword."
@@ -69,7 +63,7 @@
 (deftest warning-fires-when-hook-unbound-and-default-validator
   (testing "reg-app-schema with no Malli adapter loaded and the default
             validator still installed emits the warning exactly once"
-    (let [recorded (record-traces! ::unbound+default)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (rf/reg-app-schema [:user] [:map [:id :int]])))
@@ -81,7 +75,7 @@
 (deftest warning-fires-once-across-multiple-reg-app-schema-calls
   (testing "subsequent reg-app-schema calls within the same process do NOT
             re-emit the warning (process-lifecycle one-shot)"
-    (let [recorded (record-traces! ::dedup-rereg)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (rf/reg-app-schema [:user]    [:map [:id :int]])
@@ -95,7 +89,7 @@
   (testing "bulk reg-app-schemas registers many entries; the warning still
             fires once across all entries (each delegates to reg-app-schema
             but the warn-once cache dedupes)"
-    (let [recorded (record-traces! ::bulk)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (rf/reg-app-schemas {[:user]    [:map [:id :int]]
@@ -107,7 +101,7 @@
 (deftest warning-carries-actionable-reason
   (testing ":tags includes a :reason string that names the two fixes
             (require the Malli adapter ns OR install a custom validator)"
-    (let [recorded (record-traces! ::reason)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn [] (rf/reg-app-schema [:user] [:map])))
       (let [warns (warnings-of recorded
@@ -124,7 +118,7 @@
 (deftest warning-suppressed-when-explicit-validator-installed
   (testing "an app that called set-schema-validator! with a non-default fn
             has explicitly opted out of Malli — no warning fires"
-    (let [recorded (record-traces! ::opt-out)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (schemas/set-schema-validator! (fn [_schema _value] true))
@@ -137,7 +131,7 @@
   (testing "set-schema-fns! with a {:validate ...} bundle also counts as
             'explicit opt-out' — non-default validator-fn after the swap
             (rf2-13meg)"
-    (let [recorded (record-traces! ::opt-out-bundle)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (schemas/set-schema-fns! {:validate (fn [_ _] true)})
@@ -150,22 +144,22 @@
 (deftest warning-suppressed-when-malli-validate-hook-bound
   (testing "with the Malli adapter loaded (`:schemas/malli-validate`
             is bound) the validation hot path runs — no warning"
-    (let [recorded (record-traces! ::malli-loaded)
-          prior    (late-bind/get-fn :schemas/malli-validate)]
-      (late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
-      (try
-        (rf/reg-app-schema [:user] [:map])
-        (finally
-          ;; Restore the slot for sibling tests — the fixture restores the
-          ;; validator-fn but NOT the process-global late-bind hook table.
-          ;; Mirrors `with-unbound-malli-validate`'s prior-capture/restore so
-          ;; this stub does not leak a trivially-true validator process-wide
-          ;; (rf2-hydpaf).
-          (when prior
-            (late-bind/set-fn! :schemas/malli-validate prior))))
-      (is (empty? (warnings-of recorded
-                               :rf.warning/schema-validator-unavailable))
-          ":schemas/malli-validate bound -> warning suppressed"))))
+    (with-trace-recorder! [recorded]
+      (let [prior (late-bind/get-fn :schemas/malli-validate)]
+        (late-bind/set-fn! :schemas/malli-validate (fn [_ _] true))
+        (try
+          (rf/reg-app-schema [:user] [:map])
+          (finally
+            ;; Restore the slot for sibling tests — the fixture restores the
+            ;; validator-fn but NOT the process-global late-bind hook table.
+            ;; Mirrors `with-unbound-malli-validate`'s prior-capture/restore so
+            ;; this stub does not leak a trivially-true validator process-wide
+            ;; (rf2-hydpaf).
+            (when prior
+              (late-bind/set-fn! :schemas/malli-validate prior))))
+        (is (empty? (warnings-of recorded
+                                 :rf.warning/schema-validator-unavailable))
+            ":schemas/malli-validate bound -> warning suppressed")))))
 
 ;; ---- cache-clear semantics ------------------------------------------------
 
@@ -173,7 +167,7 @@
   (testing "clear-validator-unavailable-warned! resets the one-shot so a
             subsequent reg-app-schema fires the warning anew (test-fixture
             isolation)"
-    (let [recorded (record-traces! ::clear-cache)]
+    (with-trace-recorder! [recorded]
       (with-unbound-malli-validate
         (fn []
           (rf/reg-app-schema [:first] [:map])
