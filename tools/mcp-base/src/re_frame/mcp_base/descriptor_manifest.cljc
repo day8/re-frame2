@@ -410,23 +410,8 @@
          :changed changed}))))
 
 ;; ---------------------------------------------------------------------------
-;; Drift-report formatting — PURE, platform-neutral report lines.
-;;
-;; The two server generators previously each carried a byte-identical
-;; `row-slot-deltas` (with a copy of the governed-slot vector) and an
-;; identical added / removed / changed / malformed traversal over a
-;; `check` result — the diagnostic body the maintainer reads when a
-;; drift-check trips. That duplication drifts: a governed slot added to
-;; `descriptor->row` had to be mirrored into two report vectors, and any
-;; wording tweak had to be applied twice or the two servers would report
-;; the same drift differently. This section centralises the shared
-;; diagnostic: the governed-slot vector, the per-row slot-delta helper,
-;; and a pure formatter that turns a `check` result + the consumer's
-;; wording into the report lines. It adds NO I/O — no file lookup, no
-;; output channel, no process exit. Each server keeps its own file
-;; lookup, stdout/stderr binding, OK-path wording, and exit codes, and
-;; supplies the two strings that legitimately differ per server (the
-;; regenerate command + the missing-file header).
+;; Drift-report formatting — pure, platform-neutral report lines.
+;; Consumers retain file I/O, output routing, commands, and exit codes.
 ;; ---------------------------------------------------------------------------
 
 (def governed-slots
@@ -436,7 +421,7 @@
   present in BOTH the committed and regenerated manifests but differing
   in any of these is a `:changed` row; `row-slot-deltas` names which of
   them moved. Shared so the two server generators report the SAME
-  governed surface (they previously duplicated this vector)."
+  governed surface."
   [:description :input-keys :gated-input-keys :required :output? :annotations :typicalTokens])
 
 (defn row-slot-deltas

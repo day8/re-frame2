@@ -1,9 +1,7 @@
 (ns re-frame.mcp-base.envelope
   "Cross-MCP response-envelope helpers.
 
-  The MCP servers decorate their tool-response envelopes with two
-  cross-cutting concerns that are pure data and identical across the
-  pair:
+  These helpers operate on wire vocabulary shared by the MCP pair:
 
     1. The indicator-field counters (`:dropped-sensitive` /
        `:elided-large`) — the MUST-level 'omit when zero' parity rule
@@ -42,14 +40,13 @@
   Conventions §Cross-MCP indicator-field vocabulary and Spec 009
   §Indicator field on tool responses.
 
-  Every tool that walks a tree-typed payload (`snapshot`, `get-path`,
-  `trace-window`, `watch-epochs`, `subscribe`, …) routes its
-  envelope-tail through here so the rule lives in one place — drift
-  across emit sites can no longer silently violate the MUST.
+  Tree-payload emitters route their envelope through this helper so the
+  indicator-key and omit-when-zero rules stay consistent.
 
   `counts`:
-    :dropped — count of `:sensitive? true` leaves dropped at the wire
-               boundary (from `sensitive/strip-sensitive`). Emitted
+    :dropped — count of records classified as sensitive and dropped at
+               the wire boundary (including fail-closed malformed
+               stamps). Emitted
                under `vocab/dropped-sensitive-key` when positive.
     :elided  — count of leaves replaced with the
                `:rf.size/large-elided` marker (from
@@ -119,7 +116,7 @@
   above) so the detector works regardless of host or
   `*print-namespace-maps*`. A response whose leading token IS one of
   these keys (not merely starts-with — see `marker-text?`) is a
-  boundary-step marker that later boundary steps must NOT re-walk."
+  boundary-step marker that a consumer can skip re-walking."
   (into [] (mapcat marker-key-prefixes) [vocab/cache-hit-key vocab/overflow-key]))
 
 ;; An EDN keyword/symbol constituent: alphanumerics plus the punctuation

@@ -1,4 +1,4 @@
-# `dedup` — structural-dedup encode step at the wire boundary (rf2-ttspi7)
+# `dedup` — structural-dedup encode step at the wire boundary
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the cross-MCP FORWARD (encode) half of wire-boundary structural dedup — `empty-payload?` and `dedup-value` over `day8/de-dupe`'s equality walk. The INVERSE (`dedup-expand`) is test-only and deliberately stays consumer-side. Diff-encode (the epoch `:db-after` transform that runs just before dedup) lives in [`diff-encode.md`](diff-encode.md); the wire-cap that runs just after lives in [`cap.md`](cap.md).
@@ -14,7 +14,7 @@ Both shipped servers emit the same kinds of duplicate-rich payloads:
 - **re-frame2-pair-mcp** — the `:epochs` slice (`:db-before` + a path-keyed `:db-after` diff against it) and the per-tick subscribe `:events` vector.
 - **story-mcp** — `run-variant` results (`:app-db` + `:snapshot` + `:rendered-hiccup`, the same sensitive values reappearing across three derived trees), assertion vectors, recorder replay tuples.
 
-The encode step (`empty-payload?` + `dedup-value`) was byte-identical across both servers. rf2-ttspi7 lifted it here so the two servers cannot drift on a dedup-algorithm change. rf2-ywkiss then removed the per-consumer pass-through `dedup` namespaces that had re-exported it: both servers now require `re-frame.mcp-base.dedup` **directly**, and the canonical behaviour is asserted once, cross-host (JVM + CLJS), in `re-frame.mcp-base.dedup-test` rather than duplicated in each consumer's suite.
+Both servers require `re-frame.mcp-base.dedup` directly. The shared `.cljc` transform and marker shape are exercised on JVM and CLJS by `re-frame.mcp-base.dedup-test`.
 
 ## Scope
 
@@ -53,7 +53,7 @@ True for values where dedup yields no win *without even running `de-dupe-eq`* �
        (contains? cache (de-dupe.core/make-cache-element 0))))
 ```
 
-True when a `de-dupe-eq` cache made **no** substitutions — it carries exactly the one root entry (`de-dupe.cache/cache-0`) and nothing else, because the payload had no repeated subtrees. `de-dupe-eq` always emits `cache-0` for the whole structure and adds a further `cache-N` entry per substituted subtree, so a **one-entry** cache is unambiguously root-only. Such a cache, once wrapped, is strictly LARGER than the raw input (the `{:rf.mcp/dedup-table {cache-0 …}}` envelope adds two map layers for zero sharing win), so `dedup-value` returns the original value instead — the documented no-repeat-payloads-stay-raw contract must hold for ordinary collections, not just the empty / scalar degenerate cases. The check is on cache SHAPE, not a re-walk of the value; the explicit `cache-0` key guard hedges a future `de-dupe` change that keyed the root differently.
+True when a `de-dupe-eq` cache contains only its `cache-0` root entry and therefore made no substitutions. Wrapping that cache would only grow the payload, so `dedup-value` returns the original collection. The explicit root-key check verifies the shape expected from the pinned dependency.
 
 ### `dedup-value v enabled?` → value
 
@@ -75,20 +75,20 @@ Values reaching the wire boundary are equality-shared, not identity-shared: re-f
 
 ## The inverse stays consumer-side
 
-`dedup-expand` (the inverse of `dedup-value`) is NOT lifted. It is never called by either MCP server at runtime, so it is test-only, and each consumer keeps it in ITS TEST corpus's shared test-helper ns (rf2-ywkiss):
+`dedup-expand` (the inverse of `dedup-value`) is not a production base API. Neither MCP server calls it at runtime; consumer tests keep small expansion helpers in their test-support namespaces:
 
 - **re-frame2-pair-mcp** keeps it in `re-frame2-pair-mcp.test-utils`.
 - **story-mcp** keeps it in `re-frame.story-mcp.test-support`.
 
-Lifting only the forward direction — and keeping each inverse test-side — means no production consumer namespace re-exports a base surface. This is the deliberate RULE recorded under rf2-ttspi7 (encode lifted) + rf2-ywkiss (facades removed, inverse moved test-side), not an oversight.
+Keeping the inverse test-side means no production consumer namespace re-exports a test-only base surface.
 
 ## Wire shape
 
-A deduped payload is wrapped in a top-level marker `{:rf.mcp/dedup-table <cache-map>}`, sourced from `vocab/dedup-table-key` so the slot is byte-identical across servers — an agent that learned the slot on one server recognises it on the other. Agents reconstruct by calling `de-dupe.core/expand` on the cache-map value.
+A deduped payload is wrapped in a top-level marker `{:rf.mcp/dedup-table <cache-map>}`, sourced from `vocab/dedup-table-key` so both servers use the same slot key — an agent that learned the slot on one server recognises it on the other. Agents reconstruct by calling `de-dupe.core/expand` on the cache-map value.
 
 ## The `day8/de-dupe` dep
 
-`dedup.cljc` is the one base namespace with an external runtime dep: `day8/de-dupe`, pinned to git-tag `v0.3.0` (the same tag both consumers previously pinned, rf2-obpa9 / rf2-90eft / rf2-nw6sj). It is framework-agnostic — a pure persistent-data-structure walker, `.cljc` both arms — so it sits cleanly inside the base's zero-impl-dep / no-consumer-transport-dep rule. Pinning it here keeps the base + both servers in lockstep.
+`dedup.cljc` is the one base namespace with an external runtime dep: `day8/de-dupe`, pinned to git-tag `v0.3.0`. It is a framework-agnostic `.cljc` persistent-data-structure walker, so it preserves the base's zero-implementation-dependency and no-transport-dependency rules.
 
 ## See also
 
@@ -96,5 +96,3 @@ A deduped payload is wrapped in a top-level marker `{:rf.mcp/dedup-table <cache-
 - [`diff-encode.md`](diff-encode.md) — the epoch `:db-after` transform that runs immediately before dedup in re-frame2-pair-mcp's pipeline.
 - [`cap.md`](cap.md) — the wire-cap that runs immediately after dedup (dedup shrinks first).
 - [`vocab.md`](vocab.md) — the `:rf.mcp/dedup-table` marker key.
-- rf2-obpa9 / rf2-90eft — the beads that landed dedup in re-frame2-pair-mcp and story-mcp respectively.
-- rf2-ttspi7 — the bead that lifted the byte-identical encode step here.

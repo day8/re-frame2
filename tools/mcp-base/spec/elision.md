@@ -43,19 +43,17 @@ Definition (effectively):
 
 The counter is non-negative integer; 0 means nothing was elided. The slot itself rides the response envelope (per [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots)).
 
-**Records are NOT walked.** The walker descends through the explicit collection-type triad (`vector?` / `set?` / `seq?`) plus `map?`, not the broader `coll?` predicate. On CLJS, defrecord instances satisfy `coll?` but neither `map?` nor any of the three sequential predicates, so a record-shaped slot carrying an elision marker is treated as a leaf. This is OK in practice because the wire egress path stamps payloads through `pr-str` / `read-string` so record types are stripped to plain maps before the walker sees them — but JVM-side decoders walking pre-egress data should not rely on record descent.
+The walker descends through maps (including record values that satisfy `map?`), vectors, sets, and seqs. Other values are leaves.
 
 ## Cousin to `sensitive`
 
-`sensitive/strip-sensitive` returns `[kept dropped-count]` for the `:dropped-sensitive` slot; `count-elided-markers` returns the integer for `:elided-large`. Both indicators ride the response envelope together per the cross-MCP indicator-field parity rule.
-
-**Parity is MUST-level.** Indicator-field parity is the round-2 audit fix the conformance gate at `tools/mcp-conformance/wire-vocab/` enforces — one without the other is a wire-protocol break.
+`sensitive/strip-sensitive` returns `[kept dropped-count]` for `:dropped-sensitive`; `count-elided-markers` returns the count for `:elided-large`. Tree-payload emitters compute both, and omit each zero count independently.
 
 ## Cross-platform
 
 Pure-data tree walk; loads identically into JVM (story-mcp) and CLJS (re-frame2-pair-mcp). No transport, no runtime, no framework dep. The walker uses only:
 
-- `map?` / `coll?` host predicates.
+- `map?` / `vector?` / `set?` / `seq?` host predicates.
 - `contains?` membership.
 - `reduce` / `map` recursion.
 
@@ -63,11 +61,11 @@ All available in both CLJ and CLJS without `.cljc` reader-conditional branches.
 
 ## Conformance posture
 
-The conformance harness at `tools/mcp-conformance/` drives every tool with a payload that contains a `{:rf.size/large-elided {…}}` substitution and asserts:
+Base and consumer conformance fixtures assert:
 
 1. The response envelope's `:elided-large` slot is a non-zero integer.
-2. The slot is present **alongside** the `:dropped-sensitive` slot — indicator-field parity.
-3. The counter value equals the visible marker count in the response body (no double-counting; no under-counting).
+2. A zero count omits the slot independently of `:dropped-sensitive`.
+3. The count equals the visible marker count in the response body.
 
 ## See also
 
@@ -75,4 +73,4 @@ The conformance harness at `tools/mcp-conformance/` drives every tool with a pay
 - [`../../../spec/009-Instrumentation.md` §Size elision in traces](../../../spec/009-Instrumentation.md) — the framework primitive this ns counts the output of.
 - [`vocab.md` §Envelope counter slots](vocab.md#envelope-counter-slots) — the `:elided-large` slot definition.
 - [`sensitive.md`](sensitive.md) — the cousin walker; both indicators ride the response envelope.
-- [`../../../spec/Conventions.md` §Cross-MCP indicator-field vocabulary](../../../spec/Conventions.md) — the MUST-level parity between `:dropped-sensitive` and `:elided-large`.
+- [`../../../spec/Conventions.md` §Cross-MCP indicator-field vocabulary](../../../spec/Conventions.md) — the shared indicator rules.

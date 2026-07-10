@@ -36,12 +36,9 @@
 
   ## JSON-RPC error codes
 
-  Per JSON-RPC 2.0 §5.1 and MCP's reuse of them — the same numeric
-  codes apply across both servers. Story-mcp emits them via Cheshire;
-  re-frame2-pair-mcp would emit them via the npm MCP SDK if it surfaced
-  JSON-RPC-level errors directly (today it uses the SDK's
-  `isError: true` tool-result shape, but the codes still pin the
-  cross-consumer protocol if a future bead lifts them).")
+  The constants follow JSON-RPC 2.0 §5.1. story-mcp uses them in its
+  direct JSON-RPC envelopes; re-frame2-pair-mcp delegates protocol-level
+  errors to the npm MCP SDK and uses `isError: true` for tool failures.")
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.mcp/* — per-tool wire mechanism markers
@@ -75,10 +72,12 @@
 
 (def cursor-stale-reason
   "Structured error-result `:reason` value indicating the cursor's
-  epoch-id is no longer in the runtime ring.
+  continuation position is no longer valid. This covers an epoch id
+  aged out of pair-mcp's ring and a story-mcp registry fingerprint that
+  changed between pages.
 
-  Agents pattern-match on this `:reason` to either drop the cursor
-  and restart, or widen the window to recover."
+  Agents recover by dropping the cursor and restarting. Pair-specific
+  callers may also widen their time window to recover aged-out records."
   :rf.mcp/cursor-stale)
 
 (def cache-hit-key
@@ -107,11 +106,10 @@
   payload of an `isError: true` tool-result — an honest, recoverable
   rejection the agent reads and corrects, not a server fault.
 
-  First emitter: `cap/max-tokens` rejects a NEGATIVE
-  `:max-tokens` arg here rather than resolving it to a negative cap
-  (which would over-trip `apply-cap` and lock the agent out of every
-  response). The cross-MCP `:rf.mcp/*` namespace reserves the key for
-  any future per-call arg-validation rejection."
+  `cap/max-tokens` uses this for negative, sub-one fractional,
+  non-finite, and out-of-range numeric values. The cross-MCP
+  `:rf.mcp/*` namespace reserves the key for per-call argument
+  rejections."
   :rf.mcp/invalid-arg)
 
 (def result-key
@@ -215,14 +213,15 @@
 ;; `{:db {...} :elided-large 2}`). Mixing namespaced and unqualified
 ;; envelope keys would split the response shape across two conventions
 ;; and burn agent-host pattern-match budget for no information gain.
-;; The wire markers at the leaf-substitution site stay namespaced —
-;; they are addressable values the agent re-fetches; these counts are
-;; scalar summaries on the envelope.
+;; The substitution markers stay namespaced; `:rf.size/large-elided`
+;; may carry a follow-up handle, while `:rf/redacted` deliberately does
+;; not. These unqualified counts are scalar envelope summaries.
 ;; ---------------------------------------------------------------------------
 
 (def dropped-sensitive-key
-  "Envelope-slot key for the count of `:sensitive? true` leaves dropped
-  at the wire boundary. Unqualified per Conventions §Cross-MCP
+  "Envelope-slot key for the count of sensitive records dropped at the
+  wire boundary, including fail-closed malformed stamps. Unqualified
+  per Conventions §Cross-MCP
   indicator-field vocabulary. Omit the slot when the count is zero.
   Mirror of `[● REDACTED N]` on on-box dev-tool surfaces."
   :dropped-sensitive)

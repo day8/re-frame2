@@ -267,7 +267,7 @@
         "exactly the ceiling still parses on both hosts")))
 
 (deftest max-tokens-finite-range-guard-cljs
-  ;; rf2-ykv9a0 — non-finite / out-of-range `:max-tokens` rejects with an
+  ;; Non-finite and out-of-range `:max-tokens` rejects with an
   ;; {:rf.mcp/invalid-arg} marker on CLJS too, never a crash / real 0-cap.
   (doseq [raw [js/Infinity js/NaN 1e20 (- 1e20)]]
     (let [out (cap/max-tokens raw)]
@@ -278,7 +278,7 @@
   (is (= 5000 (cap/max-tokens 5000)) "in-range cap passes through"))
 
 ;; ---------------------------------------------------------------------------
-;; 5c. Cursor rejects trailing forms on CLJS too (rf2-ykv9a0). A cursor is
+;; 5c. Cursor rejects trailing forms on CLJS too. A cursor is
 ;;     ONE opaque payload map; decoded text with a trailing form (tagged
 ;;     literal, ordinary EDN, scalar) ⇒ ::malformed. The wrap-in-[...]
 ;;     one-form check runs identically on cljs.reader.
@@ -299,7 +299,7 @@
              (cursor/decode-cursor
                (cursor/b64-encode "{:v 1 :after-id 1} 42")
                pair?))))
-    ;; rf2-rtg9t1 — `]`-injection runs identically on cljs.reader. The
+    ;; `]`-injection runs identically on cljs.reader. The
     ;; injected `]` closes the wrap-in-`[…]` early; the EOF-sentinel
     ;; exhaustion check rejects because the truncated read no longer ends
     ;; with the appended sentinel.
@@ -322,7 +322,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 5d. apply-patches nested :dissoc no-op + section-kind :db-before
-;;     classification run under CLJS too (rf2-ykv9a0).
+;;     classification run under CLJS too.
 ;; ---------------------------------------------------------------------------
 
 (deftest apply-patches-nested-dissoc-noop-cljs
@@ -335,7 +335,7 @@
     (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
 
 (deftest apply-patches-nested-assoc-scalar-parent-structured-error-cljs
-  ;; rf2-glybzz — the `:assoc` peer of the dissoc guard, on CLJS.
+  ;; The `:assoc` peer of the dissoc guard, on CLJS.
   ;; CRUCIAL: this build runs WITHOUT Malli on the classpath, so the
   ;; grammar gate (`validate-patches!`) SOFT-PASSES — yet the replay
   ;; guard still fires. The guard is a pure structural walk during
@@ -382,7 +382,7 @@
         "absent container + direct-child assocs ⇒ :added")))
 
 ;; ---------------------------------------------------------------------------
-;; 6. Shared cursor codec round-trips under CLJS (rf2-ee38b.19). The base64
+;; 6. Shared cursor codec round-trips under CLJS. The base64
 ;;    codec is reader-conditional (`js/Buffer` on CLJS); pin the encode →
 ;;    decode round-trip and the malformed/oversize sentinels on the
 ;;    Node runtime the pair-mcp server actually runs on.
@@ -410,7 +410,7 @@
     (let [evil (cursor/b64-encode "#js {:a 1}")]
       (is (= :re-frame.mcp-base.cursor/malformed
              (cursor/decode-cursor evil any?)))))
-  (testing "built-in #inst / #uuid tags in a valid map are rejected on CLJS too (rf2-13wbe)"
+  (testing "built-in #inst / #uuid tags in a valid map are rejected on CLJS too"
     ;; `cljs.reader` resolves built-in `inst` / `uuid` from its tag-table
     ;; and BYPASSES `:default` — without the `:readers` override these
     ;; decode to a host `js/Date` / `cljs.core/UUID` and smuggle a host
@@ -430,7 +430,7 @@
                                    permissive?))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7. Shared with-indicators envelope helper under CLJS (rf2-ee38b.19).
+;; 7. Shared with-indicators envelope helper under CLJS.
 ;;    The MUST-level "omit when zero" parity rule runs identically on
 ;;    both hosts; pin the CLJS half.
 ;; ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@
          (envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2}))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. `sensitive.cljc` CLJS reader-conditional arms (rf2-k76ohl — SECURITY).
+;; 8. `sensitive.cljc` CLJS reader-conditional arms.
 ;;
 ;;    `re-frame.mcp-base.sensitive` is the spec/009 §Privacy default-suppress
 ;;    filter every MCP forwarder routes trace-like data through. Its `:cljs`

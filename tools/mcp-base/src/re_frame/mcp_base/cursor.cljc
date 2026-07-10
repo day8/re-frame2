@@ -12,11 +12,11 @@
 
   Both servers need the SAME machinery:
 
-    - story-mcp     — offset/total/sig over append-mostly registries
+    - story-mcp     — version/offset/total/sig over registries
     - re-frame2-pair-mcp — after-id/ms over the bounded epoch ring
 
   The cursor PAYLOAD differs by domain — story carries
-  `{:offset :total :sig}`, pair carries `{:after-id :ms :until-ms
+  `{:v :offset :total :sig}`, pair carries `{:after-id :ms :until-ms
   :frame}` — but the base64 codec, the EDN read with ALL-tagged-literal
   rejection (built-in `#inst`/`#uuid` included) + size guard, the
   `::malformed` recovery contract, the `:limit` clamp, and the
@@ -93,7 +93,7 @@
   string/number coercion + default posture, then applies the ceiling.
 
   Each server bakes its own `default` (story 25, pair 50) and `max`
-  (story's 200; pair's wire-cap is the implicit ceiling) — the
+  (story 200, pair 1000) — the
   convention is the CLAMP behaviour, not the numbers."
   [raw default max]
   (min max (args/parse-positive-int raw default)))
@@ -237,9 +237,10 @@
                       treat `::malformed` exactly like a STALE cursor —
                       drop it and restart.
 
-  `valid?` is the consumer's payload-shape predicate (e.g.
-  `#(and (map? %) (integer? (:offset %)) (string? (:sig %)))` for
-  story; `#(and (map? %) (string? (:after-id %)))` for pair). The
+  `valid?` is the consumer's payload-shape predicate. Story validates
+  `:v`, natural `:offset`/`:total`, and a string `:sig`; pair requires
+  a present, non-nil `:after-id` of any EDN-printable type because the
+  epoch-id contract is opaque. The
   codec, the size cap, and the tagged-literal rejection are shared; the
   shape check is the consumer's.
 

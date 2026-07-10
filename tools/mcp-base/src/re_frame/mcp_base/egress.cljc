@@ -8,24 +8,21 @@
   *which boundary is this?* — a named `:rf.egress/*` profile — not *which
   combination of `:rf.size/*` booleans did I remember?*. The framework
   owns the authoritative table in `re-frame.projection/profile-size-opts`
-  (`implementation/core`), but that ns transitively requires the
+  (`implementation/core`), but that namespace transitively requires the
   framework runtime graph (`re-frame.elision` → `re-frame.frame` →
-  substrate adapter, …). The MCP servers must NOT pull that graph into
-  their wire-egress decision:
+  substrate adapter, …). The shared base must not depend on that graph:
 
-  - **re-frame2-pair-mcp** ships as a self-contained Node `server.js`
-    bundle; requiring the runtime graph would bloat it and trip
-    bundle-isolation.
-  - the profile→opts resolution is a *server-side* decision (it renders
-    the resolved `:rf.size/*` map into the eval form before it crosses
-    the wire), so it cannot defer to the live app's `project-egress`.
+  - re-frame2-pair-mcp renders the resolved opts into an nREPL eval form
+    without adding the framework graph to its Node server bundle.
+  - story-mcp applies the same opts in-process. Sharing the pure table
+    keeps the two server paths aligned despite their different hosts.
 
   This ns is the cross-MCP, framework-runtime-free mirror of the six-
   member closed profile enum and its `:rf.size/*` floor. It is pure data
   over the keys `re-frame.mcp-base.vocab` already owns
   (`:rf.size/include-sensitive?` / `:rf.size/include-large?` /
   `:rf.size/include-digests?`). The mcp-conformance wire-vocab gate pins
-  this table byte-identical to the framework enum so the two cannot
+  this table value-for-value equal to the framework enum so the two cannot
   drift (a profile rename / opt-set change in the framework that does not
   land here fails the gate).
 
@@ -47,7 +44,7 @@
 
 (def profiles
   "The closed six-member `:rf.egress/profile` vocabulary (EP-0015 §10).
-  Mirror of `re-frame.projection/profiles` — pinned byte-identical by the
+  Mirror of `re-frame.projection/profiles` — pinned value-for-value by the
   mcp-conformance wire-vocab gate."
   #{:rf.egress/off-box-observability
     :rf.egress/off-box-tool

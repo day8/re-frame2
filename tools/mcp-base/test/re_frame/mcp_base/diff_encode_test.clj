@@ -39,7 +39,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; collect-patches — added-key detection is by KEY PRESENCE, not a
-;; sentinel VALUE (rf2-znjqja).
+;; sentinel value.
 ;;
 ;; The added-key arm keys off `find` (presence), never a marker value. An
 ;; app-db leaf can be ANY runtime value — including the private
@@ -261,7 +261,7 @@
           (is (= :rf.error/bad-diff-replay (:rf.error/id d))
               "carries the reserved :rf.error/* code")
           (is (= 'mcp-base/apply-patches (:where d))
-              "decode-side boundary (rf2-4ypau)")
+              "decode-side boundary")
           (is (= :no-recovery (:recovery d)))
           (is (= [:a :b] (:patch-path d)) "reports the offending patch path")
           (is (= [:a] (:at d)) "reports the prefix where traversal hit the non-associative node")
@@ -301,7 +301,7 @@
     (is (= {:y 9} (de/apply-patches {:x 1} [[[] :assoc {:y 9}]])))))
 
 (deftest apply-patches-vector-index-vs-absent-parent-vivifies-vector
-  ;; rf2-x2vapx: the missing-parent auto-vivification cases pinned above
+  ;; The missing-parent auto-vivification cases pinned above
   ;; ("MISSING / nil intermediate parent still auto-vivifies") only cover
   ;; MAP-KEY paths (`[:a :b]` ⇒ `{:a {:b 2}}`). A path whose NEXT segment
   ;; is an INTEGER (a vector index) reaching an ABSENT parent used to fall
@@ -359,7 +359,7 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
         (is (= 'mcp-base/decode-db-after (:where (ex-data e)))
-            "boundary attributes the section decoder, not apply-patches (rf2-4ypau)"))))
+            "boundary attributes the section decoder, not apply-patches"))))
   (testing "a well-formed diff against a matching base still round-trips"
     (let [encoded (de/diff-encode-db-after {:db-before {:a {:x 1}}
                                             :db-after  {:a {:x 1 :y 2}}})]
@@ -614,7 +614,7 @@
           (is (= :rf.error/bad-diff-patches
                  (:rf.error/id (ex-data e)))
               "ex-info carries the reserved :rf.error/* code")))))
-  (testing "the threaded `where` symbol propagates to ex-info :where (rf2-4ypau)"
+  (testing "the threaded `where` symbol propagates to ex-info :where"
     (let [bad [[[:a] :replace 1]]]
       (try
         (#'de/validate-patches! bad 'mcp-base/diff-encode-db-after)
@@ -750,7 +750,7 @@
                (:rf.error/id (ex-data e))))
         (is (= 'mcp-base/apply-patches
                (:where (ex-data e)))
-            "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)")))))
+            "ex-info names the decode-side boundary, not the encoder")))))
 
 (deftest apply-patches-well-formed-input-passes-validation
   ;; Soft contract: well-formed patches pass the gate silently and
@@ -821,7 +821,7 @@
               "ex-info carries the reserved :rf.error/* code")
           (is (= 'mcp-base/decode-db-after
                  (:where (ex-data e)))
-              "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)"))))))
+              "ex-info names the decode-side boundary, not the encoder"))))))
 
 (deftest decode-db-after-rejects-malformed-sections-slot
   ;; A diff marker whose `:sections` slot is `nil` or `false` must not

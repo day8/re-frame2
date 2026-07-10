@@ -62,7 +62,7 @@
     (let [s (first sections)]
       (is (= [:cart :items 0] (:section-path s)))
       (is (= :modified (:section-kind s))
-          "all-:assoc direct children WITHOUT :db-before context → :modified (rf2-ykv9a0): patch shape can't prove the container is new")
+          "without :db-before, patch shape cannot prove the container is new")
       (is (= 2 (count (:patches s)))))))
 
 (deftest unrelated-root-keys-stand-as-separate-sections
@@ -266,7 +266,7 @@
         "input order doesn't alter section order — the sort makes it stable")))
 
 (deftest sections-are-sorted-ascending-by-final-section-path
-  ;; rf2-8y5pen: the initial sort keys patches by their FULL path, but
+  ;; The initial sort keys patches by their full path, but
   ;; coalescing (`group-by-ancestor`) and singleton-promotion both
   ;; NARROW a cluster's prefix to a shorter common-ancestor path —
   ;; changing its sort key. `pr-str` of a vector closes with `]` (char

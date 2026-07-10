@@ -1,13 +1,13 @@
 # `descriptor-manifest` — MCP tool-descriptor manifest generator + drift-check
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> The shared, platform-agnostic serialiser + drift-check that lets BOTH MCP servers (`re-frame2-pair-mcp`, `story-mcp`) GENERATE / VALIDATE a committed `tool-descriptors.edn` manifest from their tool registry — so adding / removing / renaming an MCP tool goes RED in CI until the manifest is regenerated. Models the project's API-governance keystone (`rf2-3nbl5.2`, `spec/api-manifest.edn`) on the MCP descriptor surface (`rf2-sofwv`).
+> The shared, platform-agnostic serialiser and drift-check that lets both MCP servers generate and validate `tool-descriptors.edn` from their registries.
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md).
 
 ## The problem it solves
 
-Each MCP server has ONE truth — its tool registry (the ordered vector that bundles every tool's name, descriptor, handler, …). The `tools/list` wire surface is a projection of that registry; so were the hand-maintained `test/fixtures/tool-names.json` lists the Node stdio-roundtrip and the cross-server conformance harness compared against. Projections drift: a tool added / removed / renamed in the registry silently diverged from the committed projection until a same-language unit test (if one existed) caught it.
+Each MCP server's registry is the source for its `tools/list` surface. The committed manifest is a generated governance projection of that registry and its deterministic descriptor composition.
 
 A generated, CI-guarded manifest prevents the drift the way the keystone's `spec/api-manifest.edn` prevents public-API drift: the committed `tool-descriptors.edn` is regenerated in memory and compared; any difference fails the gate.
 
@@ -17,8 +17,8 @@ A generated, CI-guarded manifest prevents the drift the way the keystone's `spec
 
 - The **catalogue-row projection** (`descriptor->row`): the stable shape one registry descriptor maps to.
 - The **deterministic, byte-stable, LF-pinned EDN serialiser** (`render-edn`) — one tool row per line for surgical diffs.
-- The **drift-check** (`check`): regenerate-in-memory vs committed, with an added / removed / **changed** name diff for the failure message. `:changed` (rf2-y3qpv) names every tool present in BOTH manifests whose catalogue row drifted (a changed `:description` / `:input-keys` / `:gated-input-keys` / `:required` / `:output?` / `:annotations` / `:typicalTokens`) and carries its `{:name :old :new}` rows, so a tool-set-identical-but-descriptor-changed drift is row-level actionable instead of forcing a manual whole-manifest diff.
-- The **drift-report formatter** (`drift-report-lines`, `row-slot-deltas`, `governed-slots`, rf2-cbgc40): the PURE diagnostic body both generators print when a drift-check trips. `governed-slots` is the canonical per-tool slot vector (every row slot except `:name`); `row-slot-deltas` names which of them moved between an old and new row; `drift-report-lines` turns a `check` result + the consumer's two wording strings into the printable added / removed / changed / malformed report lines. Centralised so the two servers report the SAME governed surface + the SAME body (they previously duplicated the vector and the whole traversal).
+- The **drift-check** (`check`): regenerate-in-memory vs committed, with added, removed, and row-level changed details.
+- The **drift-report formatter** (`drift-report-lines`, `row-slot-deltas`, `governed-slots`): a pure, shared diagnostic body; consumers supply only their command-specific wording and I/O.
 - `build-rows` / `build-manifest` — the small assembly helpers between the two.
 
 `descriptor-manifest` does NOT own:
@@ -41,14 +41,14 @@ A generated, CI-guarded manifest prevents the drift the way the keystone's `spec
  :typicalTokens    <int response-payload token hint, or nil>}
 ```
 
-`:required` and `:typicalTokens` (rf2-cwhod2) guard the live API-semantics facets the original narrow projection missed:
+`:required` and `:typicalTokens` guard live API-semantics facets:
 
 - **`:required`** — the SORTED subset of `:input-keys` the descriptor's `:inputSchema :required` marks mandatory (empty when none). Surfaces an argument silently flipping required↔optional — a contract change a `:input-keys`-only gate (which sees only that the key *exists*) would miss. **This subset relation is ENFORCED, not assumed.** `:input-keys` (from `:inputSchema :properties`) and `:required` (from `:inputSchema :required`) are read from independent descriptor sources, so the raw shape does not force the relation. `descriptor->row` rejects a descriptor whose required keys are not a subset of its property keys — it throws an `ex-info` (`:tool` / `:required` / `:input-keys` / `:missing`) rather than emitting a self-inconsistent row (`:input-keys ["known"]` with `:required ["missing"]`) that would bless a mandatory argument the advertised input surface never declares and break the default/gate-open surface derivation.
 - **`:typicalTokens`** — the integer response-payload token-budget hint AI clients read to pick size-conscious args (`max-tokens` / `cache` / `cursor`). `nil` when a tool declares no hint (forward-compatible; the slot still renders so every row shares one shape). Surfaces a token-budget hint drifting.
 
-`:gated-input-keys` (rf2-qo3wvp) models the **two-profile** `tools/list` surface explicitly:
+`:gated-input-keys` models the **two-profile** `tools/list` surface explicitly:
 
-- **`:gated-input-keys`** — the SORTED subset of `:input-keys` the server's DEFAULT `tools/list` profile gates OFF behind an operator-only gate (empty when the tool gates no input — the slot still renders so every row shares one shape). `:input-keys` stays the FULL union of every input that can appear on any supported deterministic profile (the gate-OPEN surface), and `:gated-input-keys` names which of those the default profile hides. The default surface is therefore `:input-keys` *minus* `:gated-input-keys`; the gate-open surface is `:input-keys` verbatim — both derivable from one byte-stable row. The live case is story-mcp's `:include-sensitive` knob: six value-surfacing tools bake it into their static descriptor, and the default profile strips it whenever `--allow-sensitive-reads` is closed (the closed-by-default posture). Before this slot, projecting the raw descriptor put `:include-sensitive` in `:input-keys`, so the manifest advertised an input the default surface deliberately hid — the governance artefact disagreed with the surface it claims to guard. The set of gated keys is config-INDEPENDENT (the static slot set the server KNOWS it gates, not a read of the live gate atom), so the manifest stays deterministic. A drift in which inputs are gated — a tool newly gating an input, or a gate lifted — trips the drift gate as a `:changed` row.
+- **`:gated-input-keys`** — the sorted subset of `:input-keys` hidden by the server's default `tools/list` profile. `:input-keys` remains the full gate-open surface, so both profiles are derivable from one row. The gated-key set is static configuration, not a read of a live gate atom, which keeps generation deterministic.
 
 ### Why this shape, not the whole descriptor
 
@@ -67,7 +67,7 @@ The full descriptor maps carry deeply-nested JSON-Schema fragments whose exact s
 | `row-slot-deltas` | `[old-row new-row]` | seq of `[slot old new]` for the `governed-slots` that differ |
 | `drift-report-lines` | `[check-result {:keys [regenerate-line missing-file-line]}]` | vector of printable report lines (pure — no I/O, no exit) |
 
-The optional `gated-keys` arg (rf2-qo3wvp) is the SET of input-key strings the server's default `tools/list` profile gates off (story-mcp passes `#{"include-sensitive"}`; pair-mcp omits it → the empty default). It is config-independent — the static slot set the server knows it gates, not a read of the live gate — so the manifest stays deterministic. Each row's `:gated-input-keys` is the per-tool intersection of this set with the descriptor's actual input keys.
+The optional `gated-keys` arg is the set of input-key strings the server's default `tools/list` profile gates off (story-mcp passes `#{"include-sensitive"}`; pair-mcp uses the empty default). Each row records the intersection with its actual input keys.
 
 ## Determinism + byte-stability
 
@@ -84,10 +84,10 @@ The optional `gated-keys` arg (rf2-qo3wvp) is the SET of input-key strings the s
 | story-mcp | `re-frame.story-mcp.descriptor-manifest-gen` | JVM | `registry/tool-registry` | `clojure -M:gen [--check]` |
 | re-frame2-pair-mcp | `re-frame2-pair-mcp.descriptor-manifest-gen` | CLJS / Node | `registry/tool-descriptors` | `npm run gen:descriptors` / `npm run check:descriptors` |
 
-Each generator reads its registry descriptors WITHOUT consulting the **live operator gate** (story-mcp's `--allow-sensitive-reads` atom) so the manifest is deterministic and config-independent. The raw descriptor it reads carries the FULL gate-OPEN input surface; the manifest records which inputs the DEFAULT profile gates off in `:gated-input-keys` (below) rather than depending on the runtime gate state. It also projects the **deterministic** universal input splices that are part of the actual `tools/list` surface (rf2-cwhod2):
+Each generator reads registry descriptors without consulting the live operator gate. The manifest records the full gate-open input surface plus its default-hidden subset, and includes deterministic universal input splices that are part of `tools/list`:
 
 - **re-frame2-pair-mcp** splices the universal `max-tokens` / `cache` knobs onto every descriptor at `tools/list` time (`tools/descriptors.cljs` — `with-budget-knob` / `with-cache-knob`). The generator applies those SAME composers, in the same order, BEFORE projecting, so the manifest's `:input-keys` reflect the actual `tools/list` input surface. The splices are deterministic — they consult only the descriptor + the static `registry/cacheable?` predicate, not any operator flag — so the manifest stays byte-stable and config-independent. (Whether `cache` is spliced encodes a tool's read/action cacheability classification; a drift there now trips the gate.) pair-mcp gates NO input key off behind an operator flag (its `eval-cljs` gate is default-ON and gates a whole TOOL, not an input property), so it passes no gated-key set and every pair-mcp row carries `:gated-input-keys []`.
-- **story-mcp** bakes its universal `max-tokens` knob into each descriptor's `:inputSchema :properties` at def-time (`schemas/with-max-tokens`), so that knob already rides the raw registry descriptor — no generator-side splice needed. The raw descriptor also carries the operator-gated `:include-sensitive` knob (which the default profile strips when `--allow-sensitive-reads` is closed). So the raw descriptor is NOT the default `tools/list` surface — it is the gate-OPEN surface. The generator passes `registry/gated-input-keys` (`#{"include-sensitive"}` — the SAME set `registry/strip-include-sensitive` removes at `tools/list` time) to `build-manifest`, so each row's `:gated-input-keys` (rf2-qo3wvp) records the default-stripped subset. The default surface is `:input-keys` minus `:gated-input-keys`; the gate-open surface is `:input-keys` verbatim.
+- **story-mcp** bakes `max-tokens` into raw descriptors. It passes the static `registry/gated-input-keys` set so rows distinguish the gate-open surface from the default profile that hides `include-sensitive`.
 
 The committed manifest lives at each artefact's root: `tools/<server>/tool-descriptors.edn`.
 
@@ -99,5 +99,5 @@ The committed manifest lives at each artefact's root: `tools/<server>/tool-descr
 ## See also
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
-- [`../../../spec/api-manifest.edn`](../../../spec/api-manifest.edn) + `implementation/scripts/api-manifest/` — the keystone (`rf2-3nbl5.2`) this generator models on the MCP descriptor surface.
+- [`../../../spec/api-manifest.edn`](../../../spec/api-manifest.edn) + `implementation/scripts/api-manifest/` — the analogous public API manifest machinery.
 - [`handler-arity.md`](handler-arity.md) — the cross-server registry-shape divergence; the two registries this manifest projects differ in handler arity but share the descriptor slots this gate reads.

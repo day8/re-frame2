@@ -1,7 +1,7 @@
-# `section-grouping` — patch-list → path-headed cluster sections (rf2-qeous)
+# `section-grouping` — patch-list → path-headed cluster sections
 
 > **Type:** Reference (`tools/mcp-base/spec/`)
-> Projects a flat diff patch-list into path-headed cluster **sections** — the same sections-per-cluster decomposition Xray's panel renderer ships (rf2-gfxmk Phase 1 of rf2-abts7), but computed from the patch list rather than the annotated tree. [`diff-encode.md`](diff-encode.md) consumes this to shape the `:db-after` marker's `:sections` slot.
+> Projects a flat diff patch-list into path-headed cluster **sections**, matching Xray's section decomposition but computed from patches rather than an annotated tree. [`diff-encode.md`](diff-encode.md) consumes it for the `:db-after` marker's `:sections` slot.
 
 This doc is one of thirteen per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`dedup.md`](dedup.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
@@ -12,7 +12,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 - `group-patches-into-sections` — the flat-patch-list → sections projection.
 - `sections->patches` — the lossless inverse (flatten sections back to a replayable patch list).
 - `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob, mirroring Xray's defaults.
-- `group-patches-into-sections` `opts` also accepts `:db-before` — the pre-change value the patches diff from. When supplied, a `:section-kind :added` is claimed only for an all-`:assoc` direct-child cluster whose container was ABSENT in `:db-before` (rf2-ykv9a0); when absent, the classifier conservatively emits `:modified`.
+- `group-patches-into-sections` `opts` also accepts `:db-before`. When supplied, `:section-kind :added` requires an all-`:assoc` direct-child cluster whose container was absent before; without it, the classifier conservatively emits `:modified`.
 
 `section-grouping` does NOT own:
 
@@ -61,7 +61,7 @@ Mirrors the Xray pass (`section_grouping.cljc` §3.1.1), recast over patches:
    - all `:assoc` AND every patch is exactly one segment deeper than `:section-path` AND the container was ABSENT in `:db-before` → `:added`.
    - otherwise → `:modified` (the conservative default; a mix of inserts / changes / deletes, or an existing container whose direct children changed).
 
-   **Why `:added` needs `:db-before` (rf2-ykv9a0).** The patch grammar uses `:assoc` for BOTH inserted and changed leaves, so patch SHAPE alone cannot distinguish a newly-added container from an existing one whose direct children changed. `{:user {:name "bob"}}` → `{:user {:name "ada" :email "…"}}` emits the SAME all-`:assoc` direct-child cluster under `[:user]` as a genuinely new `[:user]` subtree — a patch-only classifier mislabels the FIRST (a modification) as `:added`, a false skim signal to the agent. So `:added` is claimed only when `:db-before` (threaded through `opts`, supplied by the `diff-encode-db-after` caller) proves the section-path container did not previously exist. When `:db-before` is absent (the standalone projection used by tests / advanced consumers diffing arbitrary structures), the classifier cannot prove addition and conservatively emits `:modified` for every all-`:assoc` cluster. The cosmetic `:section-kind` never affects round-trip — concatenating `:patches` replays losslessly regardless.
+   **Why `:added` needs `:db-before`.** `:assoc` represents both insertion and change, so patch shape alone cannot distinguish a new container from changed children in an existing one. `:added` therefore requires proof that the section path was absent; without `:db-before`, all-`:assoc` clusters remain `:modified`. The label does not affect replay.
 
    > Note: over the `collect-patches` pipeline a genuinely-new multi-key container is emitted as a single whole-subtree `[[:k] :assoc {...}]` patch (collect-patches doesn't recurse into an absent key), which heads as a singleton → `:modified`. The all-`:assoc` direct-child `:added` shape therefore arises only from an advanced consumer supplying a synthetic patch list whose `:db-before` proves the container absent.
 
@@ -84,5 +84,3 @@ All passes are linear in patch count — negligible vs the walk that produced th
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`diff-encode.md`](diff-encode.md) — the diff transform that produces the patch list this ns groups, and the `section-schema` Malli gate that pins the section shape at the wire boundary.
-- rf2-qeous — the bead that landed the path-headed cluster projection.
-- rf2-gfxmk / rf2-abts7 — Xray's panel `sections-per-cluster` decomposition this projection mirrors.

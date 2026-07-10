@@ -7,10 +7,10 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 ## The problem it solves
 
-EP-0015 graduates the named-egress model: an off-box surface chooses *which boundary is this?* — a named `:rf.egress/*` profile — not *which combination of `:rf.size/*` booleans did I remember?*. The framework owns the authoritative table in `re-frame.projection/profile-size-opts` (`implementation/core`), but that namespace transitively requires the framework runtime graph (`re-frame.elision` → `re-frame.frame` → substrate adapter, …). The MCP servers must NOT pull that graph into their wire-egress decision:
+EP-0015 graduates the named-egress model: an off-box surface chooses *which boundary is this?* — a named `:rf.egress/*` profile — not *which combination of `:rf.size/*` booleans did I remember?*. The framework owns the authoritative table in `re-frame.projection/profile-size-opts` (`implementation/core`), but that namespace transitively requires the framework runtime graph. The shared base must remain independent of that graph:
 
-- **re-frame2-pair-mcp** ships as a self-contained Node `server.js` bundle; requiring the runtime graph would bloat it and trip bundle-isolation.
-- The profile→opts resolution is a *server-side* decision (it renders the resolved `:rf.size/*` map into the eval form before it crosses the wire), so it cannot defer to the live app's `project-egress`.
+- **re-frame2-pair-mcp** renders the resolved opts into an nREPL eval form without adding the framework graph to its Node server bundle.
+- **story-mcp** applies the same opts in-process. The pure mirror keeps these two host paths aligned.
 
 This namespace is the pure-data, framework-runtime-free mirror of the six-member closed profile enum and its `:rf.size/*` floor. It is pure data over the keys [`vocab`](vocab.md) already owns (`:rf.size/include-sensitive?` / `:rf.size/include-large?` / `:rf.size/include-digests?`). No transport, no runtime, no framework dep — it loads identically into the JVM (story-mcp) and CLJS (re-frame2-pair-mcp).
 
@@ -24,8 +24,8 @@ This namespace is the pure-data, framework-runtime-free mirror of the six-member
 
 `egress` does NOT own:
 
-- **The authoritative table.** `re-frame.projection/profile-size-opts` (`implementation/core`) is the single source of truth; this is a MIRROR pinned byte-identical to it by the conformance gate (below).
-- **Applying the floor.** Walking a value against the resolved `:rf.size/*` opt-set is the framework's `project-egress` job; this namespace only RESOLVES the named profile to the opt-set the server splices into its eval form.
+- **The authoritative table.** `re-frame.projection/profile-size-opts` (`implementation/core`) is the single source of truth; this is a MIRROR pinned value-for-value to it by the conformance gate (below).
+- **Applying the floor.** This namespace only resolves a profile. Consumers pass the result to the appropriate framework boundary (`project-egress` or `elide-wire-value`), either in-process or through pair-mcp's eval form.
 
 ## The six profiles (EP-0015 §10, CLOSED enum)
 
@@ -51,7 +51,7 @@ The opt-set keys are `vocab/include-sensitive-opt` / `vocab/include-large-opt` /
 | `profile->size-opts` | (def) | `{profile → {:rf.size/include-*? bool}}` table |
 | `profile-size-opts` | `[profile]` | the `:rf.size/*` floor map, or `nil` for an unknown / absent profile |
 
-`profile-size-opts` returns `nil` (not a permissive default) for an unknown or `nil` profile — the closed enum means a caller never silently gets a permissive walk from a typo'd profile name.
+`profile-size-opts` returns `nil` (not a permissive default) for an unknown or absent profile. Callers choose profiles from the closed `profiles` set; this resolver does not validate or throw for them.
 
 ## Determinism + drift protection
 
@@ -62,5 +62,5 @@ The opt-set keys are `vocab/include-sensitive-opt` / `vocab/include-large-opt` /
 
 - [`README.md`](README.md) — the per-namespace index this doc is part of.
 - [`vocab.md`](vocab.md) — the `:rf.size/*` opt keys this table's values are keyed by.
-- [`tools/mcp-conformance/wire-vocab/`](../../mcp-conformance/wire-vocab/) — the JVM-side gate that pins this mirror byte-identical to the framework table.
+- [`tools/mcp-conformance/wire-vocab/`](../../mcp-conformance/wire-vocab/) — the JVM-side gate that pins this mirror equal to the framework table.
 - [`/spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md) — EP-0015, the named-egress model this namespace mirrors for the MCP wire.

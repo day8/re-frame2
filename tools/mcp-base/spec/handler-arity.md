@@ -1,7 +1,5 @@
 # Handler-arity divergence across the MCP pair
 
-Source: rf2-63s4e (rf2-h1izl follow-on C7).
-
 The two shipped MCP servers in the re-frame2 pair use **different
 registry-handler arities**:
 
@@ -24,15 +22,11 @@ The two source-of-truth declarations:
   cap dispatcher (`re-frame.story-mcp.tools.wire-pipeline/invoke-tool`) calls
   `(handler arguments)` and returns the EDN result map.
 
-## Consequence
+## Ownership
 
-Cross-MCP-aware tooling under `tools/mcp-base/` cannot abstract the
-handler invocation shape — each server's dispatcher is a distinct
-implementation. A future third MCP-server author who consults both
-servers as examples sees two patterns rather than one. This is the
-**deliberate gap** acknowledged here; the originally-anticipated
-third instance (`xray-mcp`) was dropped per rf2-hvl1g, so unification
-will wait until a fresh third server crystallises the canonical shape.
+Handler invocation stays consumer-side. mcp-base shares the pure wire
+primitives used around invocation, but it does not define a common
+handler protocol or adapt one server's registry to the other.
 
 ## Why the divergence stayed
 
@@ -40,44 +34,13 @@ Both shapes are correct for their respective servers. Forcing pair-mcp's
 handlers to drop `conn` / `extra` would push the streaming
 `subscribe` plumbing into a side-channel (or force `extra` through a
 dynamic var); forcing story-mcp's handlers to accept dead slots adds
-boilerplate without buying anything. The honest answer is "two
-correct shapes, not yet unified" — that's what this doc records.
-
-## Phase-2 unification (deferred — separate bead)
-
-The unification is **not** part of this bead. A separate follow-on
-will factor an explicit `ExecutionContext` type (likely a record /
-map with optional `:conn` / `:progress-callback` / `:request-meta`
-slots) into `tools/mcp-base/` and refit both servers to a uniform
-`(fn [ctx args])` handler shape. That bead waits for a third server
-instance to land — the originally-anticipated `xray-mcp` was dropped
-per rf2-hvl1g, so there's no reliable third instance to validate the
-shape against today.
-
-When it lands, the unification should:
-
-1. Add a `re-frame.mcp-base.execution-context` namespace pinning the
-   ctx record/map shape + accessor fns.
-2. Refit `re-frame2-pair-mcp.tools.registry` to wrap every per-tool fn
-   into the new `(fn [ctx args])` shape (the `ignoring-extra`
-   adapter becomes `ctx->conn-args-extra` or similar; subscribe's
-   handler reads `:conn` / `:progress-callback` off the ctx
-   instead).
-3. Refit `re-frame.story-mcp.tools.wire-pipeline` / category descriptors to
-   call handlers with `(handler ctx args)`; the JVM-side
-   `:conn` / `:progress-callback` slots are nil and ignored.
-4. The new third server adopts the unified shape from day one.
-
-Until that bead lands, the divergence is the documented state.
+boilerplate without buying anything. The divergence follows the two
+dispatchers' current requirements.
 
 ## See also
 
 - [README.md](README.md) §"What deliberately does NOT live here"
-  — the existing list of tool-shaped surfaces that stay consumer-side
-  (wire transport, cursor base64 codec, tool registries). Handler-arity
-  belongs on that list in spirit but is broken out into its own doc
-  because the divergence is structural — a future third server
-  WILL need to pick one shape, and this doc gives them the context.
+  — the existing list of tool-shaped surfaces that stay consumer-side.
 - [`tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs`](../../re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs)
   — pair-mcp's 3-arity registry; ns docstring §"Handler arity
   convention" cross-references this doc.
