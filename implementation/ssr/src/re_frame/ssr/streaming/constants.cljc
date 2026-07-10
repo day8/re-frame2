@@ -13,13 +13,11 @@
   hydration-payload script id (per Spec 011 §Hydration payload script id),
   applied to the streaming surface.
 
-  A SIBLING of `re-frame.ssr.constants` rather than an extension of it:
+  This is a sibling of `re-frame.ssr.constants` rather than an extension:
   these strings are streaming-specific machinery (the `:rf/suspense-boundary`
   protocol, Spec 011 §Streaming SSR), so they co-locate with the streaming
   namespaces and stay off the lean `constants` ns that the non-streaming
-  boot helper (`re-frame.ssr.boot`) already depends on.
-
-  Per best-practice review rf2-3w6dmy finding 2. Renaming a constant here
+  boot helper (`re-frame.ssr.boot`) already depends on. Renaming a constant here
   changes the on-wire token — see the `attr-*` docstrings for the
   server↔client matching contract before changing a value.")
 
@@ -40,7 +38,7 @@
 (def ^:const attr-suspense-fallback
   "Marker on the inline fallback `<template>` the shell walk emits, so the
   client knows which templates to materialise into live, visible mounts.
-  rf2-xzhf2a — the `<template>` content is INERT (never painted) until the
+  The `<template>` content is inert until the
   client runtime runs; the marked template is the wire-carrier, the painted
   fallback is the client-materialised `<rf-suspense>` mount, NOT first-byte
   content."

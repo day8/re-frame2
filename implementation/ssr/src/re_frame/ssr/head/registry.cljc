@@ -1,7 +1,5 @@
 (ns re-frame.ssr.head.registry
-  "Head/meta contract — registry, render, active, default, per-frame
-  snapshot. Per Spec 011 §Head/meta contract (rf2-4dra9) and the
-  rf2-x7g10 split of `re-frame.ssr.head`.
+  "Head/meta registry, rendering, defaults, and per-frame snapshots.
 
   Public surface (re-exported from the `re-frame.ssr.head` façade):
 
@@ -29,7 +27,7 @@
 ;;
 ;; A side-channel atom keyed by frame-id, mapping `head-id → last-produced
 ;; head-model`. Cleared on per-request frame destroy via the
-;; `:ssr/on-frame-destroyed` hook (rf2-fcj33). Storage shape mirrors the
+;; `:ssr/on-frame-destroyed` hook. Storage shape mirrors the
 ;; pattern used by `re-frame.ssr/pending-error-traces` and
 ;; `re-frame.ssr/request-slots` — the data is per-request bookkeeping
 ;; that has no place in app-db (and must not ride the hydration payload
@@ -45,8 +43,7 @@
 (defn- record-fragment!
   "Stash the just-produced head-model under (frame-address, head-id) so
   `head-snapshot` reflects the most recent render-head output. Keyed by the
-  frame ADDRESS (rf2-bzw8gd) — the shared SSR side-channel keying seam
-  `re-frame.frame/frame-address` (the bare process-local frame id)."
+  process-local frame address shared by all SSR side channels."
   [frame-id head-id head-model]
   (when frame-id
     (swap! head-snapshots assoc-in [(frame/frame-address frame-id) head-id]
@@ -57,16 +54,14 @@
   "Read the per-frame `{head-id → last-produced head-model}` snapshot.
   Useful for tests and introspection. Returns `{}` for a frame that has
   never seen a `render-head` call (or whose snapshot has been cleared
-  via the per-request frame teardown hook). Keyed by the frame ADDRESS
-  (rf2-bzw8gd)."
+  via the per-request frame teardown hook)."
   [frame-id]
   (get @head-snapshots (frame/frame-address frame-id) {}))
 
 (defn on-frame-destroyed!
   "Clear the head-snapshot entry for `frame-id`. Wired into the
   `:ssr/on-frame-destroyed` late-bind hook chain so per-request frames
-  release their head bookkeeping on destroy. Idempotent. Keyed by the frame
-  ADDRESS (rf2-bzw8gd)."
+  release their head bookkeeping on destroy. Idempotent."
   [frame-id]
   (swap! head-snapshots dissoc (frame/frame-address frame-id))
   nil)
@@ -113,7 +108,7 @@
   emitter elides empty strings), but a programmatic consumer reading
   the model sees a stable key shape.
 
-  Does NOT carry `{:charset \"utf-8\"}` (rf2-q78s1). Charset is an
+  Does not carry `{:charset \"utf-8\"}`. Charset is an
   envelope concern owned by the shell — the always-present document
   envelope (`re-frame.ssr.ring.shell/default-html-shell` and the
   streaming prefix) hardcodes `<meta charset=\"utf-8\">` as the first
@@ -130,8 +125,7 @@
 
 (defn- frame-route
   "Read the route slice from a frame's RUNTIME-DB at
-  `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice is
-  durable routing runtime-db state). nil-safe — a frame whose runtime-db has
+  `[:rf.runtime/routing :current]`. Nil-safe: a frame whose runtime-db has
   never been written resolves to nil."
   [frame-id]
   (when frame-id
@@ -143,7 +137,7 @@
   caller-facing `render-head` carries the documented two-shape contract
   on its signature and delegates the work here.
 
-  EP-0002 (rf2-acjknb): the head fn reads the frame's app-db (and, unless
+  The head fn reads the frame's app-db and, unless
   `:route` is supplied, the frame's runtime-db route slice), so a frame is
   the carried target — an absent `:frame` stamp emits + throws
   `:rf.error/no-frame-context` (no `:rf/default`-against-absence

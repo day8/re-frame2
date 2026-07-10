@@ -8,16 +8,14 @@
   can read it after the client's first render.
 
   Also defines the two `:rf.ssr/check-*` compatibility-check fxs the
-  hydrate handler dispatches (rf2-69ad2) — best-effort version +
+  hydrate handler dispatches — best-effort version and
   schema-digest comparison whose mismatch emits a structured warning
   trace without crashing the hydration path.
 
   All `reg-event` / `reg-fx` calls live in the `re-frame.ssr`
   façade so a `(require 're-frame.ssr :reload)` after
   `(registrar/clear-all!)` re-installs them. This namespace exports
-  the handler fns only.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  the handler fns only."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
@@ -35,7 +33,7 @@
   the hydrate handler to avoid dispatching `:rf.ssr/check-*` fxs on a
   server-side `:rf/hydrate` (test harness, isomorphic loopback), where
   the fx's own `:platforms #{:client}` gate would otherwise emit a
-  `:rf.fx/skipped-on-platform` warning per check (rf2-7bcn0)."
+  `:rf.fx/skipped-on-platform` warning per check."
   [frame-id]
   (let [resolved (or (some-> frame-id frame/frame :config :platform)
                      (interop/active-platform))]
@@ -55,7 +53,7 @@
        "); hydration rejected — the client frame-state is left unchanged"))
 
 (defn- malformed-hydration-payload!
-  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-gro94, rf2-g00l2t).
+  "Fail-closed guard for the `:rf/hydrate` boundary.
   The payload is a DESERIALISED, UNTRUSTED transport input (the server's
   `pr-str`'d EDN, round-tripped through `cljs.reader/read-string` at the
   boot site). `:replace-frame-state` is the locked merge policy (Spec 011
@@ -92,11 +90,10 @@
     (slice-malformed-reason :rf/app-db (:rf/app-db payload))
 
     ;; The `:rf/runtime-db` slice KEY is present but its value is not a
-    ;; map. EP-0001 (rf2-vzld77): hydration installs a coherent
-    ;; FRAME-STATE — `:rf/runtime-db` becomes the runtime-db partition
+    ;; map. Hydration installs a coherent frame state: `:rf/runtime-db`
+    ;; becomes the runtime-db partition
     ;; (machine snapshots, route slice, SSR metadata). A present-but-non-map
-    ;; runtime-db is rejected the same way as app-db (rf2-g00l2t closed the
-    ;; fail-OPEN where it was silently coerced to nil and dropped). A
+    ;; runtime-db is rejected the same way as app-db. A
     ;; wholly-absent key is the legitimate no-server-runtime fallback.
     (and (contains? payload :rf/runtime-db)
          (not (map? (:rf/runtime-db payload))))
@@ -105,13 +102,13 @@
     :else nil))
 
 (defn- frame-id-mismatch-reason
-  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-nv3mua). Returns a
+  "Fail-closed guard for the `:rf/hydrate` boundary. Returns a
   reason string when the payload's `:rf/frame-id` is PRESENT-and-DIFFERENT
   from the frame the dispatch is installing into (`target` — the
   `:rf.frame/id` coeffect), nil otherwise.
 
   The payload's `:rf/frame-id` is the SSR-wire spelling of the frame the
-  SERVER rendered under (Spec 011 §The hydration payload, EP-0002):
+  server rendered under:
   payload metadata + frame-isolation evidence, NOT a no-opts target
   resolver. The boot helper `re-frame.ssr.boot/hydrate!` validates it
   against the explicit `:frame` target BEFORE dispatching (and THROWS on a
@@ -120,8 +117,7 @@
   target}` as the split path for hosts that verify the mounted DOM
   themselves, so the boundary is not purely private: a direct dispatch
   bypassed the boot check and silently installed the payload into `target`
-  even when `:rf/frame-id` named a DIFFERENT frame — defeating the
-  frame-isolation evidence the payload carries (rf2-nv3mua). The check is
+  even when `:rf/frame-id` named a different frame. The check is
   therefore enforced HERE, at the handler boundary BOTH paths cross, so a
   manual boot / custom host cannot hydrate the wrong frame.
 
@@ -146,25 +142,23 @@
   "Emit a fail-closed `:rf/hydrate` rejection on BOTH the dev-trace axis
   (gated by `interop/debug-enabled?`) and the always-on error-emit axis
   (UNGATED, via the `:error-emit/dispatch-error-record` late-bind hook).
-  Factored out (rf2-nv3mua) so the malformed-payload guard
-  (`:rf.error/malformed-hydration-payload`) and the frame-id-mismatch guard
+  Shared by the malformed-payload guard and the frame-id-mismatch guard
   (`:rf.error/hydration-frame-id-mismatch`) surface identically — each is a
   fail-closed BOUNDARY rejection of an untrusted payload, not a dev teaching
   diagnostic, so an off-box shipper on a `goog.DEBUG=false` client build
-  (dev trace elided) must still see it (EP-0008 rf2-hhutya). `extra` is
+  (development trace elided) must still see it. `extra` is
   merged onto the always-on record (the frame-id guard carries
   `:target-frame` / `:payload-frame-id`, mirroring the boot helper's thrown
   ex-data); the dev-trace tags carry it too so Xray sees the same shape.
 
-  EGRESS CHOKE-POINT (rf2-7qbxbm / rf2-mrtis6 census B5): `extra` lifts
+  Egress choke point: `extra` lifts
   values OUT OF the DESERIALISED, UNTRUSTED hydration payload — the
   frame-id-mismatch guard stamps `:payload-frame-id (:rf/frame-id payload)`,
   a value the adversary-controllable wire put there. The always-on record
   fans out to corpus listeners (Sentry / Datadog) raw `by contract`, so a
   payload value placed in `extra` would egress off-box UNREDACTED — the
-  identical `forgot to route through the projector` gap the conformance
-  ratchet (rf2-mrtis6) governs, on the SSR no-bead leg the design census
-  surfaced. So the untrusted `extra` slots route THROUGH the centralized
+  same leakage class as any unprojected error payload. The untrusted `extra`
+  slots route through the centralized
   record-level boundary primitive `re-frame.projection/project-egress` (over
   the shared `elide-wire-value` walker — Security.md §The privacy surface:
   per-tool reimplementation prohibited; sinks consume already-projected
@@ -172,7 +166,7 @@
   rejected `frame`, BEFORE the record fans out. A frame that declares the
   `:payload-frame-id` path `:sensitive` redacts it; an unresolvable /
   FRAMELESS frame fails CLOSED (the whole `extra` value redacts to
-  `:rf/redacted` rather than ride raw — EP-0002 / EP-0015 issue 1). The
+  `:rf/redacted` rather than ride raw). The
   dev-trace axis (DCE'd in production) keeps the raw `extra` + raw `:reason`
   for local Xray fidelity — the leak is off-box, not the local trace.
 
@@ -194,8 +188,8 @@
                :recovery   :no-recovery}]
      (when interop/debug-enabled?
        (trace/emit-error! error-id (merge base extra)))
-     ;; EP-0008 (rf2-hhutya): the hydrate-handler shape-guard path
-     ;; (frame EXISTS) rides the always-on axis ALONGSIDE the dev trace.
+     ;; The frame-scoped shape guard rides the always-on axis alongside the
+     ;; development trace.
      ;; UNGATED. Union record shape via the late-bind hook. (The PRE-FRAME
      ;; parse failure in `boot/read-server-payload` is the FRAMELESS sibling
      ;; of this same category.)
@@ -235,11 +229,11 @@
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
   `[:rf.runtime/ssr :hydration]`, and dispatches the two
-  `:rf.ssr/check-*` fxs when the resolved platform is `:client` (per
-  rf2-7bcn0 — server-side `:rf/hydrate` skips them to avoid
+  `:rf.ssr/check-*` fxs when the resolved platform is `:client`; server-side
+  hydration skips them to avoid
   `:rf.fx/skipped-on-platform` noise).
 
-  Per rf2-gro94 the handler fails CLOSED on a malformed (deserialised,
+  The handler fails closed on a malformed, deserialised
   untrusted) payload: a non-map payload, or a present-but-non-map app-db
   slice, is REJECTED — the existing client app-db is left unchanged and a
   `:rf.error/malformed-hydration-payload` diagnostic is emitted (carrying
@@ -247,7 +241,7 @@
   :rf/hydrate event — degraded-but-running), so a corrupt payload must
   never silently install garbage as the whole app-db.
 
-  Per rf2-nv3mua the handler ALSO fails CLOSED on a frame-id MISMATCH: when
+  The handler also fails closed on a frame-id mismatch: when
   the payload's `:rf/frame-id` is present-and-different from the dispatch
   target (`:rf.frame/id`), the server's slice was rendered for a DIFFERENT
   frame, so installing it here would defeat the frame-isolation evidence the
@@ -261,7 +255,7 @@
   (let [new-db (or (:rf/app-db payload) db)
         ;; A frame-id mismatch is checked BEFORE the structural shape: a
         ;; payload rendered for a DIFFERENT frame is rejected outright,
-        ;; regardless of slice shape (rf2-nv3mua). Only fires for a PRESENT-
+        ;; regardless of slice shape. Only fires for a present-
         ;; and-DIFFERENT `:rf/frame-id` against a non-nil target — an absent
         ;; frame-id (or nil target) is no conflict.
         frame-mismatch (when (some? frame)
@@ -280,7 +274,7 @@
       :else
       ;; Fail CLOSED on a malformed (deserialised, untrusted) payload —
       ;; non-map payload, or present-but-non-map app-db / runtime-db slice
-      ;; (rf2-gro94, rf2-g00l2t). The slice would otherwise be coerced into
+      ;; The slice would otherwise be coerced into
       ;; the partition (a fail-OPEN).
       (if-let [reason (malformed-hydration-payload! payload)]
         (do
@@ -290,11 +284,10 @@
         (hydrate-event-handler* db rt frame payload new-db)))))
 
 (defn- hydrate-event-handler*
-  "The structurally-valid hydration path (rf2-gro94 extracted the
-  fail-closed guard into `hydrate-event-handler`). `new-db` is the
+  "The structurally valid hydration path. `new-db` is the
   resolved server slice (or the existing `db` when the payload carried no
   app-db slice — the client-only fallback). `runtime-db` is the
-  `:rf.db/runtime` coeffect — EP-0001 (rf2-vzld77): the hydration metadata
+  `:rf.db/runtime` coeffect; the hydration metadata
   is durable runtime-db state, written under `[:rf.runtime/ssr :hydration]`."
   ;; A cross-feature artefact may reconcile its OWN installed runtime-db
   ;; subtree via the late-bound `:resources/hydrate-runtime-db` hook (Spec
@@ -304,18 +297,17 @@
   [db runtime-db frame payload new-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
-        ;; EP-0001 (rf2-vzld77): the server-settled durable runtime state
+        ;; Server-settled durable runtime state
         ;; (machine snapshots, route slice) rides the payload's `:rf/runtime-db`
         ;; slice — a coherent runtime-db value the hydrate handler installs into
         ;; the runtime-db partition so the framework subs (`:rf/machine`,
         ;; `[:rf.route/*]`) see the hydrated state, and it survives as durable
-        ;; frame-state. (The full epoch/SSR snapshot-restore PROJECTIONS are
-        ;; bead 7's surface — rf2-3aizt1; this is just the
-        ;; payload-runtime-db→partition install.) The base for the metadata
+        ;; frame-state. This path only installs the payload projection; the
+        ;; base for the metadata
         ;; merge is the payload slice when present, else the existing
         ;; runtime-db coeffect.
         ;; A present-but-non-map :rf/runtime-db is already REJECTED by the
-        ;; fail-closed guard (rf2-g00l2t), so by the time we get here `pr`
+        ;; fail-closed guard, so by the time we get here `pr`
         ;; is either absent (nil → no-server-runtime fallback) or a map.
         ;; The `(when (map? pr) pr)` is a belt-and-braces no-op on the
         ;; validated path.
@@ -328,8 +320,8 @@
                             (filter (comp some? val))
                             {:server-hash (:rf/render-hash payload)
                              :version     version})
-        ;; Per rf2-7bcn0: gate the compatibility-check dispatches at the
-        ;; HANDLER level (not at the fx-platform-gate level) so server-
+        ;; Gate compatibility checks at the handler rather than effect dispatch
+        ;; so server-
         ;; side `:rf/hydrate` runs (test harness, isomorphic loopback)
         ;; don't fire `:rf.fx/skipped-on-platform` per check. The fxs
         ;; themselves remain `:platforms #{:client}` so any direct
@@ -341,9 +333,9 @@
     ;; trace event without crashing the hydration path. Both fxs gate on
     ;; payload-key presence — the scalar form passed here is the
     ;; server's value (the "expected"); the fx looks up the client-side
-    ;; "actual" via late-bind. Per rf2-69ad2.
+    ;; "actual" via late-bind.
     ;;
-    ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is DURABLE,
+    ;; SSR hydration metadata is durable,
     ;; serializable framework runtime state (it must survive epoch-restore /
     ;; reconstitution so `verify-hydration!` can compare against it after the
     ;; first client render), so it lives in the frame's RUNTIME-DB partition
@@ -378,7 +370,7 @@
                ;; SSR statically `:require`ing it. Absent hook (no resources
                ;; artefact) leaves `base` unchanged, so an SSR app without resources
                ;; sees no behaviour change. Resources is the first consumer
-               ;; (rf2-ctk2av): it reconciles `:rf.runtime/resources`. The
+               ;; reconciles `:rf.runtime/resources`. The
                ;; symmetric COUNTERPART of `:ssr/extend-runtime-db-projection`
                ;; (the server projection hook in `project-runtime-db`).
                (if-let [reconcile (late-bind/get-fn :resources/hydrate-runtime-db)]
@@ -387,15 +379,14 @@
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;
-;; Per Spec 011 §The :rf/hydrate event (rf2-69ad2). The :rf/hydrate handler
+;; Per Spec 011 §The :rf/hydrate event, the handler
 ;; dispatches these two fxs after replacing the client app-db with the
 ;; server's authoritative slice. They are best-effort compatibility checks:
 ;; a mismatch emits a structured warning trace and the hydration proceeds.
 ;; The runtime never throws on a mismatch — degraded-but-running beats
 ;; a crashed boot.
 ;;
-;; Arg shape (clarified per rf2-69ad2 because Spec 011 only pinned the
-;; trace shape, not the fx-input shape):
+;; Argument shape:
 ;;
 ;;   - SCALAR — `[:rf.ssr/check-version <server-value>]` per the spec's
 ;;     reference :rf/hydrate handler. The fx treats the scalar as the
@@ -436,8 +427,7 @@
     {:expected arg :actual (actual-lookup-fn)}))
 
 (defn- runtime-version-lookup
-  "Look up the client-side runtime version. No constant is pinned in
-  re-frame.core today (per rf2-69ad2 scope); the value is sourced via
+  "Look up the client-side runtime version via
   the optional `:rf2/runtime-version` late-bind hook — a host that
   bundles a version-stamp registers it at boot. When the hook is
   absent, returns nil and the check emits
@@ -569,7 +559,7 @@
   ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
   ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
    (when (detect-mismatch? frame-id)
-     ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+     ;; SSR hydration metadata is durable runtime-db
      ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
      ;; partition.
      (let [rt          (frame/frame-runtime-db-value frame-id)
@@ -585,8 +575,7 @@
                ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
                ;; idiom error/ex-info-from-data was purpose-built for). It carries
                ;; the canonical thrown-error slots — :rf.error/id, :reason,
-               ;; :recovery, and :where (rf2-ya3iqg: :where was previously absent
-               ;; here while the frame/events sibling throws carry it).
+               ;; :recovery, and :where.
                payload  (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
                                  :where       'rf/verify-hydration!
                                  :server-hash server-hash
@@ -610,8 +599,8 @@
            (when trace-fn
              (trace-fn :rf.ssr/hydration-mismatch payload))
            (when strict?
-             ;; rf2-ya3iqg: route the shared-payload throw through the
-             ;; purpose-built error/ex-info-from-data — it derives the human
+             ;; Route the shared-payload throw through error/ex-info-from-data;
+             ;; it derives the human
              ;; message from the payload's own :rf.error/id + :reason (LEADING
              ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
              ;; in ONE call, instead of re-deriving error/human-message inline.

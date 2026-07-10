@@ -249,11 +249,11 @@
 ;;
 ;; Per Spec 011 §Multiple-status policy: two :rf.server/set-status fx in a
 ;; single drain → last write wins AND a :rf.warning/multiple-status-set trace
-;; fires. Accumulator lives in app-db at [:rf/response]; resolved view via
-;; re-frame.ssr/get-response.
+;; fires. The accumulator is a per-frame side channel read through
+;; `re-frame.ssr/get-response`; it never enters app-db.
 
 (defn- get-response
-  "Read the resolved :rf/response accumulator for a frame."
+  "Read the resolved response accumulator for a frame."
   [frame-id]
   (ssr/get-response frame-id))
 

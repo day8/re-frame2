@@ -4,18 +4,10 @@
   host adapter's Set-Cookie materialiser (`re-frame.ssr.ring.cookie`)
   both enforce.
 
-  Per the security audit 2026-05-14 (rf2-hbty2 header-value gate,
-  rf2-z7gor header-name + cookie gates at the fx boundary, rf2-rpedl
-  cookie-attribute gate at the materialiser): the same two grammars are
-  enforced at TWO boundaries — the SSR fx boundary (so non-Ring host
-  adapters get the gate with the dispatching event in scope) AND the Ring
-  materialiser (so the wire write is portable across servers whose own
-  CR/LF defences differ). Both boundaries are deliberate (defence in
-  depth); what is NOT deliberate is the regexes drifting apart. Before
-  this ns the two regexes lived as byte-identical copies in
-  `re-frame.ssr.response` and `re-frame.ssr.ring.cookie`, each carrying a
-  comment that a fix to one MUST track the other — a copy-paste security
-  surface. Single-sourcing them here removes that drift risk.
+  The same grammars are enforced at two boundaries: the SSR fx boundary,
+  where the dispatching event is still in scope, and the Ring materialiser,
+  immediately before bytes reach the host. Keeping the predicates here makes
+  that defence-in-depth policy portable without duplicating the grammars.
 
   Two grammars:
 
@@ -42,9 +34,8 @@
   `:rf.error/cookie-invalid-attribute` with
   `:where 'rf.ssr/cookie->set-cookie-header`. Both boundaries emit the SAME
   catalogued `:rf.error/cookie-invalid-attribute` for the injection class
-  (rf2-xrk4w1 — the offending attribute rides the `:attribute` payload slot,
-  not a per-attribute error id); the decision is shared, the diagnostics are
-  local."
+  with the offending attribute in the `:attribute` payload slot. The decision
+  is shared; the layer-specific diagnostics remain local."
   (:require [clojure.string]))
 
 #?(:clj (set! *warn-on-reflection* true))

@@ -1,6 +1,5 @@
 (ns re-frame.ssr.head.emit
-  "Canonical-order head-model → HTML fragment emitter. Per Spec 011
-  §Default flow step 4 and the rf2-x7g10 split of `re-frame.ssr.head`.
+  "Canonical-order head-model → HTML fragment emitter.
 
   The emit half of the head/meta contract — pure functions that turn a
   `:rf/head-model` map into the inner-head HTML fragment in canonical
@@ -22,7 +21,7 @@
             [re-frame.error :as error]
             [re-frame.ssr.html-helpers :as html]))
 
-;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
+;; Reflection warnings guard the hand-rolled JVM JSON emitter.
 ;; The JVM-side `ld-json-string` is hand-rolled JSON emission; the
 ;; directive flags any accidental boxing introduced by future refactors.
 ;; CLJS has no reflection concept — the directive is JVM-only.
@@ -53,11 +52,9 @@
 
   On the JVM side, keyword keys and keyword values are both serialised
   to their fully-qualified name — `:my.app/foo` → `\"my.app/foo\"` — so
-  namespaces survive serialisation. The key and value handling are
-  symmetric; rf2-a50nz fixed an earlier asymmetry that quietly stripped
-  the namespace prefix off keys.
+  namespaces survive serialisation. Key and value handling are symmetric.
 
-  Script-body safety (rf2-m5u23, security audit 2026-05-14 §P1.1) —
+  Script-body safety:
   every `<` inside string contents is escaped as the JSON `\\u003c`
   Unicode escape via `html/escape-script-body-string`, so a string
   value containing `</script>` cannot close the surrounding
@@ -70,7 +67,7 @@
   #?(:cljs (-> (js/JSON.stringify (clj->js x))
                html/escape-script-body-string)
      :clj  (letfn [(emit-number [v]
-                     ;; rf2-8jl26 — `(str v)` produces non-JSON for two
+                     ;; `(str v)` produces non-JSON for two
                      ;; numeric shapes the JVM admits but JSON.parse rejects:
                      ;;   • Ratios print as `1/3` — coerce to a double so the
                      ;;     wire form is `0.3333333333333333`.
@@ -93,7 +90,7 @@
                           :extra    {:value v}})
                        :else (str v)))
                    (escape-json-control [^String s]
-                     ;; rf2-hzttr finding 1 — JSON requires every control
+                     ;; JSON requires every control
                      ;; char (U+0000..U+001F) inside a string literal to be
                      ;; escaped; a raw newline/tab/CR in a `<script
                      ;; type="application/ld+json">` body is INVALID JSON
@@ -129,13 +126,13 @@
                               (str/replace "\\" "\\\\")
                               (str/replace "\"" "\\\"")
                               escape-json-control
-                              ;; rf2-m5u23 — escape `<` so user-controlled
+                              ;; Escape `<` so user-controlled
                               ;; string contents can't close the
                               ;; surrounding <script>.
                               html/escape-script-body-string)
                           "\""))
                    (emit-key [k]
-                     ;; rf2-ee38b.10 — JSON object keys MUST be quoted
+                     ;; JSON object keys must be quoted
                      ;; strings. `js/JSON.stringify` (the CLJS branch)
                      ;; coerces every key to a string; the JVM branch must
                      ;; match or the two reader-conditional arms diverge on

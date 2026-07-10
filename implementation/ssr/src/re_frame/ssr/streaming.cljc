@@ -1,7 +1,6 @@
 (ns re-frame.ssr.streaming
   "Streaming SSR — `:rf/suspense-boundary` walker, per-request continuations
-  registry, per-subtree hydration deltas. Per Spec 011 §Streaming SSR
-  (rf2-ojakd / rf2-olb64 (a)).
+  registry, and per-subtree hydration deltas.
 
   ## Chunk-ordering invariant (FIFO over registration)
 
@@ -52,9 +51,7 @@
 
   Host adapters consume these surfaces via late-bind hooks
   (`:ssr.streaming/render-shell!`, `:ssr.streaming/render-continuation!`,
-  `:ssr.streaming/build-final-payload`) registered at ns-load time below.
-
-  Per the rf2-ojakd / rf2-olb64 cluster."
+  `:ssr.streaming/build-final-payload`) registered at namespace load."
   (:require [clojure.data]
             [clojure.string]
             [re-frame.error :as error]
@@ -102,7 +99,7 @@
   inline `<template data-rf2-suspense-fallback>` placeholder in the shell
   HTML.
 
-  rf2-xzhf2a — a `<template>`'s content is INERT by the HTML spec (its
+  A `<template>`'s content is inert by the HTML spec (its
   `.content` is a detached `DocumentFragment`, never painted), so this is
   NOT first-byte-visible content: nothing paints until the client runtime
   (`re-frame.ssr.streaming.client/install!`) materialises each inert
@@ -142,7 +139,7 @@
   (str "<script " wire/attr-suspense-hydrate "=\""
        (html/escape-attr (str id))
        "\" type=\"application/edn\">"
-       ;; rf2-7ksyr / rf2-rdxxa — EDN-aware escape: `<` inside string
+       ;; EDN-aware escape: `<` inside string
        ;; literals becomes `<` so a delta carrying `</script>` from
        ;; a user-controlled string cannot close the envelope, while
        ;; keyword/symbol tokens with `<` (`:<`, `:a<b`) round-trip
@@ -191,7 +188,7 @@
             {}
             (keys only-in-after))))
 
-;; ---- streaming hydration-delta egress projection (rf2-uc3cs4) -------------
+;; ---- streaming hydration-delta egress projection --------------------------
 ;;
 ;; A per-boundary hydration delta is BROWSER-DELIVERED hydration state — it
 ;; arrives in the stream BEFORE the final `__rf_payload` and the client merges
@@ -223,7 +220,7 @@
 (defn project-delta
   "Project a streaming per-subtree hydration `delta` (from `render-continuation`)
   for browser egress before it serialises into the `data-rf2-suspense-hydrate`
-  EDN script (rf2-uc3cs4). Applies the handler's `:payload` allowlist
+  EDN script. Applies the handler's `:payload` allowlist
   (`payload-policy/apply-policy`) then the centralized `:rf.egress/ssr-hydration`
   projection under `frame-id` (`payload-policy/project-app-db-egress`) — the
   SAME allowlist-first-then-project boundary the final `__rf_payload` obeys, so
@@ -263,8 +260,7 @@
   declared `:fallback` hiccup is stored alongside the `:subtree` so the
   drain path (`render-continuation`) can re-materialise it when the
   subtree render throws (Spec 011 §Failure semantics — inline fallback).
-  Without it, a FAILED continuation would render `nil` → empty string,
-  silently dropping the author-declared loading state (rf2-405ld)."
+  A failed continuation therefore preserves the author-declared loading state."
   [acc id subtree fallback]
   (swap! acc conj {:id id :subtree subtree :fallback fallback}))
 
@@ -276,8 +272,7 @@
   `data-rf2-suspense-hydrate` (and matched by the client). Duplicate
   detection MUST key on this, not the raw `:id`, so ids that DIFFER as
   values but COLLIDE under `str` (`:a` keyword vs `\":a\"` string) are
-  treated as the same boundary — the client can only match them by the
-  one wire string (rf2-yvc0t7)."
+  treated as the same boundary because the client can match only the wire id."
   [id]
   (str id))
 
@@ -291,7 +286,7 @@
 
   Duplicates are detected on the canonical WIRE id (`wire-id`, i.e.
   `(str id)`) — the exact string stamped into the suspense attributes and
-  matched by the client (rf2-yvc0t7). Grouping on the raw `:id` would let
+  matched by the client. Grouping on the raw `:id` would let
   string-colliding ids (`:a` keyword vs `\":a\"` string) escape detection
   even though they share one `data-rf2-suspense-id` on the wire, leaving
   two chunks the client can only resolve against the same mount."
@@ -334,25 +329,10 @@
 
 (declare walk-shell)
 
-;; Per rf2-muasb (perf-sweep H2, ai/findings/perf-sweep-2026-05-15.md):
-;; the prior implementation called `(some-suspense-boundary? el)` —
-;; itself a recursive scan of the entire subtree — on every DOM-tag
-;; descent, then took a fast `emit/emit-element` path when the
-;; subtree was boundary-free. For a shell with N DOM nodes the
-;; ancestor-chain scans collectively walked O(N × tree-depth) nodes,
-;; quadratic on deep trees with a buried boundary, and the fast path
-;; saved only one fn-call boundary on a tree-walk that emit-element
-;; would do anyway.
-;;
-;; Replaced with the simplest correct shape: walk always recurses
-;; through DOM-tag children via `walk-dom-tag`. Single keyword check
-;; per node either way. A registered view resolved via `:view`
-;; lookup may itself contain boundaries (the conformance fixture
-;; root does); the recursion-always shape catches those without any
-;; pre-scan. The fast-path option (emit/emit-element on
-;; statically-clean subtrees) cannot see through view-refs and so
-;; cannot serve as a correct pre-filter without the per-descent
-;; cost the audit calls out.
+;; Walk DOM children once and handle suspense boundaries where encountered.
+;; A recursive pre-scan would revisit subtrees and become quadratic on a deep
+;; tree. It would also miss boundaries returned by registered views unless the
+;; view were resolved during both passes.
 
 (defn- walk-children [children acc]
   (clojure.string/join (mapv #(walk-shell % acc) children)))
@@ -360,10 +340,7 @@
 (defn- walk-dom-tag
   "Emit a DOM tag element while recursing into its children with the
   walker (so nested boundaries get caught). Mirrors the non-void branch
-  of `emit/emit-element` but threads `acc` through. Per rf2-muasb the
-  prior shape called `parse-tag-name` twice on `head` (once destructured
-  to `[tag-name _]`, then again to `[_ tag-attrs]`); collapsed to one
-  call here, the binding shape mirrors `emit/emit-element` exactly."
+  of `emit/emit-element`, threads `acc`, and reuses the parsed tag."
   [el acc]
   (let [head                  (first el)
         [tag-name tag-attrs]  (emit/parse-tag-name head)
@@ -371,7 +348,7 @@
                                 [(second el) (drop 2 el)]
                                 [{} (rest el)])
         merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
-        ;; rf2-hzttr finding 3 — case-insensitive void classification,
+        ;; Void classification is case-insensitive,
         ;; mirroring the non-streaming emitter. A `[:BR]` admitted by
         ;; `validate-tag-name!` must be recognised as void here too, or the
         ;; shell walker emits a `<BR></BR>` open+close pair. The raw-text
@@ -382,7 +359,7 @@
     (if void?
       (str "<" tag-name (emit/attr-string merged-attrs) ">")
       (do
-        ;; rf2-ee38b.10 — mirror the non-streaming emitter's raw-text body
+        ;; Mirror the non-streaming emitter's raw-text body
         ;; guard so a body-position `<script>`/`<style>` with raw string
         ;; content fails loud in the shell walk too (rather than silently
         ;; `escape-html`-ing it via the standard emitter).
@@ -399,10 +376,8 @@
   `<template>` placeholder + register a continuation for the subtree."
   [el acc]
   (let [attrs    (second el)
-        ;; Per rf2-ezdwh — `children` was a `(drop 2 el)` lazy seq the
-        ;; cond branches below counted twice (`(zero? (count children))`
-        ;; then `(= 1 (count children))`). Realise to a vector once and
-        ;; bind `n` so the cond reads as a constant-time arity dispatch.
+        ;; Realise children once so arity checks and rendering share the same
+        ;; collection.
         children (vec (drop 2 el))
         n        (count children)]
     (when-not (suspense-attrs? attrs)

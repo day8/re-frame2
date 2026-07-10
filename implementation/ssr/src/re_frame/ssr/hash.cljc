@@ -5,20 +5,18 @@
   the hash on first render and compares. Mismatch = the runtime emits
   `:rf.ssr/hydration-mismatch` with both hashes. FNV-1a 32-bit over the
   canonical-EDN traversal of the render tree, output as lowercase hex.
-  Same algorithm both sides → byte-identical hashes for byte-identical
-  canonical EDN.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  Same algorithm both sides means byte-identical hashes for byte-identical
+  canonical EDN."
   (:require [clojure.string]))
 
-;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
+;; Reflection warnings guard the primitive JVM hash loop against boxing.
 ;; The JVM-side `fnv-1a-32` uses `.getBytes` + an `aget` loop with
 ;; primitive math; a reflection warning here would flag accidental
 ;; boxing introduced by future refactors. CLJS has no reflection
 ;; concept — the directive is JVM-only.
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- canonical-EDN walker (rf2-8otin / rf2-atmvj) -------------------------
+;; ---- canonical-EDN walker -------------------------------------------------
 ;;
 ;; Single-pass mutually-recursive walker (`canonical-edn-into`): each
 ;; canonical fragment appends into a per-call `StringBuilder` on JVM /
@@ -38,7 +36,7 @@
   "Cross-runtime-stable print form of a number — shared by the render-tree
   hash (`canonical-edn-into`'s numeric leaf) and the HTML emitter
   (`re-frame.ssr.emit`'s number branch) so the hash and the emitted markup
-  stay byte-consistent (rf2-0ypnnk).
+  stay byte-consistent.
 
   ClojureScript has only IEEE doubles: it unifies a whole-valued double to
   an integer (`1.0` IS the JS number 1, printing `\"1\"`) and has no ratio
@@ -49,8 +47,7 @@
 
     - a whole-valued double/float within IEEE exact-integer range prints as
       its integer form (no trailing `.0`), matching CLJS;
-    - a `Ratio` prints as its IEEE-double form (mirroring the head emitter's
-      rf2-8jl26 ratio coercion, and a CLJS view that computed the same value
+    - a `Ratio` prints as its IEEE-double form (mirroring a CLJS view that computed the same value
       by division);
     - every other number keeps its default `pr-str` form — integers and
       common decimals already agree across runtimes, and `pr-str`/`str`
@@ -283,7 +280,7 @@
          (canonical-edn-into sb x)
          (.join sb "")))))
 
-;; Per rf2-t7ktb: FNV-1a runs over a UTF-8 byte stream on BOTH sides.
+;; FNV-1a runs over a UTF-8 byte stream on both sides.
 ;; Why UTF-8 bytes, not UTF-16 code units?
 ;;
 ;;   - JVM uses primitive `byte[]` + `aget` — no boxing per step, ~3-5×
@@ -343,7 +340,7 @@
   of the render tree. Deterministic across JVM and CLJS for trees with
   identical canonical-EDN representation.
 
-  Single-pass (rf2-8otin) — feeds the canonical-EDN walker into one
+  Single-pass: feeds the canonical-EDN walker into one
   accumulator and byte-hashes the result once. The streaming walker
   emits byte-identical output to the prior tree-shaped-intermediates
   shape; the parity-pinned literals at `re-frame.ssr.hash-parity-fixtures`

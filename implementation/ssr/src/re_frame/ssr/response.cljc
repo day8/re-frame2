@@ -1,7 +1,5 @@
 (ns re-frame.ssr.response
-  "HTTP response accumulator + handler fns for the seven `:rf.server/*`
-  server-side fxs (six original + `:rf.server/safe-redirect` per rf2-zfm8v).
-  Per Spec 011 §HTTP response contract.
+  "HTTP response accumulator and the seven `:rf.server/*` effect handlers.
 
   The runtime owns a per-request response accumulator in a
   framework-private side-channel atom keyed by frame-id — `response-slots`
@@ -9,9 +7,8 @@
   the host adapter consumes the resolved value after drain to build the
   wire response.
 
-  Storage substrate (rf2-jbcmt). Per Spec 011 §Response storage substrate
-  the accumulator MUST NOT ride `app-db`. The substrate symmetry with
-  `request-slots` is intentional:
+  The accumulator must not live in `app-db`. Keeping it symmetric with the
+  request side channel has two important consequences:
 
   - **Privacy.** `app-db` is the hydration payload's source (the
     `:rf/app-db` slice ships to the client on bootstrap). The response
@@ -21,14 +18,10 @@
     accumulator in `app-db` would default-leak that surface onto the
     wire and force every host adapter to remember a defensive
     `(dissoc :rf/response)` before serialising the payload — a privacy
-    boundary that's a constant caller-vigilance burden is a leak waiting
-    to happen. Side-channel storage makes the boundary self-enforcing.
-  - **Perf.** Each `:rf.server/*` fx writes the accumulator with an
-    O(small-map) atom CAS against the `{frame-id → response-map}` table.
-    Storing it in `app-db` would instead swap the WHOLE app-db container
-    per fx — for a typical 7-fx login flow (`set-status` + 2× `set-cookie`
-    + 3× `set-header` + `redirect`), seven full-app-db replacements per
-    request, each allocating a fresh container value for one changed key.
+    caller must remember to apply. Side-channel storage enforces the boundary.
+  - **Atomicity.** Each response effect swaps one per-frame accumulator.
+    Response writes never replace application state or expose partially built
+    response data through subscriptions.
 
   Default shape (Spec 011 §HTTP response contract):
 
@@ -52,11 +45,8 @@
   depends on the projector's drain — `response-of` here is the pure
   read used both internally and by the listener module.
 
-  `clear-response!` is called by `re-frame.ssr.request/on-frame-destroyed!`
-  via the `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33) so the
-  slot is released on per-request frame teardown.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  Frame teardown releases the response slot together with the other SSR side
+  channels."
   (:require [clojure.string]
             [re-frame.error :as error]
             [re-frame.frame :as frame]
@@ -70,20 +60,19 @@
   :redirect ...}` plus internal `:rf.server/_status-writes` /
   `:rf.server/_redirect-writes` bookkeeping). Framework-private —
   not stored in `app-db` so the accumulator never rides the hydration
-  payload to the client (Spec 011 §Response storage substrate, rf2-jbcmt).
-  Cleared per-frame by the `:ssr/on-frame-destroyed` hook (rf2-fcj33)."}
+  payload to the client. Cleared per-frame by the
+  `:ssr/on-frame-destroyed` hook."}
   response-slots
   (atom {}))
 
-;; rf2-hbty2 / security audit 2026-05-14 §P1.3 — header-value injection
-;; gate. set-header / append-header / redirect flow user-controlled
+;; Header-value injection gate. set-header / append-header / redirect flow
+;; caller-controlled
 ;; strings straight into the Ring response map; an attacker who controls
 ;; a header value with embedded CR/LF can split the header and forge
 ;; second-and-later headers on the wire (RFC 7230 §3.2.4 explicitly
 ;; bans CTLs in header values). We reject at the fx boundary rather
 ;; than the Ring materialiser so misuse surfaces with the dispatching
-;; event in scope rather than as a deep Ring exception. Same pattern as
-;; the cookie-attribute validator (rf2-rpedl).
+;; event in scope rather than as a deep host-adapter exception.
 ;;
 ;; Decision: fail-fast (throw) rather than strip-and-warn. A header
 ;; value with CR/LF has no safe interpretation — strip-and-warn would
@@ -127,7 +116,7 @@
   This is the SHARED CR/LF/NUL gate — both `:rf.server/redirect` (caller-
   trusted) and `:rf.server/safe-redirect` (caller-untrusted) run it as a
   defence-in-depth first step, and it is the ONLY structural gate on the
-  caller-trusted path (rf2-ziv4gd: no URL-shape check — a raw space or
+  caller-trusted path: no URL-shape check is applied, so a raw space or
   RFC 3986 shape quirk a browser accepts in a `Location` header passes
   through). It deliberately does NOT do any URL-shape / scheme / host
   validation: `safe-redirect-fx` does its own full parse + scheme + host
@@ -147,11 +136,8 @@
          :extra    {:location loc}}))
     s))
 
-;; rf2-z7gor / security audit 2026-05-14 — header-name + cookie-field
-;; gates at the fx boundary. The rf2-hbty2 work validated header
-;; VALUES; header NAMES and the structured cookie map were still trusted.
-;; The ring host adapter happens to re-validate at materialisation time
-;; (rf2-rpedl in ssr-ring/cookie.clj), but the SSR layer is also the
+;; Header-name and cookie-field gates run at the effect boundary. The Ring
+;; host adapter re-validates at materialisation time, but the SSR layer is also the
 ;; integration boundary for Pedestal / HttpKit / other custom adapters
 ;; that consume the response shape directly — so the fx boundary is the
 ;; right place to enforce the invariant once, with the dispatching event
@@ -168,8 +154,7 @@
 (defn- validate-header-name!
   "Throw `:rf.error/header-invalid-name` if the header name violates the
   RFC 7230 §3.2.6 token grammar — empty, contains CR / LF / NUL,
-  whitespace, or separators. Same gate as the cookie-name validator.
-  Per rf2-z7gor §security-audit-2026-05-14."
+  whitespace, or separators. Same gate as the cookie-name validator."
   [n]
   (let [s (str n)]
     (when-not (http-validation/valid-token-name? s)
@@ -187,9 +172,8 @@
 (defn- validate-cookie-name!
   "Throw `:rf.error/cookie-invalid-name` if the cookie name is nil, is not a
   string / keyword / symbol, or violates the RFC 6265 §4.1.1 token grammar.
-  Same shape as the rf2-rpedl validator in `ssr-ring/cookie.clj` — applied
-  here at the fx boundary so non-ring host adapters get the same gate. Per
-  rf2-z7gor + rf2-9t17id (the TYPE guard)."
+  Applied at the effect boundary so every host adapter receives the same
+  validation."
   [n]
   (when (nil? n)
     (error/throw-error!
@@ -198,7 +182,7 @@
       "cookie :name is required; supply a non-nil :name on the cookie map."
       {:recovery :supply-a-cookie-name
        :extra    {:name n}}))
-  ;; rf2-9t17id — type-guard BEFORE `(name n)`. A cookie `:name` is only a
+  ;; Type-guard before `(name n)`: a cookie `:name` is only a
   ;; string or a Named (keyword / symbol); anything else (a Long `42`, a
   ;; vector `[]`, a map `{}`, a boolean `true`, …) makes `name` throw a raw
   ;; host exception (`ClassCastException` on the JVM) with nil ex-data,
@@ -208,8 +192,8 @@
   ;; schema pins the type — when schemas are absent or soft-pass (Spec 010),
   ;; the fx boundary is the last line of defence, so reject the unsupported
   ;; TYPE loudly through the same structured error id. Mirrors the Ring
-  ;; materialiser's guard (rf2-d95o1y in `re-frame.ssr.ring.cookie`); the JVM
-  ;; branch matches Ring's `clojure.lang.Named` check exactly (the fx runs
+  ;; materialiser's guard; the JVM branch matches Ring's
+  ;; `clojure.lang.Named` check exactly (the fx runs
   ;; server-only, `:platforms #{:server}`).
   (when-not (or (string? n)
                 #?(:clj  (instance? clojure.lang.Named n)
@@ -244,7 +228,7 @@
   than implied by a call sequence, and every member on an injection-char
   failure throws the SINGLE catalogued `:rf.error/cookie-invalid-attribute`
   (Spec 009), carrying the offending attribute in the payload's `:attribute`
-  slot rather than in a per-attribute error id (rf2-xrk4w1). `:name` is NOT
+  slot rather than in a per-attribute error id. `:name` is not
   here — it carries its own RFC 6265 §4.1.1 token-grammar +
   type gate (`validate-cookie-name!` → `:rf.error/cookie-invalid-name`)."
   [:value :path :domain :max-age :same-site :expires])
@@ -258,11 +242,9 @@
   `:expires` as an epoch-millis long); the CR/LF/NUL ban applies to the
   serialised form a host adapter would emit. The offending attribute rides
   the payload's `:attribute` slot — the SAME error id + `{:attribute :value}`
-  emit shape the Ring materialiser throws (`re-frame.ssr.ring.cookie`,
-  rf2-rpedl), so the fx boundary and the wire serialiser share one catalogued
+  emit shape the Ring materialiser throws, so the fx boundary and the wire serialiser share one catalogued
   vocabulary: the injection class is one fact, and WHICH attribute carried the
-  injection char is data, not a distinct error id (rf2-xrk4w1). Per rf2-z7gor
-  (the fx-boundary gate) and rf2-kjf3m.1 (Spec 011 §CRLF fail-fast mandates
+  injection char is data, not a distinct error id. Spec 011 §CRLF fail-fast mandates
   checking EVERY attribute, not just :value — an attacker who controls any one
   attribute must not be able to re-enter the header line as CRLF-bearing
   payload)."
@@ -283,12 +265,12 @@
     s))
 
 (defn- validate-cookie!
-  "Run name + field validators across the cookie map. Per rf2-z7gor —
-  gate the structured cookie at the fx boundary so misuse surfaces with
+  "Run name and field validators across the cookie map. Gate the structured
+  cookie at the effect boundary so misuse surfaces with
   the dispatching event in scope rather than as a deep adapter exception.
 
   CRLF-checks EVERY attribute a host adapter serialises into the
-  Set-Cookie line, not just `:value` (rf2-kjf3m.1 / Spec 011 §CRLF
+  Set-Cookie line, not just `:value` (Spec 011 §CRLF
   fail-fast). The fx boundary is the single enforcement point for
   non-Ring host adapters (Pedestal / HttpKit / custom) that read the
   accumulator and serialise cookies themselves; the Ring materialiser
@@ -330,7 +312,7 @@
 (defn swap-response!
   "Mutate the response accumulator slot for `frame-id` with `f`. Returns
   the post-swap response map. The substrate is a side-channel atom keyed
-  on the frame ADDRESS (rf2-jbcmt; rf2-bzw8gd) — O(small-map) swap, no app-db
+  on the process-local frame address — O(small-map) swap, no app-db
   ping-pong. `frame-address` is the bare process-local frame id."
   [frame-id f]
   (let [addr      (frame/frame-address frame-id)
@@ -347,8 +329,8 @@
 (defn clear-response!
   "Drop `frame-id`'s response slot. Called from
   `re-frame.ssr.request/on-frame-destroyed!` via the
-  `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33). Idempotent —
-  tolerates a frame-id with no slot. Keyed by the frame ADDRESS (rf2-bzw8gd)."
+  `:ssr/on-frame-destroyed` late-bind hook. Idempotent — tolerates a frame-id
+  with no slot."
   [frame-id]
   (swap! response-slots dissoc (frame/frame-address frame-id))
   frame-id)
@@ -423,8 +405,8 @@
   "Handler fn for `:rf.server/set-header`. Replaces any existing header
   with the same name (case-insensitive). Throws
   `:rf.error/header-invalid-name` on a name violating the RFC 7230
-  §3.2.6 token grammar (rf2-z7gor), and `:rf.error/header-invalid-value`
-  on a value carrying CR/LF/NUL (rf2-hbty2)."
+  §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a value
+  carrying CR/LF/NUL."
   [{:keys [frame]} {:keys [name value]}]
   (validate-header-name!  name)
   (validate-header-value! name value)
@@ -436,9 +418,8 @@
   "Handler fn for `:rf.server/append-header`. Preserves any existing
   header with the same name — required for Set-Cookie-style multi-valued
   headers. Throws `:rf.error/header-invalid-name` on a name violating the
-  RFC 7230 §3.2.6 token grammar (rf2-z7gor), and
-  `:rf.error/header-invalid-value` on a value carrying CR/LF/NUL
-  (rf2-hbty2)."
+  RFC 7230 §3.2.6 token grammar, and `:rf.error/header-invalid-value` on a
+  value carrying CR/LF/NUL."
   [{:keys [frame]} {:keys [name value]}]
   (validate-header-name!  name)
   (validate-header-value! name value)
@@ -466,7 +447,7 @@
 
 (defn delete-cookie-fx
   "Handler fn for `:rf.server/delete-cookie`. Sugar over set-cookie
-  with :max-age 0 and an empty :value. Same rf2-z7gor name + path +
+  with :max-age 0 and an empty :value. Applies the same name, path, and
   domain validation as `set-cookie-fx`."
   [{:keys [frame]} {:keys [name path domain]}]
   (let [cookie (cond-> {:name    name
@@ -479,26 +460,25 @@
       frame
       (fn [r] (update r :cookies (fnil conj []) cookie)))))
 
-;; rf2-vngir / EP-0007 one-name-per-fact. The redirect target key is
-;; canonically `:location` — this fx writes an HTTP `Location` response
+;; The redirect target key is `:location`, matching the HTTP `Location` response
 ;; header, so it uses header vocabulary (routing/navigation surfaces may
 ;; use `:url` / `:to`; HTTP-response redirect surfaces use `:location`).
-;; The pre-alpha synonym set (`:location` / `:url` / `:to`) was pruned to
-;; `:location` only; there is no back-compat alias. A retired spelling
+;; The unsupported `:url` and `:to` spellings have no compatibility alias. An
+;; unsupported spelling
 ;; (`:url` / `:to`) must fail with a CLEAR diagnostic naming `:location`
 ;; rather than silently fall through to the no-target warning path — that
 ;; would hide the API vocabulary error behind a malformed-redirect warning.
 (def ^:private retired-redirect-target-keys
-  "Redirect-target spellings retired in favour of the canonical
-  `:location` (rf2-vngir). Detected on a `:rf.server/redirect` /
+  "Redirect-target spellings unsupported in favour of canonical `:location`.
+  Detected on a `:rf.server/redirect` /
   `:rf.server/safe-redirect` args map so they fail loudly rather than
   degrade into the malformed-no-target path."
   [:url :to])
 
 (defn- reject-retired-redirect-keys!
   "Throw `:rf.error/redirect-retired-target-key` if `redirect-map` carries
-  a retired redirect-target spelling (`:url` / `:to`). The canonical key is
-  `:location` (rf2-vngir / EP-0007). The error NAMES `:location` so the
+  an unsupported redirect-target spelling (`:url` / `:to`). The canonical key
+  is `:location`. The error names `:location` so the
   programmer rewrites the spelling rather than seeing the generic
   no-target warning the host adapter emits for a target-less redirect."
   [redirect-map]
@@ -522,27 +502,27 @@
   "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if
   absent. Multiple writes emit `:rf.warning/multiple-redirects`
   (last-write-wins). Throws `:rf.error/redirect-invalid-location` on a
-  location carrying CR/LF/NUL (rf2-hbty2) — a `?next=…` query-param
+  location carrying CR/LF/NUL — a `?next=…` query-param
   redirect would otherwise let an attacker forge headers — per Spec 011
   §CRLF fail-fast. The CR/LF/NUL header-splitting gate is the ONLY gate
   on this caller-trusted path: no URL-shape check is applied, so a raw
   space or other RFC 3986 shape quirk every browser accepts in a
   `Location` header passes through unchanged (URL-shape + origin
-  validation is `:rf.server/safe-redirect`'s job, rf2-ziv4gd).
+  validation is `:rf.server/safe-redirect`'s job).
 
-  **Canonical redirect target key is `:location`** (rf2-vngir). The
-  retired synonyms `:url` / `:to` throw `:rf.error/redirect-retired-
+  **Canonical redirect target key is `:location`.** The unsupported
+  synonyms `:url` / `:to` throw `:rf.error/redirect-retired-
   target-key` naming `:location` — there is no back-compat alias.
 
   **Caller-trusted `:location`** — accepts arbitrary URL strings without
   allowlist or relative-only gating. For caller-untrusted location
-  strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`
-  (rf2-zfm8v) which parses the URL, rejects javascript:/data:/vbscript:
+  strings (e.g. a `?next=` URL param), use `:rf.server/safe-redirect`, which
+  parses the URL, rejects javascript:/data:/vbscript:
   schemes, and supports `:relative-only?` / `:allow [...]` policies.
   See Spec 011 §HTTP response contract §Standard fx."
   [{:keys [frame]} redirect-map]
   (reject-retired-redirect-keys! redirect-map)
-  (let [;; rf2-vngir: the canonical (and only) redirect target key.
+  (let [;; The canonical and only redirect target key.
         location  (:location redirect-map)
         _         (when (some? location)
                     ;; Shared CR/LF/NUL header-splitting gate only — the
@@ -550,7 +530,7 @@
                     ;; (Spec 011 §CRLF fail-fast). No URL-shape check:
                     ;; `:rf.server/redirect` is caller-trusted, so a raw
                     ;; space or RFC 3986 shape quirk a browser accepts
-                    ;; passes through (rf2-ziv4gd). safe-redirect-fx runs
+                    ;; passes through. safe-redirect-fx runs
                     ;; this same gate plus its own emit-based parse.
                     (validate-redirect-location! location))
         status    (or (:status redirect-map) 302)
@@ -571,7 +551,7 @@
     (warn-on-multiple-writes! resp redirect-writes-key
                               :rf.warning/multiple-redirects :final-redirect frame)))
 
-;; ---- :rf.server/safe-redirect (rf2-zfm8v) --------------------------------
+;; ---- :rf.server/safe-redirect ---------------------------------------------
 ;;
 ;; The caller-untrusted variant of :rf.server/redirect. Where redirect-fx
 ;; accepts arbitrary :location strings, safe-redirect-fx parses the URL
@@ -579,9 +559,8 @@
 ;; host — before populating the :redirect slot:
 ;;
 ;;   1. URL must parse — :rf.error/safe-redirect-invalid-url on failure.
-;;   2. Reject javascript: / data: / vbscript: schemes (no safe redirect
-;;      interpretation; consistent with the rf2-vwcsq custom-editor
-;;      scheme-rejection policy) — :rf.error/safe-redirect-scheme-rejected.
+;;   2. Reject javascript: / data: / vbscript: schemes —
+;;      :rf.error/safe-redirect-scheme-rejected.
 ;;   2b. Reject any scheme outside #{http https} outright — a redirect
 ;;      Location is only ever an http(s) absolute URL or a relative
 ;;      reference; mailto:, ftp:, and other schemes have no place as a
@@ -616,24 +595,19 @@
 ;; the response's :redirect stays unchanged, and the programmer sees
 ;; the specific :rf.error/safe-redirect-* category.
 ;;
-;; Mitigation for the open-redirect class (security audit 2026-05-14
-;; §P3.2; scheme-bypass hardening rf2-v3eg3 finding 1): an
-;; attacker-controlled ?next=... URL parameter cannot redirect off-origin
-;; when the app uses safe-redirect-fx instead of redirect-fx — including
-;; the scheme-bearing opaque-URI bypass (`http:evil.example.com`) that
-;; defeats a host-presence-only gate.
+;; This fail-closed shape prevents caller-controlled targets from redirecting
+;; off-origin, including opaque scheme-bearing forms such as
+;; `http:evil.example.com` that defeat a host-presence-only test.
 
 (def ^:private rejected-schemes
-  "Closed set of schemes the safe-redirect-fx rejects outright. Per
-  rf2-zfm8v decision step 2 and rf2-vwcsq's custom-editor scheme policy."
+  "Closed set of schemes the safe-redirect effect rejects outright."
   #{"javascript" "data" "vbscript"})
 
 (def ^:private allowed-schemes
   "Closed set of schemes a redirect Location may legitimately carry. A
   redirect target is either a relative reference (no scheme) or an
   absolute http(s) URL — every other scheme (mailto, ftp, file, tel, …)
-  is rejected outright as a redirect target. Per rf2-v3eg3 finding 1
-  (scheme-bypass hardening): the safe-redirect gate decides non-http(s)
+  is rejected outright as a redirect target. The safe-redirect gate decides non-http(s)
   schemes by rejecting them rather than by maintaining a per-app scheme
   allowlist — an opt-in scheme allowlist can be layered later if a real
   use case appears."
@@ -645,7 +619,7 @@
   / `+` / `-` / `.`). Used pre-parse so rejected schemes whose
   scheme-specific part is not URI-valid (e.g. `data:text/html,<script>`
   with illegal `<` in the opaque part) still surface as scheme-rejected
-  rather than as parse failures. Per rf2-zfm8v validation order."
+  rather than as parse failures."
   #"^\s*([A-Za-z][A-Za-z0-9+\-.]*):")
 
 (defn- detect-scheme
@@ -702,7 +676,7 @@
      :status         302}                  ;; defaults 302 if absent
 
   Validation order (per Spec 009 §Error event catalogue). The gate is on
-  the parsed URL SHAPE, not merely on host presence (rf2-v3eg3 finding 1):
+  the parsed URL shape, not merely on host presence:
 
     1.  URL parses → :rf.error/safe-redirect-invalid-url on failure
     2.  scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
@@ -719,29 +693,23 @@
         (:reason :not-in-allowlist)
     5.  Pass → set :redirect (same shape as :rf.server/redirect)
 
-  Mitigation for the open-redirect class (audit 2026-05-14 §P3.2;
-  scheme-bypass hardening rf2-v3eg3 finding 1): an attacker-controlled
-  ?next=... URL parameter cannot redirect off-origin when the app uses
-  safe-redirect-fx — including scheme-bearing opaque URIs such as
-  `http:evil.example.com`.
-
-  Per rf2-zfm8v (Mike decision, Option A — ship safe-redirect-fx
-  alongside redirect-fx, 2026-05-14)."
+  An attacker-controlled `?next=...` parameter therefore cannot redirect
+  off-origin, including through opaque URIs such as `http:evil.example.com`."
   [{:keys [frame]} {:keys [location relative-only? allow status]
                     :as redirect-map}]
-  ;; rf2-vngir: reject the retired `:url` / `:to` spellings with a clear
+  ;; Reject the unsupported `:url` / `:to` spellings with a clear
   ;; diagnostic naming `:location` before anything else — a safe-redirect
   ;; keyed on a retired spelling would otherwise present as a missing
   ;; (nil) `:location` and fail as a generic parse error, hiding the
   ;; vocabulary mistake.
   (reject-retired-redirect-keys! redirect-map)
   ;; Run the CR/LF/NUL gate first — same defence-in-depth as the
-  ;; caller-trusted redirect-fx (rf2-hbty2). A safe-redirect caller
+  ;; caller-trusted redirect-fx. A safe-redirect caller
   ;; passing a CRLF-bearing location is presumably trying both vectors;
   ;; reject at the same fx boundary the trusted variant uses.
   (validate-redirect-location! location)
 
-  ;; Validation order per rf2-zfm8v / Spec 009 §Error event catalogue.
+  ;; Validation order follows Spec 009 §Error event catalogue.
   ;;
   ;; Scheme rejection (step 2) runs BEFORE URL parse (step 1) for the
   ;; rejected-schemes set because schemes like `data:text/html,<script>`
@@ -780,7 +748,7 @@
                 ;; and is NOT relative. A scheme-bearing opaque URI
                 ;; `http:evil.example.com` has a scheme and is NOT
                 ;; relative — even though Java reports its host as nil.
-                ;; (rf2-v3eg3 finding 1: shape, not host-presence.)
+                ;; The policy is based on URL shape, not host presence alone.
                 relative? (and (nil? scheme) (nil? authority))]
             (cond
               ;; Step 2: scheme rejection (post-parse path — covers
@@ -797,7 +765,6 @@
               ;; relative reference — mailto:, ftp:, file:, tel:, etc.
               ;; have no defensible redirect interpretation and would
               ;; otherwise slip the host-based gates (nil host).
-              ;; (rf2-v3eg3 finding 1.)
               (and scheme-lc (not (allowed-schemes scheme-lc)))
               (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
                                          {:frame    frame
@@ -811,9 +778,7 @@
               ;; These parse cleanly with a nil host, so the host-based
               ;; gates below cannot see them, yet a browser navigates
               ;; off-origin on `Location: http:evil.example.com`. No
-              ;; defensible redirect interpretation. (rf2-v3eg3 finding 1
-              ;; — the scheme-bypass that defeated the host-presence-only
-              ;; open-redirect gate.)
+              ;; defensible redirect interpretation.
               (and scheme-lc (nil? host))
               (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
                                          {:frame    frame

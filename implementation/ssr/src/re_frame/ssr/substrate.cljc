@@ -1,5 +1,5 @@
 (ns re-frame.ssr.substrate
-  "The SSR substrate adapter (rf2-agql). Per Spec 006 §Plain-atom adapter
+  "The SSR substrate adapter. Per Spec 006 §Plain-atom adapter
   and Spec 011 §init flow.
 
   Each adapter ns exports an `adapter` var that the consumer passes to
@@ -12,17 +12,13 @@
                '[re-frame.ssr :as ssr])
       (rf/init! ssr/adapter)
 
-  The render slot deliberately throws — SSR uses render-to-string
-  exclusively; see Spec 006 §Plain-atom adapter and rf2-z1ke (substrate
-  contract portability findings). Eight of the nine contract slots are
-  implemented cleanly; render is the deliberate exception.
+  The render slot deliberately throws because the adapter has no DOM host;
+  SSR callers use `render-to-string` exclusively.
 
   Internal implementation namespace. The public adapter remains
   re-frame.ssr/adapter; this ns deliberately avoids
   re-frame.ssr.adapter so CLJS does not see a child-namespace /
-  parent-var name clash.
-
-  Per the rf2-gxgo7 split of re-frame.ssr."
+  parent-var name clash."
   (:require [re-frame.error :as error]
             [re-frame.ssr.emit :as emit]))
 
@@ -51,8 +47,7 @@
 
 (defn- ssr-render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the SSR
-  ;; adapter is a programmer error worth surfacing loudly. Per Spec 006
-  ;; §Plain-atom adapter and rf2-z1ke.
+  ;; adapter is a programmer error worth surfacing loudly.
   (error/throw-error!
     :rf.error/render-on-headless-adapter
     'rf/render
@@ -79,9 +74,9 @@
 
   Server-side and headless processes use this adapter — it carries
   re-frame.ssr's render-to-string directly in the :render-to-string
-  slot, no late-bind wiring required at the call site. The :render slot
+  slot, with no late-bind wiring required at the call site. The :render slot
   throws (`:rf.error/render-on-headless-adapter`) — SSR uses
-  render-to-string exclusively. Per rf2-agql and Spec 011 §init flow."
+  render-to-string exclusively."
   {:kind                      :rf.adapter/ssr
    :make-state-container      ssr-make-state-container
    :read-container            ssr-read-container
