@@ -98,14 +98,18 @@
   "Per Spec 005 §Final states + §Parallel regions: resolve
   every region's active final leaf-node from the post-transition `state`
   map (a `{region-name region-state}` map). Returns an ordered seq of
-  `[region-name leaf-node]` in the state-map's iteration order — the basis
-  for the cross-region `:output-key` scan below."
+  `[region-name leaf-node]` in canonical region DECLARATION order
+  (`parallel/region-order`) — the basis for the cross-region `:output-key` /
+  `:error?` scans below, whose first-region tie-break must follow authored
+  order, NEVER state-map hash iteration (>8 regions). `state` is a valid
+  all-final configuration here (gated by `all-regions-final?`), so every
+  declared region is present."
   [machine state]
-  (map (fn [[region-name region-state]]
+  (map (fn [region-name]
          [region-name
           (transition/node-at (get-in machine [:regions region-name])
-                              (transition/state-path region-state))])
-       state))
+                              (transition/state-path (get state region-name)))])
+       (parallel/region-order machine)))
 
 (defn- parallel-output-key
   "Per Spec 005 §Final states: resolve a finishing PARALLEL
@@ -118,7 +122,8 @@
   `:output-key`s — emits
   `:rf.error/machine-parallel-output-key-conflict` and deterministically
   keeps the first-region declaration (last-region-loses would be just as
-  arbitrary; first-in-state-order is the stable, documented tiebreak)."
+  arbitrary; first-in-declaration-order — canonical `region-order` — is the
+  stable, documented tiebreak)."
   [machine state frame-id machine-id]
   (let [declared (->> (region-final-leaf-nodes machine state)
                       (filter (fn [[_ node]] (contains? node :output-key))))
@@ -143,8 +148,8 @@
   "Per Spec 005 §Final states §`:on-error` + §Parallel regions:
   classify a finishing PARALLEL machine's terminal as ERROR by scanning
   EVERY region's final leaf — not just the first region's. Returns the
-  first (state-map order) region final leaf that declares `:error? true`,
-  or nil when no region's terminal is an error final.
+  first (canonical region-declaration order) region final leaf that declares
+  `:error? true`, or nil when no region's terminal is an error final.
 
   Spec 005 §3061 says a parallel machine finishes when EVERY region's active
   leaf is `:final?` and never restricts the error terminal to the first

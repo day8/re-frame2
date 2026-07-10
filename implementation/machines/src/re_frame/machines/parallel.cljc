@@ -41,6 +41,7 @@
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
   (:require [clojure.set :as set]
+            [re-frame.error :as error]
             [re-frame.machines.choice :as choice]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -54,6 +55,121 @@
   "True iff the machine declares `:type :parallel` (root-level only)."
   [machine]
   (= :parallel (:type machine)))
+
+;; ---- region declaration order — the explicit registration contract --------
+;;
+;; Per Spec 005 §Parallel regions, a parallel machine SELECTS every region's
+;; enabled transition against ONE frozen pre-event snapshot, then APPLIES the
+;; selected transitions in region DECLARATION order. That apply order governs
+;; sequential `:data` accumulation, effect / cascade ordering, spawn-counter
+;; allocation, birth/destroy entry-exit order, root multi-target application,
+;; and the finalization first-region tie-break.
+;;
+;; Declaration order is an EXPLICIT, IMMUTABLE part of the registration
+;; contract — the canonical `:region-order` vector — normalised ONCE at
+;; registration (`normalise-region-order`, via `install-region-cache`) and at
+;; the pure-fn engine seams. Runtime code NEVER recovers order from
+;; `(keys (:regions …))` / state-map iteration: a `:regions` map with more
+;; than eight entries is a PersistentHashMap whose key iteration is HASH order
+;; (source order is already gone at read time, and hash order even differs
+;; between CLJ and CLJS), so map iteration cannot carry authored order. This
+;; changes the apply-ordering REPRESENTATION only; the frozen select-then-apply
+;; SELECTION semantics are unchanged.
+
+(defn- order-preserving-map?
+  "True iff `m`'s key-iteration order equals its authored/insertion order —
+  i.e. `m` is a PersistentArrayMap (the ≤8-entry representation in both CLJ
+  and CLJS). A PersistentHashMap (>8 entries) iterates in HASH order, which is
+  NOT authored order and diverges between CLJ and CLJS."
+  [m]
+  #?(:clj  (instance? clojure.lang.PersistentArrayMap m)
+     :cljs (instance? cljs.core/PersistentArrayMap m)))
+
+(defn- region-order-ok?
+  "True iff `order` is a vector that is an exact permutation of
+  `region-keyset` — same cardinality and same set (which together forbid
+  duplicates and any missing / extra region)."
+  [order region-keyset]
+  (and (vector? order)
+       (= (count order) (count region-keyset))
+       (= (set order) region-keyset)))
+
+(defn normalise-region-order
+  "Normalise a parallel `machine`'s region declaration order into the
+  canonical immutable `:region-order` vector — the ONE order source the
+  runtime reads. Non-parallel machines pass through untouched. Idempotent: a
+  machine already carrying a canonical `:region-order` is returned unchanged,
+  so re-registration and the pure-fn engine seams may re-run it freely.
+
+  Resolution (registration-time, exactly once):
+   1. An explicit author-supplied `:region-order` is VALIDATED — a vector that
+      is an exact permutation of the `:regions` keyset (unique entries, no
+      missing / extra region). A malformed / mismatched order throws
+      `:rf.error/machine-parallel-region-order-mismatch`.
+   2. Otherwise the order is DERIVED from `:regions` iteration ONLY when the
+      map is order-preserving (a PersistentArrayMap — ≤8 entries, whose key
+      order IS the authored order in both CLJ and CLJS). This is the sole
+      small-machine convenience path; it captures the authored order ONCE into
+      the canonical vector and the runtime never re-reads map iteration.
+   3. A `:regions` map that is NOT order-preserving (a PersistentHashMap — >8
+      entries) with NO explicit `:region-order` throws
+      `:rf.error/machine-parallel-region-order-required`: a >8-entry map
+      literal has already lost authored order (hash iteration, CLJ/CLJS-
+      divergent), so the author MUST declare an explicit `:region-order`
+      vector (or keep the region count at/below the array-map threshold)."
+  [machine]
+  (if-not (parallel? machine)
+    machine
+    (let [regions (:regions machine)]
+      (if-not (map? regions)
+        machine                          ; malformed shape — validate-parallel! reports it
+        (let [keyset   (set (keys regions))
+              declared (:region-order machine)]
+          (cond
+            (region-order-ok? declared keyset)
+            machine                       ; already canonical — idempotent re-run
+
+            (some? declared)
+            (error/throw-error!
+              :rf.error/machine-parallel-region-order-mismatch
+              'rf/reg-machine
+              (str ":region-order must be a vector that is an exact permutation of "
+                   "the :regions keyset — unique entries, one per region, no missing "
+                   "or extra region. Declared " (pr-str declared) " for regions "
+                   (pr-str keyset) ".")
+              {:recovery :fix-registration
+               :extra    {:region-order declared :regions keyset}})
+
+            (order-preserving-map? regions)
+            (assoc machine :region-order (vec (keys regions)))
+
+            :else
+            (error/throw-error!
+              :rf.error/machine-parallel-region-order-required
+              'rf/reg-machine
+              (str "a :type :parallel machine with more than eight regions must "
+                   "declare an explicit :region-order vector: a >8-entry :regions "
+                   "map literal is a PersistentHashMap whose key order is hash order "
+                   "(authored declaration order is already lost at read time, and "
+                   "hash order diverges between CLJ and CLJS). Add "
+                   ":region-order [<region> …] listing every region in declaration "
+                   "order.")
+              {:recovery :fix-registration
+               :extra    {:regions keyset :region-count (count regions)}})))))))
+
+(defn region-order
+  "The canonical region declaration-order vector for a parallel `machine` —
+  the SINGLE order source every order-sensitive parallel operation routes
+  through (initial-snapshot construction, `reduce-regions`, root multi-target
+  apply, birth / destroy cascades, fx / spawn allocation, the finalization
+  first-region tie-break). Reads the canonical `:region-order` normalised once
+  at registration; self-normalises a machine that reaches this accessor
+  un-normalised (a raw pure-fn caller) so order is NEVER silently taken from
+  map / state-map iteration — an order-preserving small map is captured, a >8
+  hash-map without an explicit order throws."
+  [machine]
+  (or (:region-order machine)
+      (:region-order (normalise-region-order machine))))
 
 (defn parallel-state-valid?
   "The ONE parallel-region snapshot-shape predicate (bz0ox.2 / x4s9t.2 —
@@ -169,13 +285,18 @@
         built))))
 
 (defn install-region-cache
-  "Attach an empty region-machine cache to `parent-machine`'s metadata.
-  Called at registration time for `:type :parallel` machines so the
-  hot-path `region-machine` lookups hit the cache instead of allocating
-  a fresh map per call."
+  "Normalise the region declaration order (`normalise-region-order` — the
+  canonical `:region-order` vector, the ONE registration-time step that makes
+  authored order explicit) and attach an empty region-machine cache to
+  `parent-machine`'s metadata. Called at registration time for `:type
+  :parallel` machines so the hot-path `region-machine` lookups hit the cache
+  instead of allocating a fresh map per call, and so every downstream
+  order-sensitive site reads the canonical order rather than map iteration."
   [parent-machine]
   (if (parallel? parent-machine)
-    (vary-meta parent-machine assoc ::region-cache (atom {}))
+    (-> parent-machine
+        normalise-region-order
+        (vary-meta assoc ::region-cache (atom {})))
     parent-machine))
 
 (defn- region-initial-state
@@ -242,9 +363,15 @@
       passes `bootstrap-pending? false` here."
   [machine {:keys [bootstrap-pending?]}]
   (let [initial-state (if (parallel? machine)
+                        ;; Build the region→initial map in canonical
+                        ;; declaration order (`region-order`), NOT `:regions`
+                        ;; map iteration — so the initial `:state` reads in
+                        ;; authored order and never inherits hash iteration.
                         (into {}
-                              (for [[rn region-body] (:regions machine)]
-                                [rn (region-initial-state region-body)]))
+                              (map (fn [rn]
+                                     [rn (region-initial-state
+                                           (get-in machine [:regions rn]))]))
+                              (region-order machine))
                         (let [decl (:initial machine)]
                           (transition/denormalise-state
                             (transition/initial-cascade machine (transition/state-path decl))
@@ -314,9 +441,10 @@
 ;;
 ;; Per Spec 005 §Parallel regions, every reducer that broadcasts ONE
 ;; per-region computation across a parallel-region machine MUST:
-;;   - iterate regions in declaration order (declaration order = the
-;;     order in which `:regions` was authored; falls back to state-map
-;;     key order when the spec has been mutated post-registration),
+;;   - iterate regions in declaration order — the canonical `region-order`
+;;     vector (the order in which the regions were authored, made explicit and
+;;     normalised ONCE at registration); NEVER `:regions` / state-map key
+;;     iteration, which is hash order past the array-map threshold,
 ;;   - thread shared `:data` sequentially through regions so a later
 ;;     region's step sees earlier regions' writes,
 ;;   - thread the in-snapshot `:rf/spawn-counter` so any
@@ -399,19 +527,21 @@
   doesn't apply."
   [parent-machine snapshot step-fn]
   (let [state-map   (:state snapshot)
-        ;; Declaration-order iteration. Snapshot-shape validity (exactly the
-        ;; declared region key set — `parallel-state-valid?`) is enforced
-        ;; UPSTREAM at handler entry (`registration/state-resolves?` ->
-        ;; `reconcile-snapshot`), so a live snapshot reaching here always
-        ;; carries every declared region; the `contains?` filter is then a
-        ;; no-op. It is retained as a defensive guard against a pure-fn caller
-        ;; that synthesises a partial map directly — skipping an absent region
-        ;; is safer than a `state-path nil` throw, and `all-regions-final?` now
-        ;; independently rejects a partial map so a skipped region can never
-        ;; vacuously read as done (bz0ox.2 / x4s9t.2).
+        ;; Canonical declaration-order iteration via `region-order` — the ONE
+        ;; order source, normalised once at registration; NEVER `(keys …)` map
+        ;; iteration (hash order past the array-map threshold). Snapshot-shape
+        ;; validity (exactly the declared region key set —
+        ;; `parallel-state-valid?`) is enforced UPSTREAM at handler entry
+        ;; (`registration/state-resolves?` -> `reconcile-snapshot`), so a live
+        ;; snapshot reaching here always carries every declared region; the
+        ;; `contains?` filter is then a no-op. It is retained as a defensive
+        ;; guard against a pure-fn caller that synthesises a partial map
+        ;; directly — skipping an absent region is safer than a `state-path
+        ;; nil` throw, and `all-regions-final?` now independently rejects a
+        ;; partial map so a skipped region can never vacuously read as done
+        ;; (bz0ox.2 / x4s9t.2).
         ordered     (filterv #(contains? state-map %)
-                             (or (vec (keys (:regions parent-machine)))
-                                 (vec (keys state-map))))
+                             (region-order parent-machine))
         ;; FROZEN pre-broadcast cross-region snapshot. The
         ;; `:all-state` / `:tags` a region's guard OR action reads are computed
         ;; ONCE here, from the pre-event `state-map`, and threaded UNCHANGED
@@ -803,9 +933,10 @@
   shared `:data`, then atomically apply each region-qualified `:target` to
   its named region (leaving untargeted regions unchanged), and re-stamp the
   tag union. `transition` is the transition map `root-on-match` selected.
-  Targets are applied in REGION-DECLARATION order (the `:regions` key order,
-  filtered to the targeted regions) so `:data` accumulation across multiple
-  region targets is deterministic, consistent with `reduce-regions`. Returns
+  Targets are applied in REGION-DECLARATION order (the canonical
+  `region-order`, filtered to the targeted regions) so `:data` accumulation
+  across multiple region targets is deterministic, consistent with
+  `reduce-regions`. Returns
   a `result/ok` carrying `[merged-snapshot fx]` stamped `::handled? true` (the
   root transition resolved the event), or a `result/fail` if the root action
   or any region cascade threw."
@@ -815,10 +946,10 @@
       action-r
       (result/with-ok [snap-after-action action-fx] action-r
         (let [targets        (normalise-root-targets (:target transition))
-              ;; Apply in region-declaration order (filtered to targeted
-              ;; regions) for deterministic `:data` accumulation.
-              decl-order     (or (vec (keys (:regions machine)))
-                                 (vec (keys (:state snapshot))))
+              ;; Apply in canonical region-declaration order (`region-order`,
+              ;; filtered to targeted regions) for deterministic `:data`
+              ;; accumulation — never `:regions` / state-map key iteration.
+              decl-order     (region-order machine)
               target-by-rn   (into {} (map (fn [t] [(first t) t])) targets)
               ordered-targets (->> decl-order
                                    (keep target-by-rn)
@@ -1311,8 +1442,12 @@
   ;; mechanism (`:timeout` → `:after`; `:choice` → `:always`). Idempotent,
   ;; so a spec already desugared at registration is unaffected; this seam
   ;; also covers the conformance `:machine-transition` op, which passes the
-  ;; RAW (pre-registration) definition straight here.
-  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
+  ;; RAW (pre-registration) definition straight here — so normalise the region
+  ;; declaration order (idempotent for an already-registered machine) alongside
+  ;; the desugars, so `region-order` is canonical before the parallel engine
+  ;; reads it.
+  (let [machine (normalise-region-order
+                  (choice/desugar-choices (timeout/desugar-timeouts machine)))]
     (try
       (if (parallel? machine)
         (parallel-machine-transition machine snapshot event)
@@ -1477,8 +1612,10 @@
   ;; emits, and `:type :choice` / `:choice` so a transient
   ;; INITIAL choice leaf resolves on start via the birth-time `:always`
   ;; settle. Idempotent — a spec already desugared at registration is
-  ;; unaffected. Mirrors the desugar at the `machine-transition` entry.
-  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
+  ;; unaffected. Mirrors the desugar + region-order normalisation at the
+  ;; `machine-transition` entry so the birth cascade reads canonical order.
+  (let [machine (normalise-region-order
+                  (choice/desugar-choices (timeout/desugar-timeouts machine)))]
     (try
       (apply-initial-entry-cascade* machine initial-snapshot)
       (catch #?(:clj Throwable :cljs :default) e
@@ -1536,5 +1673,9 @@
   action threw."
   [machine snapshot]
   (if (parallel? machine)
-    (reduce-regions machine snapshot transition/run-active-exit-cascade)
+    ;; Normalise region order (idempotent for a registered machine) — the
+    ;; destroy exit cascade is a public engine entry NOT behind the transition
+    ;; desugar seam, so canonicalise here too before `reduce-regions` reads it.
+    (reduce-regions (normalise-region-order machine) snapshot
+                    transition/run-active-exit-cascade)
     (transition/run-active-exit-cascade machine snapshot)))
