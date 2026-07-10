@@ -45,7 +45,8 @@
             [re-frame.frame :as frame]
             [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -72,14 +73,6 @@
   (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
   ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db state.
   (subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
-
-(defn- capture-traces!
-  [f]
-  (let [traces (atom [])
-        cb-id  (gensym "::ssr-hydration-mismatch-capture-")]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (rf/unregister-listener! :trace cb-id)))
-    @traces))
 
 (def ^:private hex-8-pattern #"^[0-9a-f]{8}$")
 
@@ -126,33 +119,30 @@
     (let [client-frame   (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                          :platform :client})
           ;; A second 8-hex string — anything other than \"deadbeef\".
-          client-hash    "0badf00d"
-          _              (rf/dispatch-sync [:rf/hydrate mismatch-payload]
-                                           {:frame client-frame})
-          traces         (capture-traces!
-                           (fn []
-                             (ssr/verify-hydration! client-frame
-                                                    client-hash)))
-          mismatches     (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                 traces)]
-      (is (= 1 (count mismatches))
-          (str "expected exactly one :rf.ssr/hydration-mismatch trace; saw: "
-               (pr-str (mapv :operation traces))))
-      (when (seq mismatches)
-        (let [ev (first mismatches)]
-          (is (= "deadbeef" (-> ev :tags :server-hash))
-              ":tags :server-hash echoes the payload's known-wrong literal")
-          (is (= client-hash (-> ev :tags :client-hash))
-              ":tags :client-hash echoes the value we passed to
-               verify-hydration!")
-          (is (= :rf/hydrate (-> ev :tags :failing-id))
-              ":tags :failing-id discriminator per Spec 011 v1
-               (body-mismatch; runtime head-mismatch reserved for the
-               still-deferred post-v1 head-only-hash extension —
-               reg-head itself has already shipped)")
-          (is (= :warned-and-replaced (:recovery ev))
-              ":recovery hoisted onto the envelope top-level
-               (Spec 009 §Error event shape)"))))))
+          client-hash    "0badf00d"]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (with-trace-recorder! [traces]
+        (ssr/verify-hydration! client-frame client-hash)
+        (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                 @traces)]
+          (is (= 1 (count mismatches))
+              (str "expected exactly one :rf.ssr/hydration-mismatch trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq mismatches)
+            (let [ev (first mismatches)]
+              (is (= "deadbeef" (-> ev :tags :server-hash))
+                  ":tags :server-hash echoes the payload's known-wrong literal")
+              (is (= client-hash (-> ev :tags :client-hash))
+                  ":tags :client-hash echoes the value we passed to
+                   verify-hydration!")
+              (is (= :rf/hydrate (-> ev :tags :failing-id))
+                  ":tags :failing-id discriminator per Spec 011 v1
+                   (body-mismatch; runtime head-mismatch reserved for the
+                   still-deferred post-v1 head-only-hash extension —
+                   reg-head itself has already shipped)")
+              (is (= :warned-and-replaced (:recovery ev))
+                  ":recovery hoisted onto the envelope top-level
+                   (Spec 009 §Error event shape)"))))))))
 
 (deftest mismatch-trace-client-hash-is-8-char-lowercase-hex
   (testing "Migrated from testbeds/ssr_hydration_mismatch/spec.cjs
@@ -172,34 +162,31 @@
           ;; invariant, not the literal.
           render-tree  [:div {:data-testid "counter-panel"}
                         [:p "count=" [:span {:data-testid "count"} 0]]]
-          client-hash  (rf/render-tree-hash render-tree)
-          _            (rf/dispatch-sync [:rf/hydrate mismatch-payload]
-                                         {:frame client-frame})
-          traces       (capture-traces!
-                         (fn []
-                           (ssr/verify-hydration! client-frame
-                                                  render-tree)))
-          mismatch     (first (filter #(= :rf.ssr/hydration-mismatch
+          client-hash  (rf/render-tree-hash render-tree)]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (with-trace-recorder! [traces]
+        (ssr/verify-hydration! client-frame render-tree)
+        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
                                           (:operation %))
-                                      traces))]
-      (is (some? mismatch)
-          ":rf.ssr/hydration-mismatch fires when the resolved tree
-           hashes to anything other than 'deadbeef'")
-      (when mismatch
-        (let [observed (-> mismatch :tags :client-hash)]
-          (is (and (string? observed) (= 8 (count observed)))
-              (str "computed client-hash is exactly 8 chars; got "
-                   (pr-str observed)))
-          (is (re-matches hex-8-pattern observed)
-              (str "computed client-hash is 8-char lowercase hex; got "
-                   (pr-str observed)))
-          (is (= client-hash observed)
-              "the trace echoes the same hash render-tree-hash
-               computes when called directly on the input")
-          (is (not= "deadbeef" observed)
-              "client-hash never equals the (deliberately wrong)
-               server-hash — that would be a hash-collision spec
-               violation"))))))
+                                      @traces))]
+          (is (some? mismatch)
+              ":rf.ssr/hydration-mismatch fires when the resolved tree
+               hashes to anything other than 'deadbeef'")
+          (when mismatch
+            (let [observed (-> mismatch :tags :client-hash)]
+              (is (and (string? observed) (= 8 (count observed)))
+                  (str "computed client-hash is exactly 8 chars; got "
+                       (pr-str observed)))
+              (is (re-matches hex-8-pattern observed)
+                  (str "computed client-hash is 8-char lowercase hex; got "
+                       (pr-str observed)))
+              (is (= client-hash observed)
+                  "the trace echoes the same hash render-tree-hash
+                   computes when called directly on the input")
+              (is (not= "deadbeef" observed)
+                  "client-hash never equals the (deliberately wrong)
+                   server-hash — that would be a hash-collision spec
+                   violation"))))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(3) → the trace's :op-type is :error
@@ -214,19 +201,17 @@
             `re-frame.ssr.hydrate/verify-hydration!`)."
     (register-handlers!)
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
-                                       :platform :client})
-          _            (rf/dispatch-sync [:rf/hydrate mismatch-payload]
-                                         {:frame client-frame})
-          traces       (capture-traces!
-                         (fn []
-                           (ssr/verify-hydration! client-frame "0badf00d")))
-          mismatch     (first (filter #(= :rf.ssr/hydration-mismatch
+                                       :platform :client})]
+      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
+      (with-trace-recorder! [traces]
+        (ssr/verify-hydration! client-frame "0badf00d")
+        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch
                                           (:operation %))
-                                      traces))]
-      (is (some? mismatch))
-      (when mismatch
-        (is (= :error (:op-type mismatch))
-            ":op-type is :error — Spec 009 categorisation")))))
+                                      @traces))]
+          (is (some? mismatch))
+          (when mismatch
+            (is (= :error (:op-type mismatch))
+                ":op-type is :error — Spec 009 categorisation")))))))
 
 ;; ===========================================================================
 ;; spec.cjs §(4) → page is still interactive post-mismatch
@@ -254,8 +239,8 @@
       ;; Fire the mismatch trace (otherwise this test would pass
       ;; vacuously — we want to assert the dispatch survives
       ;; the recovery, not just that it works without one).
-      (capture-traces!
-        (fn [] (ssr/verify-hydration! client-frame "0badf00d")))
+      (with-trace-recorder! [_traces]
+        (ssr/verify-hydration! client-frame "0badf00d"))
 
       (rf/dispatch-sync [::inc] {:frame client-frame})
       (is (= 1 (rf/subscribe-once [:count] {:frame client-frame}))
@@ -317,16 +302,15 @@
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (let [traces (capture-traces!
-                     (fn []
-                       (try (ssr/verify-hydration! client-frame "0badf00d")
-                            (catch clojure.lang.ExceptionInfo _ nil))))
-            mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                    traces))]
-        (is (some? mismatch)
-            "the mismatch trace fires even in strict mode")
-        (is (= :hard-error (:recovery mismatch))
-            "the trace's :recovery reflects strict mode")))))
+      (with-trace-recorder! [traces]
+        (try (ssr/verify-hydration! client-frame "0badf00d")
+             (catch clojure.lang.ExceptionInfo _ nil))
+        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                      @traces))]
+          (is (some? mismatch)
+              "the mismatch trace fires even in strict mode")
+          (is (= :hard-error (:recovery mismatch))
+              "the trace's :recovery reflects strict mode"))))))
 
 (deftest mismatch-detection-disabled-skips-comparison
   (testing "rf2-ee38b.10 — a frame with :ssr {:detect-mismatch? false}
@@ -337,14 +321,13 @@
                                        :platform :client
                                        :ssr {:detect-mismatch? false}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (let [traces (capture-traces!
-                     (fn []
-                       (is (nil? (ssr/verify-hydration! client-frame "0badf00d"))
-                           "verify-hydration! is a no-op when detection is off")))
-            mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                               traces)]
-        (is (empty? mismatches)
-            "no mismatch trace fires when :detect-mismatch? is false")))))
+      (with-trace-recorder! [traces]
+        (is (nil? (ssr/verify-hydration! client-frame "0badf00d"))
+            "verify-hydration! is a no-op when detection is off")
+        (let [mismatches (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                 @traces)]
+          (is (empty? mismatches)
+              "no mismatch trace fires when :detect-mismatch? is false"))))))
 
 (deftest mismatch-detection-defaults-on-when-knob-absent
   (testing "rf2-ee38b.10 — absence of the :detect-mismatch? knob (the
@@ -355,10 +338,10 @@
     (let [client-frame (frame/make-anon-frame-record! {:doc "ssr default frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (let [traces (capture-traces!
-                     (fn [] (ssr/verify-hydration! client-frame "0badf00d")))
-            mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                    traces))]
-        (is (some? mismatch) "detection defaults on")
-        (is (= :warned-and-replaced (:recovery mismatch))
-            "the default recovery is warn-and-replace (not hard-error)")))))
+      (with-trace-recorder! [traces]
+        (ssr/verify-hydration! client-frame "0badf00d")
+        (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
+                                      @traces))]
+          (is (some? mismatch) "detection defaults on")
+          (is (= :warned-and-replaced (:recovery mismatch))
+              "the default recovery is warn-and-replace (not hard-error)"))))))

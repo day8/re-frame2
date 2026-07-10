@@ -51,17 +51,10 @@
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.streaming :as streaming]
             [re-frame.ssr.ring.test-support :as ts]
-            [re-frame.trace :as trace])
+            [re-frame.test-support :refer [with-trace-recorder!]])
   (:import [java.io InputStream OutputStream PipedInputStream PipedOutputStream]))
 
 (use-fixtures :each ts/reset-runtime)
-
-(defn- with-trace-capture
-  [coll-atom body-fn]
-  (let [k (str (gensym "ssr-writer-trace-cb"))]
-    (trace/register-listener! k (fn [ev] (swap! coll-atom conj ev)))
-    (try (body-fn)
-         (finally (trace/unregister-listener! k)))))
 
 ;; ===========================================================================
 ;; The trace emit itself — the gap streaming_robustness_test left open.
@@ -77,43 +70,42 @@
             the emit would pass every existing test."
     (let [pipe-in  (PipedInputStream. 1024)
           pipe-out (PipedOutputStream. pipe-in)
-          _        (.close pipe-in) ;; pre-broken pipe — every write throws
-          captured (atom [])]
+          _        (.close pipe-in)] ;; pre-broken pipe — every write throws
       ;; Drive the writer body directly against the pre-broken pipe.
       ;; rf2-r06pc — the writer no longer resolves/renders the shell
       ;; (that moved to the request thread); we hand it a PRE-RENDERED
       ;; shell. The first chunk write of the shell prefix hits the
       ;; pre-broken pipe → IOException → the catch arm runs and emits
       ;; the trace.
-      (with-trace-capture captured
-        #(@#'streaming/run-streaming-writer!
-           pipe-out :no-such-frame
-           {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
-            :shell-html "<div></div>" :continuations []}
-           {:root-view [:div]}))
-      (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
-                          @captured)]
-        (is (= 1 (count hits))
-            (str "expected exactly one :rf.error/ssr-streaming-writer-
-                 failed trace; saw: " (count hits) " (all operations: "
-                 (pr-str (mapv :operation @captured)) ")"))
-        (when (seq hits)
-          (let [ev (first hits)]
-            (is (= :error (:op-type ev))
-                ":op-type is :error per Spec 009 — writer-failed is a
-                 hard failure, not a warning")
-            (is (some? (-> ev :tags :exception))
-                ":exception tag carries the throwable's message")
-            (is (some? (-> ev :tags :ex-class))
-                ":ex-class tag carries the throwable's class name")
-            (is (= :truncate-and-close (:recovery ev))
-                ":recovery is hoisted to top-level per Spec 009
-                 §Error event shape — names the failure-recovery
-                 policy (partial response on the wire, pipe closes)")
-            (is (= :no-such-frame (-> ev :tags :frame))
-                ":frame tag identifies which request failed — load-
-                 bearing for ops correlating writer failures to
-                 specific requests in JFR / log streams")))))))
+      (with-trace-recorder! [captured]
+        (@#'streaming/run-streaming-writer!
+          pipe-out :no-such-frame
+          {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
+           :shell-html "<div></div>" :continuations []}
+          {:root-view [:div]})
+        (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
+                            @captured)]
+          (is (= 1 (count hits))
+              (str "expected exactly one :rf.error/ssr-streaming-writer-
+                   failed trace; saw: " (count hits) " (all operations: "
+                   (pr-str (mapv :operation @captured)) ")"))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :error (:op-type ev))
+                  ":op-type is :error per Spec 009 — writer-failed is a
+                   hard failure, not a warning")
+              (is (some? (-> ev :tags :exception))
+                  ":exception tag carries the throwable's message")
+              (is (some? (-> ev :tags :ex-class))
+                  ":ex-class tag carries the throwable's class name")
+              (is (= :truncate-and-close (:recovery ev))
+                  ":recovery is hoisted to top-level per Spec 009
+                   §Error event shape — names the failure-recovery
+                   policy (partial response on the wire, pipe closes)")
+              (is (= :no-such-frame (-> ev :tags :frame))
+                  ":frame tag identifies which request failed — load-
+                   bearing for ops correlating writer failures to
+                   specific requests in JFR / log streams"))))))))
 
 ;; ===========================================================================
 ;; Shell-render-throw composition with frame destroy — when the shell
@@ -219,10 +211,9 @@
   write, capture the writer-failed trace, and return its first event (or
   nil). `rendered` is a genuine `render-streaming-shell!` result."
   [frame-id rendered opts throw-at-write]
-  (let [captured (atom [])]
-    (with-trace-capture captured
-      #(@#'streaming/run-streaming-writer!
-         (throw-on-nth-write-stream throw-at-write) frame-id rendered opts))
+  (with-trace-recorder! [captured]
+    (@#'streaming/run-streaming-writer!
+      (throw-on-nth-write-stream throw-at-write) frame-id rendered opts)
     (->> @captured
          (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %)))
          first)))

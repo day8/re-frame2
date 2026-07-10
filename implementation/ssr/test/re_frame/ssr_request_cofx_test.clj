@@ -28,18 +28,11 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
 (use-fixtures :each tf/reset-runtime)
-
-(defn- collect-traces!
-  "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-listener! :trace id) to detach."
-  [id]
-  (let [acc (atom [])]
-    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
-    acc))
 
 ;; ---- registration -----------------------------------------------------------
 ;;
@@ -137,35 +130,34 @@
   (testing ":rf.server/request is skipped on a :platform :client frame
             and emits :rf.cofx/skipped-on-platform"
     (let [client-frame (frame/make-anon-frame-record! {:platform :client})
-          traces       (collect-traces! ::req-client)
           observed     (atom :unset)]
-      (rf/reg-event :req-test/read-on-client
-        {:rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request] :as ctx} _]
-          (reset! observed
-                  (if (contains? ctx :rf.server/request)
-                    [:present request]
-                    [:absent  request]))
-          {}))
-      (rf/dispatch-sync [:req-test/read-on-client] {:frame client-frame})
-      (rf/unregister-listener! :trace ::req-client)
+      (with-trace-recorder! [traces]
+        (rf/reg-event :req-test/read-on-client
+          {:rf.cofx/requires [:rf.server/request]}
+          (fn [{:keys [rf.server/request] :as ctx} _]
+            (reset! observed
+                    (if (contains? ctx :rf.server/request)
+                      [:present request]
+                      [:absent  request]))
+            {}))
+        (rf/dispatch-sync [:req-test/read-on-client] {:frame client-frame})
 
-      (is (= [:absent nil] @observed)
-          "the cofx did NOT run — :rf.server/request is absent from coeffects")
+        (is (= [:absent nil] @observed)
+            "the cofx did NOT run — :rf.server/request is absent from coeffects")
 
-      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                          @traces)]
-        (is (= 1 (count skips))
-            "exactly one :rf.cofx/skipped-on-platform trace was emitted")
-        (let [t (first skips)]
-          (is (= :rf.server/request (get-in t [:tags :rf.cofx/id]))
-              ":rf.cofx/id identifies the gated cofx")
-          (is (= :client (get-in t [:tags :rf.cofx/platform]))
-              ":rf.cofx/platform carries the active platform that excluded the cofx")
-          (is (= #{:server} (get-in t [:tags :rf.cofx/registered-platforms]))
-              ":rf.cofx/registered-platforms surfaces the cofx's declared set")
-          (is (= :skipped (:recovery t))
-              ":recovery is :skipped — the runtime declined to act"))))))
+        (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
+                            @traces)]
+          (is (= 1 (count skips))
+              "exactly one :rf.cofx/skipped-on-platform trace was emitted")
+          (let [t (first skips)]
+            (is (= :rf.server/request (get-in t [:tags :rf.cofx/id]))
+                ":rf.cofx/id identifies the gated cofx")
+            (is (= :client (get-in t [:tags :rf.cofx/platform]))
+                ":rf.cofx/platform carries the active platform that excluded the cofx")
+            (is (= #{:server} (get-in t [:tags :rf.cofx/registered-platforms]))
+                ":rf.cofx/registered-platforms surfaces the cofx's declared set")
+            (is (= :skipped (:recovery t))
+                ":recovery is :skipped — the runtime declined to act")))))))
 
 ;; ---- frame isolation -------------------------------------------------------
 ;;

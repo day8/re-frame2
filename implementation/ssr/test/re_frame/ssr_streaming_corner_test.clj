@@ -27,7 +27,7 @@
             [re-frame.frame :as frame]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (defn- reset+reg
   [test-fn]
@@ -38,14 +38,6 @@
       (test-fn))))
 
 (use-fixtures :each reset+reg)
-
-(defn- with-trace-capture
-  "Capture every emitted trace event into `coll-atom` during `(body-fn)`."
-  [coll-atom body-fn]
-  (let [k (str (gensym "streaming-corner-cb"))]
-    (trace/register-listener! k (fn [ev] (swap! coll-atom conj ev)))
-    (try (body-fn)
-         (finally (trace/unregister-listener! k)))))
 
 (defn- make-server-frame
   "Register a per-request server frame and seed its app-db via an
@@ -173,46 +165,47 @@
       ;; :fallback rides from `record-continuation!`.
       (let [fid    (make-server-frame)
             entry  (first continuations)
-            captured (atom [])
-            result (with-trace-capture captured
-                     #(streaming/render-continuation fid entry))]
-        (is (= [:p "outer loading"] (:fallback entry))
-            "record-continuation! stored the outer boundary's declared
-             :fallback on the entry")
-        (is (not (:failed? result))
-            "the outer continuation resolves cleanly — the streaming
-             walker recognises the buried :rf/suspense-boundary instead
-             of throwing on it (rf2-sgvn6 / rf2-b1v8v)")
-        (is (empty? (filter #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                            @captured))
-            "NO suspense-boundary-failed trace — the nested boundary is
-             registered, not fail-soft'd")
-        ;; The inner boundary's resolved chunk is NOT in the outer's HTML;
-        ;; instead the outer HTML carries the inner's FALLBACK <template>.
-        (is (str/includes? (:html result) "data-rf2-suspense-id=\":inner\"")
-            "the outer's resolved HTML carries the inner boundary's
-             <template> placeholder (its fallback), stamped with the
-             inner id")
-        (is (str/includes? (:html result) "data-rf2-suspense-fallback=\"1\"")
-            "the inner placeholder is a fallback template (deferred), not
-             the resolved inner body")
-        (is (str/includes? (:html result) "inner loading")
-            "the inner's fallback hiccup materialised inline in the
-             outer's resolved chunk")
-        (is (not (str/includes? (:html result) "inner body"))
-            "the inner BODY is NOT in the outer chunk — it is deferred to
-             the inner continuation's own drain")
-        ;; The new continuation lands on :continuations for the host to
-        ;; append at the TAIL of its FIFO drain queue.
-        (is (= 1 (count (:continuations result)))
-            "render-continuation returns the ONE newly-registered inner
-             continuation for the host to append (FIFO tail)")
-        (is (= :inner (-> result :continuations first :id))
-            "the inner boundary's id propagates on the returned
-             continuation entry")
-        (is (= [:p "inner loading"] (-> result :continuations first :fallback))
-            "the inner continuation carries its declared :fallback")
+            result (with-trace-recorder! [captured]
+                     (let [result (streaming/render-continuation fid entry)]
+                       (is (= [:p "outer loading"] (:fallback entry))
+                           "record-continuation! stored the outer boundary's declared
+                            :fallback on the entry")
+                       (is (not (:failed? result))
+                           "the outer continuation resolves cleanly — the streaming
+                            walker recognises the buried :rf/suspense-boundary instead
+                            of throwing on it (rf2-sgvn6 / rf2-b1v8v)")
+                       (is (empty? (filter #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                                           @captured))
+                           "NO suspense-boundary-failed trace — the nested boundary is
+                            registered, not fail-soft'd")
+                       ;; The inner boundary's resolved chunk is NOT in the outer's HTML;
+                       ;; instead the outer HTML carries the inner's FALLBACK <template>.
+                       (is (str/includes? (:html result) "data-rf2-suspense-id=\":inner\"")
+                           "the outer's resolved HTML carries the inner boundary's
+                            <template> placeholder (its fallback), stamped with the
+                            inner id")
+                       (is (str/includes? (:html result) "data-rf2-suspense-fallback=\"1\"")
+                           "the inner placeholder is a fallback template (deferred), not
+                            the resolved inner body")
+                       (is (str/includes? (:html result) "inner loading")
+                           "the inner's fallback hiccup materialised inline in the
+                            outer's resolved chunk")
+                       (is (not (str/includes? (:html result) "inner body"))
+                           "the inner BODY is NOT in the outer chunk — it is deferred to
+                            the inner continuation's own drain")
+                       ;; The new continuation lands on :continuations for the host to
+                       ;; append at the TAIL of its FIFO drain queue.
+                       (is (= 1 (count (:continuations result)))
+                           "render-continuation returns the ONE newly-registered inner
+                            continuation for the host to append (FIFO tail)")
+                       (is (= :inner (-> result :continuations first :id))
+                           "the inner boundary's id propagates on the returned
+                            continuation entry")
+                       (is (= [:p "inner loading"] (-> result :continuations first :fallback))
+                           "the inner continuation carries its declared :fallback")
+                       result))]
         ;; Draining the inner continuation now resolves the inner body.
+        ;; (post-capture: the inner render is not part of the outer's trace window)
         (let [inner-entry  (-> result :continuations first)
               inner-result (streaming/render-continuation fid inner-entry)]
           (is (not (:failed? inner-result)))
@@ -332,9 +325,10 @@
                 [:rf/suspense-boundary
                  {:id :triple :fallback [:p "third fallback"]}
                  [:p "third body"]]]
-          captured (atom [])
-          {:keys [continuations]}
-          (with-trace-capture captured #(streaming/render-shell tree))]
+          {:keys [continuations captured-traces]}
+          (with-trace-recorder! [captured]
+            (let [{:keys [continuations]} (streaming/render-shell tree)]
+              {:continuations continuations :captured-traces @captured}))]
       (is (= 1 (count continuations))
           "only one continuation survives dedup across three duplicates")
       ;; Drain it — the body should be the LAST registration's body
@@ -354,11 +348,11 @@
              recursion: 'the second registration overwrites the first'
              generalises to N-deep — every-but-last is dropped."))
       (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                @captured)
+                captured-traces)
           "the duplicate-id trace still fires across N=3 duplicates")
       (let [dup-traces (filterv #(= :rf.error/suspense-boundary-duplicate-id
                                     (:operation %))
-                                @captured)]
+                                captured-traces)]
         (is (= 1 (count dup-traces))
             "one trace, not three — dedup groups all duplicates of
              the same id into a single trace event")
@@ -394,25 +388,24 @@
                   [throws-sub]]
           {:keys [continuations]} (streaming/render-shell tree)
           fid (make-server-frame)
-          entry (assoc (first continuations) :fallback [throws-fb])
-          captured (atom [])
-          result (with-trace-capture captured
-                   #(streaming/render-continuation fid entry))]
-      (is (:failed? result)
-          ":failed? is true when the subtree throws — even though
-           the fallback render also throws")
-      (is (= "" (:html result))
-          "fallback-render throw → empty html (the inner try/catch in
-           streaming.cljc renders fallback OR returns \"\" on its own
-           throw)")
-      (is (nil? (:delta result))
-          "delta still omitted on failure")
-      (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                @captured)
-          "the suspense-boundary-failed trace still fires for the
-           subtree throw — even though the fallback also failed
-           (the trace describes the SUBTREE failure, which is what
-           the client cares about)"))))
+          entry (assoc (first continuations) :fallback [throws-fb])]
+      (with-trace-recorder! [captured]
+        (let [result (streaming/render-continuation fid entry)]
+          (is (:failed? result)
+              ":failed? is true when the subtree throws — even though
+               the fallback render also throws")
+          (is (= "" (:html result))
+              "fallback-render throw → empty html (the inner try/catch in
+               streaming.cljc renders fallback OR returns \"\" on its own
+               throw)")
+          (is (nil? (:delta result))
+              "delta still omitted on failure")
+          (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                    @captured)
+              "the suspense-boundary-failed trace still fires for the
+               subtree throw — even though the fallback also failed
+               (the trace describes the SUBTREE failure, which is what
+               the client cares about)"))))))
 
 (deftest render-continuation-delta-captures-app-db-change-during-render
   (testing "rf2-u91hb: render-continuation snapshots app-db before
@@ -473,17 +466,16 @@
       ;; inline-fallback contract. Either is acceptable per Spec 011
       ;; §Failure semantics; what is NOT acceptable is an uncaught
       ;; throw.
-      (let [captured (atom [])
-            result (with-trace-capture captured
-                     #(streaming/render-continuation fid entry))]
-        (is (map? result)
-            "render-continuation returned a result map — did NOT
-             escape with an uncaught exception even though the frame
-             was destroyed before the call")
-        (is (contains? result :failed?)
-            ":failed? key is present")
-        (is (contains? result :html)
-            ":html key is present")))))
+      (with-trace-recorder! [captured]
+        (let [result (streaming/render-continuation fid entry)]
+          (is (map? result)
+              "render-continuation returned a result map — did NOT
+               escape with an uncaught exception even though the frame
+               was destroyed before the call")
+          (is (contains? result :failed?)
+              ":failed? key is present")
+          (is (contains? result :html)
+              ":html key is present"))))))
 
 ;; ===========================================================================
 ;; build-final-payload — allowlist projection composition

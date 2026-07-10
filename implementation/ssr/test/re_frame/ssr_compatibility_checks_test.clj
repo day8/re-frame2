@@ -14,25 +14,13 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 ;; Shared reset fixture lives in `re-frame.ssr.test-fixture` (rf2-i3qc0).
 (use-fixtures :each tf/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
-
-(defn- capture-traces!
-  "Run f under a trace listener that captures every event; return the
-  captured vector after f returns."
-  [f]
-  (let [traces (atom [])
-        cb-id  (gensym "::capture-")]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try
-      (f)
-      (finally
-        (rf/unregister-listener! :trace cb-id)))
-    @traces))
 
 (defn- traces-of [traces op]
   (filterv #(= op (:operation %)) traces))
@@ -56,15 +44,13 @@
         ;; check-version probes compare integers, not semver strings.
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 1}]]}))
 
-    (let [f      (frame/make-anon-frame-record! {:platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [::probe-check-version-match]
-                                       {:frame f})))]
-      (is (empty? (traces-of traces :rf.ssr/version-mismatch))
-          "matching version → no mismatch trace")
-      (is (empty? (traces-of traces :rf.ssr/compatibility-check-skipped))
-          "both sides supplied → no skipped trace either"))))
+    (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [::probe-check-version-match] {:frame f})
+        (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
+            "matching version → no mismatch trace")
+        (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
+            "both sides supplied → no skipped trace either")))))
 
 (deftest check-version-mismatch-emits-trace
   (testing "differing expected + actual → :rf.ssr/version-mismatch warning trace"
@@ -73,22 +59,20 @@
       (fn [_ _]
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
 
-    (let [f      (frame/make-anon-frame-record! {:platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [::probe-check-version-mismatch]
-                                       {:frame f})))
-          hits   (traces-of traces :rf.ssr/version-mismatch)]
-      (is (= 1 (count hits))
-          (str "expected one :rf.ssr/version-mismatch trace; saw: "
-               (pr-str (mapv :operation traces))))
-      (when (seq hits)
-        (let [ev (first hits)]
-          (is (= :warning              (:op-type ev)))
-          (is (= 1                     (-> ev :tags :expected)))
-          (is (= 2                     (-> ev :tags :actual)))
-          (is (= :warned-and-applied   (:recovery ev))
-              ":recovery rides at top-level per Spec 009"))))))
+    (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [::probe-check-version-mismatch] {:frame f})
+        (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
+          (is (= 1 (count hits))
+              (str "expected one :rf.ssr/version-mismatch trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :warning              (:op-type ev)))
+              (is (= 1                     (-> ev :tags :expected)))
+              (is (= 2                     (-> ev :tags :actual)))
+              (is (= :warned-and-applied   (:recovery ev))
+                  ":recovery rides at top-level per Spec 009"))))))))
 
 ;; ===========================================================================
 ;; :rf.ssr/check-schema-digest
@@ -111,15 +95,13 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:deadbeefcafef00d"}]]}))
 
-    (let [f      (frame/make-anon-frame-record! {:platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [::probe-check-digest-match]
-                                       {:frame f})))]
-      (is (empty? (traces-of traces :rf.ssr/schema-digest-mismatch))
-          "matching digest → no mismatch trace")
-      (is (empty? (traces-of traces :rf.ssr/compatibility-check-skipped))
-          "both sides supplied → no skipped trace either"))))
+    (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [::probe-check-digest-match] {:frame f})
+        (is (empty? (traces-of @traces :rf.ssr/schema-digest-mismatch))
+            "matching digest → no mismatch trace")
+        (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
+            "both sides supplied → no skipped trace either")))))
 
 (deftest check-schema-digest-mismatch-emits-trace
   (testing "differing expected + actual → :rf.ssr/schema-digest-mismatch warning trace"
@@ -130,21 +112,19 @@
                {:expected "sha256:deadbeefcafef00d"
                 :actual   "sha256:0000000000000000"}]]}))
 
-    (let [f      (frame/make-anon-frame-record! {:platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [::probe-check-digest-mismatch]
-                                       {:frame f})))
-          hits   (traces-of traces :rf.ssr/schema-digest-mismatch)]
-      (is (= 1 (count hits))
-          (str "expected one :rf.ssr/schema-digest-mismatch trace; saw: "
-               (pr-str (mapv :operation traces))))
-      (when (seq hits)
-        (let [ev (first hits)]
-          (is (= :warning                              (:op-type ev)))
-          (is (= "sha256:deadbeefcafef00d"             (-> ev :tags :expected)))
-          (is (= "sha256:0000000000000000"             (-> ev :tags :actual)))
-          (is (= :warned-and-applied                   (:recovery ev))))))))
+    (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [::probe-check-digest-mismatch] {:frame f})
+        (let [hits (traces-of @traces :rf.ssr/schema-digest-mismatch)]
+          (is (= 1 (count hits))
+              (str "expected one :rf.ssr/schema-digest-mismatch trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :warning                              (:op-type ev)))
+              (is (= "sha256:deadbeefcafef00d"             (-> ev :tags :expected)))
+              (is (= "sha256:0000000000000000"             (-> ev :tags :actual)))
+              (is (= :warned-and-applied                   (:recovery ev))))))))))
 
 ;; ===========================================================================
 ;; SCALAR-form + missing-hook paths — rf2-ooj41
@@ -167,23 +147,21 @@
       (fn [_ _]
         {:fx [[:rf.ssr/check-version 1]]}))
 
-    (let [f      (frame/make-anon-frame-record! {:platform :client})
-          traces (capture-traces!
-                   (fn []
-                     (rf/dispatch-sync [::probe-check-version-scalar-no-hook]
-                                       {:frame f})))
-          hits   (traces-of traces :rf.ssr/compatibility-check-skipped)]
-      (is (= 1 (count hits))
-          (str "expected one :rf.ssr/compatibility-check-skipped trace; saw: "
-               (pr-str (mapv :operation traces))))
-      (when (seq hits)
-        (let [ev (first hits)]
-          (is (= :warning              (:op-type ev)))
-          (is (= :rf.ssr/check-version (-> ev :tags :check))
-              ":check tag identifies which compatibility fx skipped")
-          (is (= 1                     (-> ev :tags :expected))
-              "scalar value is the :expected (server-side) value")
-          (is (= :skipped              (:recovery ev))))))))
+    (let [f (frame/make-anon-frame-record! {:platform :client})]
+      (with-trace-recorder! [traces]
+        (rf/dispatch-sync [::probe-check-version-scalar-no-hook] {:frame f})
+        (let [hits (traces-of @traces :rf.ssr/compatibility-check-skipped)]
+          (is (= 1 (count hits))
+              (str "expected one :rf.ssr/compatibility-check-skipped trace; saw: "
+                   (pr-str (mapv :operation @traces))))
+          (when (seq hits)
+            (let [ev (first hits)]
+              (is (= :warning              (:op-type ev)))
+              (is (= :rf.ssr/check-version (-> ev :tags :check))
+                  ":check tag identifies which compatibility fx skipped")
+              (is (= 1                     (-> ev :tags :expected))
+                  "scalar value is the :expected (server-side) value")
+              (is (= :skipped              (:recovery ev))))))))))
 
 (deftest check-version-scalar-with-hook-runs-comparison
   (testing "scalar form + registered :rf2/runtime-version hook → compare; mismatch fires"
@@ -196,23 +174,21 @@
         (fn [_ _]
           {:fx [[:rf.ssr/check-version 1]]}))
 
-      (let [f      (frame/make-anon-frame-record! {:platform :client})
-            traces (capture-traces!
-                     (fn []
-                       (rf/dispatch-sync [::probe-check-version-scalar-with-hook]
-                                         {:frame f})))
-            hits   (traces-of traces :rf.ssr/version-mismatch)]
-        (is (empty? (traces-of traces :rf.ssr/compatibility-check-skipped))
-            "hook present → no skipped trace; the comparison ran")
-        (is (= 1 (count hits))
-            (str "expected one :rf.ssr/version-mismatch trace; saw: "
-                 (pr-str (mapv :operation traces))))
-        (when (seq hits)
-          (let [ev (first hits)]
-            (is (= 1 (-> ev :tags :expected))
-                "scalar arg is :expected (server side)")
-            (is (= 2 (-> ev :tags :actual))
-                ":actual sourced via the late-bind hook"))))
+      (let [f (frame/make-anon-frame-record! {:platform :client})]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [::probe-check-version-scalar-with-hook] {:frame f})
+          (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
+            (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
+                "hook present → no skipped trace; the comparison ran")
+            (is (= 1 (count hits))
+                (str "expected one :rf.ssr/version-mismatch trace; saw: "
+                     (pr-str (mapv :operation @traces))))
+            (when (seq hits)
+              (let [ev (first hits)]
+                (is (= 1 (-> ev :tags :expected))
+                    "scalar arg is :expected (server side)")
+                (is (= 2 (-> ev :tags :actual))
+                    ":actual sourced via the late-bind hook"))))))
       (finally
         (swap! late-bind/hooks dissoc :rf2/runtime-version)))))
 
@@ -229,18 +205,16 @@
           (fn [_ _]
             {:fx [[:rf.ssr/check-schema-digest "sha256:deadbeefcafef00d"]]}))
 
-        (let [f      (frame/make-anon-frame-record! {:platform :client})
-              traces (capture-traces!
-                       (fn []
-                         (rf/dispatch-sync [::probe-check-digest-scalar-no-hook]
-                                           {:frame f})))
-              hits   (traces-of traces :rf.ssr/compatibility-check-skipped)]
-          (is (= 1 (count hits)))
-          (when (seq hits)
-            (let [ev (first hits)]
-              (is (= :rf.ssr/check-schema-digest (-> ev :tags :check)))
-              (is (= "sha256:deadbeefcafef00d"   (-> ev :tags :expected)))
-              (is (= :skipped                    (:recovery ev))))))
+        (let [f (frame/make-anon-frame-record! {:platform :client})]
+          (with-trace-recorder! [traces]
+            (rf/dispatch-sync [::probe-check-digest-scalar-no-hook] {:frame f})
+            (let [hits (traces-of @traces :rf.ssr/compatibility-check-skipped)]
+              (is (= 1 (count hits)))
+              (when (seq hits)
+                (let [ev (first hits)]
+                  (is (= :rf.ssr/check-schema-digest (-> ev :tags :check)))
+                  (is (= "sha256:deadbeefcafef00d"   (-> ev :tags :expected)))
+                  (is (= :skipped                    (:recovery ev))))))))
         (finally
           (when prior-hook
             (late-bind/set-fn! :schemas/app-schemas-digest prior-hook)))))))
