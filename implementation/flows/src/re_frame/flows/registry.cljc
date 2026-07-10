@@ -378,42 +378,27 @@
       (contains? flow :large)
       (contains? flow :large?)))
 
-(defn- drop-flow-sourced
-  "Remove every `{:source :flow :flow-id <flow-id>}` entry from a declaration
-  map, preserving every other-sourced entry (and any OTHER flow's entries)."
-  [decls flow-id]
-  (when decls
-    (reduce-kv (fn [acc path decl]
-                 (if (and (= :flow (:source decl))
-                          (= flow-id (:flow-id decl)))
-                   acc
-                   (assoc acc path decl)))
-               {}
-               decls)))
-
-(defn- assoc-flow-paths
-  "Add `paths` to `existing` declaration map, each stamped
-  `{:source :flow :flow-id <flow-id>}` so lifecycle cleanup can find them."
-  [existing paths flow-id]
-  (reduce (fn [acc path]
-            (assoc acc (vec path) {:source :flow :flow-id flow-id}))
-          (or existing {})
-          paths))
+(defn- flow-owner
+  "The multi-owner elision-registry owner identity a `reg-flow` output claims
+  under. The `:flow-id` is carried so re-registration / clear scope to THIS
+  flow (`replace-owner-claims` / `remove-owner`) without disturbing a sibling
+  flow's — or any other source's — claim on the same absolute path."
+  [flow-id]
+  {:source :flow :flow-id flow-id})
 
 (defn- fold-flow-declarations
-  "Replace one flow's declarations in an elision registry value."
+  "Reconcile one flow's output declarations in an elision registry value:
+  replace THIS flow's owner claims (both axes) with its current explicit
+  sensitive / large absolute output paths, delegating to the core multi-owner
+  op (`elision/replace-owner-claims`). A foreign owner (effect / route /
+  machine / resource) — or a sibling flow — on the same absolute path survives
+  untouched, and the flow's claim unions with theirs (rf2-wdm1vg)."
   [reg flow]
-  (let [flow-id            (:id flow)
-        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)
-        carry-s            (drop-flow-sourced (get reg :sensitive-declarations) flow-id)
-        carry-l            (drop-flow-sourced (get reg :declarations) flow-id)
-        new-s              (assoc-flow-paths carry-s explicit-s flow-id)
-        new-l              (assoc-flow-paths carry-l explicit-l flow-id)]
-    (cond-> (or reg {})
-      (seq new-s)    (assoc :sensitive-declarations new-s)
-      (empty? new-s) (dissoc :sensitive-declarations)
-      (seq new-l)    (assoc :declarations new-l)
-      (empty? new-l) (dissoc :declarations))))
+  (let [owner (flow-owner (:id flow))
+        [explicit-s explicit-l] (explicit-flow-output-mark-paths flow)]
+    (-> (or reg {})
+        (elision/replace-owner-claims :sensitive-declarations owner explicit-s)
+        (elision/replace-owner-claims :declarations owner explicit-l))))
 
 (defn- write-flow-output-marks!
   "Install or refresh one flow's output declarations in its frame."
@@ -422,20 +407,19 @@
     (fn [reg] (fold-flow-declarations reg flow))))
 
 (defn- clear-flow-output-marks!
-  "Remove one flow's declarations while preserving other declaration sources.
+  "Remove one flow's declarations while preserving every other declaration
+  owner (and any sibling flow's) via the core `elision/remove-owner` op per
+  axis.
 
   Frame teardown needs no per-flow scrub because the elision registry belongs
   to the frame-state container that destruction removes."
   [frame-id flow-id]
-  (elision/swap-elision-slot! frame-id
-    (fn [reg]
-      (let [new-s (drop-flow-sourced (get reg :sensitive-declarations) flow-id)
-            new-l (drop-flow-sourced (get reg :declarations) flow-id)]
-        (cond-> (or reg {})
-          (seq new-s)    (assoc :sensitive-declarations new-s)
-          (empty? new-s) (dissoc :sensitive-declarations)
-          (seq new-l)    (assoc :declarations new-l)
-          (empty? new-l) (dissoc :declarations))))))
+  (let [owner (flow-owner flow-id)]
+    (elision/swap-elision-slot! frame-id
+      (fn [reg]
+        (-> (or reg {})
+            (elision/remove-owner :sensitive-declarations owner)
+            (elision/remove-owner :declarations owner))))))
 
 ;; ---- registration --------------------------------------------------------
 
