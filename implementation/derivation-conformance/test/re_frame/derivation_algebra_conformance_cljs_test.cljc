@@ -1,107 +1,22 @@
 (ns re-frame.derivation-algebra-conformance-cljs-test
-  "Cross-family derivation/process-ALGEBRA conformance (rf2-jn7frs;
-  EP-0014 Reference Implementation Plan item 9 + §Validation / Conformance;
-  spec/Derivations.md §Conformance).
+  "Cross-family conformance for the derivation/process algebra in
+  `spec/Derivations.md`.
 
-  EP-0014's whole point is ONE derivation/process vocabulary across the FIVE
-  graph families — subscriptions (`reg-sub`, which folds `reg-runtime-sub`
-  under the same subs contributor), flows (`reg-flow`), resources
-  (`reg-resource`), route facts (`reg-route`), and machines (`reg-machine`)
-  — so a tool reads ONE graph
-  (`{:mode :nodes :edges}`) and a maintainer answers ONE question
-  consistently: where does this fact come from, when is it evaluated, where
-  does it live, and who owns it? Each family already exposes its OWN algebra
-  view (the per-artefact `*-algebra-view` tooling siblings) and the composer
-  (`re-frame.derivation.graph`) stitches them; the per-artefact suites pin
-  each projection in isolation and the composer test
-  (`re-frame.derivation-graph-test`) pins the assembly MECHANICS. But until
-  this suite NO test proved the EP-0014 conformance AXES hold ACROSS
-  all families SIMULTANEOUSLY, through the composer, the way they will be
-  read in anger.
+  The family suites validate their own projections. This suite registers or
+  supplies subscriptions, flows, resources, route facts, and machines, then
+  checks their assembled static and live graphs. Its sections cover:
 
-  That is exactly the umbrella `reply-conformance/` is to EP-0011's reply
-  vocabulary: a table-driven cross-family gate so a divergence in any one
-  family's lowering / classification / edges cannot silently slip past the
-  per-family suites (each of which only ever looks at itself).
+  - lowering to the closed `:derivation` / `:process` superkinds;
+  - storage, evaluation, lifecycle, and authority classification;
+  - static and realized `:input`, `:param`, and `:selector` edges;
+  - whole-value semantics and the optional-delta boundary;
+  - lifecycle release and on-demand reads that do not write durable state;
+  - graph egress redaction without loss of identity or connectivity.
 
-  ## What this suite is
-
-  A registration of ONE source form of EACH family into a live frame, then
-  one set of cross-family assertions over the assembled STATIC and LIVE
-  graphs proving the six conformance axes (the EP-0014 §Validation /
-  Conformance list, restated as the slice-1 contract):
-
-    (a) LOWERING        — each source form lowers to the correct node KIND /
-                          SUPERKIND. Every node's `:kind` is DIRECTLY a member
-                          of the closed two-superkind enum (`:derivation` |
-                          `:process`); a tool that understands ONLY the two
-                          superkinds can classify EVERY node by reading `:kind`
-                          alone. Informative refined kinds
-                          (`:resource-process`, `:route-fact`,
-                          `:machine-process`) ride the separate `:refinement`
-                          axis, NEVER `:kind` (rf2-7wwp1z).
-    (b) CLASSIFICATION  — storage-class / evaluation-policy / lifecycle
-                          correctness PER FAMILY, against the
-                          spec/Derivations.md fixed-classification tables
-                          (subscriptions ephemeral/on-demand/cache-entry;
-                          flows app-db/after-event/frame; resources
-                          runtime-db/multi-trigger/resource-key + external
-                          `:authority`; routes runtime-db/on-route/frame;
-                          machines runtime-db/on-transition/machine-instance).
-                          Plus the storage-class invariants: NO node uses
-                          `:remote` as a storage class (the issue-2 split);
-                          every storage / evaluation / lifecycle value is in
-                          its closed vocabulary.
-    (c) GRAPH EDGES     — `:input` / `:param` / `:selector` edges correct in
-                          the STATIC graph (registration-known edges,
-                          `:parametric` markers, the don't-execute rule) and
-                          the LIVE graph (realized `[:sub q]` edges a
-                          parametric sub cannot enumerate statically).
-    (d) WHOLE-VALUE     — the semantic whole-value law (slice-1): a
-                          MATERIALIZED derivation's output path holds the
-                          SAME whole value its derivation fn computes from
-                          the same inputs (proven on a flow); an EPHEMERAL
-                          derivation's read value equals the whole-value
-                          recompute. The optional delta law is deferred per
-                          EP-0014 bead-plan item 10 (semantic-only in
-                          slice-1); a conforming implementation with NO
-                          delta support still conforms.
-    (e) LIFECYCLE       — the §Conformance 'Lifecycle' bullet's RELEASE
-                          axis (rf2-pomhpf), all FOUR spec clauses
-                          (spec/Derivations.md §Conformance Lifecycle):
-                          (1) destroying a frame releases frame-owned graph
-                          nodes; (2) subscription disposal releases its
-                          cache-entry node (rf2-q72kuo); (3) route exit /
-                          supersession releases the prior route owner; and
-                          (4) machine destroy (here, final-state auto-destroy)
-                          releases the machine-owned snapshot node. The
-                          per-family suites and the (c) live arm only ever
-                          read a PRESENT owner; these arms drive the teardown
-                          TRANSITION and assert the node / owner has LEFT the
-                          live graph — the axis the lifecycle classification
-                          exists for.
-    (f) EVALUATION      — the §Conformance 'Evaluation policy' bullet's
-                          on-demand-no-write law (rf2-qdxvkb; §Evaluation
-                          policy rule 1): reading an `:on-demand` node (a
-                          subscription, or a resource `:rf.resource/*`
-                          selector) causes NO durable write — neither app-db
-                          nor runtime-db (so no work-ledger record, no cache
-                          mutation) changes merely because a reader read it.
-                          The (d) laws prove the MATERIALIZED path's value;
-                          this proves the ephemeral/on-demand path's negative
-                          no-write property.
-
-  Drives the merged tooling siblings + the graph composer
-  (`re-frame.derivation.graph`) — it consumes them, never edits them. The
-  families sit ABOVE several artefacts (core + flows/resources/routing/
-  machines), so this lives in its own cross-artefact
-  `derivation-conformance/` surface (the precedent is `reply-conformance/`
-  and `security/`), not any single family's test tree. Runs on the
-  `npm run test:cljs` node gate (ns matches `cljs-test$`) AND the JVM gate
-  (`implementation/derivation-conformance/deps.edn` `:test`).
-
-  Canonical contract: `spec/Derivations.md` §Conformance + the EP-0014
-  §Validation / Conformance list."
+  The suite sits outside any one family because it consumes bundle-isolated
+  contributors from core, flows, resources, routing, and machines. It does not
+  depend on `tools/`. The same `.cljc` tests run in the shared CLJS node gate
+  and through this artefact's JVM `:test` alias."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.set :as set]
             [re-frame.core :as rf]
@@ -109,28 +24,14 @@
             [re-frame.derivation.graph :as graph]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
-            ;; EP-0015 / EP-0017 redaction conformance arms (rf2-zt5j96 /
-            ;; rf2-iormgq): the OFF-BOX graph-egress projection is owned by the
-            ;; bundle-isolated core tooling ns `re-frame.derivation.egress`
-            ;; (rf2-mm3y49) — the ONE algorithm the named first-consumer Xray's
-            ;; `redact-graph-for-egress` ALSO delegates to. This suite tests
-            ;; that owner DIRECTLY over the REAL composer output, so the
-            ;; cross-family egress LAW and the Xray call site can never drift.
-            ;; `re-frame.privacy` carries the `:rf/redacted` sentinel the
-            ;; fail-closed arms assert. All `implementation/`-resident (NOT a
-            ;; `tools/` reach — the dependency arrow flows conformance →
-            ;; implementation, never conformance → tools; bundle isolation
-            ;; preserved).
+            ;; The graph-wide egress projection lives in core so conformance
+            ;; can test the same implementation used by tool consumers without
+            ;; introducing a dependency on `tools/`.
             [re-frame.derivation.egress :as egress]
             [re-frame.privacy :as privacy]
-            ;; EP-0025: the derived-output sensitivity INHERITANCE conformance
-            ;; (§H) is removed — classification no longer propagates input →
-            ;; output (subs or flows). `elision/sensitive-declarations` is still
-            ;; used by §G's egress-redaction conformance.
             [re-frame.elision :as elision]
-            ;; load-bearing side-effecting requires: each façade registers
-            ;; its registrar kind / framework events / subs so the family is
-            ;; live (the same loads the composer test performs).
+            ;; Load-bearing requires: each facade installs its framework
+            ;; registrations before the graph contributors are exercised.
             [re-frame.routing]
             [re-frame.routing.tooling :as routing-tooling]
             [re-frame.resources]
@@ -139,10 +40,8 @@
             [re-frame.resources.work-ledger :as work-ledger]
             [re-frame.machines.tooling :as machines-tooling]
             [re-frame.machines.paths :as machine-paths]
-            ;; rf2-q72kuo — the (e) subscription-disposal arm drives the real
-            ;; subscribe / unsubscribe cache path (CLJS): `subs/subscribe`
-            ;; mints the live cache entry, `subs/unsubscribe` drops the sole
-            ;; ref → sync dispose → eviction (Spec 006 §Reference counting).
+            ;; The CLJS lifecycle arm drives the cache through the internal
+            ;; subscribe/unsubscribe operations.
             [re-frame.subs :as subs]
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.flows.tooling :as flows-tooling]
@@ -151,42 +50,26 @@
             [re-frame.trace]))
 
 ;; ---------------------------------------------------------------------------
-;; Closed vocabularies — the slice-1 enums spec/Derivations.md fixes
-;; (Spec-Schemas §`:rf/storage-class` / `:rf/evaluation-policy` /
-;; `:rf/lifecycle` / `DerivationKind`). A storage class / evaluation policy /
-;; lifecycle a node carries MUST be in its closed set; the two superkinds are
-;; the only closed `:kind` reduction.
+;; Closed vocabularies from `spec/Derivations.md` and `spec/Spec-Schemas.md`.
 ;; ---------------------------------------------------------------------------
 
 (def superkinds
   "The closed two-superkind enum (Derivations §The node shape). A tool that
-  understands only these MUST be able to classify every node."
+  understands only these can classify every node."
   #{:derivation :process})
 
 (def refinements
-  "The informative refined kinds (Derivations §The node shape — refinements
-  are informative, the superkind is canonical) and the superkind each refines.
-  Per the graduated Spec-Schemas `DerivationKind` enum these are CLOSED out of
-  `:kind` (a node's `:kind` is always a bare superkind); a refinement rides the
-  separate `:refinement` axis. This map exists only to validate that a node's
-  declared `:refinement` (when present) refines the superkind its `:kind`
-  asserts (rf2-7wwp1z)."
+  "The informative refinements and the canonical superkind each refines."
   {:resource-process :process
    :route-fact       :process
    :machine-process  :process
    :machine-selector :derivation})
 
-;; NOTE (rf2-7wwp1z): there is deliberately NO `superkind-of` reduction helper.
-;; The closed `DerivationKind` enum makes a node's `:kind` ALWAYS a bare
-;; superkind, so conformance asserts `(contains? superkinds (:kind node))`
-;; DIRECTLY. The historic refined->superkind lookup masked a `:kind
-;; :machine-process` violation by accepting a refined kind in `:kind` and
-;; reducing it — the closed-enum contract is pinned by direct membership now.
+;; Check `:kind` directly rather than reducing refinements to superkinds; doing
+;; so would accept a refined value in the closed `:kind` slot.
 
 (def storage-classes
-  "The closed storage-class set (Derivations §Storage class — the issue-2
-  swept FOUR-class table). `:remote` is NOT among them — external authority
-  is the separate `:authority` axis."
+  "The closed local storage classes. External authority is a separate axis."
   #{:ephemeral :app-db :runtime-db :host-transient})
 
 (def evaluation-policies
@@ -198,32 +81,13 @@
   #{:subscription-cache-entry :frame :route :scoped-resource-key :machine-instance :host-root})
 
 ;; ---------------------------------------------------------------------------
-;; The runtime fixture — reset every artefact's registry / frame state, init
-;; the plain-atom substrate, and re-load every optional façade so its
-;; framework registrations are live (mirrors the composer test's fixture).
+;; Runtime fixture.
 ;; ---------------------------------------------------------------------------
 
-;; This suite installs the NON-React `plain-atom` substrate. Under the
-;; always-on `npm run test:cljs` gate EVERY `*-cljs-test` namespace compiles
-;; and runs in ONE shared CLJS bundle (one Node process, one process-global
-;; runtime — adapter slot, registrar, `frame/frames`). A bare per-test fixture
-;; that `clear-all!`s the registrar / installs an adapter and does NOT
-;; snapshot-and-restore on teardown strands state for the alphabetically-later
-;; suites in the bundle — exactly the run-order hazard
-;; `re-frame.test-support/make-reset-runtime-fixture` was built to absorb
-;; (rf2-7hwnu): it captures this ns's load-time registrar baseline, folds it
-;; back before each test, snapshots, and on the way out RESTORES the registrar
-;; AND disposes the installed adapter. The JVM-only composer test this suite
-;; mirrors (`re-frame.derivation-graph-test`, a `.clj`) can keep a bare
-;; `reset-runtime` because the JVM gate never shares a bundle with a React
-;; adapter; the CLJS bundle does (`re-frame.reg-view-react-key-cljs-test`'s
-;; `reagent.core/as-element` died with a null `reagent_component` React-
-;; internals read when this suite left the runtime dirty), so the conformance
-;; CLJS arm MUST use the disciplined fixture. `:init-fn` carries the
-;; per-test family-registration refresh (the `:reload`s the bare JVM fixture
-;; did inline) — it runs AFTER the adapter is installed and the registrar
-;; baseline is reinstated, BEFORE the test body, with the ambient
-;; `:rf/default` frame bound (the fixture's default `:ambient-frame`).
+;; All CLJS tests share one process-global runtime. This fixture restores the
+;; registrar and adapter after each test so this suite cannot leak its
+;; plain-atom substrate into later React-backed suites. `:init-fn` reloads the
+;; optional family registrations after the baseline has been restored.
 (defn- refresh-families! []
   (flows/reset-flows!)
   (flows/reset-last-inputs!)
@@ -239,9 +103,8 @@
      :init-fn refresh-families!}))
 
 ;; ---------------------------------------------------------------------------
-;; The contributor map — every family present (built explicitly so the suite
-;; pins the composition regardless of JVM auto-resolution, and exercises the
-;; explicit-arg path the CLJS consumer uses on both runtimes).
+;; Use an explicit contributor map on both runtimes so this suite does not
+;; depend on JVM-only contributor discovery.
 ;; ---------------------------------------------------------------------------
 
 (def all-contributors
@@ -263,11 +126,8 @@
                :selector-targets  machines-tooling/machine-selector-targets}})
 
 ;; ---------------------------------------------------------------------------
-;; ONE whole-value function shared by the subscription AND the flow — the
-;; Derivations §Worked equivalence: the SAME mathematical function, expressed
-;; two ways, differs only in policy. The whole-value law (d) is proven by
-;; checking the materialized flow output equals `(sum-cart …)` of the same
-;; inputs — the identical function the subscription would compute.
+;; The subscription and flow share one whole-value function and differ only in
+;; storage, evaluation, lifecycle, and output policy.
 ;; ---------------------------------------------------------------------------
 
 (defn sum-cart
@@ -281,18 +141,17 @@
   [{:sku "a" :qty 2} {:sku "b" :qty 3} {:sku "c" :qty 5}])
 
 ;; ---------------------------------------------------------------------------
-;; Register ONE source form of EACH family into the default frame. The graph
+;; Register one source form of each family into the default frame. The graph
 ;; the composer assembles over these is the conformance subject.
 ;; ---------------------------------------------------------------------------
 
 (defn- register-one-of-each! []
-  ;; the seed event for the whole-value law (registered per-test, inside the
-  ;; fixture's restored registrar baseline).
+  ;; Registered per test because the fixture restores the load-time baseline.
   (rf/reg-event ::seed-cart
                    (fn [{:keys [db]} [_ items]]
                      {:db (assoc-in db [:cart :items] items)}))
   ;; :subs — a layer-1 `:db` reader, a static `:<-` derivation over it (the
-  ;; :input edge source carrying the shared sum-cart fn), a PARAMETRIC
+  ;; :input edge source carrying the shared sum-cart fn), a parametric
   ;; input-fn sub (the don't-execute / parametric-marker subject), and a
   ;; machine selector (the :selector edge target).
   (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
@@ -349,18 +208,14 @@
       (is (= #{:subs :flows :resources :routes :machines}
              (->> nodes vals (map :rf/family) set))
           "every source form lowered to at least one node"))
-    (testing "EVERY node's :kind is DIRECTLY a member of the closed two-superkind
-              enum — a tool that understands only :derivation / :process classifies
-              all by reading :kind alone (no refined-kind reduction; rf2-7wwp1z)"
+    (testing "every node's :kind is directly in the closed superkind enum"
       (doseq [[node-id node] nodes]
         (is (contains? superkinds (:kind node))
             (str node-id " :kind " (:kind node)
-                 " is not DIRECTLY in the closed DerivationKind enum "
+                  " is not in the closed DerivationKind enum "
                  (pr-str superkinds)
                  " — refined kinds must ride :refinement, never :kind"))))
-    (testing "every refinement (when present) is informative and refines the
-              superkind its :kind asserts — refinements never replace the
-              superkind (rf2-7wwp1z)"
+    (testing "every refinement agrees with the canonical superkind in :kind"
       (doseq [[node-id node] nodes
               :let [refinement (:refinement node)]
               :when (some? refinement)]
@@ -369,14 +224,11 @@
         (is (= (:kind node) (get refinements refinement))
             (str node-id " :refinement " refinement " refines "
                  (get refinements refinement) " but :kind asserts " (:kind node)))))
-    (testing "subscriptions + flows are DERIVATIONS (Derivations §Derivation)"
+    (testing "subscriptions and flows are derivations"
       (is (= :derivation (:kind (node-by-family nodes :subs :cart/total))))
       (is (= :derivation (:kind (node-by-family nodes :subs :cart/items))))
       (is (= :derivation (:kind (node-by-family nodes :flows :cart/materialized-total)))))
-    (testing "resources + routes + machines are PROCESSES (Derivations §Process)
-              — :kind is the bare :process superkind across ALL THREE families;
-              the informative refinement (:resource-process / :route-fact /
-              :machine-process) rides :refinement, one convention (rf2-7wwp1z)"
+    (testing "resources, routes, and machines are processes with family refinements"
       (let [res   (node-by-family nodes :resources :article/by-slug)
             route (node-by-family nodes :routes    :route/article)
             mach  (node-by-family nodes :machines  :upload/main)]
@@ -386,26 +238,14 @@
         (is (= :resource-process (:refinement res)))
         (is (= :route-fact       (:refinement route)))
         (is (= :machine-process  (:refinement mach)))))
-    (testing "the machine-selector SUB node carries the :machine-selector
-              refinement — the NODE-LABEL half of the 'Selector refinement'
-              conformance clause (spec/Derivations.md §Conformance line 842).
-              The :selector EDGE half is pinned by c-static-edges; this pins the
-              node-label half, stamped by mark-machine-selectors
-              (core .../derivation/graph.cljc:667-690) INDEPENDENTLY of the
-              :selector-edge emitter (machine-edges). A regression breaking
-              mark-machine-selectors while machine-edges still emits the edge
-              would drop the label and slip past BOTH the edge assertion and the
-              a- validate-if-present refinement loop — so this REQUIRES the
-              label. The refinement RIDES :derivation, never replaces it
-              (rf2-tp6wwb)."
+    (testing "a machine-selector sub is labelled independently of its selector edge"
       (let [sel (node-by-family nodes :subs :upload/progress)]
         (is (some? sel) "the machine-selector sub node is present")
         (is (= :machine-selector (:refinement sel))
             "the :upload/progress selector sub is enriched with :refinement :machine-selector")
         (is (= :derivation (:kind sel))
             "the machine-selector refinement rides the :derivation superkind, never replaces it")))
-    (testing "the route fact's id is the ONE consumer-facing slice name :rf/route
-              (one-name-per-fact), with the per-route id under :source-form"
+    (testing "the route fact uses :rf/route while :source-form keeps the registration id"
       (let [route (node-by-family nodes :routes :route/article)]
         (is (= :rf/route (:id route)))
         (is (= :route-fact (:refinement route)))
@@ -430,24 +270,24 @@
         res   (node-by-family nodes :resources :article/by-slug)
         route (node-by-family nodes :routes    :route/article)
         mach  (node-by-family nodes :machines  :upload/main)]
-    (testing "subscription — the canonical EPHEMERAL / on-demand / cache-entry member"
+    (testing "subscription — ephemeral, on-demand, cache-entry"
       (is (= :ephemeral                (:storage sub)))
       (is (= :on-demand                (:evaluation sub)))
       (is (= :subscription-cache-entry (:lifecycle sub)))
       (is (false? (:materialized? sub))))
-    (testing "flow — the canonical MATERIALIZED app-db / after-event / frame member"
+    (testing "flow — materialized app-db, after-event, frame"
       (is (= :app-db      (:storage flow)))
       (is (= :after-event (:evaluation flow)))
       (is (= :frame       (:lifecycle flow)))
       (is (true? (:materialized? flow)))
       (is (= [:db [:cart :total]] (:output flow)) "materialized output address"))
-    (testing "resource — runtime-db local storage + EXTERNAL authority (issue-2 split)"
-      (is (= :runtime-db    (:storage res)) "storage names the LOCAL home")
+    (testing "resource — runtime-db local storage and external authority"
+      (is (= :runtime-db    (:storage res)) "storage names the local home")
       (is (= :scoped-resource-key  (:lifecycle res)))
       (is (= #{:on-route :on-reply :scheduled :manual} (:evaluation res))
-          "a multi-trigger process carries the policy SET")
+          "a multi-trigger process carries a policy set")
       (is (= :remote (get-in res [:authority :kind]))
-          "the remote axis is the separate :authority, NOT a storage class")
+          "remote authority is separate from local storage")
       (is (true? (:materialized? res))))
     (testing "route — runtime-db / on-route / frame"
       (is (= :runtime-db (:storage route)))
@@ -457,53 +297,41 @@
     (testing "machine — runtime-db / on-transition (+scheduled for :after) / machine-instance"
       (is (= :runtime-db        (:storage mach)))
       (is (= :machine-instance  (:lifecycle mach)))
-      ;; EXACT set-equality (rf2-b366vj), matching the resource sibling at
-      ;; line 417. :upload/main has an :after timer and NO spawn, so it
-      ;; classifies to EXACTLY #{:on-transition :scheduled}
-      ;; (machines/tooling.cljc:198-200: cond-> #{:on-transition},
-      ;; declares-after?->conj :scheduled, declares-spawn?->conj :on-reply).
-      ;; The prior loose `contains?` pair asserted only presence, so a
-      ;; declares-spawn? false-positive (or any bug adding a spurious
-      ;; :on-reply / :manual to a non-spawning machine) stayed GREEN — the
-      ;; closed-vocabulary arm (b-every-classification-…) also passes because
-      ;; :on-reply is a member of the policy set. Exact-set-equality catches
-      ;; the over-classification.
+      ;; Exact equality catches valid but spurious policies that closed-set
+      ;; membership checks cannot detect.
       (is (= #{:on-transition :scheduled} (:evaluation mach))
-          "a non-spawning machine with an :after timer classifies to EXACTLY on-transition + scheduled — no spurious member")
+          "a non-spawning machine with an :after timer has no extra policy")
       (is (true? (:materialized? mach))))))
 
 (deftest b-every-classification-is-in-its-closed-vocabulary
   (register-one-of-each!)
   (let [nodes (:nodes (graph/derivation-graph all-contributors))]
-    (testing "NO node uses :remote as a storage class (the issue-2 split) and
-              every storage / evaluation / lifecycle value is in its closed set"
+    (testing "every classification is in its closed set"
       (doseq [[node-id node] nodes]
-        ;; storage — always a single keyword in the closed FOUR-class set.
+        ;; Storage is one local class; authority is checked separately.
         (is (contains? storage-classes (:storage node))
             (str node-id " :storage " (:storage node) " is not a closed storage class"))
         (is (not= :remote (:storage node))
-            (str node-id " uses :remote as a STORAGE class — external authority is the :authority axis"))
-        ;; evaluation — a single policy OR a set, every member closed.
+            (str node-id " uses :remote as a storage class — external authority is the :authority axis"))
+        ;; Evaluation is one policy or a set of policies.
         (let [ev (:evaluation node)]
           (doseq [p (if (set? ev) ev #{ev})]
             (is (contains? evaluation-policies p)
                 (str node-id " :evaluation member " p " is not a closed policy"))))
-        ;; lifecycle — a keyword, or a {:kind …} map (live nodes); the kind
-        ;; is closed.
+        ;; Live nodes may enrich the lifecycle keyword with ownership data.
         (let [lc (:lifecycle node)
               lk (if (map? lc) (:kind lc) lc)]
           (is (contains? lifecycles lk)
               (str node-id " :lifecycle " lk " is not a closed lifecycle")))))))
 
 (deftest b-external-authority-names-its-local-storage-separately
-  ;; Derivations §Authority — `:authority :remote` is NOT a license to hide
-  ;; state: a node with external authority STILL declares its local :storage.
+  ;; Authority names the source of truth; storage still names the local home.
   (register-one-of-each!)
   (let [nodes (:nodes (graph/derivation-graph all-contributors))
         res   (node-by-family nodes :resources :article/by-slug)]
     (is (= :remote     (get-in res [:authority :kind])))
     (is (= :runtime-db (:storage res))
-        "a remote-authority node still names a LOCAL storage class")
+        "a remote-authority node still names a local storage class")
     (is (contains? storage-classes (:storage res)))
     (is (= :rf.http/managed (get-in res [:authority :transport]))
         "the transport mirrors the registered Spec 016 transport (a projection)")))
@@ -536,9 +364,9 @@
       (is (= #{:input :param :selector} (set/intersection roles #{:input :param :selector}))))))
 
 (deftest c-parametric-sub-contributes-no-static-edge-dont-execute
-  ;; Derivations §The don't-execute rule — static inspection NEVER runs an
+  ;; Derivations §The don't-execute rule — static inspection never runs an
   ;; input-fn, so a parametric sub reports the :parametric marker and
-  ;; contributes NO static :input edge. Its realized edges are live-only.
+  ;; contributes no static :input edge. Its realized edges are live-only.
   (register-one-of-each!)
   (let [g    (graph/derivation-graph all-contributors)
         node (get (:nodes g) [:sub :article/page])]
@@ -548,34 +376,14 @@
         "no static :input edge points at the parametric sub (don't-execute rule)")))
 
 (deftest c-named-resolver-scope-input-appears-statically-through-the-composer
-  ;; Derivations §Conformance / §Static graph (spec/Derivations.md:840):
-  ;; "static inspection reports only registration-known edges, marks parametric
-  ;; edge sets :parametric, and NEVER executes param/scope functions (the
-  ;; don't-execute rule); named-resolver inputs appear statically." The single
-  ;; resource `register-one-of-each!` registers (:article/by-slug) carries a
-  ;; LITERAL :rf.scope/global scope, so the named-resolver subclause of this
-  ;; bullet — a resource whose scope is a {:from-db <id>} REFERENCE reporting
-  ;; the reference shape [:scope {:from-db <id>}] PLUS the resolver's declared
-  ;; [:db <rf-path>] inputs via the :scope-resolver enrichment — is never
-  ;; composed THROUGH graph/derivation-graph alongside the other four families
-  ;; (rf2-kg9dtc). The per-family resource-algebra-view suite pins the
-  ;; enrichment in ISOLATION (resources/…/resource_algebra_view_cljs_test:
-  ;; from-db-scope-carries-named-resolver-enrichment); this arm proves the
-  ;; CROSS-FAMILY composer preserves the named-resolver static input verbatim
-  ;; when the {:from-db} resource is stitched in beside subs / flows / routes /
-  ;; machines — the umbrella-tier property (a composer regression that dropped
-  ;; :scope-resolver or rewrote the [:scope …] input would slip past the
-  ;; per-family suite that only ever reads resource-algebra-view directly).
-  ;;
-  ;; ADVERSARIAL on the don't-execute rule: the resolver body THROWS. Reaching
-  ;; it during static composition would blow up the graph assembly — so its
-  ;; absence of a throw proves the composer reads the resolver's DECLARED
-  ;; metadata (a static fact) and never RUNS the resolver fn.
+  ;; The family suite checks this enrichment before composition. This arm
+  ;; checks that the composer preserves the resolver reference and its declared
+  ;; db inputs. A throwing resolver makes accidental execution fail immediately.
   (register-one-of-each!)
   (rf/reg-resource-scope :conf/tenant
                          {:inputs {:tenant-id [:db [:session :tenant-id]]}}
                          (fn [_inputs _ctx]
-                           (throw (ex-info "a named-resolver fn must NOT run during static graph inspection" {}))))
+                           (throw (ex-info "a named-resolver fn must not run during static graph inspection" {}))))
   (rf/reg-resource :tenant/feed
                    {:scope         {:from-db :conf/tenant}
                     :params-schema [:map [:page :int]]}
@@ -584,26 +392,22 @@
   (let [nodes (:nodes (graph/derivation-graph all-contributors))
         res   (node-by-family nodes :resources :tenant/feed)]
     (is (some? res) "the {:from-db} resource composed into the umbrella cross-family graph")
-    (testing "the named-resolver REFERENCE surfaces as a STATIC scope input,
-              reported verbatim beside the generic params input — the composer
-              preserves the [:scope {:from-db <id>}] shape"
+    (testing "the named-resolver reference remains a static scope input"
       (is (= [[:param :rf.params] [:scope {:from-db :conf/tenant}]]
              (:inputs res))
-          "the {:from-db <id>} reference rides the composed node's :inputs verbatim — a static fact"))
-    (testing "the :scope-resolver enrichment (the resolver id + its declared
-              [:db <rf-path>] inputs) rides through the composer verbatim — the
-              resolver's inputs are DECLARED static facts, not executed"
+          "the composed node preserves the {:from-db <id>} reference"))
+    (testing "the composer preserves the resolver id and declared db inputs"
       (is (= :conf/tenant (get-in res [:scope-resolver :id]))
           "the composed node names the referenced resolver id")
       (is (= [[:db [:session :tenant-id]]] (get-in res [:scope-resolver :inputs]))
-          "the resolver's declared [:db <rf-path>] inputs surface statically through the composer"))))
+          "the resolver inputs remain static metadata"))))
 
 (deftest c-live-graph-has-the-mode-frame-shape-and-realizes-the-route-slice
   ;; The static / live split (Derivations §Static and live graphs): the live
-  ;; graph carries `:mode :live` + `:frame`, and reports REALIZED nodes (the
+  ;; graph carries `:mode :live` + `:frame`, and reports realized nodes (the
   ;; materialized route slice) the static graph cannot know — the concrete
-  ;; matched route id, its params, and the route OWNER (nav-token), facts
-  ;; that exist only AFTER a navigation commits to runtime-db.
+  ;; matched route id, its params, and the route owner (nav-token), facts
+  ;; that exist only after a navigation commits to runtime-db.
   (register-one-of-each!)
   (let [g0 (graph/live-derivation-graph :rf/default all-contributors)]
     (testing "the live graph always carries the :mode :live + :frame shape"
@@ -615,80 +419,41 @@
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
   (let [g     (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g) :rf/route)]
-    ;; The route transition commits the slice SYNCHRONOUSLY under the
-    ;; plain-atom substrate this suite installs on BOTH the JVM gate AND the
-    ;; node CLJS gate (the suite's own fixture pins `plain-atom/adapter` and
-    ;; drives `dispatch-sync`). So the realized slice is a FAILING
-    ;; PRECONDITION (rf2-djofbh): if the live graph stops materializing the
-    ;; route node after the navigation commits, this test MUST fail — never
-    ;; silently pass by guarding the assertions behind the slice's presence.
-    ;; The earlier `(when (some? slice) …)` masked exactly that regression.
-    (testing "the navigation materialized the live route slice (failing precondition)"
+    ;; Assert setup explicitly so the remaining checks cannot pass vacuously.
+    (testing "the navigation materialized the live route slice"
       (is (some? slice)
-          "the navigation MUST materialize the :rf/route live node — its absence is a failure, not a skip"))
+          "the navigation must materialize the :rf/route live node — absence is a failure"))
     (testing "the live route slice node is realized, keyed by :rf/route"
       (is (= :route/article (:route-id slice)) "the live matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the live realized params")
-      ;; the live route fact carries the SAME fixed classifications as its
-      ;; static node — the live view does NOT re-classify.
+      ;; The live view preserves the static classification.
       (is (= :runtime-db (:storage slice)))
       (is (= :on-route   (:evaluation slice)))
       (is (= :frame      (:lifecycle slice)))
-      ;; the live OWNER is [:route route-id nav-token] (Derivations §Lifecycle
-      ;; and owner). Under the plain-atom dispatch-sync navigation this suite
-      ;; drives, routing/tooling.cljc:340-341 deterministically assoc's :owner
-      ;; (present whenever route-id AND nav-token are non-nil), so this is a
-      ;; FAILING PRECONDITION (rf2-djofbh/rf2-onazhx), not a vacuity-risk skip:
-      ;; a regression dropping :owner (broken nav-token allocation) MUST fail
-      ;; here, not silently skip. The earlier `(when-let [owner (:owner slice)]
-      ;; …)` masked exactly that — the same when-guard anti-pattern the
-      ;; rf2-djofbh hardening pass converted to failing preconditions elsewhere
-      ;; in this file (lines 530-537, 836-843, 880-882).
+      ;; Owner identity is the route id paired with the navigation token.
       (is (some? (:owner slice))
-          "the navigation MUST allocate a route owner — its absence is a failure, not a skip")
+          "the navigation must allocate a route owner — absence is a failure")
       (is (= [:route :route/article (:nav-token slice)] (:owner slice))
-          "the live route OWNER is [:route route-id nav-token]"))))
+          "the live route owner is [:route route-id nav-token]"))))
 
 ;; ---------------------------------------------------------------------------
-;; (c+) The live graph's NON-route realized composition (rf2-k0meap.3 point-1).
+;; (c+) Non-route realized composition.
 ;;
-;; `c-live-graph-…-realizes-the-route-slice` above only ever asserts the route
-;; slice — leaving the composer's live SUB / RESOURCE projection + realized
-;; `:input` / `:param` edge assembly untested (a regression in
-;; `family-live-nodes`, the canonical `[:sub …]` / `[:resource …]` wrapping,
-;; the live `:input` edge derivation, or composed resource/machine inclusion
-;; could pass while Xray's composed live graph is wrong). The realized
-;; sub-cache materialization needs a reactive substrate (so it is exercised on
-;; the node CLJS gate, not the pure JVM path); but the composer's live
-;; ASSEMBLY contract — that it wraps realized facts into canonical node ids,
-;; derives realized `:input` edges a parametric sub cannot enumerate
-;; statically, includes composed resource nodes with their lifecycle /
-;; work-ledger, and resolves route-owned resource edges — is deterministic
-;; data over the live projections and is pinned HERE through
-;; `live-derivation-graph` over CONTRIBUTORS that return the realized shapes a
-;; navigation-then-fetch produces. No `when`-skip: the composer's live edge
-;; derivation runs unconditionally over realized inputs.
+;; Synthetic contributors isolate the composer's deterministic wrapping and
+;; edge derivation from the family runtimes. The fixtures represent concrete
+;; sub-cache, resource-cache, and route facts that cannot exist in a static
+;; graph.
 
 (def ^:private k3-nav-token 7)
 (def ^:private k3-scoped-key
   ;; [cache-scope resource-id canonical-params] — a concrete live fact id.
   [[:rf.scope/global] :article/by-slug {:slug "a1"}])
 
-;; EP-0011 (rf2-cxpa87) — the resource attempt's generation. The canonical
-;; resource work-id is the FAMILY tuple `[:rf.work/resource <scoped-key>
-;; <generation>]` (`re-frame.resources.work-ledger/resource-work-id`), NOT a
-;; scalar. Managed-Effects §Work-id correlation: ledger-backed async work
-;; carries ONE `:work/id` per attempt, and the resource family's head is
-;; `:rf.work/resource`. The previous fixture used a SCALAR `3` and a
-;; non-issuance `:status :pending`, which let this cross-family graph tier pass
-;; while accepting a non-canonical work-id shape + a status the real issuance
-;; row never writes — so it failed to protect the one-attempt-one-:work/id rule
-;; or the work-ledger status vocabulary in the graph projection.
+;; A resource work-id embeds both the scoped key and attempt generation. Using
+;; the canonical tuple lets the fixture exercise every identity-bearing slot.
 (def ^:private k3-generation 3)
 (def ^:private k3-work-id
-  ;; The canonical resource work-id tuple — `[:rf.work/resource <scoped-key>
-  ;; <generation>]`, exactly what `resources.work-ledger/resource-work-id`
-  ;; mints at issuance.
+  ;; `[:rf.work/resource <scoped-key> <generation>]`.
   [:rf.work/resource k3-scoped-key k3-generation])
 
 (defn- k3-live-contributors
@@ -697,7 +462,7 @@
   produce, so the composer's live node-wrapping + edge derivation runs over
   concrete facts."
   []
-  {;; a LIVE sub-cache projection: a realized parametric sub keyed by its
+   {;; A live sub-cache projection: a realized parametric sub keyed by its
    ;; concrete query vector, declaring a concrete `[:sub q]` upstream input —
    ;; the realized edge a parametric sub cannot enumerate statically.
    :subs
@@ -718,7 +483,7 @@
                     :output  [:fact [:article/by-slug "a1"]]
                     :storage :ephemeral :evaluation :on-demand
                     :lifecycle :subscription-cache-entry}})}
-   ;; a LIVE resource cache entry, route-owned, with lifecycle + work-ledger.
+   ;; A live resource cache entry, route-owned, with lifecycle + work-ledger.
    :resources
    {:live-shape :map
     :static-fn  (constantly {})
@@ -734,16 +499,12 @@
                     :lifecycle   {:kind :scoped-resource-key
                                   :owners #{[:route :route/article k3-nav-token]}}
                     :status      :loading
-                    ;; EP-0011 (rf2-cxpa87) — the in-flight work-ledger link
-                    ;; carries the CANONICAL resource work-id TUPLE and the
-                    ;; REAL non-terminal issuance status (`:running`, in
-                    ;; `work-ledger/non-terminal-statuses`), matching the row
-                    ;; `re-frame.resources.work-ledger/work-record` writes — not
-                    ;; a scalar id / non-issuance `:pending`.
+                    ;; Match the canonical resource attempt identity and a
+                    ;; non-terminal status emitted by the work ledger.
                     :work-ledger {:work/id k3-work-id
                                   :record  {:work/id k3-work-id :status :running
                                             :resource/key k3-scoped-key}}}})}
-   ;; the LIVE route slice with its realized owner.
+   ;; The live route slice with its realized owner.
    :routes
    {:live-shape :node
     :static-fn  (constantly {})
@@ -759,13 +520,13 @@
   (let [g     (graph/live-derivation-graph :rf/default (k3-live-contributors))
         nodes (:nodes g)
         edges (:edges g)]
-    (testing "realized SUB nodes are wrapped by their CONCRETE query vector
+    (testing "realized sub nodes are wrapped by their concrete query vector
               (the canonical live `[:sub q]` id — not the static bare-id form)"
       (is (contains? nodes [:sub [:article/page "a1"]])
           "the realized parametric sub is keyed by its concrete query vector")
       (is (contains? nodes [:sub [:article/by-slug "a1"]])
           "its concrete upstream sub is a node too"))
-    (testing "the realized :input edge a parametric sub CANNOT enumerate
+    (testing "the realized :input edge a parametric sub cannot enumerate
               statically is present in the live graph (live `[:sub q]` input
               resolves to the concrete upstream node id)"
       (is (some #(= % {:from [:sub [:article/by-slug "a1"]]
@@ -773,7 +534,7 @@
                        :role :input})
                 edges)
           "the realized :input edge from the concrete upstream sub"))
-    (testing "the composed RESOURCE node is keyed by its concrete scoped key,
+    (testing "the composed resource node is keyed by its concrete scoped key,
               carrying its live lifecycle owners + work-ledger"
       (let [res (get nodes [:resource k3-scoped-key])]
         (is (some? res) "the live resource node is present, scoped-key keyed")
@@ -781,13 +542,9 @@
         (is (= #{[:route :route/article k3-nav-token]}
                (get-in res [:lifecycle :owners]))
             "the live owner set is composed through verbatim")
-        ;; EP-0011 (rf2-cxpa87) — the composed work-ledger link carries the
-        ;; CANONICAL resource work-id TUPLE (not a scalar), with the
-        ;; `:rf.work/resource` family head, and the REAL non-terminal issuance
-        ;; status. Assert the tuple head + status explicitly so a regression to
-        ;; a scalar id / a non-issuance status (`:pending`) goes RED here.
+        ;; Separate witnesses make malformed work-id components diagnosable.
         (is (= k3-work-id (get-in res [:work-ledger :work/id]))
-            "the in-flight work-ledger link is the canonical work-id tuple, composed through")
+            "the composer preserves the canonical resource work-id")
         (is (= :rf.work/resource (first (get-in res [:work-ledger :work/id])))
             "the work-id tuple head is the :rf.work/resource family head (one-attempt-one-:work/id)")
         (is (= k3-scoped-key (second (get-in res [:work-ledger :work/id])))
@@ -795,19 +552,15 @@
         (is (= k3-generation (nth (get-in res [:work-ledger :work/id]) 2))
             "the work-id tuple embeds the attempt generation")
         (is (= k3-work-id (get-in res [:work-ledger :record :work/id]))
-            "the work-ledger RECORD carries the same canonical work-id tuple")
+            "the work-ledger record carries the same canonical work-id tuple")
         (is (= :running (get-in res [:work-ledger :record :status]))
-            "the work-ledger record status is the real non-terminal issuance status :running (not :pending)")
-        ;; The old SCALAR-`:work-id` spelling MUST be absent from the composed
-        ;; node — Managed-Effects uses the `:work/id` (namespaced) key, never a
-        ;; bare `:work-id`.
+            "the record preserves the non-terminal issuance status")
+        ;; Managed effects use the namespaced key at both levels.
         (is (not (contains? (:work-ledger res) :work-id))
-            "the composed work-ledger uses :work/id, never the old bare :work-id spelling")
+            "the composed work-ledger uses :work/id")
         (is (not (contains? (get-in res [:work-ledger :record]) :work-id))
-            "the work-ledger record uses :work/id, never the old bare :work-id spelling")))
-    (testing "the REALIZED route-owned resource edge (rf2-k0meap.1) resolves
-              the static :parametric marker into a concrete edge: live route
-              → concrete [:resource scoped-key], :param role"
+            "the work-ledger record uses :work/id")))
+    (testing "the realized route-owned resource edge resolves to a concrete key"
       (is (some #(= % {:from  :rf/route
                        :to    [:resource k3-scoped-key]
                        :role  :param
@@ -821,10 +574,10 @@
 
 (deftest d-materialized-flow-output-equals-the-whole-value-recompute
   ;; Derivations §The whole-value law: a materialized derivation's output
-  ;; path holds the SAME whole value its derivation fn computes from the same
+  ;; path holds the same whole value its derivation fn computes from the same
   ;; inputs. The flow materializes `(sum-cart items)` into [:cart :total];
-  ;; after seeding :cart/items, the app-db path MUST equal the whole-value
-  ;; recompute of the SAME function over the SAME inputs.
+  ;; after seeding :cart/items, the app-db path must equal the whole-value
+  ;; recompute of the same function over the same inputs.
   (register-one-of-each!)
   ;; Seed the flow input. The flow runs :after-event (same-commit
   ;; materialization), so after this dispatch the output path is settled.
@@ -838,19 +591,14 @@
         "and equals the whole-value recompute over the original inputs")))
 
 (deftest d-flow-and-sub-differ-only-in-policy-not-in-the-whole-value
-  ;; The §Worked equivalence law: the subscription and the flow are the SAME
-  ;; mathematical whole-value derivation, differing ONLY in policy (storage /
-  ;; evaluation / lifecycle / output) — NOT in the function. The central
-  ;; algebra claim: derive/materialize are policies over ONE dependency
-  ;; graph.
+  ;; The subscription and flow express the same whole-value computation with
+  ;; different storage, evaluation, lifecycle, and output policies.
   ;;
-  ;; The semantic claim is verified by VALUE, not by function identity: a
+  ;; Verify the law by value, not function identity: a
   ;; subscription body that names `sum-cart` is wrapped by `reg-sub` into a
   ;; distinct `(fn [[items] _] (sum-cart items))` computation fn, so the two
-  ;; `:derive` tokens are NOT `=`-identical objects through the registrar
-  ;; (the token is opaque — Derivations §The node shape). What MUST hold is
-  ;; that both compute the SAME whole value from the SAME inputs, and that
-  ;; their algebra views diverge on EVERY policy axis.
+  ;; `:derive` tokens are distinct objects through the registrar. The graph
+  ;; treats those executable tokens as opaque.
   (register-one-of-each!)
   (let [nodes (:nodes (graph/derivation-graph all-contributors))
         sub   (node-by-family nodes :subs  :cart/total)
@@ -858,40 +606,28 @@
     (testing "both carry an opaque :derive whole-value token (never serialized)"
       (is (some? (:derive sub)))
       (is (some? (:derive flow))))
-    (testing "they diverge on EVERY policy axis — the difference is policy, not function"
+    (testing "they differ on every policy axis"
       (is (not= (:storage sub)    (:storage flow)) "ephemeral vs app-db")
       (is (not= (:evaluation sub) (:evaluation flow)) "on-demand vs after-event")
       (is (not= (:lifecycle sub)  (:lifecycle flow)) "cache-entry vs frame")
       (is (not= (:output sub)     (:output flow)) "[:fact …] vs [:db …]")
       (is (not= (:materialized? sub) (:materialized? flow)) "false vs true"))
-    (testing "yet BOTH are derivations (the same superkind) and compute the
-              SAME whole value from the same inputs"
+    (testing "both remain derivations over the same whole value"
       (is (= :derivation (:kind sub) (:kind flow)))
       ;; the flow's :derive IS sum-cart; the subscription's wraps it — both
       ;; yield the identical whole value over the identical inputs.
       (is (= ((:derive flow) cart-items) (sum-cart cart-items))
           "the flow's whole-value fn equals the shared sum-cart"))
-    ;; rf2-djofbh — the whole-value law on the EPHEMERAL subscription PATH,
-    ;; not just the flow's `:derive` token. The namespace doc claims the suite
-    ;; proves "an EPHEMERAL derivation's read value equals the whole-value
-    ;; recompute"; the prior arms only evaluated the flow's `(:derive flow)`
-    ;; token and never READ the subscription. Seed :cart/items, then read the
-    ;; ephemeral `:cart/total` subscription through the real reactive path and
-    ;; assert its value equals `(sum-cart cart-items)` — the whole-value
-    ;; recompute over the same inputs (Derivations §The whole-value law,
-    ;; applied to the ephemeral output exactly as `d-materialized-flow-…`
-    ;; applies it to the materialized output).
-    (testing "the EPHEMERAL subscription's read value equals the whole-value recompute"
+    ;; Read the subscription through the reactive path rather than invoking
+    ;; only its opaque graph token.
+    (testing "the ephemeral subscription read equals the whole-value recompute"
       (rf/dispatch-sync [::seed-cart cart-items])
       (is (= (sum-cart cart-items) @(rf/subscribe [:cart/total]))
           "reading @(rf/subscribe [:cart/total]) after seeding equals (sum-cart cart-items) — the ephemeral whole-value law"))))
 
 (deftest d-delta-law-is-semantic-only-no-delta-support-still-conforms
-  ;; Derivations §The optional delta law: slice-1 ships NO executable delta
-  ;; protocol (EP-0014 bead-plan item 10 defers it). The conformance rule
-  ;; that survives now: an implementation with NO delta support still
-  ;; conforms — NO node carries an executable `:step-delta`. (When deltas
-  ;; ever ship, the commuting law against whole-value recompute applies.)
+  ;; The optional delta law applies only when an executable delta protocol is
+  ;; present. The current implementation remains whole-value only.
   (register-one-of-each!)
   (let [nodes (:nodes (graph/derivation-graph all-contributors))]
     (doseq [[node-id node] nodes]
@@ -899,29 +635,16 @@
           (str node-id " carries a :step-delta — slice-1 ships no delta protocol")))))
 
 ;; ===========================================================================
-;; (e) LIFECYCLE — the §Conformance 'Lifecycle' bullet's RELEASE axis
-;;     (rf2-pomhpf). Every prior arm (the per-family suites + the (c) live
-;;     arm) only ever reads a PRESENT owner — positive presence. The lifecycle
-;;     classification exists for the RELEASE boundary. The spec enumerates
-;;     FOUR release clauses (§Conformance Lifecycle): "destroying a frame
-;;     releases frame-owned graph nodes and host-transient state; subscription
-;;     disposal releases cache-entry nodes; route exit releases route owners;
-;;     machine destroy releases machine-owned leases and timers". These arms
-;;     drive each teardown TRANSITION and assert the node / owner has LEFT the
-;;     live graph — the strongest adversarial arm, a frame / subscription /
-;;     route / machine teardown vacating the graph. (Clause 2, subscription
-;;     disposal, is CLJS-only — the cached reactions are not deref-able on the
-;;     JVM — so its arm rides a reader conditional; rf2-q72kuo.)
+;; (e) LIFECYCLE — drive each release boundary and observe the corresponding
+;;     node or owner leave the live graph. Subscription cache entries are
+;;     CLJS-only because JVM cache reactions are not dereferenceable.
 ;; ===========================================================================
 
 (deftest e-destroying-a-frame-releases-its-frame-owned-graph-nodes
-  ;; §Conformance Lifecycle, clause 1 ("destroying a frame releases
-  ;; frame-owned graph nodes and host-transient state") + §Lifecycle and
-  ;; owner (`:frame` lifecycle — `destroy-frame!` releases it). Materialize a
-  ;; route slice (a `:frame`-lifecycle process owned by the frame) AND a live
-  ;; machine snapshot in a dedicated frame, confirm BOTH are present in that
-  ;; frame's live graph, then `destroy-frame!` and assert the frame's live
-  ;; graph is empty — every frame-owned node released.
+  ;; Materialize a route slice and machine snapshot in a dedicated frame, then
+  ;; verify that destroying the frame removes both from the observable graph.
+  ;; Host handle teardown is owned and tested by the respective subsystems;
+  ;; this arm covers the graph-node boundary.
   (register-one-of-each!)
   (rf/reg-frame :checkout/frame {:doc "a frame to destroy"})
   ;; Materialize frame-owned facts: a committed route slice + a live singleton
@@ -931,27 +654,19 @@
   (rf/dispatch-sync [:upload/main [:upload/start]] {:frame :checkout/frame})
   (let [g-before (graph/live-derivation-graph :checkout/frame all-contributors)
         nodes    (:nodes g-before)]
-    ;; The frame-owned facts commit SYNCHRONOUSLY under the plain-atom
-    ;; substrate this suite installs (the route navigation + the machine
-    ;; start both settle in their `dispatch-sync`), so their PRESENCE before
-    ;; teardown is a FAILING PRECONDITION (rf2-djofbh): if the live graph
-    ;; stops materializing the route / machine nodes after the setup
-    ;; dispatches, this test MUST fail rather than vacuously pass by guarding
-    ;; the release assertions behind the nodes' presence. The earlier
-    ;; `(when (and (contains? nodes :rf/route) (contains? nodes [:machine …])) …)`
-    ;; masked exactly that — a setup regression would skip the whole arm.
-    (testing "the setup dispatches materialized BOTH frame-owned nodes (failing precondition)"
+    ;; Assert setup before teardown so absence afterwards cannot pass vacuously.
+    (testing "the setup dispatches materialized both frame-owned nodes"
       (is (contains? nodes :rf/route)
-          "the navigation MUST materialize the :rf/route live node — absence is a failure, not a skip")
+          "the navigation must materialize the :rf/route live node — absence is a failure")
       (is (contains? nodes [:machine :upload/main])
-          "the machine start MUST materialize the [:machine :upload/main] live snapshot node"))
+          "the machine start must materialize the [:machine :upload/main] live snapshot node"))
     (testing "the route slice (a :frame-lifecycle node) is owned by the frame"
       (let [slice (get nodes :rf/route)]
         (is (= :frame (:lifecycle slice)))
         (is (= [:route :route/article (:nav-token slice)] (:owner slice)))))
     (frame/destroy-frame! :checkout/frame)
     (let [g-after (graph/live-derivation-graph :checkout/frame all-contributors)]
-      (testing "destroy-frame! releases EVERY frame-owned graph node"
+      (testing "destroy-frame! releases every frame-owned graph node"
         (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
         (is (= {} (:nodes g-after))
             "no node survives the frame teardown — the route slice + machine snapshot are gone")
@@ -962,28 +677,16 @@
             "the machine snapshot node is released (its frame is gone)")))))
 
 (deftest e-route-exit-supersession-releases-the-prior-route-owner
-  ;; §Conformance Lifecycle, clause 3 ("route exit releases route owners") +
-  ;; §Lifecycle and owner (`:route` lifecycle — "route exit or supersession
-  ;; releases it"). Navigate to route A (the live slice owner is
-  ;; `[:route :route/article nav-token-A]`), then navigate to route B. The
-  ;; ONE materialized route slice is superseded: its owner is now route B
-  ;; under a FRESH nav-token, and the route-A owner identity is no longer the
-  ;; live owner (released by supersession).
+  ;; A second navigation replaces both the route id and its nav-token-based
+  ;; owner identity.
   (register-one-of-each!)
   (rf/reg-route :route/about {} "/about")
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
   (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g-a) :rf/route)]
-    ;; The route-A slice commits SYNCHRONOUSLY under the plain-atom substrate
-    ;; this suite installs, so its presence is a FAILING PRECONDITION
-    ;; (rf2-djofbh): the supersession arm must not vacuously pass by guarding
-    ;; the pre/post checks behind the slices' presence. The earlier
-    ;; `(when (some? slice) …)` / `(when (some? slice-b) …)` masked a setup
-    ;; regression — a route node that stopped materializing would skip the
-    ;; whole supersession-release law.
-    (testing "the first navigation materialized the route-A slice (failing precondition)"
+    (testing "the first navigation materialized the route-A slice"
       (is (some? slice)
-          "navigating to route A MUST materialize the :rf/route live node — absence is a failure, not a skip"))
+          "navigating to route A must materialize the :rf/route live node — absence is a failure"))
     (let [owner-a     (:owner slice)
           nav-token-a (:nav-token slice)]
       (testing "before supersession the live owner is route A under nav-token-A"
@@ -993,9 +696,9 @@
       (rf/dispatch-sync [:rf.route/navigate :route/about {}])
       (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
             slice-b  (get (:nodes g-b) :rf/route)]
-        (testing "the superseding navigation materialized the route-B slice (failing precondition)"
+        (testing "the superseding navigation materialized the route-B slice"
           (is (some? slice-b)
-              "navigating to route B MUST materialize the superseding :rf/route live node — absence is a failure"))
+              "navigating to route B must materialize the superseding :rf/route live node — absence is a failure"))
         (testing "the superseding navigation releases the prior route owner"
           (is (= :route/about (:route-id slice-b))
               "the live slice now reports route B (the prior route fact is exited)")
@@ -1007,14 +710,8 @@
               "the live owner is now [:route route-B fresh-nav-token]"))))))
 
 (deftest e-machine-destroy-releases-the-machine-owned-snapshot-node
-  ;; §Conformance Lifecycle, clause 4 ("machine destroy releases
-  ;; machine-owned leases and timers") + §Lifecycle and owner
-  ;; (`:machine-instance` lifecycle — "machine destroy releases it"). A
-  ;; machine that transitions into a `:final?` state auto-destroys (Spec 005
-  ;; §Final state — the XState-aligned actor-done boundary). Materialize the
-  ;; instance (its `:machine-instance`-owned snapshot node is live in the
-  ;; graph), drive it to its final state, and assert the snapshot node has
-  ;; left the live graph — the machine-owned node released.
+  ;; A final-state transition auto-destroys the machine instance. Observe the
+  ;; snapshot before and after so the release assertion cannot pass vacuously.
   (register-one-of-each!)
   ;; A machine with a :final? terminal state (the singleton lifecycle's
   ;; release boundary). Distinct id from :upload/main so the existing arms are
@@ -1026,22 +723,15 @@
                              :done    {:final? true}}})
   ;; Materialize the live singleton snapshot.
   (rf/dispatch-sync [:job/runner [:job/finish-noop]]) ;; no-op event: stays :running, installs snapshot
-  ;; PRE-TEARDOWN materialization is a FAILING PRECONDITION (rf2-mp1p28):
-  ;; the original test only asserted ABSENCE after the final-state
-  ;; auto-destroy, so "absent after destroy" was indistinguishable from
-  ;; "never present" — a regression where `:job/runner` never materializes a
-  ;; live snapshot, or where the live graph stops surfacing machine
-  ;; instances, would still pass vacuously. Prove a LIVE instance existed
-  ;; (spec/Derivations.md §`:machine-instance` lifecycle: released by machine
-  ;; destroy) BEFORE driving the machine to its final state.
+  ;; Prove the instance exists before driving its release boundary.
   (let [g-before    (graph/live-derivation-graph :rf/default all-contributors)
         node-before (get (:nodes g-before) [:machine :job/runner])
         rt-before   (frame/frame-runtime-db-value :rf/default)]
-    (testing "the machine instance materialized a live snapshot BEFORE destroy (failing precondition)"
+    (testing "the machine instance materialized a live snapshot before destroy"
       (is (some? node-before)
-          "the no-op dispatch MUST materialize the [:machine :job/runner] live snapshot node — absence is a failure, not a skip")
+          "the no-op dispatch must materialize the [:machine :job/runner] live snapshot node — absence is a failure")
       (is (some? (get-in rt-before (machine-paths/snapshot-path :job/runner)))
-          "the machine-owned snapshot MUST be live in runtime-db before the final event — proving a live instance existed to release")))
+          "the machine-owned snapshot must be live before the final event")))
   (rf/dispatch-sync [:job/runner [:job/finish]])      ;; → :done (:final?) → auto-destroy
   (let [g-after (graph/live-derivation-graph :rf/default all-contributors)
         node    (get (:nodes g-after) [:machine :job/runner])
@@ -1054,20 +744,10 @@
 
 #?(:cljs
    (deftest e-subscription-disposal-releases-its-cache-entry-node
-     ;; §Conformance Lifecycle, clause 2 ("subscription disposal releases
-     ;; cache-entry nodes") + §Lifecycle and owner (`:subscription-cache-entry`
-     ;; — the entry lives while a reader refs it; disposal on ref-count → 0
-     ;; releases it). The ONE family whose lifecycle RELEASE the (e) section
-     ;; did not drive: `b-storage-…` reads :subscription-cache-entry only as a
-     ;; PRESENT classification (the present-owner-only shape this section
-     ;; exists to go beyond). This is also the FIRST arm to drive the REAL
-     ;; live sub-cache → composer path end-to-end (`cplus-…` uses synthetic
-     ;; constantly-fn sub contributors; the only other real-path live arm,
-     ;; `gplus-…`, covers RESOURCES not subs). CLJS-only: `sub-cache-algebra-view`
-     ;; returns nil on the JVM (the cached reactions are not deref-able there),
-     ;; so the JVM gate elides this whole arm via the reader conditional.
+     ;; Drive the real CLJS cache path: one reader materializes the node and
+     ;; dropping the sole reference disposes it synchronously.
      (register-one-of-each!)
-     ;; A PARAMETRIC sub whose one realized input edge is a plain layer-1
+     ;; A parametric sub whose one realized input edge is a plain layer-1
      ;; reader, so a concrete subscribe materializes exactly one clean cache
      ;; entry (+ its :cart/items input) carrying a realized `[:sub q]` edge —
      ;; no resource / unregistered-input fan-out.
@@ -1079,55 +759,36 @@
            r (subs/subscribe q {:frame :rf/default})]
        (is (= 3 @r)
            "sanity: the parametric sub computes its whole value from the realized input")
-       ;; PRESENT in the composed LIVE graph — through the REAL
-       ;; `subs-tooling/sub-cache-algebra-view` the :subs contributor's
-       ;; :live-fn wires (`all-contributors`), reading live :sub-cache with
-       ;; :ref-count. A live cache-entry node is keyed `[:sub query-v]` by the
-       ;; composer (`graph/sub-node-id`), NOT the bare static sub-id. Presence
-       ;; is a FAILING PRECONDITION (rf2-djofbh): absence is a failure, not a
-       ;; skip — so the release assertion below cannot vacuously pass.
+       ;; Live cache entries use the concrete query vector in their node id.
+       ;; Assert presence before disposal to avoid a vacuous release check.
        (let [g-before (graph/live-derivation-graph :rf/default all-contributors)
              node     (get (:nodes g-before) [:sub q])]
-         (testing "the live subscribe materialized the cache-entry node (failing precondition)"
+         (testing "the live subscribe materialized the cache-entry node"
            (is (some? node)
-               "subscribing MUST surface the [:sub [:cart/item-qty \"b\"]] cache-entry node in the composed live graph")
+               "subscribing must surface the concrete cache-entry node in the live graph")
            (is (= :derivation (:kind node)))
            (is (= :subscription-cache-entry (:lifecycle node))
                "the live node carries the :subscription-cache-entry lifecycle it is released under")
            (is (= 1 (:ref-count node))
                "one live reader keeps the cache entry alive — the :ref-count lifecycle evidence")))
-       ;; Dispose: the sole reader drops → synchronous ref-count → 0 → the
-       ;; reaction disposes and its on-dispose callback evicts the entry
-       ;; (Spec 006 §Reference counting and disposal; rf2-cmfln sync dispose).
+       ;; The sole reader drops the ref-count to zero and triggers eviction.
        (subs/unsubscribe :rf/default q)
        (let [g-after (graph/live-derivation-graph :rf/default all-contributors)]
          (testing "subscription disposal releases the cache-entry node from the live graph"
            (is (nil? (get (:nodes g-after) [:sub q]))
-               "the :subscription-cache-entry node LEFT the composed live graph on disposal (ref-count → 0)")
+                "the :subscription-cache-entry node left the live graph at ref-count zero")
            (is (not (contains? (set (keys @(:sub-cache (frame/frame :rf/default)))) q))
                "and the underlying :sub-cache entry is evicted — the release the node absence reflects"))))))
 
 ;; ===========================================================================
-;; (f) EVALUATION POLICY — the §Conformance 'Evaluation policy' bullet's
-;;     on-demand-no-write law (rf2-qdxvkb; §Evaluation policy rule 1:
-;;     "`:on-demand` derivations MUST NOT cause durable state changes merely
-;;     because a view read them. (Reading a resource selector does not start
-;;     resource work.)"). The (d) laws prove the MATERIALIZED path's whole
-;;     value; this proves the EPHEMERAL/on-demand path's NEGATIVE no-write
-;;     property — neither app-db nor runtime-db (so no work-ledger record, no
-;;     cache mutation) changes because a reader read an `:on-demand` node.
+;; (f) EVALUATION POLICY — reading on-demand facts must not write app-db or
+;;     runtime-db. In particular, reading a resource selector starts no work.
 ;; ===========================================================================
 
 (deftest f-reading-an-on-demand-node-causes-no-durable-write
-  ;; The on-demand-no-write invariant proven over BOTH `:on-demand` algebra
-  ;; node forms: an ordinary subscription (a `:derivation`/`:ephemeral`/
-  ;; `:on-demand`/`:subscription-cache-entry` node) AND a resource
-  ;; `:rf/resource` selector (the read-fact projection of a `:process`
-  ;; node — "reading a selector does not start resource work"). Snapshot the
-  ;; durable frame-state (app-db + runtime-db) before and after reading them;
-  ;; the two partitions MUST be unchanged. The work-ledger lives at
-  ;; `[:rf.runtime/work-ledger …]` in runtime-db, so an unchanged runtime-db
-  ;; subsumes "no work record was created."
+  ;; Exercise both an ordinary subscription and the read-fact selector of a
+  ;; resource process. The work ledger lives in runtime-db, so equality of the
+  ;; two durable partitions also proves that no resource work was started.
   (register-one-of-each!)
   ;; First, pin the algebra classification the read is exercising: the sub is
   ;; the canonical :on-demand node; the resource selectors are the
@@ -1139,13 +800,13 @@
         "the subscription is the canonical :on-demand node whose read must be write-free")
     (is (contains? (set (:selectors res)) :rf/resource)
         "the resource exposes the :rf/resource read selector"))
-  ;; Snapshot BOTH durable partitions, read the on-demand nodes, re-snapshot.
+  ;; Snapshot both durable partitions, read the on-demand nodes, re-snapshot.
   (let [app-before (frame/frame-app-db-value :rf/default)
         rt-before  (frame/frame-runtime-db-value :rf/default)
         ;; Read the ordinary subscription.
         sub-val    @(rf/subscribe [:cart/items])
-        ;; Read the resource selector for an UNMATERIALIZED key — the idle
-        ;; empty-state projection. Reading it MUST NOT start work or write a
+        ;; Read the resource selector for an unmaterialized key — the idle
+        ;; empty-state projection. Reading it must not start work or write a
         ;; cache entry / work-ledger record.
         sel-val    @(rf/subscribe [:rf/resource
                                    {:resource :article/by-slug :params {:slug "welcome"}}])
@@ -1157,67 +818,36 @@
           "reading the selector for an unmaterialized key yields the idle empty-state"))
     (testing "neither durable partition changed merely because a reader read"
       (is (= app-before app-after)
-          "app-db is byte-for-byte unchanged after on-demand reads (rule 1)")
+          "app-db is value-equal after on-demand reads")
       (is (= rt-before rt-after)
-          "runtime-db is byte-for-byte unchanged — no cache entry, no work-ledger record"))
+          "runtime-db is value-equal — no cache entry or work-ledger record"))
     (testing "specifically, no work-ledger record was created by the selector read"
       (is (= (:rf.runtime/work-ledger rt-before) (:rf.runtime/work-ledger rt-after))
           "reading a resource selector starts no resource work (§Evaluation policy rule 1)"))))
 
 ;; ===========================================================================
-;; (g) TOOL REDACTION — the §Conformance 'Tool redaction' law over OFF-BOX
-;;     GRAPH EGRESS (rf2-zt5j96 / rf2-iormgq; EP-0015 + EP-0017; spec/
-;;     Derivations.md §Conformance 'Tool redaction' + §Redaction metadata).
+;; (g) TOOL REDACTION — off-box graph egress.
 ;;
-;; Every prior arm reads the RAW on-box graph the composer
-;; (`re-frame.derivation.graph`) assembles — correct-as-designed
-;; (the EP-0014 tail-2 ruling, rf2-6y7wnb: the composer is raw-on-box;
-;; redaction is an EGRESS concern owned by the frame elision policy via the
-;; shared `rf/elide-wire-value` walker, applied at the WIRE BOUNDARY where a
-;; consuming tool ships the graph OFF-BOX, NOT at the registrar-derived
-;; composer). So a passing conformance run that NEVER projects the graph
-;; through an egress boundary cannot catch a raw sensitive scope / params /
-;; derived value leaving through an identity-embedded graph position, nor a
-;; projection that drops graph connectivity. These arms close that gap.
+;; The composer assembles an internal graph; it does not apply a graph-wide
+;; wire policy. `egress/project-graph` owns that boundary: it walks value
+;; summaries under the named frame's elision policy and remaps every
+;; identity-bearing resource position consistently so edges still connect.
 ;;
-;; ## Where the egress boundary lives, and why this suite tests the owner
-;;
-;; The graph egress redaction ALGORITHM is OWNED by the bundle-isolated core
-;; tooling ns `re-frame.derivation.egress/project-graph` (rf2-mm3y49). It was
-;; previously duplicated as this suite's own in-tree mirror AND the named
-;; first-consumer Xray call site
-;; (`day8.re-frame2-xray.panels.derivation-graph-helpers/redact-graph-for-egress`),
-;; which drifted; both now DELEGATE to the one core owner. This suite tests
-;; that owner DIRECTLY (`egress/project-graph`) — NOT the Xray consumer, a
-;; `tools/` artefact this cross-family conformance surface MUST NOT `:require`
-;; (tools/README.md bundle isolation: the dependency arrow flows conformance →
-;; implementation, never conformance → tools). Because the owner lives in
-;; `implementation/core` and is built entirely from `implementation/`-resident
-;; primitives (`elide-wire-value` value walker + `canonical-bytes` opaque
-;; handle), the suite reaches the SAME algorithm Xray runs, with no tool
-;; reach. These arms run it over the REAL composer output
-;; (`graph/live-derivation-graph` over contributors that return the realized
-;; sensitive shapes) — proving the LAW holds against the actual assembled
-;; graph. The Xray redaction suite
-;; (`derivation-graph-redaction-cljs-test`) keeps FOCUSED consumer/wiring
-;; pins over the same owner; this is the cross-family pin — two witnesses to
-;; one shared algorithm.
+;; The projection lives in bundle-isolated core so this test and tool consumers
+;; can share it without making this implementation tier depend on `tools/`.
+;; The synthetic arms below isolate that graph-wide projection. The final g+
+;; arm separately exercises `resource-cache-algebra-view`, whose resource
+;; classification and scoped-key projection run before composition.
 ;; ===========================================================================
 
-;; ---- (g) resource identity egress redaction (rf2-zt5j96) -----------------
+;; ---- (g) resource identity egress redaction ------------------------------
 ;;
-;; The umbrella OFF-BOX graph-egress arm the conformance gap names: a live
-;; resource node carries its sensitive scope/params NOT in a value-bearing
-;; field but in its IDENTITY — the concrete scoped key
+;; A live resource node carries scope and params in its identity: the scoped key
 ;; `[cache-scope resource-id canonical-params]` that is simultaneously the
 ;; node KEY, the `:id`, the `:output` runtime-path tail, the realized
 ;; `:inputs` `[:scope …]` / `[:param …]`, the `:work-ledger :record
-;; :resource/key`, AND the edge endpoints naming it. The §1-6 arms above pin
-;; the RAW composed graph (`cplus-live-graph-realizes-non-route-nodes-and-edges`
-;; pins raw scoped keys at exactly these positions); this arm projects that
-;; raw graph through the shared egress boundary and proves no raw secret
-;; survives anywhere while the registration resource-id stays visible and the
-;; graph stays connected.
+;; :resource/key`, and the edge endpoints naming it. A value-path walker cannot
+;; reach these positions, so the graph projection must opaque them consistently.
 
 (def ^:private egress-frame :app/egress-secure)
 
@@ -1229,17 +859,9 @@
   [secret-scope :article/by-slug secret-params])
 (def ^:private egress-nav-token 23)
 
-;; EP-0011 (rf2-cxpa87) / rf2-tmyfkn — the canonical resource work-id is the
-;; FAMILY tuple `[:rf.work/resource <scoped-key> <generation>]`
-;; (`re-frame.resources.work-ledger/resource-work-id`), NOT a scalar — and
-;; its embedded scoped key is the SAME secret-bearing identity `:id` /
-;; `:resource/key` carry, in a THIRD structure position a value-path walk
-;; cannot reach. A prior scalar `99` fixture could never expose a missing
-;; work-id projection: a scalar has nothing to leak. Using the canonical
-;; tuple here (embedding `egress-scoped-key`) makes a regression that stops
-;; opaquing `:work-ledger :work/id` / `:work-ledger :record :work/id` /
-;; `:host-transient` fail this suite's egress arms, not just the per-artefact
-;; `resources` suite.
+;; Embed the sensitive scoped key in the canonical work-id tuple so the test
+;; covers the top-level ledger link, record copy, and host-transient handle
+;; address as distinct identity positions.
 (def ^:private egress-generation 4)
 (def ^:private egress-work-id
   [:rf.work/resource egress-scoped-key egress-generation])
@@ -1285,9 +907,8 @@
                    :storage :runtime-db :evaluation :on-route :lifecycle :frame})}})
 
 (defn- contains-secret?
-  "Deep-walk `v` and return true iff the raw secret token string appears
-  ANYWHERE (a leaf, a key, inside a scope/params, a work-ledger record, an
-  :output path — anywhere). Strict boolean."
+  "Return true when the secret token appears anywhere in a nested value,
+  including map keys."
   [v]
   (boolean
     (cond
@@ -1297,10 +918,7 @@
       :else              false)))
 
 (defn- projected-scoped-key?
-  "True when `v` keeps the 3-tuple scoped-key SHAPE after egress projection —
-  `[<scope-handle> resource-id <params-handle>]`: the registration
-  resource-id keyword is PRESERVED in the middle, scope + params replaced by
-  opaque handles (structure preserved, secrets withheld)."
+  "Return true for a projected scoped-key tuple that preserves resource id."
   [v]
   (and (vector? v)
        (= 3 (count v))
@@ -1308,28 +926,24 @@
 
 (deftest g-live-resource-identity-redacted-at-graph-egress
   ;; A sensitive scope/params fixture, projected through the shared graph
-  ;; egress boundary, asserting NO raw secret survives anywhere, the
+  ;; egress boundary, asserting no raw secret survives anywhere, the
   ;; non-sensitive resource id remains visible, all identity positions use the
-  ;; SAME stable opaque scoped key, and edges still connect.
+  ;; same stable opaque scoped key, and edges still connect.
   (rf/reg-frame egress-frame {:doc "off-box egress conformance frame"})
   (let [raw      (graph/live-derivation-graph egress-frame (egress-live-contributors))
         redacted (egress/project-graph raw egress-frame)]
 
-    (testing "PRECONDITION — the composer assembled the live sensitive resource
-              node + its route-owned activation edge over the concrete scoped
-              key (the raw on-box graph DOES carry the secret)"
+    (testing "the raw fixture exposes the sensitive identity to the projection"
       (is (contains? (:nodes raw) [:resource egress-scoped-key])
           "the live resource node is keyed by the raw sensitive scoped key")
       (is (contains-secret? raw)
           "sanity: the raw composed graph carries the secret token"))
 
-    (testing "(a) NO raw secret token survives ANYWHERE in the egressed graph —
-              not in the node key, :id, :inputs, :output, work-ledger, or edges"
+    (testing "no raw secret survives in the egressed graph"
       (is (not (contains-secret? redacted))
-          "the secret must NOT appear anywhere in the off-box graph"))
+          "the secret must not appear anywhere in the off-box graph"))
 
-    (testing "(b) the non-sensitive resource id remains VISIBLE and every
-              identity position uses the SAME stable opaque scoped key"
+    (testing "the resource id remains visible and identity remapping is stable"
       (let [node          (-> redacted :nodes vals first)
             node-key      (-> redacted :nodes keys first)
             key-scoped    (second node-key)
@@ -1339,16 +953,13 @@
         (is (= :resource (first node-key)) "still a :resource node key")
         (is (projected-scoped-key? key-scoped) "still a 3-tuple scoped-key shape")
         (is (= :article/by-slug (nth key-scoped 1))
-            "the registration resource-id is PRESERVED (a tool sees WHICH resource)")
+            "the registration resource-id remains visible")
         (is (not= secret-scope (nth key-scoped 0)) "the scope component is opaqued")
         (is (not= secret-params (nth key-scoped 2)) "the params component is opaqued")
         (is (= key-scoped id-scoped output-scoped ledger-scoped)
-            "ALL identity positions (node key, :id, :output, work-ledger) project
-             to the SAME stable opaque scoped key — one fact, one identity")))
+             "node key, :id, :output, and work-ledger use one projected identity")))
 
-    (testing "(c) graph CONNECTIVITY survives — the node is still present +
-              classified, and the route-owned edge naming it still connects to
-              the (consistently remapped) projected node key"
+    (testing "graph connectivity survives the identity remap"
       (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
           "the raw-scoped-key node key is gone")
       (let [node     (-> redacted :nodes vals first)
@@ -1360,12 +971,9 @@
         (is (= :resource-process (:refinement node)))
         (is (some? edge) "the route → resource :param edge is still present")
         (is (= node-key (:to edge))
-            "the edge :to is remapped to the SAME projected node key (consistent
-             remap — connectivity preserved)")))
+             "the edge :to uses the same projected node key")))
 
-    (testing "(d) the realized :inputs scope/params, the :output entry path,
-              and the work-ledger :resource/key keep their structural shape but
-              carry no raw secret"
+    (testing "identity-bearing fields keep their structure without the secret"
       (let [node (-> redacted :nodes vals first)]
         (is (= [:scope :param] (mapv first (:inputs node)))
             "the [:scope …] / [:param …] input roles survive")
@@ -1389,34 +997,25 @@
           (is (projected-scoped-key? (:resource/key rec))
               "the work-ledger :resource/key keeps the scoped-key shape"))))
 
-    (testing "(e) rf2-tmyfkn — the resource work-id is a THIRD identity
-              position, independent of :resource/key: the top-level
-              :work-ledger :work/id, the record's own :work/id copy, and the
-              :host-transient in-flight handle address (which names the SAME
-              work-id) all project to the SAME opaqued scoped key — no raw
-              secret survives via any of the three positions"
+    (testing "all work-id copies and the host-transient address use one projected id"
       (let [node    (-> redacted :nodes vals first)
             top-wid (get-in node [:work-ledger :work/id])
             rec-wid (get-in node [:work-ledger :record :work/id])
             ht-wid  (second (first (:host-transient node)))]
         (is (some? top-wid) "the top-level work-ledger link carries a work-id")
         (is (= top-wid rec-wid)
-            "the top-level slot and the record's own copy project to the SAME opaqued work-id")
+            "the top-level slot and record copy use the same projected work-id")
         (is (= top-wid ht-wid)
-            "the host-transient in-flight handle names the SAME opaqued work-id")
+            "the host-transient handle address names the same projected work-id")
         (is (not (contains-secret? top-wid))
             "no raw secret survives in the projected work-id")))))
 
 (deftest g-graph-egress-for-unknown-frame-fails-closed
-  ;; The §Conformance fail-closed clause for the GRAPH egress boundary:
-  ;; projecting under an UNKNOWN / never-registered frame must not ship value
-  ;; fields raw under no policy. The value-path walk fails closed to
-  ;; :rf/redacted; the identity projection is frame-INDEPENDENT (it is a
-  ;; one-way hash, never policy-bearing) so it still opaques the scoped key.
+  ;; An unreachable frame has no usable value policy, so value-bearing fields
+  ;; fail closed. Resource identity projection is independent of that policy.
   (rf/reg-frame egress-frame {})
-  ;; EP-0025: classify [:cart :items] sensitive via the commit-plane effect
-  ;; path (:source :effect) — durable app-db classification is no longer a
-  ;; frame annotation.
+  ;; Install the classification through the same runtime-db effect used by the
+  ;; commit plane.
   (frame/swap-runtime-db! egress-frame
     (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:cart :items]]})))
   ;; a value-bearing live sub node at a frame-sensitive path, alongside the
@@ -1434,12 +1033,9 @@
                                 :lifecycle :subscription-cache-entry
                                 :value   {:cart {:items secret-token}}}})})
         raw (graph/live-derivation-graph egress-frame contributors)]
-    (testing "PRECONDITION — the raw graph carries the secret in a value field
-              AND in the resource identity"
+    (testing "the raw graph carries the secret in value and identity positions"
       (is (contains-secret? raw)))
-    (testing "egress under an UNKNOWN frame fails closed: the value-bearing
-              field is redacted to :rf/redacted (no reachable policy ⇒ no raw
-              ship), and the identity scoped key is opaqued — NO secret survives"
+    (testing "egress under an unknown frame fails closed"
       (let [redacted (egress/project-graph raw :app/does-not-exist)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
         (is (= privacy/redacted-sentinel (:value sub))
@@ -1447,48 +1043,28 @@
         (is (not (contains-secret? redacted))
             "no raw secret survives — value-path fail-closed + frame-independent
              identity projection cover both leak channels")))
-    (testing "egress under a NIL frame fails closed EVEN UNDER an AMBIENT bound
-              frame — it must NOT borrow the ambient frame's policy and ship the
-              value raw (rf2-udkj69). The fixture binds ambient :rf/default
-              (empty policy); we bind it explicitly here so the regression is
-              self-contained. A nil frame-id MUST redact the value-bearing field,
-              not resolve :rf/default and pass [:cart :items] through raw."
+    (testing "a nil frame does not borrow an ambient frame's policy"
       (rf/with-frame :rf/default
         (is (some? (frame/resolve-current-frame))
-            "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
-             walk WOULD resolve it (the borrow this arm forbids)")
+            "an ambient frame is bound, making policy borrowing observable")
         (let [redacted (egress/project-graph raw nil)
               sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
           (is (= privacy/redacted-sentinel (:value sub))
-              "nil frame ⇒ the whole value-bearing field is redacted, NOT shipped
-               raw under the borrowed ambient :rf/default empty policy")
+              "nil frame redacts rather than using the ambient frame")
           (is (not (contains-secret? redacted))
               "no raw secret survives a nil-frame egress under an ambient binding"))))
-    (testing "egress under the KNOWN frame redacts the frame-declared sensitive
-              value path while keeping the structure"
+    (testing "egress under the known frame applies its classified value path"
       (let [redacted (egress/project-graph raw egress-frame)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
         (is (= privacy/redacted-sentinel (get-in sub [:value :cart :items]))
-            "the frame-declared sensitive [:cart :items] leaf is redacted")
+            "the classified [:cart :items] leaf is redacted")
         (is (= :derivation (:kind sub)) "the sub node is still present + classified")
         (is (not (contains-secret? redacted)))))))
 
 (deftest g-graph-egress-is-idempotent
-  ;; A forwarder pipeline that double-projects must not corrupt the graph: a
-  ;; value may egress MORE THAN ONCE (re-egress on re-render / re-subscribe /
-  ;; cascade), so the projection MUST be the identity on an already-projected
-  ;; graph — `project(project(x)) == project(x)`. The opaque handle of an
-  ;; already-opaque handle is the SAME handle (not a fresh handle-of-handle),
-  ;; and the `:rf/redacted` sentinel re-projects to itself.
-  ;;
-  ;; rf2-g197ep: the prior assertion checked ONLY node-key set + `:id` + no-raw-
-  ;; secret. That MISSED the real non-idempotence: `:id`/node-keys are stable
-  ;; only because a projected scoped key (`[<handle> id <handle>]`) no longer
-  ;; matches `scoped-resource-key?` (its tail is an opaque VECTOR, not a map),
-  ;; so they are not re-projected — but the realized `:inputs`
-  ;; `[:scope …]`/`[:param …]` payloads were re-hashed UNCONDITIONALLY, minting
-  ;; fresh handles on the second pass. Full graph equality is the assertion
-  ;; that catches it; it FAILS against the pre-fix unconditional re-hash.
+  ;; Forwarders may project the same graph more than once. Full graph equality
+  ;; catches fresh handles in any identity-bearing position, including realized
+  ;; inputs that would not be detected by node-key checks alone.
   (rf/reg-frame egress-frame {})
   (let [raw   (graph/live-derivation-graph egress-frame (egress-live-contributors))
         once  (egress/project-graph raw egress-frame)
@@ -1496,29 +1072,24 @@
         node1 (-> once :nodes vals first)
         node2 (-> twice :nodes vals first)]
     (is (not (contains-secret? twice)) "still no secret after double projection")
-    ;; The headline idempotence law: a second egress pass changes NOTHING.
+    ;; A second egress pass is the identity.
     (is (= once twice)
         "egress is idempotent — re-projecting an already-projected graph is the
          identity (project(project(x)) == project(x))")
-    ;; Spelled-out witnesses so a regression reports WHICH position drifted.
+    ;; Spelled-out witnesses identify the position that drifted.
     (is (= (set (keys (:nodes once))) (set (keys (:nodes twice))))
         "node keys are stable under re-projection")
     (is (= (:id node1) (:id node2))
         "the projected scoped-key :id is stable under re-projection")
     (is (= (:inputs node1) (:inputs node2))
         "the projected realized :inputs ([:scope …]/[:param …]) are stable — a
-         second pass must NOT re-hash the opaque handles into fresh handles")
+         second pass must not re-hash the opaque handles into fresh handles")
     (is (= (:output node1) (:output node2))
         "the projected :output runtime path is stable under re-projection")
     (is (= (get-in node1 [:work-ledger :record :resource/key])
            (get-in node2 [:work-ledger :record :resource/key]))
         "the projected work-ledger :resource/key is stable under re-projection")
-    ;; rf2-tmyfkn: the resource work-id is projected in THREE positions (the
-    ;; top-level :work-ledger link, the record's own copy, and the
-    ;; :host-transient in-flight handle) — each must be independently stable,
-    ;; not just re-hashed to a DIFFERENT-but-still-secret-free handle on the
-    ;; second pass (which `(= once twice)` alone would already catch, but a
-    ;; spelled-out witness reports WHICH position drifted).
+    ;; The work-id is copied into three positions; diagnose each independently.
     (is (= (get-in node1 [:work-ledger :work/id])
            (get-in node2 [:work-ledger :work/id]))
         "the projected top-level :work-ledger :work/id is stable under re-projection")
@@ -1529,39 +1100,20 @@
         "the projected :host-transient in-flight handle is stable under re-projection")))
 
 ;; ===========================================================================
-;; (g+) THE REAL RESOURCE-CACHE GRAPH EGRESS PATH (rf2-uh2clr).
+;; (g+) RESOURCE-CONTRIBUTOR EGRESS THROUGH THE COMPOSER.
 ;;
-;; Every (g) arm above proves the UMBRELLA egress-projection LAW
-;; (`egress/project-graph`, the core-owned algorithm Xray also delegates to)
-;; against a hand-built SYNTHETIC contributor (`egress-live-contributors`) —
-;; correct for pinning the projection HELPER in isolation, but it never
-;; drives the PRODUCTION wiring: `re-frame.resources.tooling/
-;; resource-cache-algebra-view` already projects a `:sensitive?` resource's
-;; identity (rf2-0t0l3w) INSIDE the tooling sibling, before the graph
-;; composer ever sees the node, whenever it is reached through the REAL
-;; `all-contributors` map every OTHER arm in this suite composes through. A
-;; regression in `resource-cache-algebra-view`'s own projection, or in
-;; `graph/live-derivation-graph`'s node collection / keying / edge
-;; derivation over an ALREADY-projected node, could pass every synthetic (g)
-;; arm above while a real app's Xray / re-frame2-pair-mcp consumer still
-;; leaked. This arm closes that gap: register a REAL `:sensitive?` resource
-;; + a REAL route (a REAL navigation mints its live nav-token/owner
-;; identity), materialize the live cache entry the SAME way
-;; `resource_algebra_view_cljs_test.cljc`'s own `install-live-entry!`
-;; precedent does (a direct runtime-db write, documented there as "a test
-;; fixture, NOT the resource write-path under test" — this conformance tier
-;; has no dependency on the HTTP artefact, so it cannot drive a real fetch;
-;; attempting one throws `:rf.error/http-artefact-missing`, confirmed while
-;; developing this arm), then compose the graph through the REAL
-;; `all-contributors` map — no hand-rolled node, no hand-rolled contributor
-;; standing in for the tooling projection or the composer — and assert the
-;; graph a real app's Xray panel would see carries no raw secret while
-;; resource-id + edge connectivity survive.
+;; The synthetic g arms isolate `egress/project-graph`. This arm instead uses
+;; the actual resource contributor, which applies resource classification and
+;; scoped-key projection before the composer receives its nodes. The cache row
+;; is a direct fixture because this artefact intentionally has no HTTP
+;; dependency; resource state and work-ledger constructors keep its shape
+;; canonical. The route still runs through normal navigation so its owner and
+;; activation edge are genuine live facts.
 ;; ===========================================================================
 
 (def ^:private real-egress-frame :app/real-resource-egress)
 
-(deftest gplus-real-resource-cache-graph-egress-via-the-production-path
+(deftest gplus-resource-cache-graph-egress-via-the-tooling-path
   (rf/reg-frame real-egress-frame {:doc "real resource-cache graph egress conformance frame"})
   (rf/reg-resource :secret/tenant-article
                    {:scope         :rf.scope/global
@@ -1571,14 +1123,8 @@
                      {:request {:method  :get
                                 :url     "/api/secure-article"
                                 :headers {"Authorization" auth-token}}}))
-  ;; A plain route (no `:resources` metadata — this tier cannot drive a real
-  ;; on-route fetch; see the arm doc above) whose REAL navigation mints a
-  ;; REAL nav-token, so the resource entry's owner below is a genuine live
-  ;; route-owner identity, not a fabricated one. Deliberately carries NO
-  ;; secret in its OWN path/params: the route's :params field is a SEPARATE
-  ;; value-bearing surface (frame elision policy, not resource-identity
-  ;; projection) — this arm isolates the RESOURCE identity leak channel
-  ;; rf2-uh2clr / rf2-tmyfkn are about from that unrelated one.
+  ;; Keep the route params non-sensitive so this arm isolates the resource
+  ;; identity projection. Normal navigation supplies a real nav-token owner.
   (rf/reg-route :route/secure-article {} "/secure")
   (rf/dispatch-sync [:rf.route/navigate :route/secure-article {}]
                     {:frame real-egress-frame})
@@ -1591,12 +1137,9 @@
         work-id     (work-ledger/resource-work-id scoped-key 1)
         entry       (assoc (resources-state/empty-entry :secret/tenant-article scoped-key)
                            :status :fetching :active-owners #{owner} :current-work work-id)]
-    (is (some? nav-token) "PRECONDITION — the real navigation minted a nav-token")
-    ;; Materialize the live cache entry directly (the fixture technique, NOT
-    ;; the resource write-path under test — see the arm doc above), through
-    ;; the REAL `resources.state` / `resources.work-ledger` primitives so the
-    ;; entry + its work-ledger record are shaped EXACTLY as the runtime would
-    ;; write them.
+    (is (some? nav-token) "the navigation minted a nav-token")
+    ;; Materialize with the resource and work-ledger constructors. This is test
+    ;; setup, not the resource request/write path under test.
     (frame/swap-runtime-db!
       real-egress-frame
       (fn [rdb]
@@ -1614,38 +1157,25 @@
         resource-entry (->> (:nodes g)
                              (filter (fn [[_ n]] (= :resources (:rf/family n))))
                              first)]
-    (testing "PRECONDITION — the REAL resource-cache-algebra-view path
-              assembled a live :resources node over the materialized entry
-              (failing precondition, rf2-djofbh: absence is a failure, not a
-              vacuous skip)"
+    (testing "the resource contributor assembled the materialized cache entry"
       (is (some? resource-entry)
-          "the REAL resources.tooling path assembled a live :resources node"))
+          "resources.tooling assembled a live :resources node"))
     (let [[res-key res-node] resource-entry]
-      (testing "(a) resource-id identity stays VISIBLE — a tool still sees
-                WHICH resource, even though its scope/params are secret"
+      (testing "the resource id remains visible after contributor projection"
         (is (= :secret/tenant-article (nth (:id res-node) 1))
             "the registration resource-id survives inside the (already
              tooling-projected) scoped key"))
-      (testing "(b) NO raw secret token survives ANYWHERE in the composed
-                graph — not in the node key, :id, :inputs, :output,
-                :work-ledger (the top-level :work/id, the record's own
-                :work/id, AND :resource/key), :host-transient, or any edge —
-                the REAL tooling's rf2-0t0l3w projection ran BEFORE the
-                composer ever saw this node"
+      (testing "no raw secret survives contributor projection and composition"
         (is (not (contains-secret? g))
             "the secret auth-token must not appear anywhere in the composed graph"))
-      (testing "(c) the route → resource :param edge still connects through
-                the composer's live `route-edges` derivation, even though the
-                key it joins on is already opaqued by the tooling sibling"
+      (testing "the route edge joins the contributor's projected resource key"
         (let [edge (->> (:edges g) (filter #(= :param (:role %))) first)]
           (is (some? edge) "the route-owned resource activation edge is present")
           (is (= res-key (:to edge))
               "the edge :to matches the (already-projected) resource node key")))
-      (testing "(d) the entry carries a real work-ledger link + host-transient
-                handle (not a hand-rolled node shape) — the exact shape
-                rf2-tmyfkn's canonical work-id concern is about"
+      (testing "the canonical entry exposes its ledger and host-handle address"
         (is (= :fetching (:status res-node)))
         (is (some? (get-in res-node [:work-ledger :work/id]))
             "a real work-ledger link is present")
         (is (some? (:host-transient res-node))
-            "a real host-transient in-flight handle is present")))))
+            "a host-transient in-flight handle address is present")))))
