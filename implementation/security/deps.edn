@@ -1,87 +1,27 @@
-;; re-frame2 adversarial-property SECURITY tier (rf2-3cfvt).
+;; Cross-artefact, cross-runtime security tests. This surface has no production
+;; source and is not published. Its own alias ensures the `.cljc` tests run on
+;; the JVM as well as through the CLJS security build.
 ;;
-;; This is NOT a published Maven artefact — it has no `src/`. It is a
-;; cross-artefact TEST surface that probes the security boundaries the
-;; pin-and-assert regime missed: SSR escaping (rf2-1uex4), schema
-;; redaction nested at arbitrary depth (rf2-g5auo), AI/MCP-boundary
-;; egress redaction (rf2-6wvh5), the fail-closed validation/redaction
-;; invariants (rf2-ih7g4 / rf2-el9sw), and the deterministic generator's
-;; cross-runtime byte-parity (rf2-h2yvs). The namespaces sit ABOVE several
-;; artefacts (core, schemas, machines, routing, flows, ssr) + a tool
-;; (mcp-base), so they live in their own top-level `security/` surface
-;; rather than any single artefact's test tree.
-;;
-;; ## Why this deps.edn exists (rf2-gj2ae)
-;;
-;; The security namespaces are `.cljc` and advertise a cross-runtime
-;; contract — e.g. `re-frame.security.gen`'s LCG is "byte-deterministic
-;; AND identical across JVM + JS" with separate `:clj` (full-precision
-;; `long` multiply) and `:cljs` (`Math.imul`) arithmetic, and
-;; `gen-parity-security-cljs-test` pins the JVM reference sequences and
-;; states it "runs in BOTH runtimes". Before this alias the ONLY named
-;; security runner was the CLJS-side `npm run test:security` (shadow
-;; `:node-test-security`) plus the always-on `:node-test` gate; the JVM
-;; side had no wiring at all — the top-level `implementation/deps.edn`
-;; `:test` alias (ad-hoc REPL convenience) omits `security/test` and
-;; `../tools/mcp-base/src`, and the canonical per-artefact JVM gate
-;; (`scripts/test-jvm-implementation.sh`) iterates each artefact's own
-;; `:test` alias, of which `security/` had none. So the `:clj` reader-
-;; conditional arms of the security tier — `gen.cljc`'s full-precision
-;; multiply, the `:clj`/`:cljs` egress/redaction helper branches, the
-;; `clojure.walk` deep-scan — were NEVER executed on the JVM. That is a
-;; false-green cross-runtime security contract: the `:clj` arithmetic
-;; could regress (e.g. drop the `long` coercion, reintroducing the
-;; 53-bit-mantissa divergence on a hypothetical JVM consumer of `gen`)
-;; while the tier stayed green on CLJS. This alias closes the gap: it
-;; runs the SAME `.cljc` namespaces under the JVM, so a divergence
-;; between the two reader-conditional arms now goes RED on the JVM gate.
-;;
-;; ## Why test-only deps, not :local/root in :deps
-;;
-;; This artefact ships nothing, so the top-level `:deps` is empty. The
-;; cross-artefact source the test namespaces `:require`
-;; (`re-frame.core`, `re-frame.schemas[.malli]`, `re-frame.machines.*`,
-;; `re-frame.routing.*`, `re-frame.flows`, `re-frame.ssr.*`, and the
-;; spec/009 §Privacy filter `re-frame.mcp-base.sensitive`) is pulled in
-;; under the `:test` alias only. `:extra-paths` is JUST `["test"]` so the
-;; cognitect test-runner scans ONLY the security test dir — the artefact
-;; `:local/root` deps contribute their `src` (never their `:test`), so no
-;; other artefact's tests run here.
-;;
-;; ## Bundle isolation (tools/README.md)
-;;
-;; The dependency arrow flows tool → implementation, never the reverse.
-;; The `tools/mcp-base` dep below is TEST-ONLY (this artefact has no
-;; production `src/` and ships no jar), and `re-frame.mcp-base.sensitive`
-;; is a framework-agnostic `.cljc` shape with no `:local/root` dep on
-;; `implementation/`. It mirrors the existing precedent in the top-level
-;; `implementation/shadow-cljs.edn`, whose cross-artefact `:node-test`
-;; classpath already lists `../tools/mcp-base/src` for exactly these
-;; egress tests. Nothing under `implementation/` `:require`s it from a
-;; production source path, so no production bundle is widened.
+;; All implementation and MCP dependencies are test-only. Local roots
+;; contribute production source, while `:extra-paths ["test"]` limits test
+;; discovery to this surface. The mcp-base dependency therefore does not create
+;; a production implementation-to-tool dependency or widen a shipped bundle.
 {:paths []
  :deps  {}
 
  :aliases
  {:test
   {:extra-paths ["test"]
-   ;; Artefacts whose namespaces the security tests `:require`. core
-   ;; carries `re-frame.test-support` + `re-frame.elision` /
-   ;; `re-frame.classification` (the EP-0025 marks-free projection engine) +
-   ;; `re-frame.privacy` + `re-frame.subs` + `re-frame.trace.tooling`;
-   ;; schemas brings metosin/malli transitively (so `re-frame.schemas.malli`
-   ;; resolves); machines/routing/flows/ssr supply their feature namespaces.
+   ;; Artefacts whose production namespaces the security tests require.
    :extra-deps  {day8/re-frame2          {:local/root "../core"}
                  day8/re-frame2-schemas  {:local/root "../schemas"}
                  day8/re-frame2-machines {:local/root "../machines"}
                  day8/re-frame2-routing  {:local/root "../routing"}
                  day8/re-frame2-flows    {:local/root "../flows"}
                  day8/re-frame2-ssr      {:local/root "../ssr"}
-                 ;; spec/009 §Privacy default-suppress egress filter
-                 ;; (`re-frame.mcp-base.sensitive`). TEST-ONLY tool dep —
-                 ;; see the bundle-isolation note above.
+                 ;; Default-suppress egress filter; test-only tool dependency.
                  day8/re-frame2-mcp-base {:local/root "../../tools/mcp-base"}
-                 ;; rf2-try1x — silent-on-success reporter.
+                 ;; Silent-on-success reporter.
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  io.github.cognitect-labs/test-runner
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}

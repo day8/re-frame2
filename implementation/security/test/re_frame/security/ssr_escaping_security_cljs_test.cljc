@@ -1,59 +1,15 @@
 (ns re-frame.security.ssr-escaping-security-cljs-test
-  "Adversarial-property security tier - SSR static-markup escaping
-  boundary (rf2-3cfvt, surface 1; the rf2-1uex4 class).
+  "Adversarial tests for SSR static-markup escaping.
 
-  ## The boundary
+  Event-handler attributes are removed for every HTML-equivalent casing, and
+  attribute names containing grammar-breakout characters are rejected. Separate
+  generated corpora exercise canonical handlers caught by the allowlist and
+  non-canonical camelCase or kebab handlers caught only by the structural
+  matcher.
 
-  `re-frame.ssr.html-helpers/attr-string` is the single emit seam that
-  serialises a hiccup attribute map to wire HTML. Two MUSTs protect it:
-
-    1. **Event-handler props never reach the wire.** Any `on*` event-
-       handler attribute - across EVERY casing a case-insensitive HTML
-       parser fires (`onclick` / `ONCLICK` / `OnClick` / `onLoad` /
-       `on-click`) - MUST be stripped (`strip-prop?`  drop), never
-       serialised as a live `onX=` attribute. rf2-1uex4 was exactly
-       this: the matcher missed lowercase/uppercase canonical spellings,
-       so `:onclick` rode through as a live handler.
-
-    2. **Grammar-breakout attribute KEYS are rejected.** A key carrying
-       `=`, quotes, whitespace, `<`, `>`, or `/` (the chars that escape
-       attribute-name context to inject a sibling `onclick=` attribute)
-       MUST throw `:rf.error/ssr-invalid-attribute-name` at
-       `validate-attr-name!` - never silently serialise.
-
-  ## Why property-style
-
-  The pin-and-assert regime (rf2-ynjts) tested a fixed handful of casings
-  and MISSED the lowercase-canonical leak. This tier sweeps the casing
-  space generatively: a generator mints handler names by independently
-  case-folding each character of a canonical WHATWG handler name (plus
-  camelCase/kebab structural spellings), so hundreds of distinct casings
-  per run probe the matcher. A curated hostile corpus pins the named
-  payloads (the rf2-1uex4 lowercase set, grammar-breakout keys, the
-  `<script>`-body breakout) exactly.
-
-  ## Net property (verify-by-revert)
-
-  Two INDEPENDENT generative properties pin the two `event-handler-name?`
-  matcher arms so a revert of EITHER goes RED (each canonical handler is
-  also in the allowlist, so a canonical-casing sweep alone leaves the
-  regex vacuously covered — rf2-q0a81.1):
-
-    1. Reverting the `event-handler-allowlist` lower-case lookup makes
-       `no-recased-canonical-handler-serialises` go RED — the all-
-       lowercase / mixed-lowercase canonical spellings the regex's
-       `[A-Z]`/`-` discriminator CANNOT catch leak as live `onX=`
-       attributes.
-    2. Reverting (or weakening) the camelCase/kebab `event-handler-name-re`
-       makes `no-custom-structural-handler-serialises` go RED — the
-       NON-allowlist structural handlers (`onCustomEvent` / `on-foo-bar`,
-       recased across the `on` prefix) that ONLY the regex catches leak.
-       The canonical sweep never exercises this arm because every
-       canonical handler is in the allowlist.
-
-  Reverting `validate-attr-name!`'s grammar throw makes the breakout-key
-  test go RED. Confirmed by temporary local revert + restore (see PR
-  Quality gates)."
+  Script-body tests ensure HTML closing tags are neutralised. EDN script bodies
+  additionally preserve reader round trips: string-literal breakouts can be
+  escaped, while breakout precursors in token positions must fail loudly."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             #?(:clj  [clojure.edn :as edn]
@@ -63,21 +19,13 @@
             [re-frame.ssr.emit :as emit]
             [re-frame.security.gen :as gen]))
 
-;; ---------------------------------------------------------------------------
-;; Canonical WHATWG event-handler names browsers actually fire. A leak of
-;; ANY of these as a live attribute is an XSS vector.
-;; ---------------------------------------------------------------------------
-
 (def ^:private canonical-handlers
   ["onclick" "onload" "onerror" "onmouseover" "onmouseout" "onsubmit"
    "onfocus" "onblur" "onkeydown" "onkeyup" "onkeypress" "onchange"
    "oninput" "onwheel" "onscroll" "ondrag" "ondrop" "onpaste" "oncopy"
    "oncut" "onbeforeunload" "onunload" "onhashchange" "onpopstate"
    "onmessage" "onanimationstart" "ontransitionend" "onpointerdown"
-   ;; W3C Touch Events Level 2 §8 GlobalEventHandlers (rf2-cv165). The
-   ;; structural regex only catches the camelCase/kebab spellings, so the
-   ;; lower-case canonical touch names are caught by the allowlist alone —
-   ;; an XSS-equivalent gap of the same class as `:onclick`.
+   ;; Lower-case touch names rely on the allowlist, not the structural matcher.
    "ontouchstart" "ontouchmove" "ontouchend" "ontouchcancel"])
 
 (defn- live-handler-attr?
@@ -92,12 +40,6 @@
     (and (str/includes? s "=")
          (let [nm (str/lower-case (subs s 0 (str/index-of s "=")))]
            (str/starts-with? (str/trim nm) "on")))))
-
-;; ---------------------------------------------------------------------------
-;; Generator - independently case-fold each character of a canonical handler
-;; name, so a single canonical name explodes into 2^len casings. Also fold in
-;; the structural camelCase / kebab spellings.
-;; ---------------------------------------------------------------------------
 
 (defn- recase
   "Apply a per-character case mask `bits` (vector of 0/1) to `s`."
@@ -122,12 +64,8 @@
             [bits rng2] ((gen/gen-vec (count base) (gen/gen-elem [0 1])) rng1)]
         [[base bits] rng2]))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 1 - no recased canonical handler ever serialises as a live attr.
-;; ---------------------------------------------------------------------------
-
 (deftest no-recased-canonical-handler-serialises
-  (testing "rf2-1uex4 - across 600 randomly-recased canonical handler names,
+  (testing "across 600 randomly-recased canonical handler names,
             attr-string strips every one (empty output, no live on*= attr)"
     (let [result (gen/for-all
                    gen-handler-casing 600 1
@@ -140,18 +78,8 @@
           (str "a recased handler leaked as a live attribute: "
                (pr-str result))))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 1b - no NON-ALLOWLIST structural handler ever serialises as a live
-;; attr. This independently exercises `event-handler-name-re` (rf2-q0a81.1):
-;; PROPERTY 1's generator only mints recasings of CANONICAL handlers, and every
-;; canonical handler is in `event-handler-allowlist`, whose lookup lower-cases
-;; the candidate - so the allowlist arm alone strips all 600 draws there and a
-;; revert of the regex leaves PROPERTY 1 GREEN (vacuous w.r.t. the regex). The
-;; framework-shaped CUSTOM handlers below (`:onCustomEvent` / `:on-foo-bar`)
-;; are NOT in the allowlist; ONLY the camelCase/kebab regex strips them, so
-;; reverting/weakening `event-handler-name-re` makes THIS property go RED.
-;; ---------------------------------------------------------------------------
-
+;; Canonical names exercise the allowlist. These generated custom names are not
+;; in it, so they independently exercise the camelCase/kebab structural matcher.
 (def ^:private structural-tail-letters
   (vec "abcdefghijklmnopqrstuvwxyz"))
 
@@ -159,8 +87,8 @@
   "Recase ONLY the leading `on` (2 chars) per a 2-bit mask `[b0 b1]`; the rest
   of the name is kept verbatim so the regex's structural discriminator (the
   upper-case tail char for camelCase, the `-` for kebab) survives every draw.
-  This sweeps the `[Oo][Nn]` case-insensitivity of the prefix - exactly the
-  rf2-1uex4 casing axis - while keeping the name NON-canonical."
+  This sweeps the `[Oo][Nn]` case-insensitivity while keeping the name
+  non-canonical."
   [s [b0 b1]]
   (str (if (= 1 b0) (str/upper-case (subs s 0 1)) (str/lower-case (subs s 0 1)))
        (if (= 1 b1) (str/upper-case (subs s 1 2)) (str/lower-case (subs s 1 2)))
@@ -193,10 +121,9 @@
         [[form [pb0 pb1] tail] rng4]))))
 
 (deftest no-custom-structural-handler-serialises
-  (testing "rf2-q0a81.1 - across 600 NON-allowlist structural handler names
+  (testing "across 600 non-allowlist structural handler names
             (camelCase / kebab, recased prefix), attr-string strips every one
-            via event-handler-name-re alone - the allowlist cannot catch these.
-            Reverting/weakening the regex makes this go RED."
+            via event-handler-name-re alone"
     (let [result (gen/for-all
                    gen-custom-structural-handler 600 5
                    (fn [[k v]]
@@ -204,32 +131,23 @@
                        (and (= "" out)
                             (not (live-handler-attr? out))))))]
       (is (nil? result)
-          (str "a custom structural handler leaked as a live attribute "
-               "(event-handler-name-re regression): " (pr-str result))))))
-
-;; ---------------------------------------------------------------------------
-;; HOSTILE CORPUS - the exact rf2-1uex4 casings + structural spellings.
-;; Each MUST strip to "".
-;; ---------------------------------------------------------------------------
+          (str "a custom structural handler leaked as a live attribute: "
+               (pr-str result))))))
 
 (def ^:private hostile-handler-keys
-  ;; The rf2-1uex4 named misses: all-lowercase + ALL-UPPERCASE + Title-case
-  ;; canonical handlers, plus the camelCase / kebab structural spellings.
+  ;; Canonical casings plus camelCase and kebab structural spellings.
   [:onclick :ONCLICK :OnClick :onClick :oNcLiCk
    :onload :ONLOAD :OnLoad :onLoad
    :onerror :ONERROR :OnError
    :onmouseover :ONMOUSEOVER :OnMouseOver :onMouseOver
    :on-click :ON-CLICK :on-mouse-over :onCustomEvent :on-custom-event
    :onsubmit :ONSUBMIT :onfocus :onFocus :onkeydown :onKeyDown
-   ;; rf2-cv165 — the lower-case W3C Touch Events L2 GlobalEventHandlers.
-   ;; The structural regex CANNOT catch these (no upper-case tail char, no
-   ;; hyphen), so the allowlist must strip them; `:ontouchstart 'alert`
-   ;; previously rode through as a live ` ontouchstart="alert"` attribute.
+   ;; The structural matcher cannot catch these lower-case touch names.
    :ontouchstart :ontouchmove :ontouchend :ontouchcancel
    :ONTOUCHSTART :OnTouchStart :onTouchStart])
 
 (deftest hostile-handler-corpus-all-stripped
-  (testing "rf2-1uex4 corpus - every named hostile handler key strips to \"\""
+  (testing "every hostile handler key strips to an empty attribute string"
     (doseq [k hostile-handler-keys]
       (let [out (h/attr-string {k "javascript:alert(1)"})]
         (is (= "" out)
@@ -239,20 +157,15 @@
             (str "handler key " (pr-str k) " produced a live on*= attribute"))))))
 
 (deftest touch-handler-payload-never-reaches-wire-html
-  (testing "rf2-cv165 - rendering a hiccup element whose attrs splat a
-            lower-case W3C touch GlobalEventHandler key (the realistic
-            attacker-controlled-key path) MUST emit an element with NO live
-            on* attribute and NO trace of the JS payload. The structural
-            regex cannot catch these lower-case names; the allowlist must."
+  (testing "lower-case touch handler keys emit no live on* attribute and no
+            trace of the JavaScript payload"
     (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
       (let [payload "alert(document.cookie)"
             html    (emit/emit-element [:div {k payload :id "ok"} "child"])]
-        ;; The element renders (id survives, child text emitted) ...
         (is (str/includes? html "id=\"ok\"")
             (str "the benign attr should survive for key " (pr-str k)))
         (is (str/includes? html "child")
             (str "the child text should survive for key " (pr-str k)))
-        ;; ... but the handler name and its JS payload are gone from the wire.
         (is (not (str/includes? (str/lower-case html) (name k)))
             (str "touch handler name " (pr-str k) " leaked into wire HTML: "
                  html))
@@ -267,10 +180,6 @@
       (let [out (h/attr-string {k "v"})]
         (is (str/includes? out (name k))
             (str "innocuous key " (pr-str k) " was wrongly stripped"))))))
-
-;; ---------------------------------------------------------------------------
-;; PROPERTY 2 - grammar-breakout attribute KEYS throw, never serialise.
-;; ---------------------------------------------------------------------------
 
 (def ^:private breakout-chars [\= \" \space \< \> \/ \tab \newline \'])
 
@@ -298,18 +207,14 @@
          (:rf.error/id (ex-data e))))))
 
 (deftest grammar-breakout-keys-throw
-  (testing "rf2-vl8ir - across 400 generated grammar-breakout keys,
+  (testing "across 400 generated grammar-breakout keys,
             attr-string throws :rf.error/ssr-invalid-attribute-name; never
             silently serialises a key that escapes attribute-name context"
     (let [result (gen/for-all
                    gen-breakout-key 400 7
                    (fn [k]
-                     ;; The key carries a non-handler prefix so strip-prop?
-                     ;; does not pre-empt the grammar gate - the breakout
-                     ;; char must trigger the throw. Use the RAW STRING as
-                     ;; the attr key (attr-string calls `(name k)`); routing
-                     ;; through `(keyword k)` would mangle the breakout `/`
-                     ;; into a keyword-namespace separator and hide it.
+                      ;; A raw string preserves `/`; keyword conversion would
+                      ;; reinterpret it as a namespace separator.
                      (throws-invalid-attr-name? {k "v"})))]
       (is (nil? result)
           (str "a grammar-breakout key did NOT throw (would serialise): "
@@ -325,11 +230,6 @@
       (is (throws-invalid-attr-name? {k "v"})
           (str "breakout key " (pr-str k) " did not throw")))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 3 - <script>-body breakout: escape-script-body-string must break
-;; every casing of the </script closing-tag the HTML tokenizer recognises.
-;; ---------------------------------------------------------------------------
-
 (def ^:private gen-script-breakout
   "Draws a hostile string embedding a randomly-recased `</script...>`
   payload that would prematurely close a <script> body."
@@ -342,15 +242,14 @@
         [[bits tail] rng2]))))
 
 (deftest script-body-breakout-neutralised
-  (testing "rf2-7ksyr/rf2-m5u23 - escape-script-body-string escapes EVERY `<`
+  (testing "escape-script-body-string escapes every `<`
             so no `</script` (any casing) survives in a script body; sweep
             500 recased closing-tag payloads"
     (let [result (gen/for-all
                    gen-script-breakout 500 3
                    (fn [payload]
                      (let [escaped (h/escape-script-body-string payload)]
-                       ;; No literal `<` may remain - `</script` in any casing
-                       ;; is impossible once every `<` becomes <.
+                        ;; Without a literal `<`, no closing tag can begin.
                        (and (not (str/includes? escaped "<"))
                             (str/includes? escaped "\\u003c")))))]
       (is (nil? result)
@@ -369,28 +268,11 @@
         (is (not (str/includes? out ">")) (str "raw > survived: " (pr-str out)))
         (is (not (str/includes? out "\"")) (str "raw \" survived: " (pr-str out)))))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 4 - EDN script-body breakout: escape-edn-script-body must break
-;; every `</script` (any casing) inside an EDN <script type="application/edn">
-;; body WITHOUT corrupting the document's readability. The naive whole-string
-;; `<`->`<` replacement (escape-script-body-string) is XSS-safe but
-;; CORRUPTS the EDN: `<` is only a valid reader escape INSIDE a string
-;; literal, so a keyword/symbol token carrying `<` (`:<`, `:a<b`) becomes the
-;; unreadable token `:<` / `:a<b` and the EDN reader throws -
-;; breaking hydration / silently dropping a streaming delta (rf2-rdxxa).
-;;
-;; The fix's two MUSTs:
-;;   (a) no literal `</script` (any casing) survives in the emitted body;
-;;   (b) every VALID EDN payload round-trips through the reader unchanged -
-;;       `<` in string literals AND `<` in keyword/symbol tokens that do not
-;;       form a `</` / `<!` breakout precursor.
-;;   (c) a `</` / `<!` breakout precursor in a TOKEN position (no readable
-;;       in-token escape) fails loud with :rf.error/ssr-edn-script-breakout
-;;       rather than corrupting the document.
-;;
-;; verify-by-revert: restoring the callers to escape-script-body-string makes
-;; the token round-trip assertions go RED (the reader throws on `:a<b`).
-;; ---------------------------------------------------------------------------
+;; EDN script escaping must preserve reader semantics. A `<` can be escaped
+;; inside a string literal, but the same escape is invalid inside a keyword or
+;; symbol. Safe token-position `<` characters remain literal; token-position
+;; `</` and `<!` precursors fail loudly because EDN has no readable in-token
+;; escape for them.
 
 (defn- no-script-breakout?
   "True when `s` carries no literal `</script` closing-tag (any casing) -
@@ -412,7 +294,7 @@
         [[bits tail] rng2]))))
 
 (deftest edn-script-string-breakout-neutralised-and-round-trips
-  (testing "rf2-rdxxa - escape-edn-script-body neutralises EVERY recased
+  (testing "escape-edn-script-body neutralises every recased
             `</script` in an EDN string literal so none survives in the body,
             AND the reader recovers the original document verbatim; sweep 500
             recased closing-tag payloads"
@@ -421,8 +303,7 @@
                    (fn [edn-doc]
                      (let [escaped (h/escape-edn-script-body edn-doc)]
                        (and (no-script-breakout? escaped)
-                            ;; round-trips: reading the escaped body yields the
-                            ;; same value as reading the original EDN doc.
+                            ;; Reading the escaped body must recover the same value.
                             (= (edn/read-string edn-doc)
                                (edn/read-string escaped))))))]
       (is (nil? result)
@@ -430,9 +311,7 @@
                "document failed to round-trip: " (pr-str result))))))
 
 (def ^:private edn-token-with-angle-corpus
-  ;; VALID EDN documents carrying `<` in keyword/symbol TOKENS that are NOT
-  ;; breakout precursors (no `</` or `<!`). These are exactly what the naive
-  ;; whole-string escape corrupted - they MUST round-trip unchanged.
+  ;; Valid token-position `<` characters that are not breakout precursors.
   [{:a<b 1}
    {:k :<}
    {:< :>}
@@ -440,14 +319,12 @@
    {:k 'sym<tail}
    {:vec [:< :a<b "<starts-with-angle"]}
    {:nested {:deep<key {:and<more "v"}}}
-   ;; `<` adjacent to a quote-bearing string value plus a token key
    {:tok<key "value with </script> inside a string"}])
 
 (deftest edn-tokens-with-angle-round-trip
-  (testing "rf2-rdxxa - keyword/symbol tokens containing a non-breakout `<`
-            round-trip through the EDN reader unchanged (the regression the
-            whole-string `<`->`\\u003c` escape broke), and the body carries no
-            `</script` breakout"
+  (testing "keyword and symbol tokens containing a non-breakout `<` round-trip
+            through the EDN reader unchanged, and the body carries no closing-tag
+            breakout"
     (doseq [doc edn-token-with-angle-corpus]
       (let [edn-doc (pr-str doc)
             escaped (h/escape-edn-script-body edn-doc)]
@@ -458,7 +335,7 @@
                  escaped))))))
 
 (deftest edn-token-breakout-precursor-fails-loud
-  (testing "rf2-rdxxa - a `</` or `<!` breakout precursor in a TOKEN position
+  (testing "a `</` or `<!` breakout precursor in a token position
             has no readable in-token EDN escape, so it fails loud with
             :rf.error/ssr-edn-script-breakout rather than corrupting the doc"
     (doseq [edn-doc ["{:a</script>b 1}"
@@ -475,7 +352,7 @@
                  " did not fail loud; got " (pr-str thrown)))))))
 
 (deftest edn-string-with-breakout-precursor-is-escaped-not-rejected
-  (testing "rf2-rdxxa - a `</` / `<!` breakout INSIDE a string literal is
+  (testing "a `</` or `<!` breakout inside a string literal is
             escaped (it has the `\\u003c` reader escape) and round-trips - it
             must NOT trip the token-position fail-loud path"
     (doseq [doc [{:html "<!-- comment --></script>"}

@@ -1,66 +1,21 @@
 (ns re-frame.security.public-profile-projection-security-cljs-test
-  "Security tier — EP-0015 PUBLIC egress projection model (the rf2-3cfvt
-  adversarial regime, applied to the graduated public projection surface).
+  "Adversarial tests for the public egress projection boundary.
 
-  ## Why this surface
+  `project-egress` applies a frame's durable path classifications to direct
+  reads and record values. Redacted profiles replace sensitive leaves and
+  structurally elide large leaves; sensitive classification wins when both
+  apply. Missing or unknown frame policy fails closed unless the caller uses
+  the explicit trusted-local raw opt-in.
 
-  The sibling `mcp-egress-security` namespace exercises the LOW-LEVEL mark /
-  elision PLUMBING (`re-frame.mcp-base.sensitive/strip-sensitive` +
-  `scrub-snapshot`) — the trace-event drop filter and the per-frame snapshot
-  walker. Those are necessary but NOT the EP-0015 public egress model: an
-  MCP / direct-read / tool snapshot that ships RAW frame-owned app-db data
-  would still pass the `strip-sensitive` gate (it only drops top-level
-  `:sensitive?`-stamped trace EVENTS) and the `scrub-snapshot` walker (which
-  leaves `:app-db` verbatim BY DESIGN — read-time scrubbing is trace/epoch-
-  only). The full off-box boundary is `re-frame.core/project-egress`
-  (EP-0015 §10/§11) over a frame's `reg-frame` durable classification
-  (EP-0015 §3). Without a security-tier guard on THAT surface, the tier can
-  stay green while a tool / direct read leaks raw owner-local data through
-  the projected boundary.
-
-  ## What this drives (the PUBLIC EP-0015 surfaces)
-
-    - `reg-frame` `:sensitive`/`:large` `{:app-db …}` durable frame policy
-      (EP-0015 §3 — frame-owned, NOT schema-declared live-value redaction);
-    - `re-frame.core/project-egress` under the off-box-tool / off-box-
-      observability / local-redacted profiles (the AI-tool + hosted-
-      monitoring + on-box-redacted boundaries) — sensitive → `:rf/redacted`,
-      large → a structural marker, unmarked siblings pass;
-    - FAIL-CLOSED: a no-frame / unknown-frame egress redacts the WHOLE value
-      (no `:rf/default` synthesis), the deliberate `:rf.size/include-
-      sensitive? true` opt-out being the single control point;
-    - large elision + the install-time sensitive-WINS-over-large rule (a
-      both-marked path redacts, never large-elides — so no path / byte size /
-      digest can leak);
-    - the SNAPSHOT boundary: alongside the low-level `scrub-snapshot`
-      `:app-db`-stays-raw plumbing assertion, a HIGHER-LEVEL test that
-      `project-egress` of the same snapshot's `:app-db` DOES redact — so the
-      security tier cannot false-green the full boundary on the back of the
-      intentionally-narrow plumbing helper.
-
-  ## Threat model
-
-  AI/MCP boundary + logs ONLY (the rf2-3cfvt / rf2-o69h5 / rf2-zsm03 scope).
-  The redaction boundary anchored here is the off-box `project-egress` site
-  over frame-owned classification. Human-facing on-box egress is out of scope.
-
-  ## Net property (verify-by-revert)
-
-  Reverting the commit-plane classification write (so the durable
-  `:source :effect` sensitive declarations are no longer installed) makes the
-  framed projection tests go RED — `project-egress` ships the sensitive leaf
-  raw. Reverting the walker's sensitive-wins-over-large ordering makes
-  `sensitive-wins-over-large-at-projection` go RED (a large marker, leaking
-  path/size/digest, surfaces for a sensitive path). Confirmed by temporary
-  local revert + restore (see PR Quality gates)."
+  This boundary is distinct from MCP trace plumbing: `strip-sensitive` drops
+  stamped trace events and `scrub-snapshot` walks trace and epoch slices, but
+  neither projects snapshot `:app-db` values."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
-            ;; The low-level plumbing helper, exercised ONLY in the labelled
-            ;; narrow plumbing test below — NOT as a stand-in for the public
-            ;; EP-0015 boundary.
+            ;; Used only to contrast trace plumbing with public projection.
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]
@@ -73,10 +28,7 @@
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-PUBLIC-PROFILE-DO-NOT-SHIP")
 
 (defn- contains-sentinel?
-  "Deep-walk `x`; true when the sentinel appears ANYWHERE (value, nested,
-  stringified). The contract is \"the sentinel never survives the boundary.\"
-  Thin wrapper over the shared `gen/contains-string?` (rf2-n5bkm7); the
-  sentinel is matched as an EXACT string leaf (`exact? true`)."
+  "True when the exact sentinel survives anywhere in `x`."
   [x]
   (gen/contains-string? x sentinel true))
 
@@ -84,8 +36,7 @@
 
 (defn- mk-frame! [frame-id]
   (rf/reg-frame frame-id {})
-  ;; EP-0025: durable app-db classification rides the commit-plane effect
-  ;; path (:source :effect) — no longer a frame annotation.
+  ;; Install the durable app-db classification through the commit-plane path.
   (frame/swap-runtime-db! frame-id
     (fn [rt] (elision/apply-classification-effects rt
                {:sensitive [[:auth :token]]
@@ -96,16 +47,10 @@
    :docs   {:blob big-string}
    :public {:count 3}})
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 1 — the public off-box profiles redact frame-owned sensitive app-db
-;; data and elide frame-owned large app-db data. THIS is the EP-0015 boundary,
-;; over reg-frame durable classification, NOT a low-level mark helper.
-;; ---------------------------------------------------------------------------
-
 (deftest off-box-profiles-redact-frame-owned-app-db
   (testing "project-egress under each off-box / redacted profile redacts the
             reg-frame :sensitive :app-db leaf and elides the :large :app-db
-            leaf — frame-owned durable classification, EP-0015 §3 + §10"
+            leaf under frame-owned durable classification"
     (mk-frame! :pub/offbox)
     (doseq [profile [:rf.egress/off-box-tool
                      :rf.egress/off-box-observability
@@ -130,15 +75,9 @@
       (is (= sentinel (get-in out [:auth :token])) "trusted-local sees sensitive")
       (is (= big-string (get-in out [:docs :blob])) "trusted-local sees large raw"))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 2 — FAIL-CLOSED. No frame and unknown/destroyed frame both redact
-;; the WHOLE value (no :rf/default synthesis, no borrowing another frame's
-;; policy). The deliberate include-sensitive? opt-out is the single control.
-;; ---------------------------------------------------------------------------
-
 (deftest no-frame-egress-fails-closed
   (testing "project-egress with no live frame redacts the whole value — no
-            :rf/default synthesis (EP-0002 / Spec 015 §Direct reads)"
+            :rf/default synthesis"
     ;; Rebind the ambient frame AWAY so the egress is genuinely frameless.
     (binding [frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
@@ -155,7 +94,7 @@
 (deftest unknown-frame-egress-fails-closed
   (testing "project-egress naming an UNREGISTERED frame fails closed — an
             unresolvable frame's empty registry must NOT fall through to a
-            permissive identity walk (EP-0015 issue 1, rf2-t55hxg.18)"
+            permissive identity walk"
     ;; :pub/never-registered is never reg-frame'd — its registry is unreachable.
     (binding [frame/*current-frame* nil]
       (let [out (rf/project-egress (app-db-value)
@@ -164,12 +103,6 @@
         (is (gen/redacted? out)
             "an unknown / destroyed frame fails closed, identically to frameless")
         (is (not (contains-sentinel? out)))))))
-
-;; ---------------------------------------------------------------------------
-;; PROPERTY 3 — large elision + sensitive-WINS-over-large. A both-marked path
-;; redacts (never large-elides), so no path / byte-size / digest / handle can
-;; leak for a sensitive path (EP-0015 §3, install-time complement).
-;; ---------------------------------------------------------------------------
 
 (deftest large-app-db-elides-to-structural-marker
   (testing "a classified :large :app-db leaf elides to a structural marker —
@@ -198,12 +131,6 @@
       (is (not (gen/large-marker? (:secret out)))
           "NO large marker — no path/size/digest can leak for a sensitive path"))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 4 (generated) — across frames classifying a RANDOM app-db path
-;; sensitive, project-egress under an off-box profile never ships the sentinel
-;; planted at that path.
-;; ---------------------------------------------------------------------------
-
 (def ^:private gen-path
   "A 1..3-segment keyword app-db path."
   (gen/gen-vec (gen/gen-int 1 4)
@@ -218,12 +145,8 @@
                      (let [path  (vec path)
                            fid   :pub/gen
                            value (assoc-in {} path sentinel)]
-                       ;; EP-0025: classify this draw's sensitive path via the
-                       ;; commit-plane effect path. Each draw reuses :pub/gen,
-                       ;; so clear the prior draw's declarations (dissoc the
-                       ;; elision slot) before applying — the effect APPENDS, so
-                       ;; a fresh slot per draw preserves the original
-                       ;; re-registration-REPLACES semantics.
+                        ;; Each draw reuses the frame, so clear the append-only
+                        ;; classification slot before installing the new path.
                        (rf/reg-frame fid {})
                        (frame/swap-runtime-db! fid
                          (fn [rt]
@@ -238,24 +161,15 @@
           (str "a declared-sensitive path leaked the sentinel: "
                (pr-str (when result (dissoc result :threw))))))))
 
-;; ---------------------------------------------------------------------------
-;; PROPERTY 5 — the SNAPSHOT boundary, BOTH layers. The low-level plumbing
-;; (scrub-snapshot) leaves :app-db raw BY DESIGN; the PUBLIC EP-0015 boundary
-;; (project-egress) over the SAME app-db DOES redact. Asserting both alongside
-;; each other means the security tier cannot false-green the full boundary on
-;; the back of the intentionally-narrow plumbing helper.
-;; ---------------------------------------------------------------------------
-
 (deftest snapshot-app-db-plumbing-vs-public-boundary
   (testing "scrub-snapshot leaves :app-db raw (narrow plumbing) BUT
             project-egress of that :app-db redacts under the frame policy
-            (the public EP-0015 boundary) — the tier guards the full boundary"
+            at the public boundary"
     (mk-frame! :pub/snap)
     (let [snapshot {:pub/snap {:traces []
                                :epochs []
                                :app-db (app-db-value)}}
-          ;; (a) NARROW PLUMBING — scrub-snapshot is a trace/epoch-only walker;
-          ;; it intentionally leaves :app-db verbatim (NOT the public boundary).
+          ;; scrub-snapshot is a trace/epoch-only walker.
           [scrubbed _dropped] (sens/scrub-snapshot snapshot false)
           raw-app-db (get-in scrubbed [:pub/snap :app-db])]
       (is (= sentinel (get-in raw-app-db [:auth :token]))
@@ -263,8 +177,7 @@
       (is (contains-sentinel? raw-app-db)
           "PLUMBING: the snapshot :app-db still carries the sentinel — this is
            NOT the public egress boundary")
-      ;; (b) PUBLIC BOUNDARY — the tool/direct-read MUST run project-egress on
-      ;; the :app-db before it crosses off-box. That DOES redact.
+      ;; Tool and direct-read consumers project :app-db before off-box egress.
       (let [projected (rf/project-egress raw-app-db
                         {:frame :pub/snap
                          :rf.egress/profile :rf.egress/off-box-tool})]
@@ -275,25 +188,17 @@
         (is (not (contains-sentinel? projected))
             "PUBLIC: no sentinel crosses the projected boundary")))))
 
-;; ---------------------------------------------------------------------------
-;; NARROW PLUMBING TEST (labelled) — the low-level mark / strip helpers are
-;; NOT the EP-0015 public boundary; they remain pinned only as plumbing.
-;; ---------------------------------------------------------------------------
-
 (deftest narrow-plumbing-strip-sensitive-is-trace-event-only
   (testing "PLUMBING ONLY — strip-sensitive drops top-level :sensitive?-stamped
             trace EVENTS, but it is NOT the durable app-db egress boundary: a
             raw app-db-shaped map with no :sensitive? stamp passes UNTOUCHED.
-            (Durable app-db egress is frame-owned project-egress, above.)"
-    ;; A top-level :sensitive?-stamped trace event drops (the gate's job).
+            Durable app-db egress uses frame-owned project-egress."
     (let [[kept dropped] (sens/strip-sensitive
                            [{:operation :x :sensitive? true :tags {:value sentinel}}]
                            false)]
       (is (= [] kept) "PLUMBING: a stamped trace event is dropped")
       (is (= 1 dropped)))
-    ;; But an app-db-shaped map WITHOUT a :sensitive? stamp is NOT a trace
-    ;; event the gate classifies — it passes through raw. This is precisely
-    ;; why the public boundary (project-egress, frame-owned) is the real guard.
+    ;; An unstamped app-db-shaped map is not a trace event the filter can classify.
     (let [raw {:auth {:token sentinel}}
           [kept _dropped] (sens/strip-sensitive [raw] false)]
       (is (= [raw] kept)
