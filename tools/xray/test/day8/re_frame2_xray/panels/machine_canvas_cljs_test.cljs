@@ -18,21 +18,18 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.panels.machine-canvas :as mc]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; (core `make-reset-runtime-fixture` + Xray `reset-all!`) into one owner:
+  ;; plain-atom adapter + the default `:all` reset tier — install/registry/
+  ;; mount idempotency sentinels plus the trace-collector rings.
+  (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)

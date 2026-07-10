@@ -72,35 +72,21 @@
   (:require [cljs.test :refer-macros [use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- per-test reset -----------------------------------------------------
 
-(defn xray-init!
-  "Reset every Xray idempotency sentinel + clear the trace-bus atom so
-  the next register-xray-handlers! call wires a fresh registrar. Test-
-  only — never call from production code.
-
-  Mirrors the init-fn the existing app_db_diff_cljs_test.cljs corpus
-  uses; lifted into this helper ns so per-panel reactivity tests share
-  one canonical reset shape."
-  []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (def fixture
-  "`use-fixtures :each` value for sub-reactivity tests. Wires
-  test-support/make-reset-runtime-fixture with the plain-atom adapter and
-  the Xray init-fn. Usage:
+  "`use-fixtures :each` value for sub-reactivity tests. The canonical
+  `make-xray-runtime-fixture` (Xray test-support, rf2-vj80u8) composes
+  core `make-reset-runtime-fixture` (plain-atom adapter) with the `:all`
+  reset tier — Xray's install + registry + mount idempotency sentinels
+  plus the trace-collector rings — so each test starts from a fresh
+  registrar and a clean trace bus. Usage:
 
       (use-fixtures :each h/fixture)"
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- frame setup --------------------------------------------------------
 

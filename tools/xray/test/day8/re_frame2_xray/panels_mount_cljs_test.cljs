@@ -32,8 +32,6 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels :as panels]
@@ -51,14 +49,13 @@
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
+  ;; which already includes the trace-collector ring reset the old init
+  ;; called a SECOND, redundant time. (`trace-collector` is still required
+  ;; for the `seed-trace-for-test!` seeding below.)
+  (xray-test-support/make-xray-runtime-fixture))
 
 ;; ---- render-stub helper -------------------------------------------------
 

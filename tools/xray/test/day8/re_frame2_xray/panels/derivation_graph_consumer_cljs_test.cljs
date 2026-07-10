@@ -46,26 +46,21 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
             [re-frame.machines]                     ;; load the machines facade so reg-machine works
             [re-frame.machines.tooling :as machines-tooling]
             [re-frame.routing]                      ;; load routing so reg-route + navigate materialize a live route slice
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
-(defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!))
-
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn xray-init!}))
+  ;; `make-xray-runtime-fixture` (rf2-vj80u8) folds the bespoke `xray-init!`
+  ;; into one owner: plain-atom adapter + the default `:all` reset tier,
+  ;; which already includes the trace-collector ring reset the old init
+  ;; called a SECOND, redundant time.
+  (xray-test-support/make-xray-runtime-fixture))
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
