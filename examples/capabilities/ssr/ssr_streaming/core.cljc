@@ -282,6 +282,22 @@
 ;; [frames](../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and the
+;; already-hydrated frame. HYDRATE + streaming install stay in `run` (once), so
+;; a reload never re-seeds over the interactive state.
+#?(:cljs
+   (defn ^:dev/after-load mount! []
+     (when-let [el (and (exists? js/document)
+                        (js/document.getElementById "app"))]
+       (when-not @react-root
+         (reset! react-root (rdc/create-root el)))
+       ;; Wrap the mount in `frame-provider` so every `dispatch` and
+       ;; `subscribe` inside the tree resolves to the frame we just hydrated.
+       (rdc/render @react-root
+                   [rf/frame-provider {:frame app-frame}
+                    [(rf/view :dashboard/root)]]))))
+
 #?(:cljs
    (defn run []
      ;; `init!` installs the Reagent adapter and nothing more — it creates no
@@ -313,14 +329,7 @@
      ;; every time. A real streaming server stamps the genuine hash and passes
      ;; `:render-tree-fn` to switch mismatch detection on.)
      (ssr/hydrate! {:frame app-frame})
-     (when (exists? js/document)
-       (when-not @react-root
-         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       ;; Wrap the mount in `frame-provider` so every `dispatch` and
-       ;; `subscribe` inside the tree resolves to the frame we just hydrated.
-       (rdc/render @react-root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :dashboard/root)]]))))
+     (mount!)))
 
 ;; The JVM headless test that walks the server stream end to end (shell →
 ;; per-card resolved chunks → final payload) lives over in

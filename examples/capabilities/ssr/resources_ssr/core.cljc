@@ -357,15 +357,24 @@
 ;; See docs/ssr/concepts.md#deploy-drift-checks-come-along-for-free.
 (def app-frame :rf/default)
 
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and the
+;; already-hydrated frame. HYDRATE stays in `run` (once), so a reload never
+;; re-seeds over the interactive state.
+#?(:cljs
+   (defn ^:dev/after-load mount! []
+     (when-let [el (and (exists? js/document)
+                        (js/document.getElementById "app"))]
+       (when-not @react-root
+         (reset! react-root (rdc/create-root el)))
+       (rdc/render @react-root
+                   [rf/frame-provider {:frame app-frame}
+                    [(rf/view :app/root)]]))))
+
 #?(:cljs
    (defn run []
      (rf/init! reagent-adapter/adapter)
      (rf/reg-frame app-frame {:doc "resources-ssr client app-frame" :platform :client})
      (ssr/hydrate! {:frame          app-frame
                     :render-tree-fn (fn [] ((rf/view :app/root)))})
-     (when (exists? js/document)
-       (when-not @react-root
-         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-       (rdc/render @react-root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :app/root)]]))))
+     (mount!)))
