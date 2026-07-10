@@ -4,13 +4,12 @@
   Per Spec 012 §Navigation is an event. Programmatic navigation entry
   point: accepts a route-id (`[:rf.route/navigate :route/cart]`), a
   target-map (`{:url ...}` form), or the URL-string form. Honours
-  :can-leave, :params/:query validation, scroll-strategy resolution,
+  :can-leave and :can-enter, :params/:query validation, scroll resolution,
   :query-retain merge, and the rule-3 no-op short-circuit.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event :rf.route/navigate` call so a
-  `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr cohesion
-  split: NAVIGATE-EVENT seam."
+  `:reload` re-wires it on a fresh registrar."
   (:require [clojure.string :as str]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
@@ -28,8 +27,8 @@
 ;;   [:rf.route/navigate target]              ;; no path-params, no opts
 ;;   [:rf.route/navigate target params]       ;; params 2nd, opts absent
 ;;   [:rf.route/navigate target params opts]  ;; params 2nd, OPTS THIRD
-;; The two trailing maps are positionally ambiguous to a reader
-;; (rf2-1os1c): the likely mistake is dropping an OPTS-shaped map into
+;; The two trailing maps are positionally ambiguous: the likely mistake is
+;; dropping an options-shaped map into
 ;; the PARAMS slot — `[:rf.route/navigate :route/x {:replace? true}]`
 ;; reads as "navigate with these path-params" but the author meant opts.
 ;; `opts-only-keys` names the keys that ONLY ever belong in the opts map.
@@ -37,10 +36,9 @@
   "Keys the trailing `opts` map recognises (Spec 012 §Navigation is an
   event) that are NOT path-param names. An occurrence of one of these in
   the PARAMS slot — and not as a declared path-param of the target route
-  — is the classic params/opts swap and is rejected (rf2-1os1c).
-  `:bypass-guards?` (rf2-p69yaz point 8) is the SET-valued rename of the
-  former single `:bypass-leave-guard?` opt — it skips `:leave` / `:enter`
-  / both guards for one navigation."
+  — is the classic params/opts swap and is rejected.
+  `:bypass-guards?` carries a set and skips `:leave`, `:enter`, or both
+  guards for one navigation."
   #{:replace? :scroll :fragment :bypass-guards?})
 
 (defn- misplaced-opts-keys

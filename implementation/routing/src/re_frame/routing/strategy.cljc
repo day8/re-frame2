@@ -1,17 +1,12 @@
 (ns re-frame.routing.strategy
-  "URL-strategy seam for re-frame2 routing (rf2-aerrz5).
+  "URL-strategy seam for re-frame2 routing.
 
   Per Spec 012 §URL strategies. The router is PATH-FORM on the write
   side: `route-url` builds `/active`, `match-url` reads `/active`, and
   the standard history fxs `pushState`/`replaceState` a path-form URL.
-  A hash-URL app (`#/active`) — the shape most secretary-era v1 apps
-  actually are — therefore had to hand-roll a `hashchange` adapter and
-  hand-build `#/active` hrefs, forfeiting `route-link` / `route-url` /
-  `:rf.route/navigate` wholesale.
-
   A **`:url-strategy`** is a frame-level config map consulted at exactly
-  FOUR egress/ingress points — the two history fxs, the `route-link`
-  href render, and the URL-change listener install. Everything else —
+  four integration surfaces — the two history fxs, the `route-link` href
+  render, and the URL-change listener. Everything else —
   `route-url`, `match-url`, the whole navigation cascade — stays PURE
   and PATH-FORM. The strategy is the thin skin between the router's
   path-form model and the browser's chosen address-bar form.
@@ -25,17 +20,18 @@
      :install-listener! (fn [on-change] teardown)}
 
   - `:encode` maps a path-form app URL (`/active?q=milk`) to the browser
-    href form (`#/active?q=milk` for hash; unchanged for history). PURE.
+    href form (`#/active?q=milk` for hash; unchanged for history). Pure and
+    host-agnostic.
   - `:decode` reads the CURRENT browser URL and returns its path-form
-    (`#/active` → `/active`; `pathname+search+hash` → itself for
-    history). Side-reading (touches `window.location`), CLJS-only.
+    (`#/active` → `/active`; `pathname+search+hash` → itself for history).
+    It reads `window.location` on CLJS and returns `/` without a browser.
   - `:push!` / `:replace!` drive `window.history` with the ENCODED href
     — `:push!` adds a history entry, `:replace!` overwrites the current
     one. They are RAW window.history legs: `:encode` is the SINGLE
     outbound encoding authority (the nav fxs encode the path-form URL to
-    its final href ONCE and hand it here), so `:push!` / `:replace!` MUST
-    NOT re-encode — a custom strategy's legs receive the already-encoded
-    href verbatim (rf2-irygd6). Side-effecting, CLJS-only.
+    its final href once and hand it here), so `:push!` / `:replace!` must
+    not re-encode. A custom strategy's legs receive the already-encoded href
+    verbatim. Side-effecting, CLJS-only.
   - `:install-listener!` installs the browser URL-change listener and
     returns a 0-arg teardown thunk. `on-change` is a 1-arg fn the
     listener calls with the DECODED path-form URL on every browser-driven
@@ -54,18 +50,15 @@
   `:url-bound? true` is already URL-free (Spec 012 §Multi-frame routing),
   so a non-url-bound frame IS the 'memory' case, spec-free.
 
-  SSR IGNORES STRATEGIES. On the server there is no `window` and no
+  SSR does not execute strategy side effects. On the server there is no
   address bar: the request URL is fed in path-form via
   `:rf.route/handle-url-change`, the view renders against the slice, and
-  `route-link` emits its path-form `<a href>` shell (the CLJS render fn's
-  strategy-encoded href takes over on hydration). A hash never reaches
-  the server. So every strategy key here is CLJS-only (the JVM/SSR half
-  is a no-op), and the four consult points fall back to path-form when no
-  `window` is present.
+  `route-link` emits its path-form `<a href>` shell. A hash never reaches the
+  server. The pure `:encode` and fallback `:decode` functions remain present
+  on the JVM; `:push!`, `:replace!`, and `:install-listener!` are CLJS-only.
 
   Internal namespace; the public facade is `re-frame.routing`, which
-  re-exports the two shipped strategies. Per the rf2-2yabr cohesion
-  split: URL-STRATEGY seam."
+  re-exports the two shipped strategies."
   (:require [re-frame.registrar :as registrar]))
 
 ;; ---- history strategy (default) ------------------------------------------
@@ -171,7 +164,7 @@
 #?(:cljs
    (defn hash-push!
      "Hash strategy `:push!` — push a NEW history entry carrying the
-     already-encoded hash href. RAW (rf2-irygd6): `:encode` is the single
+     already-encoded hash href. `:encode` is the single
      outbound encoding authority — the nav fxs encode the path-form URL to
      `#/active` ONCE and hand it here — so this leg pushes the href
      UNCHANGED and must NOT re-encode, or a base-path deploy would
@@ -185,7 +178,7 @@
    (defn hash-replace!
      "Hash strategy `:replace!` — overwrite the current history entry with
      the already-encoded hash href via `replaceState` (no new entry). RAW,
-     like `hash-push!` (rf2-irygd6): `:encode` is the single outbound
+     like `hash-push!`: `:encode` is the single outbound
      encoding authority, so this leg replaces with the href UNCHANGED — no
      internal `hash-encode`."
      [href]
@@ -222,7 +215,7 @@
                    :install-listener! hash-install-listener!}
             :clj  {})))
 
-;; ---- base-path combinator (rf2-g8pbwg) ------------------------------------
+;; ---- base-path combinator -------------------------------------------------
 ;;
 ;; A frame served from a deployment SUB-PATH — a host mounting several demos
 ;; side by side, so an app that owns `/` on its own instead lives at
@@ -232,12 +225,14 @@
 ;; href / history URL (so the address bar and `route-link` hrefs carry the
 ;; real mount-point path).
 ;;
-;; `with-base-path` is a COMBINATOR over an existing strategy, not a third
+;; `with-base-path` is a combinator over an existing strategy, not a third
 ;; shipped strategy: base-path handling is orthogonal to address-bar FORM
 ;; (history vs hash). It wraps the four egress/ingress consult points —
 ;; `:encode` / `:decode` / `:push!` / `:replace!` / `:install-listener!` —
 ;; so the wrapped strategy's own form (identity vs `#`-prefix) is preserved
-;; underneath the base-path prefix/strip.
+;; underneath the base-path prefix/strip. It wraps `:encode`, `:decode`, and
+;; listener ingress; the already-encoded `:push!` / `:replace!` legs pass
+;; through unchanged.
 
 (defn- normalize-base-path
   "Normalize a base-path string: nil / blank -> `\"\"` (no base); else
@@ -258,8 +253,8 @@
   bare string-prefix test would mis-slice a prefix-sharing SIBLING (base `/app`
   must NOT strip `/application`, `/apple`, `/app-admin`). A `url` that is not
   under the base — including such a sibling, or a fully unrelated URL — is
-  returned UNCHANGED (defensive: fails safe rather than mis-slicing the path).
-  A blank `base` is a no-op. Pure. (rf2-vuv84a)"
+  returned unchanged (defensive: fails safe rather than mis-slicing the path).
+  A blank `base` is a no-op. Pure."
   [base url]
   (if (and (seq base)
            (or (= url base)
@@ -278,8 +273,8 @@
     - `:decode`            strips `base` off the wrapped strategy's decoded
                            path-form URL.
     - `:encode`            re-adds `base` to the wrapped strategy's encoded
-                           href — the SINGLE outbound base-composition point
-                           (rf2-irygd6). `route-link` renders this href and the
+                           href — the single outbound base-composition point.
+                           `route-link` renders this href and the
                            nav fxs push it, so the mount-point prefix sits
                            OUTSIDE the address-bar form (`/demos#/active` for a
                            hash app, `/demos/active` for a history app).
@@ -318,7 +313,7 @@
       (merge strategy
              {:encode (fn [path] (str b ((:encode strategy) path)))
               :decode (fn [] (strip-base-path b ((:decode strategy))))}
-             ;; :push! / :replace! are deliberately NOT wrapped (rf2-irygd6):
+             ;; :push! / :replace! are deliberately not wrapped:
              ;; `:encode` is the single outbound encoding authority — the nav
              ;; fxs encode once and hand these RAW legs the final base-prefixed
              ;; href — so the inner strategy's :push!/:replace! pass through via
@@ -345,8 +340,7 @@
 (defn url-strategy-from-config
   "Read `:url-strategy` from a frame's stored `reg-frame` config map,
   defaulting to `history-url-strategy` when unset (or when `config` is not
-  a map). The default is the identity/path-form strategy, so a frame that
-  declares nothing behaves exactly as before this seam existed."
+  a map). The default is the identity/path-form strategy."
   [config]
   (or (when (map? config) (:url-strategy config))
       history-url-strategy))

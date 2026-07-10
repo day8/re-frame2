@@ -3,7 +3,7 @@
   re-frame2 routing.
 
   Per Spec 012 §Navigation blocking — pending-nav protocol. `:can-enter`
-  is the first-class mirror of `:can-leave` (rf2-p69yaz Option A): ONE
+  is the first-class mirror of `:can-leave`: one
   gate consulted for EVERY entry door — `:rf.route/navigate`,
   `:rf.route/url-requested` (link clicks), and `:rf.route/transitioned` /
   `:rf.route/handle-url-change` (popstate / deep-links) — evaluates the
@@ -11,8 +11,8 @@
 
     - `guard-query` / `guard-id` / `guard?` — the shared `:can-leave` /
       `:can-enter` sub resolution + the closed-contract boolean check
-      (rf2-5pyyl / rf2-p69yaz). The guard sub receives the pending TARGET
-      appended as an argument (repairs the 012:1196 fragment-check hole);
+      boolean contract. The guard sub receives the pending target appended
+      as an argument;
     - `pending-target` — the `{:route-id :params :query :fragment :url}`
       map appended to both guard queries, derived from the requested URL
       via `match-url` (canonical, round-trips);
@@ -23,7 +23,7 @@
       entry point (preventDefault + pushState + :rf.route/transitioned);
     - `:rf.route/continue` / `:rf.route/cancel` — pending-nav protocol
       resolution events. `:rf.route/continue` bypasses `:leave` only and
-      RE-RUNS `:can-enter` (rf2-p69yaz point 6);
+      re-runs `:can-enter`;
     - `:rf.route/navigation-blocked` / `:rf.route/entry-blocked` — the
       default no-op user events runtime dispatches on a leave / enter
       block respectively (apps re-register with their own confirm-dialog
@@ -34,8 +34,7 @@
   (`events/reg-event :rf.route/url-requested`, `:rf.route/navigation-blocked`,
   `:rf.route/entry-blocked`, `:rf.route/continue`, `:rf.route/cancel`) so
   a `:reload` of the façade re-wires them on a fresh registrar (the
-  `clear-all!` test-fixture path). Per the rf2-2yabr cohesion split:
-  CAN-LEAVE + CAN-ENTER + PENDING-NAV seam."
+  `clear-all!` test-fixture path)."
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -79,15 +78,15 @@
   "Resolve and call a route's `:can-leave` / `:can-enter` sub against the
   live frame, passing the pending TARGET appended as an argument.
 
-  Per Spec 012 §Navigation blocking §Default flow (rf2-5pyyl /
-  rf2-p69yaz): the guard contract is closed — only the literals `true`
+  Per Spec 012 §Navigation blocking §Default flow, the guard contract is
+  closed — only the literals `true`
   (allow) and `false` (block) are accepted. Any non-boolean return BLOCKS
   and emits the structured `error-id`, forcing the author to write
   `(boolean ...)` / `(not ...)` rather than rely on truthiness (the
   classic polarity bug: a sub returning the dirty-flag value silently let
   the user navigate away and lose form state).
 
-  rf2-p69yaz point 2: the pending TARGET map (`{:route-id :params :query
+  The pending target map (`{:route-id :params :query
   :fragment :url}`) is appended to the guard query as an ARGUMENT — the
   guard-sub receives `[<guard-id> <pending-target>]`, so `:can-leave` can
   finally implement the 012:1196 fragment-check contract (compare the
@@ -105,27 +104,24 @@
   Returns `true` (proceed) when:
     - no guard is declared for `guard-key` (no guard);
     - the sub returns the literal value `true`;
-    - `:subs/subscribe-once` is unset (consumer opted out of the subs
-      artefact; the runtime has no way to evaluate the sub, so it cannot
-      fail the closed contract). The warning
+    - the internal `:subs/subscribe-once` hook is unavailable, so the
+      runtime cannot evaluate the declared guard. The warning
       `:rf.warning/can-leave-subs-artefact-missing` fires so tooling
-      surfaces the misconfiguration (shared across both guards — the
-      missing-artefact condition is guard-agnostic).
+      surfaces the degraded registration state. This fallback is shared by
+      both guard kinds.
 
   `route-id` is the guarded route's id keyword — threaded in so the
   non-boolean trace tags the real id rather than the route's `:path`
   pattern string.
 
-  rf2-dbmj6x — `frame` is BOTH the live frame the guard sub resolves
+  `frame` is both the live frame the guard sub resolves
   against AND the in-flight cascade's frame stamp the diagnostic traces
   tag under `:tags :frame`."
   [frame route-id route-meta guard-key target error-id]
   (if-let [query (guard-query route-meta guard-key)]
     (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
-      ;; rf2-p69yaz point 2: append the pending target so the guard sub
-      ;; receives it as `(fn [inputs [_ target] ...])`. Repairs the
-      ;; 012:1196 unimplementable fragment-check hole for `:can-leave` and
-      ;; gives `:can-enter` the destination to branch on.
+      ;; Append the target so the guard sub receives it as
+      ;; `(fn [inputs [_ target] ...])`.
       (let [query-with-target (conj (vec query) target)
             v (subscribe-once query-with-target {:frame frame})]
         (cond
@@ -167,13 +163,14 @@
           :rf.error/can-enter-non-boolean))
 
 (defn- pending-target
-  "Resolve the pending TARGET the guards branch on, from the requested
-  URL string via `match-url` (rf2-p69yaz point 2). The URL is the
-  canonical, round-tripping representation every entry door shares —
+  "Resolve the pending target the guards branch on from the requested URL
+  via `match-url`. A URL is the common representation every entry door
+  shares —
   `:rf.route/url-requested` / `:rf.route/transitioned` / `:rf.route/
   handle-url-change` all carry a URL, and `:rf.route/navigate` passes its
-  BUILT url — so deriving the target here keeps ONE gate uniform across
-  all doors without each caller pre-computing a target shape.
+  built URL — so deriving the target here keeps one gate uniform across all
+  doors. The returned `:url` preserves the caller's spelling; `match-url`
+  normalizes the semantic route fields.
 
   Returns `{:route-id :params :query :fragment :url}`. On a URL that
   matches no route the `match-url` half is nil and only `:url` is
@@ -182,15 +179,15 @@
   a dead link is still a leave). A `:can-enter` guard on a matched target
   reads its own route from the registry via `route-id`.
 
-  rf2-dqlfty: this runs on EVERY nav-guard evaluation — even when the
+  This runs on every nav-guard evaluation, even when the
   route declares no `:can-leave` / `:can-enter` at all, `maybe-block-
   navigation` calls `pending-target` unconditionally before checking
   whether a guard is declared. A raw `match-url` call here, left
   unhandled, would let any unexpected throw escape the guard phase and
-  crash the event drain (rf2-6t1xb) for `:rf.route/navigate`,
+  crash the event drain for `:rf.route/navigate`,
   `:rf.route/url-requested`, `:rf.route/transitioned`, and
   `:rf.route/handle-url-change` alike. `match-url-fail-closed` catches
-  ANY throw and yields a nil match instead, so a hostile/throwing URL
+  any throw and yields a nil match instead, so a hostile/throwing URL
   degrades to the same `:rf.route/not-found`-shaped target as a bare
   miss — exactly the fail-closed discipline `url-change-fx` and
   `:rf.route/navigate`'s `{:url ...}` target-form already apply at the
@@ -205,8 +202,8 @@
      :url      requested-url}))
 
 (defn- current-slice->url
-  "Rebuild the URL the current route slice represents, for restoring the
-  browser address bar on a blocked popstate (rf2-ede1h.3). Returns the
+  "Rebuild the URL the current route slice represents for restoring the
+  browser address bar on a blocked popstate. Returns the
   URL string, or nil when the slice cannot be rebuilt (no current route,
   a `:rf.route/not-found` slice with no registered pattern, or a
   `route-url` throw). Best-effort: a nil result simply omits the restore
@@ -214,9 +211,8 @@
   is skipped in the rare unbuildable case.
 
   Built from the slice's `:route-id` / `:params` / `:query` / `:fragment` via
-  the pure `route-url` builder — the exact inverse `match-url` used to
-  populate the slice in the first place, so the restored URL matches the
-  one the browser showed before the (rejected) Back/Forward."
+  `route-url`. The result is semantically equivalent to the URL that produced
+  the slice, but may use canonical query ordering or slash spelling."
   [current-route]
   (let [{:keys [route-id params query fragment]} current-route]
     (when (and route-id (keyword? route-id) (registrar/lookup :route route-id))
@@ -225,8 +221,8 @@
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 ;; ---------------------------------------------------------------------------
-;; The ONE navigation gate: `:can-leave` (current) THEN `:can-enter`
-;; (target), for every entry door. rf2-p69yaz Option A.
+;; The one navigation gate: `:can-leave` (current), then `:can-enter`
+;; (target), for every entry door.
 ;; ---------------------------------------------------------------------------
 
 (defn- event-opts
@@ -247,7 +243,7 @@
 
 (defn- loop-count
   "The number of times THIS resume chain has already re-run the enter gate
-  for the same target (rf2-p69yaz point 7 — loop detection). The count
+  for the same target. The count
   rides the re-issued event's `:rf.route/enter-attempts` opt, threaded
   forward by `:rf.route/continue` (which clears the pending slot BEFORE
   re-dispatching, so the count can't live only on the slot). Zero on a
@@ -256,7 +252,7 @@
   (long (or (:rf.route/enter-attempts (event-opts event-vec)) 0)))
 
 (def ^:private loop-guard-limit
-  "The enter-gate re-run ceiling (rf2-p69yaz point 7). A `:can-enter` that
+  "The enter-gate re-run ceiling. A `:can-enter` that
   blocks the SAME target this many times across resume attempts is a loop
   — the gate fails closed with `:rf.error/route-guard-loop` and STOPS
   re-issuing rather than spinning `continue → block → continue`."
@@ -265,7 +261,7 @@
 (defn maybe-block-navigation
   "Run the CURRENT route's `:can-leave` guard THEN the TARGET route's
   `:can-enter` guard before allowing a transition to `requested-url`
-  (rf2-p69yaz Option A — one gate, every door). Returns nil when the
+  (one gate for every door). Returns nil when the
   navigation should proceed (no guard, guards allow, or the relevant
   guard is bypassed); returns the effects map `{:rf.db/runtime ... :fx ...}`
   that writes the routing pending-navigation slot
@@ -279,7 +275,7 @@
   block result with its happy-path cofx so a single failure path
   collapses cleanly.
 
-  `bypass-guards` is the `:bypass-guards?` opt SET (rf2-p69yaz point 8):
+  `bypass-guards` is the `:bypass-guards?` option set:
   `#{:leave}` skips the leave gate, `#{:enter}` skips the enter gate,
   `#{:leave :enter}` skips both. A `:rf.route/continue` resume passes
   `#{:leave}` — the leave was already confirmed by the user, but the
@@ -287,11 +283,11 @@
 
   Per Spec 012 §Navigation blocking §Default flow step 4c — *the URL does
   not change* on a block. A POPSTATE leave block restores the address bar
-  (rf2-ede1h.3, see `current-slice->url`); an enter block through
+  (see `current-slice->url`); an enter block through
   popstate does the same (the browser already moved to the target the
   enter gate rejects).
 
-  rf2-vcop6y: `pending-nav-allocation` is the RECORDABLE allocation
+  `pending-nav-allocation` is the recordable allocation
   `{:id \"pn-N\" :counter N}` delivered by the generator-backed
   `:rf.route/pending-nav-allocation` cofx."
   [rdb frame-id event-vec requested-url bypass-guards pending-nav-allocation]
@@ -303,13 +299,13 @@
         current-meta   (registrar/lookup :route (:route-id current-route))
         target         (pending-target requested-url)
         target-meta    (registrar/lookup :route (:route-id target))
-        ;; rf2-p69yaz: current route's :can-leave FIRST, then target's
-        ;; :can-enter. The guard subs receive the pending target appended.
+        ;; The current route's :can-leave runs first; only a passing leave
+        ;; reaches the target route's :can-enter.
         leave-ok?      (or (contains? bypass :leave)
                            (can-leave? frame-id (:route-id current-route) current-meta target))
         ;; Only evaluate the enter gate when the leave gate passed (a
-        ;; blocked leave never reaches the target). rf2-p69yaz point 7:
-        ;; when the enter gate re-runs past the loop ceiling, it is a
+        ;; blocked leave never reaches the target). When the enter gate
+        ;; re-runs past the loop ceiling, it is a
         ;; guard loop — fail closed rather than re-issue forever.
         attempts       (loop-count event-vec)
         looping?       (and leave-ok?
@@ -430,8 +426,7 @@
   {})
 
 (defn entry-blocked-handler
-  "`:rf.route/entry-blocked` no-op default handler (ENTER block —
-  rf2-p69yaz point 5). The enter-block mirror of
+  "`:rf.route/entry-blocked` no-op default handler. The enter-block mirror of
   `navigation-blocked-handler`. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar. Apps re-register with their own
   policy (the canonical shape is an auth redirect: read the pending-nav
@@ -440,16 +435,16 @@
   [_ _]
   {})
 
-;; rf2-cylse.4: the open-redirect classifier (`safe-in-app-url?` /
-;; `external-url?` / `request-url->app-url`) is now shared in
+;; The open-redirect classifier (`safe-in-app-url?` / `external-url?` /
+;; `request-url->app-url`) is shared in
 ;; `re-frame.routing.url` so the programmatic `:rf.route/navigate {:url}`
 ;; sink gates through the SAME fail-closed logic as `:rf.route/url-requested`.
 
 (defn- inject-bypass-guards
   "Re-issue the original navigation event with a `:bypass-guards?` SET
-  merged in (rf2-p69yaz point 8; rf2-yursn one-shot escape hatch) and the
+  merged in and the
   running `enter-attempts` loop-guard count threaded forward under
-  `:rf.route/enter-attempts` (point 7 — the count can't live only on the
+  `:rf.route/enter-attempts` (the count cannot live only on the
   pending slot, which `continue` clears before re-dispatching). A
   `:rf.route/continue` resume passes `#{:leave}` — the user already
   confirmed the leave, but the enter gate RE-RUNS (point 6), so `:enter`
@@ -480,8 +475,8 @@
 
 (defn url-requested-handler
   "`:rf.route/url-requested` event handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar. rf2-vcop6y: declares only the
-  RECORDABLE `:rf.route/pending-nav-allocation` cofx — its only allocation
+  `:reload` re-wires it on a fresh registrar. Declares only the recordable
+  `:rf.route/pending-nav-allocation` cofx — its only allocation
   is a pending-nav id minted on a guard block (it never mints a nav-token;
   the forward push synthesises `:rf.route/transitioned`, which mints its
   own)."
@@ -490,14 +485,13 @@
    [_ {:keys [url bypass-guards?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires the leave-THEN-enter gate for every :rf.route/url-requested;
-    ;; a block writes [:rf.runtime/routing :pending-navigation]. EP-0001
-    ;; (rf2-vzld77): the pending-nav slot is durable routing runtime-db
-    ;; state — read it from the `:rf.db/runtime` coeffect.
+    ;; a block writes [:rf.runtime/routing :pending-navigation], read from
+    ;; and returned through the runtime-db coeffect/effect.
     ;;
-    ;; The :bypass-guards? request flag is the rf2-yursn one-shot escape
-    ;; hatch :rf.route/continue uses to re-issue the original navigation
+    ;; The :bypass-guards? request flag is the one-shot escape hatch
+    ;; :rf.route/continue uses to re-issue the original navigation
     ;; request without re-running the LEAVE guard (the enter guard still
-    ;; runs — rf2-p69yaz point 6).
+    ;; runs).
     (let [frame     (frame/require-frame-stamp!
                       frame :rf.route/url-requested
                       {:where 'rf.route/url-requested-handler})
@@ -536,27 +530,26 @@
   "`:rf.route/continue` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar.
 
-  rf2-p69yaz point 6: continue RE-ISSUES the original navigation request,
+  Continue re-issues the original navigation request,
   bypassing the LEAVE guard for this one shot (the user confirmed the
   leave), but the ENTER guard RE-RUNS — an enter-pending that survived a
   committed navigation, or an auth gate whose condition has NOT changed,
   must not sail through on resume. So `inject-bypass-guards` merges
   `#{:leave}`, not `#{:leave :enter}`."
   [{rdb :rf.db/runtime} [_ pn-id]]
-    ;; EP-0001 (rf2-vzld77): the pending-nav slot is durable routing
-    ;; runtime-db state.
+    ;; The pending-navigation slot is runtime-db state.
     (let [db       (or rdb {})
           pending  (get-in db [:rf.runtime/routing :pending-navigation])
           original (:requested-by-event pending)
           url      (:requested-url pending)
-          ;; rf2-p69yaz point 7: thread the running enter-attempt count
+          ;; Thread the running enter-attempt count
           ;; forward so the re-run enter gate can detect a resume loop. The
           ;; slot's `:enter-attempts` was already incremented at block time;
           ;; carry it into the re-issued event's opts (the slot is cleared
           ;; below before the re-dispatch runs, so the count must ride the
           ;; event). Absent on a leave-block resume (no enter attempts).
           attempts (:enter-attempts pending)
-          ;; rf2-8zvajk: a blocked popstate that RESTORED the address bar
+          ;; A blocked popstate that restored the address bar
           ;; must re-move the browser URL on resume — see the leave-block
           ;; docstring above; identical for an enter block reached through
           ;; popstate.
@@ -579,8 +572,7 @@
   "`:rf.route/cancel` event handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
   [{rdb :rf.db/runtime} [_ pn-id]]
-  ;; EP-0001 (rf2-vzld77): the pending-nav slot is durable routing runtime-db
-  ;; state.
+  ;; The pending-navigation slot is runtime-db state.
   (let [db (or rdb {})]
     (if (= pn-id (get-in db [:rf.runtime/routing :pending-navigation :id]))
       {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}

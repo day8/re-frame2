@@ -3,18 +3,15 @@
   (`:rf.route/navigate`) and URL-driven (`:rf.route/transitioned` /
   `:rf.route/handle-url-change`) entry points.
 
-  Per the rf2-u8qe7y best-practice review: before this seam each entry
-  point re-encoded the SAME pre-commit policy — fragment normalisation,
+  Both entry points share the same pre-commit policy: fragment normalisation,
   the `:rf.route/not-found` fallback shape + `:reason` vocabulary, the
   identical-/fragment-only/no-op classification, the telemetry the
   hostile-URL / missing-not-found-route streams must surface, and the
-  scroll-fx args — and only `commit-navigation` (the final commit
-  assembler in `re-frame.routing.events`) was actually shared. The
+  scroll-fx args, and `commit-navigation` (the final commit assembler in
+  `re-frame.routing.events`). The
   invariant is \"one navigation policy with entry-point-specific
   inputs\", so the shared pre-commit policy lives here, in ONE place,
-  rather than as two parallel policy bodies whose parity depends on
-  maintainers remembering to patch both and adding a regression test
-  after drift is discovered.
+  rather than as parallel policy bodies.
 
   Everything here is PURE (or returns telemetry as DATA). The two entry
   points resolve their target differently — the programmatic path has
@@ -27,8 +24,7 @@
   classification flags are resolved, BOTH feed the shared helpers below
   and then `commit-navigation`.
 
-  Internal namespace; the public facade is `re-frame.routing`. Per the
-  rf2-2yabr cohesion split convention: NAVIGATION-PLAN seam."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.routing.egress :as egress]
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.scroll :as scroll]
@@ -37,7 +33,7 @@
 ;; ---- fragment normalisation ----------------------------------------------
 
 (defn normalize-fragment
-  "Collapse an explicit empty-string fragment to nil (rf2-zmcq6).
+  "Collapse an explicit empty-string fragment to nil.
 
   `route-url` (the URL builder) treats `:fragment \"\"` as NO fragment
   (emits no trailing `#`), but `\"\"` is truthy, so an un-normalised
@@ -143,13 +139,9 @@
 ;; ---- pre-commit telemetry intents ----------------------------------------
 
 ;; Per Spec 009 + Spec 012: a fail-closed navigation must surface the same
-;; structured telemetry regardless of WHICH entry point the hostile /
-;; unmatched URL arrived on. Before this seam each path emitted the
-;; `:rf.warning/malformed-url` + `:rf.warning/no-not-found-route` pair
-;; inline with subtly parallel `cond->` bodies, and the programmatic path
-;; once SHIPPED missing the URL-driven path's hostile-URL warning
-;; (navigate.cljc:426-437 documents the drift). Returning the intents as
-;; DATA — a vector of `[kind level-or-op op-or-tags tags?]` triples — and
+;; structured telemetry regardless of which entry point the hostile or
+;; unmatched URL arrived on. Returning the intents as data — a vector of
+;; `[kind level-or-op op-or-tags tags?]` tuples — and
 ;; running them through one `emit-intents!` driver makes the parity
 ;; structural: both callers build the same intent list from the same
 ;; inputs, so they cannot drift without changing this one fn.
@@ -168,13 +160,13 @@
                     (`:match-error`); emits `:rf.warning/malformed-url`
                     carrying `{:url :reason}`.
     :malformed?   — the URL's percent-encoding failed to decode; emits
-                    `:rf.warning/malformed-url` carrying `{:url}` (rf2-4ic0f).
+                    `:rf.warning/malformed-url` carrying `{:url}`.
                     Mutually exclusive with `:throw-reason` (a throw
                     pre-empts the malformed scan).
     :no-not-found? — the fallback resolved to `:rf.route/not-found` AND no
                     such route is registered; emits
                     `:rf.warning/no-not-found-route` carrying `{:url}`
-                    (rf2-0zr2o / Spec 012 §Route-not-found §3).
+                    (Spec 012 §Route-not-found §3).
     :url          — the requested URL.
     :frame        — the active frame; threaded onto every tag map when
                     present so the trace lands in the emitting frame's epoch

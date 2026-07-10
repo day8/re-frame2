@@ -5,7 +5,7 @@
   Per Spec 012 §Multi-frame routing — 'Only one frame can own the URL at
   a time': registering a second `:url-bound? true` frame emits
   `:rf.error/duplicate-url-binding` per Spec 009 §error event catalogue.
-  The check runs from a registrar registration-hook (rf2-w50qm) so it
+  The check runs from a registrar registration hook so it
   fires on BOTH first-time and re-registration paths.
 
   The recovery is `:no-recovery` per Spec 009. The registry remains
@@ -14,26 +14,25 @@
   non-owner `:rf.nav/push-url` / `:rf.nav/replace-url` calls no-op. The
   error surfaces the conflict; resolving it is the app's concern.
 
-  rf2-3l7xxz — the hook also maintains the URL-ownership CLAIM ORDER in
+  The hook also maintains URL-ownership claim order in
   `re-frame.routing.nav-fx` (recording a `:url-bound? true` claim, dropping it
   when a frame opts out), so `url-owner-frame-id` resolves the FIRST-CLAIMED
   incumbent and a later duplicate cannot steal the browser URL even if its id
   sorts before the incumbent.
 
-  rf2-68k8as — `add-registration-hook!` is an append-only FUTURE observer; it
+  `add-registration-hook!` observes only future registrations; it
   does not replay existing registrations. So frames that claimed `:url-bound?
   true` BEFORE `(require 're-frame.routing)` never recorded a claim, and the
-  resolver's old id-sort fallback let a later, alphabetically-earlier duplicate
-  steal the URL from the true first-claimant. The façade now calls
-  `reconcile-existing-url-bindings!` right after installing the hook to seed the
+  claim order cannot be inferred from the registry map. The facade calls
+  `reconcile-existing-url-bindings!` after installing the hook to seed the
   unambiguous incumbent (and fail closed on an unrecoverable multi-binding
   load-order), so first-claim-wins holds regardless of frame-vs-routing load
   order.
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade owns the `registrar/add-registration-hook!` call so a
-  `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr
-  cohesion split: URL-BOUND-EXCLUSIVITY seam."
+  facade owns the `registrar/add-registration-hook!` call. The hook is
+  process-lifetime state and survives reload; facade loads rerun the
+  idempotent reconciliation."
   (:require [re-frame.registrar :as registrar]
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.trace :as trace]))
@@ -43,7 +42,7 @@
   that currently carries an explicit `:url-bound? true`. Returns the
   offending frame-id or nil.
 
-  EP-0002 (rf2-nn0jqa): URL ownership is an EXPLICIT declaration — there is
+  URL ownership is an explicit declaration; there is
   no `:rf/default`-owns-by-default floor. `:rf/default` is counted here only
   when it carries an explicit `:url-bound? true` like any other frame; an
   un-annotated `:rf/default` is NOT an implicit owner."
@@ -67,7 +66,7 @@
   browser history. The app resolves the conflict by removing one of the
   bindings.
 
-  rf2-3l7xxz — this hook ALSO maintains the URL-ownership CLAIM ORDER
+  This hook also maintains URL-ownership claim order
   (`re-frame.routing.nav-fx/url-claim-order`): a `:url-bound? true`
   registration records the frame's claim (appended iff not already present, so
   a hot-reload re-registration of the incumbent keeps its position and a later
@@ -84,7 +83,7 @@
     (if (true? (nav-fx/url-bound?-from-config now))
       (do
         ;; Record the claim FIRST so the incumbent keeps its claim position; a
-        ;; duplicate appends after it and never steals ownership (rf2-3l7xxz).
+        ;; duplicate appends after it and never steals ownership.
         (nav-fx/record-url-claim! id)
         (when-let [other (frame-id-of-existing-url-binding id)]
           (trace/emit-error! :rf.error/duplicate-url-binding
@@ -95,24 +94,22 @@
       ;; A `:frame` registration that does NOT carry `:url-bound? true`
       ;; relinquished any prior URL claim (e.g. `:rf/default {:url-bound?
       ;; false}` opting out): drop it so a stale claim cannot keep a now-unbound
-      ;; frame at the head of the claim order (rf2-3l7xxz). Idempotent.
+      ;; frame at the head of the claim order. Idempotent.
       (nav-fx/drop-url-claim! id))))
 
 (defn reconcile-existing-url-bindings!
   "Reconcile `:url-bound? true` frames ALREADY in the registry when the
-  url-bound exclusivity hook is installed (rf2-68k8as). Called ONCE by the
-  façade immediately after `add-registration-hook!`, so frames registered
+  url-bound exclusivity hook is installed. Called by the facade after
+  `add-registration-hook!` and on reload, so frames registered
   BEFORE `(require 're-frame.routing)` are not silently invisible to URL-
   ownership resolution.
 
-  The hazard (rf2-68k8as): `add-registration-hook!` is an append-only FUTURE
-  observer — it does NOT replay existing registrations (re-frame.registrar
+  `add-registration-hook!` observes only future registrations; it does not
+  replay existing registrations (re-frame.registrar
   §registration-hooks). So a frame that claimed `:url-bound? true` before
   routing loaded never recorded a claim in `url-claim-order`, leaving the
-  resolver to fall back to id-sorting — which let a later, alphabetically-
-  earlier duplicate STEAL the URL from the true first-claimant (Spec 012
-  §Multi-frame routing forbids exactly this: 'the existing owner is unchanged …
-  resolving by id ordering would have let it').
+  resolver without claim order. Choosing by frame id would violate Spec 012's
+  rule that the existing owner remains unchanged.
 
   Why this can't simply replay in true claim order: the registrar's
   `(kind, id) → metadata` table is UNORDERED (re-frame.registrar), so the

@@ -1,19 +1,18 @@
 (ns re-frame.routing.reply
-  "Spec 012 — lower route-loader async work onto the uniform reply
-  envelope (EP-0011 §Route Loader Completion; the canonical contract is
-  `spec/Managed-Effects.md` §The uniform reply envelope).
+  "Lower route-loader async work onto the uniform reply envelope. The
+  canonical contract is `spec/Managed-Effects.md` §The uniform reply envelope.
 
   ## What this namespace is
 
-  The internal seam that expresses route-loader stale suppression as an
-  ORDINARY reply-envelope `:suppress` gate rather than a bespoke
+  This internal seam expresses route-loader stale suppression as an ordinary
+  reply-envelope `:suppress` gate rather than a bespoke
   per-family token mechanism. A route loader's async completion is keyed
   by the route work-id `[:rf.work/route route-id nav-token loader-id]`
   and gated by the data-only suppression map `{:route/nav-token
   nav-token}`, validated against the live `[:rf.runtime/routing :current
   :nav-token]` before the app reply target runs. The PUBLIC routing API
   (the `:rf.route/nav-token` cofx, `:rf.route/with-nav-token`, `:on-match` /
-  loaders) is PRESERVED — this is internal lowering only.
+  loaders) is unchanged; this is internal lowering only.
 
   Two concerns, both consuming the shared `re-frame.reply` substrate:
 
@@ -22,15 +21,15 @@
       (Managed-Effects §Work-id correlation). The nav-token is NOT a
       second stale-suppression key in its own right — it is the value of
       the ONE suppression gate (`:route/nav-token`) AND a component of
-      the work-id tuple; the same fact, named once. Per EP-0007 there is
-      no `:stale-key`-style synonym.
+      the work-id tuple; the same fact has no `:stale-key`-style synonym.
 
    2. **Stale-suppression gate** (`gate` / `current-gate` / `suppress?`
       / `suppress`). The carried gate `{:route/nav-token <captured>}` is
       matched against the current gate `{:route/nav-token <live>}` via
       `re-frame.reply/stale?` — the shared correctness boundary. On
-      mismatch `re-frame.reply/suppress` produces the `:status :stale`
-      reply (no app mutation) and the data-only trace facts joined to
+      mismatch `re-frame.reply/suppress` produces an unqualified
+      `:status :stale` reply (the canonical reply-map vocabulary, with no
+      app mutation) and data-only trace facts joined to
       `:rf.reply/work-id`; the app reply target does NOT run. On match the live
       reply (`:ok` / `:error`, and `:cancelled` for an explicit user
       cancel) flows through to the handler unchanged.
@@ -50,8 +49,8 @@
 ;; ---------------------------------------------------------------------------
 ;; Work-id correlation (Managed-Effects §Work-id correlation).
 ;;
-;; Route head: `[:rf.work/route route-id nav-token loader-id]`. One ATTEMPT
-;; has one `:rf.reply/work-id` (the EP-0007 rule): a distinct nav-token (a fresh
+;; Route head: `[:rf.work/route route-id nav-token loader-id]`. One attempt
+;; has one `:rf.reply/work-id`: a distinct nav-token (a fresh
 ;; navigation epoch) is a distinct attempt, so the nav-token rides IN the
 ;; work-id tuple. The nav-token is the same fact named once — it is the
 ;; component that discriminates a superseded attempt AND the value of the
@@ -76,8 +75,8 @@
 ;; ---------------------------------------------------------------------------
 ;; The stale-suppression gate (Managed-Effects §Stale suppression). The
 ;; nav-token is lowered to the ONE data-only suppression gate
-;; `{:route/nav-token <token>}` — exactly the gate shape EP-0011
-;; §Specification and the §The reply target descriptor example use
+;; `{:route/nav-token <token>}` — the gate shape the reply target descriptor
+;; example uses
 ;; (`:suppress {:route/nav-token "nav-7"}`). The carried gate is captured at
 ;; scheduling time; the current gate is read from the live route slice at
 ;; completion. They are compared by the shared `re-frame.reply/stale?` — no
@@ -129,7 +128,7 @@
   :rf.route/nav-token-stale)
 
 ;; ---------------------------------------------------------------------------
-;; Live completion (rf2-2avo53). When the carried nav-token is STILL current,
+;; Live completion. When the carried nav-token is still current,
 ;; the route-loader completion is a LIVE reply (`:status :ok` — `:partial` is
 ;; not a route-loader case; HTTP decode lands `:ok`/`:error` and the route
 ;; gate runs on top). The route wrapper lowers the live continuation onto the
@@ -139,18 +138,18 @@
 ;; is appended as the final argument of the target event and the target's
 ;; accumulated `::post` transform is applied. The route surface therefore
 ;; exercises `re-frame.reply/complete` at the ACTUAL navigation wrapper, not
-;; only in the pure unit helper.
+;; only in a pure helper.
 ;; ---------------------------------------------------------------------------
 
 (defn live-reply
   "Build the LIVE `:status :ok` route-loader reply map for a completion whose
   carried nav-token is still current (Managed-Effects §The reply map / §Status
   taxonomy). Carries the route `:rf.reply/work-id` + `:rf.reply/work-kind :route`, the loader's
-  decoded result `:value` (the reply-result spelling EVERYWHERE — EP-0007;
+  decoded result under the canonical unqualified `:value` slot;
   `nil` for a loader that produced no payload — `:ok` REQUIRES `:value`
   present, so it rides even when nil rather than being omitted), the carried
-  frame stamp, and the causal `:completed-at` (EP-0010 — the reply token's
-  reading, never a fresh ambient clock read). Frame / completed-at are omitted
+  frame stamp, and the causal `:completed-at` (the reply token's reading,
+  never a fresh ambient clock read). Frame / completed-at are omitted
   when absent.
 
   `ctx` is `{:route-id … :nav-token <carried> :loader-id … :frame …
@@ -174,12 +173,12 @@
   build the `:status :ok` reply map (`live-reply`) and append it to the
   target's event via the shared `re-frame.reply/complete` — the pure functor
   the EP-0011 mapping law (`complete (map-completed-event f t) == f (complete t)`) is
-  stated over. Returns the dispatchable completed event vector (the target
+  states. Returns the dispatchable completed event vector (the target
   event with the reply map appended, then the target's `::post` transform
   applied), or nil when `target` is nil (no continuation).
 
   This is the production lowering the route wrapper drives on the live branch
-  (rf2-2avo53): the route surface normalizes + completes a `:rf/reply-to`
+  The route surface normalizes and completes a `:rf/reply-to`
   target through the shared substrate, rather than running an ad-hoc `:do` fx
   entry that never touches the reply envelope."
   ([ctx target] (complete-live ctx target nil))

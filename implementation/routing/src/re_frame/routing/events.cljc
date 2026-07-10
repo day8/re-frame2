@@ -71,15 +71,13 @@
   per-transition lifecycle signal independent of the underlying
   `:rf.route/transitioned` event.
 
-  rf2-dbmj6x — `frame` is the in-flight cascade's carried frame stamp
+  `frame` is the in-flight cascade's carried frame stamp
   (threaded from the nav handler's `:rf.frame/id` cofx via
   `commit-navigation`). Both lifecycle traces stamp it under `:tags
   :frame` so they enter the emitting frame's epoch (epoch-capture buffers
   only frame-tagged traces — `re-frame.epoch.capture` §168-221) and obey
-  the frame-level trace-disable gate (`re-frame.trace/emit!` §397-398);
-  pre-fix the untagged emits silently dropped from Xray and leaked past a
-  `:rf.trace/frame-no-emit?` tool frame. `(cond-> … frame (assoc …))`
-  mirrors the rf2-7d30s / rf2-w3qgc precedent — a nil stamp simply omits
+  the frame-level trace-disable gate (`re-frame.trace/emit!` §397-398).
+  A nil stamp simply omits
   the tag rather than synthesising `:rf/default`."
   [frame prev-id next-id]
   (when (and prev-id (not= prev-id next-id))
@@ -128,12 +126,11 @@
 ;; always nil on a successful commit; the error-trap path
 ;; (`re-frame.routing.on-match-error`) sets it independently.
 ;;
-;; The merge is targeted at `:current` (not at `:routing`), so the
-;; sibling routing-runtime key under `[:rf.runtime/routing ...]`
-;; (`:pending-navigation` — the only remaining runtime-db sibling) is
-;; untouched. The nav-token / pending-nav counters are NOT runtime-db
-;; siblings — they live in a host-side transient cache per rf2-oosjmh
-;; (mirroring the scroll-position cache, rf2-1hncp2).
+;; The merge targets `:current`, not the routing root, so sibling state is
+;; untouched. Siblings include `:pending-navigation` and, when the resources
+;; artefact is active, resource-blocking bookkeeping. Allocator counters and
+;; scroll positions are host-side transient caches rather than runtime-db
+;; siblings.
 (defn merge-route-slice
   "Pure slice-publish: merges the new slice fields over the existing
   `:current` map at `[:rf.runtime/routing :current]`. Returns the
@@ -192,12 +189,10 @@
   replay re-presents the same token) and the host high-water bump
   (`:counter`) rides a `:rf.route/commit-nav-counter` fx.
 
-  `app-db` is the navigation handler's app-db coeffect value (EP-0016 D3
-  slice 3): it is threaded UNCHANGED into the `:routing/on-route-entry`
-  hook so a cross-feature route-resource `{:from-db <id>}` `:scope` (the
-  Resources artefact) can resolve db-derived viewer scope at route entry,
-  BEFORE the resource work is planned. Routing itself never reads app-db;
-  it is a pure pass-through of the causal world input.
+  `app-db` is passed unchanged to the optional `:routing/on-route-entry`
+  hook. A resource scope declared with `{:from-db <id>}` can therefore resolve
+  against the same causal app-db value before resource work is planned;
+  routing itself does not inspect app-db.
 
   rf2-dbmj6x — `frame` is the in-flight cascade's carried frame stamp (the
   nav handler's `:rf.frame/id` cofx; both nav entry points already
@@ -219,10 +214,8 @@
                                           :fragment   fragment
                                           :transition transition
                                           :nav-token  token})
-        ;; rf2-vdyrls — cross-feature route `:resources` plan (Spec 016 §Route
-        ;; integration). The Resources artefact publishes the LATE-BOUND
-        ;; `:routing/on-route-entry` hook; routing consults it by key (no
-        ;; static dep — resources is optional) and gets back
+        ;; The optional Resources artefact publishes the late-bound
+        ;; `:routing/on-route-entry` hook and returns
         ;; `{:fx [...] :blocking #{<scoped-key> …} :plan-error err?}`. The
         ;; ensure dispatches + prior-owner release are spliced into the commit
         ;; fx; the blocking set is written into the nav-token's blocking slot
@@ -243,10 +236,8 @@
                                 :prev-id        prev-id
                                 :prev-nav-token prev-nav-token
                                 :ctx            {}
-                                ;; EP-0016 D3 slice 3: the route-entry app-db,
-                                ;; threaded from the nav handler's coeffect so a
-                                ;; `{:from-db …}` route-resource scope resolves
-                                ;; db-derived viewer identity at route entry.
+                                ;; Preserve the handler's causal app-db input for
+                                ;; any `{:from-db …}` resource-scope resolver.
                                 :app-db         app-db}))
         committed  (cond-> committed
                      (seq (:blocking plan))
@@ -261,16 +252,16 @@
                      (:plan-error plan)
                      (assoc-in [:rf.runtime/routing :current :error]
                                (:plan-error plan)))
-        ;; EP-0025 routes follow-on (rf2-3r6k8i): lower the activating route's
-        ;; projection-relative `:sensitive` / `:large` classification into the
+        ;; Lower the activating route's projection-relative `:sensitive` /
+        ;; `:large` classification into the
         ;; per-frame elision registry, RE-ROOTED under `[:rf.runtime/routing
         ;; :current …]`, ATOMICALLY with the slice publish (the same runtime-db
         ;; partition). Routes are a SINGLETON current-route, so this REPLACES the
         ;; prior route's `:source :route` entries — a route change drops the
         ;; leaving route's classification, and a route that declares none (incl.
         ;; `:rf.route/not-found`, whose `route-meta` may be nil) clears the
-        ;; route-sourced entries. The declared paths redact the slice's
-        ;; `:query` / `:params` at egress for as long as the route is active;
+        ;; route-sourced entries. The declared query/params paths redact those
+        ;; projections at egress for as long as the route is active;
         ;; frame teardown drops the whole runtime-db elision slot with the frame.
         committed (classification/lower-for-route committed route-id route-meta)]
     ;; rf2-dbmj6x — stamp the carried `:frame` so the nav-token-allocated
@@ -315,14 +306,12 @@
 ;; :nav-token, and the stale settle becomes a no-op so the new :loading
 ;; isn't clobbered.
 ;;
-;; Per Spec 012 §Per-route error handling: if any :on-match event errors
-;; the runtime flips :transition :error, populates :rf.route/error, and
-;; dispatches :on-error (when declared). The settle handler additionally
-;; guards on `(= :loading current-transition)` so a settle queued AFTER
-;; an :on-match throw does NOT clobber :error back to :idle — the throw's
-;; trap (`:rf.route.internal/on-match-error` in
-;; `re-frame.routing.on-match-error`) ran first and the slice now
-;; carries :error.
+;; Per Spec 012 §Per-route error handling, an :on-match throw queues the
+;; internal error event behind work already in the FIFO. The settle may run
+;; first and briefly write :idle; the later error event writes the final
+;; :error state. The transition guard matters when an earlier error event has
+;; already changed the slice, and also prevents redundant settles from
+;; rewriting a non-loading route.
 ;;
 ;; Per rf2-576on: this event is RUNTIME-INTERNAL — fired by the runtime
 ;; itself; never user-dispatched. The `:rf.route.internal/*` sub-

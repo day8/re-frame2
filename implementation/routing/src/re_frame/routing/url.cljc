@@ -78,7 +78,7 @@
   "Wrap `url-decode` in try/catch; returns nil (sentinel for malformed
   `%`) on decode failure.
 
-  Per Spec 012 §Routing failure semantics (rf2-wbvme + rf2-4ic0f): both
+  Per Spec 012 §Routing failure semantics, both
   `URLDecoder/decode` (JVM) and `decodeURIComponent` (CLJS) throw on
   malformed percent-encoded sequences (`%`, `%a`, `%XX`, …). Hostile
   URLs, partner integrations with broken escaping, or back-button to a
@@ -86,11 +86,8 @@
   request-handler crash. Callers propagate the nil sentinel uniformly:
   `match-against` returns nil for the whole match (path captures);
   `match-url`'s query-parse loop short-circuits to a malformed sentinel
-  the moment any key or value fails to decode (rf2-4ic0f — the prior
-  rf2-wbvme branch dropped just the offending pair, which silently let
-  hostile URLs into the routing slice when the host route had no
-  required keys); `split-fragment` reports its decode result the same
-  way so a malformed `#fragment` also fails closed."
+  the moment any key or value fails to decode; `split-fragment` reports its
+  decode result the same way so a malformed `#fragment` also fails closed."
   [s]
   (try (url-decode s)
        (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -105,8 +102,8 @@
   `:rf.route/not-found` but the structured `:reason` lets per-route
   error UIs and SSR projections branch on the cause.
 
-  Per Spec 012 §Routing failure semantics §Malformed percent-encoding
-  (rf2-4ic0f). The scan is purely lexical and pattern-agnostic: the URL
+  Per Spec 012 §Routing failure semantics §Malformed percent-encoding, the
+  scan is purely lexical and pattern-agnostic: the URL
   is split into path segments (on `/`), query pairs (on `&`, then `=`),
   and the `#fragment`, and each piece is run through `safe-url-decode`.
   Any piece that won't decode flips the predicate — no route table or
@@ -140,12 +137,10 @@
                            (nil? (safe-url-decode fragment))))]
     (or path-bad? query-bad? fragment-bad?)))
 
-;; ---- open-redirect classifier (rf2-3bv8o + rf2-cylse.4) ------------------
+;; ---- open-redirect classifier ---------------------------------------------
 ;; The shared lexical/origin gate that classifies a URL-string nav target
-;; as same-origin in-app vs external. Hoisted here from
-;; `re-frame.routing.can-leave` (rf2-cylse.4) so EVERY url-string nav sink
-;; — the gated `:rf.route/url-requested` link-click path AND the previously
-;; ungated `:rf.route/navigate {:url ...}` programmatic path — fails closed
+;; as same-origin in-app vs external. Every URL-string navigation sink
+;; (`:rf.route/url-requested` and `:rf.route/navigate {:url ...}`) fails closed
 ;; through ONE classifier rather than each entry point re-deciding (and
 ;; only one of three being wired). Per Spec 012 §Target form — URL-string:
 ;; the `{:url ...}` escape hatch is precisely for untrusted input
@@ -156,19 +151,12 @@
   "Fail-CLOSED lexical classifier for the no-browser-origin path (JVM /
   SSR, and CLJS when `js/window` is unavailable). Returns true ONLY when
   `url` is PROVABLY a same-origin in-app reference; everything ambiguous
-  or absolute returns false -> classed external (rf2-3bv8o).
+  or absolute returns false and is classed external.
 
   Without a browser `Location` to resolve and origin-compare against
   (the robust CLJS path in `external-url?`), the runtime cannot prove a
-  URL is same-origin. The pre-rf2-3bv8o JVM path was fail-OPEN: it
-  returned the URL verbatim and classed in-app anything that did not
-  lexically look absolute -- a default-ALLOW that let open-redirect
-  bypass vectors (leading whitespace before a scheme, backslash-prefixed
-  authorities a browser normalises to `//`, embedded tab/newline in the
-  scheme) slip through as in-app pushes. This flips to fail-CLOSED,
-  consistent with the routing fail-closed posture established by
-  rf2-6t1xb (a hostile or ambiguous URL resolves to the safe outcome,
-  not the permissive one).
+  URL is same-origin. Hostile or ambiguous forms resolve to the external
+  outcome rather than relying on a permissive lexical guess.
 
   A URL is accepted as in-app only when, after rejecting any whitespace
   or ASCII control character (browsers strip tab/CR/LF mid-URL before
@@ -205,8 +193,7 @@
   in-app same-origin reference. On CLJS with a live `js/window.location`
   the URL is resolved against the document origin and compared (the
   robust path); otherwise (JVM / SSR, or any resolution failure) it falls
-  back to the fail-closed lexical `safe-in-app-url?`. rf2-3bv8o +
-  rf2-cylse.4."
+  back to the fail-closed lexical `safe-in-app-url?`."
   [url]
   #?(:cljs
      (try

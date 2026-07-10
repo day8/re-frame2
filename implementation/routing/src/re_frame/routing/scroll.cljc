@@ -4,22 +4,21 @@
 
   Per Spec 012 §Scroll restoration §Multi-frame routing.
 
-  ## Storage: host-side per-frame TRANSIENT cache (rf2-1hncp2)
+  ## Storage: host-side per-frame transient cache
 
   Saved scroll positions are a **host-side transient cache** keyed by
   frame-id — NOT runtime-db state. They are host-derived (read from
   `window.scrollX/Y`), bounded LRU caches, meaningless server-side, and
   not needed to reconstitute a coherent frame-state on restore /
-  SSR-hydration / time-travel (Mike ruling, EP-0001 decision #13:
-  runtime-db = serializable facts NEEDED for restore; host handles +
-  dirty caches stay TRANSIENT). Holding them in a module-level `defonce`
-  atom keeps them OFF the trace / epoch / snapshot egress wire entirely
-  — the storage location, not an egress filter, is what keeps them local.
+  SSR hydration or time-travel. Holding the cache in a module-level
+  `defonce` atom keeps the stored cache out of runtime-db snapshots and
+  hydration. Individual positions may still flow through registered effect
+  arguments, whose trace copies use the ordinary effect classification.
 
   The cache lives in `scroll-positions-cache` below: a
   `{frame-id {:positions {url [x y]} :order [url ...]}}` atom, mirroring
-  the HTTP in-flight registry pattern (`re-frame.http.registry`, EP-0001
-  ~line 901). It is LRU-capped per-frame by `scroll-positions-cap` with
+  other host-side registries. It is LRU-capped per-frame by
+  `scroll-positions-cap`, with
   recency tracked by the per-frame `:order` vector. A frame's entry is
   released by `release-frame!` on frame destroy (analogous to the other
   transient teardown hooks).
@@ -31,7 +30,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
-  a fresh registrar. Per the rf2-2yabr cohesion split: SCROLL seam."
+  a fresh registrar."
   (:require [re-frame.frame :as frame]
             [re-frame.routing.registry :as registry]
             [re-frame.trace :as trace]))
@@ -43,7 +42,7 @@
   per-frame host cache stays bounded over long sessions."
   50)
 
-;; ---- host-side per-frame transient cache (rf2-1hncp2) ---------------------
+;; ---- host-side per-frame transient cache ----------------------------------
 
 (defonce scroll-positions-cache
   ;; frame-id → {:positions {url [x y]} :order [url ...]}.
@@ -51,8 +50,7 @@
   ;; Host-side TRANSIENT cache: scroll positions are host-derived
   ;; (window.scrollX/Y), bounded LRU, and meaningless on the server /
   ;; after a restore to a different route — NOT runtime-db state and NOT
-  ;; serialized into epochs / SSR payloads (per EP-0001 decision #13 +
-  ;; the rf2-1hncp2 ruling). Keyed by frame-id so multi-frame apps keep
+  ;; serialized into epochs / SSR payloads. Keyed by frame-id so multi-frame apps keep
   ;; isolated per-frame caches; the entry is dropped on frame destroy via
   ;; `release-frame!`. Mirrors `re-frame.http.registry`'s `in-flight`
   ;; defonce atom — host-owned ephemeral state, not in the reactive db.

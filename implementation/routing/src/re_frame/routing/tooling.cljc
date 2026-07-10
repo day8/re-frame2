@@ -1,26 +1,24 @@
 (ns re-frame.routing.tooling
-  "Routing tooling sibling of `re-frame.routing` — carries the EP-0014
-  slice-5 derivation/process algebra view of registered routes
+  "Routing tooling sibling of `re-frame.routing`. It carries the
+  derivation/process algebra view of registered routes
   (`route-algebra-view`, the static graph) and of a frame's live route
   slice (`route-slice-algebra-view`, the live graph) that pair tools (Xray,
   re-frame2-pair-mcp) and the conformance fixtures query, but no production
-  application code reads.
+  application runtime code reads.
 
-  Mirrors the rf2-s8w3nw `re-frame.flows.tooling` split (and the rf2-bmzq0
-  `re-frame.subs.tooling` / rf2-qwm0a `re-frame.trace.tooling` splits before
-  it):
+  Loading contract:
     - CLJS consumers needing the surface call
       `re-frame.routing.tooling/<name>` directly. Apps that load the
-      routing artefact but never attach a tool DCE the body wholesale (the
+      routing artefact but never attach a tool can DCE the body wholesale (the
       sibling ns is loaded only when a test fixture, tool, or dev preload
       requires it; the `re-frame.routing` facade never `:require`s it).
     - JVM consumers keep an ergonomic `re-frame.routing/<name>` alias (gated
-      under `#?(:clj ...)`). The JVM has no bundle to protect; the alias
-      costs nothing. The whole routing artefact is already bundle-isolated
+      under `#?(:clj ...)`). The alias adds no browser bundle surface. The
+      whole routing artefact is already bundle-isolated
       from production builds (the counter example never `:require`s
       `re-frame.routing`), so this sibling can never reach a no-routing
       app's bundle; the explicit sentinel at the foot of this ns
-      additionally proves no stray `:require` ever pulled the body in.
+      is checked by the sentinel at the foot of this namespace.
 
   READ-ONLY over the registry. Like slice-2's subs.tooling read the sub
   registrar and slice-3's flows.tooling read the flow registry, this ns
@@ -39,7 +37,7 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- algebra views (EP-0014 slice-5) -------------------------------------
+;; ---- algebra views --------------------------------------------------------
 ;;
 ;; Per [Derivations.md] §Routes expose algebra views — a route is the
 ;; canonical `:runtime-db` / `:on-route` / `:frame` PROCESS-LIKE member of
@@ -48,7 +46,7 @@
 ;; loaders/resources, and suppresses stale continuations by navigation token
 ;; (Derivations §Process). The route FACT it materializes is named `:rf/route`
 ;; — the one consumer-facing name Spec 012 already gives the route slice (one
-;; name per fact, per EP-0007).
+;; name per fact).
 ;;
 ;; This is the *registrar-derived* slice (Derivations §The EP-0013 relocation
 ;; seam): the algebra view is assembled from the route registrar metadata at
@@ -342,18 +340,10 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Per rf2-s8w3nw / rf2-bmzq0 / rf2-qwm0a (the flows.tooling + subs.tooling +
-;; trace.tooling split pattern): `implementation/scripts/check-bundle-isolation.cjs`
-;; greps the counter bundle for this exact string. The string lives ONLY in
-;; this file's source body — no other namespace, no docstring, no test fixture
-;; references it — so its presence in the production counter bundle proves the
-;; tooling sibling's body got pulled in (most likely via a stray `:require`
-;; from a production-reachable ns). The whole routing artefact is already
-;; bundle-isolated from counter (counter never `:require`s `re-frame.routing`),
-;; so this sentinel is the belt-and-braces guard the sibling pattern
-;; standardises. The string survives `:advanced` because string literals are
-;; not renamed; it sits outside any gate so DCE cannot drop the literal
-;; independently of the surrounding ns body.
+;; `implementation/scripts/check-bundle-isolation.cjs` rejects the production
+;; counter bundle if this exact string appears. Keep the literal unique to this
+;; namespace and in lockstep with the checker; its presence means the tooling
+;; namespace reached a production bundle that should not load routing tools.
 
 (defonce ^:private bundle-isolation-sentinel
   "rf.routing.tooling/sentinel:rf2-eiiifu-2026-06-12:do-not-rename")

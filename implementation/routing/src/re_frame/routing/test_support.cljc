@@ -1,7 +1,7 @@
 (ns re-frame.routing.test-support
   "Test-support namespace for the routing artefact (Spec 012).
 
-  ## What lives here (rf2-dbiv8 — keep test fixtures out of the production façade)
+  ## What lives here
 
   This namespace is the **sole home** for the routing test-only fixture
   event:
@@ -18,23 +18,11 @@
   fixtures, so it lives behind an explicit test-support require rather
   than in the always-on production registry.
 
-  ## Why this exists at all (rf2-dbiv8, mirrors rf2-cdmle / rf2-zk08x)
+  ## Loading boundary
 
-  `:rf.test/simulate-http-resolution` was previously registered
-  UNCONDITIONALLY in the `re-frame.routing` façade — so a test-runner-
-  internal `:rf.test/*` event (reserved by Spec 008 / Conventions.md per
-  the `:rf.test/*` namespace) was registered into the registry of EVERY
-  app that did `(:require [re-frame.routing])`, and the keyword string
-  survived into production bundles. The managed-HTTP artefact already
-  solved the identical posture mismatch for its canned-stub fxs by
-  gating registration on an explicit `re-frame.http.test-support` require
-  (rf2-cdmle, follow-up to rf2-zk08x); this namespace applies the same
-  pattern to routing.
-
-  Production posture: this namespace is unreferenced from any production
-  module, so CLJS `:advanced` trims it wholesale (fx-id keyword string
-  fragments and all) and JVM/SSR sees classpath absence through the
-  normal artefact require boundary.
+  No production namespace requires this one, so CLJS `:advanced` can trim it
+  wholesale. The namespace remains present in the routing artefact on JVM;
+  its fixture event is registered only when a consumer explicitly requires it.
 
   ## Adoption
 

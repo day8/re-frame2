@@ -2,16 +2,12 @@
   "Route-pattern parsing, validation, and URL-against-pattern matching
   for re-frame.routing.
 
-  Per Spec 012 §Route ranking algorithm and §Bidirectional URL ↔ params.
-  Internal namespace; the public facade is `re-frame.routing` — direct
-  consumers should reach for that facade. This ns isolates pattern
-  compilation (validation + single-pass parse → rank/regex/names/groups)
-  and pattern matching (`match-against`) so the routing facade can
-  compose them without the implementations cluttering its cohesion
-  surface.
+  Pattern compilation validates and parses once to derive rank, regex,
+  capture names, and optional-group metadata. `match-against` applies that
+  compiled form and decodes captures. Per Spec 012 §Route ranking algorithm
+  and §Bidirectional URL ↔ params.
 
-  Per the rf2-icrxv cohesion-split audit (Phase-2 Option C): PATTERN
-  seam — template compile + match-against."
+  Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.error :as error]
             [re-frame.routing.url :as url]))
 
@@ -121,14 +117,11 @@
                 (clojure.string/includes? body "//")
                 (clojure.string/ends-with? body "/"))
         (route-pattern-error! route-id pattern "optional groups may not contain empty segments" start))
-      ;; CANONICAL SPELLING — slash-INSIDE the braces (rf2-av1, pinned by
-      ;; rf2-5u1r6a). The group wraps a *slash-prefixed* sub-pattern:
+      ;; The group owns a slash-prefixed sub-pattern:
       ;; `{/:slug}?`, `{/guide}?`, `{/:base}?`. The slash-OUTSIDE spelling
       ;; (`{:base}?`, a `{` directly after a `/` with a `:`-first body) is
-      ;; REJECTED — it was an accepted-but-undocumented drift that the
-      ;; production table, the normative `:rf/route-pattern` regex, and this
-      ;; validator disagreed on. One spelling now: the leading `/` lives
-      ;; inside the braces so the group is a self-contained optional segment
+      ;; rejected. The leading `/` lives inside the braces, making the group
+      ;; a self-contained optional segment
       ;; wherever it appears (leading, e.g. `{/:base}?/about`, or trailing,
       ;; e.g. `/articles/:id{/:slug}?`).
       (when-not (= \/ (.charAt ^String body 0))
@@ -163,7 +156,7 @@
   most one splat, which must be final; literal segments percent-encode
   the reserved chars (`: * { } ?`); and `{...}?` optional groups close
   with `}?`, are non-empty, non-nested, wrap a slash-prefixed sub-pattern
-  (the canonical slash-INSIDE spelling, `{/:id}?` — rf2-av1 / rf2-5u1r6a),
+  (the canonical slash-inside spelling, `{/:id}?`),
   and contain no splats. A pattern may also OPEN with a leading optional
   group (`{/:base}?/about`)."
   [route-id pattern]
@@ -176,8 +169,8 @@
 
     ;; A pattern must start with `/` (a segment) OR `{` (a LEADING optional
     ;; group — the canonical slash-inside form for an optional prefix, e.g.
-    ;; `{/:base}?/about`; per Spec 012 §Path-pattern grammar rule 2 and
-    ;; rf2-av1). The group carries its own leading slash INSIDE the braces,
+    ;; `{/:base}?/about`; per Spec 012 §Path-pattern grammar rule 2). The
+    ;; group carries its own leading slash inside the braces,
     ;; so a leading group needs no `/` before it.
     (not (or (= \/ (.charAt ^String pattern 0))
              (= \{ (.charAt ^String pattern 0))))
@@ -333,17 +326,12 @@
            ;; every other concrete route). For any two NON-catch-all
            ;; patterns the catch-all bit ties (both 1), so the comparison
            ;; falls through to total-length exactly as before — only
-           ;; rankings involving the bare `/*` change.
-           ;; rf2-dqlfty: rules 4 and 5 are BOOLEAN discriminators per
+           ;; rankings involving the bare `/*` change. Rules 4 and 5 are
+           ;; boolean discriminators per
            ;; Spec 012 §Route ranking algorithm — "named params beat rest
            ;; params" / "exact routes beat optional-group routes" — not a
-           ;; magnitude comparison. The pre-fix `(- splat)` / `(- optional)`
-           ;; ranked by the raw segment COUNT, so two routes tied by the
-           ;; spec (e.g. differing only in HOW MANY optional groups they
-           ;; declare) ranked differently — a cross-host divergence, since
-           ;; a conforming implementation following the spec pseudocode
-           ;; ties them. `(if (pos? n) 0 1)` collapses "any" vs "none" to
-           ;; the same two-value cascade the spec pseudocode uses.
+           ;; magnitude comparison. `(if (pos? n) 0 1)` therefore represents
+           ;; only "any" versus "none", as the spec pseudocode requires.
            :rank    [static
                      (if catch-all? 0 1)
                      total
