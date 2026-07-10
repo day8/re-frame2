@@ -98,10 +98,15 @@
                  "../examples/patterns"
                  "../examples/real-apps"
                  "../examples/substrates"]
-   :extra-deps  {;; rf2-try1x — silent-on-success reporter.
-                 day8/re-frame2-test-quiet {:local/root "test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   ;; rf2-0sjm76 — the Cognitect test-runner coordinate is no longer
+   ;; pinned here directly. The test-quiet artefact owns the single
+   ;; runner coordinate (implementation/test-quiet/deps.edn :deps); this
+   ;; alias resolves it TRANSITIVELY via the test-quiet local-root dep,
+   ;; and its `re-frame.test-quiet.runner` entry-point wraps the runner.
+   :extra-deps  {;; rf2-try1x — silent-on-success reporter. Also the sole
+                 ;; source of the cognitect test-runner coordinate on this
+                 ;; alias's classpath (transitive; rf2-0sjm76).
+                 day8/re-frame2-test-quiet {:local/root "test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Splint (rf2-4v147) — Mike-confirmed dual-linter posture
