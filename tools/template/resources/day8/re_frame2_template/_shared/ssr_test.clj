@@ -3,7 +3,8 @@
 
    The direct render test exercises frame setup, rendering, and the hydration
    hash. The handler tests compile and drive server.clj's production path,
-   including schema attachment to the frame that ssr-handler creates.
+   including schema attachment to the frame that ssr-handler creates, the live
+   shell's CSS scaffold, and the contained static-asset serving.
 
    Run with `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing]]
@@ -14,6 +15,30 @@
             [{{namespace}}.core :as app]
             ;; Requiring the host keeps its API surface in the test build.
             [{{namespace}}.server :as server]))
+
+(def ^:private tailwind?
+  "This scaffold's `:css` mode — `{{css-name}}` is \"tailwind\" or \"\"."
+  (= "{{css-name}}" "tailwind"))
+
+(defn- body-str
+  "The response body as a String — the SSR path returns HTML strings, the
+   static-asset path returns java.io.File bodies."
+  [resp]
+  (let [b (:body resp)]
+    (cond
+      (string? b)                 b
+      (instance? java.io.File b)  (slurp b)
+      :else                       (str b))))
+
+(defn- ssr-html-fallthrough?
+  "True when `resp`'s body is a rendered SSR document — the signal that a
+   static/asset request wrongly fell through to the SSR renderer. Keyed on the
+   `<!DOCTYPE html>` document prefix, NOT a hydration marker like
+   `__rf_payload`: the compiled JS bundle legitimately embeds that marker
+   string (the client hydrator reads `getElementById(\"__rf_payload\")`), so it
+   can't distinguish a served bundle from an SSR page."
+  [resp]
+  (string/includes? (body-str resp) "<!DOCTYPE html>"))
 
 (deftest ssr-render-produces-hydration-ready-html
   (testing "the SSR server flow renders the counter to HTML with a render hash"
@@ -55,13 +80,78 @@
             :ssr/register-schema doesn't disturb the happy path, and
             requiring the host ns compiles server.clj"
     (rf/init! ssr/adapter)
-    ;; static-root is unused by the SSR route exercised here.
-    (let [handler (server/make-handler "resources/public/js")
+    (let [handler (server/make-handler "resources/public")
           resp    (handler {:uri "/" :request-method :get})]
       (is (= 200 (:status resp))
           "the production server/make-handler path renders a normal 200 response")
       (is (string/includes? (:body resp) "data-rf-render-hash")
           "the response body carries the render-hash tripwire"))))
+
+(deftest ssr-live-shell-loads-and-serves-the-css-scaffold
+  (testing "the live SSR shell (the one server.clj's make-handler serves —
+            NOT the unused static index.html) links the selected CSS scaffold,
+            the composite handler serves it with a CSS MIME, and the
+            static-asset boundary contains URI traversal"
+    (rf/init! ssr/adapter)
+    (let [handler (server/make-handler "resources/public")]
+
+      ;; -- the live shell links the CSS (Tailwind mode: + the dev compiler),
+      ;;    and preserves every hydration/head invariant --
+      (let [resp (handler {:uri "/" :request-method :get})
+            body (body-str resp)]
+        (is (= 200 (:status resp)) "the SSR / route renders a 200")
+        (is (string/includes? body "<link rel=\"stylesheet\" href=\"/css/app.css\">")
+            "the / response links the emitted CSS scaffold, so the page loads styled")
+        (when tailwind?
+          (is (string/includes? body "@tailwindcss/browser@4")
+              "Tailwind mode loads the @tailwindcss/browser dev compiler in the live shell"))
+        (is (string/includes? body "__rf_payload")
+            "the __rf_payload hydration script id is preserved")
+        (is (string/includes? body "id=\"app\"")
+            "the #app hydration root is preserved")
+        (is (string/includes? body "data-rf-render-hash")
+            "the render-hash tripwire is preserved")
+        (is (string/includes? body "src=\"/main.js\"")
+            "the /main.js bootstrap is preserved")
+        (is (string/includes? body "data-rf-xray-host")
+            "the live shell carries the [data-rf-xray-host] Xray host")
+        (is (string/includes? body "<title>")
+            "the route-resolved head title/meta survives the CSS injection (not clobbered)"))
+
+      ;; -- GET /css/app.css returns the emitted stylesheet, CSS MIME, NOT HTML --
+      (let [resp (handler {:uri "/css/app.css" :request-method :get})
+            body (body-str resp)]
+        (is (= 200 (:status resp)) "GET /css/app.css is served, not 404/SSR")
+        (is (= "text/css; charset=utf-8" (get-in resp [:headers "Content-Type"]))
+            "the stylesheet is served as text/css, not an SSR HTML document")
+        (is (not (ssr-html-fallthrough? resp))
+            "GET /css/app.css returns CSS bytes, NOT the SSR HTML app response")
+        (is (string/includes? body (if tailwind? "@import \"tailwindcss\"" "minimal stylesheet"))
+            "the served bytes are the emitted app.css entry"))
+
+      ;; -- /main.js keeps a JavaScript MIME (never an SSR HTML fallthrough) --
+      (let [resp (handler {:uri "/main.js" :request-method :get})]
+        (is (contains? #{200 404} (:status resp))
+            "the bundle route resolves (200 built / 404 not-yet-built), never SSR HTML")
+        (when (= 200 (:status resp))
+          (is (= "text/javascript; charset=utf-8" (get-in resp [:headers "Content-Type"]))
+              "the built bundle keeps a JavaScript MIME"))
+        (is (not (ssr-html-fallthrough? resp))
+            "the bundle route never falls through to an SSR HTML response"))
+
+      ;; -- static-asset containment: a ../-style URI cannot escape public root --
+      (let [resp (handler {:uri "/css/../../../../../../deps.edn" :request-method :get})]
+        (is (= 403 (:status resp))
+            "a ../-style traversal under /css is rejected (contained under public root)")
+        (is (not (ssr-html-fallthrough? resp))
+            "a traversal request does not fall through to an SSR HTML document"))
+
+      ;; -- a missing static asset is a 404, not a 200 SSR HTML document --
+      (let [resp (handler {:uri "/css/does-not-exist.css" :request-method :get})]
+        (is (= 404 (:status resp))
+            "a missing CSS asset returns 404, not a 200 SSR HTML document mislabelled CSS")
+        (is (not (ssr-html-fallthrough? resp))
+            "a missing-asset request does not fall through to SSR")))))
 
 (deftest ssr-handler-rejects-a-schema-violating-commit-on-the-real-path
   (testing "the REAL ssr-ring/ssr-handler path — the one server.clj actually

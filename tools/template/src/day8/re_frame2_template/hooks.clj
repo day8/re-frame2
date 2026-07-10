@@ -308,6 +308,10 @@
        ;; Keep selectors as keywords for `template-fn`; substitution values
        ;; are stringified by deps-new.
        :css-kw              css
+       ;; String form for flat `{{css-name}}` substitution — "tailwind" or
+       ;; "" (plain). The SSR `server.clj` reads it to decide whether the live
+       ;; shell also loads the Tailwind dev compiler.
+       :css-name            (if css (name css) "")
        :story-tag           (if include-story? ", with Story playground" "")
        ;; SSR emits a JVM test instead of the shared CLJS test.
        :test-script         (if include-ssr?
