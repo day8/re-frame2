@@ -208,11 +208,33 @@
   `:children`, but `parent` itself never registered — leaving the children
   unreachable via the public unmount surface. Walk that recorded `:children`
   subtree GRANDCHILDREN-first (mirroring React's leaf-upward teardown) and
-  force-tear each record down. Used only by `mount-tree!`'s failed-render path."
+  force-tear each record down — the DESCENDANTS only, never `parent` itself.
+  Used by `mount-tree!`'s failed-INITIAL-mount rollback (which discards the
+  whole never-committed parent, so it drains just the children here and drops
+  the parent by never registering it) and by `force-teardown-subtree!` (which
+  adds the root record on top to unmount a whole live subtree)."
   [parent]
   (doseq [child @(:children parent)]
     (roll-back-speculative-children! child)
     (force-teardown-record! child)))
+
+(defn- force-teardown-subtree!
+  "Force-tear a whole LIVE subtree down GRANDCHILDREN-first: drain every
+  descendant of `mount` via `roll-back-speculative-children!`, then force-tear
+  the subtree root record itself via `force-teardown-record!`. Every node — the
+  root AND all descendants (pre-existing children as well as any a failed render
+  speculatively mounted) — leaves `active-mounts` with its render tree cleared.
+
+  Composes the SAME two forced-teardown primitives that back adapter disposal
+  and the initial-mount rollback, so the paths cannot drift. Used by
+  `trigger-update!`'s failed-UPDATE path: an uncaught update render error
+  unmounts the whole already-committed root, mirroring React 18+ (see
+  `run-render!`'s docstring — a throwing render propagates and React unmounts
+  the root). Contrast `roll-back-speculative-children!`, which drains DESCENDANTS
+  only because its caller's parent never committed."
+  [mount]
+  (roll-back-speculative-children! mount)
+  (force-teardown-record! mount))
 
 (defn- mount-tree!
   "The internal mount seam. Builds the `MountedComponent`, runs the
@@ -436,8 +458,26 @@
 
 (defn trigger-update!
   "Simulate a React re-render of `mount` with `new-render-tree` as the next
-  render output. Records a `:did-update` phase entry in the lifecycle log.
-  Throws if the mount has already been unmounted."
+  render output. On success records a `:did-update` phase entry in the
+  lifecycle log. Throws if the mount has already been unmounted.
+
+  Update honors React 18+'s uncaught-render-error semantics: if the update
+  render body throws, the WHOLE live root is unmounted — `mount` and its entire
+  child subtree (pre-existing children AND any this attempt speculatively
+  mounted) are force-torn-down grandchildren-first, evicted from `active-mounts`
+  with their render trees cleared — and the ORIGINAL exception is then rethrown.
+  A failed attempt publishes no `:did-update` and never leaves the throwing
+  candidate exposed as a committed tree. This matches `run-render!`'s documented
+  contract (\"React 18+ unmounts the root\") and the failed-INITIAL-mount
+  transaction (`mount-tree!`): a render that throws leaves no half-committed
+  lifecycle state — the test double does NOT silently preserve the prior tree,
+  because real React would tear the root down.
+
+  The sync-unmount-during-render guard is preserved during the render itself
+  (an unmount issued from the update body still trips it organically);
+  `run-render!`'s own `finally` restores `render-depth` on unwind, so the forced
+  teardown (which bypasses the render-depth guard) runs with the guard state
+  already correct."
   [mount new-render-tree]
   (when-not @(:mounted? mount)
     (error/throw-error!
@@ -447,7 +487,20 @@
            "unmounted; trigger updates only on a still-mounted root.")
       {:recovery :trigger-only-on-a-mounted-root
        :extra    {:mount-id (:id mount)}}))
-  (run-render! mount new-render-tree)
+  (try
+    (run-render! mount new-render-tree)
+    (catch #?(:clj Throwable :cljs :default) render-error
+      ;; Uncaught update render error → React 18+ unmounts the whole root. Tear
+      ;; the entire live root subtree down and rethrow the ORIGINAL error. Run
+      ;; the teardown in its OWN try so a defect there can never MASK the render
+      ;; exception — that error is what the caller must see. `run-render!`'s
+      ;; finally already restored `render-depth`, so forced teardown runs with
+      ;; the guard state correct.
+      (try
+        (force-teardown-subtree! mount)
+        (catch #?(:clj Throwable :cljs :default) _teardown-error
+          nil))
+      (throw render-error)))
   (log-phase! mount :did-update)
   mount)
 
