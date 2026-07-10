@@ -592,3 +592,72 @@
           "the effect claim SURVIVES the actor destroy — no fail-open")
       (is (not (some #(= :machine (:source %)) (owners)))
           "the machine's own owner is dropped by the source-scoped teardown"))))
+
+;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
+;; rf2-dr0pfi — when an effect PRE-classifies a machine's absolute snapshot
+;; path BEFORE the singleton boots, the machine's own `:source :machine` claim
+;; (lowered LIVE by `classification/lower-at-spawn!` at first-boot) must SURVIVE
+;; the boot snapshot `:rf.db/runtime` commit. Before the fix, that commit was
+;; built from the STALE `:rf.db/runtime` coeffect — which already carried the
+;; effect's `[:rf.runtime/elision]` sub-tree — so the returned effect value
+;; INCLUDED `:rf.runtime/elision` (effect-owner only). At commit,
+;; `elision/reconcile-runtime-db-effect` reads an effect-carried
+;; `:rf.runtime/elision` as an explicit full-frame install and honours it
+;; VERBATIM, clobbering the machine owner the live swap had just unioned in.
+;; The effect owner survived (so the path stayed redacted — BENIGN, no leak),
+;; but the machine was NOT itself a durable owner, breaking the multi-owner
+;; union contract (rf2-wdm1vg): the machine and the effect are INDEPENDENT
+;; owners and BOTH must persist, so removing the effect's claim must leave the
+;; path redacted by the machine's surviving claim.
+
+(deftest machine-boot-claim-survives-when-effect-pre-classified
+  (testing "rf2-dr0pfi — an effect that PRE-classifies a machine's absolute
+            snapshot path does NOT prevent the machine's own :source :machine
+            claim from landing durably at first-boot; both owners union, and
+            the machine claim keeps the path redacted after the effect clears"
+    (let [mid       :rf.machine-redaction/effect-first-single
+          abs-token [:rf.runtime/machines :snapshots mid :data :token]
+          owners    #(get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])]
+      (rf/reg-machine mid
+        {:sensitive [[:data :token]]
+         :initial   :anon
+         :data      {:token nil :retries 0}
+         :states    {:anon {:on {:login :authed}} :authed {}}})
+      ;; (1) The EFFECT classifies the absolute snapshot path FIRST — BEFORE the
+      ;; singleton is ever booted (the effect-first order, the bug's trigger:
+      ;; this is what seeds `:rf.runtime/elision` into the coeffect the boot
+      ;; handler later reads).
+      (rf/reg-event :rf.machine-redaction/ef-classify
+        (fn [{:keys [db]} _] {:db db :sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/ef-classify])
+      (is (contains? (owners) {:source :effect})
+          "precondition: the effect's claim is standing before the machine boots")
+      (is (not (some #(= :machine (:source %)) (owners)))
+          "precondition: no machine owner yet (the singleton has not booted)")
+      ;; (2) Boot the singleton. `lower-at-spawn!` unions the machine owner into
+      ;; the LIVE registry; the fix keeps that claim through the boot commit.
+      (rf/dispatch-sync [mid [:rf.machine/noop]])
+      ;; THE KEY ASSERTION — FAILS on the pre-fix code: the machine owner was
+      ;; wiped by the stale-registry verbatim honour at the boot commit, leaving
+      ;; only the effect owner.
+      (is (some #(= :machine (:source %)) (owners))
+          "the machine IS a durable claim owner after boot (not only the effect)")
+      (is (contains? (owners) {:source :effect})
+          "the effect's claim UNIONS alongside — both owners retained")
+      ;; (3) Remove the EFFECT's claim. The machine's surviving claim must keep
+      ;; the path classified (independent removal — rf2-wdm1vg). On pre-fix code
+      ;; the path would go UNCLASSIFIED here (the only owner was the effect).
+      (rf/reg-event :rf.machine-redaction/ef-clear
+        (fn [{:keys [db]} _] {:db db :clear-sensitive [abs-token]}))
+      (rf/dispatch-sync [:rf.machine-redaction/ef-clear])
+      (is (not (contains? (owners) {:source :effect}))
+          "the effect owner is removed by its source-scoped clear")
+      (is (some #(= :machine (:source %)) (owners))
+          "the machine's own claim SURVIVES the effect clear — the path stays classified")
+      ;; (4) And egress STILL redacts via the machine's surviving claim alone.
+      (let [out  (classification/project-trace-event (machine-transition-event mid))
+            tags (:tags out)]
+        (is (= :rf/redacted (get-in tags [:after :data :token]))
+            "the machine's surviving claim keeps the value redacted after the effect cleared")
+        (is (not (.contains (pr-str out) "secret-jwt"))
+            "no secret leaks once only the machine claim remains")))))
