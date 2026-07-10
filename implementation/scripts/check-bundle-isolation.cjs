@@ -435,6 +435,33 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
+  // re-frame.derivation.egress (rf2-mm3y49 — the OFF-BOX graph-egress
+  // redaction ALGORITHM centralized out of the two drifting copies: the Xray
+  // call site (`derivation-graph-helpers/redact-graph-for-egress`) and the
+  // derivation-conformance suite's in-tree mirror. It lives in core/src beside
+  // the derivation-graph composer but is TOOLING: it is NOT exposed from the
+  // `re-frame.core` facade and NOT `:require`d by any production-reachable ns
+  // — only Xray (whose `redact-graph-for-egress` delegates to it) and the
+  // conformance fixtures `:require` it directly, so the counter example never
+  // loads it and Closure `:advanced` + goog.DEBUG=false DCE its body
+  // wholesale. A non-zero hit means the egress ns got dragged into the counter
+  // bundle (most likely a stray `:require` from a production-reachable ns, or
+  // an accidental re-export from the core facade). Sentinel mirrors the
+  // derivation-graph / algebra-view sibling shape: a unique string planted at
+  // the bottom of the namespace body, surviving `:advanced` (string literals
+  // are not renamed) and outside any DCE gate.
+  {
+    name: 'derivation-egress',
+    internalSentinels: [
+      // derivation/egress.cljc — explicit sentinel planted at the bottom
+      // of the namespace body (`bundle-isolation-sentinel`).
+      { source: 're-frame.derivation.egress (bundle-isolation-sentinel)',
+        sentinel: 'rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename' },
+    ],
+    consumerAllowList: null,
+    expectedAllowListHits: 0,
+  },
+
   // re-frame.trace.cascade (rf2-931pm — focused-event-only cascade-DAG
   // aggregator). Same posture as `trace.tooling`: the namespace is
   // autoloaded from `re-frame.core` only via the JVM-only conditional
