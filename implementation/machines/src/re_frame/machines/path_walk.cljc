@@ -54,7 +54,8 @@
   ## Why not also root→leaf?
 
   The inverse direction (root→leaf descent to a known absolute path,
-  as in `find-spawn-spec-at`) is a different operation — it walks to
+  as in `grammar/node-at` / `resolver/spawn-spec-at`) is a different
+  operation — it walks to
   a known target rather than seeking a deepest match. Treating it as
   the same primitive with a direction flag obscured the unifying rule
   (deepest-wins isn't 'a walk'; it's 'a walk in a specific direction

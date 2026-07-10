@@ -26,13 +26,20 @@
       snapshot — there is no registered type, so the snapshot is the only
       source of truth (and it is fully revertible).
 
-  This namespace is a LEAF — it requires only `registrar` + `paths`, so
-  the destroy-path consumers (`exit-cascade`, `finalize`) may require it
-  without a load cycle through `registration`. The handler-MATERIALISING
-  side of the resolver (which needs `make-machine-handler`) lives in
+  This namespace is a LEAF over the machine-core grammar — it requires
+  `registrar` + `paths` plus the pure `grammar` (state-tree descent) and
+  `parallel` (the `:type :parallel` predicate) for `spawn-spec-at`. None of
+  those require any `lifecycle-fx` namespace (`grammar` is require-free;
+  `parallel` requires only engine-core `choice` / `result` / `timeout` /
+  `transition` / `trace`), so the destroy-path consumers (`exit-cascade`,
+  `finalize`, `spawn-error`) may require it without a load cycle through
+  `registration`. The handler-MATERIALISING side of the resolver (which needs
+  `make-machine-handler`) lives in
   `lifecycle-fx.registration/resolve-actor-handler-meta`, the late-bound
   `:machines/resolve-actor-handler-meta` hook body."
-  (:require [re-frame.machines.paths :as paths]
+  (:require [re-frame.machines.grammar :as grammar]
+            [re-frame.machines.parallel :as parallel]
+            [re-frame.machines.paths :as paths]
             [re-frame.registrar :as registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -105,3 +112,27 @@
   (boolean
     (some-> (get-in db (paths/snapshot-path actor-id))
             (spec-from-snapshot))))
+
+(defn spawn-spec-at
+  "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`
+  (the absolute prefix-path stamped at spawn time) and return that node's
+  `:spawn` map, resolving flat AND region-prefixed invoke paths through
+  `grammar/node-at`. For a parallel-region parent the first element of
+  `invoke-id` is the region name; strip it and descend into that region's
+  body. Returns nil if `parent-spec` is absent, `invoke-id` is not a
+  non-empty vector, the path doesn't resolve, or the node declares no
+  `:spawn`.
+
+  The single owner for the spawn-spec-at-invoke-id lookup shared by the
+  finalize `:on-done` cascade (`finalize/finalize-machine`) and the
+  spawn-error `:on-error` routing (`spawn-error/parent-declares-on-error?`) —
+  the two carried byte-for-byte copies before this was hoisted here
+  (rf2-wm92kj), so a fix to the flat / region resolution had to land twice."
+  [parent-spec invoke-id]
+  (when (and parent-spec (vector? invoke-id) (seq invoke-id))
+    (let [[head & tail] invoke-id
+          [tree path]   (if (and (parallel/parallel? parent-spec)
+                                 (contains? (:regions parent-spec) head))
+                          [(get-in parent-spec [:regions head]) (vec tail)]
+                          [parent-spec invoke-id])]
+      (:spawn (grammar/node-at (:states tree) path)))))

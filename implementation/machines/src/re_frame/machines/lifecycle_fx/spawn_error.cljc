@@ -32,11 +32,12 @@
   hatch is the lower-level form.
 
   This namespace is a LEAF over the spawn-resolution helpers it needs
-  (`resolver` + `paths` + `transition` + `late-bind` + `registrar`), so both
-  `finalize` and `registration` may require it without a load cycle."
+  (`resolver` + `paths` + `transition` + `late-bind`), so both `finalize` and
+  `registration` may require it without a load cycle. The `:spawn`-at-invoke-id
+  lookup lives in `resolver/spawn-spec-at` (the shared owner — rf2-wm92kj);
+  `transition` is retained only for the reserved `spawn-error-event-id`."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.transition :as transition]))
 
@@ -54,24 +55,6 @@
       parent-id
       (get-in db (paths/snapshot-path parent-id)))))
 
-(defn- find-spawn-spec-at
-  "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`
-  (the absolute prefix-path stamped at spawn time) and return its `:spawn`
-  map. For a parallel-region parent the first element of `invoke-id` is the
-  region name; strip and descend into that region's body.
-  Returns nil if the path doesn't resolve or the node declares no `:spawn`.
-  (Same resolution as `finalize/find-spawn-spec-at` — duplicated here so this
-  leaf namespace stays independent of `finalize`, which depends on it.)"
-  [parent-spec invoke-id]
-  (when (and parent-spec (vector? invoke-id) (seq invoke-id))
-    (let [[head & tail] invoke-id
-          [tree path]   (if (and (parallel/parallel? parent-spec)
-                                 (contains? (:regions parent-spec) head))
-                          [(get-in parent-spec [:regions head]) (vec tail)]
-                          [parent-spec invoke-id])
-          node          (transition/node-at tree path)]
-      (:spawn node))))
-
 (defn parent-declares-on-error?
   "True iff the child identified by `parent-id` / `invoke-id` was spawned by a
   parent whose `:spawn` map at `invoke-id` declares `:on-error`. `db` is the
@@ -82,7 +65,7 @@
   (boolean
     (when (and parent-id invoke-id)
       (some-> (resolve-parent-spec db parent-id)
-              (find-spawn-spec-at invoke-id)
+              (resolver/spawn-spec-at invoke-id)
               :on-error
               some?))))
 
