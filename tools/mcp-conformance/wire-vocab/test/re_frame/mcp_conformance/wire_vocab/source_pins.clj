@@ -49,8 +49,10 @@
 
   story-mcp also consumes from `mcp-base/vocab.cljc` (the
   `dedup-table-key` symbol — `tools/story-mcp/src/re_frame/
-  story_mcp/tools/dedup.cljc` `:require`s it). Same single-source-of-
-  truth posture as pair-mcp; the emit-source path is the same file."
+  story_mcp/tools/wire_pipeline.cljc` reaches it transitively via its
+  `re-frame.mcp-base.dedup` require; rf2-ywkiss removed the intermediate
+  `tools/dedup.cljc`). Same single-source-of-truth posture as pair-mcp;
+  the canonical literal home is `mcp-base/vocab.cljc`."
   {:re-frame2-pair-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]
    :story-mcp ["tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"]})
 

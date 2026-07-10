@@ -5,8 +5,8 @@
 // Two MCP servers (pair-mcp + story-mcp) wrap selected tools'
 // `:structuredContent` payloads in a top-level marker
 // `{:rf.mcp/dedup-table <cache-map>}` — see `tools/mcp-base/spec/
-// vocab.md` for the canonical key and `tools/story-mcp/src/re_frame/
-// story_mcp/tools/dedup.cljc` for the production transform. Real MCP
+// vocab.md` for the canonical key and `re-frame.mcp-base.dedup/dedup-value`
+// (consumed directly by both servers) for the production transform. Real MCP
 // clients (Claude Code, Continue, …) running on a JVM / CLJS host
 // decode by calling `de-dupe.core/expand` on the cache map; the
 // reconstructed payload is what user code sees.

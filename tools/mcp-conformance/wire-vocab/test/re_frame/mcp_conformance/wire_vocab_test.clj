@@ -17,8 +17,9 @@
                               (re-frame2-pair-mcp `tools.cljs` `overflow-payload`)
   - `:rf.mcp/summary`       — tree-summary lazy-mode marker
                               (re-frame2-pair-mcp `tools.cljs` `tree-summary`)
-  - `:rf.mcp/dedup-table`   — structural-dedup wrapper
-                              (re-frame2-pair-mcp `tools.cljs` `dedup-value`)
+  - `:rf.mcp/dedup-table`   — structural-dedup wrapper (canonical
+                              encoder `re-frame.mcp-base.dedup/dedup-value`,
+                              consumed directly by both servers)
   - `:rf.mcp/diff-from`     — diff-encoded `:db-after` marker; the
                               body slot is `:sections` — a vector of
                               path-headed cluster sections, each with
@@ -1097,22 +1098,28 @@
 ;; near-miss / uncontracted-marker / slot-name sweeps grep. Before
 ;; rf2-ribu5a it was a HAND-MAINTAINED list that had silently fallen
 ;; behind the directory: it ran through `recorder.cljc` but omitted
-;; `dedup.cljc` (emits the cross-MCP `:rf.mcp/dedup-table` marker) and
-;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker) —
-;; so a near-miss drift in EITHER file could escape the very gates that
-;; exist to catch it (only `cursor.cljc` had a bespoke compensating
-;; pin; `dedup.cljc` had none). The inventory is now derived from a
-;; filesystem listing; these tests pin that contract so the drift class
-;; cannot recur:
+;; `cursor.cljc` (routes the cross-MCP `:rf.mcp/cursor-stale` marker)
+;; and the since-removed `dedup.cljc` — so a near-miss drift in either
+;; could escape the very gates that exist to catch it. The inventory is
+;; now derived from a filesystem listing; these tests pin that contract
+;; so the drift class cannot recur:
 ;;
 ;;   1. completeness — the derived inventory equals a fresh directory
 ;;      listing of `tools/story_mcp/tools/*.cljc` (the historically
 ;;      omitted files are necessarily present; any future tool file is
 ;;      swept the moment it lands).
-;;   2. participation — `dedup.cljc` (the file with NO bespoke
-;;      compensating pin) is in the set the generic sweep iterates, so
-;;      its `:rf.mcp/dedup-table` emission and any near-miss are checked
-;;      generically, not only indirectly against `mcp-base/vocab.cljc`.
+;;   2. participation — `cursor.cljc` is in the set the generic sweep
+;;      iterates, so its cross-MCP marker routing and any near-miss are
+;;      checked generically, not only indirectly against
+;;      `mcp-base/vocab.cljc`.
+;;
+;; Note (rf2-ywkiss): story-mcp's `dedup.cljc` was REMOVED — the
+;; wire-boundary dedup encode step is now consumed DIRECTLY from
+;; `re-frame.mcp-base.dedup`, and the `:rf.mcp/dedup-table` marker is
+;; emitted from `wire_pipeline.cljc` (already in the filesystem-derived
+;; swept set). The filesystem-derived inventory dropped `dedup.cljc`
+;; automatically; the dedup-specific participation pin retired with the
+;; file.
 ;; ---------------------------------------------------------------------------
 
 (deftest story-mcp-tool-inventory-is-filesystem-complete
@@ -1134,54 +1141,44 @@
              "\nFresh: " (sort fresh-listing)))))
 
 (deftest story-mcp-inventory-includes-historically-omitted-tool-files
-  ;; Regression for rf2-ribu5a: the two files the hand list dropped MUST
-  ;; be in the inventory. dedup.cljc had NO bespoke compensating pin, so
-  ;; its omission was a genuine false-green hole on the generic
-  ;; uncontracted-marker / near-miss sweeps.
+  ;; Regression for rf2-ribu5a: a file the hand list dropped MUST be in
+  ;; the inventory. `cursor.cljc` was one such omission; the other
+  ;; (`dedup.cljc`) was removed outright by rf2-ywkiss — the dedup encode
+  ;; step is now consumed DIRECTLY from `re-frame.mcp-base.dedup`, and the
+  ;; `:rf.mcp/dedup-table` marker rides through `wire_pipeline.cljc`
+  ;; (itself in the filesystem-derived swept set). So only the surviving
+  ;; historically-omitted file is pinned here.
   (let [inventory (set fx/story-mcp-tool-source-files)]
-    (is (contains? inventory
-                   "tools/story-mcp/src/re_frame/story_mcp/tools/dedup.cljc")
-        "dedup.cljc (emits :rf.mcp/dedup-table) MUST be in the central inventory")
     (is (contains? inventory
                    "tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc")
         "cursor.cljc (routes :rf.mcp/cursor-stale) MUST be in the central inventory")))
 
-(deftest dedup-source-participates-in-generic-story-mcp-sweep
-  ;; Proves dedup.cljc is actually swept by the GENERIC story-mcp
-  ;; uncontracted-marker machinery — `story-mcp-still-emits-zero-
-  ;; uncontracted-cross-mcp-markers` iterates `fx/story-mcp-source-files`,
-  ;; so dedup.cljc must be a member. Before rf2-ribu5a it was NOT, and —
-  ;; unlike cursor.cljc — had NO bespoke compensating pin, so an
-  ;; accidental inline emission of any uncontracted canonical marker
-  ;; (e.g. `:rf.mcp/summary`) in dedup.cljc would have escaped every
-  ;; generic sweep.
-  ;;
-  ;; The participation is structural (membership in the swept set), NOT
-  ;; a literal-presence assertion: dedup.cljc emits its ONE contracted
-  ;; marker via the shared `base-vocab/dedup-table-key` SYMBOL — the
-  ;; `:rf.mcp/dedup-table` literal as DATA lives only in
-  ;; `mcp-base/vocab.cljc` (byte-identical across servers by design,
-  ;; same posture as cursor.cljc sourcing its reason from
-  ;; `vocab/cursor-stale-reason`). So the file correctly carries the
-  ;; literal only in docstrings, which the uncontracted sweep strips
-  ;; before grepping — and because `:rf.mcp/dedup-table` IS in
-  ;; story-mcp's `:servers`, the sweep skips it for dedup.cljc and fires
-  ;; only on genuinely uncontracted markers.
-  (let [dedup-rel "tools/story-mcp/src/re_frame/story_mcp/tools/dedup.cljc"]
-    (is (some #{dedup-rel} fx/story-mcp-source-files)
-        "dedup.cljc must be in the source set the uncontracted-marker sweep iterates")
-    ;; Belt-and-braces: dedup.cljc carries NO uncontracted canonical
+(deftest dedup-marker-emitter-participates-in-generic-story-mcp-sweep
+  ;; rf2-ywkiss: the `:rf.mcp/dedup-table` emission moved out of a
+  ;; dedicated `dedup.cljc` (removed) into `wire_pipeline.cljc`, which
+  ;; calls `re-frame.mcp-base.dedup/dedup-value`. Pin that the file now
+  ;; carrying the emission is a member of the set the generic
+  ;; uncontracted-marker sweep iterates — so the marker contract stays
+  ;; covered generically, not lost with the deleted file. Structural
+  ;; (membership), NOT a literal-presence assertion: the file emits its
+  ;; contracted marker via the shared `base-vocab/dedup-table-key` SYMBOL;
+  ;; the `:rf.mcp/dedup-table` literal as DATA lives only in
+  ;; `mcp-base/vocab.cljc`.
+  (let [wire-rel "tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"]
+    (is (some #{wire-rel} fx/story-mcp-source-files)
+        "wire_pipeline.cljc (emits :rf.mcp/dedup-table via base-dedup) must be in the swept source set")
+    ;; Belt-and-braces: the emitter carries NO uncontracted canonical
     ;; marker as inline data today (mirrors the green state the generic
     ;; sweep asserts). If a future edit inline-emits one, BOTH this pin
     ;; and the generic sweep flip RED.
-    (let [stripped          (fx/strip-comments-and-strings (fx/read-source dedup-rel))
+    (let [stripped          (fx/strip-comments-and-strings (fx/read-source wire-rel))
           uncontracted-keys (for [{:keys [key servers]} canonical-markers
                                   :when (not (contains? servers :story-mcp))]
                               key)]
       (doseq [key uncontracted-keys]
         (is (not (str/includes? stripped (pins/marker-key->literal key)))
             (str key " (uncontracted for story-mcp) found as inline data in "
-                 dedup-rel " — would be a cross-MCP vocabulary leak."))))))
+                 wire-rel " — would be a cross-MCP vocabulary leak."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field gate (rf2-2499j MUST-level pin).
