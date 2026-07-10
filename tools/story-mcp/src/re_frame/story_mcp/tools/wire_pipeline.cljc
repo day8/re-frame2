@@ -13,8 +13,8 @@
 
   Two transforms compose at the wire boundary, in this order:
 
-  1. **Structural dedup** (`tools.dedup/dedup-value`) for tools that opt
-     in via `:dedup-eligible?` on the descriptor. The
+  1. **Structural dedup** (`re-frame.mcp-base.dedup/dedup-value`) for
+     tools that opt in via `:dedup-eligible?` on the descriptor. The
      `:structuredContent` slot is run through `day8/de-dupe` to
      collapse repeated subtrees into a flat cache map. Wrapped under
      `{:rf.mcp/dedup-table <cache>}`. The `:content[*].text` slot is
@@ -75,9 +75,9 @@
   on dedup-eligible tools' input schema via `schemas/with-dedup`."
   (:require [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.cap :as base-cap]
+            [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.overflow :as overflow]
             [re-frame.story-mcp.protocol :as proto]
-            [re-frame.story-mcp.tools.dedup :as dedup]
             [re-frame.story-mcp.tools.registry :as registry]
             [re-frame.story-mcp.tools.result :as result]))
 
@@ -154,9 +154,9 @@
   (if (or (not enabled?) (nil? result))
     result
     (let [structured (:structuredContent result)]
-      (if (dedup/empty-payload? structured)
+      (if (base-dedup/empty-payload? structured)
         result
-        (let [deduped (dedup/dedup-value structured true)
+        (let [deduped (base-dedup/dedup-value structured true)
               text    (result/pr-edn deduped)]
           (-> result
               (assoc :structuredContent deduped)
@@ -298,7 +298,7 @@
      surfaces where repeated subtrees dominate the wire cost. The
      `:structuredContent` slot is run through `day8/de-dupe` to
      collapse repeated subtrees, and the `:content[*].text` slot is
-     re-stringified to match. Per `tools.dedup`.
+     re-stringified to match. Per `re-frame.mcp-base.dedup`.
   3. `base-cap/apply-cap` — when the (post-dedup) response exceeds the
      per-call cap (`:max-tokens` arg, default
      `mcp-base.overflow/default-max-tokens`, `0` disables), the payload

@@ -183,15 +183,18 @@
   etc.) — adding a dedup-expand step on every assertion would burn
   signal-to-noise.
 
-  The wire-boundary transform is covered exhaustively by
-  `re-frame.story-mcp.tools.dedup-test` (round-trip property,
-  reduction-ratio sanity, `apply-dedup` envelope shape, descriptor
-  eligibility gate). With that coverage the per-tool tests are free to
-  exercise their domain semantics against the unwrapped payload.
+  The wire-boundary transform's CANONICAL behaviour (round-trip
+  exactness, the wrap shape) is covered cross-host in
+  `re-frame.mcp-base.dedup-test`; the story-mcp consumer integration
+  (reduction-ratio sanity, `apply-dedup` envelope shape, descriptor
+  eligibility gate) lives in `re-frame.story-mcp.tools.dedup-test`. With
+  that coverage the per-tool tests are free to exercise their domain
+  semantics against the unwrapped payload.
 
   Callers that want to exercise the live-on-the-wire shape (default
   posture) should call `wire-pipeline/invoke-tool` directly and use
-  `dedup/dedup-expand` to unwrap before asserting."
+  `re-frame.story-mcp.test-support/dedup-expand` to unwrap before
+  asserting."
   [tool-name args]
   (wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
 
