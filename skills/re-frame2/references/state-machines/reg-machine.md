@@ -176,21 +176,25 @@ Project off the snapshot with ordinary `reg-sub`:
   (fn sub-data [snap _] (get-in snap [:data :result])))
 ```
 
-## As an event handler
+## Driving a machine as a discrete event-driven flow
 
-When a machine drives a discrete event-driven flow (boot, websocket-connection lifecycle), wrap its declaration with `re-frame.machines/make-machine-handler` and register the result under `rf/reg-event`. (The `make-machine-handler` wrapper lives on the owning `re-frame.machines` namespace — it is not on the `re-frame.core` façade; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.) The wrapper produces the event-handler fn that dispatches into the machine on every invocation:
+A machine that drives a discrete event-driven flow — application boot, a websocket-connection lifecycle — needs **no special registration form**. `reg-machine` already registers the machine **as an event handler** (see §Canonical signature above): author the flow with `reg-machine`, then drive it by dispatching the nested `[machine-id [:event-name & args]]` form. A frame's `:initial-events` births it at frame creation with the reserved creation marker:
 
 ```clojure
-(rf/reg-event :app/boot
-  (re-frame.machines/make-machine-handler
-    {:initial :configuring
-     :data    {:phase :configuring :config nil}
-     :states  ...
-     :guards  ...
-     :actions ...}))
+(rf/reg-machine :app/boot
+  {:initial :configuring
+   :data    {:phase :configuring :config nil}
+   :states  {...}
+   :guards  {...}
+   :actions {...}})
+
+;; drive it — e.g. from the frame's :initial-events:
+(rf/dispatch [:app/boot [:rf.machine/start]])
 ```
 
-`make-machine-handler` is the "wrap this machine as an event-handler" sugar. See `references/cross-cutting/api-cheatsheet.md` §Machines for the contract row; `patterns/boot.md` and `patterns/websocket.md` carry worked examples.
+When the flow also validates its **outer** event vector, pass the optional metadata MIDDLE slot — `(rf/reg-machine :app/boot {:schema BootEvent} boot-machine)`; when it validates its **`:data`**, declare `[:schemas :data]` inside the spec map (see [`machine-schemas.md`](machine-schemas.md)), which **requires** the `reg-machine` home. `patterns/boot.md` and `patterns/websocket.md` carry the worked flows.
+
+> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory that builds the raw event-handler fn `reg-machine` registers for you (owned by `re-frame.machines`, **not** on the `re-frame.core` façade; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade). It is a **schema-less escape hatch** for programmatic composition — **not** a normal authoring path. Registering it by hand, `(rf/reg-event id meta (make-machine-handler spec))`, does **not** stamp the `:rf/machine?` / `:rf/machine` registration metadata or the per-element source coordinates that machine introspection, `(machine-meta id)`, visualisers, and Xray resolve through — so the machine is invisible to those tools. And a spec carrying a `[:schemas :data]` schema **throws `:rf.error/machine-schema-requires-reg-machine`** on that path: the post-commit `:data` validator resolves the schema *through* the missing metadata stamp, so it would silently validate nothing — the framework fails loud at construction instead. Reach for it only when you genuinely need the bare handler fn programmatically; author normal machines with `reg-machine`. See `references/cross-cutting/api-cheatsheet.md` §Machines for the contract row.
 
 ## Querying registered machines
 

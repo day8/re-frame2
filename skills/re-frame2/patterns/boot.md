@@ -25,72 +25,71 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 
 ## Canonical declaration (state-machine form)
 
-`make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is not on the `re-frame.core` façade. The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
+`reg-machine` **is** the registration home for the boot machine — it registers the machine as an event handler and stamps the `:rf/machine?` / source-coordinate metadata the boot UI's `:rf/machine` sub and the tooling rely on, so author it with `reg-machine`, never wrap it by hand. (`reg-machine` / `defmachine` stay on the `rf/` façade; the lower-level `re-frame.machines/make-machine-handler` factory is an advanced schema-less escape hatch — see [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) §Driving a machine as a discrete event-driven flow.) The frame's `:initial-events` drive the machine by dispatching the nested `[:app/boot [:rf.machine/start]]` creation marker.
 
 ```clojure
-(rf/reg-event :app/boot
-  (machines/make-machine-handler
-    {:initial :configuring
-     :data    {:phase :configuring :config nil :user nil :error nil :phase-attempt 0}
+(rf/reg-machine :app/boot
+  {:initial :configuring
+   :data    {:phase :configuring :config nil :user nil :error nil :phase-attempt 0}
 
-     :guards
-     {:under-retry-limit? (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
+   :guards
+   {:under-retry-limit? (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
 
-     :actions
-     {:record-config (fn [{data :data [_ c] :event}] {:data (assoc data :config c)})
-      :record-user   (fn [{data :data [_ u] :event}] {:data (assoc data :user u)})
-      :record-error  (fn [{data :data [_ e] :event}] {:data (assoc data :error e)})
-      :bump-attempt  (fn [{:keys [data]}]            {:data (update data :phase-attempt inc)})
+   :actions
+   {:record-config (fn [{data :data [_ c] :event}] {:data (assoc data :config c)})
+    :record-user   (fn [{data :data [_ u] :event}] {:data (assoc data :user u)})
+    :record-error  (fn [{data :data [_ e] :event}] {:data (assoc data :error e)})
+    :bump-attempt  (fn [{:keys [data]}]            {:data (update data :phase-attempt inc)})
 
-      ;; CONSOLIDATED :entry — :set-phase + :resolve-initial-route in one fn.
-      ;; :entry slots accept one fn / id, never a vector; compose by returning
-      ;; both :data and :fx from one action.
-      :enter-routing
-      (fn [{:keys [data]}]
-        {:data (assoc data :phase :routing :phase-attempt 0)
-         :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
+    ;; CONSOLIDATED :entry — :set-phase + :resolve-initial-route in one fn.
+    ;; :entry slots accept one fn / id, never a vector; compose by returning
+    ;; both :data and :fx from one action.
+    :enter-routing
+    (fn [{:keys [data]}]
+      {:data (assoc data :phase :routing :phase-attempt 0)
+       :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
 
-      :phase-configuring (fn [{d :data}] {:data (assoc d :phase :configuring :phase-attempt 0)})
-      :phase-auth        (fn [{d :data}] {:data (assoc d :phase :authenticating)})
-      :phase-profile     (fn [{d :data}] {:data (assoc d :phase :loading-profile)})
-      :phase-hydrate     (fn [{d :data}] {:data (assoc d :phase :hydrating)})}
+    :phase-configuring (fn [{d :data}] {:data (assoc d :phase :configuring :phase-attempt 0)})
+    :phase-auth        (fn [{d :data}] {:data (assoc d :phase :authenticating)})
+    :phase-profile     (fn [{d :data}] {:data (assoc d :phase :loading-profile)})
+    :phase-hydrate     (fn [{d :data}] {:data (assoc d :phase :hydrating)})}
 
-     :states
-     {:configuring
-      {:entry  :phase-configuring
-       :spawn {:machine-id :rf.http/managed
-                :data       {:request {:method :get :url "/config"} :decode :json}}
-       :on     {:succeeded {:target :authenticating :action :record-config}
-                :failed    {:target :fatal-error    :action :record-error}}}
+   :states
+   {:configuring
+    {:entry  :phase-configuring
+     :spawn {:machine-id :rf.http/managed
+              :data       {:request {:method :get :url "/config"} :decode :json}}
+     :on     {:succeeded {:target :authenticating :action :record-config}
+              :failed    {:target :fatal-error    :action :record-error}}}
 
-      :authenticating
-      {:entry  :phase-auth
-       :spawn {:machine-id :auth/restore-session
-                ;; :spawn :data fn takes ONE context-map arg {:keys [snapshot event]};
-                ;; the parent's data lives at (:data snapshot), not the top-level arg.
-                :data       (fn [{:keys [snapshot]}] {:auth-url (-> snapshot :data :config :auth-url)})}
-       :on     {:succeeded {:target :loading-profile}
-                :failed    [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
-                            {:target :auth-failed :action :record-error}]}}
+    :authenticating
+    {:entry  :phase-auth
+     :spawn {:machine-id :auth/restore-session
+              ;; :spawn :data fn takes ONE context-map arg {:keys [snapshot event]};
+              ;; the parent's data lives at (:data snapshot), not the top-level arg.
+              :data       (fn [{:keys [snapshot]}] {:auth-url (-> snapshot :data :config :auth-url)})}
+     :on     {:succeeded {:target :loading-profile}
+              :failed    [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
+                          {:target :auth-failed :action :record-error}]}}
 
-      :retrying-auth {:after {2000 {:target :authenticating}}}
+    :retrying-auth {:after {2000 {:target :authenticating}}}
 
-      :loading-profile
-      {:entry  :phase-profile
-       :spawn {:machine-id :rf.http/managed
-                :data       (fn [{:keys [snapshot]}]
-                              {:request {:method :get :url (-> snapshot :data :config :profile-url)}
-                               :decode  :json})}
-       :on     {:succeeded {:target :hydrating :action :record-user}
-                :failed    {:target :profile-failed :action :record-error}}}
+    :loading-profile
+    {:entry  :phase-profile
+     :spawn {:machine-id :rf.http/managed
+              :data       (fn [{:keys [snapshot]}]
+                            {:request {:method :get :url (-> snapshot :data :config :profile-url)}
+                             :decode  :json})}
+     :on     {:succeeded {:target :hydrating :action :record-user}
+              :failed    {:target :profile-failed :action :record-error}}}
 
-      :hydrating {:entry :phase-hydrate :on {:hydrate/done {:target :routing}}}
-      :routing   {:entry :enter-routing :on {:rf.route/resolved {:target :ready}}}
+    :hydrating {:entry :phase-hydrate :on {:hydrate/done {:target :routing}}}
+    :routing   {:entry :enter-routing :on {:rf.route/resolved {:target :ready}}}
 
-      :ready          {:meta {:terminal? true}}
-      :auth-failed    {:meta {:terminal? true}}
-      :profile-failed {:meta {:terminal? true}}
-      :fatal-error    {:meta {:terminal? true}}}}))
+    :ready          {:meta {:terminal? true}}
+    :auth-failed    {:meta {:terminal? true}}
+    :profile-failed {:meta {:terminal? true}}
+    :fatal-error    {:meta {:terminal? true}}}})
 ```
 
 The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` — the reserved creation marker that births the machine directly into its `:initial` state (`:configuring`) and runs that state's entry-cascade. The marker is a pure init-kick (it is never fed into an `:on` map as a trigger), so the machine self-initialises and starts working at birth — there is no idle parking spot waiting on the marker.
