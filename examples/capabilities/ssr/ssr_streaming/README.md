@@ -1,12 +1,13 @@
 # A dashboard that streams in, card by card
 
-This example is a dashboard with three slow cards (revenue, signups,
-latency), plus a fourth that fails on purpose. The page shell and header
-render and flush *immediately* on the server. Then each card streams in
-as its own chunk, the moment its data resolves. Picture three slow
-microservices behind those cards: the browser paints a usable skeleton
-within ~50ms, and the real numbers trickle in over ~300ms each — instead
-of the whole page sitting blank until the slowest service answers.
+This example models a dashboard with three slow cards (revenue, signups,
+latency), plus a fourth that fails on purpose. With a live streaming host,
+the page shell and header flush first and each card follows as its own chunk
+when its data resolves. Picture three slow microservices behind those cards:
+the browser can paint a usable skeleton before the real numbers arrive,
+instead of holding the whole page until the slowest service answers. The
+offline demo below preserves that wire shape, but does not simulate those
+timings.
 
 That's *streaming SSR*: the page stops waiting on its slowest part. It's
 the React-18 / Next.js `loading.js` move — ship the shell first, fill the

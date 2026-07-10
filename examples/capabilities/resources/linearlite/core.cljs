@@ -11,7 +11,7 @@
    the write fails. You write only the forward step.
 
    See the guide: [Optimistic writes commit, roll back, or
-   reconcile](../../../docs/resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile).
+   reconcile](../../../../docs/resources/concepts.md#optimistic-writes-commit-roll-back-or-reconcile).
 
    Four ideas, and they're the whole example:
 
@@ -70,7 +70,7 @@
             ;; Managed HTTP — the one transport every resource and mutation
             ;; lowers its read/write onto. Loading the ns registers the
             ;; `:rf.http/managed` fx. Guide:
-            ;; ../../../docs/resources/glossary.md#managed-http
+            ;; ../../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
             ;; The framework's canned-reply fx. Our demo stub delegates to it
             ;; instead of hitting a network — the deliberate opt-in for an app
@@ -125,7 +125,7 @@
    ;; This board is the same for every viewer, so we make the global claim
    ;; explicit — there's no implicit default to fall back on. A per-team board
    ;; would carry a scope resolver here instead. Guide:
-   ;; ../../../docs/resources/glossary.md#scope
+   ;; ../../../../docs/resources/glossary.md#scope
    :scope          :rf.scope/global
 
    :stale-after-ms 60000
@@ -135,7 +135,7 @@
    ;; invalidate the whole thing by tag. The optimistic writes below patch the
    ;; entry directly and re-seed via `:populates` on commit, so they never need
    ;; this coarser hammer. Guide:
-   ;; ../../../docs/resources/glossary.md#cache-tag
+   ;; ../../../../docs/resources/glossary.md#cache-tag
    :tags           (fn [_params _data] #{[:board]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/board"}
@@ -601,7 +601,7 @@
 ;; override pointing at our canned stub so the whole thing runs standalone. On
 ;; hot reload it finds that same frame and keeps its app-db. Every dispatch and
 ;; subscribe inside the tree resolves against that id. Guide:
-;; ../../../docs/routing/glossary.md#url-bound
+;; ../../../../docs/routing/glossary.md#url-bound
 ;;
 ;; Notice there are no `:initial-events`. The board isn't seeded at boot — it's
 ;; seeded by entering the route. The `:linearlite.app/board` route's `:resources`

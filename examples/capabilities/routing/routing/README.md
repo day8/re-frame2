@@ -45,10 +45,11 @@ three-page site. It's the worked companion to
   to that owner — no separate install call. It's the right surface for the
   job: a hand-rolled, frameless `:rf.route/handle-url-change` dispatch has no
   frame to land in and raises `:rf.error/no-frame-context`.
-- **The same routing runs on the server** — the routing artefact is
-  `.cljc`, so this exact `reg-route` table works on a JVM server too.
-  Nothing in the table is browser-only (this demo's file is `.cljs` only
-  because the mount beside it is browser code). The
+- **Route declarations are platform-neutral** — the routing artefact is
+  `.cljc`, so the `reg-route` table has the same shape on a JVM server.
+  Nothing in the table is browser-only. This demo remains client-only: its
+  file is `.cljs` because the browser mount lives beside the declarations.
+  In a shared `.cljc` application, the
   `:rf.route/handle-url-change` handler
   that popstate and the initial load drive on the client is the same one
   a server render uses — the server just feeds it the request URL

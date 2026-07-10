@@ -1,12 +1,12 @@
 (ns ssr-streaming.core
   "Streaming SSR — a dashboard that refuses to wait on its slowest part.
 
-  The page is four cards. The shell and header render instantly on the
-  server, then each card streams in the moment its own data resolves.
-  Picture three slow microservices behind those cards: the browser paints
-  a usable skeleton in ~50ms, and the real numbers trickle in over ~300ms
-  each, instead of the whole page sitting blank until the slowest one
-  answers.
+  The page is four cards. With a live streaming host, the shell and header
+  flush first, then each card follows when its own data resolves. Picture
+  three slow microservices behind those cards: the browser can paint a usable
+  skeleton before the real numbers arrive instead of holding the whole page
+  until the slowest one answers. This offline example preserves that wire
+  shape as collected data; it does not simulate network timings.
 
   Five ideas earn their keep here:
    - `:rf/suspense-boundary` — one hiccup marker that says \"this region
@@ -25,7 +25,7 @@
   server calls per request, the `:cljs` branch is what the page boots once
   the chunks land.
 
-  See the [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)."
+  See the [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)."
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.ssr :as ssr]
@@ -48,7 +48,7 @@
 ;; seeds it (`:rf/server-init`) or the client hydrates it. A bare
 ;; `[:map-of …]` would reject that perfectly legal nil and roll the commit
 ;; back on you.
-;; See the [schemas guide](../../../docs/core/how-to/validate-with-schemas.md).
+;; See the [schemas guide](../../../../docs/core/how-to/validate-with-schemas.md).
 (def CardsSchema
   [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
@@ -96,7 +96,7 @@
   ;; with no hydrate delta. The other three cards stream on as if nothing
   ;; happened. A thrown render takes down exactly one boundary, never the
   ;; page. See the
-  ;; [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary).
+  ;; [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary).
   (throw (ex-info "flaky third-party metric service" {})))
 
 (rf/reg-view ^{:rf/id :dashboard/root} root-view []
@@ -210,7 +210,7 @@
            ;; no frame-id and the client's explicit target simply stands. (If
            ;; you do want one on the wire, share a stable id both sides agree
            ;; on, not a gensym.) See the
-           ;; [SSR guide — hydrate, then verify](../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
+           ;; [SSR guide — hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
            final-payload (dissoc final-payload :rf/frame-id)
            _ (rf/destroy-frame! fid)]
        {:shell shell-html
@@ -249,8 +249,8 @@
 ;;     deltas got each card on screen early; this last step makes the whole
 ;;     thing correct.
 ;;
-;; See the [SSR guide — Streaming](../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
-;; and [hydrate, then verify](../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
+;; See the [SSR guide — Streaming](../../../../docs/ssr/concepts.md#streaming-rfsuspense-boundary)
+;; and [hydrate, then verify](../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify).
 ;;
 ;; One honest caveat: this example boots from a hand-written `index.html`
 ;; that plays the part of the streaming server, with the resolved chunks and
@@ -279,7 +279,7 @@
 ;; `:rf/frame-id`, and that's deliberate: the server rendered under a
 ;; per-request gensym, the client hydrates this fixed frame, so an absent
 ;; frame-id is exactly right — the explicit `:frame` says where to land. See
-;; [frames](../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
+;; [frames](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs

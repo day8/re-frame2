@@ -3,7 +3,7 @@
    HTML so the first paint arrives ready-made; the client then hydrates that
    same HTML and takes over, fully interactive. The trick is that both runs
    are the *same code* — the SSR guide tells the longer story:
-   ../../../docs/ssr/concepts.md.
+   ../../../../docs/ssr/concepts.md.
 
    That's why this file is .cljc and not .cljs. The events, subscriptions,
    and views are written once and shared. The `#?(:clj …)` / `#?(:cljs …)`
@@ -31,7 +31,7 @@
    - A structural render hash that catches the classic SSR bug. The client
      hashes its own first render and compares it to the server's; if they
      disagree, the runtime emits :rf.ssr/hydration-mismatch. See
-     ../../../docs/ssr/glossary.md#hydration-mismatch.
+     ../../../../docs/ssr/glossary.md#hydration-mismatch.
 
    Want to see it live? The hand-written `index.html` beside this file is a
    runnable stand-in for what `handle-request` below would emit if a real
@@ -95,7 +95,7 @@
 ;; hydration lands. A bare `[:vector …]` would call that intermediate nil a
 ;; violation and roll the commit back — so we tell the schema, up front, that
 ;; nil is a fine place to pass through. See
-;; ../../../docs/core/glossary.md#schema.
+;; ../../../../docs/core/glossary.md#schema.
 (def ArticlesSchema
   [:maybe [:vector [:map
                     [:id    :string]
@@ -129,7 +129,7 @@
   {:doc       "Per-request server-side boot. Reads the incoming request through
                the :rf.server/request coeffect and starts the work the page
                needs. Server only. See
-               ../../../docs/ssr/concepts.md#reading-the-request."
+               ../../../../docs/ssr/concepts.md#reading-the-request."
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn handler-rf-server-init [{:keys [db rf.server/request]} _]
@@ -166,7 +166,7 @@
 ;; slice) becomes the serializable runtime-db projection. Whatever the client
 ;; had pre-seeded is overwritten, no negotiation. On hydration the server is
 ;; the authority, full stop. (Why replace rather than merge is worth the read:
-;; ../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.)
+;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.)
 ;;
 ;; It's also paranoid in the good way — it fails closed. A payload that isn't a
 ;; map, or a slice (`:rf/app-db` / `:rf/runtime-db`) that's present but not a
@@ -219,7 +219,7 @@
 ;; the current value and returns. On the client, the very same deref registers
 ;; a reaction, so the view re-renders whenever app-db changes underneath it.
 ;; Same code, two behaviours, picked up from the context. See
-;; ../../../docs/core/glossary.md#view.
+;; ../../../../docs/core/glossary.md#view.
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
   (let [arts         @(subscribe [:articles/slice])
         show-bodies? @(subscribe [:articles/show-bodies?])]
@@ -245,7 +245,7 @@
 ;; ============================================================================
 ;;
 ;; Here's the whole server-side dance, one request from end to end
-;; (../../../docs/ssr/concepts.md#a-request-start-to-finish):
+;; (../../../../docs/ssr/concepts.md#a-request-start-to-finish):
 ;;   1. A request arrives.
 ;;   2. set-request! drops it into the per-frame slot that the
 ;;      :rf.server/request coeffect will read back out.
@@ -356,12 +356,13 @@
 ;; image of the server render. It rolls three steps into one, and the order is
 ;; the point:
 ;;   1. READ    — pull the embedded `__rf_payload` `<script>` by its pinned id.
-;;                A malformed payload fails closed (nothing replaces app-db); a
-;;                missing one just means "nobody server-rendered this" — a plain
-;;                first load.
+;;                A malformed payload fails closed (nothing replaces the frame
+;;                state); a missing one just means "nobody server-rendered
+;;                this" — a plain first load.
 ;;   2. HYDRATE — dispatch-sync `[:rf/hydrate payload]`, before the first
-;;                render. The framework handler swaps in the server's slice and
-;;                sets the server's render hash aside for step 3.
+;;                render. The framework handler swaps in the server's
+;;                serialisable frame state and sets the server's render hash
+;;                aside for step 3.
 ;;   3. VERIFY  — once that first render is on screen, hash the `:render-tree-fn`
 ;;                result and hold it up against the server's hash. Disagree and
 ;;                you get :rf.ssr/hydration-mismatch.
@@ -370,7 +371,7 @@
 ;; sniff the DOM. The reason to route through the helper rather than wire these
 ;; up yourself: it keeps the fail-closed check, the hash stash, and the verify
 ;; locked together in the one correct order. See
-;; ../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
+;; ../../../../docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
 ;; A quick naming note. App events live under a namespace you pick; the reserved
 ;; `:rf/*` root is the framework's. `:rf/hydrate` is framework-owned, and
