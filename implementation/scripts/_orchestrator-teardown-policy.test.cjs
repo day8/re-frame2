@@ -29,7 +29,10 @@
  *     process-group kill on Mac/Linux — see the lib).
  * Every spawning orchestrator must (a) import createHarnessCleanup, (b)
  * call installSignalHandlers(), and (c) spawn its long-lived child through
- * `trackProcess(spawnHarnessProcess(...))` so it is reaped on exit/signal.
+ * `trackProcess(spawnHarnessProcess(...))` — OR, for its http-server
+ * specifically, through the shared `startLocalHttpServer(...)` owner
+ * (rf2-slapfs), which performs that tracked spawn internally against the
+ * cleanup handle you pass it — so the child is reaped on exit/signal.
  *
  * SHORT-LIVED, SELF-EXITING COMPILE STEPS ARE FINE. Most orchestrators run
  * a blocking `spawnSync(process.execPath, [shadow-cljs-runner, 'compile',
@@ -101,6 +104,13 @@ const TRACK_PROCESS_RE = /\.trackProcess\(/;
 // harness primitive: `trackProcess(spawnHarnessProcess(...))`. Whitespace/
 // newlines between the call and its argument are tolerated.
 const TRACKED_SPAWN_RE = /trackProcess\(\s*spawnHarnessProcess\(/;
+// rf2-slapfs — starting the http-server via the shared startLocalHttpServer
+// owner is the tracked-long-lived-spawn posture too: it does
+// `cleanup.trackProcess(spawnHarnessProcess(...))` internally against the
+// cleanup handle the caller passes (functionally covered in
+// _local-browser-harness.test.cjs), so a caller that delegates to it still
+// reaps its server on exit/signal without an inline trackProcess.
+const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
 const SPAWNSYNC_RE = /\bspawnSync\s*\(/;
 
 const ORCHESTRATORS = orchestratorFiles();
@@ -145,26 +155,27 @@ for (const file of ORCHESTRATORS) {
     );
   });
 
-  test(`${base}: tracks the spawned child for teardown (rf2-c3hffe)`, () => {
-    assert.match(
-      code,
-      TRACK_PROCESS_RE,
-      `${base} must register its spawned child via cleanup.trackProcess(...) ` +
-        `so the teardown sweep can tree-kill it. A spawn that is not tracked ` +
-        `is not reaped (rf2-c3hffe).`,
+  test(`${base}: tracks its long-lived child for teardown (rf2-c3hffe)`, () => {
+    assert.ok(
+      TRACK_PROCESS_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
+      `${base} must register its long-lived child for teardown — either via ` +
+        `cleanup.trackProcess(...) directly, or by starting its http-server ` +
+        `through the shared startLocalHttpServer(...) owner, which tracks the ` +
+        `server in the cleanup handle you pass it (rf2-slapfs). A spawn that ` +
+        `is not tracked is not reaped (rf2-c3hffe).`,
     );
   });
 
   test(`${base}: spawns its long-lived child via the tracked shared harness (rf2-c3hffe)`, () => {
-    assert.match(
-      code,
-      TRACKED_SPAWN_RE,
+    assert.ok(
+      TRACKED_SPAWN_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
       `${base} must spawn its long-lived child (http-server / shadow-cljs ` +
-        `watch / inner orchestrator) via ` +
-        `trackProcess(spawnHarnessProcess(...)) — that is the only spawn ` +
-        `posture the teardown sweep reaps cross-platform. A short-lived, ` +
-        `self-exiting shadow-cljs compile via spawnSync is fine and is NOT ` +
-        `what this checks (rf2-c3hffe).`,
+        `watch / inner orchestrator) via trackProcess(spawnHarnessProcess(...)) ` +
+        `— or, for the http-server specifically, via the shared ` +
+        `startLocalHttpServer(...) owner, which performs that tracked spawn ` +
+        `internally (rf2-slapfs). That is the only spawn posture the teardown ` +
+        `sweep reaps cross-platform. A short-lived, self-exiting shadow-cljs ` +
+        `compile via spawnSync is fine and is NOT what this checks (rf2-c3hffe).`,
     );
   });
 }

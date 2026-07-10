@@ -247,20 +247,20 @@ for (const [base, dir] of GATE_LAUNCHERS) {
 // window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
 // (the JS-regex `[^]`-any-char gotcha).
 const LOOPBACK_BIND_RE = loopbackBindRe('HTTP_SERVER_BIN');
-// [base, dir] pairs — most launchers live under implementation/scripts/, but
-// the adapter-smoke orchestrator moved to implementation/adapters/scripts/.
-// It is the very exemplar every failure message here points authors to
-// ("Match serve-and-run-adapter-smokes.cjs") yet it was itself UNGUARDED
-// (rf2-vwydab): it serves the compiled adapter bundle on loopback only
-// (readiness probe + headless browser both hit 127.0.0.1), so a future edit
-// dropping its explicit `-a 127.0.0.1` would silently re-expose the bundle
-// on 0.0.0.0 and trip no test. Guard it alongside the others, reading from
-// ADAPTERS_SCRIPTS_DIR.
+// [base, dir] — the ownership-token-handshake launchers that still compose the
+// http-server argv inline (they publish + verify a per-run /.rf-harness-token
+// via waitForOwnedHttpReady, a handshake startLocalHttpServer does not yet
+// own). Each serves its bundle on loopback only (readiness probe + headless
+// browser both hit 127.0.0.1), so a future edit dropping the explicit
+// `-a 127.0.0.1` would silently re-expose the bundle on 0.0.0.0 and trip no
+// test. The tokenless four (the two Story launchers, serve-example, the
+// adapter-smoke orchestrator) NO LONGER appear here: they delegate the
+// loopback bind to startLocalHttpServer and are pinned by the
+// startLocalHttpServer caller-use guard below (rf2-slapfs).
 const IMPL_LOOPBACK_LAUNCHERS = [
   ['serve-and-run-browser-tests.cjs', SCRIPTS_DIR],
   ['check-story-static.cjs', SCRIPTS_DIR],
   ['serve-and-run-xray-feature-gate.cjs', SCRIPTS_DIR],
-  ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
 ];
 for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
   test(`${base}: http-server is bound to 127.0.0.1 explicitly (rf2-utvst)`, () => {
@@ -270,8 +270,44 @@ for (const [base, dir] of IMPL_LOOPBACK_LAUNCHERS) {
       LOOPBACK_BIND_RE,
       `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
         `http-server's default is 0.0.0.0, and this launcher only ever serves ` +
-        `127.0.0.1 (readiness probe + headless browser). Match ` +
-        `serve-and-run-adapter-smokes.cjs.`,
+        `127.0.0.1 (readiness probe + headless browser). The canonical loopback ` +
+        `bind now lives in startLocalHttpServer (local-browser-harness.cjs).`,
+    );
+  });
+}
+
+// rf2-slapfs — startLocalHttpServer consolidation guard. The four launchers
+// that serve a local static tree behind a PLAIN (tokenless) readiness
+// handshake — the two Story launchers, serve-example, and the adapter-smoke
+// orchestrator — now delegate their http-server spawn / teardown-track /
+// early-exit-abort / readiness composition to the single startLocalHttpServer
+// owner in local-browser-harness.cjs (whose loopback `-a 127.0.0.1` bind +
+// static/no-cache flags are verified functionally in
+// _local-browser-harness.test.cjs). Pin the two that live under a dir this
+// suite already scans; the two Story launchers are pinned in
+// _story-script-runners-policy.test.cjs. A launcher re-inlining a bespoke
+// http-server spawn — the composition drift rf2-slapfs removed — trips here.
+// (Scanned over stripped source so a comment naming the helper is not a false
+// positive.)
+const START_LOCAL_HTTP_SERVER_CALLERS = [
+  ['serve-and-run-adapter-smokes.cjs', ADAPTERS_SCRIPTS_DIR],
+  ['serve-example.cjs', EXAMPLES_SCRIPTS_DIR],
+];
+const HARNESS_IMPORT_RE = /require\(\s*['"][^'"]*local-browser-harness\.cjs['"]\s*\)/;
+const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
+for (const [base, dir] of START_LOCAL_HTTP_SERVER_CALLERS) {
+  test(`${base}: delegates http-server startup to the shared startLocalHttpServer owner (rf2-slapfs)`, () => {
+    const code = stripComments(fs.readFileSync(path.join(dir, base), 'utf8'));
+    assert.match(
+      code,
+      HARNESS_IMPORT_RE,
+      `${base} must require local-browser-harness.cjs (the startLocalHttpServer owner).`,
+    );
+    assert.match(
+      code,
+      START_LOCAL_HTTP_SERVER_RE,
+      `${base} must start its http-server via the shared startLocalHttpServer(...) ` +
+        `owner rather than re-inlining a bespoke http-server spawn (rf2-slapfs).`,
     );
   });
 }

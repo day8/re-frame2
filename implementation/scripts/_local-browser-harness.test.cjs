@@ -19,6 +19,7 @@ const {
   publishOwnershipToken,
   resolveServePort,
   spawnHarnessProcess,
+  startLocalHttpServer,
   terminateProcessTree,
   waitForHttpReady,
   waitForOwnedHttpReady,
@@ -606,6 +607,207 @@ test('publishOwnershipToken remove() preserves a newer overlapping run\'s replac
     assert.equal(fs.existsSync(tokenPath), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// rf2-slapfs — startLocalHttpServer, the single owner of the local
+// http-server lifecycle the two Story launchers, serve-example, and the
+// adapter-smoke orchestrator used to each re-derive (spawn the loopback/
+// static/no-cache argv, track it for teardown, wire an early-exit abort +
+// bounded output capture, wait for readiness, print the canonical unreachable
+// diagnostic + captured tail on failure). These functional tests drive the
+// composition end-to-end with a FAKE http-server bin — so they exercise the
+// real argv/spawn/track/capture/abort/readiness behaviour without depending on
+// the http-server package. They are the "canonical-helper behaviour" coverage
+// that replaces the per-caller `-a 127.0.0.1` argv-regex policy checks.
+
+// A fake bin that parses the http-server-shaped argv (positional root, `-a`,
+// `-p`), binds the requested host+port, serves 200 on any path, and records
+// the FULL composed argv (once listening) so the loopback/static composition
+// can be asserted directly.
+const FAKE_HTTP_SERVER = `
+'use strict';
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const argv = process.argv.slice(2);
+const root = argv[0];
+let host = '0.0.0.0';
+let port = 0;
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '-a') host = argv[i + 1];
+  else if (argv[i] === '-p') port = Number(argv[i + 1]);
+}
+const server = http.createServer((_, res) => { res.writeHead(200); res.end('ok'); });
+server.listen(port, host, () => {
+  fs.writeFileSync(path.join(root, '.fake-argv.json'), JSON.stringify(argv));
+});
+`;
+
+// A fake that emits a known line synchronously (so the parent's bounded
+// capture holds it well before any verdict) then stays alive WITHOUT ever
+// listening — forcing a readiness TIMEOUT (never reachable) rather than an
+// early-exit abort.
+const FAKE_HTTP_SILENT = `
+'use strict';
+const fs = require('fs');
+fs.writeSync(2, 'fake http-server: staged output line\\n');
+setInterval(() => {}, 1000);
+`;
+
+// A fake that writes a line synchronously then exits non-zero immediately —
+// the early-exit path the readiness abort must catch fast.
+const FAKE_HTTP_CRASH = `
+'use strict';
+const fs = require('fs');
+fs.writeSync(2, 'fake http-server: refusing to bind\\n');
+process.exit(3);
+`;
+
+function mkFakeBin(source, name) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-slh-'));
+  const binPath = path.join(dir, name);
+  fs.writeFileSync(binPath, source);
+  return { dir, binPath };
+}
+
+function rmTmp(dir) {
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+}
+
+test('startLocalHttpServer composes the canonical loopback/static argv and reaches readiness (rf2-slapfs)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const result = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      // Silence the incidental "exited unexpectedly" line the force-kill in
+      // cleanup() below emits on Windows (exit code 1) — not what this test
+      // asserts.
+      log: () => {},
+    });
+    assert.equal(result.ready, true, 'the composed server must become reachable on loopback');
+    assert.equal(result.isDown(), false, 'the server must still be running once ready');
+    // The fake recorded the EXACT argv startLocalHttpServer composed — the
+    // canonical behaviour that replaces each caller's inline argv regex:
+    // positional root, loopback `-a 127.0.0.1`, the resolved port, `-s`
+    // (silent), `-c-1` (no cache).
+    const argv = JSON.parse(fs.readFileSync(path.join(dir, '.fake-argv.json'), 'utf8'));
+    assert.deepEqual(argv, [dir, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1']);
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer tracks the server so process-tree cleanup terminates it (rf2-slapfs)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    const { server, ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {}, // silence the force-kill teardown line (see above)
+    });
+    assert.equal(ready, true);
+    // The server must be a tracked child that cleanup() actually terminates —
+    // otherwise the harness would leak http-server processes between runs.
+    const exited = waitForExit(server, 30000);
+    await cleanup.cleanup();
+    await exited;
+    assert.ok(true);
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer times out with the unreachable diagnostic + captured failure tail (rf2-slapfs)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SILENT, 'fake-http-silent.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const logged = [];
+  try {
+    const { ready, isDown, output } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 400,
+      captureOutput: true,
+      log: (m) => logged.push(m),
+    });
+    assert.equal(ready, false, 'a server that never listens must time out');
+    assert.equal(isDown(), false, 'the still-alive server did not exit — it just never served');
+    assert.ok(
+      output.some((l) => /staged output line/.test(l)),
+      `bounded capture must hold the server's output; got ${JSON.stringify(output)}`,
+    );
+    assert.ok(
+      logged.some((l) => /did not become reachable on :/.test(l)),
+      'the canonical unreachable diagnostic must be logged on timeout',
+    );
+    assert.ok(
+      logged.some((l) => /staged output line/.test(l)),
+      'the captured failure tail must be printed via the log sink',
+    );
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer aborts fast on an early server exit rather than burning the timeout (rf2-slapfs)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_CRASH, 'fake-http-crash.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const logged = [];
+  let exitCode = null;
+  const started = Date.now();
+  try {
+    const { ready, isDown } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 15000, // generous — the abort must beat this, not wait it out
+      // Capture (rather than inherit) the fake's stderr so its "refusing to
+      // bind" line doesn't leak into the test output; this test asserts the
+      // abort/onExit/diagnostic behaviour, not the captured tail.
+      captureOutput: true,
+      log: (m) => logged.push(m),
+      onExit: (code) => { exitCode = code; },
+    });
+    assert.equal(ready, false, 'a server that exits before readiness must not report ready');
+    assert.equal(isDown(), true, 'isDown() must reflect the exited server');
+    assert.ok(
+      Date.now() - started < 10000,
+      'the early-exit abort must not wait out the 15s readiness budget',
+    );
+    assert.equal(exitCode, 3, 'onExit must receive the server exit code');
+    assert.ok(
+      logged.some((l) => /exited unexpectedly \(code=3/.test(l)),
+      `the non-zero exit must be surfaced; got ${JSON.stringify(logged)}`,
+    );
+    assert.ok(
+      logged.some((l) => /did not become reachable on :/.test(l)),
+      'the unreachable diagnostic must still be logged on the abort path',
+    );
+  } finally {
+    cleanup.cleanupSync();
+    rmTmp(dir);
   }
 });
 

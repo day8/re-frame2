@@ -65,7 +65,7 @@ const { stageExample, listStandaloneExamples, cleanStageDirs } = require('./exam
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
-  waitForHttpReady,
+  startLocalHttpServer,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>; IMPL_ROOT is
@@ -234,10 +234,11 @@ async function main() {
   }
   let watchOutcome = null;
   let serverOutcome = null;
-  // Tracks server reachability so a child crash aborts the readiness wait.
-  // Declared here (before the watch handler) so the watch-exit listener can
-  // flip it; the server-exit listener below also sets it.
-  let serverDown = false;
+  // Set true if the shadow-cljs watch dies unexpectedly, so the watch-exit
+  // handler below can abort the server readiness wait (the shared harness ORs
+  // this into its own server-exited abort). Declared before the watch handler
+  // so that listener can flip it.
+  let watchDied = false;
 
   if (watch) {
     const watchProc = cleanup.trackProcess(
@@ -255,7 +256,7 @@ async function main() {
       watchOutcome = { code, signal };
       if (!interrupted && !(typeof code === 'number' && code === 0)) {
         console.error(`shadow-cljs watch exited unexpectedly (code=${code}, signal=${signal}).`);
-        serverDown = true; // abort the readiness wait below if still pending
+        watchDied = true; // abort the server readiness wait below if still pending
         // Stop http-server too; the watch is the source of truth for a live
         // build. cleanup() is idempotent and safe to call alongside the
         // signal handlers.
@@ -264,33 +265,26 @@ async function main() {
     });
   }
 
-  // Serve the example's output dir on 127.0.0.1 (loopback-only — the dev
-  // browser hits localhost, and it sidesteps the Windows dual-stack EACCES
-  // surprise). `-c-1` disables caching so a recompiled main.js is picked up
-  // on reload.
-  const server = cleanup.trackProcess(
-    spawnHarnessProcess(
-      process.execPath,
-      [httpServerBin, entry.outDir, '-a', '127.0.0.1', '-p', String(PORT), '-s', '-c-1'],
-      { cwd: IMPL_ROOT, stdio: ['ignore', 'inherit', 'inherit'] },
-    ),
-  );
-
-  server.on('exit', (code, signal) => {
-    serverDown = true;
-    serverOutcome = { code, signal };
-    if (code !== 0 && code !== null && !interrupted) {
-      console.error(`http-server exited unexpectedly (code=${code}, signal=${signal}).`);
-    }
+  // Serve the example's output dir on loopback (127.0.0.1 — the dev browser
+  // hits localhost, which also sidesteps the Windows dual-stack EACCES
+  // surprise). The shared harness owns the http-server spawn (with `-c-1` so a
+  // recompiled main.js is picked up on reload), teardown tracking, early-exit
+  // abort, and the readiness + unreachable diagnostics (rf2-slapfs). It records
+  // the server outcome for decideRunnerExit via onExit, ORs a watch death into
+  // the readiness abort via isAborted, and suppresses the forced-shutdown
+  // "exited unexpectedly" noise while interrupted. Inherits stdio (no capture).
+  const { server, ready, isDown } = await startLocalHttpServer({
+    cleanup,
+    httpServerBin,
+    root: entry.outDir,
+    port: PORT,
+    cwd: IMPL_ROOT,
+    readyTimeoutMs: READY_TIMEOUT_MS,
+    isAborted: () => watchDied,
+    onExit: (code, signal) => { serverOutcome = { code, signal }; },
+    suppressExitDiagnostic: () => interrupted,
   });
-
-  const ready = await waitForHttpReady(PORT, Date.now() + READY_TIMEOUT_MS, {
-    isAborted: () => serverDown,
-  });
-  if (!ready || serverDown) {
-    console.error(`http-server did not become reachable on :${PORT} within ${READY_TIMEOUT_MS}ms.`);
-    return 1;
-  }
+  if (!ready) return 1;
 
   console.log(
     `\nserve-example: ${entry.build} is live at http://127.0.0.1:${PORT}/` +
@@ -303,7 +297,7 @@ async function main() {
   // process tree down). In watch mode an unexpected watch crash also tears the
   // server down (see the watch 'exit' handler), so this resolves either way.
   await new Promise((resolve) => {
-    if (serverDown) return resolve(); // already exited before we awaited
+    if (isDown()) return resolve(); // already exited before we awaited
     server.on('exit', resolve);
   });
 
