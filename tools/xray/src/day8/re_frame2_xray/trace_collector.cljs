@@ -3,47 +3,28 @@
   bridges the framework's per-frame trace rings into Xray's reactive
   app-db.
 
-  ## What this ns owns (post rf2-43koh)
+  `collect-trace!` drops Xray self-noise, applies the local egress
+  profile, retains otherwise-unaddressable frameless events, and requests
+  a coalesced mirror refresh. One refresh per microtask snapshots every
+  registered frame ring plus the bounded frameless ring into
+  `[:trace-buffer]` in Xray's app-db.
 
-  - The `:rf.xray/trace-collector` listener body (`collect-trace!`):
-    self-noise drop → privacy gate → frameless secondary ring push →
-    coalesced mirror sync request.
-  - A small 100-event secondary ring at the listener boundary for
-    FRAMELESS events (per the rf2-3g9nw D2=a ruling). The framework's
-    per-frame rings skip frameless emits per the B3 ruling (rf2-g1b2m)
-    so those events would never surface in Xray without a Xray-side
-    capture; the secondary ring backs the `:show-ungrouped?` UX
-    (rf2-r9lyy).
-  - The microtask-coalesced `refresh-trace-rings!` helper that
-    snapshots every registered frame's ring + the frameless secondary
-    ring into Xray's app-db's `:trace-buffer` slot. Production hosts
-    drive this via the listener's request-mirror-sync path (one
-    dispatch per JS tick regardless of trace volume); tests can call
-    `refresh-trace-rings!` synchronously to deterministically snap the
-    app-db against the rings.
-  - Retroactive scrub of every per-frame ring + the secondary ring +
-    Xray's app-db slot when the local-render egress profile narrows from
-    `:rf.egress/local-raw` back to the redacting default
-    (`:rf.egress/local-redacted`) (per Spec 009 §Privacy
-    §Retroactive-scrub; EP-0015 per-(tool,frame) reveal grain).
+  Frameless events have no frame or dispatch id, so the framework's
+  per-frame rings cannot retain them. The secondary ring exists only to
+  support the opt-in `:show-ungrouped?` view. All addressed events remain
+  owned by the framework rings; Xray does not maintain a duplicate global
+  trace store.
 
-  ## What this ns no longer owns
-
-  The pre-rf2-43koh `trace_bus.cljc` carried a separate 1000-event
-  process-global ring. The framework's per-frame event-keyed rings
-  + B4 dedup (rf2-g1b2m + rf2-8uwce) supersede that surface — Xray's
-  separate ring was redundant. The event-bundle list, the L2 event list,
-  the spine, every panel-side consumer now reads via the per-frame
-  ring snapshot in app-db.
+  Narrowing the egress profile also scrubs the framework rings, frameless
+  ring, and app-db mirror before another read can expose old raw values.
 
   ## Production posture
 
   Every entry point is gated on `re-frame.interop/debug-enabled?` so
   Closure DCE drops the whole namespace in `:advanced` + `goog.DEBUG
-  false` builds. The listener registration itself lives in
-  `preload.cljs` under the same gate.
-
-  Per rf2-43koh + spec/013-Trace-Consumer.md."
+  false` builds. Listener registration lives in `install.cljs` and is
+  invoked by the preload under the same gate. See
+  `spec/013-Trace-Consumer.md`."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -52,17 +33,14 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.self-noise :as self-noise]))
 
-;; ---- frameless secondary ring (rf2-43koh / rf2-3g9nw D2=a) -------------
+;; ---- frameless secondary ring -------------------------------------------
 ;;
 ;; Frameless trace events — registry-time emits, REPL evals, frame
 ;; lifecycle outside a drain, SSR hydration mismatches that fire before
-;; any `:dispatch-id` is in scope — carry no `:rf.trace/dispatch-id` /
-;; no `:frame`. The framework's per-frame rings skip these per the B3
-;; ruling (rf2-g1b2m); they stream to listeners only.
-;;
-;; Mike's rf2-3g9nw D2=a ruling preserves the `:show-ungrouped?` UX
-;; (per rf2-r9lyy) by keeping a small, capped Xray-side ring for
-;; frameless events at the listener boundary. The depth is bounded
+;; any `:dispatch-id` is in scope — carry no `:rf.trace/dispatch-id` or
+;; `:frame`. The framework's per-frame rings skip them; listeners still
+;; receive them. Xray keeps a small, capped ring at that boundary so the
+;; opt-in `:show-ungrouped?` view can surface them. The depth is bounded
 ;; (default 100 events; framework's per-frame default is 50 event-bundles)
 ;; because frameless events are rare in a healthy app — most happen at
 ;; boot or during a REPL session. A bigger buffer would buy little
@@ -70,8 +48,8 @@
 
 (def default-frameless-ring-depth
   "Default capacity of the frameless secondary ring (in events). Capped
-  small because frameless emits are rare; the user-facing surface is
-  the `:show-ungrouped?` opt-in. Per the rf2-3g9nw D2=a ruling."
+  small because frameless emits are rare and hidden unless
+  `:show-ungrouped?` is enabled."
   100)
 
 (defonce ^:private frameless-ring-depth

@@ -1,117 +1,56 @@
 (ns day8.re-frame2-xray.runtime
-  "Injected-runtime namespace exposing Xray's read/mutate accessors
-  to AI agents (rf2-8xzoe.4 / F-4, rf2-crhr8).
+  "Browser-side read and mutation accessors for agent integrations.
 
-  Lives on the browser side of the stdio JSON-RPC pipe. Rides
-  Xray-the-panel's `:devtools/preloads` (see `preload.cljs`'s require
-  list) so a consumer app that already loads Xray-the-panel
-  automatically carries the runtime — no separate preload entry.
+  The Xray preload installs this namespace in the application tab.
+  `tools/re-frame2-pair-mcp/` invokes its public functions through
+  shadow-cljs evaluation; the runtime itself has no dependency on an MCP
+  server or transport. The accessor contract is documented in
+  [`API.md` §Xray runtime API](../../spec/API.md).
 
-  Per rf2-hvl1g (closure 2026-05-19) there is no dedicated `xray-mcp`
-  jar; AI agents reach this runtime via `tools/re-frame2-pair-mcp/`
-  (which can read this ns via `eval-cljs`). The accessors below are
-  the framework-published Xray runtime API.
-
-  ## What this namespace is
-
-  Tool-shaped accessors (see [`API.md` §Xray runtime API](../../spec/API.md))
-  rendered as EDN forms addressed at
-  `day8.re-frame2-xray.runtime/<accessor>`; an MCP server (today
-  `tools/re-frame2-pair-mcp/`) renders the form against the nREPL
-  socket, shadow-cljs evaluates each form in the browser tab, and the
-  return value comes back over the bencode-framed channel.
-
-  Plus three load-bearing supports:
+  Three values support the cross-process contract:
 
   - `session-id` — random UUID per preload load. The MCP-server-side
     preload probe reads either this CLJS var or its
-    `js/globalThis.__day8_re_frame2_xray_runtime` mirror to confirm
-    the runtime landed. A full page refresh wipes both — the next
-    `discover-app` tool call reports `:reason :runtime-not-preloaded`
-    with a setup hint.
+    `js/globalThis.__day8_re_frame2_xray_runtime` mirror to confirm that
+    the preload is present. A full refresh creates a new session.
   - `*current-origin*` — `^:dynamic` var holding the dispatch `:origin`
     opt the runtime stamps onto every mutation it performs (surfacing on
-    the trace bus as the `:rf.event/origin` tag);
-    `current-origin` (no earmuffs) is the plain read accessor that
-    returns it. The default `:xray-mcp` is grandfathered from the
-    original xray-mcp design; revising the default to a more accurate
-    tag (e.g. `:xray-runtime`) is tracked separately as a follow-on.
-    The MCP server is expected to rebind `*current-origin*` for the
-    synchronous extent of an eval'd form to its own `:origin`
-    identifier.
+    the trace bus as `:rf.event/origin`. A caller may rebind it for the
+    synchronous extent of an evaluated mutation.
   - `health` — one-call summary used by `discover-app`. Side-effect-free
     here; the runtime registers no listeners on its own.
 
-  ## What this namespace is NOT
-
-  - Not a new framework registry. Every accessor below routes through
-    an existing `re-frame.core/*` surface. We add no new dispatch
-    types, no new effect substrates, no new component substrates.
-  - Not a re-frame2-pair-mcp port. The accessor surface is shaped to
-    the Xray-specific surfaces (trace buffer, epoch history,
-    app-db-diff, machine-state) rather than to re-frame2-pair-mcp's
-    own tool shapes.
-  - Not a streaming substrate. The runtime exposes
-    `register-listener!` / `register-epoch-listener!` indirection via
-    re-frame.core, plus a thin `current-subscriptions` accessor for
-    the diagnostic; per-tick queue / overflow bookkeeping lives on
-    the MCP-server side.
+  Every accessor delegates to existing framework or Xray projection
+  surfaces. This namespace owns no registry, queue, transport, or parallel
+  state model; streaming and backpressure belong to the caller.
 
   ## Why the install side-effect block is gated on `debug-enabled?`
 
-  Per Xray-the-panel's preload, the framework's trace surface elides
-  in production builds (`re-frame.interop/debug-enabled?` false). The
-  runtime's sentinel installation is gated the same way so a stray
-  production load (which is a configuration mistake but should fail
-  gracefully) is a no-op rather than a `js/globalThis` pollution.
-
-  ## Cross-side coupling is one-way
-
-  The MCP server depends on the accessor signatures below (the
-  contract); the runtime is independent of any server. Xray-the-panel
-  loads this ns without an MCP server running, and any MCP consumer
-  (re-frame2-pair-mcp today) can attach later without the runtime
-  needing to know."
+  The framework trace surface and the global session sentinel are both
+  gated by `re-frame.interop/debug-enabled?`, so an accidental production
+  load is inert."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
-            ;; rf2-qwm0a: trace-buffer (and the rest of the listener +
-            ;; ring-buffer surface) lives in re-frame.trace.tooling, not
-            ;; re-frame.trace. CLJS deliberately omits `rf/<name>` aliases
-            ;; for these so production counter bundles DCE the tooling
-            ;; sibling wholesale; Xray's runtime is dev-only (rides the
-            ;; panel's :devtools/preloads), so requiring the tooling ns
-            ;; directly here is bundle-isolation-safe.
+            ;; Ring-buffer inspection is a tooling-tier dependency; the
+            ;; event/frame vocabulary remains on the trace contract ns.
             [re-frame.trace.tooling :as trace-tooling]
-            ;; rf2-7737vq: the canonical RAW trace-event frame reader
-            ;; (`re-frame.trace/trace-event-frame`). A plain public defn on
-            ;; the trace contract ns (NOT a facade export); requiring it
-            ;; here is the bundle-isolation-safe dev-tier dependency the
-            ;; trace tooling sibling above already establishes.
             [re-frame.trace :as trace]
             [re-frame.interop :as interop]
-            ;; rf2-uv2q2: the canonical Editscript-A* diff engine. Used by
-            ;; get-app-db-diff to project the changed-paths slice diff its
-            ;; docstring promises ({:added :removed :changed}) instead of
-            ;; egressing two whole app-db snapshots.
+            ;; Runtime diff reads return the same changed-path projection
+            ;; as the human-facing App-DB panel.
             [day8.re-frame2-xray.diff.engine :as diff-engine]
             ;; Spec 016 §Xray and AI tooling — the resource-accessor
             ;; projection algebra (registry rows, instance/work-ledger
             ;; rows, lifecycle timeline, invalidation graph, and the
             ;; filter axes). Pure-data + JVM-portable; carries the
             ;; in-panel privacy summaries. The off-box egress here adds
-            ;; the framework `egress-value` walker on top. Decoupled from
-            ;; the optional resources artefact (reads via the registrar +
-            ;; runtime-db slice; Xray never :requires re-frame.resources).
+            ;; the framework `egress-value` walker on top. This accessor
+            ;; reads the registrar and runtime-db slice rather than calling
+            ;; resource implementation namespaces directly.
             [day8.re-frame2-xray.panels.resources-helpers :as resources-helpers]
-            ;; rf2-ku6j74: `get-handlers`' unnarrowed sweep must walk the
-            ;; framework's own closed kind-set, not a hand-maintained
-            ;; shadow list that drifted from it. `re-frame.registrar` is the
-            ;; same core artefact `re-frame.core` already pulls in, so
-            ;; requiring it directly here (rather than duplicating its
-            ;; kinds) is bundle-isolation-safe — mirrors the established
-            ;; `tools/story` pattern of reading `re-frame.registrar/kinds`
-            ;; straight off the framework.
+            ;; Handler enumeration reads the framework-owned kind set rather
+            ;; than maintaining an Xray copy.
             [re-frame.registrar :as registrar]))
 
 ;; ---------------------------------------------------------------------------
@@ -208,9 +147,9 @@
   Returns nil when no frame is registered or more than one is registered
   without an explicit pick — callers tag the result accordingly.
 
-  NOTE this does NOT validate an explicit id against the registry — a
+  This does not validate an explicit id against the registry: a
   caller-supplied id is returned verbatim. Accessors guard the
-  explicit-but-unregistered case via `frame-failure` (rf2-xxo3zz) so a
+  explicit-but-unregistered case via `frame-failure` so a
   typo / stale frame id fails with a distinct `:no-such-frame` rather
   than reporting success against a nonexistent frame."
   [explicit]
@@ -221,8 +160,8 @@
                          (first fids)))))
 
 (defn- frame-failure
-  "rf2-xxo3zz — the single frame-resolution guard every read / dispatch /
-  mutation accessor consults before touching a frame. Given the caller's
+  "The single frame-resolution guard every read, dispatch, and mutation
+  accessor consults before touching a frame. Given the caller's
   `explicit` `:frame` arg and the `fid` that `resolve-frame` returned,
   returns a consistent failure map when the frame cannot be operated on,
   or nil when the accessor may proceed:

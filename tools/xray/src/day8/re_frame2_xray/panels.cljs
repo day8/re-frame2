@@ -2,14 +2,11 @@
   "Per-panel mount surface. **Internal-but-stable**, NOT a v1.0
   host-facing embed contract.
 
-  Every Xray panel is independently mountable: a host can mount one
-  panel in isolation without the surrounding 4-layer shell, without
-  sibling panels, and without any shell-owned chrome state. This
-  surface is the load-bearing seam the 4-layer shell composes through
-  and that the test suite mounts panels through; it also lets Xray be
-  embedded inside Story, inside the Scittle playground (option-c
-  progressive disclosure), inside custom debugging configurations, and
-  inside the docs / guide / examples surface.
+  Each facade enumerated by `panel-enum` can be mounted without the
+  surrounding 4-layer shell or sibling panels. The shell and tests use
+  this seam, and development hosts may use it for focused embeds. Graph
+  and Modules are L4-only tabs and are not part of the standalone mount
+  inventory.
 
   **Status: internal-but-stable, not a host-facing v1.0 embed
   contract.** The mount fns are stable (the shell + tests depend on
@@ -25,8 +22,7 @@
 
   ## The surface
 
-  Per `tools/xray/spec/008-Embedding-Contract.md` every panel exposes
-  a mount fn:
+  The standalone facade inventory is:
 
       (mount-epoch-panel!      mount-point opts) → unmount-fn
       (mount-app-db-diff!      mount-point opts) → unmount-fn
@@ -76,12 +72,12 @@
 
   1. Calls `(registry/register-xray-handlers!)` — idempotent, registers
      every panel's subs + events + fxs under `:rf.xray/*`.
-  2. Calls `(rf/reg-frame :rf/xray {})` — idempotent, ensures the
-     state-isolation frame exists.
-  3. Wraps the panel's `Panel` (or equivalent) view in
-     `[rf/frame-provider {:frame :rf/xray} [<Panel>]]` so descendant
-     subscribes / dispatches re-anchor to `:rf/xray` regardless of
-     the host's React-context.
+  2. Calls `mount/ensure-xray-frame!` so the state-isolation frame exists
+     and first-mount seed hooks have run.
+  3. Wraps the panel's `Panel` (or equivalent) view in a
+     `rf/frame-provider` for `opts :frame` (default `:rf/xray`) so
+     descendant subscribes and dispatches do not inherit the host's
+     ambient React context accidentally.
   4. Delegates to `substrate-adapter/render` with the wrapped tree +
      the supplied mount-point. The substrate adapter is the host's
      (installed via `rf/init!`); the panels are substrate-agnostic
@@ -183,11 +179,8 @@
   populated, and the user sees blank inputs even though the host has
   been dispatching events.
 
-  `ensure-xray-frame!` is idempotent (a `seeded-frame-ids` run-once
-  guard on the hook fan-out per rf2-n4p5it + reg-frame's surgical-
-  update-on-re-register semantics per Spec 002 §reg-frame) so multiple
-  panel mounts collapse to one seed pass + zero re-registrations
-  across shadow-cljs reloads."
+  `ensure-xray-frame!` is idempotent, so multiple panel mounts and
+  shadow-cljs reloads collapse to one seed pass."
   []
   (registry/register-xray-handlers!)
   (mount/ensure-xray-frame!))

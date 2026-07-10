@@ -1,19 +1,10 @@
 (ns day8.re-frame2-xray.spine
-  "The single-axis spine substrate (rf2-adve5).
+  "The single focus axis shared by Xray's event list and Dynamic panels.
 
-  ## rf2-r9lyy — `:ungrouped` opt-in surface
-
-  By default the spine strips the `:ungrouped` pseudo-event-bundle bucket
-  from every walk (`focusable-event-bundles`) so the bucket is never a
-  focus target — pinning to it degrades the L4 panels into an
-  aggregate look (rf2-fzbrw). Mike's 2026-05-19 closure of rf2-q60yf
-  flipped this from a hard contract to an opt-in: the new
-  `:settings/show-ungrouped?` knob (defaults `false`) reveals the
-  bucket in L2 and lets the user click it to focus. When the flag
-  is `true`, the spine's helpers/reducers include `:ungrouped` in
-  their walks; when `false`, the existing strict behaviour is
-  preserved. Every public arity that previously walked
-  `focusable-event-bundles` gains an additive arity that takes the flag.
+  By default the spine omits the `:ungrouped` pseudo-event-bundle because
+  it has no event vector for event-coupled panels to inspect. Enabling
+  `:settings/show-ungrouped?` includes that bucket in list, focus, and
+  stepping operations for registry-time, REPL, and frameless diagnostics.
 
   Per `tools/xray/spec/018-Event-Spine.md` §6 Spine binding the spine
   sub `:rf.xray/focus` is the one axis every dependent surface reads
@@ -45,14 +36,9 @@
   no mirror slots: the App-DB-diff / Views panels follow the focused
   epoch through `[:focus :epoch-id]` (surfaced by `:rf.xray/focus` →
   `:rf.xray/focus-epoch-id` → `app_db_diff_subs`), and the cross-panel
-  `:rf.xray/focused-event-bundle-detail` composite (relocated to `registry.cljs`
-  post rf2-5gl5r — the retired Event/Handler panel originally owned it;
-  renamed off the retired-panel name per rf2-7ed9ms)
-  reads focus directly off the spine. The former `:selected-dispatch-id`
-  / `:selected-dispatch` / `:selected-epoch-id` mirror slots are all
-  gone (the last, `:selected-epoch-id`, was retired by rf2-uy7nz once
-  every production consumer had migrated to the spine focus epoch via
-  rf2-70tkv) — there is no longer any dual-write."
+  `:rf.xray/focused-event-bundle-detail` composite reads focus directly
+  from the spine. Panels must not introduce mirror selection slots or
+  dual-write focus state."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
@@ -63,13 +49,9 @@
 ;; ---- pure helpers --------------------------------------------------------
 
 (defn focusable-event-bundles
-  "Per rf2-fzbrw — the spine's invariant is 'one focused event at a
-  time'. The `:ungrouped` bucket produced by `projection/group-by-event`
-  for registry-time emits / frame lifecycle outside a drain / REPL
-  evals carries no event vector and is therefore NOT a valid focus
-  target BY DEFAULT: pinning to it leaves every epoch / app-db /
-  views panel with no event-bundle to render, which degrades into the
-  unwanted 'all subs / all handlers' aggregate look.
+  "Return the event bundles the spine may focus. The `:ungrouped` bucket
+  produced for frameless events is excluded by default because it has no
+  event vector for event-coupled panels to render.
 
   Strip the bucket before any spine walk so:
     - the head/tail boundary predicates align with what the user sees
@@ -79,14 +61,8 @@
     - `compose-focus` cannot resolve an effective dispatch-id to
       `:ungrouped` for a stored slot that was already pointing there.
 
-  ## rf2-r9lyy — opt-in inclusion
-
-  Mike 2026-05-19 closure of rf2-q60yf: pass `show-ungrouped? true`
-  (the 2-arity) to KEEP the bucket. Users debugging SSR / REPL /
-  registry-time flows opt in via Settings → General → Power user
-  → 'Show :ungrouped pseudo-event-bundle events in L2'. When the flag
-  is on, the bucket appears as a focusable target so clicking it
-  populates the downstream panels with its trace events.
+  Pass `show-ungrouped? true` to include the bucket for SSR, REPL, or
+  registry-time diagnostics.
 
   Pure data; JVM-runnable; idempotent (re-filtering a cleaned vector
   is a no-op)."
@@ -116,14 +92,13 @@
   row the user actually sees in the L2 event list. Returns nil when
   no focusable event-bundles exist.
 
-  Used for click-on-head detection (rf2-xzzih): clicking the visible
+  Used for click-on-head detection: clicking the visible
   head event should stay LIVE; the raw `head-dispatch-id` would treat
   an `:ungrouped` bucket as the head if it sorted last, which the
   user never sees as a focusable row.
 
-  rf2-r9lyy — the 2-arity threads `show-ungrouped?` through
-  `focusable-event-bundles` so the head-detection also lights up the
-  bucket when the user has opted in."
+  The 2-arity threads `show-ungrouped?` through
+  `focusable-event-bundles`."
   ([event-bundles]
    (focusable-head-id event-bundles false))
   ([event-bundles show-ungrouped?]
@@ -135,7 +110,7 @@
   focusable event-bundle exists (cold start; buffer-cleared; only the
   `:ungrouped` bucket present).
 
-  Used at first-mount seeding time (rf2-boyc2): `compose-focus` derives
+  Used at first-mount seeding time: `compose-focus` derives
   the panel-observed frame from this same head event-bundle, so seeding the
   Xray app-db's `:target-frame` + `:epoch-history` from the same axis
   closes the initial-mount race where the App-DB panel renders the
@@ -155,9 +130,9 @@
   "Find an event-bundle in `event-bundles` by its `:dispatch-id`. Returns nil when
   no match (id refers to an evicted event-bundle, or a fresh session).
 
-  The 3-arity prefers an event-bundle matching `:frame` when supplied —
-  multiple event-bundles can share a dispatch-id across frames (Spec 002
-  §Frame isolation + rf2-g6ih4: dispatch-id uniqueness is per-frame,
+  The 3-arity prefers an event-bundle matching `:frame` when supplied.
+  Multiple event-bundles can share a dispatch-id across frames (Spec 002
+  §Frame isolation: dispatch-id uniqueness is per-frame,
   not process-global). When no frame-matching event-bundle exists the
   lookup falls back to a dispatch-id-only match so a stale stored
   frame (e.g. a user-frame the event-bundle was re-emitted from) doesn't
@@ -186,14 +161,14 @@
   in that frame carries the focused dispatch-id, the result is nil
   rather than a same-id event-bundle from a foreign frame.
 
-  Dispatch ids are unique only WITHIN a frame (Spec 002 §Frame
-  isolation + rf2-g6ih4); the framework's trace projection groups
+  Dispatch ids are unique only within a frame (Spec 002 §Frame
+  isolation); the framework's trace projection groups
   event-bundles by `[frame dispatch-id]` and intentionally emits two
   event-bundle records when the same id occurs in two frames (see
   `re-frame.trace.projection/grouped-event-bundles`). Panel reads that key
   by dispatch-id alone can surface records/overlays/status from the
   first matching frame while focus is actually on another — this
-  helper is the frame-strict path those reads use (rf2-bz7flo).
+  helper is the frame-strict path those reads use.
 
   When `focus` has no `:frame` (single-frame / pre-frame-set focus),
   the lookup degrades to a plain dispatch-id match."
