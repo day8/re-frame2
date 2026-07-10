@@ -1216,54 +1216,60 @@ One last bit of reader shorthand you'll meet often.
 
 ## Destructuring
 
-Destructuring is a way to bind local names to values inside a collection, without writing lookup code by hand. The original collection is not changed.
+Destructuring binds local names to values inside a collection, without writing lookup code by hand. Read a binding from right to left: the value is on the right, and the pattern on the left names the pieces you want. The original collection is not changed.
 
 ### With `let`
 
-Here is a map. Without destructuring you might write:
+Without destructuring, you might pull values from a map one at a time:
 
 ```cljs
 (let [a-map {:db {:value 0} :event [:inc]}
-      db    (get a-map :db)]  ;; <- get is used to reach into the map and obtain a value
-  db)
+      db    (get a-map :db)
+      event (get a-map :event)]
+  [db event])
 ```
 
-evaluates to `{:value 0}`. Now the same thing with destructuring — still using `a-map`:
+Now the same lookup with a map pattern:
 
 ```cljs
-(let [a-map         {:db {:value 0} :event [:inc]}
-      {:keys [db]}  a-map]  ;; <-- destructuring is used to obtain the :db value from the map
-  db)
+(let [a-map {:db {:value 0} :event [:inc]}
+      {:keys [db event]} a-map]
+  [db event])
 ```
 
-Again `{:value 0}`. The pattern `{:keys [db]}` means: look up `:db` in the map, and bind that value to a local called `db` — no separate `get`.
+Both evaluate to `[{:value 0} [:inc]]`. The pattern `{:keys [db event]}` means: look up `:db` and `:event`, then bind their values to locals with the same names.
 
-Vectors work by position:
+Vector patterns bind by position:
 
 ```cljs
-(let [[a b] [1 2]]
-  b)
+(let [[event-id payload] [:step-size/set {:step-size 10}]]
+  [event-id payload])
 ```
 
-evaluates to `2` — first element is `a`, second is `b`.
+This evaluates to `[:step-size/set {:step-size 10}]`: the first element is bound to `event-id`, and the second to `payload`.
+
+When a position is not used, Clojure programmers conventionally give it a name beginning with `_`:
+
+```cljs
+(let [[_ payload] [:step-size/set {:step-size 10}]]
+  payload)
+```
+
+`_` is still an ordinary local name; it signals to the reader that this code intentionally ignores the event id.
 
 ### In function parameters
 
-Here is destructuring used in the arguments of a `defn`:
+Function parameters use the same binding patterns. A re-frame2 event handler often combines map and vector destructuring:
 
 ```cljs
-(defn my-fn 
-  [{:keys [db]}]
-  db)
+(fn [{:keys [db]} [_ {:keys [step-size]}]]
+  {:db (assoc db :step-size step-size)})
 ```
 
-Now call the function with a map argument containing the key `:db`:
-```cljs
-(my-fn  {:db {:value 0 :other 1}})
-```
+- The first argument is a map. `{:keys [db]}` binds its `:db` value to `db`.
+- The second argument is an event vector. `_` receives the ignored event id; the second position is a map whose `:step-size` value is bound to `step-size`.
 
-which evaluates to `{:value 0 :other 1}` — the value at `:db`, bound to the local `db`.
-
+The pattern mirrors the shape of the incoming data while naming only the values the function needs. You will meet this exact handler shape on the Core pages.
 
 ## Summary
 
