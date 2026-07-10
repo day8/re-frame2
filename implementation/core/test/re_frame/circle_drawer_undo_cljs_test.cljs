@@ -90,12 +90,15 @@
         (rf/dispatch-sync [:drawer/dialog-drag 50] {:frame f})
         (rf/dispatch-sync [:drawer/dialog-drag 70] {:frame f})
         (rf/dispatch-sync [:drawer/dialog-drag 90] {:frame f})
-        ;; Mid-drag: the on-screen circle keeps its committed radius and NO
-        ;; undo step has been recorded yet.
+        ;; Mid-drag: the durable `:circles` slice keeps its committed radius and
+        ;; NO undo step has been recorded yet. (On the canvas the circle DOES
+        ;; resize live — that preview is a view-layer derivation off
+        ;; `:draft-radius` via `:drawer/display-circles`, and never touches the
+        ;; durable slice, which is what keeps the undo step whole.)
         (is (= undo-before (count (:undo (drawer f))))
             "dragging the slider records NO undo steps")
         (is (= 30 (:radius (first (:circles (drawer f)))))
-            "the circle keeps its committed radius while dragging (draft-only)")
+            "the durable :circles slice keeps its committed radius while dragging (draft-only)")
         (is (= 90 (:draft-radius (:dialog (drawer f))))
             "only the dialog draft moves during a drag")
         (rf/dispatch-sync [:drawer/close-dialog] {:frame f})
