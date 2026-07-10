@@ -23,6 +23,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { stagedAssetsByBuild } = require('./examples-asset-manifest.cjs');
 
 // __dirname is <repo>/examples/scripts. REPO_ROOT is <repo>.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -81,27 +82,17 @@ function stageShared(outDir) {
 //     colocated in each RealWorld source folder. Without it every fallback
 //     avatar is a broken image.
 //
-// Each asset declares WHERE its source lives (`:src` = colocated under the
-// example's source folder, the default; `:node-modules` = under
-// implementation/node_modules) and the destination name under the output dir.
-// Keyed by shadow-cljs build id (the colon-stripped coord, as listStandalone-
-// Examples() returns). An example with no entry stages only index.html +
-// _shared (the common case).
-const PER_EXAMPLE_ASSETS = {
-  'examples/todomvc': [
-    { from: 'node-modules', src: 'todomvc-common/base.css', dest: 'base.css' },
-    { from: 'node-modules', src: 'todomvc-app-css/index.css', dest: 'index.css' },
-  ],
-  'examples/managed-http-counter': [
-    { from: 'src', src: path.join('api', 'inc.json'), dest: path.join('api', 'inc.json') },
-  ],
-  'examples/realworld': [
-    { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg' },
-  ],
-  'examples/realworld-resources': [
-    { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg' },
-  ],
-};
+// These per-example assets are NOT declared here: they are one facet of the
+// single examples asset/exception manifest (examples-asset-manifest.cjs), the
+// shared owner the STATIC scanner (check-examples-assets.cjs) also consumes for
+// TodoMVC's shared-stylesheet exemption. `PER_EXAMPLE_ASSETS` is the staging
+// PROJECTION of that manifest: build id (the colon-stripped coord, as
+// listStandaloneExamples() returns) -> [{ from, src, dest }]. Each asset
+// declares WHERE its source lives (`src` = colocated under the example's source
+// folder; `node-modules` = under implementation/node_modules) and its
+// destination under the output dir. An example with no manifest entry stages
+// only index.html + _shared (the common case).
+const PER_EXAMPLE_ASSETS = stagedAssetsByBuild();
 
 const NODE_MODULES_ROOT = path.join(IMPL_ROOT, 'node_modules');
 
@@ -118,9 +109,10 @@ function assetSourcePath(entry, asset) {
 // silently-absent asset (an unstyled TodoMVC, a 404ing success path, a broken
 // avatar) is a correctness bug, not a no-op. node_modules assets carry an
 // `npm install` hint because they are fetched, not vendored. No-op for an
-// example with no declared assets.
-function stagePerExampleAssets(entry) {
-  const assets = PER_EXAMPLE_ASSETS[entry.build];
+// example with no declared assets. `perExampleAssets` defaults to the manifest
+// projection but is injectable so a test can drive a synthetic manifest.
+function stagePerExampleAssets(entry, { perExampleAssets = PER_EXAMPLE_ASSETS } = {}) {
+  const assets = perExampleAssets[entry.build];
   if (!assets) return;
   for (const asset of assets) {
     const srcPath = assetSourcePath(entry, asset);
@@ -209,15 +201,16 @@ function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
 //
 // `entry` shape: { build, outDir, htmlSrc, srcDir } — as produced by
 // listStandaloneExamples() (and compatible with the orchestrator's EXAMPLES
-// entries, which also carry outDir + htmlSrc + srcDir).
-function stageExample(entry) {
+// entries, which also carry outDir + htmlSrc + srcDir). `opts` is forwarded to
+// stagePerExampleAssets (so a test can inject a synthetic per-example manifest).
+function stageExample(entry, opts = {}) {
   if (!fs.existsSync(entry.htmlSrc)) {
     throw new Error(`HTML source missing: ${entry.htmlSrc}`);
   }
   fs.mkdirSync(entry.outDir, { recursive: true });
   fs.copyFileSync(entry.htmlSrc, path.join(entry.outDir, 'index.html'));
   stageShared(entry.outDir);
-  stagePerExampleAssets(entry);
+  stagePerExampleAssets(entry, opts);
 }
 
 // ---------------------------------------------------------------------------
