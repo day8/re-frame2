@@ -1,7 +1,7 @@
 (ns resources.core
   "A worked example of resources — named, cached server-state reads. See the
-   [resources guide](../../../docs/resources/concepts.md) and its
-   [glossary](../../../docs/resources/glossary.md).
+   [resources guide](../../../../docs/resources/concepts.md) and its
+   [glossary](../../../../docs/resources/glossary.md).
 
    The app is a small articles list plus an article detail. Nothing exotic —
    it's ordinary re-frame2: app-db, events, subs, passive views. The one habit
@@ -23,14 +23,14 @@
    Owner and cause are the two ideas to keep straight: an owner keeps a cached
    entry alive, a cause just records why a fetch happened. Owner = lifetime,
    cause = explanation. See
-   [owner & cause](../../../docs/resources/glossary.md#owner--cause).
+   [owner & cause](../../../../docs/resources/glossary.md#owner--cause).
 
    Every resource declares `:scope :rf.scope/global` — this data is public and
    the same for everyone. Scope is a required, fail-closed leak boundary, so
    one user's data can't leak into another's cache; a per-user read would carry
    a scope resolver instead. There's no default on purpose — forgetting it is
    an error, not a silent global. See
-   [scope](../../../docs/resources/glossary.md#scope).
+   [scope](../../../../docs/resources/glossary.md#scope).
 
    There's no real backend here. Instead the example overrides the
    `:rf.http/managed` effect with a per-URL stub that returns canned articles —
@@ -43,14 +43,14 @@
 
    This example is reads only. The other half of the story — writes, and how a
    mutation invalidates reads by tag — lives in the
-   [resources guide](../../../docs/resources/concepts.md)."
+   [resources guide](../../../../docs/resources/concepts.md)."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Managed HTTP is the transport a resource fetch rides on.
             ;; Requiring it registers the `:rf.http/managed` effect that every
             ;; ensure ultimately runs onto. See the managed-HTTP glossary entry:
-            ;; ../../../docs/resources/glossary.md#managed-http
+            ;; ../../../../docs/resources/glossary.md#managed-http
             [re-frame.http.managed]
             ;; Canned-reply test effects. With no real server, the stub further
             ;; down stands in for one — and it delegates to the
@@ -77,7 +77,7 @@
 ;; function at the bottom. `:scope :rf.scope/global` is us promising this read
 ;; is the same for every user. Scope has no default; leave it off and you get an
 ;; error at registration, not a quietly-global cache.
-;; See ../../../docs/resources/glossary.md#scope
+;; See ../../../../docs/resources/glossary.md#scope
 
 (rf/reg-resource :articles/list
   {:doc            "The recent-articles list (public, same for everyone)."
@@ -86,7 +86,7 @@
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
    ;; Tags are how a future write says "this list is now stale" without naming
-   ;; the list directly. See ../../../docs/resources/glossary.md#cache-tag
+   ;; the list directly. See ../../../../docs/resources/glossary.md#cache-tag
    :tags           (fn [_params _data] #{[:article-list]})}
   (fn [_params _ctx]
     {:request {:method :get :url "/api/articles"}
@@ -172,7 +172,7 @@
 ;; the route and the runtime ensures each one, owned by the route itself. Leave,
 ;; and it releases that ownership and quietly drops any reply still in flight.
 ;; The view does nothing but read — the route does the causing.
-;; See ../../../docs/routing/glossary.md#route
+;; See ../../../../docs/routing/glossary.md#route
 
 (rf/reg-route :resources.app/home
   {:doc  "Landing page."} "/")
@@ -206,7 +206,7 @@
 ;; ownership comes responsibility: whatever mints a lease must also, somewhere,
 ;; fire a matching `:rf.resource/release-owner`. Forget that, and the lease pins
 ;; the entry alive forever — the cache equivalent of a memory leak.
-;; See ../../../docs/resources/glossary.md#owner--cause
+;; See ../../../../docs/resources/glossary.md#owner--cause
 
 (rf/reg-event :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
@@ -252,7 +252,7 @@
 ;; mechanics underneath. What follows is about the smallest such machine you
 ;; could write: a reader that ensures the one article it's reading, and lets go
 ;; of it when it stops. See the machines glossary:
-;; ../../../docs/machines/glossary.md#machine
+;; ../../../../docs/machines/glossary.md#machine
 
 ;; Starting the reader takes two steps, and the split is on purpose. First we
 ;; birth the actor with a bare `[:rf.machine/start]` marker; then we dispatch a
@@ -297,7 +297,7 @@
    ;; action has to ride inside an `{:action …}` map. Write the tempting shorthand
    ;; `{:reader/load :ensure-article}` and the machine reads `:ensure-article` as
    ;; the name of a target *state*, then fails to find one.
-   ;; See ../../../docs/machines/glossary.md#transition
+   ;; See ../../../../docs/machines/glossary.md#transition
    {:reading {:on {:reader/load {:action :ensure-article}}}}})
 
 ;; These two events are the UI's start and stop buttons for the reader. Start
@@ -335,7 +335,7 @@
 ;; The input-fn is a pure `(fn [query-v])` returning a vector of query vectors
 ;; (never a deref'd subscribe), and the compute fn then gets the resolved inputs
 ;; back positionally: `[[articles] _]`.
-;; See ../../../docs/core/glossary.md#subscription
+;; See ../../../../docs/core/glossary.md#subscription
 (rf/reg-sub :resources.app/first-slug
   (fn [_query-v]
     [[:rf.resource/data {:resource :articles/list :params {}}]])
@@ -515,7 +515,7 @@
 ;; `:url-bound? true` is also what syncs the initial URL and wires up the
 ;; browser back/forward buttons — the frame's creation installs the listener
 ;; automatically. See the frame glossary entry:
-;; ../../../docs/core/glossary.md#frame
+;; ../../../../docs/core/glossary.md#frame
 
 (defonce react-root (atom nil))
 

@@ -1,6 +1,6 @@
 (ns routing.core
   "A small three-page routing app: home, an articles list, and an article
-   detail page. See the [routing guide](../../../docs/routing/concepts.md).
+   detail page. See the [routing guide](../../../../docs/routing/concepts.md).
 
    Here's the one idea worth taking away: the URL is just application state,
    and you read it through a subscription. Navigation, then, is just an event.
@@ -98,7 +98,7 @@
 ;; attrs you pass (here `:data-testid`) ride along onto the `<a>`.
 ;;
 ;; See the routing guide, "Linking from views":
-;; ../../../docs/routing/concepts.md#linking-from-views
+;; ../../../../docs/routing/concepts.md#linking-from-views
 
 (rf/reg-view home-page []
   [:div
@@ -175,7 +175,7 @@
 ;; app's provider flips that on. That's what connects the address bar to *this*
 ;; frame's route state. See the routing guide, "The browser is just another
 ;; event source":
-;; ../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
+;; ../../../../docs/routing/concepts.md#the-browser-is-just-another-event-source
 (def app-frame :rf/default)
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs

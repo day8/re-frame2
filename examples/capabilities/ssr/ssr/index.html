@@ -21,9 +21,9 @@
     in for what `handle-request` (in core.cljc, :clj branch) would emit if a
     real Clojure server were sitting in front. The corresponding
     `<script id="__rf_payload">` block immediately below carries the
-    serialised app-db; the client `run` reads it, dispatches `:rf/hydrate`
-    (replace-app-db semantics, Spec 011), and renders against the now-seeded
-    state.
+    serialised frame state; the client `run` reads it, dispatches
+    `:rf/hydrate` (replace-frame-state semantics, Spec 011), and renders
+    against the now-seeded state.
 
     The data-rf-render-hash attribute would normally be emitted by
     render-to-string with :emit-hash? true, and the matching :rf/render-hash

@@ -51,8 +51,8 @@
    `rf/resource-state` introspection read — see `await-resource-loaded!`
    below.
 
-   For the full picture see [Resources: SSR and hydration](../../../docs/resources/concepts.md#ssr-and-hydration)
-   and [Server-side rendering](../../../docs/ssr/concepts.md).
+   For the full picture see [Resources: SSR and hydration](../../../../docs/resources/concepts.md#ssr-and-hydration)
+   and [Server-side rendering](../../../../docs/ssr/concepts.md).
 
    The sibling `examples/capabilities/ssr/ssr/` is the simpler cousin: it bakes a
    fetched list into app-db and hands that frozen value across. Here the data
