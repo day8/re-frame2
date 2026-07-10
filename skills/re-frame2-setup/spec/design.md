@@ -35,9 +35,9 @@ The author picks the VERSION once; every `day8/re-frame2-*` dep (including `-xra
 
 The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reagent adapter (`day8/re-frame2-reagent`), `-schemas` (the starter app attaches a whole-app-db schema), and `-xray` (the in-app devtools panel, Xray-priority by default), plus an explicit `reagent/reagent` pin. The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively" — pay-as-you-go is the contract for everything past the day-one shape.
 
-### L4 — The Reagent adapter is the default reference substrate; UIx/Helix get the two-substitution recipe
+### L4 — The Reagent adapter is the default reference substrate; UIx/Helix single-source the shared dataflow
 
-Unless the author explicitly says UIx or Helix, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a full multi-substrate decision tree at greenfield, but it **does** cover UIx/Helix greenfield: `references/entry-namespace.md` §UIx / Helix greenfield gives the adapter substitutions (deps swap + entry-ns root API + substrate views) plus worked UIx/Helix code, and points at the generator template's complete `_uix/` / `_helix/` variants. SKILL.md cardinal rule 4 and README.md §"What it deliberately does NOT cover" carry the same pointer.
+Unless the author explicitly says UIx or Helix, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a full multi-substrate decision tree at greenfield, but it **does** cover UIx/Helix greenfield completely: the substrate-neutral counter dataflow (events + subs + schema) is single-sourced once in `references/shared-dataflow.md` (copied verbatim by both substrates); `references/entry-namespace.md` §UIx / Helix greenfield gives the substrate-specific deltas (deps swap + entry-ns root API + substrate views) plus worked UIx/Helix `core.cljs` + `views.cljs`, and points at the generator template's complete `_uix/` / `_helix/` variants. Each substrate `core.cljs` `:require`s the shared trio and calls `register-schema!` under `with-frame` before `dispatch-sync`, matching the generator's boot order. SKILL.md cardinal rule 4 and README.md §"What it deliberately does NOT cover" carry the same pointer.
 
 ### L5 — Don't write tests for the author
 
@@ -78,7 +78,7 @@ SKILL.md ends with a hand-off paragraph (to `re-frame2` for code-writing, `re-fr
 - Authoring application code beyond the first counter → `skills/re-frame2/`.
 - Live-runtime debugging → `skills/re-frame2-pair/`.
 - Building re-frame2 in a different host language → `skills/re-frame2-implementor/`.
-- Full multi-substrate decision trees at greenfield — Reagent is the default. UIx/Helix greenfield is **in scope** at the recipe level: `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions plus the generator-template pointer (see L4).
+- Full multi-substrate decision trees at greenfield — Reagent is the default. UIx/Helix greenfield is **in scope** at the recipe level: the single-sourced shared dataflow (`references/shared-dataflow.md`) plus the substrate deltas in `references/entry-namespace.md` §UIx / Helix greenfield, plus the generator-template pointer (see L4).
 - Writing tests, registering events, subs, machines, schemas — all the main `re-frame2` skill's job.
 
 ## 5. File structure (locked)
@@ -93,8 +93,9 @@ skills/re-frame2-setup/
 ├── references/
 │   ├── deps-versions.md           (lockstep VERSION discipline; deps.edn / package.json)
 │   ├── shadow-cljs.md             (build shape, index.html, CSP)
-│   ├── entry-namespace.md         (rf/init! + Reagent root contract + UIx/Helix greenfield)
-│   └── first-counter.md           (end-to-end worked example)
+│   ├── entry-namespace.md         (rf/init! + Reagent root contract + UIx/Helix substrate core/views)
+│   ├── first-counter.md           (end-to-end worked Reagent counter, one file)
+│   └── shared-dataflow.md         (substrate-neutral events/subs/schema; single-sourced for UIx/Helix)
 ├── spec/
 │   ├── design.md                  (this file)
 │   ├── inputs.md                  (canonical inputs)
@@ -105,7 +106,7 @@ skills/re-frame2-setup/
     └── evals.json                 (trigger-accuracy fixture)
 ```
 
-Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)); `entry-namespace.md` runs slightly over because it carries the full UIx/Helix greenfield recipe, which the `check_skill_setup_counter_drift.py` guard pins to that file (so it cannot be split into its own leaf). A typical greenfield session reads SKILL.md + 2 reference leaves. `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
+Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline)); `entry-namespace.md` runs slightly over because it carries the full UIx/Helix substrate recipe, which the `check_skill_setup_counter_drift.py` guard pins to that file (so it cannot be split into its own leaf). The substrate-neutral events/subs/schema live in their own `shared-dataflow.md` leaf so both non-Reagent substrates single-source them (and to keep `entry-namespace.md` from growing further). A typical greenfield session reads SKILL.md + 2 reference leaves (3 for UIx/Helix, adding `shared-dataflow.md`). `spec/`, `tests/`, and `evals/` are excluded from the npm `files` array by design.
 
 ## 6. Discovery surface (frontmatter `description`)
 
@@ -116,7 +117,7 @@ The `description` is "pushy" and lists the greenfield-trigger phrases the shippe
 - **Hardcoding artefact versions in suggestions** — L1 cardinal rule.
 - **Mixing versions across the eleven artefacts** — L2 cardinal rule.
 - **Adding per-feature artefacts defensively** — L3 cardinal rule + `references/deps-versions.md`'s "pay-as-you-go" framing.
-- **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx/Helix are a documented two-substitution delta, not a branching interview.
+- **A full multi-substrate decision tree at greenfield** — L4. Reagent is the default; UIx/Helix are a documented recipe (single-sourced shared dataflow + a small substrate delta), not a branching interview.
 - **Writing tests for the author** — L5 cardinal rule.
 - **Drifting into application-code authoring** — L5/L10; the exit hand-off routes past-setup work to `re-frame2`.
 
@@ -133,7 +134,7 @@ The skill's load-bearing snippets are compile-tested and drift-guarded in re-fra
 
 - **`setup-skill-scaffold-compiles-test`** (`tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj`) — materialises the fenced code blocks straight from the skill markdown (`references/first-counter.md` → `src/your_app/core.cljs`; `references/shadow-cljs.md` → `shadow-cljs.edn` + `index.html` + `css/app.css`), rewrites framework coords to `:local/root`, links `node_modules`, and runs `clojure -M:shadow compile app`. Behind the `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` gate (runs in the `jvm-tools-template` CI job). It proves the snippets compile against in-repo coords — **not** that a published Clojars/git coordinate resolves from a fresh project (that buildability gate stays deferred to publication).
 - **`scripts/check_skill_setup_counter_drift.py`** — repo-level Python gate (`verify-skill-mcp-drift` CI job): counter-id vocabulary containment (first-counter.md ↔ entry-namespace.md ↔ template), the `:init-fn` hot-reload lifecycle wording, and Spec 006 adapter-key vocabulary.
-- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): locks the build-discipline framing, UIx/Helix template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload, the user-run-generator framing, and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
+- **`tests/setup_drift_test.clj`** — skill-local Babashka structural guard (`skills-structural` CI job): locks the build-discipline framing, UIx/Helix template-pin parity, the right-side Xray host shape, the CSP dev/prod split, npx-qualified commands, the publication-state coordinate branch, the loud schema-missing contract, the day-one Xray preload, the user-run-generator framing, the substrate-neutral namespace graph (both UIx/Helix `core.cljs` `:require` the shared events/subs/schema from `shared-dataflow.md` and call `register-schema!` under `with-frame` before `dispatch-sync`), and the public entry-ramp docs (docs-site page + skills index). Run locally with `bb tests/setup_drift_test.clj`.
 
 Both prose guards assert the skill teaches the right shapes; broader real-regression coverage of the wiring lives in the substrate contract tests (`npm run test:cljs`).
 
@@ -141,7 +142,7 @@ Both prose guards assert the skill teaches the right shapes; broader real-regres
 
 ### OQ1 — Should the skill cover UIx / Helix greenfield? — RESOLVED (done)
 
-**Resolved: yes, at the recipe level.** Rather than separate `entry-namespace-uix.md` / `-helix.md` leaves, the shipped skill folds UIx/Helix greenfield into `references/entry-namespace.md` §UIx / Helix greenfield — the two adapter substitutions (deps swap + entry-ns root API), a worked UIx `core.cljs`, and a pointer to the generator template's complete `_uix/` / `_helix/` variants. Reagent stays the default; UIx/Helix are a documented two-substitution delta, not a full decision tree. See L4.
+**Resolved: yes, at the recipe level, and completely.** The shipped skill folds the UIx/Helix substrate deltas into `references/entry-namespace.md` §UIx / Helix greenfield (deps swap + entry-ns root API + worked UIx/Helix `core.cljs` + `views.cljs`) and single-sources the substrate-neutral events/subs/schema in `references/shared-dataflow.md`, which both substrate entry namespaces `:require`. Together they are a complete, self-contained emitted project — no monorepo template on disk required. Reagent stays the default. See L4.
 
 ### OQ2 — Should the skill ship a runnable `setup.bb` script?
 

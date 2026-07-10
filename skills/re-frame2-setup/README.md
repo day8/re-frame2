@@ -66,7 +66,7 @@ The canonical six-step greenfield path:
 - Live REPL inspection of the running app — that's [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair).
 - Migrating an existing re-frame v1 codebase to v2 — that's a different problem; see [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 - Test infrastructure, CI, deployment — out of scope. The author chooses their own.
-- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
+- Anything beyond Reagent + shadow-cljs. The canonical path is Reagent + shadow-cljs. For a UIx or Helix greenfield, the substrate-neutral dataflow (events + sub + schema) is single-sourced in `references/shared-dataflow.md`, and `references/entry-namespace.md` §UIx / Helix greenfield gives the substrate `core.cljs` + `views.cljs` this skill hand-wires; the fastest non-Reagent path is the **user-run** generator template's complete `_uix/` / `_helix/` variants (`clojure -Tnew create ... :substrate :uix`, run by the author — see "Relationship to the generator template" above for who runs what).
 
 ## Status
 
@@ -86,7 +86,8 @@ skills/re-frame2-setup/
 │   ├── deps-versions.md
 │   ├── shadow-cljs.md
 │   ├── entry-namespace.md
-│   └── first-counter.md
+│   ├── first-counter.md
+│   └── shared-dataflow.md
 ├── spec/
 │   ├── design.md
 │   ├── inputs.md
@@ -97,7 +98,7 @@ skills/re-frame2-setup/
     └── evals.json
 ```
 
-`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The four reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. No leaf depends on another leaf; they can be read in any order. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
+`SKILL.md` is the router: it walks the six-step canonical path and links to the leaf in `references/` whenever depth is useful. The five reference files are each one level deep — Claude reads them in full when the corresponding step needs more detail. The UIx / Helix recipe reads two together (`entry-namespace.md` for the substrate `core.cljs` / `views.cljs`, `shared-dataflow.md` for the substrate-neutral events / subs / schema); otherwise no leaf depends on another. `spec/` carries skill-internal design/authoring meta-docs, `tests/` holds the structural drift guard (`bb tests/setup_drift_test.clj`), and `evals/` holds the trigger-accuracy fixture — all repo-maintenance surfaces, not shipped with the skill (the `files` allow-list omits them).
 
 ## Install the skill in Claude Code
 

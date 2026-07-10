@@ -82,6 +82,9 @@
 (def ^:private first-counter-md
   (delay (slurp-rel setup-root "references/first-counter.md")))
 
+(def ^:private shared-dataflow-md
+  (delay (slurp-rel setup-root "references/shared-dataflow.md")))
+
 (def ^:private reagent-template-core
   (delay (slurp-rel repo-root
                     "tools/template/resources/day8/re_frame2_template/_reagent/core.cljs")))
@@ -884,6 +887,85 @@
                "first registration; a hot-reload surgical update does not "
                "rerun it, so the demo would not re-seed. Use the "
                "dispatch-sync reset boundary instead (rf2-xqds87).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 14 — the UIx/Helix manual namespace graph is COMPLETE and SELF-CONTAINED.
+;;
+;; The alternate-substrate route was previously false-green: the entry snippets
+;; dispatched :counter/initialise and subscribed :counter/value, but no supplied
+;; copied file registered them, so a compiled project reached
+;; :rf.error/no-such-handler / :rf.error/no-such-sub at boot and never attached
+;; CounterDb. The fix single-sources the substrate-neutral dataflow ONCE in
+;; references/shared-dataflow.md (events + subs + schema) and makes BOTH the UIx
+;; and Helix entry namespaces :require it + call register-schema! under
+;; with-frame BEFORE dispatch-sync (the generator's boot order). These guards
+;; fail if the shared dataflow loses any of the three registration axes, or if a
+;; substrate core.cljs stops requiring it / stops attaching the schema before the
+;; seed. Lock 7 checks only that the VIEW snippets exist; a project with the
+;; views but no registrations still COMPILES — this lock closes that hole
+;; (rf2-3fc89f).
+;; ---------------------------------------------------------------------------
+
+(deftest shared-dataflow-registers-all-three-axes
+  (testing "shared-dataflow.md supplies copy-complete event, sub, and schema registrations"
+    (let [body @shared-dataflow-md]
+      (is (and (re-find #"reg-event\s+:counter/initialise" body)
+               (re-find #"reg-event\s+:counter/increment" body))
+          (str "shared-dataflow.md no longer registers BOTH :counter/initialise "
+               "and :counter/increment via reg-event. The substrate-neutral "
+               "events source must install every event the UIx/Helix views "
+               "dispatch, or the manual scaffold boots to "
+               ":rf.error/no-such-handler (rf2-3fc89f)."))
+      (is (re-find #"reg-sub\s+:counter/value" body)
+          (str "shared-dataflow.md no longer registers the :counter/value sub. "
+               "The UIx/Helix views subscribe it via use-subscribe; without the "
+               "registration the counter renders nil (:rf.error/no-such-sub) "
+               "(rf2-3fc89f)."))
+      (is (and (str/includes? body "CounterDb")
+               (re-find #"reg-app-schema\s+\[\]\s+CounterDb" body)
+               (str/includes? body "register-schema!"))
+          (str "shared-dataflow.md no longer supplies the CounterDb schema + a "
+               "frame-local register-schema! that calls (reg-app-schema [] "
+               "CounterDb). The day-one typed-boundary posture requires the "
+               "whole-app-db schema to be attachable at boot (rf2-3fc89f)."))
+      ;; The events source must require re-frame.schemas (side-effecting) so the
+      ;; Malli validator is live before register-schema! runs.
+      (is (str/includes? body "[re-frame.schemas]")
+          (str "shared-dataflow.md no longer requires `[re-frame.schemas]` — the "
+               "side-effecting load that wires Malli's validate/explain so a "
+               "registered schema validates rather than throwing "
+               ":rf.error/schemas-artefact-missing (rf2-3fc89f).")))))
+
+(deftest uix-helix-core-requires-shared-dataflow-and-attaches-schema
+  (testing "entry-namespace.md's UIx + Helix core.cljs require the shared graph and attach the schema before the seed"
+    (let [body @entry-namespace-md]
+      ;; Both substrate core.cljs blocks must :require the shared event/sub/schema
+      ;; namespaces (once per substrate → at least two occurrences of each token
+      ;; in the leaf, tolerating extra prose mentions).
+      (doseq [[label ns-token] [["events" "your-app.events"]
+                                ["subs"   "your-app.subs"]
+                                ["schema" "your-app.schema"]]]
+        (is (>= (count (re-seq (re-pattern (java.util.regex.Pattern/quote ns-token)) body)) 2)
+            (str "entry-namespace.md's UIx/Helix core.cljs no longer :require the "
+                 "shared `" ns-token "` namespace in BOTH substrate snippets. "
+                 "Each substrate entry ns must load the shared " label
+                 " registrations, or the compiled project boots with the "
+                 "dataflow unregistered (rf2-3fc89f).")))
+      ;; register-schema! must be called at boot in BOTH substrate blocks.
+      (is (>= (count (re-seq #"\(schema/register-schema!\)" body)) 2)
+          (str "entry-namespace.md no longer calls (schema/register-schema!) in "
+               "BOTH the UIx and Helix core.cljs. The frame-local schema attach "
+               "must run at boot on every substrate, matching the generator's "
+               "_uix/core.cljs / _helix/core.cljs (rf2-3fc89f)."))
+      ;; …and it must sit UNDER with-frame, BEFORE the dispatch-sync seed
+      ;; (reg-app-schema needs a live frame; the first seed write must be validated).
+      (is (re-find #"with-frame[^\n]*(?:\n[^\n]*){0,2}?\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,2}?dispatch-sync\s+\[:counter/initialise\]"
+                   body)
+          (str "entry-namespace.md's substrate boot no longer attaches the schema "
+               "under with-frame BEFORE the dispatch-sync seed. reg-app-schema "
+               "needs a live frame and the first :counter/initialise write must be "
+               "validated — order must be with-frame → register-schema! → "
+               "dispatch-sync (rf2-3fc89f).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
