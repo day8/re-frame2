@@ -618,9 +618,13 @@ test('publishOwnershipToken remove() preserves a newer overlapping run\'s replac
 // that replaces the per-caller `-a 127.0.0.1` argv-regex policy checks.
 
 // A fake bin that parses the http-server-shaped argv (positional root, `-a`,
-// `-p`), binds the requested host+port, serves 200 on any path, and records
-// the FULL composed argv (once listening) so the loopback/static composition
-// can be asserted directly.
+// `-p`), binds the requested host+port, and records the FULL composed argv
+// (once listening) so the loopback/static composition can be asserted directly.
+// It models a REAL static file server for the ownership sentinel: a request for
+// /.rf-harness-token is answered with the token file startLocalHttpServer
+// published under `root` (this is exactly how the real http-server serves the
+// dotfile — see serve-and-run-browser-tests.cjs), so the owned-readiness
+// handshake sees THIS run's token. Any other path -> 200 'ok'.
 const FAKE_HTTP_SERVER = `
 'use strict';
 const http = require('http');
@@ -634,10 +638,47 @@ for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '-a') host = argv[i + 1];
   else if (argv[i] === '-p') port = Number(argv[i + 1]);
 }
-const server = http.createServer((_, res) => { res.writeHead(200); res.end('ok'); });
+const server = http.createServer((req, res) => {
+  const url = (req.url || '/').split('?')[0];
+  if (url === '/.rf-harness-token') {
+    try {
+      const body = fs.readFileSync(path.join(root, '.rf-harness-token'), 'utf8');
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end(body);
+    } catch (_) {
+      res.writeHead(404);
+      res.end('no token');
+    }
+    return;
+  }
+  res.writeHead(200);
+  res.end('ok');
+});
 server.listen(port, host, () => {
   fs.writeFileSync(path.join(root, '.fake-argv.json'), JSON.stringify(argv));
 });
+`;
+
+// A fake that parses the http-server-shaped argv, tries to bind the SAME
+// host+port, and exits 3 on EADDRINUSE — exactly how real http-server loses the
+// port race to a stale/sibling listener that squatted the port between
+// resolveServePort() and this spawn. It never serves anything of this run's.
+const FAKE_HTTP_LOSES_BIND = `
+'use strict';
+const http = require('http');
+const argv = process.argv.slice(2);
+let host = '0.0.0.0';
+let port = 0;
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '-a') host = argv[i + 1];
+  else if (argv[i] === '-p') port = Number(argv[i + 1]);
+}
+const server = http.createServer((_, res) => { res.writeHead(200); res.end('ours'); });
+server.once('error', (err) => {
+  process.stderr.write('fake http-server: bind failed ' + err.code + '\\n');
+  process.exit(3);
+});
+server.listen(port, host);
 `;
 
 // A fake that emits a known line synchronously (so the parent's bounded
@@ -798,11 +839,215 @@ test('startLocalHttpServer aborts fast on an early server exit rather than burni
       `the non-zero exit must be surfaced; got ${JSON.stringify(logged)}`,
     );
     assert.ok(
-      logged.some((l) => /did not become reachable on :/.test(l)),
-      'the unreachable diagnostic must still be logged on the abort path',
+      logged.some((l) => /exited before it became ready on :/.test(l)),
+      'the child-exited owned-readiness diagnostic must be logged on the abort path',
     );
   } finally {
     cleanup.cleanupSync();
+    rmTmp(dir);
+  }
+});
+
+// rf2-3fc89f.14 — OWNED readiness is startLocalHttpServer's DEFAULT lifecycle.
+// The prior implementation awaited unowned waitForHttpReady, so during the
+// non-atomic resolveServePort()->spawn port handoff a FOREIGN server already
+// listening on the target port could answer the liveness probe and be accepted
+// as ready:true — a latent false-green across three CI browser gates (directly
+// analogous to the Xray defect closed as rf2-84gzw). These tests pin the fix:
+// a foreign tree is rejected, a missing/non-directory root fails loudly, and
+// the per-run ownership token is published + torn down concurrency-safely.
+
+// The core repro as a unit test. A foreign server serving a DIFFERENT asset
+// tree already holds the port; the spawned http-server loses the bind and
+// exits. The helper must return ready:false (never true) — refused for an
+// ownership reason (token-mismatch) or the lost-bind child exit. This assertion
+// FAILS on the pre-fix code, which returned ready:true against the foreign tree.
+test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3fc89f.14)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_LOSES_BIND, 'fake-http-loses-bind.cjs');
+  // Stand up the foreign server on a real loopback port; it answers every path
+  // (incl. /.rf-harness-token) with a tree this run never staged.
+  const foreign = http.createServer((_, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('FOREIGN-ASSET-TREE');
+  });
+  const port = await listenOnLoopback(foreign);
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const logged = [];
+  try {
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 4000,
+      captureOutput: true,
+      log: (m) => logged.push(m),
+    });
+    assert.equal(
+      ready,
+      false,
+      'a foreign asset tree squatting the port must NOT be accepted as ready',
+    );
+    // The refusal must cite an ownership / child-exit reason — not merely
+    // "unreachable" (the foreign server WAS reachable).
+    assert.ok(
+      logged.some((l) =>
+        /a foreign server answered|exited before it became ready on :|never served this run's/.test(l),
+      ),
+      `the refusal must cite an ownership/child-exit reason; got ${JSON.stringify(logged)}`,
+    );
+  } finally {
+    await cleanup.cleanup();
+    await new Promise((r) => foreign.close(r));
+    rmTmp(dir);
+  }
+});
+
+// The owned happy path: the (token-serving) fake proves ready:true flows ONLY
+// once the responder serves this run's published token — i.e. owned readiness
+// succeeds for the server this harness actually launched.
+test('startLocalHttpServer accepts the server that serves this run\'s ownership token (rf2-3fc89f.14)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
+  try {
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+    });
+    assert.equal(ready, true, 'the owned server serving our token must be accepted');
+    // The token that gated readiness is exactly the one published under root.
+    assert.equal(
+      await fetchToken(port),
+      fs.readFileSync(tokenPath, 'utf8'),
+      'readiness must have matched the served token against the published sentinel',
+    );
+  } finally {
+    await cleanup.cleanup();
+    rmTmp(dir);
+  }
+});
+
+// Missing staging root fails LOUDLY (throws) before any spawn/browser work.
+// On the pre-fix code startLocalHttpServer never validated the root and never
+// threw — so assert.rejects FAILS on old code.
+test('startLocalHttpServer throws loudly when the staging root does not exist (rf2-3fc89f.14)', async () => {
+  const missing = path.join(
+    os.tmpdir(),
+    `rf2-missing-root-${crypto.randomBytes(6).toString('hex')}`,
+  );
+  assert.equal(fs.existsSync(missing), false, 'precondition: root must not exist');
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  await assert.rejects(
+    () =>
+      startLocalHttpServer({
+        cleanup,
+        httpServerBin: 'unused',
+        root: missing,
+        port: 1,
+        readyTimeoutMs: 500,
+      }),
+    /does not exist or is not a directory/,
+  );
+});
+
+test('startLocalHttpServer throws loudly when the staging root is a file, not a directory (rf2-3fc89f.14)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-notdir-'));
+  const filePath = path.join(dir, 'a-file');
+  fs.writeFileSync(filePath, 'x');
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  try {
+    await assert.rejects(
+      () =>
+        startLocalHttpServer({
+          cleanup,
+          httpServerBin: 'unused',
+          root: filePath,
+          port: 1,
+          readyTimeoutMs: 500,
+        }),
+      /does not exist or is not a directory/,
+    );
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+// The ownership token is torn down via the supplied cleanup handle, and its
+// removal is concurrency-safe: our cleanup unlinks OUR token but preserves a
+// newer overlapping run's replacement (the publishOwnershipToken contract,
+// exercised through startLocalHttpServer's default lifecycle).
+test('startLocalHttpServer cleanup removes only THIS run\'s ownership token (rf2-3fc89f.14)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
+  try {
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+    });
+    assert.equal(ready, true);
+    assert.ok(
+      fs.existsSync(tokenPath),
+      'startLocalHttpServer must publish the ownership token under root before serving',
+    );
+    const ourToken = fs.readFileSync(tokenPath, 'utf8');
+    // A NEWER overlapping run against the SAME root re-publishes its own token.
+    const newer = publishOwnershipToken(dir);
+    assert.notEqual(newer.token, ourToken, 'the two runs must have distinct nonces');
+    // Our cleanup must terminate the server AND run the registered token
+    // removal — which must NOT delete the newer run's token.
+    await cleanup.cleanup();
+    assert.ok(
+      fs.existsSync(tokenPath),
+      'our cleanup must preserve a newer overlapping run\'s replacement token',
+    );
+    assert.equal(fs.readFileSync(tokenPath, 'utf8'), newer.token);
+    // The newer run's own remove() cleans up its sentinel.
+    newer.remove();
+    assert.equal(fs.existsSync(tokenPath), false);
+  } finally {
+    rmTmp(dir);
+  }
+});
+
+test('startLocalHttpServer cleanup unlinks its own ownership token in the non-overlapping case (rf2-3fc89f.14)', async () => {
+  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
+  const port = await findFreePort();
+  const cleanup = createHarnessCleanup({ onError: () => {} });
+  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
+  try {
+    const { ready } = await startLocalHttpServer({
+      cleanup,
+      httpServerBin: binPath,
+      root: dir,
+      port,
+      cwd: dir,
+      readyTimeoutMs: 5000,
+      log: () => {},
+    });
+    assert.equal(ready, true);
+    assert.ok(fs.existsSync(tokenPath), 'precondition: token published');
+    await cleanup.cleanup();
+    assert.equal(
+      fs.existsSync(tokenPath),
+      false,
+      'cleanup must unlink this run\'s ownership token',
+    );
+  } finally {
     rmTmp(dir);
   }
 });
