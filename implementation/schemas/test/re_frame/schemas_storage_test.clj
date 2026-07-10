@@ -1,16 +1,9 @@
 (ns re-frame.schemas-storage-test
-  "JVM tests for the slice-local storage / introspection surface
-  (rf2-yv62u).
+  "JVM tests for frame-local schema storage and introspection.
 
-  The audit (rf2-yv62u) flagged a coverage gap: while the validation
-  hot path is well-pinned, the per-frame storage / introspection
-  surface had no direct slice-local tests for `app-schema-meta-at`,
-  `frame-schema-entries`, or the `coerce-opts` bad-arg branch.
-  Drift in these introspection helpers would silently break pair-
-  tools, 10x panels, and the late-bind seam between schemas and
-  elision / epoch.
-
-  This file pins the storage / introspection contract."
+  Pins registration metadata, canonical path and frame targeting, bulk
+  validation, snapshot/restore, hot reload, and the `frame-schema-entries`
+  seam consumed by tools and sibling artefacts."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]

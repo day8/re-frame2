@@ -1,5 +1,5 @@
 (ns re-frame.schemas.cache
-  "Clearable memo cache primitive (rf2-17sqc shape, consolidated rf2-mse54).
+  "Clearable memo cache primitive.
 
   Two schemas-slice memos — the digest printer (`validator/default-edn-print`)
   and the sensitive-path walker (`walker/extract-sensitive-paths-from-schema`)
@@ -9,14 +9,12 @@
   harness) could never reset the process-lifetime cache; both memos hand-
   rolled the same atom-backed lookup-or-compute + reset! clear pair.
 
-  `clearable-memo` is that pair, parameterised on the underlying fn.
-
-  ## Boot-once invariant (Mike ruled rf2-17sqc, option B)
+  `clearable-memo` supplies that pair for an arbitrary function.
 
   App schemas are registered ONCE at boot, so each memo is bounded by the
   registered-schema cardinality and is intentionally NOT evicted — no
   bounded LRU. The only scenario that violates boot-once is a test that
-  deliberately registers many distinct fresh schemas; such tests call the
+  deliberately generates many distinct schemas; such tests call the
   returned `clear!` fn in fixture teardown so the cache doesn't grow
   unbounded across the suite. See [010 §Schema digest].")
 

@@ -3,13 +3,13 @@
 
   A stable, cross-runtime hash over a frame's registered `app-db`
   schema set. The wire form is `\"sha256:\" + first-16-hex-chars`. Two
-  frames produce equal digests iff their `{path → schema-value}` maps
-  serialise byte-for-byte identically.
+  Equal serialized schema maps produce equal digests. The 64-bit truncated
+  result is a drift fingerprint, not an injective identity.
 
   Per Spec 010 §Schema digest line 491 the per-schema serialisation
   step routes through the registered validator's `schema-print`
-  companion fn — pluggable via `re-frame.schemas.validator/printer-fn`
-  (rf2-wla45). The default is `validator/default-edn-print` (the
+  companion fn, pluggable via `re-frame.schemas.validator/printer-fn`.
+  The default is `validator/default-edn-print` (the
   Malli-EDN canonical `pr-str`); non-Malli ports register their own
   serialiser via `set-schema-printer!` so the digest reflects the
   registered validator's serialisation contract rather than the
@@ -72,11 +72,10 @@
   "Per Spec 010 §Digest algorithm step 3 — emit one line per
   `(path, schema-value)` of the form `<path-key-bytes> <hex-of-sha256>\\n`.
   The per-schema serialisation routes through the registered
-  `schema-print` companion (rf2-wla45) so non-Malli ports compute
+  `schema-print` companion so non-Malli ports compute
   digests against their own canonical bytes.
 
-  EP-0012 §Path shape + §Canonical EDN identity (rf2-94o54l.2 + rf2-ujmc3u):
-  the path key is encoded through the shared CEDN-1
+  The path key is encoded through the shared CEDN-1
   `re-frame.identity/canonical-bytes`, NOT `pr-str`. Conventions §Canonical
   EDN identity lists \"schema digest path keys\" among the canonical-identity
   surfaces — `pr-str` is host-divergent for the non-keyword segments a
@@ -101,8 +100,7 @@
   "Lexicographic comparison of two strings as UTF-8 byte sequences, per
   Spec 010 §Digest algorithm step 4 (\"sort the lines lexicographically
   as byte sequences (UTF-8) … identical across hosts\"). Bytes are
-  compared unsigned (0..255) so the order matches a byte-sort on any
-  port (rf2-ee38b.6).
+  compared unsigned (0..255) so the order matches a byte-sort on any port.
 
   Host-native string `compare` (JVM `String.compareTo` / JS string
   comparison) is UTF-16 code-unit order, which diverges from UTF-8 byte

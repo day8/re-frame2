@@ -1,13 +1,11 @@
 (ns re-frame.schemas.validator
-  "Pluggable validator / explainer / printer fns (rf2-froe + rf2-wla45).
+  "Pluggable validator, explainer, and schema-printer functions.
 
   Per Spec 010 §Non-Malli validators — the validator-fn extension point.
   The framework never inspects the value stored in `:schema` directly;
   every validation site routes through the registered validator fn.
-  This is the seam Malli plugs into by default; apps that want to drop
-  the ~24 KB gzipped Malli surface (rf2-qnxf) call
-  `(schemas/set-schema-validator! some-other-fn)` (or `nil` for no-op) at
-  boot before any reg-app-schema / :schema metadata lands.
+  This is the seam Malli plugs into by default. Applications may install a
+  different validator bundle, or nil for no validation.
 
   Three fns are registered separately so the validate hot path stays
   cheap (validate returns truthy/falsey; explain is only invoked on
@@ -35,33 +33,13 @@
               EDN canonicaliser, which is the cross-runtime contract
               every Malli-EDN-compatible port shares.
 
-  Each fn has a dedicated single-purpose setter — `set-schema-validator!`
-  / `set-schema-explainer!` / `set-schema-printer!`. `set-schema-fns!`
-  installs any subset of the three as one atomic bundle for callers
-  (a port's boot, a substitute-Malli swap) who want all three to land
-  together. The bundle setter is named for what it does — it does NOT
-  pretend to set only the validator (rf2-13meg).
+  Dedicated setters change one function. `set-schema-fns!` installs any
+  subset as a bundle so a schema-language port can keep validation,
+  explanations, and digest serialization aligned.
 
-  Per rf2-t0hq the CLJS default validator used to reach Malli through
-  runtime `resolve` — but CLJS has no runtime resolve (the symbol is
-  a compile-time analyzer affordance only). The fix is the rf2-froe /
-  rf2-p7va substitute-validator pattern: the `re-frame.schemas.malli`
-  adapter namespace publishes Malli's `validate` and `explain` into the
-  late-bind hook table on ns-load. The default fns below consult the
-  table on every call.
-
-  Per rf2-v96fh (schema implies validation) the `re-frame.schemas`
-  facade now `:require`s `re-frame.schemas.malli` itself, so loading the
-  schemas artefact wires the Malli hooks automatically — the default
-  validator is LIVE the moment a schema is registered. The soft-pass
-  branch below (return `true` when `:schemas/malli-validate` is unbound)
-  is therefore the defensive fallback for two residual cases, NOT the
-  default state: (1) a non-Malli port / app that installed its own
-  validator via `set-schema-fns!` and never bound the Malli hook, and
-  (2) test harnesses that deliberately unbind the hook to exercise the
-  absent path. Per Spec 010 §Recommended soft-pass an unbound default
-  validator passes rather than failing, so a substitute-validator
-  app is never blocked by Malli's absence."
+  The Malli adapter publishes its functions through late binding. The façade
+  loads that adapter automatically; the absent-hook soft-pass remains a
+  defensive contract for substitute ports and isolated tests."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.schemas.cache :as cache]))
 
@@ -70,7 +48,7 @@
 (defn- default-malli-validate
   "The default validator — delegates to `malli.core/validate` via the
   late-bind hook `:schemas/malli-validate` published by
-  `re-frame.schemas.malli` (rf2-t0hq). Soft-passes (returns true) when
+  `re-frame.schemas.malli`. Soft-passes (returns true) when
   the adapter ns is not loaded, per Spec 010 §Recommended soft-pass.
 
   Apps that want Malli-absent behaviour to be a hard fail register
@@ -83,7 +61,7 @@
 (defn- default-malli-explain
   "The default explainer — delegates to `malli.core/explain` via the
   late-bind hook `:schemas/malli-explain` published by
-  `re-frame.schemas.malli` (rf2-t0hq). Returns nil when the adapter
+  `re-frame.schemas.malli`. Returns nil when the adapter
   ns is not loaded — the failure trace then omits the `:explain` key."
   [schema value]
   (when-let [e (late-bind/get-fn :schemas/malli-explain)]
@@ -120,9 +98,7 @@
 (defn- compute-edn-print
   "The pure serialisation step behind `default-edn-print` — `pr-str`
   over a canonicalised EDN form with the digest pipeline's print-flag
-  bindings. Extracted so the memo wrapper can be swapped for an
-  atom-backed cache (rf2-17sqc) without disturbing the serialisation
-  contract. Same `schema-value` always returns byte-identical bytes."
+  bindings. Same `schema-value` always returns byte-identical bytes."
   [schema-value]
   (binding [*print-meta*           false
             *print-readably*       true
@@ -130,18 +106,12 @@
             *print-namespace-maps* false]
     (pr-str (canonicalise-schema-form schema-value))))
 
-;; `default-edn-print` is the clearable-memo wrapper over
-;; `compute-edn-print` (rf2-17sqc shape; the factory lives in
-;; `re-frame.schemas.cache`, consolidated rf2-mse54). The cache is
-;; *clearable* (`clojure.core/memoize` exposes no clear hook) so a test
-;; that registers many distinct fresh schemas (the concurrency-stress
-;; harness) can reset the process-lifetime cache in fixture teardown.
-;; Behaviour for callers is byte-identical to the prior `memoize` form.
-;; See `re-frame.schemas.cache` for the boot-once invariant.
+;; The process-lifetime print cache is bounded by boot-time schema
+;; cardinality and can be cleared by test fixtures that generate schemas.
 (let [[memo clear!] (cache/clearable-memo compute-edn-print)]
 
   (def
-    ^{:doc "The default schema-print companion (rf2-wla45). Per Spec 010
+    ^{:doc "The default schema-print companion. Per Spec 010
             §Schema digest line 491 — serialise a schema value to the
             stable UTF-8 byte-source string the digest pipeline hashes.
             The default uses `pr-str` over a canonicalised EDN form:
@@ -154,29 +124,14 @@
             the registered validator's serialisation contract rather than
             the framework's Malli-EDN default.
 
-            Memoised by `schema-value` (rf2-y29nf): the digest pipeline
-            (`re-frame.schemas.digest/compute-digest`) calls this once per
-            registered schema per digest call, and the digest is invoked
-            on the SSR hydrate handshake, the epoch-restore schema-
-            mismatch trace, and pair-tool drift detection — repeat calls
-            against the same registered schema values dominate. Pure over
-            immutable schema values, so the cache is bounded by the
-            registered-schema cardinality.
-
-            The memo is **clearable** for test isolation via
-            `clear-edn-print-cache!` (rf2-17sqc)."
+            Memoised by immutable schema value and clearable for test
+            isolation via `clear-edn-print-cache!`."
       :arglists '([schema-value])}
     default-edn-print memo)
 
   (def
-    ^{:doc "Reset the `default-edn-print` memo cache (rf2-17sqc). Test-
-            support hook: the printer memo is process-lifetime and bounded
-            by the registered-schema cardinality in real apps (schemas
-            register once at boot), so production never needs this — but a
-            test that registers many distinct fresh schemas
-            (`schemas_concurrency_stress_test`) calls it in fixture
-            teardown so the cache doesn't grow unbounded across the suite.
-            Returns nil."
+    ^{:doc "Reset the `default-edn-print` memo cache. Intended for test
+            fixtures that generate fresh schemas. Returns nil."
       :arglists '([])}
     clear-edn-print-cache! clear!))
 
@@ -213,11 +168,8 @@
 
 (defn set-schema-validator!
   "Register the validator fn that every dev-time validation site routes
-  through. Per Spec 010 §Non-Malli validators the seam is
-  the substitute-Malli extension point — apps that want to drop Malli
-  (the ~24 KB gzipped surface measured in the rf2-qnxf bundle audit)
-  swap in their own validator at boot, before the first `reg-app-schema`
-  or `:schema`-bearing `reg-*` lands.
+  through. Install substitute validators at boot, before schema-bearing
+  registrations land.
 
     (set-schema-validator! validate-fn)
       validate-fn :: (fn [schema value] truthy?)
@@ -228,8 +180,7 @@
   This setter swaps ONLY the validator. The explainer and printer are
   left untouched — apps that also want to swap those call
   `set-schema-explainer!` / `set-schema-printer!`, or use
-  `set-schema-fns!` to install all three as one atomic bundle
-  (rf2-13meg).
+  `set-schema-fns!` to install all three as one bundle.
 
   Per Spec 010 §Non-Malli validators the validator-fn must be pure
   (same `(schema, value)` returns the same result) and must be
@@ -245,10 +196,8 @@
   @validator-fn)
 
 (defn set-schema-fns!
-  "Atomically install any subset of the validator / explainer / printer
-  bundle from a single map (rf2-13meg). The honest bundle setter — its
-  name says it sets all three schema-language fns, not just the
-  validator.
+  "Install any subset of the validator / explainer / printer bundle from
+  a single map.
 
     (set-schema-fns! {:validate validate-fn
                       :explain  explain-fn
@@ -264,17 +213,16 @@
                validation (every site soft-passes).
     :explain   (fn [schema value] explanation) | nil — nil omits the
                failure trace's `:explain` key.
-    :print     (fn [schema-value] canonical-string) | nil — per
-               rf2-wla45 the schema-print companion the digest pipeline
-               hashes (Spec 010 §Schema digest line 491). nil coerces
+    :print     (fn [schema-value] canonical-string) | nil — the schema-print
+               companion the digest pipeline hashes. nil coerces
                to the default EDN canonicaliser (the digest is never
                undefined for a present schema set) — identical to
                `set-schema-printer!`'s nil fallback, so `printer-fn` is
-               never nil after any write (rf2-ee38b.6).
+               never nil after any write.
 
   Last-write-wins per key. Returns the installed bundle as a map —
   `{:validate @validator-fn :explain @explainer-fn :print @printer-fn}`
-  — reflecting the live state of ALL THREE fns after this call (rf2-qdtcx2).
+  — reflecting the live state of all three functions after this call.
   A bundle setter returns its bundle: the return mirrors `set-schema-fns!`'s
   own input shape, so a caller can atomically observe everything that is now
   installed — including keys it did NOT touch and the nil-printer coercion of
@@ -285,18 +233,11 @@
   [{:keys [validate explain print] :as m}]
   (when (contains? m :validate) (reset! validator-fn validate))
   (when (contains? m :explain)  (reset! explainer-fn explain))
-  ;; Per rf2-ee38b.6 (clarity P2): coerce `nil` to the default
-  ;; identically to the dedicated `set-schema-printer!` setter, so
-  ;; "printer-fn is never nil" is a true invariant established at the
-  ;; write site — not re-asserted defensively in `run-printer`.
+  ;; Establish the printer-never-nil invariant at every write site.
   (when (contains? m :print)
     (reset! printer-fn (or print default-edn-print)))
-  ;; rf2-qdtcx2 — return the installed BUNDLE, not just the validator.
-  ;; A bundle setter named for setting all three fns should let the
-  ;; caller observe all three atomically; the old `@validator-fn`-only
-  ;; return left a `{:print …}`-only call handing back a value unrelated
-  ;; to what it set. Read each atom under no lock — these are framework-
-  ;; wide defonce atoms and this is the boot-time install path.
+  ;; Return the full installed bundle, including untouched keys and any
+  ;; nil-printer coercion. This is a boot-time configuration path.
   {:validate @validator-fn
    :explain  @explainer-fn
    :print    @printer-fn})
@@ -316,7 +257,7 @@
 (defn set-schema-printer!
   "Register the schema-print companion — `(fn [schema-value]
   canonical-string)` — the digest pipeline hashes per Spec 010
-  §Schema digest line 491 (rf2-wla45). Parallel to
+  §Schema digest line 491. Parallel to
   `set-schema-validator!` / `set-schema-explainer!`: the validator
   surface is fully pluggable, and the digest contract is too —
   non-Malli ports register their own serialiser so the digest
@@ -352,28 +293,19 @@
   (reset! printer-fn   default-edn-print))
 
 (defn snapshot-schema-fns
-  "Capture the currently-installed validator / explainer / printer bundle
-  as one opaque value (rf2-l4ljvr). The bundle-level companion to the
-  registry's `snapshot-schemas-by-frame` (storage.cljc) — together they
-  let a test capture+restore the WHOLE schema runtime (the per-frame
-  registry AND the pluggable validation bundle) through the encapsulated
-  API, never reaching the raw `validator-fn` / `explainer-fn` /
-  `printer-fn` atoms.
+  "Capture the installed validator, explainer, and printer as one opaque
+  bundle. Together with `snapshot-schemas-by-frame`, this lets fixtures
+  preserve the complete schema runtime through the encapsulated API.
 
   Returns a map in the SAME shape `set-schema-fns!` accepts and returns
-  (rf2-13meg / rf2-qdtcx2):
+  accepted by `set-schema-fns!`:
 
     {:validate @validator-fn   ;; may be nil (validation disabled)
      :explain  @explainer-fn   ;; may be nil (no explanation)
      :print    @printer-fn}    ;; never nil (always at least default-edn-print)
 
-  so the value round-trips losslessly through `restore-schema-fns!`.
-  This is the missing capture half: before rf2-l4ljvr only
-  `reset-schema-validator!` existed (resets to the framework DEFAULT),
-  so a test that wanted to install a custom bundle and later restore the
-  PRIOR custom bundle had to hand-roll the snapshot via raw `@validator-fn`
-  derefs. Reads each atom under no lock — these are framework-wide defonce
-  atoms read at the test seam, mirroring `set-schema-fns!`'s own returns."
+  so the value round-trips through `restore-schema-fns!`. Reads are not a
+  transactional snapshot; configuration is expected to be quiescent here."
   []
   {:validate @validator-fn
    :explain  @explainer-fn
@@ -381,15 +313,15 @@
 
 (defn restore-schema-fns!
   "Reinstall a validator / explainer / printer bundle captured by
-  `snapshot-schema-fns` (rf2-l4ljvr). The bundle-level companion to the
+  `snapshot-schema-fns`. The bundle-level companion to the
   registry's `restore-schemas-by-frame!` (storage.cljc).
 
   Restoring is a FULL bundle install — all three atoms are reset from the
   snapshot map's `:validate` / `:explain` / `:print` keys. Delegates to
   `set-schema-fns!` so a snapshot's keys land through the SAME write path
   the public setter uses: in particular a `nil` `:print` coerces to
-  `default-edn-print` exactly like `set-schema-fns!` / `set-schema-printer!`
-  (rf2-ee38b.6), so the printer-never-nil invariant `run-printer` relies on
+  `default-edn-print` exactly like `set-schema-fns!` / `set-schema-printer!`,
+  so the printer-never-nil invariant `run-printer` relies on
   holds after a restore without a read-site guard — a `snapshot-schema-fns`
   value always carries a non-nil `:print`, but routing the restore through
   the coercing setter keeps the invariant true even for a hand-built bundle
@@ -400,8 +332,8 @@
 (defn using-default-validator?
   "True when `validator-fn` is still the framework-default
   `default-malli-validate`. Used by the
-  `:rf.warning/schema-validator-unavailable` registration-time check
-  (rf2-fq7d2) to distinguish 'app hasn't opted out of Malli' from
+  `:rf.warning/schema-validator-unavailable` registration-time check to
+  distinguish 'app hasn't opted out of Malli' from
   'app installed its own validator and knows what it's doing'."
   []
   (identical? @validator-fn default-malli-validate))
@@ -428,10 +360,10 @@
 (defn run-printer
   "Hot-path entry — invoke the registered schema-print companion against
   a single schema value. Per Spec 010 §Schema digest line 491 the digest
-  pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8 bytes
-  (rf2-wla45). `printer-fn` is never nil: both write sites
+  pipeline (`re-frame.schemas.digest`) hashes this fn's UTF-8 bytes.
+  `printer-fn` is never nil: both write sites
   (`set-schema-printer!` and `set-schema-fns!`'s `:print` key) coerce
-  a nil `:print` to `default-edn-print` (rf2-ee38b.6), so the
+  a nil `:print` to `default-edn-print`, so the
   cross-runtime digest contract holds without a read-site guard."
   [schema-value]
   (@printer-fn schema-value))

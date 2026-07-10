@@ -1,6 +1,6 @@
 (ns re-frame.schemas-sensitive-test
   "JVM tests for the `:sensitive?` redaction contract in schema-validation
-  error traces (rf2-kj51z).
+  error traces.
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
   traces, the validation hot path MUST consult the registered schema's
@@ -15,8 +15,7 @@
     2. The Malli explainer output (`:explain`) is redacted — it
        carries the failing value verbatim.
     3. The trace event's TOP-LEVEL `:sensitive?` field is stamped
-       `true` so consumers route on it. (Per Spec 009 §Trace-event
-       field: `:sensitive?` at the top level, rf2-isdwf — the
+       `true` so consumers route on it. (Per Spec 009 §Trace-event field, the
        schemas-side emit-site stamps `:tags :sensitive? true`; the
        runtime's `emit-error!` promotes it to the top-level slot per
        Spec 009 line 1175 'hoisted to top-level, not :tags'.)
@@ -33,34 +32,21 @@
        bearing combinators).
     2. **Redaction substitution** — direct invocation of
        `validate-app-schema!` / `validate-event!` /
-       `validate-sub!` against a `:sensitive?`-bearing schema
-       fires a trace with the redaction shape pinned. (The cofx surface's
-       redaction now rides the EP-0017 `:rf.error/cofx-value-invalid` path
-       in the core artefact — the injection-time `validate-cofx!` was
-       retired per rf2-nkf4l3.)
-    3. **Backward-compat** — non-sensitive validation failures emit
+       `validate-sub!` against a `:sensitive?`-bearing schema fires a trace
+       with the redaction shape pinned. Recordable cofx validation uses the
+       `:rf.error/cofx-value-invalid` path in core.
+    3. **Non-sensitive failures** — values and explanations emit
        unchanged (`:value`, `:explain` ride verbatim; no top-level
        `:sensitive?` stamp on the event)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            ;; Per rf2-v96fh (schema implies validation) requiring
-            ;; `re-frame.schemas` above already loads `re-frame.schemas.malli`
-            ;; for its ns-load side effect (publishes the validate/explain
-            ;; late-bind hooks the default validator routes through), so the
-            ;; validator is LIVE without this explicit require — kept as a
-            ;; harmless, explicit statement of the Malli dependency
-            ;; (rf2-a5kzs finding 4).
+            ;; Explicit test dependency; the facade also loads this adapter.
             [re-frame.schemas.malli]
-            ;; rf2-u9bjgr — compiled `m/schema` objects exercise the
-            ;; opaque-schema fail-closed redaction arm. Malli is on the
-            ;; schemas test classpath (the artefact deps on metosin/malli).
+            ;; Compiled schemas exercise fail-closed opaque handling.
             [malli.core :as m]
-            ;; rf2-jqx2at — direct unit tests on the internal `:path`-tag
-            ;; sanitiser (`sanitize-sensitive-path`) which is NOT re-exported
-            ;; through the `re-frame.schemas` facade (validate-app-schema!'s
-            ;; private redaction helper).
+            ;; White-box tests cover the internal path sanitizer.
             [re-frame.schemas.walker :as walker]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
