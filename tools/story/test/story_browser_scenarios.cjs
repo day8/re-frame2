@@ -1172,10 +1172,10 @@ module.exports = {
       // The mode strip may rehydrate :test or :dev from localStorage;
       // we want :dev so the canvas mounts.
       await setMode(page, 'dev');
-      await waitForCanvas(page, ':story.login/submitting');
+      await waitForCanvas(page, ':story.login-form/submitting');
       await waitForValue(
         () =>
-          canvas(page, ':story.login/submitting')
+          canvas(page, ':story.login-form/submitting')
             .locator('[data-test="login-state-pill"]')
             .innerText()
             .catch(() => ''),
@@ -1188,7 +1188,7 @@ module.exports = {
       // The submit button reads "Signing in…" while the FSM is in
       // :submitting (the view's button-disabled-while-submitting
       // branch).
-      const submitBtn = canvas(page, ':story.login/submitting').locator('[data-test="login-submit"]');
+      const submitBtn = canvas(page, ':story.login-form/submitting').locator('[data-test="login-submit"]');
       await submitBtn.waitFor({ state: 'visible', timeout: 5000 });
       const submitText = (await submitBtn.innerText()).trim();
       if (!/signing in/i.test(submitText)) {
@@ -1200,13 +1200,13 @@ module.exports = {
       // (b) :error — machine drives idle → submitting → error and
       // surfaces the 401 error message under the form.
       await clickVariant(page, '/error');
-      await waitForCanvas(page, ':story.login/error');
+      await waitForCanvas(page, ':story.login-form/error');
       // The state-pill in the canvas reads "state: :error" — the
       // FSM's terminal state is observable directly via the view's
       // [data-test="login-state-pill"].
       await waitForValue(
         () =>
-          canvas(page, ':story.login/error')
+          canvas(page, ':story.login-form/error')
             .locator('[data-test="login-state-pill"]')
             .innerText()
             .catch(() => ''),
@@ -1219,7 +1219,7 @@ module.exports = {
       // The error message ("Invalid credentials.") is surfaced
       // under the form via [data-test="login-error"].
       await expectVisible(
-        canvas(page, ':story.login/error').locator('[data-test="login-error"]'),
+        canvas(page, ':story.login-form/error').locator('[data-test="login-error"]'),
         5000,
       );
 
@@ -1228,10 +1228,10 @@ module.exports = {
       // the retry path from the initial submit. Canvas state-pill
       // shows the terminal state.
       await clickVariant(page, '/submitting-retry');
-      await waitForCanvas(page, ':story.login/submitting-retry');
+      await waitForCanvas(page, ':story.login-form/submitting-retry');
       await waitForValue(
         () =>
-          canvas(page, ':story.login/submitting-retry')
+          canvas(page, ':story.login-form/submitting-retry')
             .locator('[data-test="login-state-pill"]')
             .innerText()
             .catch(() => ''),
@@ -1246,16 +1246,16 @@ module.exports = {
       // :authenticated rebuilds the machine on a fresh frame; the
       // prior :error / :submitting-retry state does NOT bleed in.
       await clickVariant(page, '/authenticated');
-      await waitForCanvas(page, ':story.login/authenticated');
+      await waitForCanvas(page, ':story.login-form/authenticated');
       // The welcome banner replaces the form — proves the FSM
       // landed in :authenticated, not :error or :submitting-retry.
       await expectVisible(
-        canvas(page, ':story.login/authenticated').locator('[data-test="login-welcome"]'),
+        canvas(page, ':story.login-form/authenticated').locator('[data-test="login-welcome"]'),
         10000,
       );
       await waitForValue(
         () =>
-          canvas(page, ':story.login/authenticated')
+          canvas(page, ':story.login-form/authenticated')
             .locator('[data-test="login-state-pill"]')
             .innerText()
             .catch(() => ''),

@@ -6,11 +6,11 @@
   variants. The five states from the tutorial are exactly the
   variants below:
 
-    :story.login/idle              → the empty form
-    :story.login/submitting        → first submit, request in flight
-    :story.login/error             → server rejected creds
-    :story.login/submitting-retry  → user fixed the typo, re-submitted
-    :story.login/authenticated     → welcome banner
+    :story.login-form/idle             → the empty form
+    :story.login-form/submitting       → first submit, request in flight
+    :story.login-form/error            → server rejected creds
+    :story.login-form/submitting-retry → user fixed the typo, re-submitted
+    :story.login-form/authenticated    → welcome banner
 
   Every variant body is plain EDN — `:setup`, `:decorators`, `:script`,
   `:tags`, `:substrates`. No function-slots; no closures except in the
@@ -83,12 +83,12 @@
   ;; semantics on a real shape.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-mode :Mode.login/light
+  (story/reg-mode :Mode.login-form/light
     {:doc  "Light theme — the default. Matches the live page."
      :axis :theme
      :args {:theme :light}})
 
-  (story/reg-mode :Mode.login/dark
+  (story/reg-mode :Mode.login-form/dark
     {:doc  "Dark theme — for the design-review workspace."
      :axis :theme
      :args {:theme :dark}})
@@ -98,7 +98,7 @@
   ;; decorators, args, and tags.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-story :story.login
+  (story/reg-story :story.login-form
     {:doc        "The login form — every state from the tutorial's
                  five-state scenario, as runnable variants."
      :component  :login-form.views/login-card
@@ -117,7 +117,7 @@
   ;; the state is what the variant's name says it is.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login/idle
+  (story/reg-variant :story.login-form/idle
     {:doc    "Fresh form, no inputs typed, no submit clicked. The
              entry state the user lands on when they navigate to
              `#/login` for the first time.
@@ -153,7 +153,7 @@
   ;; which is exactly what the tutorial's second state describes.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login/submitting
+  (story/reg-variant :story.login-form/submitting
     {:doc    "First submit; HTTP request in flight; inputs disabled,
              button reads 'Signing in…'. The fx-stub records the
              request and resolves nothing so the canvas locks in
@@ -176,7 +176,7 @@
   ;; error message surfaced.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login/error
+  (story/reg-variant :story.login-form/error
     {:doc    "Server rejected credentials. Form re-enabled; the error
              message is surfaced under the submit button; the
              'Cancel' button lets the user back out without retrying."
@@ -211,7 +211,7 @@
   ;; surfaces under the error.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login/submitting-retry
+  (story/reg-variant :story.login-form/submitting-retry
     {:doc    "The user corrected the typo and re-submitted. Distinct
              from :submitting because attempts > 0; the variant body
              sequences the failure then the retry, leaving the
@@ -243,7 +243,7 @@
   ;; the EDN-first contract is built for.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-variant :story.login/authenticated
+  (story/reg-variant :story.login-form/authenticated
     {:doc    "Server accepted credentials. The form is replaced by
              a welcome banner addressing the user by email; the
              :sign-out button routes back to :idle. This is the
@@ -268,25 +268,25 @@
   ;; Workspaces — the "five side-by-side" workspace from the tutorial.
   ;; -------------------------------------------------------------------------
 
-  (story/reg-workspace :Workspace.login/all-states
+  (story/reg-workspace :Workspace.login-form/all-states
     {:doc      "The five states side-by-side. This is the design-
                 review surface from the tutorial's scenario step 3
                 — 'open a workspace that mounts all five side-by-side'."
      :layout   :grid
-     :variants [:story.login/idle
-                :story.login/submitting
-                :story.login/error
-                :story.login/submitting-retry
-                :story.login/authenticated]
+     :variants [:story.login-form/idle
+                :story.login-form/submitting
+                :story.login-form/error
+                :story.login-form/submitting-retry
+                :story.login-form/authenticated]
      :columns  3
      :tags     #{:docs}})
 
-  (story/reg-workspace :Workspace.login/auto-grid
+  (story/reg-workspace :Workspace.login-form/auto-grid
     {:doc     "Auto-enumerated grid — pulls every variant off
-              :story.login. New variants land here without touching
+              :story.login-form. New variants land here without touching
               this workspace."
      :layout  :variants-grid
-     :for     :story.login
+     :for     :story.login-form
      :columns 3
      :tags    #{:docs}}))
 
