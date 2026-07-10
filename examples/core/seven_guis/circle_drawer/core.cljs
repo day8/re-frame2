@@ -148,10 +148,14 @@
                                       :draft-radius   radius}))}))
 
 (rf/reg-event :drawer/dialog-drag
-  {:doc "The slider is moving. We only update the *draft* radius — the circle on
-         screen keeps its real size until you close the dialog and commit. And
-         since this event skips `:drawer/undoable`, a frantic slider wiggle
-         leaves the history completely untouched."}
+  {:doc "The slider is moving. We write the new radius to the dialog's *draft*
+         slot only — never straight into `:circles`. That draft feeds the
+         `:drawer/display-circles` derivation, so the circle on the canvas
+         resizes LIVE as you drag, which is exactly what the 7GUIs task asks for
+         (\"changes are applied immediately\"). The sleight of hand: the durable
+         `:circles` vector stays put, and this event skips `:drawer/undoable`, so
+         a frantic slider wiggle drives the live preview while adding nothing to
+         history. The real commit happens once, on Close."}
   (fn handler-drawer-dialog-drag [{:keys [db]} [_ new-radius]]
     {:db (assoc-in db [:drawer :dialog :draft-radius] new-radius)}))
 
@@ -219,6 +223,26 @@
   :<- [:drawer/slice]
   (fn [drawer _] (:dialog drawer)))
 
+;; The circles the CANVAS renders: the durable `:circles`, but with the resize
+;; dialog's live `:draft-radius` overlaid onto the circle being edited. This is
+;; the whole trick behind 7GUIs' "changes are applied immediately" without
+;; paying for it in undo history. `:draft-radius` moves on every slider tick, so
+;; this derivation — and the SVG that reads it — resizes the circle LIVE as you
+;; drag. Yet the durable `:circles` vector never changes until Close, and the
+;; undo interceptor snapshots `:circles`, not this view. So the whole
+;; open → drag → close still collapses into one tidy undo step. Live preview up
+;; top, clean history underneath — the derivation is where the two meet.
+(rf/reg-sub :drawer/display-circles
+  :<- [:drawer/circles]
+  :<- [:drawer/dialog]
+  (fn [[circles dialog] _]
+    (if-let [{:keys [circle-id draft-radius]} dialog]
+      (mapv #(if (= circle-id (:id %))
+               (assoc % :radius draft-radius)
+               %)
+            circles)
+      circles)))
+
 (rf/reg-sub :drawer/can-undo?
   :<- [:drawer/slice]
   (fn [drawer _] (seq (:undo drawer))))
@@ -232,7 +256,7 @@
 ;; ============================================================================
 
 (rf/reg-view drawer-view []
-  (let [circles    @(subscribe [:drawer/circles])
+  (let [circles    @(subscribe [:drawer/display-circles])
         dialog     @(subscribe [:drawer/dialog])
         can-undo?  @(subscribe [:drawer/can-undo?])
         can-redo?  @(subscribe [:drawer/can-redo?])]
