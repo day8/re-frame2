@@ -525,13 +525,13 @@
 ;; on the shared `#app`.
 (defonce react-root (atom nil))
 
-(defn run []
-  ;; Tell the runtime to render through UIx. (This installs the adapter; it does
-  ;; not create a frame — the frame-provider below does that.)
-  (rf/init! uix-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
+      (reset! react-root (uix-dom/create-root el)))
     ;; Frame setup, all in one spot. The `frame-provider` at the render root
     ;; owns the frame: on the first mount it creates the `:rf/default` frame,
     ;; applies the config (`:fx-overrides` points `:rf.http/managed` at our demo
@@ -553,3 +553,9 @@
                                      :initial-events  [[:auth.login/initialise-form]]}
          ($ root-view))
       @react-root)))
+
+(defn run []
+  ;; Tell the runtime to render through UIx. (This installs the adapter; it does
+  ;; not create a frame — the frame-provider below does that.)
+  (rf/init! uix-adapter/adapter)
+  (mount!))

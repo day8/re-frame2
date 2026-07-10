@@ -85,6 +85,20 @@
 ;; See docs/core/frames.md.
 (def app-frame :rf/default)
 
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and
+;; frame. `boot!` (below) calls it after `init!`, so both the teaching `run` and
+;; the gate-owned bundle-isolation entry share that one mount path.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (when-not @react-root
+      (reset! react-root (rdc/create-root el)))
+    (rdc/render @react-root
+                [rf/frame-provider {:id app-frame
+                                    :initial-events [[:counter/initialise]]}
+                 [counter-app]])))
+
 (defn boot!
   "Stand the example up. Two steps: install the slim adapter, then lazily
    mount `counter-app` into `#app` under a `frame-provider {:id app-frame …}`.
@@ -111,13 +125,7 @@
      ;; so it never touches the app frame the provider creates below.
      (rf/with-new-frame [_ (rf/make-frame {})]
        (on-frame)))
-   (when (exists? js/document)
-     (when-not @react-root
-       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
-     (rdc/render @react-root
-                 [rf/frame-provider {:id app-frame
-                                     :initial-events [[:counter/initialise]]}
-                  [counter-app]]))))
+   (mount!)))
 
 (defn run []
   (boot!))

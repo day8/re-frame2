@@ -349,13 +349,13 @@
 ;; covers frame-provider (../../../docs/core/glossary.md#frame-provider).
 (def app-frame :rf/default)
 
-(defn run []
-  ;; `init!` installs the UIx adapter — this is how re-frame2 learns which
-  ;; substrate to render through.
-  (rf/init! uix-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (uix-dom/create-root (js/document.getElementById "app"))))
+      (reset! react-root (uix-dom/create-root el)))
     ;; Passing `{:id …}` creates the app frame on the first mount and fires
     ;; `:initial-events` once to seed app-db. Save and hot-reload, and it
     ;; reuses the same frame untouched — no re-seeding, so your state sticks.
@@ -364,3 +364,9 @@
                                      :initial-events [[:dashboard/initialise]]}
          ($ dashboard))
       @react-root)))
+
+(defn run []
+  ;; `init!` installs the UIx adapter — this is how re-frame2 learns which
+  ;; substrate to render through.
+  (rf/init! uix-adapter/adapter)
+  (mount!))

@@ -547,12 +547,13 @@
 ;; co-loaded example namespaces don't race `createRoot` onto the shared `#app`.
 (defonce react-root (atom nil))
 
-(defn run []
-  ;; Install the Helix adapter once, before the first render.
-  (rf/init! helix-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+      (reset! react-root (react-dom-client/createRoot el)))
     ;; Frame setup in one spot. The `frame-provider`'s `{:id …}` shape creates
     ;; the `:rf/default` frame on first mount and applies the config below
     ;; (`:doc`, and `:fx-overrides` routing `:rf.http/managed` to the demo
@@ -579,3 +580,8 @@
                  :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}
                  :initial-events [[:auth.login/initialise-form]]}
                 ($ root-view)))))
+
+(defn run []
+  ;; Install the Helix adapter once, before the first render.
+  (rf/init! helix-adapter/adapter)
+  (mount!))

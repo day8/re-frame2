@@ -347,13 +347,13 @@
 ;; the EVENTS block above for why that's the one arming site).
 (def app-frame :rf/default)
 
-(defn run []
-  ;; `init!` tells re-frame2 which substrate to render through — here, Helix.
-  ;; It installs the adapter and nothing more; it does not create a frame.
-  (rf/init! helix-adapter/adapter)
-  (when (exists? js/document)
+;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
+;; it after each hot reload — edited views re-render into the same root and frame.
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
     (when-not @react-root
-      (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
+      (reset! react-root (react-dom-client/createRoot el)))
     ;; `frame-provider` creates the app frame on first mount; a hot reload
     ;; reuses the existing frame. From here on the `monitor` component owns
     ;; both the seed and the loop (see its `use-effect`) — mount dispatches
@@ -363,3 +363,9 @@
     (.render @react-root
              ($ helix-adapter/frame-provider {:id app-frame}
                 ($ monitor)))))
+
+(defn run []
+  ;; `init!` tells re-frame2 which substrate to render through — here, Helix.
+  ;; It installs the adapter and nothing more; it does not create a frame.
+  (rf/init! helix-adapter/adapter)
+  (mount!))
