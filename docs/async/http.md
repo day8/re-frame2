@@ -15,8 +15,9 @@ Every key you can hand `:rf.http/managed`. Only `:request` (with a `:url`) is re
 | Key | What it does | Default |
 |---|---|---|
 | `:request` | The wire request as data — `:method` / `:url` / `:headers` / `:params` / `:body` and the [rest of the envelope](#the-request-is-a-map). | **required** |
-| `:on-success` | Event vector for success replies. Omit it to route success back to the originating event; set it to `nil` to [silence](#silencing-a-reply) success replies. | omitted |
-| `:on-failure` | Event vector for failure replies. Omit it to route failure back to the originating event; set it to `nil` to [silence](#silencing-a-reply) failure replies. | omitted |
+| `:reply-to` | Event vector for **both** the success and the failure reply — the [unified spelling](#one-handler-with-reply-to); the handler branches on `:status`. | none |
+| `:on-success` | Event vector for success replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) success replies. | none |
+| `:on-failure` | Event vector for failure replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) failure replies. | none |
 | `:decode` | Parse and [validate the 2xx body](#validating-the-body-with-decode) — a [schema](../core/glossary.md#schema), a keyword, or a fn. | `:auto` |
 | `:accept` | A [post-decode domain check](#a-valid-200-can-still-be-a-failure-accept) — a 200 can still be a failure. | `{:ok decoded}` |
 | `:retry` | A [transport-retry policy](#retry-transport-retry-as-data) — `:on` set, `:max-attempts`, `:backoff`. | none |
@@ -100,9 +101,9 @@ Every reply is the one **canonical reply envelope** — a plain map with a close
 
 So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled`), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
-There are two **equal** ways to receive the reply — pick by fit, not correctness.
+Every request **addresses its reply** — there is no implicit default. There are two **equal** ways to do it — pick by fit, not correctness.
 
-### Separate handlers
+### Two handlers with :on-success / :on-failure
 
 Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the canonical reply appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical envelope, they just route it to two named handlers:
 
@@ -124,35 +125,38 @@ Three small handlers, each doing one thing. This is the shape to prefer when the
 
     Your `:http-xhrio`-style success/failure events map straight onto `:on-success` / `:on-failure` — the [migration page](../core/25-from-re-frame-v1.md) walks the translation.
 
-### One handler
+### One handler with :reply-to
 
-Omit `:on-success` / `:on-failure` and the reply routes back to the *originating* event, merged into the message under `:rf/reply`. One handler then serves all three roles:
+Point `:reply-to` at the issuing event and both the success and the failure reply land there — the **unified** spelling (the same `:reply-to` key resources and mutations use). One handler then serves all three roles:
 
 ```clojure
 ;; From examples/core/managed_http_counter (core.cljs), condensed.
 (rf/reg-event :counter/+1
-  (fn [{:keys [db]} [_ msg]]
-    (if-let [reply (:rf/reply msg)]
-      (case (:status reply)
-        :ok    {:db (-> db
-                        (update :counter/count + (-> reply :value :delta))
-                        (assoc :counter/status :idle :counter/error nil))}
-        :error {:db (assoc db :counter/status :error
-                              :counter/error  (:error reply))})
-      ;; Initial branch — issue the request.
+  (fn [{:keys [db]} [_ reply]]
+    (cond
+      (some-> reply :status (= :ok))
+      {:db (-> db
+               (update :counter/count + (-> reply :value :delta))
+               (assoc :counter/status :idle :counter/error nil))}
+
+      (some-> reply :status (= :error))
+      {:db (assoc db :counter/status :error :counter/error (:error reply))}
+
+      ;; Initial branch — issue the request, addressing the reply back here.
+      :else
       {:db (assoc db :counter/status :loading)
-       :fx [[:rf.http/managed {:request {:url "/api/inc.json"}}]]})))
+       :fx [[:rf.http/managed {:request {:url "/api/inc.json"} :reply-to [:counter/+1]}]]})))
 ```
 
-The first time it runs there is no `:rf/reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with `:rf/reply` merged into the message. If the original message was a map, the rest of it is still there, so request context like an id or slug stays in scope. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
+The first time it runs there is no `reply`, so the handler issues the request. When the reply comes back, the runtime dispatches the *same* event again with the canonical envelope appended as the last argument — the `reply`. To keep request context (an id, a slug) in scope on the reply branch, ride it along inside the `:reply-to` prefix: `:reply-to [:counter/+1 msg]` delivers `[:counter/+1 msg <envelope>]`. Use this shape when request and reply are two faces of one small thing — a counter, a toggle, a fire-and-refresh.
 
-!!! warning "Gotcha — the one-handler form wants a map message"
+!!! warning "Every request must address its reply"
 
-    Dispatch a map (`[:thing/load {:id "intro"}]`) or no payload. A bare value (`[:thing/load "intro"]`) still receives the reply, but there is nowhere to merge `"intro"`, so the reply branch sees only `{:rf/reply ...}`. Put request context in a map when you need it after the reply lands.
+    Omitting **all** of `:reply-to` / `:on-success` / `:on-failure` is rejected at dispatch with `:rf.error/http-no-reply-target` — the framework never silently routes a reply back to the dispatching event. Address it explicitly (or set a branch to `nil` to [silence](#silencing-a-reply) it).
 
 ### Delivery rules
 
-- **Reply targets must be event vectors.** When you supply `:on-success` / `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
+- **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
 - **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
 - **A stale reply is never delivered.** A reply from a superseded request ([below](#cancellation-supersession-and-abort)) does not reach your app at all; it is trace-only.
 

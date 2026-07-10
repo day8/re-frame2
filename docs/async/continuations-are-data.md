@@ -140,14 +140,14 @@ Four rules finish the tour:
 - **Completion timestamps ride the reply.** The reply carries facts about the work, including when it completed — full reply maps carry it as `:completed-at`, and HTTP exposes it through the built-in `:rf/time-ms` [coeffect](../core/glossary.md#coeffect). Either way, handlers store the carried value rather than reading the clock again — a fresh `(js/Date.now)` in a reply handler samples *today's* clock on replay, not the run you're replaying.
 - **One envelope, one spelling, everywhere.** There is no per-surface reply dialect: HTTP delivers the *same* `:status`-keyed envelope resources and machines do — `:status :ok` with `:value`, `:status :error` with the failure under `:error`, `:status :cancelled`/`:stale` alike. (Timeout is not its own status — it's `:status :error` with `:kind :rf.http/timeout` on the `:error` map. One fact, named once.)
 
-Here's how the one envelope is spelled per surface. The canonical target key is `:rf/reply-to` with an event-vector prefix; every surface either accepts it directly or exposes sugar that *lowers* to it — so what you *write* changes, but the envelope that lands does not:
+Here's how the one envelope is addressed. The app-facing call-site key is **`:reply-to`** — an event-vector prefix — the same key across [HTTP](http.md), [resources](../resources/concepts.md), and mutations. It normalizes internally to the `:rf/reply-to` descriptor (a conformance surface, not an everyday spelling). What you *write* changes a little per surface, but the envelope that lands does not:
 
-| Surface | What you write | What lands |
-|---|---|---|
-| [HTTP](http.md) | `:on-success [:article/loaded]` / `:on-failure [:article/load-error]` (pure routing sugar — both receive the same envelope; or the co-located `:rf/reply` sentinel — `:rf.http/managed` takes the sugar, not a bare `:rf/reply-to`) | Both handlers get the canonical envelope: `{:status :ok :value …}` on success, `{:status :error :error {:kind :rf.http/… …}}` on failure. |
-| [Resources](../resources/concepts.md) | a `:scope` + `:params` read key — the framework owns the reply | The continuation goes in the **work ledger**; stale generations are suppressed structurally by `:work/id` + generation. |
-| Mutations | `:reply-to [:favorite/replied slug]` — the spine of [form submission](../core/how-to/build-a-form.md) | The same reply map appended; a superseded generation never delivers. |
-| [Machines](../machines/concepts.md) | `:on-done` / `:on-error` on a spawned child, `:after` for timers | The completion folds into a state transition; a reply from an actor whose owning state has already exited is dropped. |
+| What you write | What lands |
+|---|---|
+| **`:reply-to [:event …]`** — the unified spelling, everywhere ([HTTP](http.md), [resources](../resources/concepts.md), mutations). One target for **both** the success and the failure reply; the app branches on the canonical envelope's `:status`. (For a resource read, omitting it lets the reply flow into the **work ledger** for [subscriptions](../resources/concepts.md) instead.) | The canonical envelope appended as the event's last argument — `{:status :ok :value …}`, `{:status :error :error {:kind …}}`, `{:status :cancelled …}`. A superseded / stale generation never delivers. |
+| **`:on-success [:loaded]` / `:on-failure [:load-error]`** — HTTP-only split routing sugar over `:reply-to`. A named target per branch; both receive the identical envelope. | Both handlers get the canonical envelope: `{:status :ok :value …}` on success, `{:status :error :error {:kind :rf.http/… …}}` on failure. |
+
+[Machines](../machines/concepts.md) don't spell a reply target at all: `:on-done` / `:on-error` on a spawned child (and `:after` for timers) are ordinary **statechart grammar** — the machine runtime folds the awaited completion into a state transition and lowers it onto the same envelope internally. A reply from an actor whose owning state has already exited is dropped.
 
 Learn the shape once; it is the same shape everywhere — the same closed `:status` set, one vocabulary for every surface.
 
