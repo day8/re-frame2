@@ -9,9 +9,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.http.managed :as http-managed]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -22,32 +19,13 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`,
-  ;; and the managed-HTTP / machine / routing fxs now require a carried
-  ;; frame stamp. This suite exercises the ambient dispatch path against
-  ;; a single conventional app frame, so register `:rf/default` explicitly
-  ;; and pin it as the established scope for the whole body via with-frame.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  ((requiring-resolve 're-frame.machines/reset-timers!))
-  (http-managed/clear-all-in-flight!)
-  ;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3);
-  ;; the process-global clear-* fixtures are gone. Frame-extension cases
-  ;; reg-frame their carriers and registrar/clear-all! resets between tests.
-  (trace/clear-listeners!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; rf2-ppkh3v — app-specific carriers are FRAME policy now (EP-0015 §3); the
+;; process-global clear-* fixtures are gone. Frame-extension cases reg-frame
+;; their carriers and the canonical fixture's registrar snapshot/restore resets
+;; them between tests (it also clears trace listeners, so no explicit
+;; clear-listeners! is needed).
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server ----------------------------------------
 

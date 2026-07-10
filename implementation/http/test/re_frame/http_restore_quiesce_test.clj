@@ -23,14 +23,10 @@
   to prove the late completion delivers nothing to the app target."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as http-registry]
             [re-frame.http.transport :as http-transport]
             [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
@@ -38,19 +34,8 @@
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (require 're-frame.http.managed :reload)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- start-blocking-server!
   [^CountDownLatch latch status content-type body]

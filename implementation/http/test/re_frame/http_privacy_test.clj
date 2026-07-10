@@ -24,13 +24,18 @@
             [re-frame.http.privacy :as privacy]
             [re-frame.http.privacy-headers :as headers]
             [re-frame.http.url :as url]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            [re-frame.test-support :as test-support]))
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (t))
-
-(use-fixtures :each reset-runtime)
+;; The privacy suite is pure-fn (no dispatch), but registers events / fx
+;; directly and asserts against a DELIBERATELY clean event + fx registry
+;; (e.g. `managed-carriers` resolves nil until a test installs
+;; `:rf.http/managed`). `:clear-kinds [:event :fx]` gives that clean slate for
+;; each test body, while the canonical registrar snapshot/restore rolls the
+;; per-test registrations back on the way out. No adapter is installed — the
+;; suite needs no app-db / frame.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:clear-kinds [:event :fx]}))
 
 ;; ---- 1. header denylist ---------------------------------------------------
 

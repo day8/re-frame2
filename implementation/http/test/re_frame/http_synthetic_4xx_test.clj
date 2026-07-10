@@ -31,13 +31,9 @@
    - Spec 014 §Retry and backoff / §Request envelope (`:redirect`)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as registry]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
+            [re-frame.machines]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
@@ -46,23 +42,8 @@
 
 ;; ---- per-test reset (mirrors http_backoff_cancellation_test) ---------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  (machines/reset-timers!)
-  (http-managed/clear-all-in-flight!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- hit-counting always-302 server ----------------------------------------
 

@@ -12,9 +12,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.json :as util-json]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
             [re-frame.registrar :as registrar]
             [re-frame.http.decode :as http-decode]
             [re-frame.http.encoding :as http-encoding]
@@ -35,36 +32,16 @@
 
 ;; ---- per-test reset --------------------------------------------------------
 
-(defn- reset-runtime [t]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; The suite uses one explicit default frame for ambient dispatch.
-  (frame/ensure-default-frame!)
-  (require 're-frame.routing :reload)
-  (require 're-frame.ssr     :reload)
-  (require 're-frame.machines :reload)
-  (require 're-frame.http.managed :reload)
-  ;; `clear-all!` above wipes the canned-stub fx registrations
-  ;; that re-frame.http.test-support put into the registrar at first
-  ;; load. Reload the test-support ns so its registration body fires
-  ;; again for the next test (mirrors the http-managed reload above).
-  (require 're-frame.http.test-support :reload)
-  ((requiring-resolve 're-frame.machines/reset-timers!))
-  (http-managed/clear-all-in-flight!)
-  ;; The per-frame HTTP interceptor chain lives in a separate
-  ;; registry (internal to `re-frame.http.middleware`; observe via
-  ;; `http-managed/interceptors-snapshot`), NOT the registrar `clear-all!`
-  ;; wipes above. Tests that register `:before` / `:after` interceptors
-  ;; (the canned-path `:after` coverage) must clear it between tests, or
-  ;; a leaked `:after` mutates every subsequent test's reply payload.
-  (http-managed/clear-all-http-interceptors!)
-  (rf/with-frame :rf/default
-    (t)))
-
-(use-fixtures :each reset-runtime)
+;; The canonical runtime fixture snapshot/restores the registrar (so the
+;; ns-load-time canned-stub fx registrations from `re-frame.http.test-support`
+;; survive without a per-test `:reload`), resets frames / flows / schemas /
+;; adapter, and now clears BOTH the in-flight managed-request registry AND the
+;; per-frame HTTP interceptor chain on each post-dispose reset (rf2-q14tde) —
+;; the interceptor registry lives outside the registrar (internal to
+;; `re-frame.http.middleware`), so a leaked `:before` / `:after` would
+;; otherwise mutate every subsequent test's reply payload.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server ----------------------------------------
 ;;
