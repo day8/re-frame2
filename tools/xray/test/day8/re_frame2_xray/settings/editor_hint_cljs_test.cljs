@@ -18,38 +18,25 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.test-helpers :as th]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
-;; ---- fixture (map shape per cljs.test/async requirement) ---------------
-
-(def ^:private fixture-snap (atom nil))
-
-(defn- setup-runtime! []
-  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
-  ;; settings reset into one call.
-  (xray-test-support/reset-runtime!)
-  (reset! fixture-snap (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (registry/register-xray-handlers!)
-  (frame/reg-frame :rf/xray {}))
-
-(defn- teardown-runtime! []
-  (when-let [snap @fixture-snap]
-    (test-support/restore-registrar! snap)
-    (reset! fixture-snap nil))
-  (reset! frame/frames {}))
-
+;; `make-xray-runtime-fixture` (rf2-vj80u8) composes core
+;; `make-reset-runtime-fixture` (snapshot/restore + frames-reset + adapter
+;; dispose/install) with Xray's own reset tier. `:tier :runtime` folds the
+;; sentinel + trace-collector + persisted-settings reset; `:async? true` is the
+;; map-form cljs.test/async requires; `:post-reset` re-registers Xray's
+;; :rf.xray/* handlers + the :rf/xray frame (rolled back with the per-test
+;; registrar snapshot).
 (use-fixtures :each
-  {:before setup-runtime!
-   :after  teardown-runtime!})
+  (xray-test-support/make-xray-runtime-fixture
+    {:tier       :runtime
+     :async?     true
+     :post-reset (fn []
+                   (registry/register-xray-handlers!)
+                   (frame/reg-frame :rf/xray {}))}))
 
 ;; ---- hiccup walker ------------------------------------------------------
 ;; The private expand-tree / hiccup-seq / find-by-testid copies were
