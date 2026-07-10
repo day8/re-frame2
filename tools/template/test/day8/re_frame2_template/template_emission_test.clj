@@ -161,8 +161,7 @@
   "Map a re-frame.X namespace symbol to its source-of-truth file under
   `implementation/` or `tools/`. Returns the `java.io.File`, or nil if
   we don't know about this ns (we only audit framework namespaces —
-  the user's own `<app>.events` / `.subs` aren't audited here; the
-  bead is about drift against the framework surface).
+  the user's own `<app>.events` / `.subs` aren't audited here).
 
   Search order:
 
@@ -185,7 +184,7 @@
        The `:include-ssr?` scaffold's `core.cljc` requires `re-frame.ssr`
        and its `server.clj` requires `re-frame.ssr.ring`; the audit needs
        to resolve both. `re-frame.ssr.ring` is JVM-only, so a `.clj`
-       candidate is included (rf2-e0xspa)."
+       candidate is included."
   [root ns-sym]
   (let [name- (name ns-sym)]
     (cond
@@ -345,20 +344,11 @@
                      substrate ") uses alias " alias-sym
                      " but no matching :as is declared in the ns form"))))))))
 
-;; --- Strict EP-0017 cofx mint policy guard ---------------------------------
+;; --- Strict cofx mint policy guard -----------------------------------------
 ;;
-;; EP-0017's strict-test posture: a generated app that later adds a
-;; generator-backed recordable coeffect must not be able to write a green
-;; test that forgot to supply the fact (the default live policy would
-;; silently mint a fresh per-run value — the opposite of
-;; supply-data-don't-stub). The emitted `events_test.cljs` fixture therefore
-;; establishes a STRICT mint policy by default — via `{:preset :test}` (which
-;; sets `:rf.cofx/mint-policy :strict`) or an explicit
-;; `:rf.cofx/mint-policy :strict`. This guard reads the emitted file and
-;; fails if the strict posture is dropped, or if the supply-data /
-;; explicit-live testing idiom is not documented for the user. It also
-;; locks out non-EP-0017/EP-0018 vocabulary (`:rf.world/inputs`,
-;; grouped/nested cofx, `inject-cofx`).
+;; Generated tests must supply generator-backed recordable coeffects instead
+;; of silently minting live values. The fixture therefore establishes strict
+;; minting and documents both explicit data supply and the per-call live opt-in.
 
 (defn- assert-events-test-strict-mint-policy!
   [substrate ^java.io.File root]
@@ -373,17 +363,16 @@
         (is (or (re-find #":preset\s+:test" text)
                 (re-find #":rf\.cofx/mint-policy\s+:strict" text))
             (str "events_test.cljs (" substrate ") must run under a STRICT "
-                 "EP-0017 cofx mint policy by default — register the test "
+                 "cofx mint policy by default — register the test "
                  "frame with `{:preset :test}` or set "
                  "`:rf.cofx/mint-policy :strict`. Without it a generated app "
                  "that adds a generator-backed recordable coeffect can ship a "
                  "green test that forgot to supply the fact (the live policy "
-                 "silently mints a fresh per-run value — the opposite of "
-                 "EP-0017's supply-data-don't-stub posture)."))
+                 "silently mints a fresh per-run value)."))
         ;; (2) The supply-data idiom is documented for recordable coeffects:
         ;; supply facts FLAT under `:rf.cofx`.
         (is (re-find #":rf\.cofx\b" text)
-            (str "events_test.cljs (" substrate ") must document the EP-0017 "
+            (str "events_test.cljs (" substrate ") must document the "
                  "supply-data idiom — supply required recordable facts FLAT "
                  "under `:rf.cofx` in the dispatch opts."))
         ;; (3) The intentional-nondeterminism escape hatch is documented.
@@ -392,13 +381,13 @@
                  "`:rf.cofx/mint-policy :explicit-live` opt-out — the per-call "
                  "escape a test uses when it INTENTIONALLY accepts "
                  "nondeterministic generation."))
-        ;; (4) No non-EP-0017/EP-0018 vocabulary leaks into the scaffold.
+        ;; (4) No retired coeffect vocabulary leaks into the scaffold.
         (doseq [[re what]
                 [[#":rf\.world/inputs" ":rf.world/inputs (retired — declare :rf.cofx/requires)"]
                  [#"inject-cofx"        "inject-cofx (removed — declare :rf.cofx/requires)"]]]
           (is (not (re-find re text))
               (str "events_test.cljs (" substrate ") must not use legacy "
-                   "EP-0017/EP-0018 vocabulary: " what ".")))))))
+                   "coeffect vocabulary: " what ".")))))))
 
 ;; --- Generic ns-surface drift check (events / subs / views / events_test)
 ;; ----------------------------------------------------------------------------
@@ -442,8 +431,7 @@
 
   `features` selects the reader-conditional view: the 3-arg arity reads
   under `:cljs` (the browser branch of a `.cljc` / a `.cljs` file); the
-  SSR host audit passes `#{:clj}` to read `server.clj` under the JVM
-  branch (rf2-e0xspa)."
+  SSR host audit passes `#{:clj}` to read `server.clj` under the JVM branch."
   ([substrate ^java.io.File file root]
    (audit-framework-surface! substrate file root #{:cljs}))
   ([substrate ^java.io.File file root features]
@@ -567,7 +555,7 @@
           (is (valid-with-frame-first-arg? first-arg)
               (str "scratch.cljs (" substrate ") (with-frame "
                    (pr-str first-arg) " …) — first arg must be a "
-                   "keyword or symbol (pin form). Per rf2-twoc5, a "
+                   "keyword or symbol (pin form). A "
                    "vector argument is a compile-time error; use "
                    "`with-new-frame` for eval-bind-run-destroy."))))
       (doseq [call new-frame-calls]
@@ -575,13 +563,13 @@
           (is (valid-with-new-frame-first-arg? first-arg)
               (str "scratch.cljs (" substrate ") (with-new-frame "
                    (pr-str first-arg) " …) — first arg must be a "
-                   "2-element [sym expr] vector. Per rf2-twoc5, a "
+                   "2-element [sym expr] vector. A "
                    "keyword argument is a compile-time error; use "
                    "`with-frame` to pin to an existing frame-id.")))))))
 
 ;; --- scratch.cljs frame-context audit --------------------------------------
 ;;
-;; EP-0002 removed the implicit `:rf/default` floor: a frame-scoped call
+;; There is no implicit `:rf/default` floor: a frame-scoped call
 ;; (`dispatch` / `dispatch-sync` / `subscribe`) evaluated with no
 ;; established scope raises `:rf.error/no-frame-context`
 ;; (implementation/core/src/re_frame/core.cljc §current-frame-id). The
@@ -599,12 +587,11 @@
 ;;       trailing opts map, e.g. `(rf/dispatch [:e] {:frame :rf/default})`
 ;;       / `(rf/subscribe [query] {:frame :rf/default})` — the ONE
 ;;       frame-targeting shape for `dispatch` / `dispatch-sync` /
-;;       `subscribe` alike (API-shrink #1, rf2-csbbwu deleted the
-;;       frame-first positional form).
+;;       `subscribe` alike.
 
 (def ^:private frame-scoped-call-names
   "Bare names (alias-stripped) of the frame-scoped REPL ops scratch.cljs
-  may use. Each requires a resolvable frame at eval time (EP-0002)."
+  may use. Each requires a resolvable frame at eval time."
   #{"dispatch" "dispatch-sync" "subscribe"})
 
 (defn- frame-scope-form?
@@ -635,8 +622,7 @@
   "Does this frame-scoped call name its frame inline (so it does not need a
   surrounding `with-frame` / `with-new-frame` scope)? `dispatch` /
   `dispatch-sync` / `subscribe` all share the ONE shape: a `:frame` key in
-  the trailing opts map (API-shrink #1, rf2-csbbwu deleted the frame-first
-  positional form)."
+  the trailing opts map."
   [form]
   (case (name (first form))
     ("dispatch" "dispatch-sync" "subscribe") (dispatch-has-explicit-frame? form)
@@ -694,8 +680,8 @@
       (is (empty? frameless)
           (str "scratch.cljs (" substrate ") has frame-scoped REPL "
                "call(s) with no resolvable frame: "
-               (pr-str (mapv #(take 2 %) frameless)) ". EP-0002 removed "
-               "the :rf/default floor — such a call throws "
+               (pr-str (mapv #(take 2 %) frameless)) ". There is no "
+               "implicit :rf/default floor, so such a call throws "
                ":rf.error/no-frame-context on first eval. Put it inside a "
                "(with-frame :rf/default …) / (with-new-frame [f …] …) body, "
                "or give it an explicit frame: {:frame :rf/default} opts for "
@@ -774,8 +760,8 @@
         ;; The 560px default fallback matches Xray's recommended default.
         (is (re-find #"var\(--rf-xray-inline-width,\s*560px\)" css)
             (str "app.css (" substrate
-                 ") Xray host flex-basis fallback must be 560px (Xray's "
-                 "recommended default, rf2-9ovfb)."))
+                 ") Xray host flex-basis fallback must be Xray's "
+                 "recommended 560px default."))
         ;; box-sizing + border-left so the separator lives inside the
         ;; documented width.
         (is (re-find #"(?s)\.rf2-xray-host\s*\{[^}]*box-sizing:\s*border-box" css)
@@ -906,13 +892,13 @@
                      "`flex: 0 0 var(--rf-xray-inline-width, 560px)` (pinned by "
                      "assert-xray-host-contract! above) — a literal 420px width "
                      "ignores the host-owned resize knob. Remove the stale "
-                     "420px claim (rf2-7s8ou3 / tools/xray/spec/011-Launch-Modes.md)."))
+                     "420px claim (tools/xray/spec/011-Launch-Modes.md)."))
             (is (not (re-find #"(?i)left[- ]?(layout )?column" section))
                 (str "002-Generated-Shape.md §Xray devtools still describes the "
                      "Xray host as a left column. The emitted index.html orders "
                      "`<main id=\"app\">` BEFORE `<aside data-rf-xray-host>`, so "
                      "the host is a RIGHT-side layout host. Match the emitted "
-                     "layout + the Xray spec (rf2-7s8ou3)."))
+                     "layout and the Xray spec."))
             ;; --- the current contract must be stated --------------------
             ;; Positive assertions so the negatives can't pass vacuously by
             ;; deleting/emptying the section.
@@ -973,50 +959,25 @@
 
 ;; --- :include-ssr? -------------------------------------------------------
 ;;
-;; The SSR scaffold is the template's LEAST-covered variant (rf2-e0xspa):
-;; its emitted-run tier (`emitted_test_run_test.clj`) executes only
-;; `clojure -M:test`, which loads `core.cljc`'s `:clj` branch (via
-;; `ssr_test.clj`'s `[…core :as app]` require) and — since rf2-e0xspa —
-;; `server.clj` (via `ssr_test.clj`'s new `[…server :as server]` require).
-;; But NO gate compiles `core.cljc`'s `:cljs` CLIENT branch (the hydration
-;; path: `ssr/hydrate!`, `rf/view`, `rf/frame-provider`, the reagent
-;; adapter, `reagent.dom.client`), and that emitted-run tier is opt-in
-;; (`RF2_TEMPLATE_RUN_EMITTED_TESTS`). So a framework rename on the SSR
-;; client/host surface used to ship broken-but-green.
-;;
-;; This audit closes that gap CHEAPLY on every PR (no node, no shadow, no
-;; env gate): it reads the emitted `core.cljc` under the `:cljs`
-;; reader-conditional view — the exact CLIENT branch no compile touches —
-;; and `server.clj` under the `:clj` view, and asserts every referenced
-;; `re-frame.*` / `re-frame.ssr(.ring)` symbol is actually defined in the
-;; framework source. A rename (e.g. `ssr/hydrate!` → `ssr/hydrate`,
-;; `ssr-ring/ssr-handler` → `…/handler`, `rf/frame-provider` → `…/provider`)
-;; trips this JVM check. `framework-ns-file` above resolves the SSR coords
-;; (implementation/ssr/ + implementation/ssr-ring/).
+;; The opt-in emitted-run tier compiles the client and runs the JVM SSR tests.
+;; This cheaper static audit runs even when that tier is disabled: it reads the
+;; client and server branches and verifies that their re-frame symbols still
+;; exist in the corresponding source artefacts.
 
 (deftest reagent-ssr-emission-static-parse-test
   (testing ":include-ssr? true emits a core.cljc whose :cljs CLIENT branch
             + a server.clj Ring host that reference only defined re-frame.*
-            + re-frame.ssr(.ring) symbols (rf2-e0xspa)"
+            + re-frame.ssr(.ring) symbols"
     (let [tmp  (tmp-dir "rf2-emission-ssr-")
           root (repo-root)]
       (try
         (let [proj (run-template-opts! tmp "acme/my-app"
                                        {:substrate :reagent :include-ssr? true})]
-          ;; The CLIENT (:cljs) branch of the shared core.cljc — compiled
-          ;; by no gate. Read under `:features #{:cljs}` so the audit sees
-          ;; exactly the browser-side requires (`reagent.dom.client`, the
-          ;; reagent adapter) + hydration calls (`ssr/hydrate!`, `rf/view`,
-          ;; `rf/frame-provider`).
+          ;; Read the browser branch even when the opt-in compile gate is off.
           (audit-framework-surface! :reagent
                                     (io/file proj "src/acme/my_app/core.cljc")
                                     root #{:cljs})
-          ;; The Ring host — a JVM-only `.clj`. Read under `:features
-          ;; #{:clj}`. Its framework surface (`ssr-ring/ssr-handler`,
-          ;; `ssr/adapter`, `rf/init!`) is now ALSO compiled for real by the
-          ;; emitted `ssr_test.clj`'s `[…server :as server]` require under
-          ;; `clojure -M:test`; this ungated static check is the fast-loop
-          ;; net that catches a rename without the opt-in emitted-run tier.
+          ;; Read the JVM-only Ring host under its platform feature set.
           (audit-framework-surface! :reagent
                                     (io/file proj "src/acme/my_app/server.clj")
                                     root #{:clj}))
@@ -1026,7 +987,7 @@
 ;; --- :css :tailwind --------------------------------------------------------
 ;;
 ;; The Tailwind overlay overwrites the plain-CSS `app.css` + `index.html`
-;; with the `_css_tailwind/` variants (rf2-nxqcov). The Xray-host layout
+;; with the `_css_tailwind/` variants. The Xray-host layout
 ;; contract MUST survive that swap: the emitted index.html/app.css still
 ;; have to satisfy `assert-xray-host-contract!` (right-side host DOM order,
 ;; resizable flex-basis, :empty collapse) and `assert-no-stale-xray-wording!`

@@ -1,17 +1,16 @@
 # re-frame2-template
 
-> `day8/re-frame2-template` — scaffolding tool for new re-frame2 apps
-> (rf2-lrtc; rf2-dolpf). The v2 equivalent of v1's
+> `day8/re-frame2-template` is the scaffolding tool for new re-frame2 apps
+> and the v2 equivalent of v1's
 > [`day8/re-frame-template`](https://github.com/day8/re-frame-template).
 >
-> **Spec:** [`spec/`](./spec/) — the tool's normative contract per the
-> per-tool [spec/ folder convention (rf2-bfax)](../README.md#per-tool-spec-folder-convention-rf2-bfax).
+> **Spec:** [`spec/`](./spec/) contains the current contract, design
+> rationale, and migration records.
 >
 > **Implementation shape:** [deps-new](https://github.com/seancorfield/deps-new)
-> template with programmatic body. Distribution: git-coord (tag-based),
-> not Clojars (rf2-dolpf §2.5 — `day8/clj-template.re-frame2` on Clojars
-> is now frozen at its last clj-new release; older versions remain
-> resolvable for legacy users).
+> template with a programmatic body. Distribution is tag-based git-coord,
+> not Clojars. The old `day8/clj-template.re-frame2` Clojars artefact is
+> frozen at its last clj-new release.
 >
 > **Release pipeline:**
 > [`.github/workflows/template-release.yml`](../../.github/workflows/template-release.yml)
@@ -20,8 +19,8 @@
 > (independent of the framework-wide repo-root `VERSION`).
 >
 > **Repo home:** the template currently lives in-tree at
-> [`tools/template/`](./) in the re-frame2 monorepo while the rebuild
-> settles (rf2-dolpf §4). Its planned permanent home is the external
+> [`tools/template/`](./) in the re-frame2 monorepo. Its planned permanent
+> home is the external
 > repo `github.com/day8/re-frame2-template`; the split out to that
 > external repo is a Mike-operator handoff. The deps-new coord shifts from
 > `day8/re-frame2-template` (current `:local/root` shape, monorepo) to
@@ -39,7 +38,7 @@ wired against the alpha-channel `day8/re-frame2-*` coords, ready to
 > **Pre-split status (current):** the dedicated
 > `github.com/day8/re-frame2-template` repo does not exist yet — the
 > template still lives in-tree under `tools/template/` in the
-> re-frame2 monorepo (rf2-dolpf §4 / rf2-7jgkv). Until the split
+> re-frame2 monorepo. Until the split
 > lands, the only working invocation is the `:local/root` route
 > against a checkout of this repo. The published
 > `io.github.day8/re-frame2-template` git-coord form is **not yet a
@@ -91,7 +90,7 @@ because the `io.github.*` prefix would trigger deps-new's
 auto-git-clone before classpath lookup — bypassing the local-root
 checkout (and, pre-split, cloning a repo that doesn't exist yet).
 
-`:include-story? true` is **Reagent-only in v1** — combining it with
+`:include-story? true` is currently **Reagent-only**. Combining it with
 `:substrate :uix` or `:substrate :helix` throws
 `:rf.error/template-include-story-reagent-only`. UIx + Helix Story
 variants follow once those adapters' Story coverage matches Reagent's.
@@ -128,7 +127,7 @@ status and the error table.
 ### Post-split (future)
 
 Once the template is split out to its dedicated
-`github.com/day8/re-frame2-template` repo (rf2-dolpf §4 / rf2-7jgkv),
+`github.com/day8/re-frame2-template` repo,
 the steady-state invocation becomes the published git-coord form —
 deps-new's `auto-git-url` mechanism clones the external repo at the
 requested tag and runs the template hooks (the tagged commit IS the
@@ -177,9 +176,9 @@ The normative contract lives under [`spec/`](./spec/):
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What the tool is for; lineage from v1; goals; non-goals. |
 | [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx / Helix variants; the top-level k/v invocation form; substrate coercion. |
 | [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The file tree emitted; the resource tree; substitution variables. |
-| [`spec/003-DepsNew-Rebuild-Plan.md`](./spec/003-DepsNew-Rebuild-Plan.md) | Migration plan from clj-new + Clojars to deps-new + git-coord (rf2-dolpf). |
-| [`spec/004-SSR-Validation-Report.md`](./spec/004-SSR-Validation-Report.md) | SSR reference-impl validation report (rf2-0m5ea); gates the `:include-ssr?` flag work. |
-| [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md) | Migration procedure for the monorepo → external repo split (rf2-dolpf §4 / rf2-7jgkv). |
+| [`spec/003-DepsNew-Rebuild-Plan.md`](./spec/003-DepsNew-Rebuild-Plan.md) | Completed migration record from clj-new and Clojars to deps-new and git-coord. |
+| [`spec/004-SSR-Validation-Report.md`](./spec/004-SSR-Validation-Report.md) | Completed validation record for the shipped SSR variant. |
+| [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md) | Procedure for the remaining monorepo-to-external-repo split. |
 | [`spec/Principles.md`](./spec/Principles.md) | The design principles (build-time only, counter as canonical example, substrate-agnostic shell, top-level k/v selection). |
 | [`spec/API.md`](./spec/API.md) | The consolidated public invocation surface. |
 | [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision (deps-new + git-coord over clj-new + Clojars, top-level k/v plumbing, three substrates in v1, counter as example, no-Story-yet, pin lockstep). |

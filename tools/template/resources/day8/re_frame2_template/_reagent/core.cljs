@@ -9,11 +9,9 @@
   (:require [reagent.dom.client       :as rdc]
             [re-frame.core            :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Side-effecting requires — register the events and subs.
+            ;; Requiring these namespaces installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
-            ;; Frame-local schema registration — called from `init` under the
-            ;; app's frame scope (see register-schema! below).
             [{{namespace}}.schema    :as schema]
             [{{namespace}}.views     :as views]))
 
@@ -24,37 +22,23 @@
   "Called by shadow-cljs (see :init-fn in shadow-cljs.edn). Idempotent —
    shadow's hot-reload pipeline re-invokes it on each rebuild."
   []
-  ;; `rf/init!` takes the adapter spec map directly — pass the adapter
-  ;; var explicitly (there is no default-adapter registry).
   (rf/init! reagent-adapter/adapter)
-  ;; EP-0002 carried-frame invariant (Spec 002 §Frame target resolution):
-  ;; the runtime never synthesises a frame from absence. `init!` installs the
-  ;; adapter only; this app registers `:rf/default` as its app frame, then
-  ;; runs its frame-local boot work (schema attach + seed dispatch) inside a
-  ;; `with-frame :rf/default` scope, and wraps the render in a `frame-provider`
-  ;; so every in-tree dispatch/subscribe resolves to `:rf/default`.
+  ;; `init!` installs the adapter but does not create a frame. Register the
+  ;; app frame before running frame-local boot work, and provide that same
+  ;; frame to the rendered tree below.
   ;;
-  ;; The empty `{}` config is also where frame-owned EGRESS CLASSIFICATION
-  ;; lives (Spec 015 §The three-layer model). app-db SCHEMAS validate shape;
-  ;; they do NOT classify durable app-db egress. Once your app-db carries
-  ;; sensitive paths (an `[:auth]` token) or large blobs, classify them from
-  ;; the event that writes them — return the `:sensitive` / `:large`
-  ;; commit-plane effects alongside `:db` (EP-0025) so the framework
-  ;; redacts/elides at every observation boundary (Xray, Story, error sink,
-  ;; off-box export):
+  ;; Schemas validate shape; they do not classify durable app-db egress.
+  ;; Classify a path from the event that writes it by returning `:sensitive`
+  ;; or `:large` alongside `:db`:
   ;;   (rf/reg-event :auth/init
   ;;     (fn [{:keys [db]} _]
   ;;       {:db        (assoc db :auth {})
   ;;        :sensitive [[:auth :token]]
   ;;        :large     [[:documents :upload]]}))
-  ;; HTTP carrier names ride the `:rf.http/managed` reg-fx registration's
-  ;; `:carriers` block (`(rf/reg-fx :rf.http/managed {:carriers {:headers ["X-My-Auth"]}} h)`).
-  ;; See README §Privacy / egress classification. HTTP response BODIES are
-  ;; classified on the request's `:decode` schema instead — see events.cljs.
+  ;; See the README's privacy section for HTTP carriers and response bodies.
   (rf/reg-frame :rf/default {})
   (rf/with-frame :rf/default
-    ;; Frame-local schema attach — must run under a live frame scope (it
-    ;; cannot register at ns-load; see {{namespace}}.schema/register-schema!).
+    ;; Schema attachment is frame-local and must run after reg-frame.
     (schema/register-schema!)
     ;; dispatch-sync so the initial render sees the seeded app-db rather
     ;; than a transient empty frame.

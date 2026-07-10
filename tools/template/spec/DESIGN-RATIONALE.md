@@ -88,7 +88,7 @@ branching choices ("include Story? include 10x?") but:
   include-story? + the two deferred flags). deps-new's programmatic
   template-fn is more than adequate.
 
-Option C remains reserved for the day branching choices materially
+Option C remains reserved for the day when branching choices materially
 exceed deps-new's substitution capability.
 
 ## §2 — Three substrates in v1 (Reagent / UIx / Helix)

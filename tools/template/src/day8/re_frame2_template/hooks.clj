@@ -1,73 +1,26 @@
 (ns day8.re-frame2-template.hooks
   "deps-new hooks for day8/re-frame2-template.
 
-   `template.edn` declares this ns's `data-fn`, `template-fn`, and
-   `post-process-fn`. deps-new invokes them in that order:
+   `template.edn` declares three hooks, invoked in this order:
 
-     1. `data-fn`   — augment the substitution data map.
-     2. `template-fn` — return a modified template-edn whose `:transform`
-                       drives file emission.
-     3. `post-process-fn` — final fix-ups after files have been emitted
-                            (e.g. dotfile renames deps-new can't do
-                            natively).
+     1. `data-fn` validates arguments and derives substitution values.
+     2. `template-fn` selects the files for the requested variant.
+     3. `post-process-fn` prints the generated project's next steps.
 
-   Current scope (003-DepsNew-Rebuild-Plan.md §2.2-2.4):
+   The supported matrix is Reagent, UIx, and Helix; Story and SSR are
+   mutually exclusive Reagent-only options; Tailwind is available on every
+   substrate. Unknown keys and unsupported combinations fail closed.
 
-     - Substrates: Reagent / UIx / Helix (full matrix).
-     - Flags: `:include-story?` + `:include-ssr?` (both Reagent-only in
-       v1; UIx + Helix variants follow once each feature's adapter
-       coverage matches Reagent's). `:include-story?` and `:include-ssr?`
-       are **mutually exclusive** in v1 — passing both throws
-       `:rf.error/ssr-and-story-mutually-exclusive` (the file-naming
-       convention would blow up combinatorially on `_with_X_and_Y`
-       sources; see 004-SSR-Validation-Report §2.1).
-     - `:css` — `:tailwind` swaps the plain-CSS scaffold for a Tailwind
-       v4 one (Q6 lock / rf2-gthro verification; wiring rf2-nxqcov).
-       Omitted / nil ⇒ the plain-CSS default. Substrate-invariant.
-     - No pending (reserved-but-unimplemented) flags today.
-       `reserved-flag-gates` (empty) stays as the fail-closed home for any
-       future one — passing a reserved flag throws
-       `:rf.error/template-unsupported-flag` (see `gate-arg-keys!`).
-
-   ## Substitution engine note
-
-   deps-new uses **simple `{{key}}` substitution** (see
-   `org.corfield.new.impl/->subst-map` + `substitute`). There is **no**
-   Mustache-style conditional syntax (`{{#flag}}…{{/flag}}`) — `tools.build`'s
-   `copy-dir :replace` does a flat string replace.
-
-   This forces the `:include-story?` branch to be implemented as
-   **separate template-source files** rather than conditional blocks
-   inside one file: `_reagent/deps.edn` (default) vs
-   `_reagent/deps_with_story.edn` (with-story). `template-fn` picks the
-   right source per the flag; the output filename is the same
-   (`deps.edn`) regardless of which source ran.
-
-   `package.json` is the exception. Its per-flag deltas — the
-   `description` parenthetical naming the Story playground
-   (`{{story-tag}}`) and the `test` npm script (`{{test-script}}`: the
-   CLJS node-test bundle on the default / Story paths vs `clojure -M:test`
-   for the SSR scaffold's JVM `ssr_test.clj` gate) — are each small enough
-   to carry as a subst var, so a single `_shared/package.json` source
-   serves every path. No `package_with_story.json` / `package_with_ssr.json`
-   source exists.
-
-   The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
-   §1) is the same matrix; the v1 flag set (`:include-story?`,
-   `:include-ssr?`, `:css`) is fully wired — further flags slot in here
-   once justified in DESIGN-RATIONALE."
+   deps-new performs flat `{{key}}` substitution, not conditional template
+   syntax. Variants with structural differences therefore use separate
+   source files; small `package.json` differences use the `{{story-tag}}`
+   and `{{test-script}}` substitution values."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
 ;; -- substrate registry -----------------------------------------------------
 ;;
-;; Single source of truth for the per-substrate facts. Each substrate's
-;; display label and shields.io badge URL live in one row, so adding a
-;; substrate is a one-row edit (the valid-set, the data-fn label/badge
-;; lookups, and `template-fn`'s `case` all key off this same set). Keeping
-;; these as one data table — rather than three parallel `case` forms keyed
-;; on the same `:reagent/:uix/:helix` set — is the data-driven idiom and
-;; removes the drift risk of the keys diverging across sites.
+;; Labels and badges share the same key set used for substrate validation.
 
 (def ^:private substrate-registry
   {:reagent {:label "Reagent"
@@ -89,7 +42,7 @@
   message naming the valid set.
 
   The contract is keyword-only: string and symbol inputs are rejected
-  rather than coerced, matching the SOTA pre-alpha fail-closed posture."
+  rather than coerced, preserving the fail-closed argument contract."
   [raw]
   (let [substrate-kw (cond
                        (nil? raw)     :reagent
@@ -121,30 +74,10 @@
 
 ;; -- argument-key gate -------------------------------------------------------
 ;;
-;; deps-new hands `data-fn` a single map that merges its own harness keys
-;; (the project-name derivations + run metadata) with whatever top-level
-;; k/v args the caller passed. We accept exactly four template-specific
-;; flags today (`:substrate`, `:include-story?`, `:include-ssr?`, `:css`).
-;; `reserved-flag-gates` is the fail-closed home for any future
-;; reserved-but-unimplemented flag (empty today — `:css` shipped under
-;; rf2-nxqcov once its rf2-gthro gate closed).
-;;
-;; The substrate posture already fails closed on bad values; this gate
-;; extends that strictness to the *key set* so a flag typo
-;; (`:include-story`) can't fail open into a misleading vanilla scaffold.
-;;
-;; HOW WE DISTINGUISH HARNESS KEYS FROM TEMPLATE KEYS: deps-new's
-;; `preprocess-options` (org.corfield.new.impl) populates a fixed, known
-;; set of harness keys before `data-fn` runs. We pin the deps-new coord in
-;; this template's deps.edn (and the §3 release install), so that set is
-;; deterministic — we allowlist it and reject anything outside it. If the
-;; pinned deps-new version is bumped and adds a harness key, this list must
-;; grow in lockstep (the gate would otherwise false-reject the new key);
-;; `harness-keys-not-rejected-test` exercises a representative harness key
-;; (`:overwrite`) to confirm the allowlist doesn't false-reject it, and
-;; `misspelled-story-flag-rejected-test` / `pluralised-story-flag-rejected-test`
-;; pin the negative direction (unknown keys ARE rejected) — together they
-;; keep that coupling honest.
+;; deps-new merges caller arguments with keys produced by
+;; `preprocess-options`. Keep this allowlist aligned with the pinned deps-new
+;; version; otherwise a newly introduced harness key will be rejected as an
+;; unknown template flag.
 
 (def ^:private deps-new-harness-keys
   "The keys deps-new injects into the `data` map before `data-fn` runs
@@ -163,14 +96,8 @@
   #{:substrate :include-story? :include-ssr? :css})
 
 (def ^:private reserved-flag-gates
-  "Reserved-but-unimplemented flags → the gating bead that must clear
-   before they go live. Passing one today fails closed rather than
-   scaffolding a vanilla app that silently lacks the feature.
-
-   Empty today: the last reserved flag (`:css`, gated on rf2-gthro)
-   shipped once the Tailwind-major verification closed (rf2-nxqcov).
-   Kept as the fail-closed home for any future reserved-but-unimplemented
-   flag."
+  "Reserved-but-unimplemented flags and the condition that enables them.
+   Passing one fails closed rather than silently emitting the default app."
   {})
 
 (defn- gate-arg-keys!
@@ -178,7 +105,7 @@
 
    - A reserved flag (see `reserved-flag-gates`; empty today) throws
      `:rf.error/template-unsupported-flag`, naming the flag and its
-     gating bead — it is not silently dropped.
+     gate — it is not silently dropped.
    - Any key that is neither a deps-new harness key nor a live
      template flag throws `:rf.error/template-unknown-flag` (catches
      typos like `:include-story` / `:include-stories?`)."
@@ -216,7 +143,7 @@
 (defn- coerce-include-story?
   "Coerce the `:include-story?` arg to a boolean. The only accepted
    values are literal `true` / `false` / `nil` (nil ⇒ false); anything
-   else throws with a clear message. The flag is Reagent-only in v1 —
+   else throws with a clear message. The flag is Reagent-only —
    caller-level guard checks the substrate."
   [raw]
   (if (contains? #{nil true false} raw)
@@ -234,7 +161,7 @@
 (defn- coerce-include-ssr?
   "Coerce the `:include-ssr?` arg to a boolean. The only accepted values
    are literal `true` / `false` / `nil` (nil ⇒ false); anything else
-   throws with a clear message. The flag is Reagent-only in v1 and
+   throws with a clear message. The flag is Reagent-only and
    mutually exclusive with `:include-story?` — caller-level guards check
    both (see data-fn)."
   [raw]
@@ -252,8 +179,7 @@
 
 (def ^:private valid-css
   "Accepted `:css` values. `nil` ⇒ the plain-CSS default; `:tailwind`
-   swaps in the Tailwind v4 scaffold (Q6 lock / rf2-gthro; wiring
-   rf2-nxqcov). Additional CSS opt-ins would grow this set."
+   swaps in the Tailwind v4 scaffold."
   #{:tailwind})
 
 (defn- coerce-css
@@ -308,77 +234,23 @@
 ;; -- data-fn ----------------------------------------------------------------
 
 (defn data-fn
-  "Augment deps-new's substitution data with re-frame2 template fields.
+  "Validate template arguments and derive values used during substitution.
 
-   deps-new auto-derives the project-name keys (from
-   `preprocess-options` + `->subst-map`):
-
-     {{name}}         — the qualified raw symbol (e.g. `acme/my-app`)
-     {{top}}          — group portion (e.g. `acme`)
-     {{main}}         — artifact portion (e.g. `my-app`)
-     {{top/ns}}       — namespace-safe top (`acme`)       ; ←
-     {{main/ns}}      — namespace-safe main (`my-app`)    ; ← computed by ->subst-map
-     {{top/file}}     — file-safe top (`acme`)            ; ←
-     {{main/file}}    — file-safe main (`my_app`)         ; ←
-
-   On top of those we add:
-
-     {{namespace}}    — derived `{{top/ns}}.{{main/ns}}` (matches the
-                        clj-new template's user-facing var; downstream
-                        Selmer-substituted files key off this).
-     {{nested-dirs}}  — derived `{{top/file}}/{{main/file}}` (file-path
-                        component, e.g. `acme/my_app` — used in
-                        `src/<nested-dirs>/core.cljs` rename targets).
-     {{substrate}}    — the chosen substrate name, lower-case
-                        (`reagent` / `uix` / `helix`).
-     {{substrate-label}} — the chosen substrate's display name, proper-
-                        case (`Reagent` / `UIx` / `Helix`); used in the
-                        substrate-invariant shadow-cljs.edn header comment
-                        and the package.json `description`, both emitted
-                        once from `_shared/`.
-     {{story-tag}}    — the package.json `description` suffix that varies
-                        by `:include-story?`: `\"\"` on the default path,
-                        `\", with Story playground\"` under
-                        `:include-story? true`. Lets the single
-                        `_shared/package.json` source carry both variants
-                        (the only per-flag delta was this one parenthetical).
-     {{test-script}}  — the package.json `test` npm script, which varies
-                        by `:include-ssr?`: the CLJS node-test bundle
-                        (`shadow-cljs compile test && node out/node-test.js`)
-                        on the default / Story paths, or `clojure -M:test`
-                        (the headless JVM `ssr_test.clj` gate) on the SSR
-                        path. A second `_shared/package.json` subst delta
-                        alongside `{{story-tag}}` — the SSR scaffold ships
-                        no cljs.test suite, so its `npm test` must run the
-                        JVM gate, not an empty node-test bundle.
-     {{substrate-badge-url}} — shields.io badge URL keyed by substrate.
-     {{rf2-version}}  — runtime coord version (kept in lockstep with
-                        the repo-root VERSION file via the §3 release
-                        pipeline; pinned manually for now).
-     {{shadow-version}} — shadow-cljs npm pin.
-     {{react-version}}  — react / react-dom npm pin.
-
-   Substrate + include-story? are also stored under `:substrate-kw` and
-   `:include-story?` for `template-fn`'s switch (`->subst-map` would
-   otherwise coerce the keyword to a string). `:css-kw` (nil or
-   `:tailwind`) is likewise stored for `template-fn`'s CSS overlay
-   branch (rf2-nxqcov)."
+   deps-new supplies `:name`, `:top`, and `:main`. This hook adds the
+   namespace/file forms, selected substrate metadata, package description
+   and test-script variants, and dependency version pins. Keyword copies of
+   selector values are retained for `template-fn`, because deps-new coerces
+   substitution values to strings."
   [data]
-  ;; Fail closed on reserved + unknown arguments BEFORE any coercion, so a
-  ;; flag typo or a documented-future flag never produces a misleading
-  ;; vanilla scaffold.
+  ;; Validate the key set before coercing values so a typo cannot silently
+  ;; emit the default scaffold.
   (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
         include-story?  (coerce-include-story? (:include-story? data))
         include-ssr?    (coerce-include-ssr? (:include-ssr? data))
         css             (coerce-css (:css data))]
-    ;; Guards — all hoisted above the name-derivation `let` so the data
-    ;; map build below has no side-effecting binding.
-
-    ;; Mutual exclusion (004-SSR-Validation-Report §2.1): the file-naming
-    ;; convention would blow up combinatorially on `_with_story_and_ssr`
-    ;; sources, and every additive combination needs its own template test.
-    ;; v1 locks the two feature flags mutually exclusive.
+    ;; Story and SSR have separate complete source variants; there is no
+    ;; combined variant.
     (when (and include-story? include-ssr?)
       (throw (ex-info
                ":rf.error/ssr-and-story-mutually-exclusive"
@@ -393,7 +265,7 @@
                 :include-story? include-story?
                 :include-ssr?   include-ssr?})))
 
-    ;; :include-story? is Reagent-only in v1.
+    ;; Story and SSR currently have Reagent implementations only.
     (when (and include-story? (not= substrate :reagent))
       (throw (ex-info
                ":rf.error/template-include-story-reagent-only"
@@ -408,9 +280,6 @@
                 :substrate substrate
                 :include-story? include-story?})))
 
-    ;; :include-ssr? is Reagent-only in v1 — the SSR worked example, the
-    ;; ssr-ring test corpus, and the emitted scaffold are all Reagent-
-    ;; driven (004-SSR-Validation-Report §Recommended decision / §7).
     (when (and include-ssr? (not= substrate :reagent))
       (throw (ex-info
                ":rf.error/template-include-ssr-reagent-only"
@@ -436,37 +305,19 @@
        :substrate-label     label
        :include-story?      include-story?
        :include-ssr?        include-ssr?
-       ;; nil (plain-CSS default) or :tailwind (Tailwind v4 scaffold).
-       ;; `template-fn` reads this to overlay the Tailwind app.css +
-       ;; index.html over the plain defaults emitted from `root/`.
+       ;; Keep selectors as keywords for `template-fn`; substitution values
+       ;; are stringified by deps-new.
        :css-kw              css
-       ;; package.json `description` suffix — the single per-flag delta
-       ;; between the default and with-Story descriptions. Emitting it as
-       ;; a subst var lets one `_shared/package.json` source serve both
-       ;; paths from a single file.
        :story-tag           (if include-story? ", with Story playground" "")
-       ;; package.json `test` script — the second per-flag delta the single
-       ;; `_shared/package.json` source carries via a subst var (alongside
-       ;; `{{story-tag}}`). The default + Story scaffolds ship a CLJS
-       ;; `events_test.cljs` run by the `:test` shadow node-test build; the
-       ;; SSR scaffold ships NO cljs.test suite — its only test is the
-       ;; headless JVM `ssr_test.clj`, run by the emitted deps.edn `:test`
-       ;; alias — so `npm test` (and the generated CI's `npm test` step)
-       ;; must invoke `clojure -M:test` there instead of the empty
-       ;; node-test bundle (which would false-green on zero tests).
+       ;; SSR emits a JVM test instead of the shared CLJS test.
        :test-script         (if include-ssr?
                               "clojure -M:test"
                               "shadow-cljs compile test && node out/node-test.js")
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
        :substrate-badge-url badge-url
-       ;; -- DO NOT EDIT — managed by version_lockstep_test --
-       ;; The three version pins below are checked against the repo-root
-       ;; sources of truth (the VERSION file, implementation/package.json's
-       ;; shadow-cljs / react pins) by
-       ;; `test/day8/re_frame2_template/version_lockstep_test.clj`. Bumping
-       ;; them here in isolation will fail that test. The §3 release pipeline
-       ;; updates all four in lockstep.
+       ;; Checked against the repository sources of truth by
+       ;; version_lockstep_test.clj; update the pins together.
        :rf2-version         "0.0.1.alpha"
        :shadow-version      "3.4.10"
        :react-version       "19.2.0"})))
@@ -475,125 +326,29 @@
 ;;
 ;; deps-new's file-emission contract:
 ;;
-;;   1. Bulk copy `<template-dir>/root/` → `<target-dir>/` (the project
-;;      root). Substitution applies; no renames.
-;;   2. For each entry in the `:transform` vector, run a second copy
-;;      with the file-map's rename rules applied.
+;;   1. Copy `root/` into the project root.
+;;   2. Apply each `[src-dir target-dir file-map :only]` transform.
 ;;
-;; Each transform entry is:
-;;
-;;     [src-dir target-dir file-map delimiters & flags]
-;;
-;; - `src-dir` is relative to the template-dir (the directory
-;;   containing `template.edn`), NOT relative to `root/`.
-;; - `target-dir` is relative to the project root; supports `{{var}}`
-;;   substitution.
-;; - `file-map` renames files inside the transform (substitution
-;;   applies to both keys and values).
-;; - Flags: `:only` (copy ONLY files in file-map; skip the implicit
-;;   bulk-copy of `src-dir`), `:raw` (no substitution).
-;;
-;; Layout (under `<template-dir>` =
-;; `resources/day8/re_frame2_template/`):
-;;
-;;     ├── root/        — bulk-copied content with default placement
-;;     │   ├── README.md  · lefthook.yml
-;;     │   ├── dev/{user.clj, scratch.cljs}
-;;     │   └── resources/public/{index.html, css/app.css}
-;;     ├── _shared/     — substrate-agnostic content that needs renames
-;;     │                  or a flag switch (dotfile rename + namespace-
-;;     │                   path rename for src/test files; the
-;;     │                   substrate-invariant build configs
-;;     │                   shadow-cljs.edn + package.json [the latter's
-;;     │                   with-Story `description` delta rides the
-;;     │                   {{story-tag}} subst var, not a second file];
-;;     │                   stories.cljs, which only emits under
-;;     │                   :include-story? true)
-;;     ├── _reagent/    — Reagent-specific content (core.cljs / views.cljs
-;;     │                  / deps.edn); includes the with-story core +
-;;     │                  deps variants
-;;     ├── _uix/        — UIx-specific content (core.cljs / views.cljs /
-;;     │                  deps.edn)
-;;     └── _helix/      — Helix-specific content (core.cljs / views.cljs
-;;                        / deps.edn)
-;;
-;; The underscore-prefix convention signals "not bulk-copied — picked
-;; up by a transform with :only". Per-substrate sub-trees emit only
-;; for the chosen substrate; the only files that genuinely vary by
-;; substrate are core.cljs (mount/adapter wiring), views.cljs (the
-;; view macros), and deps.edn (the adapter coord + npm libs).
+;; Underscore-prefixed directories are never bulk-copied. Their explicit
+;; file maps select shared, substrate-specific, and optional sources.
 
 (defn template-fn
-  "Build the `:transform` vector and merge it into the template EDN.
+  "Attach the explicit file transforms for the selected project variant.
 
-   Transform groups:
-
-     - Shared (from `_shared/`): dotfile rename (e.g. `gitignore` →
-       `.gitignore`) + namespace-path rename for src/test source files
-       + the substrate-invariant build configs (`shadow-cljs.edn`,
-       `package.json`).
-     - Per-substrate (from `_<substrate>/`): the files that genuinely
-       differ by substrate — the entry-point `core.cljs`, the view
-       module `views.cljs`, and `deps.edn` (adapter coord + npm libs).
-     - Story scaffolding (Reagent-only, under `:include-story? true`):
-       picks `core_with_stories.cljs` instead of `core.cljs`, picks
-       `deps_with_story.edn` instead of the default `deps.edn`, and emits
-       `stories.cljs` from `_shared/`. (The shared `package.json` source
-       is unchanged — its with-Story `description` delta rides the
-       `{{story-tag}}` subst var, not a second file.)
-     - SSR scaffolding (Reagent-only, under `:include-ssr? true`, mutually
-       exclusive with `:include-story?`): the app's registration root is a
-       single shared `core.cljc` (JVM render + CLJS hydration), so the
-       per-substrate branch picks `core_with_ssr.cljc` → `core.cljc`,
-       `deps_with_ssr.edn` → `deps.edn`, and adds a `server.clj` (the Ring
-       host). Because the SSR `core.cljc` folds in its own events / subs /
-       schema / view, the shared per-slice CLJS sources
-       (`events.cljs` / `subs.cljs` / `schema.cljs` / `events_test.cljs` /
-       `views.cljs`) are NOT emitted; the shared file-map instead emits a
-       headless JVM `ssr_test.clj` AND overlays an SSR-flavoured
-       `README_with_ssr.md` → `README.md` (rf2-6ikgyr) over the default SPA
-       README the `root/` bulk-copy laid down — the default one describes the
-       static dev-server workflow + per-slice file names the SSR branch does
-       not emit. See 004-SSR-Validation-Report §3 / §188.
-     - CSS overlay (substrate-invariant, under `:css :tailwind`; Q6 lock /
-       rf2-gthro, wiring rf2-nxqcov): overwrites the plain-CSS `app.css` +
-       `index.html` (emitted by the `root/` bulk-copy) with the Tailwind v4
-       variants from `_css_tailwind/` — an `@import \"tailwindcss\";`
-       stylesheet (v4 is CSS-first; no `tailwind.config.js`) and an
-       `index.html` that loads the `@tailwindcss/browser@4` dev CDN
-       compiler. Runs last so it lands on top of the root copy.
-
-   All groups use `:only` so only files explicitly listed in the
-   file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
-   The default placement files (README.md, lefthook.yml, dev/*,
-   resources/public/*) are handled by deps-new's `:root` bulk-copy
-   from `root/` — they don't need an entry here.
-
-   Dotfile sources live without the leading dot in the source tree;
-   the file-map attaches the dot on the output side (same defensive
-   pattern the clj-new template used)."
+   Shared files provide build config, dotfiles, and the default CLJS slices.
+   A substrate transform adds its adapter entry point, views, and deps. Story
+   replaces the Reagent entry point and deps and adds `stories.cljs`; SSR
+   replaces the CLJS slices with `core.cljc`, `server.clj`, a JVM test, and an
+   SSR-specific README. The optional Tailwind transform runs last so it can
+   replace the default stylesheet and HTML."
   [edn data]
   (let [nested         (:nested-dirs data)
         substrate      (:substrate data)
         include-story? (:include-story? data)
         include-ssr?   (:include-ssr? data)
         css            (:css-kw data)
-        ;; The build configs are substrate-invariant — the React
-        ;; substrate is chosen in deps.edn + core.cljs, never here — so
-        ;; they live in `_shared/` and emit once. package.json's only
-        ;; per-flag variation is its `description` parenthetical, carried
-        ;; by the `{{story-tag}}` subst var (see data-fn), so a single
-        ;; `_shared/package.json` source serves both the default and the
-        ;; with-Story path.
-        ;; Shared transforms — renames only. `:only` skips the bulk
-        ;; copy of `_shared/*`, so source files that don't appear in
-        ;; the file-map below DO NOT emit. Add explicit entries if
-        ;; you need them.
-        ;; The dotfiles + substrate-invariant build configs emit on every
-        ;; path. The per-slice CLJS sources (events / subs / schema /
-        ;; events_test / — and, per-substrate, views) are the DEFAULT and
-        ;; STORY shape; the SSR path folds those into `core.cljc` instead,
-        ;; so they are omitted there in favour of a headless `ssr_test.clj`.
+        ;; Every shared source must be named here because `:only` disables
+        ;; implicit copying.
         shared-common  {"gitignore"            ".gitignore"
                         "editorconfig"         ".editorconfig"
                         "cljfmt.edn"           ".cljfmt.edn"
@@ -602,57 +357,30 @@
                         "shadow-cljs.edn"      "shadow-cljs.edn"
                         "package.json"         "package.json"}
         shared-files   (cond-> shared-common
-                         ;; Default + Story shape: the per-slice CLJS
-                         ;; sources, re-homed under the user's namespace
-                         ;; path.
+                         ;; SSR folds these slices into core.cljc.
                          (not include-ssr?)
                          (assoc "events.cljs"      (str "src/" nested "/events.cljs")
                                 "subs.cljs"        (str "src/" nested "/subs.cljs")
                                 "schema.cljs"      (str "src/" nested "/schema.cljs")
                                 "events_test.cljs" (str "test/" nested "/events_test.cljs"))
-                         ;; Story scaffolding lands under
-                         ;; `src/<nested>/stories.cljs` when the flag
-                         ;; is on. Same file-map entry; the source
-                         ;; lives in _shared/ alongside the other
-                         ;; substrate-agnostic files.
                          include-story?
                          (assoc "stories.cljs"
                                 (str "src/" nested "/stories.cljs"))
-                         ;; SSR shape: the events / subs / schema / view all
-                         ;; live in `core.cljc` (see the per-substrate
-                         ;; branch), so the only shared source is the
-                         ;; headless JVM SSR gate. The SSR path also swaps in
-                         ;; an SSR-flavoured README (rf2-6ikgyr): the default
-                         ;; `root/README.md` (bulk-copied first) describes the
-                         ;; static-SPA dev-server workflow + the per-slice
-                         ;; file names this branch does NOT emit, so
-                         ;; `README_with_ssr.md` overwrites it with the SSR
-                         ;; quick-start (JVM render server + client watcher),
-                         ;; the core.cljc / server.clj / ssr_test.clj shape,
-                         ;; and the error-projector surface. Since all
-                         ;; transforms run AFTER the `root/` bulk-copy (and
-                         ;; tools.build's copy-dir overwrites), the SSR README
-                         ;; wins — the same overlay mechanism the Tailwind CSS
-                         ;; variant uses (004-SSR-Validation-Report §188).
+                         ;; Transforms run after the root copy, so this README
+                         ;; replaces the SPA README.
                          include-ssr?
                          (assoc "ssr_test.clj"
                                 (str "test/" nested "/ssr_test.clj")
                                 "README_with_ssr.md" "README.md"))
         shared         [["_shared" "." shared-files :only]]
 
-        ;; Per-substrate transforms. `:only` keeps each substrate
-        ;; transform self-documenting (any new file under
-        ;; `_<substrate>/` must be opted in here).
+        ;; Any new substrate source must be opted into its map.
         per-substrate
         (case substrate
           "reagent"
           (cond
-            ;; SSR path: the registration root is a single `core.cljc`
-            ;; (JVM render + CLJS hydration) that folds in the events /
-            ;; subs / schema / view, so `views.cljs` is NOT emitted; a
-            ;; `server.clj` (the Ring host) is. `:include-ssr?` is mutually
-            ;; exclusive with `:include-story?` (data-fn guard), so the two
-            ;; `_with_*` shapes never combine.
+            ;; SSR's core.cljc contains both platform entry points and all
+            ;; shared registrations.
             include-ssr?
             [["_reagent" "."
               {"deps_with_ssr.edn"    "deps.edn"
@@ -687,19 +415,8 @@
              "views.cljs"      (str "src/" nested "/views.cljs")}
             :only]])
 
-        ;; CSS overlay (Q6 lock / rf2-gthro; wiring rf2-nxqcov). The
-        ;; default plain-CSS `app.css` + `index.html` are emitted by the
-        ;; `root/` bulk-copy above. When `:css :tailwind` is passed, this
-        ;; transform runs AFTER the root copy and overwrites those two
-        ;; files with the Tailwind v4 variants from `_css_tailwind/`: an
-        ;; `app.css` whose entry is `@import "tailwindcss";` (v4 is
-        ;; CSS-first — no `tailwind.config.js`) and an `index.html` that
-        ;; loads the `@tailwindcss/browser@4` dev CDN compiler (zero build
-        ;; step) with a CSP tuned to admit it. deps-new runs the `:root`
-        ;; copy first, then each `:transform` entry in order (see
-        ;; org.corfield.new/create), and tools.build's `copy-dir`
-        ;; overwrites, so the overlay is deterministic. Substrate-invariant
-        ;; — the CSS scaffold is the same across Reagent / UIx / Helix.
+        ;; This transform runs after the root copy and replaces the plain-CSS
+        ;; files on every substrate.
         css-overlay
         (when (= css :tailwind)
           [["_css_tailwind" "."

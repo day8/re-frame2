@@ -56,7 +56,7 @@ the emitted test file up out of the box, and `dev/scratch.cljs` +
 `(user/refresh)` entry) are reachable from `clojure -M:shadow` and
 shadow's nREPL without further classpath plumbing.
 
-**`dev/scratch.cljs` runs under a frame (EP-0002).** The runtime has no
+**`dev/scratch.cljs` runs under a frame.** The runtime has no
 implicit `:rf/default` floor — a bare `rf/dispatch` / `rf/subscribe`
 evaluated at the REPL with no established scope raises
 `:rf.error/no-frame-context` (Spec 002 §Frame target resolution). Every
@@ -132,7 +132,7 @@ identically across all three substrates:
 Xray is default-on because the scaffold's headline promise is
 "save and see it live" — the dispatch log, app-db diff, causality
 graph, and time-travel scrubber are the on-ramp's primary feedback
-surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md#9--xray-on-by-default-rf2-y9zqc)
+surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md)
 for the WHY and the release-elision guarantee. The generated
 `README.md` documents the runtime experience (the
 `Ctrl+Shift+C` toggle, what each panel shows).
@@ -156,7 +156,7 @@ tools/template/
     ├── root/                             ; bulk-copied, default placement
     │   ├── README.md
     │   ├── lefthook.yml
-    │   ├── .github/workflows/ci.yml      ; baseline CI workflow (rf2-k2z79)
+    │   ├── .github/workflows/ci.yml      ; baseline CI workflow
     │   ├── dev/{user.clj, scratch.cljs}
     │   └── resources/public/{index.html, css/app.css}
     ├── _shared/                          ; substrate-agnostic; renamed / flag-switched at emit
