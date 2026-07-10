@@ -1,36 +1,13 @@
 # Decision tree — which Pattern-* fits this task?
 
 > **Audience:** authors writing re-frame2 ClojureScript application code.
-> **Use when:** the task description hints at a recurring shape — fetching, submitting, booting, processing, streaming, rendering lifecycle states — and you need to pick the canonical leaf to load.
+> **Use when:** two neighbouring patterns both look plausible and you need the rule that picks between them, or you've picked a pattern and need the two follow-on decisions (verify against the example, then slice-vs-machine).
 
-Patterns compose: most real screens combine two or three of them. This tree picks the *primary* pattern — the one whose shape the feature is built around. Secondary patterns get loaded in their own pass after the primary one is in place.
+The canonical shape → leaf inventory lives **once** in [`../SKILL.md`](../SKILL.md) §Decision shortcuts (the *Which pattern fits* table) — every shipped pattern, including ResourcesMutations, is reachable from there. This tree does **not** restate that inventory; it carries the value the router can't: the **disambiguation rules** for patterns that share vocabulary, plus the two follow-on decisions. Worked examples are indexed in [`../examples-map.md`](../examples-map.md).
 
-The canonical routing matrix (shape → leaf) is [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits?; this tree restates it once with a worked-example column (Step 1) and adds the disambiguation rules (Step 2) that are its real value. Each leaf below names the file under [`patterns/`](../patterns) and the worked example under `examples/` (when one exists).
+Patterns compose: most real screens combine two or three of them. Pick the *primary* pattern — the one whose shape the feature is built around — from SKILL.md's table; the secondary patterns get loaded in their own pass after the primary one is in place. **Load at most two pattern leaves at a time**; if three or more seem necessary, the request spans features — author each pattern's leaf in its own pass.
 
-## Step 1 — name the shape
-
-Read the prompt for **one** of the following shape-tells. They are mutually exclusive at the level of *primary* role; the third column names the leaf to load and its worked example.
-
-| Shape-tell in the prompt | Pattern (leaf) | Worked example |
-|---|---|---|
-| "Fetch / GET / load / refresh / reload" — a request whose response writes to `app-db` | RemoteData — [`patterns/remote-data.md`](../patterns/remote-data.md) | `examples/real-apps/realworld_http/` (articles.cljs slice · tags.cljs machine) |
-| "Query cache / server-state / TanStack-Query / React-Query / SWR / shared cached read / invalidate after a write / refetch on focus / `reg-resource`" | Resources — [`patterns/resources.md`](../patterns/resources.md) | `examples/capabilities/resources/resources/` (read) · `examples/real-apps/realworld_resources/` (mutations) |
-| "Submit / save / form / validation / required / draft / dirty" — user-edited input crossing a server boundary | Forms — [`patterns/forms.md`](../patterns/forms.md) | `examples/core/login/` |
-| "Boot / init / hydrate / startup / first-load / splash" — the initial-load sequence before the app is interactive | Boot — [`patterns/boot.md`](../patterns/boot.md) | `examples/patterns/boot/` |
-| "WebSocket / SSE / EventSource / live / push / subscribe / channel / heartbeat / reconnect" — long-lived connection | WebSocket — [`patterns/websocket.md`](../patterns/websocket.md) | `examples/patterns/websocket/` |
-| "Retry / backoff / circuit-breaker / 4xx vs 5xx / abort / cancel an in-flight request" — a request with status-aware policy | ManagedHTTP — [`patterns/managed-http.md`](../patterns/managed-http.md) | `examples/core/managed_http_counter/` |
-| "Empty state / no-results / one-result / too-many / not-found / forbidden / nine UI states" — render every legal lifecycle distinctly | NineStates — [`patterns/nine-states.md`](../patterns/nine-states.md) | `examples/patterns/nine_states/` |
-| "Fire-and-forget / log / analytics / telemetry / external side-effect with no observable reply" | AsyncEffect — [`patterns/async-effect.md`](../patterns/async-effect.md) | (inline mini-example) |
-| "CPU-bound / heavy / parses / hashes / pegs the main thread / chunked / yields / progress bar" | LongRunningWork — [`patterns/long-running-work.md`](../patterns/long-running-work.md) | `examples/patterns/long_running_work/` |
-| "Async-result arrives after state moved on / ignore stale results / don't apply old data after navigating away" | StaleDetection — [`patterns/stale-detection.md`](../patterns/stale-detection.md) | (inline mini-example) |
-| "Reusable / parameterised widget / customer-card / renders N of the same / works against any X / compare two side by side" | ReusableComponents — [`patterns/reusable-components.md`](../patterns/reusable-components.md) | (inline mini-example) |
-| "Wrap a JS library / D3 / Mapbox / CodeMirror / Three.js / ag-grid / chart / map / editor / `:ref` + lifecycle / `.setData`" | StatefulComponents — [`patterns/stateful-components.md`](../patterns/stateful-components.md) | (per-adapter README) |
-| "SSR form POST / progressive enhancement / works without JavaScript / server `action` / POST-redirect-GET / CSRF on submit" | FormAction — [`patterns/form-action.md`](../patterns/form-action.md) | (inline mini-example) |
-| "SSR parallel fetch / `Promise.all` server-side / fan-out N requests before render / per-page loader" | SSR-Loaders — [`patterns/ssr-loaders.md`](../patterns/ssr-loaders.md) | `examples/patterns/boot/` |
-
-If you see **two** shape-tells, the dominant one is the one the user names first or the one that owns the data. Pattern composition (e.g. "managed-HTTP retries inside a form submit") is normal — pick the primary, plan the secondary as a follow-up. **Load at most two pattern leaves at a time**; if three or more seem necessary, the request spans features — author each pattern's leaf in its own pass.
-
-## Step 2 — the disambiguation pairs
+## Step 1 — the disambiguation pairs
 
 A few neighbouring patterns share enough vocabulary to get confused. These rules pick the right leaf when both look plausible.
 
@@ -51,6 +28,15 @@ Both model "the result of a fetch". The difference is **who owns the cache bookk
 - **Resources** — the framework owns identity, **cache scope** (fail-closed tenant/user boundary), **staleness/TTL**, dedupe, **tag invalidation** (so a write refreshes related reads), GC, in-flight ownership, route-declared loading, and SSR preload. Choose it when the same fetch is **shared across views**, needs freshness/fresh-skip, must be **invalidated after a mutation**, wants auditable scoping, or needs a **write-completion workflow continuation** (navigate / toast / fold errors after a save — call-site `:reply-to`, the `onSuccess` shape). It is the TanStack-Query-shaped layer; it lowers onto the same managed HTTP underneath.
 
 Rule of thumb: a single feature's private fetch → RemoteData; a server-state cache several features read and a write must invalidate → Resources.
+
+### Resources vs ResourcesMutations
+
+Both live in the `day8/re-frame2-resources` layer; the split is **read vs write** — do not fold mutations into the Resources leaf.
+
+- **Resources** — the *read / cache lifecycle*. `reg-resource` declares a cached, scoped, revalidated server-state **read**: identity, cache scope, staleness/TTL, dedupe, tag invalidation, GC, route-declared loading, SSR preload. Views read it **passively** through a `[:rf/resource {...}]` subscription; the fetch is *caused* by a route `:resources` entry or a dispatched `[:rf.resource/ensure {...}]` — never from render. Choose it when the question is "how is this cached read shared, kept fresh, and scoped?" (→ [`../patterns/resources.md`](../patterns/resources.md)).
+- **ResourcesMutations** — the *write + post-write workflow*. `reg-mutation` declares a server **write** dispatched via `[:rf.mutation/execute {...}]`: declarative cache consequences (`:invalidates` tags, `:populates` authoritative seed), optimistic apply/rollback (`:optimistic` / `:optimistic-tags`, the runtime records the inverse), per-submission `:instance` keying so concurrent writes never clobber, and a **call-site** `:reply-to` handler for the app workflow (navigate / toast / fold field errors — a causal event target, not a callback). Choose it when the question is "what happens *after* a write settles, and how do the caches it touched refresh?" (→ [`../patterns/resources-mutations.md`](../patterns/resources-mutations.md)).
+
+Rule of thumb: reading and caching server-state → Resources; changing server-state and orchestrating the consequences → ResourcesMutations. A screen that lists then edits uses **both** — the list is a Resource, the save is a Mutation whose `:invalidates` refreshes that list. Keep the two axes apart: cache consequences are declarative on `reg-mutation`; app workflow lives in the `:reply-to` handler — never drive navigation/toast off `:populates`/`:invalidates`, and never watch `[:rf/mutation ...]` from a component lifecycle hook.
 
 ### Forms vs RemoteData
 
@@ -108,22 +94,22 @@ The LongRunningWork leaf's own decision tree picks between (a) a Web Worker (pre
 
 StaleDetection is rarely the *primary* pattern for a task. It is the **epoch idiom** that overlays RemoteData, WebSocket, or any state-machine that initiates async work which might be superseded before its reply arrives. Choose StaleDetection as a primary pattern only when the explicit task is *"add stale detection to an existing feature"*. Otherwise the relevant pattern leaf (RemoteData, WebSocket, the machine) names where the epoch attaches; StaleDetection is the reference for *how*.
 
-## Step 3 — verify against the example app
+## Step 2 — verify against the example app
 
-Every pattern has a worked example app (the `examples/` tree is test-free; patterns are regression-covered by CLJS contract/unit tests + adapter smokes, not per-example Playwright). After picking the pattern leaf, point at the example named in [`examples-map.md`](../examples-map.md) and confirm: the slice shape matches; the event names scale to the example's `:feature/<verb>` naming; the `reg-app-schema` attachment points cover the same boundaries.
+Every pattern has a worked example app (the `examples/` tree is test-free; patterns are regression-covered by CLJS contract/unit tests + adapter smokes, not per-example Playwright). After picking the pattern leaf, point at the example named in [`../examples-map.md`](../examples-map.md) and confirm: the slice shape matches; the event names scale to the example's `:feature/<verb>` naming; the `reg-app-schema` attachment points cover the same boundaries.
 
 If the example contradicts the leaf, **the example wins** (implementation is ground truth). Report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around.
 
-## Step 4 — the state-shape question (separate decision)
+## Step 3 — the state-shape question (separate decision)
 
 After picking the pattern, a second question applies independently: *should the state behind this pattern live as a slice in `app-db`, as a region inside an existing machine, or as a top-level `reg-machine`?* That question is its own decision tree — see [`slice-or-machine.md`](slice-or-machine.md). Pattern choice and state-shape choice are orthogonal: WebSocket is always a machine; AsyncEffect is usually a slice; RemoteData is a slice unless its retry policy needs a machine.
 
 ## Cross-references
 
-- [`slice-or-machine.md`](slice-or-machine.md) — when to lift state into a machine.
+- [`../SKILL.md`](../SKILL.md) §Decision shortcuts — the *Which pattern fits* table: the canonical shape → leaf inventory this tree disambiguates (owned there, never restated here).
 - [`../examples-map.md`](../examples-map.md) — one-paragraph index of every worked example.
-- [`../SKILL.md`](../SKILL.md) §Decision: which pattern fits? — the canonical routing matrix this tree's Step 1 restates.
+- [`slice-or-machine.md`](slice-or-machine.md) — when to lift state into a machine.
 
 ---
 
-*Derived from the canonical patterns in the spec (`SKILL-REDIRECT.md` → Pattern entries) and the worked examples under `examples/` @ main `89bd9c3`.*
+*Derived from the canonical patterns in the spec (`SKILL-REDIRECT.md` → Pattern entries) and the worked examples under `examples/`.*
