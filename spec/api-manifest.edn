@@ -149,7 +149,7 @@
   {:namespace "re-frame.core", :var "reg-sub", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-view", :tier :front-porch, :kind :macro, :owner "004", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-view*", :tier :advanced, :kind :fn, :owner "004", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; app-facing facade — home-verb tool-embedding form per Tool-Pair DCE tier rule)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "remove-revalidation-listeners!", :tier :advanced, :kind :fn, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
@@ -185,11 +185,11 @@
   {:namespace "re-frame.epoch", :var "epoch-history", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "projected-history", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "projected-record", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.epoch", :var "register-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.epoch", :var "register-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; :epoch home verb — tool-embedding form, cf. rf/register-listener! :epoch facade)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "replace-frame-state!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "restore-epoch!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.epoch", :var "settle!", :tier :implementation, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only)", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.epoch", :var "unregister-epoch-listener!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1 (dev-only; :epoch home verb)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "clear-flow", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flow-algebra-view", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "flow-meta-at", :tier :tooling, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
