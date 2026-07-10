@@ -18,10 +18,14 @@ The leftmost L1-ribbon cluster is the **Frame switcher** — the single
 contractually-anchored surface every frame-aware feature reaches through
 (the L1 picker, the Cmd-K palette's `:palette/select-frame` verb). Its face
 carries the currently-selected frame id (e.g. `:rf/default ▾`), not a static
-label. It chooses **which frame Xray observes**; every Dynamic tab, the L2
-spine, *and* the Static catalogues rebind to the picked frame (the picker is
-**mode-independent** — registries are frame-scoped, so pick the frame
-whether you're in Dynamic or Static).
+label. It chooses **which frame Xray observes** — the picker is
+**mode-independent**, moving the *frame-observation* axis in both Dynamic and
+Static. It does **not** re-scope the process-global definition catalogues
+(events / subs / routes / interceptors / machine definitions read the same in
+every frame, Spec 001); what it moves are the per-frame *live* projections —
+each Dynamic tab's observed-frame state and the Static tabs' per-frame slices
+(machine snapshots, the flows registry, the app-db-schema side-table, the
+current-route slice; see [`panels.md` §Static mode](panels.md)).
 
 - **The control always renders.** On a single-frame app it is a working
   one-entry dropdown (the native select still opens and shows the lone
