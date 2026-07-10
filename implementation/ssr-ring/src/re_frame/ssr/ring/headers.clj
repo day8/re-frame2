@@ -14,9 +14,28 @@
 
 (set! *warn-on-reflection* true)
 
+(defn existing-header-key
+  "Return the key already present in Ring header map `m` whose name matches
+  `k` case-insensitively (RFC 7230 §3.2 — header field names are
+  case-insensitive tokens), or nil when no case variant is present. The
+  first-seen spelling is the one retained, so `merge-pair-into-header-map`
+  folds later case variants back under this returned key. Mirrors the
+  lower-case matching rule `strip-header` uses so both single-source the
+  case-insensitive header-name comparison."
+  [m k]
+  (let [target (str/lower-case (str k))]
+    (some (fn [ek] (when (= target (str/lower-case (str ek))) ek))
+          (keys m))))
+
 (defn merge-pair-into-header-map
   "Fold a `[name value]` header pair into the accumulating Ring headers
   map. Repeated names preserve order in a vector.
+
+  Header field names are case-insensitive (RFC 7230 §3.2), so pairs whose
+  names differ only by ASCII case are ONE logical header: they collapse
+  under the first-seen spelling (the stable emitted key) with their values
+  kept in declaration order. This mirrors `strip-header`'s case-insensitive
+  rule and honours the ns docstring's case-insensitive name-match promise.
 
   Ring requires strings or vectors of strings. Because schema validation is
   optional, this wire boundary unconditionally stringifies non-nil scalar
@@ -38,11 +57,14 @@
                                    "a caller bug")
                   :recovery   :coerced-to-string}))
   (let [v*       (if (or (nil? v) (string? v)) v (str v))
-        existing (get m k)]
+        ;; Fold under the first-seen spelling of this logical header so
+        ;; case variants (Vary / vary / VARY) land in ONE Ring map entry.
+        key*     (or (existing-header-key m k) k)
+        existing (get m key*)]
     (cond
-      (nil? existing)        (assoc m k v*)
-      (vector? existing)     (assoc m k (conj existing v*))
-      :else                  (assoc m k [existing v*]))))
+      (nil? existing)        (assoc m key* v*)
+      (vector? existing)     (assoc m key* (conj existing v*))
+      :else                  (assoc m key* [existing v*]))))
 
 (defn append-set-cookies
   "For every cookie map in the response's :cookies vector, append one
