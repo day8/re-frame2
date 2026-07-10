@@ -730,6 +730,29 @@ test('examples/scripts/examples-staging.cjs (shared staging helper) fires BOTH b
   );
 });
 
+// rf2-78th1g — examples-asset-manifest.cjs is the single side-effect-free
+// OWNER of every examples external-asset EXCEPTION (rf2-phpbo8). Its
+// stagedAssetsByBuild projection is require'd by examples-staging.cjs — the
+// shared staging helper that itself fires BOTH browser gates (rf2-eqjxya) — so
+// a regression in the manifest data or its projection can break the staged
+// output those gates serve before they run. Before this bead a manifest-only
+// PR fell through to the generic examples/* case (cljs_browser + cljs_node_test),
+// skipping both Playwright gates it underpins. Mirror the examples-staging.cjs
+// case: fire BOTH browser gates.
+test('examples/scripts/examples-asset-manifest.cjs (staging asset manifest) fires BOTH browser gates (rf2-78th1g)', () => {
+  const result = classify('examples/scripts/examples-asset-manifest.cjs');
+  assert.equal(
+    result.adapter_testbed_smokes,
+    'true',
+    'the manifest underpins examples-staging.cjs (imported by the adapter-smoke orchestrator); it must fire adapter_testbed_smokes',
+  );
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'the manifest underpins examples-staging.cjs (imported by both Story launchers); it must fire story_xray_browser',
+  );
+});
+
 test('examples/scripts static-only scanners stay on the always-on JS harness path, no browser gate (rf2-y9o5e3)', () => {
   for (const file of [
     'examples/scripts/check-examples-assets.cjs',
