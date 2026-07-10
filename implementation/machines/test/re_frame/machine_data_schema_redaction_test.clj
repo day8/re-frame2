@@ -101,13 +101,11 @@
   ([actor-id]
    (elision/swap-elision-slot! :rf/default
      (fn [reg]
-       (-> reg
-           (assoc-in [:sensitive-declarations
-                      [:rf.runtime/machines :snapshots actor-id :data :token]]
-                     {:source :effect})
-           (assoc-in [:declarations
-                      [:rf.runtime/machines :snapshots actor-id :data :blob]]
-                     {:source :effect}))))))
+       (-> (or reg {})
+           (elision/add-claims :sensitive-declarations {:source :effect}
+                               [[:rf.runtime/machines :snapshots actor-id :data :token]])
+           (elision/add-claims :declarations {:source :effect}
+                               [[:rf.runtime/machines :snapshots actor-id :data :blob]]))))))
 
 (defn- machine-transition-event*
   "Build a `:rf.machine/transition` trace event whose `:before` / `:after`
