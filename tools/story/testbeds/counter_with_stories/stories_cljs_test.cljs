@@ -19,6 +19,7 @@
             [re-frame.frame     :as frame]
             [re-frame.machines  :as machines]
             [re-frame.registrar :as registrar]
+            [re-frame.source-store :as source-store]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story     :as story]
             [re-frame.story.async      :as async-lib]
@@ -37,8 +38,64 @@
 ;; app's events / subs / fx, the canonical `:rf.assert/*` handlers)
 ;; survive the snapshot; per-test registrations roll back. Map-form
 ;; fixture is needed for cljs.test's async test bodies to suspend.
+;;
+;; ---- Why this cluster stays HAND-ROLLED (rf2-y90h6h / rf2-vyzqca) --------
+;;
+;; This testbed cluster — this ns, its sibling `elision_demo_cljs_test`, and
+;; the `login_form` story test — DELIBERATELY does NOT migrate its per-test
+;; reset onto `re-frame.test-support/make-reset-runtime-fixture` (nor the
+;; Story-flavoured `re-frame.story.test-support/use-fixtures` that composes
+;; it). rf2-vyzqca (#5578) proved a file-by-file migration breaks 16
+;; run-order-coupled tests here. DO NOT re-attempt the migration in a corpus
+;; "one-idiom" sweep without first addressing ALL THREE reasons below — they
+;; are intrinsic to how these co-located testbeds demo EP-0026:
+;;
+;;   1. ASYNC story tests need the MAP-form fixture. Every variant test
+;;      below drives `story/run-variant` (a Promise) under `(async done …)`.
+;;      cljs.test HARD-ERRORS on a fn-form fixture for an async body
+;;      ("Async tests require fixtures to be specified as maps"), and
+;;      `story-test/use-fixtures` returns ONLY the sync fn-form — it composes
+;;      `make-reset-runtime-fixture` WITHOUT threading `:async?`. Migrating
+;;      would first require extending that production test-support surface
+;;      for async and converting these suites to the map shape.
+;;
+;;   2. The sibling `elision_demo_cljs_test` is NOT a story test (EP-0025
+;;      elision, no variants) and does NOT `:require` this ns's app slices
+;;      (`counter-with-stories.{events,subs,stories}`). So ITS
+;;      `make-reset-runtime-fixture` source-store baseline — captured at that
+;;      ns's load from its own require chain — MISSES the counter app
+;;      descriptors. The fixture restores the SHARED process-global source
+;;      store to that incomplete baseline on teardown, dropping
+;;      `:counter/initialise` / `:count` for this ns's variant-frame images
+;;      (`:select-ns {:include ["counter-with-stories.**"]}`) — the exact
+;;      14-in-`stories`/2-in-elision-family break rf2-vyzqca observed.
+;;
+;;   3. This ns's app events / subs register at NS-LOAD via top-level
+;;      `reg-event` / `reg-sub` forms (see events.cljs / subs.cljs) — there
+;;      is NO `install!` thunk to re-fire them per test. The only way to keep
+;;      them present across a per-test source-store reset is to restore the
+;;      ns-load baseline, which is exactly what the hand-rolled reset below
+;;      does (mirroring `login_form/stories_cljs_test`).
+;;
+;; So the cluster stays on `story/clear-all!` + `register-all!` + an ns-load
+;; SOURCE-STORE baseline restore — the async-compatible map-form idiom — and
+;; is uniformly run-order-INDEPENDENT without the fixture.
 
 (def ^:private registrar-snapshot (atom nil))
+
+;; EP-0026 §Default Image — STABLE ns-load source-store baseline. Mirrors
+;; `login_form/stories_cljs_test`'s baseline and `make-reset-runtime-fixture`'s
+;; `source-store-baseline` (rf2-7hwnu). Captured ONCE here at ns-load, AFTER
+;; the `:require` chain above has fired every `reg-*`, so the
+;; provenance-tagged `counter-with-stories.*` app descriptors this ns's
+;; variant-frame images select (`:select-ns {:include
+;; ["counter-with-stories.**"]}`) are live. Restored per-`before!` so each
+;; test's scoped projection resolves the counter app slices regardless of
+;; what a sibling ns's fixture last left the SHARED source store at — a
+;; per-ns-baseline fixture (make-reset-runtime-fixture) resetting the store to
+;; ITS own incomplete baseline is exactly the run-order coupling this restore
+;; makes us immune to (rf2-vyzqca / rf2-y90h6h).
+(def ^:private source-store-baseline @source-store/kind->id->ns->descriptor)
 
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
@@ -52,6 +109,14 @@
   ;; previous tests and ensures the lifecycle machine is freshly
   ;; registered against the post-snapshot registrar).
   (story/clear-all!)
+  ;; Restore the STABLE ns-load source-store baseline (see the capture
+  ;; above). `story/clear-all!` only wipes the Story side-table, but a
+  ;; sibling ns's per-ns-baseline fixture may have left the SHARED source
+  ;; store missing this app's descriptors; folding the ns-load baseline back
+  ;; makes each test's `:select-ns` projection resolve the counter app
+  ;; slices run-order-independently. Idempotent w.r.t. the `register-all!`
+  ;; below (stories land in the Story side-table, not the source store).
+  (reset! source-store/kind->id->ns->descriptor source-store-baseline)
   (cw-stories/register-all!))
 
 (defn- after! []
