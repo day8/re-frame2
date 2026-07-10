@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Shared 32x32 example favicon. Its paper, ink, and decorative amber literals
-  mirror the --ex-* palette in examples/_shared/css/style.css.
+  mirror the ex-* palette (the ex-* CSS custom properties) in
+  examples/_shared/css/style.css.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <rect width="32" height="32" rx="6" fill="#1A1814"/>

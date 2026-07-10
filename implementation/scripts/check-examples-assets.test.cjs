@@ -54,6 +54,8 @@ const {
   EXAMPLES_ROOT,
   PNG_SIGNATURE,
   validatePng,
+  pngCrc32,
+  checkSvgWellFormed,
   OG_PNG_WIDTH,
   OG_PNG_HEIGHT,
   contrastRatio,
@@ -106,6 +108,35 @@ const VALID_OG_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAABLAAAAJ2CAIAAADAIuwLAAAACUlEQVR4nGMAAAABAAFe/335AAAAAElFTkSuQmCC',
   'base64',
 ).toString('latin1');
+
+// Build a STRUCTURALLY COMPLETE PNG (signature + IHDR + IDAT + IEND) at the
+// given dimensions, as a Buffer, for the full-structural-decode teeth
+// (rf2-3fc89f.27). Uses the scanner's own pngCrc32 to write correct chunk CRCs
+// and a real zlib stream for the IDAT, so validatePng's CRC + inflate checks see
+// a genuinely valid raster — the corrupt/truncated fixtures are then derived by
+// mutating this baseline, isolating exactly one defect each.
+const zlibForTests = require('zlib');
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const typeBuf = Buffer.from(type, 'latin1');
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(pngCrc32(Buffer.concat([typeBuf, data])));
+  return Buffer.concat([len, typeBuf, data, crc]);
+}
+function buildPng(width = OG_PNG_WIDTH, height = OG_PNG_HEIGHT) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // colour type (truecolour)
+  return Buffer.concat([
+    Buffer.from(PNG_SIGNATURE),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlibForTests.deflateSync(Buffer.from([0, 0, 0, 0]))),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 // An AA-safe, focus-accessible style.css that satisfies the shared contrast +
 // focus-indicator contracts (rf2-febmqu + rf2-mon7tz), for checkSharedTree
@@ -1633,6 +1664,211 @@ it('TEETH: checkSharedTree rejects a wrong-dimension og.png', () => {
     errors.some((e) => e.includes('og.png') && e.includes('800x600')),
     `expected a wrong-dimension og.png error, got: ${errors.join(' | ')}`,
   );
+});
+
+// ---- TEETH: og.png FULL STRUCTURAL DECODE (rf2-3fc89f.27) ----------------
+//
+// The pre-fix validatePng read only the first 24 bytes (signature + IHDR dims),
+// so a 24-byte header prefix, a byte-flipped IDAT, or a mid-stream truncation
+// all reported ok:true — a FALSE-GREEN over a structurally-broken raster. The
+// gate now walks the ENTIRE chunk stream: bounded chunks, per-chunk CRC-32, a
+// real IDAT zlib inflate, and a terminal IEND. Each fixture below isolates one
+// real corruption the old header sniff missed.
+
+it('validatePng accepts a freshly-built structurally-complete PNG', () => {
+  const v = validatePng(buildPng());
+  assert.ok(v.ok, `expected the built PNG to validate, got: ${v.reason}`);
+  assert.strictEqual(v.width, OG_PNG_WIDTH);
+  assert.strictEqual(v.height, OG_PNG_HEIGHT);
+});
+
+it('LIVE: the shipped og.png fully decodes (signature + chunks + CRC + IDAT inflate + IEND)', () => {
+  const fs = require('fs');
+  const bytes = fs.readFileSync(path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.png'));
+  const v = validatePng(bytes);
+  assert.ok(v.ok, `the real og.png must fully decode, got: ${v.reason}`);
+  assert.strictEqual(v.width, OG_PNG_WIDTH);
+  assert.strictEqual(v.height, OG_PNG_HEIGHT);
+});
+
+it('TEETH: a 24-byte header-only prefix is REJECTED (the pre-fix false-green)', () => {
+  // Exactly the false-green the old header-sniff let through: signature + IHDR
+  // header + dimensions and nothing else. It must now fail (chunk runs past EOF).
+  const headerOnly = buildPng().subarray(0, 24);
+  const v = validatePng(headerOnly);
+  assert.ok(!v.ok, 'a 24-byte header prefix is not a complete PNG and must fail');
+  assert.ok(
+    /past end of file|truncated/.test(v.reason),
+    `expected a truncation failure, got: ${v.reason}`,
+  );
+});
+
+it('TEETH: a mid-IDAT truncation is REJECTED (declared chunk length runs past EOF)', () => {
+  // Cut the file INSIDE the IDAT chunk data (byte 45 is a few bytes into the
+  // IDAT payload, which starts at byte 41 = sig 8 + IHDR 25 + IDAT header 8).
+  // The IDAT chunk still declares its full length, which now runs past EOF. The
+  // old header-sniff stayed green on any prefix >= 24 bytes.
+  const truncated = buildPng().subarray(0, 45);
+  const v = validatePng(truncated);
+  assert.ok(!v.ok, 'a mid-stream truncation must fail');
+  assert.ok(
+    /past end of file|truncated/.test(v.reason),
+    `expected a truncation failure, got: ${v.reason}`,
+  );
+});
+
+it('TEETH: a byte-flipped IDAT (bad CRC) is REJECTED', () => {
+  // Flip a byte INSIDE the IDAT data without recomputing its CRC — the stored
+  // CRC no longer matches the computed CRC, so the chunk is corrupt. (The old
+  // sniff never read past byte 24, so a corrupt IDAT passed.)
+  const full = buildPng();
+  const corrupt = Buffer.from(full);
+  // IDAT data sits after sig(8) + IHDR(25) + IDAT length(4) + 'IDAT'(4) = 41.
+  corrupt[43] ^= 0xff;
+  const v = validatePng(corrupt);
+  assert.ok(!v.ok, 'a byte-flipped IDAT must fail the CRC check');
+  assert.ok(/CRC mismatch/.test(v.reason), `expected a CRC failure, got: ${v.reason}`);
+});
+
+it('TEETH: a PNG missing its terminal IEND is REJECTED', () => {
+  // Signature + IHDR + IDAT but no IEND chunk (the trailing 12-byte IEND chunk
+  // dropped). A conformant PNG always ends with IEND; its absence is a truncated
+  // raster. Every remaining chunk still has a valid CRC, so this isolates the
+  // missing-terminator defect rather than a bounds/CRC symptom.
+  const full = buildPng();
+  const noIend = full.subarray(0, full.length - 12); // drop the IEND chunk
+  const v = validatePng(noIend);
+  assert.ok(!v.ok, 'a PNG with no IEND must fail');
+  assert.ok(/IEND/.test(v.reason), `expected a missing-IEND failure, got: ${v.reason}`);
+});
+
+it('TEETH: checkSharedTree rejects a header-only (truncated) og.png', () => {
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }\n' +
+      RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    // A header-only prefix — the exact false-green the pre-fix gate passed.
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: buildPng().subarray(0, 24).toString('latin1'),
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('og.png') && e.includes('not a valid')),
+    `expected checkSharedTree to reject the header-only og.png, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: SVG WELL-FORMEDNESS (rf2-3fc89f.27) --------------------------
+//
+// The pre-fix gate checked favicon.svg / og.svg only for existence and selected
+// palette literals — never XML well-formedness. Both shipped SVGs actually
+// contained an illegal '--' inside a comment (XML forbids it; strict parsers AND
+// Chrome render a <parsererror>), so the favicon could not render and the OG
+// source could not be re-exported, all while the gate stayed green. The gate now
+// validates the markup.
+
+it('checkSvgWellFormed accepts a well-formed SVG (prolog + comment + nesting + text)', () => {
+  const svg =
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<!-- a legal comment: em-dash — and single-hyphen ex-bg are fine -->\n' +
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+    '<rect width="32" height="32"/><g><text font-family="\'Inter\', sans-serif">re-frame2</text></g>' +
+    '</svg>';
+  assert.deepStrictEqual(
+    checkSvgWellFormed(svg, 'ok.svg'),
+    [],
+    'a well-formed SVG must produce no errors',
+  );
+});
+
+it('TEETH: checkSvgWellFormed flags an illegal double-hyphen inside a comment', () => {
+  const svg = '<svg><!-- mirror the --ex-* palette --><rect/></svg>';
+  const errors = checkSvgWellFormed(svg, 'bad.svg');
+  assert.ok(
+    errors.some((e) => e.includes("illegal '--'") && e.includes('bad.svg')),
+    `expected an illegal-comment error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: checkSvgWellFormed flags a mismatched / unclosed tag', () => {
+  assert.ok(
+    checkSvgWellFormed('<svg><rect></svg>', 'x.svg').some((e) => e.includes('mismatched closing tag')),
+    'a mismatched closing tag must be flagged',
+  );
+  assert.ok(
+    checkSvgWellFormed('<svg><g><rect/>', 'y.svg').some((e) => e.includes('unclosed element')),
+    'an unclosed element must be flagged',
+  );
+});
+
+it('TEETH: checkSvgWellFormed flags an unterminated comment and a non-SVG document', () => {
+  assert.ok(
+    checkSvgWellFormed('<svg><!-- never closed </svg>', 'u.svg').some((e) =>
+      e.includes('unterminated XML comment'),
+    ),
+    'an unterminated comment must be flagged',
+  );
+  assert.ok(
+    checkSvgWellFormed('   just text, no markup   ', 'n.svg').some((e) =>
+      e.includes('no element found'),
+    ),
+    'a document with no element must be flagged',
+  );
+});
+
+it('TEETH: checkSharedTree reports a targeted failure for a favicon.svg with a "--" comment', () => {
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }\n' +
+      RESPONSIVE_SHELL,
+    // The exact pre-fix defect: a '--' sequence inside the favicon comment.
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]:
+      '<svg xmlns="http://www.w3.org/2000/svg"><!-- mirror the --ex-* palette --><rect/></svg>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('favicon.svg') && e.includes("illegal '--'")),
+    `expected a targeted favicon well-formedness error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: checkSharedTree reports a targeted failure for a malformed og.svg structure', () => {
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: GOOD_SHARED_STYLE,
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }\n' +
+      RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    // Broken structure: <rect> is never closed, then </svg> mismatches.
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]:
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect></svg>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('og.svg') && e.includes('mismatched closing tag')),
+    `expected a targeted og.svg structural error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('LIVE: the shipped favicon.svg and og.svg are well-formed XML', () => {
+  const fs = require('fs');
+  for (const name of ['favicon.svg', 'og.svg']) {
+    const svg = fs.readFileSync(path.join(EXAMPLES_ROOT, '_shared', 'img', name), 'utf8');
+    assert.deepStrictEqual(
+      checkSvgWellFormed(svg, `examples/_shared/img/${name}`),
+      [],
+      `the shipped ${name} must be well-formed XML`,
+    );
+  }
 });
 
 // ---- TEETH: shared palette CONTRAST contract (rf2-febmqu) ---------------
