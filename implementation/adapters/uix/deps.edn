@@ -1,63 +1,39 @@
-;; day8/re-frame2-uix — UIx adapter (rf2-3yij).
+;; day8/re-frame2-uix — UIx adapter.
 ;;
-;; Per Spec 006 §Adapter shipping convention: each adapter ships in its
-;; own Maven artefact so a UIx-only app does not transitively pull in
-;; Reagent or Helix code (and vice versa). This artefact supplies the
-;; re-frame.adapter.uix ns and depends on the core artefact for
-;; everything else.
+;; Each adapter ships separately so consumers only add the selected adapter's
+;; implementation dependencies. Core still carries stock Reagent for its
+;; `reg-view` path; this boundary prevents UIx and Helix adapter dependencies
+;; from pulling one another in.
 ;;
-;; Per rf2-3yij Decision 2 the React frame-context lives in
-;; re-frame.adapter.context (CLJS-only file in core); both this UIx
-;; adapter and the Reagent adapter read that *same* createContext
-;; object so frame-provider chains compose across substrates in
-;; mixed-substrate apps.
+;; React-shaped adapters read the same frame context from core, allowing mixed
+;; Reagent, UIx, and Helix provider trees to compose.
 ;;
-;; Per rf2-3yij Decision 8 we target UIx 2.x (hooks-based). UIx 1.x
-;; back-compat is explicitly out of scope.
-;;
-;; PRODUCT-VERSION vs MAVEN-VERSION (rf2-xcyaei). "UIx 2.x" is the
-;; product/API-family name (the hooks-based generation hosted at
-;; github.com/pitch-io/uix), NOT the Maven coordinate version. UIx 2 is
-;; published on Clojars as `com.pitch/uix.core` with version numbers in
-;; the 1.x.x series — so the `com.pitch/uix.core {:mvn/version "1.4.4"}`
-;; pin below IS UIx 2.x. The legacy UIx 1 generation (roman01la/uix) is
-;; a different, pre-hooks codebase and is the surface ruled out of scope
-;; above. Do not "upgrade" this coordinate to a 2.x.y Maven version — no
-;; such version exists; that would be a non-resolving coordinate.
+;; "UIx 2.x" names the hooks-based product/API family, not its Maven version.
+;; That family is published as com.pitch/uix.core 1.x.x; there is no 2.x.y
+;; Maven coordinate.
 ;;
 ;; UIx itself is a CLJS-only library; this artefact is therefore
 ;; CLJS-only. The :test alias exists for classpath-probe parity with
 ;; the other per-adapter artefacts (Reagent's :test alias is also
 ;; classpath-probe-only).
-;; rf2-sl7ml — the SHIPPING :deps declare only what the PUBLISHED src
-;; requires: re-frame.adapter.uix requires `uix.core` + `uix.hooks.alpha`
-;; only. `uix.dom` is NOT required by the shipped adapter (the spine owns
-;; the DOM mount path via react-dom/client directly — see
-;; `re-frame.substrate.spine/make-render`), so it must not land in the
-;; published day8/re-frame2-uix pom and force every downstream consumer to
-;; resolve it. (Helix's deps.edn already declares only lilactown/helix —
-;; no helix.dom — for the same reason.) The ONLY consumer of `uix.dom` is
-;; the non-shipped testbed, which builds from the top-level
-;; implementation/shadow-cljs.edn (that build supplies com.pitch/uix.dom
-;; via its own :dependencies); the :test alias below also carries it for
-;; the per-artefact classpath probe.
+;; Shipping source requires only uix.core; the shared spine mounts through
+;; react-dom/client. uix.dom therefore stays test-only and out of the published
+;; pom.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../../core"}
          com.pitch/uix.core {:mvn/version "1.4.4"}}
 
  :aliases
  {:test {:extra-paths ["test"]
-         ;; rf2-sl7ml — uix.dom lives here (test/testbed classpath), NOT in
-         ;; the shipping :deps, because the published adapter src never
-         ;; requires it (only the testbed does).
+         ;; uix.dom is used by tests and the testbed, not shipped adapter source.
          :extra-deps  {com.pitch/uix.dom {:mvn/version "1.4.4"}
-                       ;; rf2-try1x — silent-on-success reporter.
+                       ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on the Reagent adapter's flow.
+  ;; Clojars deploy, modeled on the Reagent adapter's flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

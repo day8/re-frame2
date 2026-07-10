@@ -1,19 +1,10 @@
 (ns re-frame.adapter.uix
-  "The UIx adapter — second canonical browser substrate, targeting UIx
-  2.x (hooks-based). Per Spec 006 §CLJS reference: UIx as alternative
-  substrate. Ships in `day8/re-frame2-uix`; dependency flows adapter
-  → core.
+  "UIx 2.x adapter for the substrate contract in Spec 006.
 
-  Shares the React-shaped substrate machinery (container quartet,
-  derived value, render-root, render-to-string, use-subscribe, flush-
-  views!, source-coord wrapper, warn-once-cache) with the Helix adapter
-  via `re-frame.substrate.spine`. The frame-provider CORE
-  (`build-frame-provider-element`) is likewise shared, but the user-
-  facing `frame-provider` is a NATIVE UIx `defui` in this ns (rf2-z7hfp
-  moved the seam up), NOT a spine re-export. UIx-specific
-  configuration: gensym prefixes, substrate name (used in warn-once
-  text), and the runtime hook fns from `uix.hooks.alpha` (the
-  `uix.core` macros expand to these)."
+  UIx and Helix share the React machinery in `re-frame.substrate.spine`.
+  This namespace supplies UIx's hooks and a native `defui` frame-provider;
+  keeping that component native preserves UIx's CLJS prop and trailing-child
+  marshalling."
   (:require [uix.core          :as uix :refer-macros [defui]]
             [uix.hooks.alpha   :as uix-hooks]
             [re-frame.frame             :as frame]
@@ -45,95 +36,47 @@
   "UIx hook returning the current frame keyword from the surrounding
   React context, or the no-provider sentinel
   (`re-frame.adapter.context/no-provider-sentinel`) when no frame-provider
-  sits above — NOT `:rf/default` (EP-0002 carried invariant: the React-
-  context default is a no-provider sentinel, never a synthesised default).
-  Decision 2 mandates every React-shaped adapter resolves the same
-  context, so a UIx subtree under a Reagent frame-provider sees the
-  right frame and vice versa.
+  sits above. All React-shaped adapters use the same context, so mixed
+  Reagent, UIx, and Helix provider trees compose.
 
-  React-context tier only — this is the NARROW raw `useContext` read; it
-  does not map the sentinel to nil. For the full resolution chain
-  (dynamic-var → React-context → nil) use `(rf/current-frame-id)`; the
-  routed `:adapter/current-frame` hook (registered below) covers that
-  chain and returns nil (not `:rf/default`) when no scope is established,
-  so a public frame-scoped op fails loudly with
-  `:rf.error/no-frame-context`. Per rf2-84myk."
+  This is the raw React-context read and does not map the sentinel to nil.
+  Use `(rf/current-frame-id)` for dynamic-var then React-context resolution."
   (:use-current-frame spine-fns))
 
 (defui frame-provider
-  "User-facing component — the MERGED config-shaped frame-provider (EP-0024
-  §Scope, carry, and ownership, amended). ONE component, TWO config shapes,
-  dispatched on the prop map:
+  "Provide a frame to descendant UIx components. The prop map has two shapes:
 
-    - `{:frame existing-id}` → SCOPE-ONLY: provide an ALREADY-CREATED frame's
-      id to descendants; create / refresh / destroy NOTHING; FAIL LOUD when
-      the frame is absent (`:rf.error/frame-provider-frame-absent`).
-    - `{:id the-id …}` → ENSURE: CREATE the frame if absent, REUSE it WITHOUT
-      re-seeding if present, provide its id to descendants; NO
-      destroy-on-unmount.
+    - `{:frame existing-id}` scopes an existing frame and fails when it is absent.
+    - `{:id id ...}` creates the frame if absent and otherwise reuses it without
+      replaying `:initial-events`.
 
-  UIx call shape — the idiomatic `$` TRAILING-CHILDREN form, identical to
-  every other UIx component and mirroring Reagent's trailing-hiccup mental
-  model (rf2-7kii2):
+  Use UIx's normal trailing-children form:
 
-      ($ frame-provider {:frame :session}            ;; SCOPE-ONLY
+      ($ frame-provider {:frame :session}
          ($ header))
 
-      ($ frame-provider {:id :session :images [session-image] :initial-events []} ;; ENSURE
+      ($ frame-provider {:id :session :images [session-image]}
          ($ header)
          ($ main))
 
-  Children ride the native `$` trailing-args channel; there is no
-  `:children` prop-map key to remember (forgetting it used to drop the
-  subtree silently — that footgun is gone by construction). A single
-  child works too: `($ frame-provider {:id :session} ($ app))`.
+  The ensure shape accepts the frame-record options used by `rf/make-frame`;
+  `:id` is required and must be a keyword. Repeated mounts are intentionally
+  idempotent, including React StrictMode development mounts: they neither
+  destroy durable state nor replay initial events. The provider scopes or
+  ensures; explicit `rf/make-frame` and `rf/destroy-frame!` calls own teardown.
 
-  The SHAPE is selected by the presence of `:frame` vs `:id`. The ENSURE shape
-  takes the same `:id` / `:images` (plus record-config, incl.
-  `:initial-events` / `:url-bound?`) opts as `rf/make-frame`. `:id` is REQUIRED
-  and must be a KEYWORD: a missing / nil / non-keyword `:id` is a CONFIGURATION
-  ERROR — the ensure core emits + throws
-  `:rf.error/ensure-frame-provider-missing-id`. The three React-shaped adapters
-  share one React Context (the shared-context decision — rf2-3yij Decision 2,
-  carried into the Helix adapter as rf2-2qit Decision 2) so a subtree under any
-  frame-provider sees the right frame regardless of which substrate rendered
-  the provider.
-
-  Idempotent re-mount of the ENSURE shape (hot reload / React StrictMode dev
-  double-invoke / Story re-evaluation): re-mounting under the same `:id` MUST
-  NOT destroy durable state NOR re-run `:initial-events` — `make-frame` is
-  idempotent replacement and `reg-frame` RE-RECORDS but does NOT REPLAY
-  `:initial-events` (see `re-frame.views.owned-frame`). The owned
-  destroy-on-unmount of the pre-amendment provider is RETIRED; true ownership
-  stays expressible as `rf/make-frame` + `rf/destroy-frame!`.
-
-  Native shell above the prop-marshalling seam (rf2-z7hfp — Mike-ruled
-  C, MOVE THE SEAM UP). This is a NATIVE UIx `defui` component, NOT a
-  re-export of a shared fn handed to `$`. Because it is a real `defui`,
-  UIx's `$` stamps it `.-uix-component?` and routes its props through the
-  LOSSLESS `uix-component-element` (`argv`) path — `glue-args` reconstructs
-  the original CLJS props map with keyword values intact (namespace
-  preserved) AND folds the native trailing children into the `:children` key
-  (UIx's `$`/`glue-args` contract: `($ Comp props c1 c2)` arrives as `{...
-  :children #js [c1 c2]}`). The body reads the clean CLJS props map, DISPATCHES
-  on `:frame` vs `:id`, and delegates to the substrate-agnostic core
-  (`build-frame-provider-element` for SCOPE-ONLY, `ensure-frame-react-element`
-  for ENSURE). The prop-mangling class — UIx's `react-component-element` →
-  `interpret-attrs` stringifying keyword prop values and dropping the
-  namespace — is impossible by construction: there is no plain fn under `$`
-  for the element macro to mangle."
+  This must remain a native `defui`. UIx then reconstructs the original CLJS
+  prop map, preserving namespaced keyword values, and folds trailing children
+  into `:children` before this body delegates to the shared provider core."
   [props]
   (if (contains? props :frame)
-    ;; SCOPE-ONLY shape: validate the keyword `:frame` (nil →
-    ;; :rf.error/no-frame-context, non-keyword → :rf.error/bad-frame-provider-arg)
-    ;; FIRST, then fail loud if the frame is absent, then scope via the spine's
-    ;; scope-only core.
+    ;; Validate before consulting the registry so malformed ids get the
+    ;; configuration error rather than the absent-frame error.
     (let [frame-kw (frame/require-keyword-frame-provider-arg!
                      (:frame props) 're-frame.adapter.uix/frame-provider)]
       (owned-frame/require-live-frame-for-scope!
         frame-kw 're-frame.adapter.uix/frame-provider)
       (spine/build-frame-provider-element frame-kw (:children props)))
-    ;; ENSURE shape: validate `:id` + build the ensure element.
     (owned-frame/ensure-frame-react-element
       props
       (:children props)
@@ -143,33 +86,23 @@
   "UIx hook that reads a re-frame subscription. Returns the current
   value; re-renders the calling component when the value changes.
 
-  Frame resolution: reads the surrounding frame-provider's keyword via
-  `use-context` (rf2-3yij Decision 2). Override via the 2-arg form to
-  pin to an explicit frame-id.
-
-  Per rf2-3yij Decision 1 the hook is named `use-subscribe` to match
-  the React/UIx idiom — symmetric ergonomics to Reagent's
-  `(rf/subscribe ...)` deref shape, asymmetric naming (hooks live in
-  hook-named space)."
+  Reads the surrounding frame-provider by default; the 2-arg form pins an
+  explicit frame id."
   (:use-subscribe spine-fns))
 
 (def use-resource-lease
-  "UIx hook that takes a resource liveness LEASE for the calling
-  component's mounted lifetime (rf2-cxozh4, EP-0020 §Open Issue #1). On
+  "UIx hook that takes a resource liveness lease for the calling
+  component's mounted lifetime. On
   mount it dispatches `:rf.resource/ensure` with an app-minted `[:lease …]`
   owner; on unmount it releases that lease via `:rf.resource/release-owner`.
-  Use it so a view declaratively OWNS a polled / cached resource for as long
-  as it is on screen — the mount-lifecycle half of resource ownership that
-  otherwise needs a hand-wired `use-effect`.
+  Use it when a view owns a polled or cached resource while mounted.
 
       (use-resource-lease {:resource :my/feed :scope :rf.scope/global
                            :params {:page 0}})
 
-  Pair it with `use-subscribe` on a `[:rf.resource/*]` query to READ the
-  data; this hook manages liveness only (returns nil). Frame resolution +
-  the `:cause` / `:frame` opts mirror `use-subscribe`; the shared
-  substrate-agnostic implementation lives in
-  `re-frame.adapter.resource-lease`."
+  Pair it with `use-subscribe` to read the data; this hook only manages
+  liveness and returns nil. `:cause` annotates the ensure, and `:frame` pins
+  ownership to an explicit frame."
   resource-lease/use-resource-lease)
 
 (def flush-views!
@@ -177,10 +110,7 @@
   intended for test code only. Calls (act f); with no arg, calls (act
   (fn [] nil)) to flush pending effects. Returns nil. Resolves React's
   act() across React 18 (in `react-dom/test-utils`) and React 19 (on
-  the React namespace directly).
-
-  Per rf2-3yij Decision 6: the canonical test-flush hook for UIx-based
-  apps."
+  the React namespace directly)."
   (:flush-views! spine-fns))
 
 (def wrap-view
@@ -196,8 +126,7 @@
   "Reset the warn-once cache for non-DOM-root warnings. Tests use this
   between cases (via `make-reset-runtime-fixture` and the chained
   `:adapter/clear-warn-once-caches!` hook) so a sibling test's
-  first-encounter warning cannot silently swallow a later test's same-id
-  warning. Per rf2-4edk."
+  first-encounter warning cannot suppress a later test's same-id warning."
   (:clear-warned-non-dom-roots! spine-fns))
 
 ;; ---- adapter Var ----------------------------------------------------------
@@ -208,23 +137,10 @@
       (require '[re-frame.adapter.uix :as uix])
       (rf/init! uix/adapter)
 
-  See Spec 006 §CLJS reference: UIx as alternative substrate.
-  Implements the same adapter contract as re-frame.adapter.reagent
-  (6 required + 3 optional + 1 lifecycle fn). Per rf2-agql there is no
-  default-adapter registry — adapter wiring is explicit at the call site.
-
-  Assembled by `spine/make-react-adapter` (rf2-ee38b.1): the substrate
-  map, the five React-hook `route-hook!` calls, and the two
-  chained installs (warn-once clear + SSR emitter) all live once in the
-  spine — the UIx and Helix adapter wiring is byte-identical, so this
-  single call replaces the former hand-copied block. The per-hook
-  rationale lives at `spine/make-react-adapter`.
-
-  The native `frame-provider` `defui` component (rf2-z7hfp) is passed in
-  as `:frame-provider` so the spine wires it into the
-  `:register-context-provider` substrate slot — the component shell lives
-  in this ns, above where UIx's `$` marshals props; the spine carries no
-  UIx element-macro dependency."
+  Adapter installation is explicit; there is no default-adapter registry.
+  `spine/make-react-adapter` owns the shared UIx/Helix hook routing and
+  lifecycle wiring. The native provider stays in this namespace so the spine
+  has no dependency on UIx's element macro."
   (spine/make-react-adapter spine-fns
                             {:kind           :rf.adapter/uix
                              :frame-provider frame-provider}))

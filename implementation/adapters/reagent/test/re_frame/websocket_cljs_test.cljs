@@ -754,35 +754,23 @@
 ;; ============================================================================
 
 ;; ----------------------------------------------------------------------------
-;; APP-LEVEL request/reply boundary (rf2-eygytk)
+;; APP-LEVEL request/reply boundary
 ;;
 ;; This request/reply path uses the Pattern-WebSocket APP-LEVEL correlation
 ;; shape — a per-message `:request-id`, a registered `:reply` event target,
 ;; and an `:in-flight` correlation map on the connection machine's `:data`
 ;; — and it is INTENTIONALLY OUTSIDE the EP-0011 uniform reply envelope.
 ;;
-;; Why this is not a divergent second vocabulary: [Managed-Effects §The
-;; uniform reply envelope] (the EP-0011 normative home) rules property 9
-;; (the uniform async-reply envelope) to apply to framework-SHIPPED managed
-;; async surfaces (HTTP, resources/mutations, machine async work, route
-;; loaders, timers). re-frame2 deliberately does NOT ship a managed
-;; WebSocket (Mike-ruled) — there is no `:rf.ws/*` fx, no reserved
-;; `:rf.ws/*` namespace, and no framework contract. [Pattern-WebSocket] is
-;; the canonical worked example of an APP/LIBRARY-built long-lived
-;; connection, and it explicitly recommends THIS correlation shape:
-;; "Treat individual messages over an open WebSocket as Pattern-AsyncEffect
-;; interactions when they are request-reply (correlation-id keyed)" and
-;; "Pattern-WebSocket's `:in-flight` map is the worked example of that
-;; [correlation] step." Pattern-AsyncEffect leaves correlation to the
-;; caller; it is NOT property 9. So `:request-id`/`:reply`/`:in-flight` is
-;; the SPEC-BLESSED app convention here, not a competing reply envelope.
+;; The uniform envelope applies to framework-shipped managed async surfaces.
+;; re-frame2 ships no managed WebSocket effect or reserved `:rf.ws/*`
+;; namespace, so this application-owned connection also owns its correlation
+;; vocabulary. Pattern-WebSocket uses this `:in-flight` shape as its worked
+;; example.
 ;;
-;; The assertions below pin the boundary explicitly so this scaffold stops
-;; teaching a second reply vocabulary by silent omission: the reply is the
-;; app's own message body, and it carries NONE of the EP-0011 reply-map
+;; The assertions below make the boundary explicit: the reply is the app's own
+;; message body, and it carries none of the framework reply-map
 ;; vocabulary (`:rf/reply-to`, `:status`, `:work/id`, `:work/kind`,
-;; `:completed-at`). If a future ruling folds this into the uniform
-;; envelope, these assertions are the canary that flips.
+;; `:completed-at`).
 (defn- request-reply-correlation-test []
   (with-sync-mock!
     (fn []

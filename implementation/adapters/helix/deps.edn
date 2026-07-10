@@ -1,20 +1,14 @@
-;; day8/re-frame2-helix — Helix adapter (rf2-2qit).
+;; day8/re-frame2-helix — Helix adapter.
 ;;
-;; Per Spec 006 §Adapter shipping convention: each adapter ships in its
-;; own Maven artefact so a Helix-only app does not transitively pull
-;; in Reagent or UIx code (and vice versa). This artefact supplies the
-;; re-frame.adapter.helix ns and depends on the core artefact for
-;; everything else.
+;; Each adapter ships separately so consumers only add the selected adapter's
+;; implementation dependencies. Core still carries stock Reagent for its
+;; `reg-view` path; this boundary prevents Helix and UIx adapter dependencies
+;; from pulling one another in.
 ;;
-;; Per rf2-2qit Decision 2 (transferred from rf2-3yij) the React
-;; frame-context lives in re-frame.adapter.context (CLJS-only file in
-;; core); this Helix adapter, the UIx adapter, and the Reagent adapter
-;; all read the *same* createContext object so frame-provider chains
-;; compose across substrates in mixed-substrate apps.
+;; React-shaped adapters read the same frame context from core, allowing mixed
+;; Reagent, UIx, and Helix provider trees to compose.
 ;;
-;; Per rf2-2qit Decision 8 we target the Helix 0.2.x line (the latest
-;; published Helix release; helix-2.x has not shipped). Older Helix
-;; versions are explicitly out of scope.
+;; The supported product line is Helix 0.2.x.
 ;;
 ;; Helix itself is a CLJS-only library; this artefact is therefore
 ;; CLJS-only. The :test alias exists for classpath-probe parity with
@@ -26,13 +20,13 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
+         :extra-deps  {;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on the Reagent / UIx adapters'
+  ;; Clojars deploy, modeled on the Reagent / UIx adapters'
   ;; flows. The release workflow runs `clojure -M:clein deploy` from
   ;; this artefact's directory, which builds pom + jar and pushes to
   ;; Clojars.

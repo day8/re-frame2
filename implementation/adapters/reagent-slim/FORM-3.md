@@ -39,13 +39,10 @@ concern only.
 
 ## §2 Why these seven keys
 
-The cap is what the four production Day8 codebases use, plus nothing else. Two
-audits established this empirically (2026-05-10):
-
-- **`findings/recom-react19-readiness-audit.md`** (bead rf2-cgcv) — surveyed
-  re-com (master) and re-frame-10x (master).
-- **`findings/dash8-rf8-react19-readiness-audit.md`** (bead rf2-kfpf) — surveyed
-  Dash8 and rf8 (Day8 internal apps).
+The cap is what four production Day8 codebases use, plus nothing else. Audits
+of re-com, re-frame-10x, Dash8, and rf8 established this empirically in May
+2026; the relevant results are summarized below so this document is
+self-contained.
 
 ### What the audits found
 
@@ -543,18 +540,10 @@ idioms.
 
 ## §7 Cross-references
 
-- **Stage 1 findings doc** (rf2-ui6g) — `findings/re-frame2-reagent-stage1-api-surface.md`,
-  §6 DECISION-3 (the cap decision rationale) and §1.10 (Form-1/2/3 conventions).
-- **re-com + re-frame-10x audit** (rf2-cgcv) —
-  `findings/recom-react19-readiness-audit.md`, §4 (six-key cap recommendation
-  including `:get-snapshot-before-update`) and §3 (10x per-site key sets).
-- **Dash8 + rf8 audit** (rf2-kfpf) —
-  `findings/dash8-rf8-react19-readiness-audit.md`, §6 (seven-key cap recommendation
-  including `:component-did-catch`) and §4 (per-site key sets).
-- **IMPL-SPEC** — `IMPL-SPEC.md` §6 (Form-3 implementation: validation throw
-  shape, React-class wrapper, lifecycle key → method mapping).
-- **DESIGN-RATIONALE** — `DESIGN-RATIONALE.md` §4 (the 7-key Form-3 cap — design
-  rationale and re-frame2-fit framing).
-- **Views spec** — `spec/004-Views.md` §"Form-3 (class — out of scope for the
+- **[IMPL-SPEC](IMPL-SPEC.md)** §6 — Form-3 implementation: validation throw
+  shape, React-class wrapper, and lifecycle key → method mapping.
+- **[DESIGN-RATIONALE](DESIGN-RATIONALE.md)** §4 — the seven-key Form-3 cap: design
+  rationale and re-frame2-fit framing.
+- **[Views spec](../../../spec/004-Views.md)** §"Form-3 (class — out of scope for the
   macro)" — Form-3 is intentionally not supported by the `reg-view` macro; use
   `re-frame.core/reg-view*` (the plain-fn surface) for Form-3 components.

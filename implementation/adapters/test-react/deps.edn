@@ -1,10 +1,10 @@
-;; Test-React adapter (rf2-gqyqv) — LOCAL-TEST-ONLY, NOT a published artefact.
+;; Test-React adapter — LOCAL-TEST-ONLY, NOT a published artefact.
 ;;
 ;; A substrate adapter that simulates React class-3 lifecycle
 ;; (constructor → didMount → didUpdate → willUnmount) in pure CLJC.
 ;; No React, no DOM, no jsdom — runs on the JVM and on Node-CLJS at
-;; unit-test speed. Purpose: catch React-lifecycle-driven bugs (the
-;; rf2-4l7t2 unmount-during-render class) without browser machinery.
+;; unit-test speed. Its purpose is to catch lifecycle ordering and synchronous
+;; unmount-during-render failures without browser machinery.
 ;;
 ;; Packaging status: this is a development/test fixture, NOT a published
 ;; Maven artefact. It deliberately carries NO Maven coordinate and NO
