@@ -22,30 +22,17 @@
             [re-frame.frame :as frame]
             [re-frame.router :as router]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
 
-;; ---- MAP-form fixture (async-safe); pins the React-context tier ------------
-;; No ambient `*current-frame*` scope — the with-resource-lease under test
-;; must resolve the frame-provider's frame via the class React-context tier,
+;; ---- async map-form fixture; pins the React-context tier -------------------
+;; `make-reset-runtime-fixture` (`:async? true`) performs the snapshot/restore +
+;; frames-reset + adapter dispose/install this suite hand-rolled. `:ambient-frame
+;; nil` keeps NO ambient `*current-frame*` scope — the `with-resource-lease`
+;; under test must resolve the frame-provider's frame via the React-context tier,
 ;; which an ambient :rf/default would shadow.
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- spy channels ----------------------------------------------------------
 

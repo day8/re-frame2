@@ -22,27 +22,16 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.helix :as helix-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
 
-;; ---- MAP-form fixture (async-safe) -----------------------------------------
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (substrate-adapter/install-adapter! helix-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+;; ---- async map-form fixture (async-safe) -----------------------------------
+;; `make-reset-runtime-fixture` (`:async? true`) performs the snapshot/restore +
+;; frames-reset + adapter dispose/install this suite hand-rolled. `:ambient-frame
+;; nil` preserves the no-ambient-scope behaviour (each test binds its own
+;; `*current-frame*` around the mount).
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter helix-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- spy channels ----------------------------------------------------------
 

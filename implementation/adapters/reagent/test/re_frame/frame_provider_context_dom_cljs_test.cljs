@@ -86,57 +86,32 @@
             [re-frame.frame :as frame]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.views]
             [re-frame.views.owned-frame :as owned-frame])
   (:require-macros [re-frame.test-support :refer [with-trace-recorder!]]))
 
+;; MAP-FORM fixture (`:async? true`): cljs.test requires `:each` fixtures to be
+;; maps when the ns contains ANY `async` test (a fn-form fixture's teardown runs
+;; before the async body's `done` fires). Scenario-6-ensure (the hot-reload gate)
+;; + the genuine-unmount test advance macrotask windows across a real React
+;; lifecycle. `make-reset-runtime-fixture` performs the snapshot/restore +
+;; frames-reset + adapter dispose/install this suite hand-rolled.
+;;
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` OPTS OUT of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. EVERY render-based test in this
 ;; suite pins the React-context tier (tier 2) of the resolution chain — a
 ;; reg-view inside a `frame-provider` must resolve the provider's frame, and a
 ;; reg-view with NO provider must fail closed with `:rf.error/no-frame-context`.
-;; The React renders below run SYNCHRONOUSLY inside `flushSync`, i.e. still
-;; inside the test body's dynamic extent; an ambient :rf/default scope would
-;; satisfy `current-frame-id` / `subscribe` / dispatch at tier 1 and the
-;; React-context tier under test would never be consulted. Opting the whole
-;; suite out keeps the resolution honest. (Scenario-3 + the prop-stringified
-;; cases additionally `(binding [*current-frame* nil] …)` for belt-and-braces;
-;; that is idempotent here.)
-;; MAP-FORM fixture (not the fn-form `make-reset-runtime-fixture`): cljs.test
-;; requires `:each` fixtures to be `{:before … :after …}` maps when the ns
-;; contains ANY `async` test (a fn-form fixture's wrapper returns — running
-;; its teardown — before the async body's `done` fires). Scenario-6-ensure (the
-;; hot-reload gate) + the genuine-unmount test below are async (they advance
-;; macrotask windows across a real React lifecycle). The before/after pair replicates
-;; the runtime reset `make-reset-runtime-fixture` performs for THIS suite:
-;; snapshot + restore the registrar, reset the frame registry + live-frame
-;; index, dispose/reinstall the Reagent adapter, clear trace listeners,
-;; ensure `:rf/default`. There is NO ambient `*current-frame*` binding —
-;; this suite pins the React-context tier (the `:ambient-frame nil` opt-out
-;; the fn-form fixture carried); an ambient :rf/default would shadow tier 2.
-;; Mirrors the established async-DOM fixture idiom in
-;; react_click_handler_frame_routing_cljs_test / dispatch_frame_capture.
-
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-listeners!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+;; The React renders below run SYNCHRONOUSLY inside `flushSync`, i.e. still inside
+;; the test body's dynamic extent; an ambient :rf/default scope would satisfy
+;; `current-frame-id` / `subscribe` / dispatch at tier 1 and the React-context
+;; tier under test would never be consulted. Opting the whole suite out keeps the
+;; resolution honest. (Scenario-3 + the prop-stringified cases additionally
+;; `(binding [*current-frame* nil] …)` for belt-and-braces; that is idempotent.)
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- browser gate ----------------------------------------------------------
 

@@ -32,37 +32,20 @@
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            ;; rf2-qwm0a — listener surface lives in
-            ;; `re-frame.trace.tooling` (production-DCE split).
-            [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :as test-support]))
 
-;; Per cljs.test: async tests require fixtures supplied as a map
-;; (fn-form fixtures don't suspend across the async body, so the
-;; finally clause runs before the async work completes). Wrap the
-;; snapshot/restore pattern as `{:before :after}`. Mirrors the
-;; tools/story CLJS async-test idiom.
+;; Per cljs.test: async tests require fixtures supplied as a MAP — a
+;; fn-form fixture's teardown runs before an `(async done)` body
+;; completes, restoring the registrar mid-flight. `make-reset-runtime-
+;; fixture`'s `:async? true` map-form performs the snapshot/restore +
+;; frames-reset + adapter dispose/install this suite hand-rolled.
+;; `:ambient-frame nil` preserves the suite's no-ambient-scope
+;; behaviour — every dispatch here carries an explicit `{:frame …}`.
 
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-listeners!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter reagent-adapter/adapter :async? true :ambient-frame nil}))
 
 ;; ---- helpers --------------------------------------------------------------
 

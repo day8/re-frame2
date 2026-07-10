@@ -35,35 +35,28 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.test-support :as test-support]))
 
-(def ^:private registrar-snapshot (atom nil))
-
-(defn- before! []
-  (reset! registrar-snapshot (test-support/snapshot-registrar))
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (trace-tooling/clear-listeners!)
-  (substrate-adapter/install-adapter! reagent-adapter/adapter)
-  (frame/ensure-default-frame!)
-  ;; Per the bead: the surrounding frame is :rf/xray. Register it and a
-  ;; reducer + sub that pivot on a per-frame slot so a routing leak is
-  ;; visible as 'reducer ran on wrong frame's db'.
-  (rf/reg-frame :rf/xray {:doc "Xray surrogate for the routing tests"})
-  (rf/reg-event :rf-tvu99/set-mode
-                   (fn [{:keys [db]} [_ mode]] {:db (assoc db :mode mode)}))
-  (rf/reg-sub      :rf-tvu99/mode
-                   (fn [db _] (get db :mode :diff))))
-
-(defn- after! []
-  (when-let [snap @registrar-snapshot]
-    (test-support/restore-registrar! snap)
-    (reset! registrar-snapshot nil))
-  (reset! frame/frames {}))
-
-(use-fixtures :each {:before before! :after after!})
+;; Async map-form fixture (a fn-form fixture's teardown would restore the
+;; registrar before an `(async done)` body completes). `make-reset-runtime-
+;; fixture` performs the snapshot/restore + frames-reset + adapter
+;; dispose/install this suite hand-rolled; `:ambient-frame nil` preserves the
+;; suite's no-ambient-scope behaviour (each test drives an explicit
+;; `with-frame` / `{:frame …}`). The `:init-fn` registers the `:rf/xray`
+;; surrogate frame + a reducer/sub pivoting on a per-frame slot so a routing
+;; leak shows as 'reducer ran on the wrong frame's db'; those registrations
+;; roll back with the per-test registrar snapshot.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:adapter       reagent-adapter/adapter
+     :async?        true
+     :ambient-frame nil
+     :init-fn       (fn []
+                      (rf/reg-frame :rf/xray {:doc "Xray surrogate for the routing tests"})
+                      (rf/reg-event :rf-tvu99/set-mode
+                                    (fn [{:keys [db]} [_ mode]] {:db (assoc db :mode mode)}))
+                      (rf/reg-sub :rf-tvu99/mode
+                                  (fn [db _] (get db :mode :diff))))}))
 
 ;; ---- helpers --------------------------------------------------------------
 
