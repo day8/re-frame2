@@ -262,16 +262,17 @@
 (defn- register-network-event!
   "Register a test event that issues a managed-HTTP request to `route`
   ([method url]) and records the reply into app-db under `:got` (the reply
-  rides back to this same origin event as `:rf/reply`, Spec 014 §Reply
-  addressing). Mirrors the artifact_test helper so the round-trip exercises
-  the same managed-HTTP fail-close path."
+  rides back to this same origin event via `:reply-to`, Spec 014 §Reply
+  addressing — appended as the last arg). Mirrors the artifact_test helper
+  so the round-trip exercises the same managed-HTTP fail-close path."
   [event-id [method url]]
   (rf/reg-event event-id
-    (fn [{:keys [db]} [_ msg]]
-      (if-let [reply (:rf/reply msg)]
+    (fn [{:keys [db]} [_ msg reply]]
+      (if reply
         {:db (assoc db :got reply)}
         {:fx [[:rf.http/managed {:request {:method method :url url}
-                                 :decode  :json}]]}))))
+                                 :decode  :json
+                                 :reply-to [event-id msg]}]]}))))
 
 (defn- network-artifact
   "Compile a `:network` variant plan for `routes` and coerce it through the
