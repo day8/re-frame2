@@ -58,9 +58,10 @@
             [day8.re-frame2-xray.host-registry :as host-registry]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens type-scale mono-stack sans-stack]]
+             :refer [tokens mono-stack sans-stack]]
             [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -158,15 +159,6 @@
      :filtered? (not= (count rows) (count filtered))
      :query     query}))
 
-;; ---- header --------------------------------------------------------------
-
-(defn- header
-  []
-  ;; The header carries no panel-name heading — the L4 tab strip is the
-  ;; panel-name source-of-truth.
-  [:div {:data-testid "rf-xray-static-schemas-header"
-         :style       {:padding "4px 16px"}}])
-
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
@@ -214,24 +206,14 @@
      letter]))
 
 (defn- schema-row
+  ;; Non-interactive catalogue entry (the only row-level affordance is the
+  ;; focusable `open-chip` jump-to-source); the shared `catalogue-row` owns
+  ;; the `role=listitem` `li` chrome.
   [{:keys [kind id frame schema doc source-coord] :as _row}]
   (let [id-text (pr-str id)
         row-id  (str (name kind) "-" id-text)]
-    ;; List semantics. Schema rows are non-interactive catalogue entries
-    ;; (the only row-level affordance is the `open-chip` jump-to-source,
-    ;; which is itself focusable), so `role=listitem` is the correct
-    ;; shape rather than `role=button`.
-    [:li {:data-testid (str "rf-xray-static-schemas-row-" row-id)
-          :role        "listitem"
-          :style       {:display       "block"
-                        :padding       "6px 12px"
-                        :font-family   mono-stack
-                        :font-size     "12px"
-                        :color         (:text-primary tokens)
-                        :background    "transparent"
-                        :border-left   "2px solid transparent"
-                        :border-radius "2px"
-                        :line-height   "18px"}}
+    (catalogue/catalogue-row
+     {:testid (str "rf-xray-static-schemas-row-" row-id)}
      [:div {:style {:display     "flex"
                     :align-items "baseline"
                     :gap         "8px"}}
@@ -269,7 +251,7 @@
                       :font-family sans-stack
                       :font-style  "italic"
                       :font-size   "11px"}}
-        doc])]))
+        doc]))))
 
 ;; ---- root view -----------------------------------------------------------
 
@@ -281,39 +263,19 @@
   []
   (let [data @(rf/subscribe [:rf.xray.static.schemas/tab-data])
         {:keys [silent? schemas total filtered? query]} data]
-    [:section {:data-testid "rf-xray-static-schemas"
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      (:body type-scale)}}
-     (header)
-     (cond
-       silent?
-       (search-box/empty-state "rf-xray-static-schemas" "schema")
-
-       :else
-       [:<>
-        (search-box query total filtered?)
-        (if (empty? schemas)
-          (search-box/empty-filtered "rf-xray-static-schemas" "schema" query)
-          (into [:ul {:data-testid "rf-xray-static-schemas-list"
-                      :role        "list"
-                      :style       {:list-style     "none"
-                                    :margin         "8px 0 0 0"
-                                    :padding        "0 8px"
-                                    :flex           1
-                                    :overflow       "auto"
-                                    :display        "flex"
-                                    :flex-direction "column"
-                                    :gap            "4px"}}]
-                (for [row schemas]
-                  ^{:key (str (name (:kind row)) "/"
-                              (pr-str (:frame row)) "/"
-                              (pr-str (:id row)))}
-                  [schema-row row])))])]))
+    (catalogue/catalogue-panel
+     {:testid     "rf-xray-static-schemas"
+      :noun       "schema"
+      :query      query
+      :silent?    silent?
+      :rows       schemas
+      :gap        "4px"
+      :search     (search-box query total filtered?)
+      :row-render (fn [row]
+                    ^{:key (str (name (:kind row)) "/"
+                                (pr-str (:frame row)) "/"
+                                (pr-str (:id row)))}
+                    [schema-row row])})))
 
 ;; ---- public-surface registry read ----------------------------------------
 

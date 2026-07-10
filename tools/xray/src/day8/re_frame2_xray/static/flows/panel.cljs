@@ -52,9 +52,10 @@
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.static.shared.catalogue :as catalogue]
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
-             :refer [tokens type-scale mono-stack sans-stack]]
+             :refer [tokens sans-stack]]
             [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -130,15 +131,6 @@
      :filtered? (not= (count rows) (count filtered))
      :query     query}))
 
-;; ---- header --------------------------------------------------------------
-
-(defn- header
-  []
-  ;; The header carries no panel-name heading — the L4 tab strip is the
-  ;; panel-name source-of-truth.
-  [:div {:data-testid "rf-xray-static-flows-header"
-         :style       {:padding "4px 16px"}}])
-
 ;; ---- search box ----------------------------------------------------------
 
 (defn- search-box
@@ -161,24 +153,13 @@
 ;; ---- row -----------------------------------------------------------------
 
 (defn- flow-row
+  ;; Non-interactive `li` chrome via the shared `catalogue-row`; the flow
+  ;; rows are catalogue entries (no row-level dispatch). The interactive
+  ;; Static surface that earns keyboard activation is the Routes list
+  ;; (whose rows toggle an expand surface — see static/routes/browse_list.cljs).
   [{:keys [flow-id frame inputs output-path doc] :as _row}]
-  ;; List semantics. Flow rows are non-interactive (no row-level
-  ;; dispatch), so `role=listitem` is the right shape — they are
-  ;; catalogue entries, not buttons. The interactive Static surface that
-  ;; earns keyboard activation is the Routes list (whose rows toggle an
-  ;; expand surface — see static/routes/browse_list.cljs).
-  [:li {:data-testid (str "rf-xray-static-flows-row-"
-                          (subs (pr-str flow-id) 1))
-        :role        "listitem"
-        :style       {:display       "block"
-                      :padding       "6px 12px"
-                      :font-family   mono-stack
-                      :font-size     "12px"
-                      :color         (:text-primary tokens)
-                      :background    "transparent"
-                      :border-left   "2px solid transparent"
-                      :border-radius "2px"
-                      :line-height   "18px"}}
+  (catalogue/catalogue-row
+   {:testid (str "rf-xray-static-flows-row-" (subs (pr-str flow-id) 1))}
    [:div {:style {:display     "flex"
                   :align-items "baseline"
                   :gap         "8px"}}
@@ -225,7 +206,7 @@
                        :color       (:text-secondary tokens)
                        :font-family sans-stack
                        :font-style  "italic"}}
-         doc])])])
+         doc])])))
 
 ;; ---- root view -----------------------------------------------------------
 
@@ -238,37 +219,16 @@
   []
   (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])
         {:keys [silent? flows total filtered? query]} data]
-    [:section {:data-testid "rf-xray-static-flows"
-               :style       {:height         "100%"
-                             :display        "flex"
-                             :flex-direction "column"
-                             :background     (:bg-2 tokens)
-                             :color          (:text-primary tokens)
-                             :font-family    sans-stack
-                             :font-size      (:body type-scale)}}
-     (header)
-     (cond
-       silent?
-       (search-box/empty-state "rf-xray-static-flows" "flow")
-
-       :else
-       [:<>
-        (search-box query total filtered?)
-        (if (empty? flows)
-          (search-box/empty-filtered "rf-xray-static-flows" "flow" query)
-          (into [:ul {:data-testid "rf-xray-static-flows-list"
-                      :role        "list"
-                      :style       {:list-style     "none"
-                                    :margin         "8px 0 0 0"
-                                    :padding        "0 8px"
-                                    :flex           1
-                                    :overflow       "auto"
-                                    :display        "flex"
-                                    :flex-direction "column"
-                                    :gap            "2px"}}]
-                (for [row flows]
-                  ^{:key (str (:frame row) "/" (:flow-id row))}
-                  [flow-row row])))])]))
+    (catalogue/catalogue-panel
+     {:testid     "rf-xray-static-flows"
+      :noun       "flow"
+      :query      query
+      :silent?    silent?
+      :rows       flows
+      :search     (search-box query total filtered?)
+      :row-render (fn [row]
+                    ^{:key (str (:frame row) "/" (:flow-id row))}
+                    [flow-row row])})))
 
 ;; ---- production value source ---------------------------------------------
 ;;
