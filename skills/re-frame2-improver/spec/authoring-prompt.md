@@ -2,89 +2,51 @@
 
 > **Skill-internal meta-doc.** Design rationale + author notes for the `re-frame2-improver` skill itself — not part of the user-facing or AI-facing skill contract. Not loaded during normal skill operation; exists to re-author the skill from inputs. For the skill contract, see [`SKILL.md`](../SKILL.md).
 
-A self-contained prompt that re-authors the `re-frame2-improver` skill from this `spec/` folder alone. Drop into a fresh Claude Code session in the re-frame2 repo root.
+A self-contained **orchestration** prompt that re-authors the `re-frame2-improver` skill from the declared canonical sources in this `spec/` folder (plus the shared protocol and the `re-frame2` skill). It does **not** restate the skill's design — the locks, file layout, leaf catalogue, runtime API facts, and update procedure each have exactly one owner, linked below; this prompt only sequences the read, the deliverables, and the verification. Drop it into a fresh Claude Code session at the re-frame2 repo root.
 
 ## The prompt
 
-> *I'm re-authoring the `re-frame2-improver` skill at `skills/re-frame2-improver/`. The skill is a **critique-mode** for **existing** re-frame2 ClojureScript code: read a body of source in scope, detect anti-patterns from a small catalogue, surface each finding with concrete file/line evidence cross-linked to the canonical idiom, and — under a two-tier Edit gate — propose or apply an inline fix. It is **explicit-pull only** and never fabricates findings.*
+> *I'm re-authoring the `re-frame2-improver` skill at `skills/re-frame2-improver/` — a critique-mode skill for **existing** re-frame2 ClojureScript code (its goal and success criterion are owned by [`spec/design.md` §1](design.md)). This is a full re-author from the declared sources, not an incremental edit.*
 >
-> *Read these first (in this order):*
+> ### Read the canonical sources, in this order
 >
-> *1. `skills/re-frame2-improver/spec/design.md` — the locked design decisions (L1–L10). Pillar 1 in §2 (implementation is ground truth — no fabricated APIs) is cardinal.*
-> *2. `skills/re-frame2-improver/spec/inputs.md` — the canonical inputs, including the verified spec-ownership table. Re-verify every API claim against the current `spec/` + `implementation/` before writing.*
-> *3. `skills/shared/retro-protocol.md` — the shared protocol (seven-step workflow, untrusted-evidence boundary, redaction, layer-routing, the normative Edit-gate split at step 6). The skill consumes this; it does not copy it.*
-> *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/patterns/` + `skills/re-frame2/references/` — the canonical-idiom source every cross-link routes to.*
-> *5. `skills/re-frame2-pair-retro/` — the structural sibling that shares the protocol and the `spec/` triad shape. Voice / structure mirror this.*
-> *6. `skills/README.md` §Skill routing — the disambiguation matrix the trigger semantics defer to.*
+> *Read each owner before writing anything; do not paraphrase them into the skill — link to them where the skill needs to point back.*
 >
-> *Then write the skill at `skills/re-frame2-improver/` with this exact file structure:*
+> *1. `skills/re-frame2-improver/spec/design.md` — the **normative design**: pillars (§2), the locked decisions L1–L10 (§3), the six launch leaves + their canonical idioms (§4), the deferred candidates, and the locked file structure (§5). Pillar 1 in §2 (implementation is ground truth — no fabricated APIs) is cardinal.*
+> *2. `skills/re-frame2-improver/spec/inputs.md` — the **canonical inputs**: the primary/secondary/tertiary source map, the verified spec-ownership table (§3) every leaf footer and API claim must re-verify against, and the incremental **update procedure** (§7).*
+> *3. `skills/shared/retro-protocol.md` — the **shared protocol** (seven-step workflow, untrusted-evidence boundary, redaction, layer-routing, and the normative Edit-gate split at step 6). The skill **consumes** this leaf; it does not copy it. The Edit-gate statement is normative here at §Step 6 — SKILL.md carries only the compressed consuming view, so nothing drifts.*
+> *4. `skills/re-frame2-improver/references/README.md` — the **catalogue contract**: the anti-pattern index, the load-only-what-matches routing table, the co-occurring-finding consolidation rule, and the locked five-section leaf format.*
+> *5. `skills/re-frame2/SKILL.md` + `skills/re-frame2/patterns/` + `skills/re-frame2/references/` — the canonical-idiom source of truth every cross-link routes to.*
+> *6. `skills/re-frame2-pair-retro/` — the structural sibling that shares the protocol leaf and the `spec/` triad shape; mirror its voice / structure.*
+> *7. `skills/README.md` §Skill routing — the disambiguation matrix the trigger semantics defer to.*
 >
-> ```
-> skills/re-frame2-improver/
-> ├── SKILL.md
-> ├── README.md
-> ├── LICENSE (MIT)
-> ├── package.json
-> ├── .claude-plugin/plugin.json
-> ├── evals/
-> │   ├── evals.json (8 should-trigger + 8 should-not-trigger + 10 behavioural critique fixtures)
-> │   └── README.md (coverage table + grading guidance + release threshold)
-> ├── references/
-> │   ├── README.md (catalogue index + locked five-section leaf format + growth procedure)
-> │   └── <six anti-pattern leaves>.md
-> └── spec/
->     ├── design.md
->     ├── inputs.md
->     └── authoring-prompt.md
-> ```
+> ### Deliverables
 >
-> *SKILL.md walks the workflow: (1) establish scope; (2) load the catalogue; (3) apply each detection rule with concrete evidence; (4) cross-link to the canonical idiom; (5) propose fixes under the two-tier Edit gate (full statement here, exactly once); (6) surface findings in the output shape. Frontmatter `allowed-tools` = `Read` / `Edit` / `Grep` / `Glob` — no `gh`.*
+> *Produce the skill at `skills/re-frame2-improver/` such that:*
 >
-> *The six launch leaves (each in the locked five-section format — detection rules / why / canonical fix / worked example / edge cases):*
+> *- The **file structure** matches `design.md` §5 exactly (SKILL.md, README.md, LICENSE, package.json, `.claude-plugin/plugin.json`, `evals/`, `references/`, `spec/`).*
+> *- **SKILL.md** walks the workflow and carries the trigger semantics + self-anti-patterns; its `allowed-tools` follow L4 (`design.md` §3) — filing is delegated, so no `gh` / issue surface. It **consumes** the shared protocol for the workflow, the untrusted-evidence boundary, and the Edit-gate split — pointing at `retro-protocol.md` §Step 6 rather than restating it.*
+> *- The **six launch leaves** are exactly those in `design.md` §4, each in the locked five-section format (`design.md` §L5 / `references/README.md`), each cross-linking the canonical idiom `design.md` §4 assigns it and footering to the spec owner `inputs.md` §3 verifies.*
+> *- **`references/README.md`** carries the catalogue index, the routing table, and the consolidation rule.*
+> *- **`evals/`** carries `evals.json` (the sole fixture inventory) + its harness README, per the `evals/README.md` schema and the sibling `skills/re-frame2/evals` convention.*
+> *- Every **locked decision** L1–L10 (`design.md` §3) holds; do not re-litigate or re-word them.*
 >
-> *1. `manual-retry-loops.md` → Managed HTTP (Spec 014). The closed failure-category set is exactly `:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx :rf.http/decode-failure :rf.http/accept-failure :rf.http/aborted` — verify against `spec/014-HTTPRequests.md §Failure categories`; do NOT invent `:rf.http/payload`.*
-> *2. `boolean-discriminator-subs.md` → Tags query layer (Spec 005).*
-> *3. `manual-loading-flags.md` → Nine States (`spec/Pattern-NineStates.md`).*
-> *4. `schemaless-events.md` → Schemas at boundaries (Spec 010). May carry an additive "Regression example" section.*
-> *5. `imperative-effects.md` → split by direction: effectful writes (storage/DOM/inline-dispatch/timers) route to data-only fx via `reg-fx` (`spec/Conventions.md`, `fundamentals/fx.md`); impure / nondeterministic reads (`Date.now`, `Math.random`, `localStorage.getItem`, sub reads) become input data, and the right channel forks on durability — a read that decides a **durable write** (app-db / runtime-db / a resource / a snapshot / a ledger row) must be a **recorded fact** (a declared recordable coeffect like `:rf/time-ms`, the event payload, or a recordable cofx), while a **diagnostic / host-transient** read (log / span / side-table, no durable write) may stay an **ambient** value-returning `reg-cofx` declared via `:rf.cofx/requires` and must NOT be over-flagged (`fundamentals/cofx.md`; `inject-cofx` removed) — do NOT route a read to `reg-fx`. Pure deterministic JS helpers (`parseInt`, `Math.max`) stay non-findings. `:platforms` gating is owned by Spec 011 (SSR), NOT a non-existent Spec 003.*
-> *6. `view-side-hook-state.md` → `app-db` + `reg-sub` (Spec 004 / `spec/Principles.md`). The testing surface is `compute-sub` for subs and `dispatch-sync` + `app-db-value` for events — there is no `compute-event`.*
+> ### Verify before you ship
 >
-> *Locks to preserve verbatim (from design.md §3):*
+> *- **Re-verify every API claim** the leaves cite against the current `spec/` + `implementation/` before writing them — the ownership table is `inputs.md` §3. A fabricated idiom is the cardinal failure for a critique skill (`design.md` §2 pillar 1). Do not cite an API that does not exist in both `spec/` and `implementation/`.*
+> *- Confirm the resulting SKILL.md **does not contradict** the shared protocol (workflow, Edit-gate split, untrusted-evidence boundary, redaction) — it points at the owner, it does not fork it.*
+> *- Confirm no shipped doc points at the gitignored `ai/` tree (L9), and that commits + PR carry no AI attribution (L10).*
 >
-> *- **L1 — Explicit-pull only.** Three filters; decline + ask for a snippet rather than fabricate.*
-> *- **L2 — Static, never live.** Route live work to `re-frame2-pair`, retros to `re-frame2-pair-retro`.*
-> *- **L3 — Two-tier Edit gate.** Canonical-idiom-shaped unrestricted; evidence-shaped approval-first; when in doubt, gate. Normative source in the shared leaf; full statement once in SKILL.md §Workflow step 5; a one-line pointer in §Anti-patterns.*
-> *- **L4 — Filing is delegated.** No `gh` in `allowed-tools`; framework-shape friction routes to the retro skill.*
-> *- **L8 — No fabricated findings, no "read the spec" reduction.***
-> *- **L9 — Findings stay local.** No shipped doc points at the gitignored `ai/` tree; the design rationale lives in this `spec/` folder.*
-> *- **L10 — No AI attribution.***
->
-> *Voice: confident, opinionated, evidence-grounded; name the idiom and the layer; no hedging.*
->
-> *Don't:*
->
-> *- Don't cite an API that doesn't exist in `spec/` + `implementation/` — verify first.*
-> *- Don't land an evidence-shaped `Edit` without explicit approval.*
-> *- Don't reduce a finding to "read the spec".*
-> *- Don't point any shipped doc at `ai/findings/...` (gitignored, local-only).*
-> *- Don't write `*.md` outside `skills/re-frame2-improver/` (the one shared-leaf cross-link line in `skills/shared/retro-protocol.md` is the documented exception).*
-> *- Don't claim AI authorship; commits and PR read as Mike Thompson's work.*
->
-> *Open the PR with title `feat(skills): re-frame2-improver — re-frame2 code-critique skill`. PR body lists: the skill structure, the six leaves + their canonical idioms, the trigger semantics, the Edit-gate split, and the relationship to the sibling skills (`re-frame2` — canonical-idiom source; `re-frame2-pair-retro` — shares the protocol leaf).*
+> *Open the PR titled `feat(skills): re-frame2-improver — re-frame2 code-critique skill`. In the body, enumerate — by reference to the owners above, not by restating them — the skill structure (`design.md` §5), the six leaves + canonical idioms (`design.md` §4), the trigger semantics (`design.md` §6), the Edit-gate split (`retro-protocol.md` §Step 6), and the relationship to the sibling skills (`re-frame2` — canonical-idiom source; `re-frame2-pair-retro` — shares the protocol leaf).*
 
 ## Notes on the reauthoring contract
 
-- The prompt is a one-shot — feed it to a fresh session in the repo root, it produces the skill.
-- The prompt assumes read access to the re-frame2 repo and the `skills/re-frame2/` canonical-idiom source.
-- The prompt does **not** ask the session to verify the resulting skill against a real review — Mike reads the PR and exercises the skill on real code afterwards.
+- The prompt is a **one-shot** — feed it to a fresh session at the repo root and it produces the skill from the linked owners.
+- It assumes read access to the re-frame2 repo and the `skills/re-frame2/` canonical-idiom source.
+- It deliberately **links** the design/inputs/protocol/catalogue owners rather than copying them: the file layout, the locks, the leaf catalogue, the runtime API facts, and the update procedure each live in exactly one place, so a re-author reads the current owner and cannot be fed a stale copy.
+- It does **not** ask the session to verify the resulting skill against a real review — Mike reads the PR and exercises the skill on real code afterwards.
 - Every API claim MUST be re-verified against the current `spec/` + `implementation/` at authoring time; a fabricated idiom is the cardinal failure for a critique skill.
 
-## When to re-author
+## Incremental updates vs. full re-author
 
-- A canonical idiom changes materially in `skills/re-frame2/patterns/` or the owning `spec/` document → re-derive the affected leaf's "After" snippet and footer.
-- A spec ownership / API surface moves (e.g. failure-category set, testing surface, `:platforms` ownership) → re-verify `inputs.md §3` and every leaf.
-- A new anti-pattern earns a leaf (3+ real reviews) or a deferred candidate is promoted → add the leaf + catalogue row.
-- The shared protocol changes → re-check the SKILL.md step-5 pointer.
-- Anthropic skill conventions change materially → reauthor against the new conventions.
-
-Otherwise, edit existing leaves directly; reauthoring is for major-version updates.
+This prompt is for a **major-version re-author**. For incremental maintenance — a canonical idiom moving, a spec-ownership shift, a new leaf clearing the 3+-review bar, a shared-protocol change — follow the **update procedure owned by [`inputs.md` §7](inputs.md)** and edit the affected leaves directly rather than re-running this prompt.
