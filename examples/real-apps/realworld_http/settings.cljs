@@ -34,7 +34,10 @@
             ;; and the `:rf/machine` / `:rf.machine/has-tag?` subs resolve. See
             ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
-            [realworld-http.schema :as schema]
+            ;; Wire contract (UserResponse) from the shared ns; the machine's
+            ;; own snapshot `:data` schema (SettingsFormData) is app-local.
+            [realworld-shared.schema :as schema]
+            [realworld-http.schema :as app-schema]
             [realworld-http.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -93,7 +96,7 @@
    ;; ([:rf.runtime/machines :snapshots :settings/form]), not app-db, so its
    ;; :data shape is validated right here via [:schemas :data] — an app-schema
    ;; only sees the app-db partition.
-   :schemas {:data schema/SettingsFormData}
+   :schemas {:data app-schema/SettingsFormData}
 
    :actions
    {:seed-from-user

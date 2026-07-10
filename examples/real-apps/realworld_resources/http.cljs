@@ -37,7 +37,12 @@
    reference backend on http://localhost:3000/api."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as registrar]
+            ;; The transport-neutral Conduit contract — query encoding, the read
+            ;; retry policy, the failure taxonomy, and pagination arithmetic —
+            ;; shared with the managed-HTTP example and re-exposed below as this
+            ;; app's HTTP surface.
+            [realworld-shared.http :as wh]))
 
 (def api-base
   "Default API base URL — the current official hosted Conduit API. The resource
@@ -52,69 +57,30 @@
 (defn full-url [path]
   (str api-base path))
 
-(defn query-string
-  "Assemble a `?k=v&k2=v2…` query string from a map of query params, with every
-   value URL-encoded via `js/encodeURIComponent` so a tag, username, or other
-   filter value carrying a reserved query character (`&`, `=`, `#`, a space,
-   …) reaches the API as that literal value instead of corrupting the query
-   string it's embedded in. Nil-valued params are dropped, and an empty (or
-   all-nil) map yields `\"\"`, not a bare `\"?\"`."
-  [params]
-  (let [pairs (for [[k v] params :when (some? v)]
-                (str (name k) "=" (js/encodeURIComponent (str v))))]
-    (if (seq pairs)
-      (str "?" (str/join "&" pairs))
-      "")))
-
 ;; ============================================================================
-;; RETRY POLICY
+;; SHARED CONTRACT — re-exposed as this app's HTTP surface
 ;; ============================================================================
 ;;
-;; Same rule as ever: reads retry, writes don't. A read resource's `:request`
-;; returns a managed-HTTP args map, and `:retry` passes through the resource
-;; lowering untouched — so a resource opts into retry simply by dropping this
-;; policy into its return. Mutations stay retry-free, because a write means one
-;; submission per click; if it 5xxes, that surfaces as `:error` and the user gets
-;; to decide whether to try again.
+;; The definitions live once, in realworld-shared.http; here they're the app's
+;; public helpers so the resource / mutation / view nses keep a single `rh/*`
+;; import point.
+;;
+;;   query-string      — Conduit query encoding (nils dropped, values encoded)
+;;   data-fetch-retry  — reads retry (transport / 5xx / timeout, never 4xx);
+;;                       writes get none. A read `:request` drops this policy
+;;                       into its managed-HTTP args and `:retry` rides the
+;;                       resource lowering untouched.
+;;   page-size /       — the fixed Conduit page size + the 1-indexed page →
+;;   page->limit-offset  `{:limit :offset}` arithmetic (the one place it lives)
+;;   page-count        — articles-count → total pages (ceil, floored at 1)
+;;   failure->message  — project a `:rf.http/*` failure into a readable sentence
 
-(def data-fetch-retry
-  "The standard retry policy for read-only data fetches — lists, article detail,
-   comments, profiles, tags, the feed. It retries transport blips, 5xx, and
-   timeouts, but not 4xx: the request shape was valid, so retrying would just be
-   wishful thinking. Three attempts total, with exponential backoff + jitter."
-  {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
-   :max-attempts 3
-   :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
-
-;; ============================================================================
-;; FAILURE PROJECTION
-;; ============================================================================
-
-(defn failure->message
-  "Turn a failure envelope — the inner `:failure` map a resource `:error` /
-   `:refresh-error` and a mutation `:error` carry — into something a human can
-   read. The Conduit API hands back `{:errors {:body [\"...\"]}}` shapes for 4xx
-   validation failures, so prefer those when they're present; otherwise fall back
-   to a category-driven message keyed off the closed `:rf.http/*` taxonomy."
-  [failure]
-  (let [body     (:body failure)
-        body-msg (cond
-                   (and (map? body) (-> body :errors :body first)) (-> body :errors :body first)
-                   (and (map? body) (-> body :errors first))       (let [[k v] (first (:errors body))]
-                                                                     (str (name k) ": " (first v)))
-                   (string? body) body
-                   :else nil)]
-    (or body-msg
-        (case (:kind failure)
-          :rf.http/transport      "Network error — please try again."
-          :rf.http/timeout        "Request timed out."
-          :rf.http/http-4xx       (str "Request rejected (status " (:status failure) ").")
-          :rf.http/http-5xx       (str "Server error (status " (:status failure) ").")
-          :rf.http/decode-failure "Couldn't parse server response."
-          :rf.http/accept-failure (or (-> failure :detail :message) "Unexpected response shape.")
-          :rf.http/aborted        "Request cancelled."
-          (:message failure))
-        "Request failed.")))
+(def query-string      wh/query-string)
+(def data-fetch-retry  wh/data-fetch-retry)
+(def page-size         wh/page-size)
+(def page->limit-offset wh/page->limit-offset)
+(def page-count        wh/page-count)
+(def failure->message  wh/failure->message)
 
 ;; ============================================================================
 ;; DEMO BACKEND STUB

@@ -41,7 +41,10 @@
             [re-frame.machines]
             [re-frame.resources]
             [realworld-resources.http :as rh]
-            [realworld-resources.schema :as schema]
+            ;; Wire contract (UserResponse) from the shared ns; the machine's
+            ;; own snapshot `:data` schema (AuthFlowData) is app-local.
+            [realworld-shared.schema :as schema]
+            [realworld-resources.schema :as app-schema]
             ;; Pulled in for its side effect: loading it registers the
             ;; `:realworld/session` resource-scope resolver that
             ;; `:auth/clear-session` reaches for via `rf/resolve-resource-scope`
@@ -243,7 +246,7 @@
    :rf.http/decode-schemas [schema/UserResponse]}
   {:initial :idle
    :data    {:error nil}
-   :schemas {:data schema/AuthFlowData}
+   :schemas {:data app-schema/AuthFlowData}
    :guards
    {:has-token? (fn [{[_ token] :event}] (not (str/blank? token)))}
    :actions

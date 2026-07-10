@@ -32,7 +32,7 @@
             ;; registrations; without it, `rf/reg-resource` has nothing to call.
             [re-frame.resources]
             [realworld-resources.http :as rh]
-            [realworld-resources.schema :as schema]))
+            [realworld-shared.schema :as schema]))
 
 ;; ============================================================================
 ;; SHARED POLICY
@@ -62,20 +62,11 @@
 ;; flicker. No `:status` field, no hand-rolled page-cache map — the framework
 ;; carries all of it. See ../../../docs/resources/how-to/paginate-a-feed.md.
 
-(def page-size
-  "The fixed Conduit list page size — the official client's value. The demo stub
-   synthesises enough articles that several pages actually exist to page through
-   (see realworld-resources.http)."
-  10)
-
-(defn page->limit-offset
-  "Turn a 1-indexed `:page` (nil → page 1) into the Conduit `limit` / `offset`
-   query pair. Pure, and the one place page arithmetic lives — a page is just
-   another canonical-params key, so there's no reason to do this maths twice."
-  [page]
-  (let [p (max 1 (or page 1))]
-    {:limit  page-size
-     :offset (* (dec p) page-size)}))
+;; The page size + the 1-indexed page → `{:limit :offset}` arithmetic are
+;; transport-neutral Conduit contract, shared with the managed-HTTP example:
+;; `rh/page-size` / `rh/page->limit-offset` (re-exposed from
+;; realworld-shared.http). A page is just another canonical-params key, so the
+;; maths lives in exactly one place.
 
 (defn- list-path
   "Assemble a Conduit list-endpoint `path` (e.g. `/articles` or
@@ -88,7 +79,7 @@
    resource `:request` fns short while every (filters, page) pair stays its
    own distinct cache key."
   [path filters page]
-  (str path (rh/query-string (merge filters (page->limit-offset page)))))
+  (str path (rh/query-string (merge filters (rh/page->limit-offset page)))))
 
 ;; A simple rule runs through all of this: reads retry, writes don't. Each read's
 ;; `:request` returns the shared `rh/data-fetch-retry` policy in its managed-HTTP

@@ -29,7 +29,10 @@
             ;; and the `:rf/machine` / `:rf.machine/has-tag?` subs resolve. See
             ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
-            [realworld-http.schema :as schema]
+            ;; Wire contract (TagsResponse) from the shared ns; the machine's
+            ;; own snapshot `:data` schema (TagsData) is app-local.
+            [realworld-shared.schema :as schema]
+            [realworld-http.schema :as app-schema]
             [realworld-http.http :as rh]))
 
 ;; ============================================================================
@@ -70,7 +73,7 @@
    ;; Validates the snapshot's :data at every macrostep boundary. The snapshot
    ;; lives in runtime-db, not app-db, so THIS is its validation surface — an
    ;; app-schema would never see it.
-   :schemas {:data schema/TagsData}
+   :schemas {:data app-schema/TagsData}
 
    :actions
    {:bump-attempt

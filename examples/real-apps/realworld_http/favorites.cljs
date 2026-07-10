@@ -9,7 +9,7 @@
    between feeds on the home page doesn't throw away global articles you've
    already loaded."
   (:require [re-frame.core :as rf]
-            [realworld-http.schema :as schema]
+            [realworld-shared.schema :as schema]
             [realworld-http.http :as rh]))
 
 (defn request-slice []

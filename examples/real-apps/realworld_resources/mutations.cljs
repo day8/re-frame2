@@ -46,7 +46,7 @@
             [re-frame.http.managed]
             [re-frame.resources]
             [realworld-resources.http :as rh]
-            [realworld-resources.schema :as schema]))
+            [realworld-shared.schema :as schema]))
 
 ;; ============================================================================
 ;; FAVORITE / UNFAVORITE  —  the optimistic write

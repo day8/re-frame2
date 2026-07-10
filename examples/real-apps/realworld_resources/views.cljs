@@ -30,8 +30,7 @@
             [re-frame.resources]
             [realworld-resources.http :as rh]
             [realworld-shared.avatar :as avatar]
-            [realworld-shared.markdown :as md]
-            [realworld-resources.resources :as resources])
+            [realworld-shared.markdown :as md])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -270,7 +269,8 @@
 ;; ----------------------------------------------------------------------------
 ;;
 ;; The page count is worked out from the server's `articlesCount` and the fixed
-;; `page-size` — the view never stashes 'how many pages' in app-db, it's purely a
+;; page size via `rh/page-count` (the shared Conduit contract) — the view never
+;; stashes 'how many pages' in app-db, it's purely a
 ;; function of the loaded data. Each page link is a navigation that swaps only
 ;; `?page=`, so paging stays declarative: the route plan re-ensures the list under
 ;; the new page key, which is a distinct cache entry.
@@ -281,7 +281,7 @@
                   page number to navigate to. Renders nothing when there's only
                   one page."}
           pagination [{:keys [articles-count current-page on-page]}]
-  (let [total-pages (max 1 (js/Math.ceil (/ (or articles-count 0) resources/page-size)))]
+  (let [total-pages (rh/page-count articles-count)]
     (when (> total-pages 1)
       (into [:nav [:ul.pagination {:data-testid "pagination"}]]
             (for [p (range 1 (inc total-pages))]

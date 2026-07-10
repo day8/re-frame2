@@ -16,7 +16,7 @@
             [re-frame.core :as rf]
             [realworld-shared.avatar :as avatar]
             [realworld-shared.markdown :as md]
-            [realworld-http.schema :as schema]
+            [realworld-shared.schema :as schema]
             [realworld-http.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 

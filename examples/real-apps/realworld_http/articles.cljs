@@ -32,7 +32,7 @@
             ;; guide: ../../../docs/machines/index.md
             [re-frame.machines]
             [realworld-shared.avatar :as avatar]
-            [realworld-http.schema :as schema]
+            [realworld-shared.schema :as schema]
             [realworld-http.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 

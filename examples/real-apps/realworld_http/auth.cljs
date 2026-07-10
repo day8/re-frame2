@@ -20,7 +20,10 @@
             ;; to something. No alias needed — we just want it in the room. See
             ;; the machines guide: ../../../docs/machines/index.md
             [re-frame.machines]
-            [realworld-http.schema :as schema]
+            ;; Wire contract (UserResponse) from the shared ns; the machine's
+            ;; own snapshot `:data` schema (AuthFlowData) is app-local.
+            [realworld-shared.schema :as schema]
+            [realworld-http.schema :as app-schema]
             [realworld-http.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -156,7 +159,7 @@
    ;; [:rf.runtime/machines :snapshots :auth/flow]), not app-db. App-schemas
    ;; only police the app-db partition, so the snapshot's :data shape is
    ;; validated right here via [:schemas :data] instead.
-   :schemas {:data schema/AuthFlowData}
+   :schemas {:data app-schema/AuthFlowData}
    :guards
    {:has-token?
     (fn [{[_ token] :event}]
