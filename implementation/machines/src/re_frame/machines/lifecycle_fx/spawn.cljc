@@ -4,19 +4,18 @@
 
   `apply-transition-once` emits `[:rf.machine/spawn args]` into the fx
   vector whenever entry cascades cross a `:spawn`-bearing state. Per
-  Spec 005 §Spawning, a spawned actor's liveness is
-  APP-DB-ONLY: `spawn-fx` seeds the actor's initial snapshot at
+  Spec 005 §Spawning, a spawned actor's liveness is runtime-db state:
+  `spawn-fx` seeds the actor's initial snapshot at
   `[:rf.runtime/machines :snapshots <spawned-id>]` in the spawning
-  frame's app-db, stamping the revertible TYPE reference at
+  frame's runtime-db, stamping the revertible type reference at
   `:rf/machine-type`. There is NO per-instance event-handler
   registration — the actor's liveness IS that snapshot's presence in the
   (revertible) frame value, and the snapshot's `:rf/machine-type` lets
   the lazy resolver (`lifecycle-fx.resolver`) re-materialise the actor's
-  handler on dispatch. Spawn is therefore a pure app-db write; destroy
-  removes only app-db, so `restore-epoch!` (app-db-only) reverts an
-  actor's liveness perfectly with zero registrar drift (the Goal-2
-  revertibility invariant). Frame isolation follows from the snapshot
-  living inside the spawning frame's app-db.
+  handler on dispatch. Spawn and destroy update runtime-db only. Epoch restore
+  replaces the whole captured frame state, so actor liveness rewinds without
+  registrar drift. Frame isolation follows from the snapshot living inside
+  the spawning frame's runtime-db.
 
   `spawn-all-init-fx` also lives here — the runtime
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
@@ -50,7 +49,7 @@
   by the transition reducer (allocated from the parent snapshot's
   `:rf/spawn-counter`). Returns nil for hand-emitted
   `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
-  the caller (`spawn-fx`) allocates such ids from the frame's app-db
+  the caller (`spawn-fx`) allocates such ids from the frame's runtime-db
   spawn-counter slot at `[:rf.runtime/machines :spawn-counter]` inside
   the spawn's db-swap so the allocation shares the same write."
   [args]
@@ -159,7 +158,7 @@
 (defn- machine-type-ref
   "The revertible TYPE reference stamped onto a spawned actor's snapshot root
   under `:rf/machine-type`, so the lazy resolver (`lifecycle-fx.resolver`)
-  can re-materialise the actor's handler purely from app-db. A `:machine-id`
+  can re-materialise the actor's handler purely from runtime-db. A `:machine-id`
   spawn stores the registered TYPE keyword (the type outlives every
   instance — registered like a singleton). An inline `:definition` spawn
   stores the spec map verbatim (there is no registered type; the snapshot is
@@ -214,14 +213,14 @@
   "Atomically install the spawned actor's `initial-snap` (with its
   revertible `:rf/machine-type` TYPE reference stamped at the root),
   system-id binding, and runtime-owned spawn registry slot
-  into the frame's app-db. Returns `:ok`. Emits the collision and
+  into the frame's runtime-db. Returns `:ok`. Emits the collision and
   system-id-bound traces when applicable.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
   frame value, and the snapshot's `:rf/machine-type` lets the lazy
   resolver re-materialise the handler on dispatch. Spawn is therefore a
-  pure app-db write.
+  pure runtime-db write.
 
   Schema-rejection is decided by the caller (`spawn-fx`)
   via `spawn-rejected?` BEFORE this fn runs, so by the time
@@ -239,7 +238,7 @@
    {:keys [system-id parent-id invoke-id track? type-ref]}]
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Stamp the revertible TYPE reference onto the snapshot root so the
-        ;; lazy resolver can re-materialise the handler from app-db alone. The
+        ;; lazy resolver can re-materialise the handler from runtime-db alone. The
         ;; spawn is known-accepted by the time `install-spawn!` runs (an
         ;; unregistered `:machine-id` was rejected fail-closed upstream), so
         ;; `spec` is always present; the `spec`/`type-ref` guards are
@@ -279,7 +278,7 @@
 (defn spawn-fx
   "fx handler for `:rf.machine/spawn`. Per Spec 005 §Spawning, the spawned
   actor's snapshot lives at `[:rf.runtime/machines :snapshots
-  <spawned-id>]` in the spawning frame's app-db, and its liveness IS that
+  <spawned-id>]` in the spawning frame's runtime-db, and its liveness is that
   snapshot's presence in the (revertible) frame value — there is NO
   per-instance event-handler registration.
 
@@ -299,7 +298,7 @@
       TYPE reference at `:rf/machine-type` (the `:machine-id` keyword, or
       the inline `:definition` map) so the lazy resolver
       (`lifecycle-fx.resolver`) can re-materialise the actor's handler
-      from app-db alone. The runtime stamps `:rf/self-id`
+      from runtime-db alone. The runtime stamps `:rf/self-id`
       (the spawned actor's own address) and, when applicable,
       `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
       Re-spawn under the same id replaces — last-write-wins.
@@ -317,10 +316,8 @@
       The first dispatch lazy-resolves the just-installed snapshot into a
       live handler (no registration step).
 
-  Eliminating the per-instance registration is what closes the Goal-2
-  revertibility leak: spawn writes only app-db, destroy removes only app-db,
-  so `restore-epoch!` (app-db-only) reverts an actor's liveness perfectly
-  with ZERO registrar drift."
+  Because no per-instance registration exists, replacing a captured frame
+  state also restores actor liveness without registrar drift."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside a
         ;; pipeline run, so the fx context ALWAYS carries the envelope
@@ -401,7 +398,7 @@
         ;; `:rf.error/schema-validation-failure :phase :spawn` that
         ;; `validate-spawn-data!` already emitted). There is no per-instance
         ;; handler registration to gate — a rejected spawn simply writes
-        ;; nothing to app-db, so no liveness exists for the rejected actor
+        ;; nothing to runtime-db, so no liveness exists for the rejected actor
         ;; (the strongest form of atomicity: an actor's liveness IS its
         ;; snapshot, and the snapshot was never installed).
         rejected?  (spawn-rejected? spec'' spawned-id initial-snap)]
@@ -435,7 +432,7 @@
       ;; liveness IS its snapshot's presence in the (revertible) frame
       ;; value; the snapshot's `:rf/machine-type` (stamped by
       ;; `install-spawn!`) lets the lazy resolver re-materialise the
-      ;; handler on dispatch. Spawn is a pure app-db write.
+      ;; handler on dispatch. Spawn is a pure runtime-db write.
       ;;
       ;; (2) Initialise the snapshot + (3) bind :system-id + (4) bind the
       ;; runtime-owned spawn registry (atomically under one runtime-db swap
@@ -450,18 +447,17 @@
                          :invoke-id invoke-id
                          :track?    track?
                          :type-ref  type-ref})
-        ;; EP-0025 §subsystems (rf2-h3d8tf): LOWER the machine spec's
-        ;; PROJECTION-RELATIVE `:sensitive` / `:large` `:data` declarations
+        ;; Lower the machine spec's projection-relative `:sensitive` / `:large`
+        ;; `:data` declarations
         ;; into the per-frame elision registry PER ACTOR INSTANCE — re-rooting
         ;; each snapshot-relative `[:data …]` path to this instance's absolute
         ;; snapshot path. The classification travels with the machine def and
         ;; applies to every generated `<type>#n`, dropped on destroy
         ;; (`teardown-live-actor!`). The egress READ path
         ;; (`re-frame.classification/frame-snapshot-classification`, SSR, trace) is unchanged —
-        ;; this writes the registry-entry SOURCE `:source :machine` (a peer of
-        ;; the general commit-plane `:source :effect` route; EP-0025 removed
-        ;; the prior `:source :frame` annotation, rf2-398kql). A spec declaring
-        ;; no classification is a clean no-op (fail-open).
+        ;; this writes the registry-entry source `:source :machine`, a peer of
+        ;; the general commit-plane `:source :effect` route. A spec declaring
+        ;; no classification is a no-op.
         (classification/lower-at-spawn! frame-id spawned-id spec'')
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005
@@ -472,14 +468,14 @@
         ;; `:rf.machine.lifecycle/created` (handler registered) and
         ;; `:rf.machine.lifecycle/destroyed` (handler/snapshot reaped).
         ;; The fx-substrate emit above (`:rf.machine.spawn/spawned`) says
-        ;; "the spawn fx ran"; THIS emit says "a spawned actor's snapshot
-        ;; landed in the registrar". Spec 009 §Two-axis machine
+        ;; "the spawn fx ran"; this emit says "a spawned actor's snapshot
+        ;; landed in runtime-db". Spec 009 §Two-axis machine
         ;; observation: tools that just want "did an actor appear?"
         ;; subscribe to the `:rf.machine.lifecycle/*` channel; causal-graph
         ;; builders subscribe to both and disambiguate by the naming axis.
         ;; The `:state` tag carries the actor's initial state so the Xray
-        ;; managed-fx INVOKE adapter can render it without re-reading
-        ;; app-db (`managed_fx_helpers/machine-invoke-adapter`).
+        ;; managed-fx invoke adapter can render it without re-reading
+        ;; runtime-db (`managed_fx_helpers/machine-invoke-adapter`).
         (trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
                      {:frame      frame-id
                       ;; `:machine-id` = spec-time registered TYPE;
@@ -519,7 +515,7 @@
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
   state the runtime emits this fx (alongside per-child `:rf.machine/spawn`
   fxs) to seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in
-  the frame's app-db. The seed map shape is:
+  the frame's runtime-db. The seed map shape is:
 
     {:children {<child-id> <spawned-id>, ...}
      :done      #{}

@@ -1,31 +1,10 @@
 (ns re-frame.after-fire-reap-cljs-test
-  "rf2-8cndln — a guard-suppressed `:after` timer fire must REAP its own
-  registry entry at fire time, not leak it.
+  "A guard-suppressed `:after` timer fire reaps its registry entry at fire time.
 
-  Background. `machines.timer/schedule-after-timer!` arms a host-clock timer
-  whose fire thunk dispatches the synthetic
-  `[:rf.machine.timer/after-elapsed …]` event. Entries in the per-frame
-  `after-timers` table were previously reaped ONLY by a CANCELLATION path —
-  state exit (`:on-exit`), actor destroy, frame destroy, sub re-resolution.
-  Nothing reaped an entry whose timer actually FIRED.
-
-  That is invisible for a fire that drives a real transition: the state
-  exits, `after-cancel-fx` runs, and the entry is cleared as `:on-exit`. But a
-  GUARD-SUPPRESSED fire (the elapsed event is discarded, the state does NOT
-  exit) runs no cancel — so the entry is stranded:
-
-    (a) a live `add-watch` on the dynamic-delay reaction plus a held
-        subscription ref-count leak for as long as the machine stays in the
-        state; and — worse —
-    (b) if that sub value later changes, the still-installed watcher's
-        `on-sub-changed!` RE-ARMS a brand-new timer for a one-shot that
-        already fired-and-was-discarded.
-
-  XState v5 semantics: a delayed (`after`) transition's timer fires ONCE per
-  arming; a guard-rejected delayed transition does NOT re-schedule. The fix
-  reaps the firing entry (host handle + remove-watch + unsubscribe) at fire
-  time, epoch-guarded so a concurrent re-entry's fresh entry (strictly-greater
-  per-decl-path epoch) is not clobbered.
+  Reaping releases the host handle, subscription watch, and reference count,
+  preventing a later subscription change from rearming a spent one-shot. The
+  epoch guard prevents an old fire from removing a concurrent re-entry's fresh
+  timer.
 
   These tests exercise the REAL fire path — the host-clock thunk
   `machines.timer` installs — rather than dispatching the synthetic

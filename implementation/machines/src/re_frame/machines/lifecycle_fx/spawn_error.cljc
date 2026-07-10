@@ -34,7 +34,7 @@
   This namespace is a LEAF over the spawn-resolution helpers it needs
   (`resolver` + `paths` + `transition` + `late-bind`), so both `finalize` and
   `registration` may require it without a load cycle. The `:spawn`-at-invoke-id
-  lookup lives in `resolver/spawn-spec-at` (the shared owner — rf2-wm92kj);
+  lookup lives in `resolver/spawn-spec-at`;
   `transition` is retained only for the reserved `spawn-error-event-id`."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
@@ -58,7 +58,7 @@
 (defn parent-declares-on-error?
   "True iff the child identified by `parent-id` / `invoke-id` was spawned by a
   parent whose `:spawn` map at `invoke-id` declares `:on-error`. `db` is the
-  frame's app-db (used to resolve a nested-spawn parent's spec). Returns false
+  frame's runtime-db (used to resolve a nested-spawn parent's spec). Returns false
   when the actor is a singleton (no `parent-id`), the parent spec doesn't
   resolve, or the `:spawn` map carries no `:on-error`."
   [db parent-id invoke-id]

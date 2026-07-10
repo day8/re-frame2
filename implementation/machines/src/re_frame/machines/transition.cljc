@@ -350,8 +350,8 @@
 
 ;; ---- guard-throw signal (XState v5 alignment) -----------------------------
 ;;
-;; Per Spec 005 §`:rf.machine/guard-evaluated` (XState v5 alignment,
-;; rf2-18mox0): XState v5 does NOT swallow a guard exception. A throwing
+;; Per Spec 005 §`:rf.machine/guard-evaluated` (XState v5 alignment), XState
+;; does not swallow a guard exception. A throwing
 ;; guard SURFACES the error and ABORTS transition selection — it is never
 ;; silently demoted to a lower-priority candidate, a wildcard tier, or an
 ;; ancestor edge. re-frame2 aligns by routing a guard throw through the
@@ -417,7 +417,7 @@
   preserved), then RETHROW a tagged guard-throw signal (`ex-data` carries
   `guard-threw-key`, the `:guard-ref`, the original `:exception`, and the
   active `:state`). Per Spec 005 §`:rf.machine/guard-evaluated`
-  (rf2-18mox0): XState v5 SURFACES a guard error and aborts transition
+  XState v5 surfaces a guard error and aborts transition
   selection — it is never swallowed and demoted to a lower-priority
   candidate. The engine boundaries (`parallel/machine-transition` /
   `apply-initial-entry-cascade`) catch the tagged signal and convert it to
@@ -476,7 +476,7 @@
                         :outcome    :threw
                         :exception  e
                         :frame      frame-id})
-          ;; XState v5 alignment (rf2-18mox0): SURFACE the guard error and
+          ;; XState v5 alignment: surface the guard error and
           ;; abort selection — do NOT swallow it as `:fail` and walk to the
           ;; next candidate. Rethrow a TAGGED signal the engine boundary
           ;; converts to a `result/fail` (the same failed-macrostep surface
@@ -702,7 +702,7 @@
 (defn- normalise-candidates
   "Normalise a transition-table value into a vector of candidate
   transition maps. The single source of truth for the value-form grammar
-  shared by `:on`, `:after`, AND `:always` (rf2-0k0f3x) — `pick-always-
+  shared by `:on`, `:after`, and `:always`; `pick-always-
   transition` routes the raw `:always` slot value through this SAME
   normaliser, so the three slots' value-form grammar can never drift
   apart. Per Spec 005 §Transitions §Multiple-candidate
@@ -741,7 +741,7 @@
   `:always` → `machine-bad-always`).
 
   Delegates the value-form → candidate-maps mapping to the SHARED
-  `grammar/candidate-maps` (the ONE owner — rf2-tu5psi), which returns nil
+  `grammar/candidate-maps`, which returns nil
   for the malformed form so THIS runtime caller keeps its slot-specific error
   taxonomy (`bad-value-id`) while the static cofx / validation walkers degrade
   malformed input to `[]`. `grammar/candidate-maps` builds on the same
@@ -3492,7 +3492,7 @@
   an `:always` whose guard passes (the deepest-wins rule named in
   `path-walk/walk-path-leaf-to-root`). The raw `:always` slot value is
   normalised through `normalise-candidates` — the SAME shared candidate
-  grammar `:on` / `:after` use (rf2-0k0f3x) — so a bare keyword (sibling
+  grammar `:on` / `:after` use, so a bare keyword (sibling
   target), a vector-target (absolute path), a single transition map, and
   a guarded candidate-vector all resolve identically whichever of the
   three slots carries them. A malformed value (`:always 42`) throws the

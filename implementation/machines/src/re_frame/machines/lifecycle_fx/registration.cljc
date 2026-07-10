@@ -67,11 +67,10 @@
 ;;
 ;; The home runs exactly one `[:schemas :data]` side-effect: the
 ;; validation-stamp. The machine `[:schemas :data]` schema is VALIDATION-ONLY —
-;; per-slot props do not classify durable `:data` for snapshot egress. EP-0025:
-;; durable `:data` classification rides the projection-relative subsystem
-;; declaration (lowered per actor under `:source :effect`); the commit-plane
-;; `:sensitive` / `:large` effects are the general app-db data-classification
-;; mechanism.
+;; per-slot props do not classify durable `:data` for snapshot egress. Durable
+;; `:data` classification uses projection-relative machine declarations,
+;; lowered per actor under `:source :machine`; commit-plane
+;; `:sensitive` / `:large` effects are the general classification mechanism.
 (def ^:dynamic *in-registration-home?*
   "True while `make-machine-handler` is invoked from a registration site that
   ALSO stamps the `:rf/machine?` / `:rf/machine` meta (the single home, or the
@@ -142,7 +141,7 @@
   `:spawn :on-error`, route the failure to the parent's declarative
   `:on-error` transition via `spawn-error/dispatch-spawn-error!` — additive to
   (not a replacement for) the trace above, which still fires for every action
-  exception. `ctx` carries the failing actor's `:db` + `:snapshot` (whose
+  exception. `ctx` carries the failing actor's runtime-db and snapshot (whose
   `:data` was stamped with `:rf/parent-id` / `:rf/invoke-id` at spawn time);
   the exception envelope rides as the parent transition's `:event` payload so
   a guard / action can branch on it. Singletons (no parent) and parents that
@@ -155,17 +154,11 @@
         ex-data    (when ex (ex-data ex))
         action-ref (:action-ref info)
         state-path (:state-path info)
-        ;; `:failing-id` names the failing CODE identifier — uniform with the
-        ;; interceptor / cofx always-on categories (Spec 009 §What IS available
-        ;; §Attribution rule): the throwing action / guard's KEYWORD when it is
-        ;; a named `:actions` / `:guards` entry, else the live actor instance
-        ;; address (an anonymous inline fn has no keyword identity — the
-        ;; `:state` slot still attributes WHICH state's transition threw). It is
-        ;; ALWAYS a keyword. (Previously stamped `machine-id` unconditionally —
-        ;; the misattribution rf2-cprm0q defect 2 fixes: a machine throw
-        ;; arrived as \"machine :auth/flow threw\" with no action attribution.)
+        ;; `:failing-id` is always a keyword. A named action or guard uses its
+        ;; code identity; an anonymous callback falls back to the actor address.
+        ;; `:state` still attributes which state's transition threw.
         failing-id (if (keyword? action-ref) action-ref machine-id)]
-    ;; Fan out BOTH error channels (rf2-cprm0q defect 1): the always-on
+    ;; Fan out both error channels: the always-on
     ;; production-survivable record (surface #4, carrying `:failing-id` +
     ;; `:state`) AND the dev-only trace. Guard throws converge here too
     ;; (`transition/guard-threw->fail-info` projects the guard-ref onto
@@ -189,8 +182,8 @@
     ;; PROSE `:reason` / `:exception-message` and the value-bearing `:event` /
     ;; `:exception-data` (redacted downstream at the marks chokepoint) all
     ;; included — away under :advanced + goog.DEBUG=false. Leaving the direct
-    ;; call ungated beside the live always-on call above would leak the prose
-    ;; (rf2-cprm0q). `:state-path` is retained for the existing dev-trace shape.
+    ;; call ungated beside the live always-on call above would leak the prose.
+    ;; `:state-path` is retained for the dev-trace shape.
     (when interop/debug-enabled?
       (trace/emit-error! :rf.error/machine-action-exception
         {:actor-id          machine-id
@@ -268,7 +261,7 @@
 ;;      post-boot snapshot + inner event. Returns the Result from the
 ;;      pure engine.
 ;;   4. `commit-or-finalize`   — emit transition / snapshot-updated traces,
-;;      build new-db, route to `finalize-machine` if `finished?`.
+;;      build the new runtime-db, route to `finalize-machine` if `finished?`.
 ;;
 ;; The intercept-spawn-all-event short-circuit is the visible top-level
 ;; branch in `make-machine-handler` itself — it must short-circuit before
@@ -552,7 +545,7 @@
   signal Xray renders as the `[START]` badge in BOTH paths
   automatically. The trace is emitted only on success (a thrown `:entry`
   action short-circuits to `:fail` → `trace-action-failure!` instead).
-  Restoration paths (SSR / `restore-epoch!` / `replace-app-db`) install a
+  Restoration paths (SSR, epoch restore, or full frame-state replacement) install a
   present, non-pending snapshot, so `:needs-bootstrap?` is false and NO
   `:rf.machine/started` fires — the snapshot IS the state."
   [ctx]
@@ -625,7 +618,7 @@
 
 (defn- commit-or-finalize
   "Step 4 of 4. Emit `:rf.machine/transition` (and optional
-  `:rf.machine/snapshot-updated`) traces, build the new app-db, and
+  `:rf.machine/snapshot-updated`) traces, build the new runtime-db, and
   route to `finalize-machine` if the post-transition snapshot is on a
   final leaf / all regions final.
 
@@ -753,7 +746,7 @@
          :fx            merged-fx}))))
 
 (defn- reject-internal-event-external-dispatch
-  "The public / private `:internal-events` BOUNDARY (EP-0029 A6), checked at
+  "The public/private `:internal-events` boundary, checked at
   the machine dispatch boundary. If the routed `inner-event` names a
   declared INTERNAL event of `machine`, this is an EXTERNAL dispatch of a
   private event — reject it: emit `:rf.error/machine-internal-event-external-dispatch`
@@ -892,9 +885,7 @@
       ;; state. The handler reads the snapshot from the `:rf.db/runtime`
       ;; coeffect (a fresh frame's runtime-db is `nil` until first write —
       ;; default it to `{}` so the snapshot lookup / install paths see a map)
-      ;; and returns its snapshot write under `:rf.db/runtime`. `db` (app-db)
-      ;; is still threaded for the spawn-`:on-error` parent lookup +
-      ;; action-failure diagnostics.
+      ;; and returns its snapshot write under `:rf.db/runtime`.
       (let [runtime-db  (or rt {})
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
             intercepted (join/intercept-spawn-all-event
@@ -902,7 +893,7 @@
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted
           intercepted
-          ;; EP-0029 A6 — the public / private `:internal-events` BOUNDARY.
+          ;; Enforce the public/private `:internal-events` boundary.
           ;; If the routed inner event names a declared INTERNAL event, this
           ;; is an EXTERNAL dispatch of a private event: reject it (emit
           ;; `:rf.error/machine-internal-event-external-dispatch`, no-op `{}`
@@ -931,8 +922,7 @@
                                     "Machine initial-entry action threw."
                                     boot-result)
               (do
-                ;; EP-0025 §subsystems (rf2-h3d8tf): LOWER a SINGLETON's
-                ;; projection-relative `:sensitive` / `:large` `:data`
+                ;; Lower a singleton's projection-relative `:sensitive` / `:large` `:data`
                 ;; declarations into the per-frame elision registry at its
                 ;; birth (first-boot). A singleton's actor-id IS its
                 ;; machine-id, installed lazily on first dispatch rather than
@@ -1031,8 +1021,8 @@
 ;; validation contract only — its per-slot `:sensitive?` / `:large?` props do
 ;; NOT classify the machine's durable `:data` for trace / SSR egress.
 ;;
-;; EP-0025 §subsystems (rf2-h3d8tf): durable `:data` egress classification is
-;; MACHINE-OWNED and PROJECTION-RELATIVE — a machine declares its sensitive /
+;; Durable `:data` egress classification is machine-owned and projection-relative:
+;; a machine declares its sensitive /
 ;; large `:data` slots via top-level `:sensitive` / `:large` keys on the spec
 ;; (rooted at one actor snapshot's `:data`), validated for shape at registration
 ;; (`re-frame.machines.classification/validate-machine-classification!`, above)
@@ -1139,8 +1129,8 @@
   `:rf/machine?` / `:rf/machine` keys are stamped here and MUST NOT appear in
   `opts`.
 
-  The home runs the `[:schemas :data]` validation-stamp plus the EP-0025
-  projection-relative-classification shape check (rf2-h3d8tf). The
+  The home runs the `[:schemas :data]` validation stamp plus the
+  projection-relative classification shape check. The
   `[:schemas :data]` schema is validation-only — its per-slot props do not
   classify durable `:data` for egress; the machine's top-level `:sensitive` /
   `:large` projection-relative declarations are the classification surface
@@ -1178,8 +1168,7 @@
       {:recovery :drop-reserved-keys
        :extra    {:machine-id machine-id
                   :opts       opts}}))
-   ;; EP-0025 §subsystems (rf2-h3d8tf): fail LOUD at the registration
-   ;; boundary on a malformed projection-relative `:sensitive` / `:large`
+   ;; Fail at registration on malformed projection-relative `:sensitive` / `:large`
    ;; `:data`-classification declaration (a non-vector axis, a non-path
    ;; entry). The declaration travels with the machine def and is lowered
    ;; per actor instance at spawn / first-boot — so a shape fault must be
@@ -1211,8 +1200,9 @@
     ;; The `[:schemas :data]` schema VALIDATES `:data` (via the
     ;; `:where :machine-data` post-commit walker, resolved through the
     ;; `:rf/machine` meta stamped above); its per-slot props do not classify the
-    ;; machine's durable `:data` for trace / SSR egress — frame-declared
-    ;; `:sensitive` / `:large {:app-db …}` paths are the sole app-db mechanism.
+    ;; machine's durable `:data` for trace / SSR egress. Egress classification
+    ;; comes from the frame's merged classification registry, including
+    ;; per-actor `:source :machine` entries.
     ;; The dev-only consumer-attachment
     ;; lints (consume-without-declaring + ambient-durable). Run here in the
     ;; home (with the machine-id known) over a locally-indexed copy so the

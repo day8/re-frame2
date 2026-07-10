@@ -1,7 +1,6 @@
 (ns re-frame.machines.cofx-attach
   "Machine consumer-attachment for recordable coeffects. Per Spec 005
-  §Consumer attachment — declaring requirements on named entries + EP-0017
-  slice-B.9.
+  §Consumer attachment — declaring requirements on named entries.
 
   ## What this namespace does
 
@@ -47,7 +46,7 @@
        `:data`). Both are recommendations (Spec 005 §Consumer attachment /
        EP-0017 §9), emitted at registration and DCE'd in production.
 
-  ## Sub-valued recordable source (EP-0017 Option A rider, rf2-h6ggnt)
+  ## Sub-valued recordable source
 
   A machine named entry may declare the map form `{:rf/sub query-v :as
   fact-id}` in its `:rf.cofx/requires` — a sub-valued RECORDABLE coeffect
@@ -203,8 +202,8 @@
   declaration raises `:rf.error/cofx-request-invalid` / a duplicate id
   `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler — but
   with `allow-sub?` TRUE, so a machine named entry may additionally declare
-  the sub-valued recordable source `{:rf/sub query-v :as fact-id}` (EP-0017
-  Option A rider, rf2-h6ggnt), which a `reg-event` handler cannot.
+  the sub-valued recordable source `{:rf/sub query-v :as fact-id}`, which a
+  `reg-event` handler cannot.
   `failing-id` is the `[machine-id-placeholder slot id]`-style label for the
   error payload. Returns `[]` for an entry with no requires."
   [slot entry-id v]
@@ -226,7 +225,7 @@
 
 (defn- always-entries
   "Normalise a state-node's `:always` slot to a vector of entry maps through
-  the SHARED `grammar/candidate-maps` (the ONE owner — rf2-tu5psi). Two
+  the shared `grammar/candidate-maps`. Two
   caller-specific policies stay HERE, not in the shared normaliser:
 
     1. the optional `:always` nil semantics — an absent `:always` (missing
@@ -241,7 +240,7 @@
   A `:type :choice` transient node carries its candidate vector under
   `:choice`, NOT `:always` — the choice lowers to `:always` only at
   `choice/desugar-node-choice`, and the index + ensure-set run on the RAW
-  pre-desugar machine (rf2-4y4bzq). Since a choice state routes through the
+  pre-desugar machine. Since a choice state routes through the
   IDENTICAL `:always` cascade the runtime settles it into, treat a choice
   node's `:choice` vector as its `:always` candidates here; validation
   guarantees a choice node never ALSO declares `:always` (a reserved key), so
@@ -275,8 +274,7 @@
   parsed by `index-ensure-sets`; this pass catches the ILLEGAL homes. A
   `:type :choice` node's candidates are swept via `always-entries` (which
   reads its `:choice` vector — the choice lowers to `:always`); the diagnostic
-  labels them `:choice` so the author sees the slot they actually wrote
-  (rf2-4y4bzq)."
+  labels them `:choice` so the author sees the slot they actually wrote."
   [machine]
   (let [roots (if (and (map? (:regions machine)) (seq (:regions machine)))
                 (cons machine (vals (:regions machine)))
@@ -330,8 +328,8 @@
 
 (defn- candidate-maps
   "Normalise a transition-slot value to its candidate maps (each carrying
-  `:guard` / `:action` / `:target`) via the SHARED `grammar/candidate-maps`
-  (the ONE owner — rf2-tu5psi), mapping the malformed form (grammar returns
+  `:guard` / `:action` / `:target`) via the shared `grammar/candidate-maps`,
+  mapping the malformed form (grammar returns
   nil) to NO candidates: `validation` is the designated throw surface, so a
   malformed shape contributes nothing to the static ensure-set here."
   [v]
@@ -534,9 +532,8 @@
   routes it to the SCHEDULING node at `decl-path` and selects the `:after`
   entry at `delay-key` (`transition/pick-after-transition`) — a slot separate
   from `:on`, so an `:after` guard/action declaring `:rf.cofx/requires` is
-  invisible to the `:on` walk. This adds it, mirroring how `parallel-root-diet`
-  handles the parallel-ROOT `:after` (rf2-iyrc9t: the per-state / per-region
-  `:after` had no such clause).
+  invisible to the `:on` walk. This adds it, mirroring how
+  `parallel-root-diet` handles the parallel-root `:after`.
 
   `region` is the region name when `states` is a parallel region's `:states`
   body, else nil. Within a region the carried decl-path is region-qualified
@@ -590,7 +587,7 @@
   (`[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`), the
   scheduling node's `:after`-table transition at `decl-path` / `delay-key`
   joins the set (guard/action diet + the `:always` closure from its target) —
-  a slot separate from `:on`, so the `:on` walk misses it (rf2-iyrc9t).
+  a slot separate from `:on`, so the `:on` walk misses it.
   `region` is the region name when `states` is a parallel region's body (so the
   region-qualified decl-path can be stripped / declined), else nil.
 
@@ -665,7 +662,7 @@
     ;; scheduling node's `:after`-table transition at decl-path/delay-key — a
     ;; slot separate from `:on`. Add its candidates' guard/action diet + the
     ;; `:always` closure from each target, mirroring `parallel-root-diet`'s
-    ;; root-`:after` clause (rf2-iyrc9t).
+    ;; root-`:after` clause.
     (after-diet-for-event by-entry states event region add! add-always!)
     @acc))
 
@@ -961,8 +958,7 @@
   `re-frame.source-coords/walk-element-source` →
   `collocate-element-source`), so the scan must read it BACK to a form before
   `tree-seq` — a `tree-seq` over a raw string yields the string as a single
-  LEAF, finding zero keyword tokens, which left the diagnostic dead against
-  real macro output (rf2-wbh50l).
+  leaf, finding zero keyword tokens.
 
   A non-string `:source-code` (a pre-stringified FORM — the shape the scan's
   own contract documents and hand-built specs may carry directly) is returned
@@ -1001,7 +997,7 @@
 (defn lint-machine!
   "Run the dev-only consumer-attachment lints over `machine` (carrying the
   registration index), tagging diagnostics with `machine-id`. Per Spec 005
-  §Consumer attachment + EP-0017 §9. A no-op under `interop/debug-enabled?
+  §Consumer attachment. A no-op under `interop/debug-enabled?
   false` (production) and when the machine declares no requires.
 
   Recommendation-grade: emits `:rf.warning/*` diagnostics, never throws.
@@ -1023,9 +1019,8 @@
                     (emit-ambient-durable! machine-id slot entry-id id)))))
             ;; (1) consume-without-declaring — heuristic source scan. The
             ;; macro-captured `:source-code` is a `pr-str` STRING; parse it
-            ;; back to a form (rf2-wbh50l — a `tree-seq` over the raw string
-            ;; is a single LEAF, so the scan found nothing and the diagnostic
-            ;; never fired against real macro output) then scan it for
+            ;; back to a form (`tree-seq` treats the raw string as one leaf),
+            ;; then scan it for
             ;; `:rf.cofx`-record leaf reads not covered by `declared`. We
             ;; look for symbol/keyword tokens of the shape `<ns>/<name>`
             ;; destructured beside a `:rf.cofx`/`cofx` binding. Shallow by
@@ -1045,8 +1040,7 @@
                                    (some? (registrar/lookup :cofx t)))]
                   (emit-consume-undeclared! machine-id slot entry-id t))))))))))
 
-;; ---- sub-valued recordable source evaluator (EP-0017 Option A rider) -------
-;;    (rf2-h6ggnt)
+;; ---- sub-valued recordable source evaluator -------------------------------
 ;;
 ;; Core `re-frame.cofx/deliver-declared-cofx` delivers a machine sub-valued
 ;; recordable source (`{:rf/sub query-v :as fact-id}`) by reaching this

@@ -1,15 +1,5 @@
 (ns re-frame.machine-node-keys-test
-  "rf2-0gtjde — no-silent-swallow on machine state-node / spawn-spec keys, and
-  the `:tags` shape.
-
-  From the 2026-07-03 self-consistency design review (finding 2): unknown BARE
-  keys on ordinary state nodes and on spawn specs were silently IGNORED — an
-  XState-trained author writes `:invoke` (XState's `:spawn`) or `:on-entry` (its
-  `:entry`), registration succeeds, and the child silently never spawns / the
-  action never runs. Inconsistent with siblings: `:type :history` / `:type
-  :choice` / `:schemas` nodes already hard-reject unknown keys. And `:tags`
-  silently COERCED a vector / single keyword to a set while its sibling
-  `:internal-events` hard-rejects exactly that non-set shape.
+  "No-silent-swallow coverage for state-node/spawn-spec keys and `:tags`.
 
   This suite pins the fail-loud behaviour:
     - an unknown BARE key on a state node → `:rf.error/machine-unknown-node-key`;
@@ -18,10 +8,7 @@
     - a non-set `:tags` slot → `:rf.error/machine-bad-tags`;
     - a NAMESPACED user key passes (the open extension carve-out);
     - a valid machine still registers cleanly, and a valid set-form `:tags`
-      still round-trips through the runtime tag projection.
-
-  A NEW file (not sharing a namespace with any sibling fixture) per the
-  rf2-0gtjde worker-lane split."
+      still round-trips through the runtime tag projection."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its

@@ -1,13 +1,10 @@
 (ns re-frame.machine-schemas-grammar-test
-  "The machine-level `:schemas` map grammar (EP-0029 A3, the clean-break
-  successor to the retired EP-0005 `:data-schema` key).
+  "The machine-level `:schemas` map grammar.
 
-  `:schemas` is a closed-sub-key map. `:data` is the live, wired category
+  `:schemas` is a closed-sub-key map. `:data` is wired
   (validated at the `:where :machine-data` boundary — pinned by
-  `machine-schema-test`). The remaining A3 categories (`:events` / `:output` /
-  `:tags` / `:meta`) are accepted as DECLARATION-ONLY surfaces — their values
-  stay abstract and carry no wired behaviour this wave (the
-  `[:schemas :output]` → completion-payload binding is a separate wave).
+  `machine-schema-test`), and `:output` validates completion payloads.
+  `:events`, `:tags`, and `:meta` are declaration-only surfaces.
   `[:schemas :input]` is NOT accepted (state input is not adopted). Any other
   sub-key — or a non-map `:schemas` — fails loud at registration.
 

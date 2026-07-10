@@ -1,5 +1,4 @@
-;; day8/re-frame2-machines — state-machine artefact (rf2-xbtj,
-;; second per-feature split per rf2-5vjj Strategy B).
+;; day8/re-frame2-machines — optional state-machine artefact.
 ;;
 ;; Per Spec 005 §State machines the machine grammar
 ;; (`reg-machine`, `make-machine-handler`, `machine-transition`,
@@ -19,41 +18,26 @@
 ;; loading the namespace registers its late-bind hooks and the
 ;; `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs.
 ;;
-;; Per Spec 006 §Adapter shipping convention (and the
-;; rf2-p7va extension to per-feature splits): this artefact depends on
-;; core; core never depends on this artefact. The cross-references
-;; from core to machines (e.g. `re-frame.core`'s `reg-machine` /
-;; `make-machine-handler` / `machine-transition` re-exports,
-;; `re-frame.test-support`'s reset-runtime fixture's
-;; `(machines/reset-timers!)` step) flow through `re-frame.late-bind`
-;; exactly as the schemas / router / flows hooks already do.
+;; Per Spec 006 §Adapter shipping convention, this artefact depends on core;
+;; core never depends on this artefact. Core's `reg-machine` macro bridge and
+;; test-support lifecycle hooks reach machines through `re-frame.late-bind`.
 {:paths ["src"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
  {:test {:extra-paths ["test"]
-         :extra-deps  {;; rf2-try1x — silent-on-success reporter.
-                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; `[:schemas :data]` validation tests reach the
                        ;; default Malli validator via `re-frame.schemas.malli`.
-                       ;; Test-only dep so the artefact's production
-                       ;; classpath stays schemas-free (machine core requires
-                       ;; no schema library — EP-0029 Non-goal / rf2-49zxkc).
+                       ;; Test-only: production remains schema-library agnostic.
                        day8/re-frame2-schemas    {:local/root "../schemas"}
                        io.github.cognitect-labs/test-runner
                        {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         ;; rf2-bv2qqm — the default PR/local gate EXCLUDES the heavy
-         ;; `^:stress` namespace (`machine_actor_concurrency_stress_test`,
-         ;; 5000-iter × 8-thread actor-spawn churn). The runner passes
-         ;; `-e` through to cognitect-test-runner verbatim. Coverage is NOT
-         ;; lost: the `:slow-test` alias below runs the excluded tests,
-         ;; invoked by the nightly `expensive-tests.yml` job +
-         ;; `scripts/test-rigorous-local.sh`.
+         ;; The default gate excludes slow and stress tests; `:slow-test`
+         ;; below selects exactly those tests for rigorous/nightly runs.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":slow" "-e" ":stress"]}
 
-  ;; rf2-bv2qqm — nightly/rigorous slow-test gate. INCLUDES ONLY the
-  ;; `^:slow` / `^:stress` tests, so `:test` + `:slow-test` together cover
-  ;; every test once.
+  ;; Together, `:test` and `:slow-test` cover every test once.
   :slow-test
   {:extra-paths ["test"]
    :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
@@ -62,7 +46,7 @@
                  {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
-  ;; Clojars deploy (rf2-r382). Modeled on re-frame v1's release flow.
+  ;; Clojars deploy. Modelled on re-frame v1's release flow.
   ;; The release workflow runs `clojure -M:clein deploy` from this
   ;; artefact's directory, which builds pom + jar and pushes to Clojars.
   ;;

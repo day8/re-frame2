@@ -1,11 +1,11 @@
 (ns re-frame.internal-events-test
-  "EP-0029 A6 — public / private `:internal-events`.
+  "Public/private `:internal-events`.
 
   Covers:
     - the declaration shape — a Clojure SET of keywords (the re-frame2
       set-form divergence from XState's array);
-    - registration-time fail-loud validation (a malformed `:internal-events`;
-      a name declared BOTH internal AND as a public `:on` transition key);
+    - registration-time validation of declaration shape and reserved names;
+    - an internal event's ordinary `:on` handler is accepted;
     - the dispatch boundary — an EXTERNAL dispatch of a declared internal
       event is REJECTED (emits `:rf.error/machine-internal-event-external-dispatch`,
       no state change), while an internal `:raise` of the SAME event is

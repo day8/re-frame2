@@ -1,30 +1,10 @@
 (ns re-frame.machine-action-exception-always-on-cljs-test
-  "rf2-cprm0q — `:rf.error/machine-action-exception` is catalogued **always-on**
-  (Spec 009 §Error event catalogue), but every machine emit site
-  (`lifecycle_fx/registration.cljc`, `finalize.cljc`, `traces.cljc`) used to
-  call ONLY the dev-gated `trace/emit-error!`, so the record was DCE'd out of
-  `:advanced` + `goog.DEBUG=false` production entirely — an always-on category
-  SILENTLY SWALLOWED (a 2am machine throw never reached Sentry). And even the
-  dev record carried NO action/guard attribution.
+  "Always-on `:rf.error/machine-action-exception` coverage.
 
-  This is the ADVERSARIAL acceptance leg — it drives the ACTUAL failing paths
-  (a throwing ACTION and a throwing GUARD both converge on
-  `registration.cljc`'s `trace-action-failure!`) and asserts the record fans
-  out on the corpus-wide `register-error-listener!` substrate — the always-on
-  axis that is NOT gated by `interop/debug-enabled?`, so it is exactly the
-  surface that SURVIVES a production build. On main (pre-fix) the `:errors`
-  listener receives NOTHING, so every assertion below is RED.
-
-  Pins the two defects the bead fixes:
-    (1) the record ACTUALLY reaches the always-on `:errors` channel (both an
-        action throw AND a guard throw);
-    (2) it carries `:failing-id` (the action / guard KEYWORD) + `:state` (the
-        active state path) — machine-local code identifiers, same privacy
-        class as `:event-id` — so an off-box shipper learns WHICH action /
-        guard in WHICH state threw.
-    (3) the production-surviving record is STRUCTURAL-ONLY: the developer's
-        arbitrary `:exception-data` (which may embed app secrets) does NOT
-        ride it.
+  Drives throwing action and guard paths through the real handler boundary and
+  verifies that both reach `register-error-listener!` with `:failing-id` and
+  `:state` attribution. The production-surviving record must remain structural:
+  arbitrary `:exception-data` does not ride the always-on channel.
 
   Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
   build (`cljs-test$`) AND the JVM `clojure -M:test` runner both pick it up —

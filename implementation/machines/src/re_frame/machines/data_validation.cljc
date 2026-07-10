@@ -3,12 +3,11 @@
   `:where :machine-output` boundaries.
 
   Per Spec 005 §Schema validation: a machine spec may declare its
-  data-context schema at `[:schemas :data]` (the machine-level `:schemas`
-  map, EP-0029 A3 — the clean-break successor to the retired EP-0005
-  `:data-schema` key). Its value validates the machine's `:data` slot. This
+  data-context schema at `[:schemas :data]`. Its value validates the machine's
+  `:data` slot. This
   namespace owns the boundary-validation call site.
 
-  Per Spec 005 §Final states + EP-0029 A8 the SAME machine `:schemas` map may
+  Per Spec 005 §Final states the same machine `:schemas` map may
   declare a `[:schemas :output]` schema. It validates the COMPLETION-OUTPUT
   payload — the `result` a finishing machine selects from its final state's
   `:data` via `:output-key` and delivers to the parent's `:on-done`
@@ -34,7 +33,7 @@
   `[:schemas :data]`, or for which `machine-meta` returns nil (spawned actor
   whose host spec is gone), pass silently.
 
-  Schema-library-agnostic (EP-0029 Non-goal + rf2-49zxkc). The `[:schemas
+  Schema-library-agnostic. The `[:schemas
   :data]` value is an OPAQUE schema — this namespace never `:require`s Malli
   (or any schema library) and never interprets the value itself. Validation
   goes ENTIRELY through the late-bound `:schemas/validate-with-registered-fn`
@@ -146,7 +145,7 @@
   Pure-ish — the emit is the side effect; the return value carries the
   conform decision for the caller's rollback / skip-install plumbing.
 
-  Per the bead's recovery posture:
+  Recovery depends on the write boundary:
     - `:phase :macrostep` and `:phase :bootstrap` → rollback? true
       (the snapshot is already in runtime-db at validation time; the
       router will restore the pre-handler db on a false return).
@@ -247,7 +246,7 @@
   in runtime-db. Returns true on conform / no schema / no validator; false on
   failure (caller skips the install).
 
-  Per the bead's recovery posture: a spawn failure does not commit, so
+  A spawn validation failure does not commit, so
   there is nothing to roll back — `:phase :spawn` emits with
   `:rollback? false`.
 
@@ -295,7 +294,7 @@
 
 (defn validate-completion-output!
   "Validate a finishing machine's COMPLETION-OUTPUT payload against its
-  `[:schemas :output]` schema (EP-0029 A8). `result` is the value the machine
+  `[:schemas :output]` schema. `result` is the value the machine
   selected from its final state's `:data` via `:output-key` — the payload the
   parent's `:on-done` receives. `spec` is the finishing actor's runtime-
   stamped machine spec (the finalize cascade holds it directly, so there is
@@ -305,7 +304,7 @@
   registered validator; false on failure (the boundary trace already
   emitted).
 
-  Per Spec 005 §Final states + EP-0029 A8 this is a BEST-EFFORT fail-loud
+  Per Spec 005 §Final states this is a best-effort fail-loud
   observation: the machine has ALREADY reached its final state when output is
   computed, so there is nothing to roll back (`:rollback? false`, the post-
   completion asymmetry — parity with the FX-atomicity post-commit best-effort

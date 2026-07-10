@@ -1,32 +1,10 @@
 (ns re-frame.machines.classification
-  "Machine-owned, PROJECTION-RELATIVE durable `:data` classification —
-  the EP-0025 §subsystems reversal of the rf2-398kql frame-owned model.
+  "Projection-relative classification for durable machine `:data`.
 
-  ## The reversal (EP-0025 B5, rf2-h3d8tf — authorised by Mike's B0 ruling)
-
-  rf2-398kql made the FRAME the sole owner of a machine's durable `:data`
-  classification: an app declared the ABSOLUTE runtime-db snapshot path
-  (`[:rf.runtime/machines :snapshots <actor-id> :data :token]`) on
-  `reg-frame` `:sensitive` / `:large {:app-db …}`. That is the
-  storage-position problem EP-0025 names: the author had to know the
-  framework's runtime-db storage shape AND name each spawned instance id by
-  hand, fail-open under refactor and on every generated `<type>#<n>`.
-
-  EP-0025 reverses it: the machine **definition** declares its sensitive /
-  large `:data` slots PROJECTION-RELATIVE to one actor snapshot's `:data`
-  (the matrix projection root), and the runtime lowers them PER ACTOR
-  INSTANCE — at spawn / singleton first-boot — into the SAME per-frame
-  elision registry (`[:rf.runtime/elision …]`, EP-0025 B3), dropping them on
-  destroy (by any cause). The declaration travels with the machine def and
-  applies to every instance, so a `:spawn`-generated `<type>#42` is
-  classified with zero per-instance author code — XState-v5-conformant
-  semantics (the classification rides the machine def like `context` shape,
-  applied per actor).
-
-  ## Projection root + lowering
-
-  The matrix projection root is **one actor snapshot's `:data`**, so an
-  author writes snapshot-relative `:data`-rooted paths:
+  A machine definition declares `:sensitive` and `:large` paths relative to
+  one actor snapshot. The runtime lowers them to absolute runtime-db paths for
+  each singleton or spawned actor, and removes the machine-owned declarations
+  when that actor is destroyed:
 
   ```clojure
   (rf/reg-machine :checkout/payment
@@ -35,34 +13,10 @@
      :schemas {:data …}, :initial …, :states …})
   ```
 
-  At spawn / first-boot the runtime LOWERS each declared path per actor by
-  prefixing the instance's absolute snapshot prefix
-  `[:rf.runtime/machines :snapshots <actor-id>]`, producing the absolute
-  runtime-db declaration the egress read path already consumes
-  (`re-frame.classification/frame-snapshot-classification` re-roots it snapshot-relative; the
-  SSR / trace / projection boundaries are UNCHANGED — the SOURCE of the
-  registry entry is `:source :machine`, a peer of the general commit-plane
-  `:source :effect` route).
-
-  ## Read path is untouched
-
-  The registry is the single source of truth for snapshot-`:data` egress
-  classification (`frame-snapshot-classification` reads `(keys decls)` from
-  `re-frame.elision/sensitive-declarations` / `declarations`, unioning ALL
-  sources). Lowering a machine declaration there at the absolute snapshot
-  path makes the existing trace-egress / SSR-hydration redaction fire with
-  NO change to those readers — the reversal is a write-source flip, not a
-  new read mechanism.
-
-  ## Failure posture (EP-0025)
-
-  Fail-LOUD on a malformed declaration AT REGISTRATION (a non-vector
-  `:sensitive` / `:large`, a non-path entry) — a hygiene helper declared
-  wrong is an author bug, surfaced at `reg-machine` like every other
-  registration-shape fault. Fail-OPEN on omission (an undeclared slot ships
-  raw — the hygiene bargain). The lowering itself is value-INDEPENDENT: the
-  declaration redacts whatever later occupies the snapshot `:data` slot, a
-  harmless no-op over an absent value."
+  Lowered declarations use `:source :machine` in the frame's elision registry,
+  so existing trace, SSR, and projection readers need no machine-specific path.
+  A malformed declaration fails at registration. Omitting classification leaves
+  the data unclassified."
   (:require [re-frame.elision :as elision]
             [re-frame.error :as error]
             [re-frame.machines.paths :as paths]
@@ -71,20 +25,16 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (def ^:private classification-axis-keys
-  "The two EP-0025 projection-relative declaration axes a `reg-machine`
-  spec may carry — `:sensitive` (redact at egress) and `:large` (size
-  marker at egress). The CLEAR tails (`:clear-sensitive` / `:clear-large`)
-  are handler-effect verbs, not registration declarations — a machine
-  declares standing classification, it does not un-classify at definition
-  time."
+  "The projection-relative declaration axes accepted by `reg-machine`."
   #{:sensitive :large})
 
 (defn- declaration-defect
   "PURE fail-loud-INPUT validator for one machine classification axis
   payload. Returns a human reason string for the FIRST defect, or nil when
   the payload is well-shaped. A payload is well-shaped iff it is a vector of
-  valid concrete `:rf/path` vectors (EP-0012 — the same shape the four
-  commit-plane effects validate, `re-frame.elision/classification-effect-defect`).
+  valid concrete `:rf/path` vectors, the same shape accepted by the four
+  commit-plane classification effects
+  (`re-frame.elision/classification-effect-defect`).
   Value-INDEPENDENT: validates the SHAPE of the declaration, never a runtime
   value."
   [k payload]
@@ -112,7 +62,6 @@
   "Fail LOUD at the `reg-machine` boundary when a machine spec's
   projection-relative `:sensitive` / `:large` declaration is malformed (a
   non-vector axis, a non-path entry, an invalid `:rf/path` segment) — the
-  EP-0025 fail-loud-input posture, surfaced as
   `:rf.error/invalid-machine-classification` at registration like every other
   registration-shape fault. A spec that declares NEITHER axis is a clean
   no-op (the common fail-open case — an undeclared machine ships its `:data`
@@ -168,9 +117,9 @@
   (`:sensitive-declarations` / `:declarations` — the SAME slots the four
   commit-plane effects and `reg-flow` outputs populate) WITHOUT clobbering a
   foreign-source standing entry (the registry is one-entry-per-path-per-axis;
-  an app-effect / flow / route claim on the SAME absolute path is left
-  standing — same posture as the commit-plane SET, rf2-p4spo4); DROP is
-  SOURCE-SCOPED — it dissocs a named absolute path ONLY when its standing entry
+  an app effect, flow, or route claim on the same absolute path is left
+  standing). DROP is SOURCE-SCOPED: it dissocs a named absolute path only when
+  its standing entry
   is the machine's own (`:source :machine`). A path ALSO claimed by another
   source (Spec 015 L149 explicitly permits an app to additionally classify a
   subsystem absolute path from a handler effect, `:source :effect`) is LEFT
@@ -178,8 +127,7 @@
   still classifies (a privacy fail-open). Mirrors the effect clear
   (`re-frame.elision/apply-classification-effects`, source-scoped) and the
   route lowering (`re-frame.routing.classification/without-route-sourced`,
-  which filters `:source :route`) — the sibling subsystems' source-scoped
-  drops (rf2-7bsyza). An emptied axis slot is pruned. Returns the new registry
+  which filters `:source :route`). An emptied axis slot is pruned. Returns the new registry
   value."
   [reg actor-id decls set?]
   (reduce
@@ -218,7 +166,7 @@
   declarations into `frame-id`'s per-frame elision registry, PER ACTOR
   INSTANCE — re-rooting each snapshot-relative `:data` path to the absolute
   snapshot path for `actor-id` and writing it `{:source :machine}` into the
-  registry (EP-0025 §subsystems). A no-op when the spec declares no
+  registry. A no-op when the spec declares no
   classification (the common fail-open case) or `actor-id` is nil. Runs at
   spawn / singleton first-boot, the instance-birth point — so a
   `:spawn`-generated `<type>#n` is classified the moment its snapshot
@@ -239,8 +187,7 @@
 (defn drop-at-destroy!
   "DROP the machine `spec`'s per-instance classification declarations for
   `actor-id` from `frame-id`'s elision registry — the teardown half of
-  `lower-at-spawn!` (EP-0025 §subsystems: a subsystem instance's
-  classification lives and dies with the instance). Dissocs exactly the
+  `lower-at-spawn!`. Dissocs exactly the
   absolute snapshot-rooted paths the spawn lowered (other-sourced entries
   for the same path survive); an emptied axis slot is pruned so a frame that
   destroys its last classified actor is left without a stray registry

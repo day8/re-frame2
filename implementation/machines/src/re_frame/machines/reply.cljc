@@ -536,8 +536,8 @@
   `:on-restore` (epoch-restore host-timer cleanup — `timer/cancel-frame-
   timers-on-restore!` releases the orphaned host handles the unwound epochs
   left attached; Spec 005 §Root parallel `:after` trace catalogue). Matches
-  the closed `:reason` vocabulary spec/005's `:rf.machine.timer/cancelled`
-  catalogue enumerates (rf2-e3ryis)."
+  the closed `:reason` vocabulary in Spec 005's
+  `:rf.machine.timer/cancelled` catalogue."
   #{:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy
     :on-restore})
 

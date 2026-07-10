@@ -1,19 +1,13 @@
 (ns re-frame.root-on-target-validation-test
-  "rf2-nvgolg — a NON-parallel (flat / compound) machine root's own `:on` is
+  "A non-parallel (flat/compound) machine root's own `:on` is
   the ANCESTOR-FALLBACK transition slot: per Spec 005 §Transition resolution
   steps 6-7, `pick-transition` consults it, stamped with decl-path `[]`,
   when no state-path node handles the event. Target resolution at that
   decl-path is exactly like a state's `:on` — a keyword resolves as a
   TOP-LEVEL sibling (`target-path`'s `(drop-last [])` → `[]`).
 
-  BEFORE this fix, `validate-transition-targets!` walked ONLY nodes INSIDE
-  `:states` (`walk-state-nodes-with-scope`) — the root's OWN `:on` was never
-  checked. A machine like `{:initial :a :on {:go :missing} :states {:a
-  {}}}` registered cleanly and would only surface `:rf.error/machine-
-  unresolved-target` LATE, at the first dispatch that fell through to the
-  root fallback and tried to commit the unresolved `:missing` state —
-  rather than failing fast at registration like every other transition
-  slot's target.
+  `validate-transition-targets!` checks this root slot as well as nodes under
+  `:states`, so malformed or unresolved targets fail at registration.
 
   This suite pins:
    1. an unresolved keyword root :on target fails at REGISTRATION with

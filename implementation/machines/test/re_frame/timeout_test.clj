@@ -1,11 +1,10 @@
 (ns re-frame.timeout-test
-  "EP-0029 A4 — state-level + spawn-level `:timeout` / `:on-timeout`
+  "State-level and spawn-level `:timeout` / `:on-timeout`
   (delayed transitions).
 
   Covers:
     - the duration grammar (integer-ms OR ISO-8601 only; the XState
-      `\"5s\"` / `\"10ms\"` shorthand is REJECTED — operator-ruled
-      divergence);
+      `\"5s\"` / `\"10ms\"` shorthand is rejected);
     - registration-time fail-loud validation (timeout requires on-timeout
       and vice-versa; bad duration; :after collision);
     - desugaring `:timeout` / `:on-timeout` onto the existing `:after`

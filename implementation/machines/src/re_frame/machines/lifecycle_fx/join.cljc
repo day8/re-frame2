@@ -18,8 +18,7 @@
    5. If `:resolved?` is already true, this is a post-resolution
       late-completion (it fires NO further parent event — the
       `:resolved?` latch already flipped). Surviving siblings are
-      UNCONDITIONALLY destroyed at resolution (rf2-w8gxxz cut the
-      `:cancel-on-decision? false` protocol), so a straggler with no live
+       unconditionally destroyed at resolution, so a straggler with no live
       join is a genuinely stale completion: the record stays frozen and
       the `:rf.machine.spawn-all/late-completion` trace fires (stale
       reply), with no `:done` / `:failed` fold.
@@ -29,7 +28,7 @@
         - unconditionally emits per-sibling `:rf.machine/destroy` fx and
           `:rf.machine.spawn/cancelled-on-join-resolution` traces,
         - dispatches the parent join event via `:fx [[:dispatch ...]]`.
-   7. Writes the new join state back into app-db.
+   7. Writes the new join state back into runtime-db.
 
   The interceptor's public entry point is `intercept-spawn-all-event`;
   the handler-factory in `re-frame.machines.lifecycle-fx.registration`
@@ -288,9 +287,8 @@
   `:rf.machine/destroy` (with one
   `:rf.machine.spawn/cancelled-on-join-resolution` trace each), followed by
   the join-event dispatch carrying the decisive child's forwarded payload.
-  Cancelling surviving siblings on the join decision is UNCONDITIONAL —
-  the removed `:cancel-on-decision? false` protocol let siblings run to
-  completion (rf2-w8gxxz cut it). Per Spec 005 §Spawn-and-join, the
+  Cancelling surviving siblings on the join decision is unconditional.
+  Per Spec 005 §Spawn-and-join, the
   dispatched event shape is:
 
       [<parent-id> [<resolution-event> <decisive-child-id> & <child-extra>]]
@@ -429,9 +427,8 @@
           ;; it is SUPPRESSED from RE-RESOLVING the join — exactly the
           ;; §Stale-suppression "fires no further parent event" rule.
           ;;
-          ;; Surviving siblings are UNCONDITIONALLY destroyed at resolution
-          ;; (rf2-w8gxxz cut the `:cancel-on-decision? false` protocol that
-          ;; let them run to completion), so a late completion is always a
+          ;; Surviving siblings are unconditionally destroyed at resolution,
+          ;; so a late completion is always a
           ;; genuinely stale straggler with no live join to fold into — the
           ;; record is left frozen at resolution. The public trace shape
           ;; (`:actor-id` / `:invoke-id` / `:child-id` / `:kind`) is

@@ -4,8 +4,8 @@
 
   `apply-transition-once` emits `[:rf.machine/destroy actor-id]` into
   the fx vector whenever exit cascades cross a `:spawn`-bearing state.
-  Per Spec 005 §Spawning, destroy unregisters the spawned actor's event
-  handler, clears its snapshot at `[:rf.runtime/machines :snapshots <id>]` in the spawning
+  Per Spec 005 §Spawning, destroy clears the actor's runtime-db snapshot at
+  `[:rf.runtime/machines :snapshots <id>]` in the spawning
   frame's runtime-db, and (if the actor was system-id-bound) clears the
   `[:rf.runtime/machines :system-ids]` reverse index entry.
 
@@ -54,10 +54,9 @@
   `destroy-single-actor!` path. An actor with a resolved
   `actor-id` is live iff ANY of the following survive:
 
-    - **Handler still registered** at `actor-id` in the event
-      registrar (final-state auto-destroy + prior explicit destroys
-      both unregister; a still-registered handler reliably means
-      \"not yet destroyed\").
+    - **Registrar entry present** at `actor-id`. Normal spawned actors resolve
+      lazily without a per-instance entry, but teardown still recognises and
+      clears a stale or externally installed entry.
     - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`
       (covers the mid-drain handler-replaced window + hand-crafted call
       sites).
@@ -69,7 +68,7 @@
       `:fx` vector, where the snapshot swap may not yet have landed.
 
   A truly-already-destroyed actor has all three gone — the unified
-  teardown projection + `registrar/unregister!` + `spawn-order/forget!`
+  teardown projection, registrar cleanup, and `spawn-order/forget!`
   run atomically per `destroy-single-actor!` / `destroy-single!` /
   `finalize-machine`. See Spec 005 §Destroy is silent-idempotent
   for the normative paragraph.
@@ -116,9 +115,8 @@
        REGARDLESS of whether the runtime-db swap landed — by the time
        frame-destroy runs the container may already be nil but the
        spawn-order entry still needs clearing;
-    8. when the swap landed, emit `:rf.machine/system-id-released` and
-       unregister the live event handler (last, so an in-flight trace emit
-       against the actor still resolves before the slot disappears);
+    8. when the swap landed, emit `:rf.machine/system-id-released` and clear
+       any registrar entry (normal spawned actors have none);
     9. release the actor's resource leases — fire
        `:rf.resource/release-owner` for owner `[:machine actor-id]` (Spec 016
        §Release authority is per owner kind, 016:290) so a resource the actor
@@ -133,7 +131,7 @@
   [frame-id actor-id teardown-args emit-destroyed!-fn]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)
-  ;; Step 3 (EP-0025 §subsystems, rf2-h3d8tf): DROP this actor's
+  ;; Drop this actor's
   ;; per-instance classification declarations from the per-frame elision
   ;; registry — the teardown half of `classification/lower-at-spawn!`. A
   ;; subsystem instance's classification lives and dies with the instance,
@@ -182,7 +180,7 @@
   unified teardown projection (per
   `re-frame.machines.lifecycle-fx.teardown`), abort in-flight
   `:rf.http/managed` requests, emit the
-  `:system-id-released` trace, unregister the live event handler, and
+  `:system-id-released` trace, clear any registrar entry, and
   forget the actor from the per-frame spawn-order channel.
   The ordered teardown pipeline is shared with `destroy-single!` via
   `teardown-live-actor!`.
@@ -276,8 +274,8 @@
   error.
 
   The liveness probe must distinguish *already-destroyed* (the actor
-  was alive, the teardown projection ran, the registrar slot was
-  cleared) from *not-yet-materialised-snapshot* (the actor IS alive
+  was alive and the teardown projection ran) from
+  *not-yet-materialised-snapshot* (the actor IS alive
   in this drain — a spawn + destroy back-to-back in the same `:fx`
   vector, before the snapshot swap landed — but its snapshot is not
   yet installed at `[:rf.runtime/machines :snapshots actor-id]`).
@@ -287,10 +285,9 @@
 
   `live?` is true iff ANY of the following hold:
 
-    - **Handler still registered** at `actor-id` in the event
-      registrar. Final-state auto-destroy (finalize.cljc) and prior
-      explicit destroys both unregister the handler; a still-
-      registered handler reliably means \"not yet destroyed.\"
+    - **Registrar entry present** at `actor-id`. Normal spawned actors have no
+      per-instance entry, but teardown recognises stale or externally installed
+      entries.
     - **Snapshot present** at `[:rf.runtime/machines :snapshots actor-id]`. Covers the
       narrow window where a singleton's handler has been replaced
       mid-drain but the snapshot still lives, plus belt-and-braces
@@ -307,7 +304,7 @@
       actor-id resolution above went via the slot lookup.
 
   A truly-already-destroyed actor has ALL FOUR gone — the unified
-  teardown projection + `registrar/unregister!` + `spawn-order/forget!`
+  teardown projection, registrar cleanup, and `spawn-order/forget!`
   run atomically per `destroy-single-actor!` and `finalize-machine`.
 
   See Spec 005 §Destroy is silent-idempotent for the normative paragraph."
@@ -320,7 +317,7 @@
                     (get-in old-db (paths/spawned-path parent-id invoke-id)))
         actor-id  (if tracked? slot-id args)
         ;; Silent-idempotent guard. `live?` is true iff ANY
-        ;; liveness signal survives. The first three (handler registered /
+        ;; liveness signal survives. The first three (registrar entry /
         ;; snapshot present / spawn-order entry) are the resolved-actor-id
         ;; signals shared with `destroy-single-actor!` via `actor-live?`
         ;; (both destroy paths apply the identical probe). The tracked-slot

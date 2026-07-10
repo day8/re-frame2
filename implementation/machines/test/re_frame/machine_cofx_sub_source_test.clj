@@ -1,6 +1,6 @@
 (ns re-frame.machine-cofx-sub-source-test
-  "Sub-valued recordable coeffect source `{:rf/sub query-v :as fact-id}`
-  (EP-0017 Option A rider, rf2-h6ggnt) — machines-only.
+  "Machines-only sub-valued recordable coeffect source
+  `{:rf/sub query-v :as fact-id}`.
 
   It is a RECORDED TOKEN FACT, not permission for a callback to read the sub
   cache: a named guard/action declares the source in its `:rf.cofx/requires`;

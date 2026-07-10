@@ -16,40 +16,9 @@
        `:source-code` filtered to qualified keywords that are REGISTERED cofx
        ids and NOT in the declared diet).
 
-  Pre-rf2-hh4069 both diagnostics shipped registration-wired with ZERO test
-  coverage. This suite pins them.
-
-  ## rf2-ful212 + rf2-wbh50l (fixed): consume-undeclared alive end-to-end
-
-  Driving the REAL path while writing rf2-hh4069's tests revealed the
-  consume-undeclared diagnostic was UNREACHABLE end-to-end — two interacting
-  bugs, both since fixed:
-
-    - rf2-wbh50l — the `reg-machine` macro stamps each entry's `:source-code`
-      as a `pr-str` STRING (`re-frame.source-coords/walk-element-source` →
-      `collocate-element-source`), but the scan treated `:source-code` as a
-      FORM (`(tree-seq coll? seq source-code)`). `tree-seq` over a STRING is a
-      leaf — no keyword tokens — so the scan found nothing. FIXED:
-      `lint-machine!` now parses the string back to a form (safe EDN reader,
-      `source-code->form`) before the scan. The `*-form` tests still exercise
-      the scan against form-shaped input; `consume-undeclared-fires-against-
-      macro-string-source` now asserts the STRING path FIRES.
-
-    - rf2-ful212 — a machine registered as an INLINE LITERAL (or via
-      `defmachine`) whose `:guards` / `:actions` entry is the named cofx form
-      `{:rf.cofx/requires [...] :fn (fn ...)}` was DOUBLE-WRAPPED by
-      `collocate-element-source` (`{:fn <the-whole-entry-map> :source-code
-      \"...\"}`), nesting `:rf.cofx/requires` under `:fn`. That emptied the
-      cofx-ensure index (`by-entry`) AND broke guard/action resolution (the
-      guard's `:fn` was a map, not a fn → the guard never fired). FIXED:
-      `collocate-element-source` / `wrap-element-fns` now merge source onto an
-      already-shaped entry-map without re-wrapping. (The regression proofs live
-      in `machine_cofx_attach_test`; `consume-undeclared-fires-end-to-end-
-      through-reg-machine` below proves the lint through the real macro path.)
-
-  The ambient cases still register via the `def`/symbol path (no macro
-  stamping); the `-form` consume cases drive `(lint-machine! id (index-ensure-
-  sets machine))` directly with a hand-built `:source-code`."
+  The suite exercises both form-shaped and macro-string `:source-code`, plus
+  the real `reg-machine` path where source metadata is merged onto named entry
+  maps."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]

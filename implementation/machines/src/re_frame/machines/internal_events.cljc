@@ -1,5 +1,5 @@
 (ns re-frame.machines.internal-events
-  "Public / private `:internal-events` (EP-0029 A6).
+  "Public/private event boundaries for `:internal-events`.
 
   ## What an internal event is
 
@@ -22,15 +22,11 @@
   events ADD over an ordinary `:on` clause is the public / private
   BOUNDARY: an EXTERNAL dispatch of a declared internal event is REJECTED.
 
-  ## DIVERGENCE from XState — a Clojure SET, NOT an array (A6)
+  ## Declaration shape
 
-  XState v6's `internalEvents` is an ARRAY. re-frame2 declares them as a
-  Clojure SET form — `:internal-events #{:tick}` — a re-frame2 idiom: a set
-  is the natural membership collection (the runtime boundary check is one
-  `contains?`), order is irrelevant, and a duplicate is structurally
-  impossible. This is alpha-drift-confirmed against xstate v6 alpha.3 (no
-  grammar drift vs the EP basis). Behavioural parity (a private event
-  surface) without API-mimicry (the JavaScript array form).
+  re-frame2 uses a set, `:internal-events #{:tick}`: membership is the only
+  operation, ordering is irrelevant, and duplicates are impossible. This
+  deliberately differs from XState v6's array form.
 
   An internal event's HANDLER is an ordinary `:on` clause (`:on {:tick
   {:target :checking}}` above) — that is HOW the machine handles the raised
@@ -54,7 +50,7 @@
   internal event handled within the machine's own plumbing is unaffected;
   only the outside caller is refused.
 
-  ## Registration rules (fail-loud — EP-0029 A6 + Backwards Compatibility)
+  ## Registration rules
 
   Validated on the registered spec so a misdeclaration is caught BEFORE the
   runtime ever drives the machine:
@@ -73,7 +69,7 @@
       event — declaring one internal is the public-vs-private collision the
       grammar rejects (`:rf.error/machine-internal-event-reserved`).
 
-  This is a LEAF namespace (no require on `transition` / `validation` /
+  This is a leaf namespace (no require on `transition` / `validation` /
   `parallel` / `registration`) so the validators and the dispatch boundary
   can both require it without a load cycle — the sibling of
   `re-frame.machines.choice` / `re-frame.machines.timeout`."
@@ -113,9 +109,8 @@
 
 ;; ---- registration-time validation -----------------------------------------
 ;;
-;; Per EP-0029 A6 + Backwards-Compatibility: a malformed `:internal-events`
-;; declaration, or a name that is BOTH a declared internal event AND a
-;; public `:on` transition key, fails loud at registration.
+;; A declared internal event is expected to have an ordinary `:on` handler.
+;; Validation covers declaration shape and reserved framework names only.
 
 (defn- internal-events-error
   "Build an `:internal-events`-grammar validation ex-info with the canonical
@@ -137,8 +132,8 @@
     (boolean (and ns (or (= ns "rf") (str/starts-with? ns "rf."))))))
 
 (defn validate-internal-events!
-  "Validate the machine's `:internal-events` declaration at registration
-  (EP-0029 A6). A machine that declares no `:internal-events` is a no-op.
+  "Validate the machine's `:internal-events` declaration at registration.
+  A machine that declares no `:internal-events` is a no-op.
   Enforces every rule in the ns docstring:
 
     - `:internal-events` MUST be a SET of keywords (the re-frame2 set-form

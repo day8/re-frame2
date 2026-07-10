@@ -1,5 +1,5 @@
 (ns re-frame.machines.timeout
-  "State-level + spawn-level `:timeout` / `:on-timeout` grammar (EP-0029 A4).
+  "State-level and spawn-level `:timeout` / `:on-timeout` grammar.
 
   ## What `:timeout` is
 
@@ -18,7 +18,7 @@
 
   ## Relationship to `:after` — distinct intent, ONE mechanism
 
-  Per EP-0029 A4: `:timeout` and the existing `:after` express DIFFERENT
+  `:timeout` and `:after` express different
   intent and MAY coexist on the same state node. `:after` is the general
   delayed-transition table (`{ms -> transition}`, possibly several entries
   with dynamic / sub-vector / fn delays); `:timeout` names the single
@@ -37,10 +37,10 @@
   Spawn-level `:timeout` desugars onto the SPAWN-BEARING STATE's `:after`
   (not the spawn spec) — the timer is anchored to that state's entry, so
   the child's whole lifetime (spanning any internal retries) is bounded,
-  exactly the wall-clock semantics A4 asks for; the standard exit cascade
+  for the child's whole lifetime; the standard exit cascade
   tears the child down when the timeout fires.
 
-  ## Duration grammar (DIVERGENCE from XState — operator-ruled, EP-0029 A4)
+  ## Duration grammar
 
   XState v6 accepts readable duration shorthand such as `\"10ms\"` / `\"5s\"`
   AND ISO-8601 durations such as `\"PT2M\"`. re-frame2 REJECTS the
@@ -139,8 +139,7 @@
 
 (defn resolve-duration-ms
   "Resolve a `:timeout` duration to a positive-integer ms, or nil if it is
-  not a valid duration. A valid duration (EP-0029 A4, operator-ruled
-  DIVERGENCE) is EXACTLY one of:
+  not a valid duration. A valid duration is exactly one of:
 
     - a POSITIVE INTEGER — literal ms;
     - an ISO-8601 duration STRING (`\"PT5S\"`, `\"PT2M\"`, …).
@@ -164,10 +163,10 @@
 
 ;; ---- desugaring `:timeout` / `:on-timeout` → `:after` ---------------------
 ;;
-;; `:timeout` / `:on-timeout` is a DISTINCT authoring concept that LOWERS
-;; onto the existing `:after` timer mechanism (EP-0029 A4 — "distinct
-;; intent, one mechanism"). The desugar runs at registration / transition
-;; normalisation time so the runtime never sees `:timeout` / `:on-timeout`
+;; `:timeout` / `:on-timeout` is a distinct authoring concept that lowers
+;; onto the existing `:after` timer mechanism. The desugar runs during
+;; registration and transition normalisation, so the runtime never sees
+;; `:timeout` / `:on-timeout`
 ;; directly — it sees the equivalent `:after` entry. The grammar (separate
 ;; keys, separate validation, separate duration rules) is what the AUTHOR
 ;; writes; the `:after` table is what the ENGINE drives.
@@ -310,8 +309,7 @@
 ;; ---- registration-time validation -----------------------------------------
 ;;
 ;; Validation runs on the RAW (pre-desugar) machine so error messages name
-;; the `:timeout` / `:on-timeout` keys the author wrote. It enforces, per
-;; EP-0029 A4 + Backwards-Compatibility:
+;; the `:timeout` / `:on-timeout` keys the author wrote. It enforces:
 ;;
 ;;   - a `:timeout` REQUIRES an `:on-timeout` (and vice-versa — an
 ;;     `:on-timeout` with no `:timeout` is meaningless);
@@ -443,8 +441,8 @@
             states)))
 
 (defn validate-timeouts!
-  "Registration-time validator for the `:timeout` / `:on-timeout` grammar
-  (EP-0029 A4). Walks every state-node (flat / compound / parallel-region)
+  "Registration-time validator for the `:timeout` / `:on-timeout` grammar.
+  Walks every state-node (flat / compound / parallel-region)
   PLUS the machine root and each parallel-region root, and enforces:
 
     - a `:timeout` requires an `:on-timeout` and vice-versa

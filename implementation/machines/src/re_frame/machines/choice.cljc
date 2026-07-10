@@ -1,5 +1,5 @@
 (ns re-frame.machines.choice
-  "`:type :choice` transient / choice states (EP-0029 A5).
+  "`:type :choice` transient states.
 
   ## What a `:choice` state is
 
@@ -22,12 +22,11 @@
   DEFAULT / else branch (`{:target :rejected}`) so the choice state always
   resolves — see the registration rules below.
 
-  ## DIVERGENCE from XState — declarative candidate array, NOT a fn (A2 / C1)
+  ## Declarative candidates
 
-  XState v6 lets a `choice` state's routing be a `choice`-FUNCTION. re-frame2
-  REJECTS that (EP-0029 A2 \"a function may never be the edge\" / C1
-  \"opaque function-valued transitions\"). re-frame2's `:choice` is a
-  DECLARATIVE guarded-candidate array `[{:guard … :target …}]` — the edge
+  XState v6 lets a choice state's routing be a function. re-frame2 instead
+  requires a declarative guarded-candidate vector
+  `[{:guard … :target …}]`, so the edge
   topology stays data so diagrams, model tests, conformance fixtures, and AI
   tools can read it. A function-valued `:choice` (`:choice (fn …)`) fails
   LOUD at registration with `:rf.error/machine-bad-choice`.
@@ -49,7 +48,7 @@
   (`re-frame.machines.timeout`): a named-intent authoring concept lowering
   onto an existing mechanism.
 
-  ## Registration rules (fail-loud — EP-0029 A5 + Backwards Compatibility)
+  ## Registration rules
 
   Validated on the RAW (pre-desugar) spec so diagnostics name the
   `:type :choice` / `:choice` keys the author wrote:
@@ -69,9 +68,8 @@
     - the `:choice` vector MUST end with an unguarded DEFAULT / else
       candidate (a candidate with no `:guard`, an unconditional fallback).
       Without one the choice state could be ENTERED with every guard
-      failing and NO candidate to take — a stuck transient node. This is
-      the static \"no matching candidate + no default\" rejection (the EP's
-      fail-loud case); guards are runtime fns so the only registration-time
+      failing and NO candidate to take — a stuck transient node. Guards are
+      runtime functions, so the only registration-time
       guarantee that a choice always resolves is a present default
       (`:rf.error/machine-choice-no-default`).
     - a choice candidate that targets the choice state's OWN declaring
@@ -92,18 +90,18 @@
 
 (def reserved-choice-keys
   "The state-node keys a choice state MUST NOT declare alongside
-  `:type :choice` / `:choice` (EP-0029 A5: a choice state only routes — it
-  carries no ordinary waiting-state behaviour). A choice state declares
+  `:type :choice` / `:choice`. A choice state only routes and carries no
+  ordinary waiting-state behaviour. It declares
   EXACTLY `:type` + `:choice` (+ tooling `:meta` / `:source-coords`)."
   #{:entry :exit :on :always :after :timeout :on-timeout
     :spawn :spawn-all :initial :states :final? :output-key})
 
 ;; ---- desugaring `:choice` → `:always` -------------------------------------
 ;;
-;; `:choice` is a DISTINCT authoring concept that LOWERS onto the existing
-;; `:always` eventless-transition mechanism (EP-0029 A5 — "distinct intent,
-;; one mechanism"). The desugar runs at registration / transition
-;; normalisation time so the runtime never sees `:type :choice` / `:choice`
+;; `:choice` is a distinct authoring concept that lowers onto the existing
+;; `:always` eventless-transition mechanism. The desugar runs during
+;; registration and transition normalisation, so the runtime never sees
+;; `:type :choice` / `:choice`
 ;; directly — it sees the equivalent `:always` candidate vector. The grammar
 ;; (the `:type :choice` marker + the `:choice` slot, with its own validation)
 ;; is what the AUTHOR writes; the `:always` slot is what the ENGINE drives.
@@ -195,9 +193,8 @@
 ;; ---- registration-time validation -----------------------------------------
 ;;
 ;; Validation runs on the RAW (pre-desugar) machine so error messages name
-;; the `:type :choice` / `:choice` keys the author wrote. It enforces, per
-;; EP-0029 A5 + Backwards-Compatibility, the rules catalogued in the ns
-;; docstring.
+;; the `:type :choice` / `:choice` keys the author wrote. It enforces the
+;; rules catalogued in the namespace docstring.
 
 (defn- choice-error
   "Build a `:choice`-grammar validation ex-info with the canonical

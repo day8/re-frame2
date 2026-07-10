@@ -1291,7 +1291,7 @@
   Flat / compound machines drop straight into the
   single-machine engine in `re-frame.machines.transition`.
 
-  ## Guard-throw → `result/fail` (XState v5 alignment, rf2-18mox0)
+  ## Guard-throw → `result/fail` (XState v5 alignment)
 
   A user GUARD body that throws during transition selection surfaces the
   error and ABORTS the macrostep (XState v5 does not swallow guard
@@ -1304,8 +1304,8 @@
   lifecycle handler emits the machine-scoped error trace and rolls back —
   the guard throw is never demoted to a lower-priority candidate."
   [machine snapshot event]
-  ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) into the equivalent
-  ;; `:after` entries AND `:type :choice` / `:choice` (EP-0029 A5) into the
+  ;; Desugar `:timeout` / `:on-timeout` into equivalent `:after` entries and
+  ;; `:type :choice` / `:choice` into the
   ;; equivalent `:always` candidate vector BEFORE the engine sees the spec —
   ;; both are distinct authoring concepts that LOWER onto an existing
   ;; mechanism (`:timeout` → `:after`; `:choice` → `:always`). Idempotent,
@@ -1464,7 +1464,7 @@
   the post-cascade snapshot + the entry fx verbatim with the tag union
   re-stamped.
 
-  Guard-throw → `result/fail` (XState v5 alignment, rf2-18mox0): a guard
+  Guard-throw → `result/fail` (XState v5 alignment): a guard
   body that throws during the birth-time `:always` selection surfaces the
   error and aborts the birth macrostep through the SAME failed-macrostep
   surface a thrown initial-`:entry` action takes. The tagged guard-throw
@@ -1472,9 +1472,9 @@
   boundary — the second pure-engine entry point alongside
   `machine-transition` — and converted to a `result/fail`."
   [machine initial-snapshot]
-  ;; Desugar `:timeout` / `:on-timeout` (EP-0029 A4) so an INITIAL state's
+  ;; Desugar `:timeout` / `:on-timeout` so an initial state's
   ;; timeout arms at birth via the same `:after`-schedule fx the cascade
-  ;; emits, AND `:type :choice` / `:choice` (EP-0029 A5) so a TRANSIENT
+  ;; emits, and `:type :choice` / `:choice` so a transient
   ;; INITIAL choice leaf resolves on start via the birth-time `:always`
   ;; settle. Idempotent — a spec already desugared at registration is
   ;; unaffected. Mirrors the desugar at the `machine-transition` entry.
