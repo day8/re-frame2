@@ -379,19 +379,23 @@
 ;; Frame teardown reaches all routing-owned host-side state through one
 ;; optional late-bound hook.
 (defn- release-routing-host-caches!
-  "Release a destroyed frame's scroll and allocator caches, remove the
-  browser listener when the frame owns it, and drop the frame's URL claim.
-  The `:routing/on-frame-destroyed!` teardown body."
+  "Release a destroyed frame's scroll and allocator caches, drop the frame's
+  URL claim, and reconcile the browser URL listener. The
+  `:routing/on-frame-destroyed!` teardown body."
   [frame-id]
   (scroll/release-frame! frame-id)
   (nav-counters/release-frame! frame-id)
-  ;; Remove before dropping the claim: the ownership check must still resolve
-  ;; the destroyed frame. Non-owners never installed a listener. A successor
-  ;; binding is installed by its frame-registration lifecycle, not by teardown.
-  #?(:cljs
-     (when (= frame-id (nav-fx/url-owner-frame-id))
-       (history/remove-url-listener!)))
+  ;; Drop the destroyed frame's URL claim FIRST so `url-owner-frame-id` resolves
+  ;; to the successor claimant (or nil), THEN reconcile the browser listener via
+  ;; the single strategy-aware op. Reconciliation rebinds to the successor's
+  ;; strategy when a live claimant remains (the ownership-transfer fix), tears
+  ;; the listener down when no successor remains, and leaves the incumbent
+  ;; instance untouched when a non-owner frame is destroyed. `frame-id` is passed
+  ;; as the EXCLUDED owner: this hook runs BEFORE core's `unregister-frame!`, so
+  ;; the destroyed frame's `:url-bound? true` registry entry still lingers and
+  ;; must not resolve as the owner via the claim-free fallback.
   (nav-fx/drop-url-claim! frame-id)
+  #?(:cljs (history/reconcile-url-listener! frame-id))
   nil)
 
 (late-bind/set-fn! :routing/on-frame-destroyed! release-routing-host-caches!)
