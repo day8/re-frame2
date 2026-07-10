@@ -17,10 +17,11 @@
 
   The cursor PAYLOAD differs by domain — story carries
   `{:v :offset :total :sig}`, pair carries `{:after-id :ms :until-ms
-  :frame}` — but the base64 codec, the EDN read with ALL-tagged-literal
-  rejection (built-in `#inst`/`#uuid` included) + size guard, the
-  `::malformed` recovery contract, the `:limit` clamp, and the
-  `cursor-stale-result` envelope are identical, so they live here once.
+  :frame}` — but the base64 codec, the canonical-Base64 enforcement
+  (host decoders are lenient — see `decode-canonical-b64`), the EDN read
+  with ALL-tagged-literal rejection (built-in `#inst`/`#uuid` included) +
+  size guard, the `::malformed` recovery contract, the `:limit` clamp, and
+  the `cursor-stale-result` envelope are identical, so they live here once.
   The codec is a `.cljc` reader-conditional even though `js/Buffer` and
   `java.util.Base64` differ — the reader-conditional bridges the two
   hosts cleanly, so the codec stays shared rather than consumer-side.
@@ -75,11 +76,74 @@
                (.toString "base64"))))
 
 (defn b64-decode
-  "Decode a base64 string back to UTF-8. Inverse of `b64-encode`."
+  "Decode a base64 string back to UTF-8. Inverse of `b64-encode`.
+
+  Host-lenient (this is the RAW adapter): `java.util.Base64/getDecoder`
+  (JVM) throws on a non-alphabet character but IGNORES non-zero trailing
+  pad bits, and `js/Buffer.from … \"base64\"` (CLJS) silently DROPS
+  non-alphabet characters AND ignores pad bits. Neither is
+  canonicalising, so several distinct tokens can decode to the same
+  bytes — see `decode-canonical-b64`, which the cursor path uses to
+  reject those aliases."
   [^String s]
   #?(:clj  (String. (.decode (Base64/getDecoder) s) "UTF-8")
      :cljs (-> (js/Buffer.from s "base64")
                (.toString "utf8"))))
+
+;; ---------------------------------------------------------------------------
+;; Canonical-Base64 enforcement — the ONE shared rule that closes the
+;; host-lenient alias gap around the raw codec above.
+;;
+;; Neither host decoder canonicalises. `js/Buffer` DROPS characters
+;; outside the standard alphabet (`ez!!p2…` decodes as if the `!!` were
+;; absent) where the JVM decoder THROWS — so the alphabet-alias case is
+;; itself host-DIVERGENT, breaking cursor.md's cross-host malformed
+;; contract. And BOTH hosts ignore non-zero trailing pad bits (`Zg==`,
+;; `Zh==`, `Zi==` all decode to "f"), so alternate pad-bit spellings
+;; alias one logical token on both. Multiple wire strings therefore map
+;; to one cursor position, weakening opacity/corruption detection and
+;; making malformed recovery depend on the serving runtime.
+;;
+;; Every legitimate opaque cursor is `(b64-encode (pr-str payload))`, so
+;; the local encoder is the SOLE source of a token's canonical spelling.
+;; `decode-canonical-b64` decodes, then requires the token to be EXACTLY
+;; what `b64-encode` re-produces from those bytes. This single
+;; host-agnostic round-trip equality rejects BOTH alias families — a
+;; lexical alphabet/padding grammar alone would still admit the alternate
+;; pad-bit spellings — IDENTICALLY on CLJ + CLJS.
+;; ---------------------------------------------------------------------------
+
+(defn- bad-b64!
+  "Throw the cursor-boundary noncanonical-Base64 rejection. The decoded
+  bytes re-encode to a DIFFERENT token than the one supplied — a
+  host-lenient alias (dropped non-alphabet char, alternate pad-bit
+  spelling), not the canonical spelling `b64-encode` emits. Caught by the
+  surrounding try in `decode-cursor` → `::malformed`."
+  []
+  (throw (ex-info ":rf.error/mcp-cursor-noncanonical-base64"
+                  {:rf.error/id :rf.error/mcp-cursor-noncanonical-base64
+                   :where       'mcp-base/decode-cursor
+                   :recovery    :no-recovery
+                   :reason      "cursor token is a noncanonical Base64 alias — not the canonical spelling the local encoder emits"})))
+
+(defn- decode-canonical-b64
+  "Base64-decode `s`, but ONLY if `s` is the canonical standard-Base64
+  spelling of its own bytes — i.e. exactly what `b64-encode` re-produces
+  from the decoded text. Rejects the host-lenient aliases both decoders
+  admit (js/Buffer drops non-alphabet chars; both hosts ignore non-zero
+  pad bits) via one shared round-trip-equality rule, identical on CLJ +
+  CLJS. Returns the decoded string, or throws `bad-b64!` (→ `::malformed`)
+  on a noncanonical alias.
+
+  On the JVM a non-alphabet character throws inside `b64-decode` first;
+  the equality gate additionally closes the pad-bit aliases both hosts
+  otherwise accept — so the gate is what makes rejection identical across
+  hosts, not merely a JVM-behaviour port."
+  [s]
+  (let [decoded (b64-decode s)]
+    (if (= s (b64-encode decoded))
+      decoded
+      (bad-b64!))))
 
 ;; ---------------------------------------------------------------------------
 ;; Limit clamp.
@@ -229,7 +293,9 @@
                       beginning' (offset 0 / head).
     - `::malformed` — the cursor exists but is not a well-formed,
                       `valid?`-passing payload map: it failed to
-                      base64/EDN-decode, carried a tagged literal,
+                      base64/EDN-decode, was a NONCANONICAL Base64 alias
+                      (a host-lenient spelling that is not what
+                      `b64-encode` would emit), carried a tagged literal,
                       decoded to MORE THAN ONE EDN form (a trailing
                       object after the payload map),
                       exceeded `max-cursor-bytes`, or its payload map
@@ -261,7 +327,7 @@
 
     :else
     (try
-      (let [v (read-edn-no-tags (b64-decode s))]
+      (let [v (read-edn-no-tags (decode-canonical-b64 s))]
         (if (and (map? v) (valid? v))
           v
           ::malformed))
