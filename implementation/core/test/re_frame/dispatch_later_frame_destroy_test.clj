@@ -31,6 +31,8 @@
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
             [re-frame.flows :as flows]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.registrar :as registrar]
             [re-frame.error-emit :as error-emit]
@@ -62,6 +64,20 @@
   [frame-id]
   (->> @@(resolve 're-frame.fx/dispatch-later-timers)
        (filter (fn [[[fid _tid] _handle]] (= fid frame-id)))))
+
+(defn- with-dispatch-stub
+  "Run `body-fn` with the `:router/dispatch!` late-bind hook replaced by `stub`,
+  restoring the real router hook afterward. Lets the deterministic two-phase
+  publication tests COUNT the deferred dispatch synchronously without routing
+  through the async router drain (whose scheduling would make the count timing-
+  dependent). `stub` has the runtime dispatch signature `(fn [event opts] ...)`."
+  [stub body-fn]
+  (let [real (late-bind/get-fn :router/dispatch!)]
+    (try
+      (late-bind/set-fn! :router/dispatch! stub)
+      (body-fn)
+      (finally
+        (late-bind/set-fn! :router/dispatch! real)))))
 
 ;; ===========================================================================
 ;; (white-box) the armed handle is retained, then cancelled + dropped on
@@ -156,4 +172,138 @@
       (is (zero? (count (timers-for-frame test-frame)))
           "a fired timer drops its own side-table slot — no leak on the live
            path either")
+      (rf/destroy-frame! test-frame))))
+
+;; ===========================================================================
+;; rf2-3fc89f.3 — TWO-PHASE atomic publication vs immediate-fire + destroy.
+;;
+;; The publish-AFTER-set-timeout! scheme retained a spent handle forever when a
+;; zero/immediate host callback (the JVM ScheduledExecutorService may run the
+;; thunk on its worker thread BEFORE `set-timeout!` returns) fired before the
+;; handle was published, and could publish a handle PAST a frame destroy that
+;; raced the schedule. These tests drive both interleavings DETERMINISTICALLY
+;; through the `interop/set-timeout!` seam (not a flaky probability stress).
+;; ===========================================================================
+
+(def ^:private race-frame :rf2-3fc89f3/race)
+
+(deftest dispatch-later-immediate-fire-leaves-no-orphan-handle
+  (testing "a zero/immediate host callback that fires BEFORE the handle is
+            published removes the arming reservation and leaves NO orphan/spent
+            handle in the side table; the deferred event dispatches exactly
+            once and the spent handle is CANCELLED, not orphaned (rf2-3fc89f.3
+            acceptance 1)"
+    (let [dispatched   (atom [])
+          cleared      (atom [])
+          spent-handle ::spent-handle
+          event        [:rf2-3fc89f3/target]
+          opts         {:source :fx-dispatch-later :source-detail {:ms 0}}]
+      (with-dispatch-stub
+        (fn [ev op] (swap! dispatched conj [ev op]))
+        (fn []
+          ;; Force the pathological ordering: the host runs the timer thunk
+          ;; SYNCHRONOUSLY (as the real executor may for a 0ms delay) BEFORE
+          ;; returning its handle — the immediate-fire-before-publication race.
+          (with-redefs [interop/set-timeout!   (fn [f _ms] (f) spent-handle)
+                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'fx/arm-dispatch-later! race-frame 0 event opts))))
+      (is (= [[event opts]] @dispatched)
+          "the deferred event dispatched exactly once, with its event + opts
+           (:source / :source-detail) propagated verbatim")
+      (is (empty? (timers-for-frame race-frame))
+          "no orphan/spent handle retained — the publish phase saw the vanished
+           reservation and did NOT reinsert the spent handle (before the fix the
+           table retained {[race-frame 1] ::spent-handle})")
+      (is (= [spent-handle] @cleared)
+          "the publish phase CANCELLED the spent handle (safe even though it had
+           already completed) rather than leaking it forever"))))
+
+(deftest dispatch-later-destroy-between-reserve-and-publish-cancels-handle
+  (testing "a frame destroy that lands BETWEEN the reservation and the handle
+            publication removes the visible reservation without cancelling a
+            sentinel; the publish phase then CANCELS the returned handle, no
+            event dispatches, and nothing is published past cleanup
+            (rf2-3fc89f.3 acceptance 2 + 4)"
+    (let [dispatched (atom [])
+          cleared    (atom [])
+          the-handle ::live-handle
+          event      [:rf2-3fc89f3/target]
+          opts       {:source :fx-dispatch-later :source-detail {:ms 600000}}]
+      (with-dispatch-stub
+        (fn [ev op] (swap! dispatched conj [ev op]))
+        (fn []
+          (with-redefs [interop/set-timeout!
+                        (fn [_f _ms]
+                          ;; The arming reservation is VISIBLE here (phase 1 ran
+                          ;; before set-timeout!). Destroy the frame mid-schedule:
+                          ;; release-frame! must DROP the reservation but NEVER
+                          ;; pass the arming SENTINEL to clear-timeout!. Then we
+                          ;; return the real handle (publication happens next).
+                          (is (= 1 (count (timers-for-frame race-frame)))
+                              "the arming reservation is visible mid-set-timeout!")
+                          (fx/release-frame! race-frame)
+                          (is (empty? @cleared)
+                              "release-frame! did NOT cancel the arming sentinel
+                               (nothing cleared yet)")
+                          the-handle)
+                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'fx/arm-dispatch-later! race-frame 600000 event opts))))
+      (is (= [the-handle] @cleared)
+          "the publish phase found the reservation gone (destroy removed it) and
+           CANCELLED the returned handle; the arming SENTINEL was NEVER passed to
+           clear-timeout! (release-frame! skips it)")
+      (is (empty? @dispatched)
+          "no deferred event dispatched into the destroyed frame")
+      (is (empty? (timers-for-frame race-frame))
+          "no handle published after cleanup — the reservation was gone, so the
+           publish phase declined to reinsert"))))
+
+(deftest release-and-reset-never-cancel-the-arming-sentinel
+  (testing "release-frame! and reset-dispatch-later-timers! DROP an in-progress
+            arming reservation but NEVER pass the sentinel to clear-timeout!,
+            while still cancelling real handles (rf2-3fc89f.3 acceptance 4)"
+    (let [sentinel @#'fx/arming-sentinel
+          timers    @(resolve 're-frame.fx/dispatch-later-timers)
+          cleared   (atom [])]
+      ;; release-frame! over a frame whose only slot is an arming reservation.
+      (reset! timers {[race-frame 1] sentinel})
+      (with-redefs [interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+        (fx/release-frame! race-frame))
+      (is (empty? @cleared)
+          "release-frame! dropped the arming reservation WITHOUT cancelling the
+           sentinel (a sentinel is not a cancellable host object)")
+      (is (empty? (timers-for-frame race-frame))
+          "the reservation slot was removed")
+      ;; reset-dispatch-later-timers! over a mixed table (sentinel + real handle).
+      (reset! cleared [])
+      (reset! timers {[race-frame 2] sentinel
+                      [race-frame 3] ::real-handle})
+      (with-redefs [interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+        (fx/reset-dispatch-later-timers!))
+      (is (= [::real-handle] @cleared)
+          "reset cancelled the REAL handle but NEVER the arming sentinel")
+      (is (empty? @timers)
+          "the table is fully cleared"))))
+
+(deftest dispatch-later-zero-delay-live-path-fires-once-no-residue
+  (testing "a real 0ms :dispatch-later on a LIVE frame fires the deferred event
+            exactly once and leaves no side-table residue — the immediate-fire
+            path is leak-free through the real host executor, no stress needed
+            (rf2-3fc89f.3 acceptance 3)"
+    (let [target-ran (atom 0)]
+      (rf/reg-frame test-frame {:doc "rf2-3fc89f.3 zero-delay live-path frame"})
+      (rf/reg-event :rf2-uxz52g/target
+        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
+      (rf/reg-event :rf2-uxz52g/arm-now
+        (fn [_ _] {:fx [[:dispatch-later {:ms 0 :event [:rf2-uxz52g/target]}]]}))
+
+      (rf/dispatch-sync [:rf2-uxz52g/arm-now] {:frame test-frame})
+      ;; Let the 0ms host timer fire and the deferred event drain.
+      (Thread/sleep 200)
+
+      (is (= 1 @target-ran)
+          "the 0ms timer fired the deferred target exactly once through the real
+           executor")
+      (is (zero? (count (timers-for-frame test-frame)))
+          "the fired 0ms timer left no orphan/spent handle in the side table")
       (rf/destroy-frame! test-frame))))
