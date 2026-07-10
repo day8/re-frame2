@@ -448,7 +448,7 @@
         owner-newly-attached? (and (some? owner)
                                    (not (contains? (:active-owners entry) owner)))
         ;; default the transport (a spec that declares none gets managed
-        ;; HTTP — the only initial-scope transport; the transport seam
+        ;; HTTP — the only built-in transport; the transport seam
         ;; defaults identically). The work record + side-table handle +
         ;; opportunistic-abort fx all key off the concrete transport id.
         transport-id (or (:transport spec) transport/default-transport)
@@ -765,7 +765,7 @@
                                                 work-id page-param page-index)})
             ;; rf2-rrcfwk — guard the declared transport (registration-time
             ;; misconfig throw), then lower directly into the only
-            ;; initial-scope transport. The one-arm dispatch indirection
+            ;; built-in transport. The one-arm dispatch indirection
             ;; (`transport/lower-ensure`) is folded into this guarded call;
             ;; a real dispatch table returns only when a second transport
             ;; lands (the guard becomes the dispatch).
@@ -1222,18 +1222,15 @@
   [cofx [_event-id payload]]
   (refetch-page-loaded cofx payload {:where 'rf.resource.internal/refetch-page}))
 
-;; ---- focus / reconnect revalidation (rf2-vtblcq) --------------------------
+;; ---- focus / reconnect revalidation ---------------------------------------
 ;;
-;; The first public-beta gate item (Spec 016 §Stale and GC scheduling: "on
-;; focus or reconnect, the first public-beta revalidation slice scans active
-;; stale entries and refetches by event"; §Deferred slices:
-;; `:rf.resource/window-focused` / `:rf.resource/network-reconnected`
-;; expressed as resource EVENTS, NOT subscription-driven fetching).
+;; Per Spec 016 §Stale and GC scheduling, focus/reconnect signals are resource
+;; EVENTS, not subscription-driven fetching.
 ;;
 ;; The host focus / online listeners (`re-frame.resources.revalidate-listeners`,
 ;; CLJS-only, registered per-frame, cancelled on frame-destroy via the existing
 ;; `:resources/on-frame-destroyed!` hook) dispatch these events; the algorithm
-;; reuses the landed v1 primitives wholesale:
+;; reuses the ordinary lifecycle primitives:
 ;;
 ;;   - ACTIVE OWNERS decide WHICH entries are worth refetching — only an entry
 ;;     with a live lease (`:active-owners` non-empty) is scanned (an inactive

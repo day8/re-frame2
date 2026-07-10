@@ -737,7 +737,7 @@
 
 (def managed-abort-fx-transport
   "The transport id whose opportunistic abort rides `:rf.http/managed-abort`
-  (managed HTTP). Per Spec 016 §Transport (the single initial-scope
+  (managed HTTP). Per Spec 016 §Transport (the single built-in
   transport)."
   :rf.http/managed)
 

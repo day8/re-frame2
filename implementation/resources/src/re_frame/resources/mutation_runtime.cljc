@@ -1,23 +1,23 @@
 (ns re-frame.resources.mutation-runtime
   "Mutation runtime-db paths + the durable mutation-INSTANCE shape, plus
   the pure controlled resource patch / populate helpers. Per Spec 016
-  §Deferred slices (mutations, first public-beta gate) and EP-0003
   §Mutations.
 
   A mutation is a named, causal WRITE to remote state that, on success,
   invalidates / patches / populates cached resource reads. `reg-mutation`
   registers it; `:rf.mutation/execute` runs it. Mutation runtime state is
   keyed by mutation **INSTANCE** id, NOT only by mutation id, so two
-  concurrent `:comment/add` submissions never clobber each other's
-  pending / error / result state (EP-0003 §Mutations).
+  concurrent `:comment/add` submissions never clobber each other's pending /
+  error / result state.
 
   Mutation instances live ONLY at `:rf.runtime/mutations` inside the
   runtime-db partition (`:rf.db/runtime`) — a reserved runtime-db key
   (per [Conventions §Reserved runtime-db keys]), allocated lazily,
   per-frame isolated, never an app-db location. The map is keyed by
-  instance id `{<instance-id> <instance>}`; Xray groups instances under
-  their registered `:mutation/id` while showing each request /
-  invalidation / patch / result separately (EP-0003 §Mutations).
+  the CEDN-1 byte identity of the instance id `{<key-id> <instance>}`; each row
+  retains the kind-preserving id under `:instance/id`. Xray groups instances
+  under their registered `:mutation/id` while showing each request / invalidation
+  / patch / result separately.
 
   ## Two-level identity (mirrors the resource entry ↔ work-record split)
 

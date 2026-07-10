@@ -1,11 +1,10 @@
 (ns re-frame.resources.trace-egress
-  "OFF-BOX trace-row egress projection for the resource + mutation trace family
-  (rf2-8x0gfa / EP-0015).
+  "OFF-BOX trace-row egress projection for the resource + mutation trace family.
 
   ## Why this namespace exists
 
-  `re-frame.resources.scope-registry/project-scope-resolved-egress` (rf2-84l82t)
-  projects ONE row — `:rf.resource/scope-resolved` — redacting the resolver's
+  `re-frame.resources.scope-registry/project-scope-resolved-egress` projects
+  `:rf.resource/scope-resolved`, redacting the resolver's
   resolved `:input-values` / `:scope`. But the broader resource/mutation trace
   family (`:rf.resource/*` + `:rf.mutation/*` rows emitted from
   `re-frame.resources.events` / `…timers` / `…mutation-events`) copies the SAME
@@ -22,13 +21,13 @@
       `revalidate-scan` / the `:rf.mutation/succeeded` settlement / the
       `:rf.mutation/optimistic-rolled-back` rollback);
     - `:dispositions` — the optimistic-rollback per-key maps each embedding a
-      `:resource/key` (EP-0019 §Surfacing to tooling).
+      `:resource/key`.
 
   A generic value-path egress walk (the central trace-egress chokepoint) is
   STRUCTURALLY BLIND to these once copied into trace tags — a frame's declared
   `:sensitive`/`:large` app-db PATHS do not match a resolver-owned scoped key's
-  embedded scope/params (EP-0015; the resource trace family is an egress record
-  set, Spec 015 §10 / Derivations §Resources expose process nodes). So the
+  embedded scope/params (Spec 015 §10 / Derivations §Resources expose process
+  nodes). So the
   resource family owns ONE family-level trace-row egress projector — the
   slot-keyed analogue of `project-scope-resolved-egress` — consumed off-box
   through the late-bound `:resources/project-resource-trace-egress` hook the
@@ -58,10 +57,9 @@
   cannot read is not provably safe, so this projector REDACTS an
   unregistered-owner key (and stamps `:sensitive? true`). The unregistered arm
   fails closed independently of any frame. Structural attribution survives every
-  case: the resource-id (position 1 of the projected key) and every NON-key tag
-  ride verbatim, so a tool still attributes the row to its resource and reads the
-  structural facts; only the identity-bearing scope + params components are
-  tokenized.
+  case: the resource-id (position 1 of the projected key) and recognized
+  structural scalar tags ride verbatim, so a tool can still attribute the row.
+  Unknown map-valued tags fail closed rather than bypassing projection.
 
   The redaction is the off-box DEFAULT; the trusted-local `:include-sensitive?`
   opt-in lifts it at the epoch consumer (the `local-raw` boundary — the same
@@ -76,7 +74,7 @@
 
 (defn- project-trace-scoped-key
   "Fail-closed projection of one trace-row `scoped-key`
-  `[scope resource-id params]` for OFF-BOX trace egress (rf2-8x0gfa). Returns
+  `[scope resource-id params]` for OFF-BOX trace egress. Returns
   `[projected-key sensitive?]`. For a REGISTERED owner the scope + params
   tokenize per the owner's `whole-entry-disposition` classification (a
   `:sensitive?` / `:large?` key redacts to opaque content-addressed
@@ -98,7 +96,7 @@
     ;; fail closed — owner unreadable, redact scope + params, keep the id. This
     ;; nil-spec fail-closed-to-`:redact` (and the idempotent-token guard above)
     ;; is the OUTER wrapper the trace-egress family keeps around the shared
-    ;; disposition+project-key pipeline (rf2-366u0g): tooling / SSR egress treat
+    ;; disposition+project-key pipeline: tooling / SSR egress treat
     ;; an unregistered owner as `:serialize` (the algebra read), but a TRACE row
     ;; whose owner we cannot read is not provably safe.
     (nil? (registry/resource-meta (second scoped-key)))
@@ -135,12 +133,12 @@
     ;; keys (Spec 016 §Mutation completion continuations). A vector of scoped
     ;; keys exactly like `:matched` / `:removed`, so it is PER-KEY projected
     ;; here (preserving a tool's per-key joins) rather than falling to the
-    ;; fail-closed default below as one coarse digest (rf2-7qbxbm).
+    ;; fail-closed default below as one coarse digest.
     :affected-keys})
 
 (def ^:private error-envelope-slot
   "Tag slots that carry an HTTP FAILURE ENVELOPE — the `:rf.http/*` reply's
-  `{:status :body :body-text :detail …}` map (rf2-7qbxbm). The
+  `{:status :body :body-text :detail …}` map. The
   `:rf.resource/failed` first-load row + the `:rf.mutation/failed` settlement
   row stamp the envelope under `:error`; the `:rf.resource/page-failed`
   load-more row stamps it under `:page-error`. The raw response body
@@ -167,7 +165,7 @@
   enum), so the sibling always redacts `:input-values` / `:scope` to
   `:rf/redacted`. They must therefore PASS THROUGH this projector's fail-closed
   map default unchanged — they were already classified upstream (an already-
-  redacted token re-redacts to itself; rf2-7qbxbm)."
+  redacted token re-redacts to itself)."
   #{:input-values :scope})
 
 (def ^:private cursor-slot
@@ -216,7 +214,7 @@
   `:rf.mutation/succeeded` `:patch-summary` (embeds `:removed` / `:committed` /
   `:rollback` / …) + its descriptor-level `:invalidation` evidence (embeds the
   `:populate-exempt` key union). Projected recursively through the SAME slot
-  vocabulary so a row's nested scoped keys never leak (rf2-8x0gfa)."
+  vocabulary so a row's nested scoped keys never leak."
   #{:patch-summary :invalidation})
 
 (declare project-tags*)
@@ -224,7 +222,7 @@
 (defn- project-disposition-row
   "Project one optimistic-rollback disposition row
   `{:resource/key <scoped-key> :restored … :conflict … :on-conflict …}` for
-  off-box egress (rf2-8x0gfa / EP-0019 §Surfacing to tooling): the scoped key
+  off-box egress: the scoped key
   is fail-closed-projected; the boolean disposition facts ride verbatim.
   Returns `[projected-row sensitive?]`. A non-map row rides unchanged. Pure."
   [row frame-id]
@@ -343,7 +341,7 @@
 
 (defn project-resource-trace-egress
   "Project a resource / mutation trace row's `tags` for OFF-BOX egress against
-  the `frame-id` classification (rf2-8x0gfa / EP-0015). The family-level
+  the `frame-id` classification. The family-level
   analogue of `re-frame.resources.scope-registry/project-scope-resolved-egress`,
   keyed on the resource trace family's scoped-key-bearing tag VOCABULARY rather
   than per-operation: every `:resource/key` (single scoped key), every
@@ -359,9 +357,9 @@
   values stay distinct, so a tool's per-key joins survive); a plain owner's key
   rides verbatim; an UNREGISTERED owner FAILS CLOSED (redacted — the
   trace-egress default). The resource-id (position 1 of every projected key) and
-  every NON-key tag (`:rf.frame/id`, `:cause`, `:tags`, `:decision`,
-  `:generation`, `:owner`, `:work/id`, `:delay-ms`, counts, …) ride verbatim —
-  structural attribution is preserved. When ANY projected slot redacted a
+  recognized structural scalar tags (`:rf.frame/id`, `:cause`, `:decision`,
+  `:generation`, `:owner`, `:work/id`, `:delay-ms`, counts, …) ride verbatim;
+  unknown map-valued tags fail closed. When ANY projected slot redacted a
   sensitive / unregistered key, the row is stamped `:sensitive? true`.
 
   The load-more PAGINATION CURSOR — `:page-param` (on `:rf.resource/load-more`)
@@ -372,7 +370,7 @@
   sibling `:resource/key`): tokenized to a content-addressed `{:rf/redacted
   <digest>}` when that owner is non-`:serialize` (sensitive / large /
   unregistered fail-closed), riding verbatim for a plain feed (no
-  over-redaction) — rf2-3tysyj.
+  over-redaction).
 
   Nested-map slots (`:patch-summary` / `:invalidation`) are projected
   RECURSIVELY through the same vocabulary so a row's nested scoped keys never

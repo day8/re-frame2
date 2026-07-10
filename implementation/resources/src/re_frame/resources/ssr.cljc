@@ -13,11 +13,12 @@
   preserved, fresh ones avoid a duplicate fetch, stale ones
   background-refetch by event, and hydration NEVER crosses scopes.
 
-  ## What lives here (the SSR slice, rf2-ctk2av)
+  ## What lives here
 
-  This namespace is PURE / host-agnostic. SSR runs on the JVM, so the
-  whole body is reader-conditional CLJC and the heavy lifting is plain
-  data transforms the host adapter / route slice drives:
+  Most projection and reconciliation helpers are plain data transforms. The
+  integration surface also emits lifecycle traces, clears resource-owned host
+  transients during restore, and offers a direct frame-targeted hydration
+  installer, so the namespace as a whole is not pure.
 
   - **Server projection** — `project-resources-runtime-db` (the body
     behind the `:ssr/extend-runtime-db-projection` hook) projects the
@@ -45,13 +46,13 @@
 
   Resource hydration uses an EXPLICIT projection hook — the
   allowlist-by-subsystem-child `project-runtime-db` of [011-SSR]. Rather
-  than statically `:require`ing SSR (which would drag the SSR body into
+  than statically `:require`ing the separate SSR artefact (which would drag it into
   every resources app), resources publishes the LATE-BOUND
   `:ssr/extend-runtime-db-projection` hook (server projection) and the
   `:resources/hydrate-runtime-db` hook (client reconcile); SSR consults
-  them. The wiring is late-bound BOTH ways — an app that loads resources
-  but does not SSR carries none of this code path, and an SSR app without
-  resources sees no behaviour change.
+  them. The resources artefact always carries these resource-owned projection
+  helpers, but does not pull in `day8/re-frame2-ssr`. An SSR app without
+  resources sees no resource hook or behaviour change.
 
   Only the durable resource projection (`:rf.runtime/resources` →
   `:entries`) rides the wire; `:tag-index` / `:owner-index` are
@@ -75,9 +76,9 @@
 
 ;; `hydrate-runtime-db` (the reconcile) computes the client refetch plan via
 ;; `hydrate-refetch-plan` (defined below) on the `:rf/hydrate` install path
-;; (rf2-fopuj9), so the latter is forward-declared. It also settles a hydrated
+;; so the latter is forward-declared. It also settles a hydrated
 ;; non-terminal entry whose `:current-work` was stripped on the wire to its last
-;; stable status via `settle-entry-to-last-stable` (rf2-bg6qah), shared with the
+;; stable status via `settle-entry-to-last-stable`, shared with the
 ;; restore path — forward-declared for the same file-order reason.
 (declare hydrate-refetch-plan)
 (declare settle-entry-to-last-stable)
@@ -247,21 +248,20 @@
 (defn disposition+project-key
   "Resolve a scoped key's resource OWNER spec, compute its whole-entry
   disposition, and project the key accordingly — the shared
-  disposition+project-key pipeline (rf2-366u0g). Returns
+  disposition+project-key pipeline. Returns
   `[projected-key disposition spec]`:
 
     1. `spec`        ← `registry/resource-meta` of `scoped-key`'s resource-id;
     2. `disposition` ← `classification/whole-entry-disposition spec`
-       (the coarse owner `:sensitive?` / `:large?` root-prop claim). EP-0025
-       (rf2-71dr8t) removed the named-scope-resolver derived-sensitivity
-       inheritance arm, so the disposition no longer depends on `frame-id`;
+       (the coarse owner `:sensitive?` / `:large?` root-prop claim; scope
+       resolver inputs never propagate classification to the output);
     3. projected key ← `project-scoped-key scoped-key disposition spec`
        (`:redact` / `:omit` replace scope + params with opaque content-addressed
        `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
        resource-id always survives. A `:serialize` key's per-slot `:params` /
        `:scope` projection-relative declarations are the registry-driven concern
        of the SSR `project-entry` caller, `classification/project-entry-params`,
-       which has the entry's `key-id` + the live frame — rf2-d3pku1).
+       which has the entry's `key-id` + the live frame).
 
   The single home for the pipeline the SSR durable-egress projection
   (`project-entry`), the TOOL-egress algebra view (`tooling/project-key-for-
@@ -277,8 +277,7 @@
   it in `classification` would introduce a require cycle. `ssr` already
   requires both `classification` and `registry`, and the trace / tool egress
   callers already require `ssr`. The `frame-id` arg is retained for caller
-  signature stability (it no longer affects the disposition — EP-0025
-  rf2-71dr8t removed the derived-sensitivity inheritance arm)."
+  signature stability; whole-entry disposition is frame-independent."
   [scoped-key _frame-id]
   (let [resource-id (second scoped-key)
         spec        (registry/resource-meta resource-id)
@@ -288,8 +287,8 @@
 (defn- project-entry
   "Project a single durable cache `entry` (under `scoped-key`) to its wire
   shape per its classification, against the SSR `frame-id` (so the shared
-  elision walker resolves the resource's declared sensitive / large schema
-  paths). Returns `[wire-entry metadata]` where `metadata` records the
+  elision walker resolves the resource's projection-relative declarations from
+  the frame registry). Returns `[wire-entry metadata]` where `metadata` records the
   per-entry projection decision (Spec 016 §SSR and hydration step 7):
 
     {:resource/key   scoped-key
@@ -446,7 +445,8 @@
 
   Resolves the SSR frame from the in-effect carried-frame scope (the shared
   `rf/elide-wire-value` walker reads it) so the resource's declared
-  sensitive / large schema paths govern the per-entry projection. The
+  projection-relative sensitive / large declarations in the frame registry
+  govern the per-entry projection. The
   projection NEVER ships all of `:rf.db/runtime` — only the
   `:rf.runtime/resources` `:entries` (Spec 016 §SSR and hydration: \"Do not
   serialize all of `:rf.db/runtime` by default\").
@@ -1528,7 +1528,7 @@
 ;;   - metadata-only (redacted /   -> refetch ONLY if the route still needs
 ;;     omitted; no usable data)       it (a live owner / the route's plan).
 ;;
-;; The load-bearing correctness boundary (rf2-fopuj9): a REDACTED entry rides
+;; A REDACTED entry rides
 ;; the wire with its `:data` REPLACED by the redaction sentinel
 ;; (`privacy/redacted-sentinel` = `:rf/redacted`) — it is METADATA ONLY, NOT
 ;; usable data. A naive `(some? (:data entry))` would see the sentinel as
@@ -1568,7 +1568,7 @@
   route still NEEDS the entry; this predicate answers \"is the hydrated value
   sufficient on its own?\"). A REDACTED entry's sentinel `:data` is NOT usable
   (`hydrated-data-usable?`), so it is treated as metadata-only — never as
-  fresh-with-data (rf2-fopuj9)."
+  fresh-with-data."
   [entry clock-ms]
   (let [usable? (hydrated-data-usable? entry)]
     (cond

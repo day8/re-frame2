@@ -291,12 +291,12 @@
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
              (str "resource-scope " scope-id "'s metadata (the MIDDLE slot) must "
-                  "be a map, got " (pr-str (type metadata)) ". Per rf2-bqstzr the "
-                  "grammar is (reg-resource-scope " scope-id " {…} resolve-fn): "
+                  "be a map, got " (pr-str (type metadata)) ". The grammar is "
+                  "(reg-resource-scope " scope-id " {…} resolve-fn): "
                   "the :inputs / :doc reflection-config metadata map is the "
                   "SECOND slot, the :resolve fn is the THIRD.")
              {:scope-id scope-id :value metadata})))
-  ;; rf2-bqstzr — `:resolve` is the 3-slot VALUE (the resolver handler). A
+  ;; `:resolve` is the third-slot VALUE (the resolver handler). A
   ;; `:resolve` left INSIDE the metadata map is a mislocated key; reject it
   ;; loudly so the grammar change cannot be half-applied.
   (when (contains? metadata :resolve)
@@ -304,7 +304,7 @@
              :rf.error/invalid-resource-scope-spec
              'rf/reg-resource-scope
              (str "resource-scope " scope-id " declares :resolve inside its "
-                  "metadata map — per rf2-bqstzr the resolver fn is the THIRD "
+                  "metadata map — the resolver fn is the THIRD "
                   "slot: (reg-resource-scope " scope-id " {…} resolve-fn). Move "
                   "the resolver out of the metadata map into the value slot.")
              {:scope-id scope-id :value (:resolve metadata)})))

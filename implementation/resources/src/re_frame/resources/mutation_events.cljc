@@ -1,8 +1,7 @@
 (ns re-frame.resources.mutation-events
   "The mutation event handlers — the causal WRITE surface over managed
-  HTTP, with success-time resource invalidation / patch / populate. Per
-  Spec 016 §Deferred slices (mutations, first public-beta gate) and
-  EP-0003 §Mutations.
+  HTTP, with controlled resource invalidation / patch / populate and optional
+  optimistic application. Per Spec 016 §Mutations.
 
   The public mutation events take MAP payloads (mirroring the resource
   events):
@@ -35,8 +34,9 @@
     invalidation TIMING — `:after-success` by default — decides when).
   - On **failure**: settles the instance `:error`; optionally invalidates
     tags (`:after-failure` / `:after-settle` timing, when useful).
-  - **`:rf.mutation/clear`** clears a settled instance's runtime row (the
-    causal reset; clears registration+runtime, NOT a form-error reset).
+  - **`:rf.mutation/clear`** clears one instance, or every instance of a
+    mutation id, and best-effort aborts in-flight work. It does not remove the
+    mutation registration; `clear-mutation` owns that separate lifecycle.
 
   Every handler carries framework-write authority
   (`state/framework-authority-meta`) so a returned `:rf.db/runtime` effect
@@ -51,14 +51,13 @@
   a `:rf.mutation/clear`) is suppressed — it MUST NEVER mutate a newer
   instance. Cancellation is opportunistic; stale suppression is mandatory.
 
-  ## Optimistic rollback is DEFERRED
+  ## Optimistic settlement
 
-  This slice does NO optimistic update / snapshot / rollback. The instance
-  `:affected-keys` / `:patch-summary` slots and the success trace reserve
-  the shape (EP-0003 §Mutations: \"reserve room … affected resource keys,
-  patch summaries, snapshot ids, rollback result, and reconciliation
-  refetches\") so the later optimistic slice fills the symmetric rollback
-  half without a shape change."
+  An `:optimistic` / `:optimistic-tags` plan applies before transport lowering
+  and records a snapshot inverse plus entry revisions on the instance. Success
+  commits the apply. Failure or cancellation rolls it back; revision conflicts
+  follow `:on-conflict` (`:invalidate` by default, or explicit `:force`) and may
+  refetch authoritative data."
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -1254,8 +1253,8 @@
                        ;; attempt (the ledger is named neutrally; the resource
                        ;; writer uses :resource, the mutation writer :mutation).
                        (assoc :work/kind :mutation))
-        ;; rf2-rrcfwk — guard the declared transport (registration-time
-        ;; misconfig throw), then lower directly into the only initial-scope
+        ;; Guard the declared transport (registration-time misconfig throw),
+        ;; then lower directly into the only built-in
         ;; transport. The one-arm dispatch indirection
         ;; (`transport/lower-ensure`) is folded into this guarded call.
         lower-fx   (do

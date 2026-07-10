@@ -1,7 +1,6 @@
 (ns re-frame.resources.mutation-registry
   "Mutation registration — `reg-mutation` / `clear-mutation` and the
-  registry-side introspection accessors. Per Spec 016 §Deferred slices
-  (mutations, first public-beta gate) and EP-0003 §Mutations.
+  registry-side introspection accessors. Per Spec 016 §Mutations.
 
   A mutation is a registrar entry under the `:mutation` kind (the
   causal-write counterpart of the `:resource` kind). `reg-mutation`
@@ -14,10 +13,10 @@
   target), distinct from this process-level registration removal — see the
   `clear-mutation` docstring.
 
-  Mirrors `re-frame.resources.registry` (the resource registrar) so the two
-  registrars read as one family; the params-validation + (optional) scope
-  resolution reuse the resource registry's pluggable late-bound Malli
-  validator and canonicalization."
+  Mirrors `re-frame.resources.registry` so the two registrars read as one
+  family. Both delegate params validation and canonicalization to
+  `re-frame.resources.params`; mutation scope normalization uses the shared
+  concrete-scope boundary in `re-frame.resources.state`."
   (:require [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.resources.classification :as classification]
@@ -60,7 +59,7 @@
 (defn- validate-mutation-spec!
   "Fail loudly at the authoring boundary when a mutation spec omits the
   REQUIRED keys (EP-0003 §Mutations). `:request` is REQUIRED (the Spec 014
-  managed-HTTP args map the write lowers into, the only initial-scope
+  managed-HTTP args map the write lowers into, the only built-in
   transport); `:params-schema` is REQUIRED (validates + canonicalizes the
   write's params). `:scope` is OPTIONAL for a mutation (unlike a resource):
   a mutation is a causal write, not a cached read, so it has no fail-closed
@@ -81,9 +80,9 @@
              :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares no :request. For "
-                  ":transport :rf.http/managed (the only initial-scope "
+                  ":transport :rf.http/managed (the only built-in "
                   "transport) :request returns a Spec 014 managed-HTTP args "
-                  "map (the causal write). Per EP-0003 §Mutations.")
+                  "map (the causal write). Per Spec 016 §Mutations.")
              {:mutation-id mutation-id})))
   (when-not (contains? spec :params-schema)
     (throw (registration-error
@@ -92,7 +91,7 @@
              (str "mutation " mutation-id " declares no :params-schema. "
                   ":params-schema is REQUIRED — it validates and canonicalizes "
                   "the write's params (which the :request / :invalidates / "
-                  ":patches fns close over). Per EP-0003 §Mutations.")
+                  ":patches fns close over). Per Spec 016 §Mutations.")
              {:mutation-id mutation-id})))
   ;; :invalidate-timing is a CLOSED four-value enum (Spec 016 §Mutations). It
   ;; is OPTIONAL (nil defaults to :after-success at runtime), but a non-nil
@@ -248,7 +247,7 @@
     | `:after-failure` | `:after-settle`;
   - **`:retry`** — write retries are OPT-IN (EP-0003 §Mutations) and ride
     the Spec 014 managed-HTTP args' own `:retry`; nothing here forces them;
-  - **`:transport`** — initial scope: `:rf.http/managed` (the only built-in);
+  - **`:transport`** — `:rf.http/managed` (the only built-in);
   - **`:doc`**.
 
   Validates the reconstructed spec (the REQUIRED `:request` + `:params-schema`)
@@ -256,9 +255,9 @@
   source coords. Returns `mutation-id` per the `reg-*` return-value
   convention."
   [mutation-id metadata request-fn]
-  ;; rf2-t65lqt — the metadata MIDDLE slot must be a map BEFORE any
+  ;; The metadata MIDDLE slot must be a map BEFORE any
   ;; `assoc`/`contains?` runs against it. Reconstructing `:request` onto a
-  ;; non-map metadata (the slip after the rf2-wvh95f F1 grammar change) would
+  ;; non-map metadata would
   ;; otherwise leak a raw host `IllegalArgumentException` ("Key must be
   ;; integer") instead of the public `:rf.error/mutation-bad-spec`. Mirrors
   ;; reg-route's `route-bad-metadata` non-map guard. The catalogue row
@@ -268,19 +267,19 @@
              :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id "'s metadata (the MIDDLE slot) must "
-                  "be a map, got " (pr-str (type metadata)) ". Per rf2-wvh95f "
-                  "F1 the grammar is (reg-mutation " mutation-id " {…} "
+                  "be a map, got " (pr-str (type metadata)) ". The grammar is "
+                  "(reg-mutation " mutation-id " {…} "
                   "request-fn): the config metadata map is the SECOND slot, "
                   "the :request write fn is the THIRD.")
              {:mutation-id mutation-id :value metadata})))
-  ;; rf2-wvh95f F1 — `:request` is the 3-slot VALUE (the handler). A `:request`
+  ;; `:request` is the third-slot VALUE (the handler). A `:request`
   ;; left INSIDE the metadata map is a mislocated key; reject it loudly.
   (when (contains? metadata :request)
     (throw (registration-error
              :rf.error/mutation-bad-spec
              'rf/reg-mutation
              (str "mutation " mutation-id " declares :request inside its "
-                  "metadata map — per rf2-wvh95f F1 the request handler is the "
+                  "metadata map — the request handler is the "
                   "THIRD slot: (reg-mutation " mutation-id " {…} request-fn). "
                   "Move the write fn out of the metadata map into the value "
                   "slot.")
@@ -344,7 +343,7 @@
                where
                (str "no mutation is registered under " mutation-id
                     " — call rf/reg-mutation before :rf.mutation/execute. "
-                    "Per EP-0003 §Mutations.")
+                    "Per Spec 016 §Mutations.")
                {:mutation-id mutation-id}))))
 
 ;; ---- params validation + canonicalization --------------------------------
@@ -388,7 +387,7 @@
         :rf.error/mutation-invalid-params
         where
         (str "mutation " mutation-id " params do not conform to "
-             ":params-schema. Per EP-0003 §Mutations.")
+             ":params-schema. Per Spec 016 §Mutations.")
         {:mutation-id mutation-id
          :params      redacted-params
          :error       redacted-error}))))
