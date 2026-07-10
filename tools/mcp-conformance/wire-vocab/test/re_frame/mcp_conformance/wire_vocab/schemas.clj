@@ -410,8 +410,9 @@
 ;; they are scalar envelope-level summaries of how many walker
 ;; suppressions happened per call. The conformance contract: both slots
 ;; ride alongside every tool that walks a tree-typed payload, the keys
-;; are unqualified (no namespace), and the values are non-negative
-;; integers.
+;; are unqualified (no namespace), and — because the omit-when-zero MUST
+;; turns a zero count into an ABSENT key — a PRESENT value is always a
+;; POSITIVE integer (`pos-int?`, never `0`).
 ;; ---------------------------------------------------------------------------
 
 (def DroppedSensitive
@@ -419,14 +420,22 @@
   the walker dropped because they matched `:sensitive? true`. Open map
   so it composes with any tool's envelope shape; the load-bearing
   claim is the slot KEY (`:dropped-sensitive`, unqualified) and the
-  value's `nat-int?` type."
-  [:map {:closed false} [:dropped-sensitive nat-int?]])
+  value's `pos-int?` type.
+
+  `pos-int?`, NOT `nat-int?`: the production emit-path
+  (`re-frame.mcp-base.envelope/with-indicators`) enforces the MUST-level
+  omit-when-zero rule — a zero count OMITS the slot entirely (the key is
+  absent), so a PRESENT `:dropped-sensitive 0` can only be a regression
+  that bypassed the helper. The schema rejects it (the present-zero
+  rejection lives next to the canonical fixtures in `wire_vocab_test.clj`)."
+  [:map {:closed false} [:dropped-sensitive pos-int?]])
 
 (def ElidedLarge
   "`{... :elided-large N}` envelope slot — integer count of leaves the
   walker replaced with the `:rf.size/large-elided` marker. Same
-  shape contract as `:dropped-sensitive`."
-  [:map {:closed false} [:elided-large nat-int?]])
+  shape contract as `:dropped-sensitive` — `pos-int?`, so a present zero
+  (which the omit-when-zero production path never emits) is rejected."
+  [:map {:closed false} [:elided-large pos-int?]])
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical-marker index. The ordered set of cross-MCP markers; each
