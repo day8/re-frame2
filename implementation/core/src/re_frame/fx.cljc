@@ -243,6 +243,14 @@
   The timer thunk drops its OWN slot BEFORE dispatching, so the table tracks
   exactly the pending set (a fired timer leaves no residue). Returns nil.
 
+  The slot is BOTH resource ownership (the cancellable host handle) AND the
+  callback's DISPATCH AUTHORITY (rf2-j538f7.2): the thunk dispatches ONLY when
+  it atomically removes a slot that was still present. If `release-frame!` /
+  `reset-dispatch-later-timers!` removed the reservation FIRST — cleanup won
+  DURING arming, even before `set-timeout!` returned this handle — the thunk
+  finds no slot in its winning `swap-vals!` snapshot and SUPPRESSES the
+  dispatch, since host cancellation cannot un-run an already-started thunk.
+
   TWO-PHASE, ATOMIC publication (rf2-3fc89f.3). A zero/immediate host callback
   (the JVM `ScheduledExecutorService` may run the thunk on its worker thread
   BEFORE `set-timeout!` returns) or a `release-frame!`/destroy racing the
@@ -271,20 +279,32 @@
     (swap! dispatch-later-timers assoc k arming-sentinel)
     (let [handle (interop/set-timeout!
                    (fn []
-                     ;; Drop our own slot first — the timer has fired, so its
-                     ;; handle is spent; a later `release-frame!` must not try
-                     ;; to cancel a fired handle, and the table must not retain
-                     ;; a fired timer. Removal precedes dispatch on BOTH the
-                     ;; sentinel window (immediate fire before publication) and
-                     ;; the ordinary armed slot.
-                     (swap! dispatch-later-timers dissoc k)
-                     ;; Sticky hook (rf2-f72pd) — the timer callback fires per
-                     ;; scheduled :dispatch-later. When the frame was destroyed
-                     ;; before the timer fired, this slot was already cancelled
-                     ;; + dropped by `release-frame!`, so this thunk never runs;
-                     ;; on the live path `dispatch!` enqueues into the frame.
-                     (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
-                       (dispatch! event opts)))
+                     ;; ATOMICALLY remove our own slot AND capture the winning
+                     ;; pre-swap snapshot (rf2-j538f7.2). The slot is BOTH the
+                     ;; resource-ownership handle AND this callback's DISPATCH
+                     ;; AUTHORITY: whoever removes it decides whether the deferred
+                     ;; event dispatches. `swap-vals!` yields the old map from the
+                     ;; winning CAS attempt; the dispatch side effect rides that
+                     ;; snapshot and NEVER runs inside the retriable swap fn
+                     ;; (`dissoc` is pure + idempotent). Removal precedes dispatch
+                     ;; on BOTH the sentinel window (immediate fire before
+                     ;; publication) and the ordinary armed slot.
+                     (let [[old _] (swap-vals! dispatch-later-timers dissoc k)]
+                       ;; Sticky hook (rf2-f72pd) — the timer callback fires per
+                       ;; scheduled :dispatch-later. Dispatch ONLY when our slot was
+                       ;; still present in the winning old snapshot. If
+                       ;; `release-frame!` / `reset-dispatch-later-timers!` removed
+                       ;; the reservation FIRST — cleanup won DURING arming, even
+                       ;; before `set-timeout!` returned this handle (a legal JVM
+                       ;; executor ordering) — this callback has LOST its authority
+                       ;; and must NOT fire a dead-on-arrival dispatch into the
+                       ;; torn-down frame (rf2-j538f7.2). Host cancellation cannot
+                       ;; un-run an already-started thunk, so the authority check IS
+                       ;; the suppression. On the live path the slot is present, so
+                       ;; `dispatch!` enqueues into the frame exactly once.
+                       (when (contains? old k)
+                         (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
+                           (dispatch! event opts)))))
                    ms)
           ;; PHASE 2 — publish the handle only if the reservation survived. The
           ;; swap fn is a pure CAS-derived replace-if-present; the cancel side
