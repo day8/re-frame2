@@ -224,8 +224,9 @@ order:
 1. `--port-file <path>` launch flag — explicit, cwd-independent override.
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
 3. MCP `roots/list` walk — ask the client for its workspace roots, walk
-   each for `shadow-cljs.edn`, pair with the adjacent
-   `.shadow-cljs/nrepl.port`; multiple matches drive `elicitation/create`.
+   each for `shadow-cljs.edn`, then test the standard port-file candidates
+   relative to that project; multiple live matches drive
+   `elicitation/create`.
 4. Shadow HTTP probe — `GET http://127.0.0.1:9630/api/project-info`
    yields `:project-home`, then read `target/shadow-cljs/nrepl.port` /
    `.shadow-cljs/nrepl.port` / `.nrepl-port` against that root
@@ -234,9 +235,10 @@ order:
 
 If none resolve, the server boots in degraded mode (per
 [`001-Wire-Protocol.md`](./001-Wire-Protocol.md) §Degraded boot) and
-returns a structured error on every `tools/call` until the port
-becomes resolvable; subsequent calls retry discovery. No restart needed
-once shadow-cljs comes up.
+returns a structured error on app-facing calls until the port becomes
+resolvable; subsequent calls retry discovery. Server-local tools and
+pre-connection guards remain available. No restart is needed once
+shadow-cljs comes up.
 
 ## Launch
 

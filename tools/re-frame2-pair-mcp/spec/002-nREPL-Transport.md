@@ -2,16 +2,17 @@
 
 ## Persistent socket
 
-One TCP socket to `127.0.0.1:<nrepl-port>` is opened on first need
-and held for the lifetime of the session. Subsequent ops reuse the
-socket without reconnecting.
+One TCP socket to `127.0.0.1:<nrepl-port>` is opened on first need.
+Subsequent ops reuse the active socket. A socket close can be reopened
+at the same endpoint; a port-file change replaces the connection and
+its endpoint-scoped build caches.
 
 ## Multiplexing by id
 
 Each op carries a UUID `id`. The connection holds a `pending` map
-of `{id → resolve-fn}`; incoming bencode frames are routed to the
-right resolver. This means concurrent ops are correct in principle,
-though the current MCP server invokes tools sequentially.
+of `{id → pending-result}`; incoming bencode frames are routed to the
+right resolver. Correctness therefore does not depend on the MCP host
+serialising tool calls: interleaved responses remain correlated by id.
 
 ## Bencode framing
 
@@ -49,19 +50,17 @@ adds the preload entry to their shadow-cljs build per
 
 ## Port discovery
 
-In precedence order (rf2-3grub introduced step 3 as the proper generic
-solution; rf2-umoz2 introduced what is now step 4 as the
-shadow-specific fallback):
+In precedence order:
 
 1. `--port-file <path>` launch flag — explicit, cwd-independent override
    (rf2-3dbwh).
 2. `$SHADOW_CLJS_NREPL_PORT` env var.
-3. **MCP `roots/list` walk** (rf2-3grub) — ask the MCP client for its
+3. **MCP `roots/list` walk** — ask the MCP client for its
    workspace roots, walk each one (bounded shallow, skipping
    `node_modules` / `.git` / `target` / etc.) for `shadow-cljs.edn`,
-   and pair each find with the adjacent `.shadow-cljs/nrepl.port`. One
-   match → silent attach. Multiple → drive `elicitation/create` so the
-   user picks. Zero matches → step 4. The discovery runs lazily on
+   then test the standard port-file candidates relative to each project
+   root. One live candidate → silent attach. Multiple → drive
+   `elicitation/create` so the user picks. Zero matches → step 4. The discovery runs lazily on
    first tool call (so the client has finished `initialize` and its
    `roots` capability is observable).
 4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info`
@@ -76,7 +75,7 @@ shadow-specific fallback):
 If none resolve, the first tool call returns a structured error and
 subsequent calls retry discovery (see § Lazy discovery below).
 
-### Lazy discovery (rf2-3grub)
+### Lazy discovery
 
 Port discovery is **lazy on first tool call**, not boot. The reason:
 `roots/list` is a server→client request that can only be issued AFTER
@@ -87,8 +86,8 @@ five-step cascade.
 
 **Per-tool-call port-file re-read.** After the initial discovery, each
 subsequent tool call re-reads **the exact port-file discovery resolved**
-before using the cached socket. Discovery surfaces that file path
-(rf2-ww877w): the explicit `--port-file` returns its own path verbatim;
+before using the cached socket. Discovery surfaces that file path: the
+explicit `--port-file` returns its own path verbatim;
 the roots walk (step 3) and the shadow HTTP probe (step 4) each surface
 the WINNING candidate (`target/shadow-cljs/nrepl.port`,
 `.shadow-cljs/nrepl.port`, or `.nrepl-port`). The server caches that
@@ -115,7 +114,7 @@ zero operator config under the normal path. Survives multi-project
 workspaces via `elicitation/create`. Survives shadow restarts via the
 per-tool-call port-file re-read.
 
-### Why the HTTP probe stays as step 4 (rf2-umoz2)
+### Why the HTTP probe stays as step 4
 
 `roots/list` requires a recent MCP-protocol revision; older clients
 fall through to step 4. Shadow's web server (default port 9630, fixed

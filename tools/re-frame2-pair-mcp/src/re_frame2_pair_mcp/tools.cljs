@@ -3,66 +3,13 @@
   sends it over the persistent connection, and returns the result as an
   MCP `tools/call` result.
 
-  ## Tool catalogue
-
-  | MCP tool name | What it does                                              |
-  |---------------|-----------------------------------------------------------|
-  | discover-app  | Verify nREPL + confirm the preloaded runtime + health     |
-  | eval-cljs     | Eval a CLJS form, return the value                        |
-  | dispatch      | Fire a re-frame2 event with :origin :pair                 |
-  | dispatch-dry-run | Simulate a cascade without committing it               |
-  | restore-epoch | Time-travel undo — rewind a frame to a prior epoch        |
-  |               | (gated behind --allow-writes)                            |
-  | replace-app-db| State injection — replace a frame's app-db with EDN data  |
-  |               | (gated behind --allow-writes)                            |
-  | trace-window  | Epochs in the last N ms                                   |
-  | watch-epochs  | Pull-mode live epoch streaming                            |
-  | tail-build    | Wait for a hot-reload to land                             |
-  | snapshot      | Coarse-grained per-frame state read (mega-op)             |
-  | get-path      | Direct read-by-path against a frame's app-db             |
-  | read-dom      | View-plane read — querySelector -> per-node text/attrs    |
-  |               | EDN; read-only, text/node-capped                         |
-  | record        | Install a background signal recorder, return a            |
-  |               | :recording-id                                            |
-  | read-recording| Read back a recorder's change-log; :drain / :stop         |
-  | watch-until   | Block until a predicate over a signal holds              |
-  | subscribe     | Streaming trace/epoch channel — push-mode counterpart to  |
-  |               | watch-epochs                                             |
-  | unsubscribe   | Close a streaming subscription                            |
-  | list-subscriptions | List the live reactive sub-cache for a frame —       |
-  |               | matches snapshot :sub-cache                              |
-  | list-streams  | List active streaming-tap subscriptions + queue stats    |
-  |               | (the streaming-diagnostic surface, wrapping              |
-  |               | subscription-info)                                       |
-  | handler-meta  | Registration metadata for a (kind, id) — source-coord +   |
-  |               | :rf.source/uri                                           |
-  | list-handlers | All registered ids under a kind                          |
-  | get-re-frame2-pair-instructions | Inline agent-onboarding text             |
-
   ## Per-tool / per-concern layout
 
-  This namespace is the public façade — `invoke` glue, internal
-  dispatch, and re-exported descriptor surface. The tool bodies and the
-  cross-cutting concerns each live in `tools/<concern>` or `tools/<tool>`
-  files:
-
-  - Concerns: `wire`, `probe`, `cap`, `dedup`, `elision`, `sensitive`,
-    `cursor`, `args`, `summary`, `snapshot-pipeline`, `boundary-step`,
-    `writes` (the --allow-writes gate).
-  - Tools: `discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`,
-    `restore-epoch`, `replace-app-db`, `trace-window`, `watch-epochs`,
-    `tail-build`, `snapshot`, `get-path`, `read-dom`, `record`,
-    `read-recording`, `watch-until`, `subscribe`, `unsubscribe`,
-    `list-subscriptions`, `list-streams`, `handler-meta`, `list-handlers`,
-    `get-re-frame2-pair-instructions`. The authoritative, ordered list
-    (with handler + cacheable? + descriptor for each) is `registry/tools`.
-  - Descriptors: `descriptors-knobs` (universal knob property data),
-    `descriptors-data` (per-tool descriptor maps), `descriptors`
-    (`tool-descriptors-js` + the knob splicers).
-  - Registry: `registry` — the single map binding name →
-    descriptor + handler + cacheable?; the three downstream views are
-    derived from it.
-  - Precheck: `precheck` (the cheap-hash short-circuit).
+  This namespace is the public facade: it validates tool names, invokes
+  the ordered wire-boundary pipeline, and re-exports the descriptor
+  surface. Per-tool handlers and boundary concerns live below `tools/`.
+  The authoritative ordered catalogue is `registry/tools`; detailed
+  operator explanations live in `spec/003-Tool-Catalogue.md`.
 
   ## Result shape
 

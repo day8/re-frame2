@@ -11,7 +11,7 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the twenty-nine
+via shadow-cljs to a single `.js` file) that exposes the thirty
 re-frame2-pair ops listed in `registry/tools` as MCP tools (the
 read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
@@ -20,8 +20,8 @@ two write tools `restore-epoch` / `replace-app-db`, which are gated behind
 `--allow-writes`). The authoritative ordered catalogue is `registry/tools`
 ([`src/re_frame2_pair_mcp/tools/registry.cljs`](src/re_frame2_pair_mcp/tools/registry.cljs));
 the table below mirrors it. AI agents (Claude Code, Cursor, Copilot) launch it
-as a subprocess; one persistent nREPL socket is held for the lifetime
-of the session.
+as a subprocess; one active nREPL socket is reused and replaced when
+endpoint discovery observes a port change.
 
 Per-op latency drops from ~700ms (bash startup + babashka startup +
 fresh nREPL connect per call) to ~5–50ms (one bencode round-trip on
@@ -59,6 +59,7 @@ cljs-eval compile.
 | `get-stream-controls` | _(new — no bash equivalent)_ | Report the **server-side** streaming resource-control state (rf2-a0kxsb): effective caps, active stream slots vs limit, token-bucket pressure, and abuse-window count vs threshold. The diagnostic for "why was my stream denied / quiet / terminated?". Reads the server's resource-control atoms IN-PROCESS — no nREPL round-trip — so it answers even when the runtime is down. Complements `list-streams` (which reads the runtime tap registry); cross-check the two `:active` counts to spot a leaked server slot or a stale runtime subscription. Control state only, no payloads — ungated. |
 | `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.source/uri` jump-to-editor link (rf2-pctf8). Fifteen supported kinds — the closed v1 registrar set: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`, `frame`, `route`, `flow`, `head`, `error-projector`, `resource`, `mutation`, `resource-scope`, `machine` (`interceptor` is the EP-0022 full-context registrar; the three resource kinds are EP-0016). See [`spec/003-Tool-Catalogue.md`](./spec/003-Tool-Catalogue.md) for the authoritative per-kind detail. |
 | `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same fifteen supported kinds as `handler-meta`. |
+| `describe-image` | _(new — no bash equivalent)_ | Describe the image generation installed for a frame: composed image ids, registered kinds, per-kind counts, and optional registration provenance. |
 | `set-operating-frame` | _(new — no bash equivalent)_ | Pin the session's **operating frame** so frame-targeted ops resolve to it without a per-call `frame` (rf2-zomfq). The public address is the **frame** id (EP-0023's `image -> frame -> event stream` model; the old `(realm, frame)` two-part address collapses to one public frame-id space). The escape from `:ambiguous-frame` in multi-frame apps (tier 2 of the resolution table). Validates the frame-id is registered — unknown → `:reason :no-such-frame`. There is no public realm pin. |
 | `reset-operating-frame` | _(new — no bash equivalent)_ | Clear the session's operating-frame pin (rf2-zomfq); it also clears the runtime's internal installation-container pin. Subsequent ops resolve at tier 3 / 4 again. Returns the post-reset map. |
 | `get-operating-frame` | _(new — no bash equivalent)_ | Report the operating-frame state (rf2-zomfq) — `:frames` (all registered), `:selected` (session pin), `:operating` (resolved frame; `nil` = ambiguous), plus the **labeled-internal installation boundary** (EP-0023 §Surface dispositions — implementation structure, not the central model): `:realms` (internal installation-container ids), `:operating-realm` (the container tier-3 scopes to), and `:selected-realm` (tier-2 container pin). A single-realm app reports `:realms [:rf.realm/default]`. (The per-frame `:frame-realms` map was removed under rf2-70owfr — the single default realm makes it informationless.) Pure read. |
@@ -112,7 +113,8 @@ The server auto-discovers the nREPL port from (highest precedence first):
 3. **MCP `roots/list` walk (rf2-3grub)** — primary zero-config path.
    On the first tool call the server asks its MCP client for the
    workspace directories the user has opened, walks each one for
-   `shadow-cljs.edn`, and reads the adjacent `.shadow-cljs/nrepl.port`.
+   `shadow-cljs.edn`, and checks the standard port-file candidates
+   relative to each discovered project.
    Multiple running shadow builds trigger an `elicitation/create`
    prompt so the user picks the project to attach to. Survives shadow
    restarts via a per-tool-call port-file re-read. Requires an MCP
@@ -162,7 +164,7 @@ from (highest precedence first):
 | `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot` / `get-path` / `read-sub` / `list-subscriptions :include-values` / `subscribe` / `trace-window` / `watch-epochs`), the signal recorders (`record` / `read-recording` / `watch-until`), `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 / rf2-m9duxl), and `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
 | `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
-| `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
+| `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe. Only consulted at port-discovery step 4; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
 
 #### port-file flag (rf2-3dbwh)
 

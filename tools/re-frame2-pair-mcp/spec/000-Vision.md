@@ -22,21 +22,19 @@ re-frame2-pair session fires dozens to hundreds.
 
 ## What it is
 
-A Node-based stdio JSON-RPC server, written in ClojureScript,
-compiled via shadow-cljs to a single `.js` artefact. AI agents
-(Claude Code, Cursor, Copilot) launch it as a subprocess; one
-persistent nREPL socket is held for the lifetime of the session;
-the canonical re-frame2-pair ops are exposed as MCP tools — see
+A Node-based stdio JSON-RPC server, written in ClojureScript and
+compiled via shadow-cljs to a single `.js` artefact. MCP hosts launch
+it as a subprocess. The server reuses one active nREPL socket and
+replaces it when the endpoint changes; the canonical re-frame2-pair
+ops are exposed as MCP tools — see
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md) for the live count.
 
 ## Architecture at a glance
 
-The artefact is ~14,700 LOC across ~60 source files — intrinsically large
-(live nREPL bridge + streaming + the full tool catalogue + roots-discovery
-+ resource controls; see [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)
-for the live tool count). The layering is straightforward but only surfaces from
-reading multiple ns docstrings; this diagram sits at the entrance so a
-new reader (human or AI pair) is oriented in 60 seconds.
+The server separates MCP transport, endpoint discovery, nREPL transport,
+the wire-boundary pipeline, and per-tool handlers. This diagram shows the
+request path without relying on source-file counts that change as tools are
+added.
 
 ```
                           MCP client (Claude Code / Cursor / Copilot)
@@ -115,9 +113,10 @@ this server's wire-shape and per-tool registrations.
 
 ## What it isn't
 
-- **Not** a new re-frame2-pair contract. The op vocabulary is identical to the
-  bash-shim catalogue minus `inject-runtime` (rf2-7dvg cut the
-  inject step in favour of a shadow-cljs `:preloads` entry).
+- **Not** a new re-frame2-pair contract. It consumes the framework's
+  Tool-Pair primitives. Its MCP catalogue is broader than the legacy
+  bash-shim catalogue; `inject-runtime` is absent because the runtime
+  loads through a shadow-cljs `:preloads` entry.
 - **Not** a re-frame2 runtime extension. It calls into the
   `re-frame2-pair.runtime` namespace the consumer app preloads via
   shadow-cljs; nothing new is registered against the framework.
