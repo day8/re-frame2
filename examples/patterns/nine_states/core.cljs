@@ -159,8 +159,8 @@
 ;; equivalent of an app-schema, but for runtime-db-resident snapshot data.
 ;; Three fields, one per axis's needs: `:items` (the list the `:data`
 ;; region's cardinality guards count), `:error` (the failure the `:error`
-;; branch records), and `:archived-at` (the stamp the `:mode` region writes
-;; on `:archive`).
+;; branch records), and `:archived-at` (the caller-supplied `:now` value the
+;; `:mode` region writes on `:archive`, or `0` when the event omits it).
 (def NineStatesData
   [:map
    [:items       [:vector Todo]]
@@ -302,6 +302,8 @@
       {:data (assoc data :error failure)})
 
     :stamp-archived
+    ;; The demo buttons omit `:now`, so their deterministic sentinel is 0.
+    ;; A host that needs a real archive time supplies it on the event.
     (fn action-stamp-archived [{data :data [_ {:keys [now]}] :event}]
       {:data (assoc data :archived-at (or now 0))})}
 
@@ -460,8 +462,8 @@
 (rf/reg-event :nine-states.demo/load-failed
   {:doc "The fetch fell over. Pass the failure category along to the
          machine, which routes the :data region to :error."}
-  ;; rf2-ibksxg — the classified :rf.http/* failure map rides under :error on
-  ;; the canonical reply; we forward it as the machine's own :failure domain slot.
+  ;; The canonical reply carries the classified :rf.http/* failure map under
+  ;; :error; we forward it as the machine's own :failure domain slot.
   (fn handler-demo-load-failed [_ [_ {:keys [error]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure error}]]]]}))
 

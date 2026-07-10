@@ -11,8 +11,8 @@
 
    2. **Ready** — once the boot reaches `:ready`, we swap in `[main-app]`.
       It reads `:config`, `:flags`, `:user`, and `:routes` straight from
-      app-db with no defensiveness, because by now they're all there and
-      not going anywhere.
+      app-db without per-slice loading branches, because by now they're all
+      present.
 
    3. **Failed** — `[boot-failed]` shows the error and a retry button.
       Retry dispatches `[:app/boot [:boot/restart]]` to run the boot

@@ -185,7 +185,7 @@
                :action (fn [{data :data [_ _ reply] :event}]
                          {:data (assoc data :payload (:value reply))})}
               {:target :failed
-               ;; rf2-ibksxg — the classified failure map rides under :error.
+               ;; Managed HTTP puts the classified failure map under :error.
                :action (fn [{data :data [_ _ reply] :event}]
                          {:data (assoc data :error (:error reply))})}]}}
 
@@ -242,9 +242,9 @@
     ;; place it's allowed to reach the machine's own snapshot: mirroring it
     ;; into `:data` here — from inside the machine's own action — is what
     ;; Spec 005 §Where snapshots live means by "the machine sets its own
-    ;; :data." An ordinary handler writing straight into
-    ;; `[:rf.runtime/machines ...]` (which `:boot/apply-hydration` used to
-    ;; do) is the thing this action replaces.
+    ;; :data." An ordinary handler must not write straight into
+    ;; `[:rf.runtime/machines ...]`; the machine action is the ownership
+    ;; boundary for snapshot data.
     (fn [{data :data [_ staged] :event}]
       {:data (merge data staged)})}
 

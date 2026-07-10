@@ -15,11 +15,11 @@
      of who's finished; the runtime owns the join state, so the
      parent's `:data` stays clean.
    - **Cancellation that always lands** — whenever the parent leaves
-     `:working` (you hit Cancel, the job finishes, the frame is
-     destroyed, a timeout fires), one `:rf.machine/destroy` fx tears
-     down every child still standing. Their in-flight timers and HTTP
-     requests go down with them, so nothing keeps ticking after the
-     curtain falls.
+     `:working` (you hit Cancel or the job finishes), one
+     `:rf.machine/destroy` fx tears down every child still standing.
+     Destroying the owning frame tears down the machine tree too. The
+     children's in-flight timers and HTTP requests go down with them, so
+     nothing keeps ticking after the curtain falls.
    - **Live progress** — each child fires a `:progress` event at the
      parent after every chunk. The parent stashes it in
      `:data :progress`, the `:work/progress-fraction` sub recomputes,

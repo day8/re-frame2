@@ -141,13 +141,6 @@ beats which, you edit one table, not ten views.
   transitions stay inline, as plain `event → target` entries. The
   machine declaration is meant to be read.
 
-## Legacy variant
-
-This example is the canonical implementation of Pattern-NineStates. The
-older variant — nine boolean discriminator subs plus a priority `cond` —
-still works and is supported, but it's the shape this example exists to
-retire. Reach for the machine.
-
 ## File layout
 
 ```
