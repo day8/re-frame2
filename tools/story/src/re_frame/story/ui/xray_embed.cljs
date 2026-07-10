@@ -66,29 +66,67 @@
             [re-frame.story.theme.typography :as typography :refer [sans-stack]]
             [re-frame.story.ui.state :as state]))
 
-;; ---- panel catalog -------------------------------------------------------
+;; ---- embed descriptor: the single mount-routing source (rf2-jf87oq) -------
+;;
+;; ONE private descriptor owns the Story→Xray embed configuration. Every
+;; other surface in this ns — the chip-row `panel-catalog`, the valid-slot
+;; `panel-ids` set, and the `mount-fn-for` dispatch — is DERIVED from it, so
+;; a panel is declared exactly once. Previously the panel set was spelled out
+;; four times (catalog literal, panel-ids repeat, the `mount-fn-for` case, and
+;; the non-chip `:event-spine` route), and only runtime reconciliation tests
+;; kept the copies honest.
+;;
+;; Each entry carries:
+;;   :panel  — the Story slot / panel id (the `:xray-panel` slot value).
+;;   :chip?  — chip visibility. `true` → the panel appears in the RHS
+;;             chip-row picker (and so in `panel-catalog` / `panel-ids`);
+;;             `false` → a non-chip mountable band (the `:event-spine` L2
+;;             list) that is routable via `mount-fn-for` but never exposed
+;;             as a chip. This flag is what preserves the DELIBERATE curated
+;;             subset — adding an Xray panel here without `:chip? true` does
+;;             NOT auto-expose it in the picker.
+;;   :label  — chip-row button text (chip entries only).
+;;   :title  — chip-row hover title (chip entries only).
+;;   :mount  — the Xray `mount-<panel>!` fn. Referenced directly (compile-
+;;             time symbol resolution via the `:require` of
+;;             `day8.re-frame2-xray.panels`) — no runtime namespace walk
+;;             (the rf2-senbl bug class; see `mount-fn-for` below).
+;;
+;; Chip order is the rough debugging-frequency rubric: epoch first (the
+;; default — post rf2-5gl5r supersedes the prior event-detail default),
+;; state-shape lenses next (app-db / views), trace next, then the specialised
+;; lenses (machines / routing). (rf2-gbz39 removed the `:issues` panel
+;; alongside the Xray Issues tab per Mike's Option (c) ruling; issues surface
+;; inline in the Epoch panel + the L2 event-row pink-wash + the always-on
+;; issues ribbon signal, so there is no standalone Issues panel to embed.)
+
+(def ^:private embed-descriptor
+  "The sole Story-embed mount-routing descriptor (rf2-jf87oq). Ordered
+  vector of panel-descriptor maps; `panel-catalog`, `panel-ids`, and
+  `mount-fn-for` all derive from it. See the section comment above for the
+  entry schema and the `:chip?` curated-subset contract."
+  [{:panel :epoch    :chip? true  :label "Epoch"    :title "Full computational timeline for the focused event"    :mount xray-panels/mount-epoch-panel!}
+   {:panel :app-db   :chip? true  :label "App-db"   :title "Structural diff of app-db across the focused cascade"  :mount xray-panels/mount-app-db-diff!}
+   {:panel :views    :chip? true  :label "Views"    :title "Per-view sub-invalidation surface for the focused cascade" :mount xray-panels/mount-reactive-panel!}
+   {:panel :trace    :chip? true  :label "Trace"    :title "Trace-buffer feed for the focused cascade"            :mount xray-panels/mount-trace!}
+   {:panel :machines :chip? true  :label "Machines" :title "State-machine chart + arcs/rings for the focused machine" :mount xray-panels/mount-machine-inspector!}
+   {:panel :routing  :chip? true  :label "Routing"  :title "Registered-routes lens + simulate-URL surface"        :mount xray-panels/mount-routing!}
+   ;; rf2-9k43e — the persistent compact L2 event list. A NON-CHIP band
+   ;; (`:chip? false`): mountable via `mount-fn-for` but absent from the
+   ;; chip-row picker (`panel-catalog` / `panel-ids`).
+   {:panel :event-spine :chip? false                                                                             :mount xray-panels/mount-event-spine!}])
+
+;; ---- derived: chip-row catalog + valid-slot set --------------------------
 
 (def panel-catalog
-  "Ordered vector of `{:panel <kw> :label <str> :title <str>}` maps
-  for every Xray panel exposed in the Story RHS chip-row. Order
-  matches the rough debugging-frequency rubric: epoch first (the
-  default — post rf2-5gl5r supersedes the prior event-detail
-  default), state-shape lenses next (app-db / views), trace next,
-  then the specialised lenses (machines / routing).
-
-  (rf2-gbz39 — the `:issues` panel was removed alongside the Xray
-  Issues tab per Mike's Option (c) ruling; issues surface inline in
-  the Epoch panel + the L2 event-row pink-wash + the always-on issues
-  ribbon signal, so there is no standalone Issues panel to embed.)
-
-  Pure data — JVM-portable. Tests assert ordering + completeness
-  against the rf2-crhr8 panel set."
-  [{:panel :epoch        :label "Epoch"    :title "Full computational timeline for the focused event"}
-   {:panel :app-db       :label "App-db"   :title "Structural diff of app-db across the focused cascade"}
-   {:panel :views        :label "Views"    :title "Per-view sub-invalidation surface for the focused cascade"}
-   {:panel :trace        :label "Trace"    :title "Trace-buffer feed for the focused cascade"}
-   {:panel :machines     :label "Machines" :title "State-machine chart + arcs/rings for the focused machine"}
-   {:panel :routing      :label "Routing"  :title "Registered-routes lens + simulate-URL surface"}])
+  "Ordered vector of `{:panel <kw> :label <str> :title <str>}` maps for
+  every Xray panel exposed in the Story RHS chip-row. DERIVED from
+  `embed-descriptor` (the chip entries, in order). Pure data — JVM-portable.
+  Tests assert ordering + completeness against the rf2-crhr8 panel set."
+  (into []
+        (comp (filter :chip?)
+              (map #(select-keys % [:panel :label :title])))
+        embed-descriptor))
 
 (def default-panel
   "Default panel when neither story nor variant declares one. Post
@@ -97,8 +135,9 @@
   :epoch)
 
 (def panel-ids
-  "Set of valid `:panel` slot values. Pure data — used by the schema
-  + sanity-check in `resolve-panel`."
+  "Set of valid `:panel` slot values (the chip-row panels). Pure data —
+  used by the schema + sanity-check in `resolve-panel`. DERIVED from
+  `panel-catalog` (and so, transitively, from `embed-descriptor`)."
   (set (map :panel panel-catalog)))
 
 ;; ---- pure: panel resolution ----------------------------------------------
@@ -126,7 +165,7 @@
       slot
       default-panel)))
 
-;; ---- mount-fn dispatch ---------------------------------------------------
+;; ---- derived: mount-fn dispatch ------------------------------------------
 ;;
 ;; rf2-senbl: previously this ns used `find-ns-obj` + `aget` to feature-
 ;; detect the Xray mount fns at runtime. That walk relied on top-level
@@ -134,37 +173,37 @@
 ;; object — shadow-cljs's namespace organisation does not guarantee
 ;; that (only sub-namespace refs hang off the parent), so every lookup
 ;; returned nil and the panel-host never painted. The fix: direct
-;; `:require` of `day8.re-frame2-xray.panels` + a `case` dispatch on
-;; panel-id. Xray is on the same shadow-cljs source-path as Story (see
-;; implementation/shadow-cljs.edn :source-paths), so the require is a
-;; compile-time symbol resolution; bundle-isolation still holds because
-;; the gate only forbids `implementation/` → `tools/` requires, not
-;; `tools/story` → `tools/xray` (the inverse is explicitly fine — see
-;; this fix's PR body for the dep-arrow analysis).
+;; `:require` of `day8.re-frame2-xray.panels` + descriptor entries that
+;; name each `mount-<panel>!` fn directly. The `:mount` values in
+;; `embed-descriptor` are compile-time symbol resolutions — no runtime
+;; namespace walk. Xray is on the same shadow-cljs source-path as Story
+;; (see implementation/shadow-cljs.edn :source-paths); bundle-isolation
+;; still holds because the gate only forbids `implementation/` → `tools/`
+;; requires, not `tools/story` → `tools/xray` (the inverse is explicitly
+;; fine — see this fix's PR body for the dep-arrow analysis).
+
+(def ^:private mount-fns
+  "Map of panel-id → Xray `mount-<panel>!` fn, DERIVED from
+  `embed-descriptor`. Includes both the chip panels AND the non-chip
+  `:event-spine` band, so `mount-fn-for` routes every mountable id."
+  (into {} (map (juxt :panel :mount)) embed-descriptor))
 
 (defn mount-fn-for
   "Return the Xray `mount-<panel>!` fn for `panel-id`, or nil when
-  `panel-id` is unknown. Compile-time symbol resolution via the
-  `case` dispatch — no runtime namespace walk. (rf2-5gl5r retired
-  `:event-detail` in favour of `:epoch`; rf2-gbz39 removed `:issues`
-  alongside the Xray Issues tab per Mike's Option (c) ruling.)
+  `panel-id` is unknown. A lookup into the descriptor-derived `mount-fns`
+  map — compile-time symbol resolution (the fns are `:require`d directly),
+  no runtime namespace walk. (rf2-5gl5r retired `:event-detail` in favour
+  of `:epoch`; rf2-gbz39 removed `:issues` alongside the Xray Issues tab
+  per Mike's Option (c) ruling.)
 
   rf2-9k43e — `:event-spine` resolves to `mount-event-spine!`, the
-  isolated L2 event list. It is NOT a chip-row panel (it's not in
-  `panel-catalog`); the embed renders it as a persistent compact band
-  ABOVE the chip-selected panel so past events are clickable in-place.
-  The `panel-host-component` class drives its mount via the same
-  contract every chip panel uses."
+  isolated L2 event list. It is NOT a chip-row panel (it's the descriptor's
+  `:chip? false` entry, absent from `panel-catalog`); the embed renders it
+  as a persistent compact band ABOVE the chip-selected panel so past events
+  are clickable in-place. The `panel-host-component` class drives its mount
+  via the same contract every chip panel uses."
   [panel-id]
-  (case panel-id
-    :epoch        xray-panels/mount-epoch-panel!
-    :app-db       xray-panels/mount-app-db-diff!
-    :views        xray-panels/mount-reactive-panel!
-    :trace        xray-panels/mount-trace!
-    :machines     xray-panels/mount-machine-inspector!
-    :routing      xray-panels/mount-routing!
-    :event-spine  xray-panels/mount-event-spine!
-    nil))
+  (get mount-fns panel-id))
 
 ;; ---- popout escape hatch -------------------------------------------------
 

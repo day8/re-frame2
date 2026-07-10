@@ -490,11 +490,15 @@ to compose into the same RHS picker would:
 1. Expose `(mount-<panel-id>! mount-point opts) → unmount-fn`
    from its own namespace, following Xray's
    `panels/mount-<panel>!` shape.
-2. Register the panel-id in Story's `panel-catalog` (rf2-v1ach
-   reserves the seven Xray ids; additions follow the same vector
-   shape).
-3. Map the panel-id to its mount-fn symbol in
-   `panel-id->mount-fn-sym`.
+2. Add ONE entry to Story's `embed-descriptor` (rf2-jf87oq — the
+   single mount-routing source in
+   [`xray_embed.cljs`](../src/re_frame/story/ui/xray_embed.cljs)),
+   carrying `:panel`, `:chip? true`, `:label`, `:title`, and the
+   `:mount` fn. `panel-catalog`, `panel-ids`, and `mount-fn-for` all
+   derive from the descriptor, so this one declaration wires the chip
+   AND the mount route at once. (A non-chip mountable band — like the
+   `:event-spine` L2 list — uses `:chip? false` and omits the label /
+   title, so it stays absent from the chip-row picker.)
 
 The chip-row picker, the panel-host's lifecycle, and the user-
 override stickiness all work identically — the contract is panel-
