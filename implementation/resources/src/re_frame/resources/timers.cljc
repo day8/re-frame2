@@ -229,27 +229,42 @@
       (dispatch! [event-id payload]
                  {:frame frame-id :source :after-timer}))))
 
+(def ^:private scheduled-trace-id
+  "The per-kind `…-scheduled` trace op a fresh arm emits (gc-class — the Xray
+  lifecycle timeline pairs it with the kind's `…-fired` / `…-skipped` op). The
+  arm operation OWNS its trace (centralised in `schedule!`, rf2-3fc89f.10) so a
+  kind never mis-attributes a sibling's schedule."
+  {stale-kind :rf.resource/stale-scheduled
+   gc-kind    :rf.resource/gc-scheduled
+   poll-kind  :rf.resource/poll-scheduled})
+
 (defn schedule!
-  "Arm a host timer of `kind` for `[frame-id resource-key]` to fire in
-  `delay-ms`. Cancel-then-arm: any prior timer for the same `[key kind]` is
-  cancelled first, so a re-load reschedules rather than accumulating zombie
-  timers (the machine `:after` cancel-and-reschedule discipline). On fire the
-  timer dispatches the re-checking internal event (`dispatch-recheck!`) — the
-  HANDLER re-checks the durable entry before writing (the timer is advisory).
-  No-op for a non-positive `delay-ms` (a resource declaring no policy never
-  arms that kind). Returns the host handle (or nil when not armed). Per Spec
-  016 §Stale and GC scheduling."
+  "Reconcile the host timer of `kind` for `[frame-id resource-key]` to
+  `delay-ms` (cancel-then-arm). A POSITIVE `delay-ms` ARMS the kind — any prior
+  timer for the same `[key kind]` is cancelled first, so a reschedule replaces
+  rather than accumulates zombie timers (the machine `:after`
+  cancel-and-reschedule discipline). A NON-POSITIVE / nil `delay-ms` CANCELS
+  the kind: an EXPLICIT disarm (a resource declaring no policy for that kind, or
+  a policy removed by hot reload). On fire the timer dispatches the re-checking
+  internal event (`dispatch-recheck!`) — the HANDLER re-checks the durable
+  entry before writing (the timer is advisory). Emits the kind's
+  `:rf.resource/<kind>-scheduled` trace when a timer arms (the arm operation
+  owns its trace). Returns the host handle (or nil when the kind was cancelled
+  / disarmed). Per Spec 016 §Stale and GC scheduling / §Polling."
   [frame-id resource-key kind delay-ms]
-  ;; cancel any prior timer for this [key kind] (reschedule, not accumulate)
+  ;; cancel any prior timer for this [key kind] (reschedule / disarm, not accumulate)
   (cancel! frame-id resource-key kind)
   ;; Shared positive-delay-guarded arm (rf2-7x2lky) — the host-clock arm step
-  ;; both timer artefacts share. A non-positive / nil delay arms nothing (a
-  ;; resource declaring no policy for that kind). Returns the host handle or
-  ;; nil; the side-table bookkeeping below is resources-specific.
+  ;; both timer artefacts share. A non-positive / nil delay arms nothing,
+  ;; leaving the kind cancelled (the explicit disarm). Returns the host handle
+  ;; or nil; the side-table bookkeeping + trace below are resources-specific.
   (when-let [handle (managed-timer/arm!
                       (fn [] (dispatch-recheck! frame-id resource-key kind))
                       delay-ms)]
     (swap! timer-table assoc (timer-key frame-id resource-key kind) handle)
+    (trace/emit! :rf.event (scheduled-trace-id kind)
+                 {:rf.frame/id frame-id :resource/key resource-key
+                  :delay-ms delay-ms})
     handle))
 
 (defn release-frame!
@@ -301,50 +316,51 @@
   because a JVM CLIENT-mode runtime (the resources unit tests) must still arm
   timers, and the host-wide platform default is `:server`. fx handlers are
   binary `(fn [ctx args] …)` (Spec 002)."
-  {:doc "Arm the host-side stale / GC / poll timers for a settled resource
-entry, keyed by `[frame-id resource-key kind]`. Args:
-`{:frame-id … :resource/key … :stale-delay-ms … :gc-delay-ms …
-:poll-delay-ms … :server? …}`.
-Emitted by the success reply handler once an entry settles `:loaded` (the
-stale / GC delays are derived from the durable `:loaded-at` + the resource's
-`:stale-after-ms` / `:gc-after-ms`; the poll delay is the resource's
-`:poll-interval-ms` and is supplied ONLY when the settled entry is actively
-owned, EP-0020; `:server?` is read from the cascade frame's platform).
-Cancel-then-arm — a re-load reschedules. No-op under `:server? true` (SSR
-uses the blocking-drain wait point + lazy client revalidation, never
-wall-clock background timers). The fired timer dispatches a re-checking
-internal event; the handler re-checks the durable entry before writing (the
-timer is advisory). Per Spec 016 §Stale and GC scheduling / §Polling."})
+  {:doc "Reconcile the host-side stale / GC / poll timers for a resource entry,
+keyed by `[frame-id resource-key kind]`. Args:
+`{:frame-id … :resource/key … :timers {<kind> <delay-ms> …} :server? …}`
+where `<kind>` ∈ `#{:stale :gc :poll}`.
+The `:timers` map's KEYS are the kinds this emission reconciles: a key present
+with a POSITIVE delay ARMS that kind (cancel-then-arm), a key present with a
+nil / non-positive delay CANCELS it (an explicit disarm), and a kind ABSENT
+from the map is PRESERVED (left as-is). A FULL settlement (successful load /
+mutation settle) names ALL declared kinds — the stale / GC delays derived from
+the durable `:loaded-at` + `:stale-after-ms` / `:gc-after-ms`, the poll delay
+the `:poll-interval-ms` supplied only for an actively-owned entry (EP-0020) —
+so it also cancels a policy removed by hot reload. A PARTIAL re-arm (a poll
+tick / a GC skip) names ONLY its own kind, preserving its siblings
+(rf2-3fc89f.10). `:server?` is read from the cascade frame's platform. No-op
+under `:server? true` (SSR uses the blocking-drain wait point + lazy client
+revalidation, never wall-clock background timers). The fired timer dispatches a
+re-checking internal event; the handler re-checks the durable entry before
+writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling /
+§Polling."})
 
 (defn schedule-timers-handler
-  "`:rf.resource/schedule-timers` fx handler. Arms the host-side stale + GC +
-  poll timers for `[frame-id resource-key]` from the supplied durable delays.
-  A non-positive / nil delay leaves that kind disarmed (a resource declaring
-  no `:stale-after-ms` / `:gc-after-ms` / `:poll-interval-ms` arms only the
-  others / none). No-op under SSR (`:server? true`) — a server render never
-  arms a wall-clock background timer. Emits a `:rf.resource/gc-scheduled` /
-  `:rf.resource/stale-scheduled` / `:rf.resource/poll-scheduled` trace
-  (gc-class — the Xray lifecycle timeline pairs them with
-  `:rf.resource/gc-fired` / `gc-skipped` / `stale-fired` / `poll-fired`) when
-  a timer arms. Per Spec 016 §Stale and GC scheduling / §Polling."
-  [_ctx {:keys [frame-id stale-delay-ms gc-delay-ms poll-delay-ms server?]
-         resource-key :resource/key}]
+  "`:rf.resource/schedule-timers` fx handler. Reconciles the host-side timer
+  side table for `[frame-id resource-key]` against the carried `:timers` map
+  `{kind → delay-ms}` (`kind` ∈ `#{:stale :gc :poll}`). Each kind PRESENT in
+  the map is reconciled by `schedule!` (a positive delay ARMS cancel-then-arm,
+  a nil / non-positive delay CANCELS — an explicit disarm); a kind ABSENT from
+  the map is PRESERVED — left exactly as it was armed.
+
+  This makes the two scheduling operations unambiguous (rf2-3fc89f.10): a
+  FULL-settlement reconcile (a successful load / mutation settle) names ALL the
+  kinds it owns — arming the policied ones and CANCELLING a kind whose policy
+  was dropped by hot reload — while a PARTIAL re-arm (a poll tick names only
+  `:poll`; a GC skip names only `:gc`) touches ONLY its own kind and thereby
+  leaves its siblings alive. `nil` is never overloaded to mean both preserve
+  and disarm: absence = preserve, a named nil = cancel.
+
+  No-op under SSR (`:server? true`) — a server render never arms a wall-clock
+  background timer. Each armed kind emits its own `:rf.resource/<kind>-scheduled`
+  trace (gc-class, centralised in `schedule!` — the Xray lifecycle timeline
+  pairs it with `:rf.resource/stale-fired` / `gc-fired` / `gc-skipped` /
+  `poll-fired`). Per Spec 016 §Stale and GC scheduling / §Polling."
+  [_ctx {:keys [frame-id server? timers] resource-key :resource/key}]
   (when-not server?
-    (let [stale-h (schedule! frame-id resource-key stale-kind stale-delay-ms)
-          gc-h    (schedule! frame-id resource-key gc-kind gc-delay-ms)
-          poll-h  (schedule! frame-id resource-key poll-kind poll-delay-ms)]
-      (when gc-h
-        (trace/emit! :rf.event :rf.resource/gc-scheduled
-                     {:rf.frame/id frame-id :resource/key resource-key
-                      :delay-ms gc-delay-ms}))
-      (when stale-h
-        (trace/emit! :rf.event :rf.resource/stale-scheduled
-                     {:rf.frame/id frame-id :resource/key resource-key
-                      :delay-ms stale-delay-ms}))
-      (when poll-h
-        (trace/emit! :rf.event :rf.resource/poll-scheduled
-                     {:rf.frame/id frame-id :resource/key resource-key
-                      :delay-ms poll-delay-ms}))))
+    (doseq [[kind delay-ms] timers]
+      (schedule! frame-id resource-key kind delay-ms)))
   nil)
 
 ;; ---- the cancel fx (entry removed — remove / clear-scope / GC) ------------

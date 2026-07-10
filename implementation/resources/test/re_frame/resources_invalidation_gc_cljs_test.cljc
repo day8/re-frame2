@@ -550,8 +550,8 @@
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
         (is (= k (:resource/key args)))
-        (is (= 60000 (:stale-delay-ms args)))
-        (is (= 300000 (:gc-delay-ms args)))))))
+        (is (= 60000 (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])))))))
 
 (deftest no-explicit-policy-arms-default-gc-timer
   ;; rf2-bbpu11 (Option A) — absent :gc-after-ms no longer means "arm
@@ -559,7 +559,7 @@
   ;; default (300000ms), so a settle DOES arm a GC timer even though this
   ;; resource declares no explicit policy. :stale-after-ms is unaffected by
   ;; this bead — it keeps its own independent absent-default (never
-  ;; time-stale) — so :stale-delay-ms stays nil.
+  ;; time-stale) — so the settle's :timers :stale delay stays nil.
   (rf/reg-resource :np/article (article-spec) article-spec-request) ;; no :stale-after-ms / :gc-after-ms
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :np/article {:slug "w"})]
@@ -572,8 +572,8 @@
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
         (is (= k (:resource/key args)))
-        (is (nil? (:stale-delay-ms args)))
-        (is (= 300000 (:gc-delay-ms args)))))))
+        (is (nil? (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])))))))
 
 (deftest gc-after-ms-never-arms-no-gc-timer
   ;; rf2-bbpu11 — the explicit, auditable opt-out: a resource that declares
@@ -658,8 +658,8 @@
         (is (nil? (:current-work e)) "no in-flight work after the error settle"))
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted on the :error settle")
-        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
-        (is (nil? (:poll-delay-ms args)) "no poll timer for an errored entry")))
+        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
+        (is (nil? (get-in args [:timers :poll])) "no poll timer for an errored entry")))
     (testing "the owner releases → owner-free + idle + :error; the fired GC
               re-check collects the errored entry (no longer leaked)"
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gce 1]}])
@@ -693,8 +693,8 @@
         (is (nil? (:current-work e)) "no in-flight work after the abort settle"))
       (let [args (last-schedule-for k)]
         (is (some? args) "schedule-timers emitted on the abort settle")
-        (is (= 5000 (:gc-delay-ms args)) "GC timer armed at :gc-after-ms")
-        (is (nil? (:poll-delay-ms args)) "no poll timer for an aborted entry")))
+        (is (= 5000 (get-in args [:timers :gc])) "GC timer armed at :gc-after-ms")
+        (is (nil? (get-in args [:timers :poll])) "no poll timer for an aborted entry")))
     (testing "the owner releases → owner-free + idle; the fired GC re-check
               collects the aborted entry (no longer leaked)"
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gca 1]}])
@@ -799,8 +799,8 @@
       (is (= 1 (count @scheduled-timers)) "exactly one reschedule fx emitted")
       (let [args (first @scheduled-timers)]
         (is (= k (:resource/key args)))
-        (is (= 1000 (:gc-delay-ms args)) "rescheduled with the resource's :gc-after-ms")
-        (is (nil? (:stale-delay-ms args)) "stale timer NOT re-armed on a GC skip")))
+        (is (= 1000 (get-in args [:timers :gc])) "rescheduled with the resource's :gc-after-ms")
+        (is (nil? (get-in args [:timers :stale])) "stale timer NOT re-armed on a GC skip")))
     (testing "the owner releases AFTER the original deadline; the rescheduled
               GC re-check now finds the entry owner-free + idle and collects it"
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gcr 1]}])
@@ -822,7 +822,7 @@
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "in-flight entry kept (GC skipped)")
       (is (= 1 (count @scheduled-timers)) "one reschedule fx emitted")
-      (is (= 1000 (:gc-delay-ms (first @scheduled-timers)))))
+      (is (= 1000 (get-in (first @scheduled-timers) [:timers :gc]))))
     (testing "the in-flight work settles (a stale/aborted reply clears
               :current-work via the work-row terminal); once owner-free + idle
               the rescheduled GC re-check collects it"
